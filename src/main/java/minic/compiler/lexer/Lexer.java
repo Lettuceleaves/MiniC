@@ -1,5 +1,7 @@
 package minic.compiler.lexer;
 
+import minic.diagnostics.Diagnostic;
+import minic.diagnostics.DiagnosticSeverity;
 import minic.source.SourceFile;
 import minic.source.SourceRange;
 
@@ -13,6 +15,7 @@ import java.util.Objects;
 public final class Lexer {
     private final SourceFile sourceFile;
     private final List<Token> tokens = new ArrayList<>();
+    private final List<Diagnostic> diagnostics = new ArrayList<>();
     private int currentOffset;
 
     /**
@@ -40,7 +43,13 @@ public final class Lexer {
                 case '+' -> addToken(TokenKind.PLUS, startOffset);
                 case '-' -> addToken(TokenKind.MINUS, startOffset);
                 case '*' -> addToken(TokenKind.STAR, startOffset);
-                case '/' -> addToken(TokenKind.SLASH, startOffset);
+                case '/' -> {
+                    if (match('/')) {
+                        skipLineComment();
+                    } else {
+                        addToken(TokenKind.SLASH, startOffset);
+                    }
+                }
                 case '=' -> addToken(TokenKind.EQUAL, startOffset);
                 case '(' -> addToken(TokenKind.LEFT_PAREN, startOffset);
                 case ')' -> addToken(TokenKind.RIGHT_PAREN, startOffset);
@@ -53,8 +62,9 @@ public final class Lexer {
                         lexIdentifier(startOffset);
                     } else if (isAsciiDigit(character)) {
                         lexIntegerLiteral(startOffset);
+                    } else {
+                        addInvalidCharacterDiagnostic(startOffset);
                     }
-                    // 非法字符诊断在 A024 添加；当前阶段仅保证已支持 token 可被识别。
                 }
             }
         }
@@ -64,7 +74,7 @@ public final class Lexer {
                 "",
                 new SourceRange(sourceFile, currentOffset, currentOffset)
         ));
-        return new LexResult(tokens, List.of());
+        return new LexResult(tokens, diagnostics);
     }
 
     private boolean isAtEnd() {
@@ -73,6 +83,20 @@ public final class Lexer {
 
     private char advance() {
         return sourceFile.content().charAt(currentOffset++);
+    }
+
+    private boolean match(char expected) {
+        if (isAtEnd() || sourceFile.content().charAt(currentOffset) != expected) {
+            return false;
+        }
+        currentOffset++;
+        return true;
+    }
+
+    private void skipLineComment() {
+        while (!isAtEnd() && sourceFile.content().charAt(currentOffset) != '\n') {
+            currentOffset++;
+        }
     }
 
     private void lexIdentifier(int startOffset) {
@@ -117,6 +141,15 @@ public final class Lexer {
 
     private boolean isAsciiDigit(char character) {
         return character >= '0' && character <= '9';
+    }
+
+    private void addInvalidCharacterDiagnostic(int startOffset) {
+        diagnostics.add(new Diagnostic(
+                "LEX001",
+                DiagnosticSeverity.ERROR,
+                "非法字符：" + sourceFile.content().charAt(startOffset),
+                new SourceRange(sourceFile, startOffset, currentOffset)
+        ));
     }
 
     private void addToken(TokenKind kind, int startOffset) {

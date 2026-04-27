@@ -141,4 +141,45 @@ class LexerTest {
         assertThat(result.tokens().get(0).range()).isEqualTo(new SourceRange(sourceFile, 1, 4));
         assertThat(result.tokens().get(2).range()).isEqualTo(new SourceRange(sourceFile, 7, 8));
     }
+
+    @Test
+    void skipsLineCommentsUntilNewline() {
+        SourceFile sourceFile = new SourceFile("comment.mc", "int // ignored + 123\nreturn");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(TokenKind.INT, TokenKind.RETURN, TokenKind.EOF);
+        assertThat(result.tokens().get(1).range()).isEqualTo(new SourceRange(sourceFile, 21, 27));
+    }
+
+    @Test
+    void skipsLineCommentsUntilEof() {
+        SourceFile sourceFile = new SourceFile("comment-eof.mc", "int // ignored");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(TokenKind.INT, TokenKind.EOF);
+        assertThat(result.tokens().get(1).range()).isEqualTo(new SourceRange(sourceFile, 14, 14));
+    }
+
+    @Test
+    void reportsInvalidCharactersAndContinuesLexing() {
+        SourceFile sourceFile = new SourceFile("invalid.mc", "int @ return");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(TokenKind.INT, TokenKind.RETURN, TokenKind.EOF);
+        assertThat(result.diagnostics()).hasSize(1);
+        assertThat(result.diagnostics().getFirst().code()).isEqualTo("LEX001");
+        assertThat(result.diagnostics().getFirst().severity().name()).isEqualTo("ERROR");
+        assertThat(result.diagnostics().getFirst().range()).isEqualTo(new SourceRange(sourceFile, 4, 5));
+    }
 }
