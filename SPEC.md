@@ -148,6 +148,7 @@ SourceFile
 - tokens、AST、diagnostics、source ranges 尽量不可变。
 - 避免全局可变状态。
 - 每个 public 顶层类型一个文件。
+- 源码中的 public 顶层类型、public 构造方法和 public 方法必须使用标准 JavaDoc 注释，说明用途、参数、返回值和关键不变量；测试代码可不强制。
 - 4 空格缩进。
 - 不使用 wildcard imports。
 - 只在解释设计意图或不变量时写注释。
