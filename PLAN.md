@@ -284,11 +284,233 @@ gradle test
 
 验证：`./gradlew test`
 
-## Phase 7：Debugger 模型
+## Phase 7：函数体系完善
 
-### A070：添加 Debugger 命令和快照模型
+### A070：补充函数命名和签名规则
 
 依赖：A062。
+
+目标：明确函数命名、重复签名、入口函数签名和用户函数签名的语义规则。
+
+验收：非法函数名、重复函数签名、非法 `main` 签名可产出 diagnostics；测试覆盖合法和非法函数定义。
+
+验证：`./gradlew test`
+
+### A071：补充函数声明和定义分离
+
+依赖：A070。
+
+目标：支持函数声明与函数定义分离，为后续外部函数和动态链接做准备。
+
+验收：可解析并分析函数声明；重复定义是错误；声明后定义可被调用；未定义且非外部函数可产出 diagnostics。
+
+验证：`./gradlew test`
+
+### A072：完善函数调用代码生成
+
+依赖：A071。
+
+目标：完善用户函数调用、递归调用、多实参传递和返回值处理。
+
+验收：多函数、嵌套调用和递归样例可生成可执行文件并返回正确退出码；调用约定测试覆盖参数寄存器和栈上传参。
+
+验证：`./gradlew test`
+
+## Phase 8：条件分支
+
+### A080：添加比较和逻辑表达式
+
+依赖：A072。
+
+目标：支持 `== != < <= > >=` 和必要的逻辑求值能力，为条件控制流提供基础。
+
+验收：lexer、parser、AST、语义、IR 和代码生成支持比较表达式；比较结果可作为 `int` 使用；测试覆盖优先级和代码生成。
+
+验证：`./gradlew test`
+
+### A081：添加 if 和 else
+
+依赖：A080。
+
+目标：支持 `if`、`else` 语句及其 CFG lowering。
+
+验收：可生成 then、else、merge 基本块；合法程序可编译为可执行文件；测试覆盖有 else、无 else 和嵌套 if。
+
+验证：`./gradlew test`
+
+### A082：添加 else if
+
+依赖：A081。
+
+目标：支持 `else if` 链式分支。
+
+验收：`else if` 按右结合的嵌套 if 语义解析和 lowering；测试覆盖多分支命中和 fallback else。
+
+验证：`./gradlew test`
+
+## Phase 9：循环控制流
+
+### A090：添加 while
+
+依赖：A082。
+
+目标：支持 `while` 语句及 condition、body、exit 基本块 lowering。
+
+验收：while 循环可生成正确跳转；测试覆盖零次执行、多次执行和循环内变量更新。
+
+验证：`./gradlew test`
+
+### A091：添加 for
+
+依赖：A090。
+
+目标：支持 `for` 语句，先按 init、condition、step、body 的控制流模型实现。
+
+验收：for 循环可生成 init、condition、body、step、exit 基本块；测试覆盖省略部分子句和常规计数循环。
+
+验证：`./gradlew test`
+
+### A092：添加 break 和 continue
+
+依赖：A091。
+
+目标：支持循环内 `break` 和 `continue`。
+
+验收：`break` 跳转到循环 exit；`continue` 跳转到 while condition 或 for step；循环外使用产出 diagnostics。
+
+验证：`./gradlew test`
+
+## Phase 10：动态链接和 printf 反馈闭环
+
+### A100：添加外部函数声明模型
+
+依赖：A092。
+
+目标：支持声明外部函数，为调用 C 运行库函数做准备。
+
+验收：外部函数可进入符号表；外部函数允许无函数体；普通未定义函数仍产出 diagnostics。
+
+验证：`./gradlew test`
+
+### A101：添加字符串字面量
+
+依赖：A100。
+
+目标：支持字符串字面量及其只读数据段表示，满足 `printf` 格式字符串需求。
+
+验收：lexer、parser、AST、IR 和代码生成支持字符串字面量；字符串数据可在汇编中以稳定标签导出。
+
+验证：`./gradlew test`
+
+### A102：支持动态链接 printf
+
+依赖：A101。
+
+目标：链接目标平台 C 运行库并支持调用 `printf`。
+
+验收：样例程序可编译为可执行文件并通过 `printf` 输出文本和整数；工具链缺失时产出 `TOOL` diagnostics；测试或集成验证覆盖输出捕获。
+
+验证：`./gradlew test`
+
+### A103：添加编译运行反馈闭环
+
+依赖：A102。
+
+目标：CLI 支持编译、运行生成的可执行文件，并捕获 stdout、stderr 和退出码。
+
+验收：合法程序可一次命令完成 compile-run；`printf` 输出可作为结构化结果返回；运行失败和非零退出码可观测。
+
+验证：`./gradlew test`
+
+## Phase 11：指针和数组
+
+### A110：添加类型系统基础
+
+依赖：A103。
+
+目标：将 v0.1 的单一 `int` 类型扩展为可表达基础类型、指针类型和数组类型的类型系统。
+
+验收：语义分析可保存表达式和声明类型；已有 v0.1 程序行为不变；测试覆盖类型构造和基础类型诊断。
+
+验证：`./gradlew test`
+
+### A111：添加指针类型和取址/解引用
+
+依赖：A110。
+
+目标：支持指针声明、`&` 取址和 `*` 解引用。
+
+验收：指针读写可生成正确 load/store；非法解引用产出 diagnostics；测试覆盖局部变量地址和指针赋值。
+
+验证：`./gradlew test`
+
+### A112：添加数组声明和下标访问
+
+依赖：A111。
+
+目标：支持固定长度数组声明和 `array[index]` 访问。
+
+验收：数组元素读写可生成地址计算和 load/store；下标表达式类型检查通过；测试覆盖局部数组、参数相关限制和越界策略说明。
+
+验证：`./gradlew test`
+
+### A113：补充指针和数组的函数调用规则
+
+依赖：A112。
+
+目标：支持指针参数、数组到指针的调用规则和返回指针的基础语义。
+
+验收：函数可接收指针参数并修改调用方数据；数组实参按约定传递；测试覆盖跨函数读写。
+
+验证：`./gradlew test`
+
+## Phase 12：结构体
+
+### A120：添加结构体声明和类型符号
+
+依赖：A113。
+
+目标：支持 `struct` 类型声明和结构体类型符号。
+
+验收：可解析结构体声明；字段名重复产出 diagnostics；结构体类型可用于变量声明。
+
+验证：`./gradlew test`
+
+### A121：添加结构体布局计算
+
+依赖：A120。
+
+目标：实现结构体字段偏移、大小和对齐计算。
+
+验收：字段布局稳定可观测；测试覆盖多个 int 字段、指针字段和嵌套结构体的布局。
+
+验证：`./gradlew test`
+
+### A122：添加结构体字段访问
+
+依赖：A121。
+
+目标：支持 `.` 字段访问，并为后续 `->` 留出模型空间。
+
+验收：结构体字段读写可生成正确地址计算；未知字段产出 diagnostics；测试覆盖字段赋值和读取。
+
+验证：`./gradlew test`
+
+### A123：添加结构体指针字段访问
+
+依赖：A122。
+
+目标：支持 `->` 字段访问。
+
+验收：结构体指针字段读写可生成正确解引用和偏移访问；非结构体指针使用 `->` 产出 diagnostics。
+
+验证：`./gradlew test`
+
+## Phase 13：Debugger 模型
+
+### A130：添加 Debugger 命令和快照模型
+
+依赖：A123。
 
 目标：实现 `DebuggerCommand`、`DebugMetadata`、`DebuggerSnapshot`、`Breakpoint`。
 
@@ -296,9 +518,9 @@ gradle test
 
 验证：`./gradlew test`
 
-### A071：添加单步执行
+### A131：添加单步执行
 
-依赖：A070。
+依赖：A130。
 
 目标：支持对样例可执行程序的确定性 step。
 
@@ -306,9 +528,9 @@ gradle test
 
 验证：`./gradlew test`
 
-### A072：添加断点和 continue
+### A132：添加断点和 continue
 
-依赖：A071。
+依赖：A131。
 
 目标：支持源码断点和 continue。
 
@@ -316,11 +538,11 @@ gradle test
 
 验证：`./gradlew test`
 
-## Phase 8：可视化原型
+## Phase 14：可视化原型
 
-### A080：添加 JavaFX 应用骨架
+### A140：添加 JavaFX 应用骨架
 
-依赖：A072。
+依赖：A132。
 
 目标：添加最小 JavaFX app shell。
 
@@ -330,9 +552,9 @@ gradle test
 
 手动检查：`./gradlew run`
 
-### A081：显示源码和 Tokens
+### A141：显示源码和 Tokens
 
-依赖：A080。
+依赖：A140。
 
 目标：可视化 source 和 token stream。
 
@@ -342,9 +564,9 @@ gradle test
 
 手动检查：`./gradlew run`
 
-### A082：显示 AST 和 Diagnostics
+### A142：显示 AST 和 Diagnostics
 
-依赖：A081。
+依赖：A141。
 
 目标：可视化 parser output。
 
@@ -354,21 +576,21 @@ gradle test
 
 手动检查：`./gradlew run`
 
-### A083：显示执行状态
+### A143：显示编译和执行状态
 
-依赖：A082。
+依赖：A142。
 
 目标：可视化编译产物、执行结果和最近一次调试快照摘要。
 
-验收：用户可观察产物路径、程序返回值、主要 diagnostics、调用栈和 locals；不要求提供 debugger 控制。
+验收：用户可观察产物路径、程序返回值、stdout、stderr、主要 diagnostics、调用栈和 locals；不要求提供 debugger 控制。
 
 验证：`./gradlew test`
 
 手动检查：`./gradlew run`
 
-### A084：显示 Debugger 状态
+### A144：显示 Debugger 状态
 
-依赖：A083、A072。
+依赖：A143、A132。
 
 目标：可视化 debugger snapshots。
 
