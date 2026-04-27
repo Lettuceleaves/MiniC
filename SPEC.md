@@ -7,8 +7,8 @@ MiniC 是一个基于 Java 的 C 语言子集编译器与 debugger，用于个�
 项目需要让以下阶段可观察：
 
 - 源码、token 流、AST、诊断信息
-- 符号表、语义信息、IR 或解释执行模型
-- 调用栈、栈帧、变量状态、debugger 快照
+- 符号表、语义信息、IR、汇编/目标文件、链接诊断
+- 可执行文件、源码映射、调用栈、变量状态、debugger 快照
 
 ## 技术选型
 
@@ -18,9 +18,11 @@ MiniC 是一个基于 Java 的 C 语言子集编译器与 debugger，用于个�
 - AssertJ
 - 手写 lexer
 - 手写递归下降 parser，表达式复杂后使用 Pratt parsing
-- 初期先做 CLI 和结构化调试数据，核心稳定后再做 JavaFX 可视化
+- 初期先做 CLI、结构化编译产物和调试数据，核心稳定后再做 JavaFX 可视化
 
 早期不使用 ANTLR，不接 LLVM，不做完整 C 标准兼容。
+
+v0.1 后端先限定单目标平台，优先 `Windows x86_64`；编译器核心负责生成可汇编、可链接的目标代码，并通过本地工具链产出真实可执行文件。
 
 ## 语言与文档要求
 
@@ -29,7 +31,7 @@ MiniC 是一个基于 Java 的 C 语言子集编译器与 debugger，用于个�
 - 测试方法名可以使用英文。
 - 代码注释优先中文。
 - 用户可见错误信息、CLI 输出、UI 文案优先中文。
-- 诊断 code 使用稳定英文编号，例如 `LEX001`、`PAR001`、`SEM001`、`RUN001`。
+- 诊断 code 使用稳定英文编号，例如 `LEX001`、`PAR001`、`SEM001`、`GEN001`、`TOOL001`。
 
 ## Git 规范
 
@@ -65,7 +67,7 @@ MiniC 是一个基于 Java 的 C 语言子集编译器与 debugger，用于个�
 - 指针、数组、struct、union、enum
 - 浮点数
 - `if`、`while`、`for`
-- 原生机器码生成
+- 多目标平台代码生成
 - 优化 pass
 
 ## v0.1 语法
@@ -98,8 +100,15 @@ argumentList   ::= expression ("," expression)* ;
 - 函数调用目标必须存在。
 - 实参个数必须匹配形参个数。
 - v0.1 中所有表达式类型都是 `int`。
-- 未初始化局部变量被读取是运行时错误。
-- 除零是运行时错误。
+- 未初始化局部变量被读取是运行时错误，生成产物必须保留该检查。
+- 除零是运行时错误，生成产物必须保留该检查。
+
+## v0.1 产物约定
+
+- 合法输入最终应生成真实可执行文件；v0.1 最低目标是单平台 `.exe` 产物。
+- `main` 的返回值作为进程退出码。
+- 后端可以先生成文本汇编，再调用本地工具链完成汇编和链接；v0.1 不要求直接手写 PE/COFF 二进制。
+- 编译、汇编、链接和运行时检查相关失败都必须转换为结构化 diagnostics，不能只打印 console。
 
 ## 架构约束
 
@@ -113,19 +122,21 @@ minic.compiler.parser
 minic.compiler.ast
 minic.compiler.semantic
 minic.compiler.ir
-minic.runtime.vm
+minic.compiler.codegen
+minic.compiler.toolchain
 minic.runtime.debug
 minic.cli
 ```
 
 依赖规则：
 
-- compiler 可以依赖 `source` 和 `diagnostics`。
-- runtime 可以依赖 AST 或 IR、`source` 和 `diagnostics`。
-- CLI/UI 可以依赖 compiler 和 runtime。
+- compiler 前端可以依赖 `source` 和 `diagnostics`。
+- IR、codegen 和 toolchain 层可以依赖 AST 或 IR、`source` 和 `diagnostics`。
+- debugger 可以依赖编译产物、源码映射、`source` 和 `diagnostics`。
+- CLI/UI 可以依赖 compiler、toolchain 和 debugger。
 - compiler 不能依赖 JavaFX。
-- parser 不能依赖 runtime。
-- 普通用户代码错误必须转为 diagnostics，不能只打印 console。
+- parser 不能依赖 codegen、toolchain 或 debugger。
+- 普通用户代码错误、工具链失败和运行时检查失败都必须转为 diagnostics，不能只打印 console。
 
 核心流水线：
 
@@ -137,8 +148,12 @@ SourceFile
   -> AST
   -> SemanticAnalyzer
   -> SemanticResult
-  -> Interpreter / IR
-  -> RuntimeState / DebuggerSnapshot
+  -> IR
+  -> CodeGenerator
+  -> Assembly / ObjectFile
+  -> Linker
+  -> ExecutableArtifact
+  -> DebugInfo / DebuggerSnapshot
 ```
 
 ## 代码风格

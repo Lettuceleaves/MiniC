@@ -210,77 +210,77 @@ gradle test
 
 验证：`./gradlew test`
 
-## Phase 5：解释执行
+## Phase 5：IR 与代码生成基础
 
-### A050：添加运行时值和状态模型
+### A050：添加 IR 模型
 
 依赖：A042。
 
-目标：实现 `Value`、`Frame`、`RuntimeState`、`ExecutionStatus`。
+目标：实现 `IrModule`、`IrFunction`、`IrBlock`、`IrInstruction`、`IrValue` 等 v0.1 所需最小 IR。
 
-验收：runtime state 可表示调用栈和 locals；测试覆盖 state construction。
+验收：IR 可表达函数、临时值、return、算术和函数调用；IR 节点尽量不可变；测试覆盖 IR 构造与访问。
 
 验证：`./gradlew test`
 
-### A051：执行 return 字面量和算术
+### A051：添加基础 AST 到 IR lowering
 
 依赖：A050。
 
-目标：实现最小 `Interpreter`、`ExecutionResult`。
+目标：将 `return`、整数字面量、二元算术和基础函数调用降到 IR。
 
-验收：可执行 `int main() { return 1; }`；可执行算术；除零报告 `RUN001`。
+验收：`int main() { return 1 + 2; }` 可稳定降到 IR；IR 指令顺序符合求值语义；测试覆盖字面量、算术和调用 lowering。
 
 验证：`./gradlew test`
 
-### A052：执行变量和赋值
+### A052：添加变量、赋值和运行时检查插桩
 
 依赖：A051。
 
-目标：支持局部变量和赋值。
+目标：支持局部变量、赋值以及未初始化读取和除零检查的 IR 表达。
 
-验收：可执行初始化变量和赋值；读取未初始化变量报告 `RUN002`。
+验收：IR 可表达 locals、load/store 和 trap/helper 路径；未初始化读取、除零可被降为稳定检查点；测试覆盖相关 lowering。
 
 验证：`./gradlew test`
 
-### A053：执行函数调用
+### A053：添加目标平台和汇编输出模型
 
 依赖：A052。
 
-目标：支持用户定义函数调用。
+目标：实现首个目标平台抽象，以及汇编文本输出模型与 emitter。
 
-验收：实参正确绑定形参；返回值传回调用方；call stack 可观察。
+验收：明确 v0.1 首个目标平台；`int main() { return 1; }` 可生成最小汇编文本；测试覆盖关键汇编片段和产物结构。
 
 验证：`./gradlew test`
 
-## Phase 6：编译器链路闭环
+## Phase 6：目标文件与可执行产物
 
-### A060：添加编译管线入口和结果模型
+### A060：生成完整 v0.1 目标代码
 
 依赖：A053。
 
-目标：实现统一编排入口，串联 lexer、parser、semantic 和 interpreter，并返回结构化结果。
+目标：支持局部变量、赋值、用户定义函数调用、返回约定和运行时检查的完整代码生成。
 
-验收：单次调用即可完成从 `SourceFile` 到 `ExecutionResult` 的核心链路；结果对象保留各阶段 diagnostics；core 仍不依赖 CLI/UI。
+验收：代表性多函数程序可生成目标汇编；局部变量和函数调用遵守约定；未初始化读取和除零走稳定 trap 路径；测试覆盖完整 v0.1 代码生成。
 
 验证：`./gradlew test`
 
-### A061：添加 CLI 执行入口
+### A061：添加编译管线入口和产物结果模型
 
 依赖：A060。
 
-目标：提供最小 CLI，支持加载源码文件并执行完整编译链路。
+目标：实现统一编排入口，串联 lexer、parser、semantic、IR、codegen 和 toolchain 结果模型。
 
-验收：合法程序可通过 CLI 执行并返回退出结果；非法程序可输出 diagnostics；CLI 不直接承载 debugger 交互。
+验收：单次调用即可完成从 `SourceFile` 到 `ExecutableArtifact` 或失败 diagnostics 的核心链路；结果对象保留各阶段 diagnostics、IR、assembly 和产物路径；core 仍不依赖 CLI/UI。
 
 验证：`./gradlew test`
 
-### A062：添加阶段化观测输出
+### A062：添加 CLI 编译入口和阶段化观测输出
 
 依赖：A061。
 
-目标：让完整编译链路在无 debugger 的前提下可观测。
+目标：提供最小 CLI，支持加载源码文件、生成真实可执行文件，并按需导出中间产物。
 
-验收：可按需导出或展示 tokens、AST、semantic diagnostics、运行结果等结构化数据；为后续 UI 和 debugger 复用同一套核心结果模型。
+验收：合法程序可通过 CLI 生成可执行文件；非法程序可输出 diagnostics；可按需导出或展示 tokens、AST、semantic diagnostics、IR、assembly、产物路径等结构化数据；CLI 不直接承载 debugger 交互。
 
 验证：`./gradlew test`
 
@@ -290,9 +290,9 @@ gradle test
 
 依赖：A062。
 
-目标：实现 `DebuggerCommand`、`DebuggerSnapshot`、`Breakpoint`。
+目标：实现 `DebuggerCommand`、`DebugMetadata`、`DebuggerSnapshot`、`Breakpoint`。
 
-验收：snapshot 暴露 status、current range、call stack、locals；建立在已完成的编译链路之上；不添加 UI。
+验收：snapshot 暴露 status、current range、call stack、locals；建立在已生成的可执行产物和源码映射之上；不添加 UI。
 
 验证：`./gradlew test`
 
@@ -300,7 +300,7 @@ gradle test
 
 依赖：A070。
 
-目标：支持确定性 step。
+目标：支持对样例可执行程序的确定性 step。
 
 验收：可 start 并 step 简单 `main`；每次 step 返回新 snapshot；测试断言 current range 变化。
 
@@ -358,9 +358,9 @@ gradle test
 
 依赖：A082。
 
-目标：可视化执行结果和运行时状态。
+目标：可视化编译产物、执行结果和最近一次调试快照摘要。
 
-验收：用户可观察程序返回值、运行状态、调用栈和 locals；不要求提供 debugger 控制。
+验收：用户可观察产物路径、程序返回值、主要 diagnostics、调用栈和 locals；不要求提供 debugger 控制。
 
 验证：`./gradlew test`
 
