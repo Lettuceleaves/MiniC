@@ -20,6 +20,6 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器与 d
 
 ## 当前状态
 
-当前已完成项目文档整理、git 仓库初始化、Git 规范与验收要求补充、Java Gradle 骨架和 Gradle Wrapper。
+当前已完成项目文档整理、git 仓库初始化、Git 规范与验收要求补充、Java Gradle 骨架和 Gradle Wrapper，并已补充临时文件清理验收要求。
 
 下一步应执行 `A010：添加源码位置模型`。
