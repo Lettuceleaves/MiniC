@@ -29,23 +29,23 @@ class StatementAstTest {
     @Test
     void storesStatementFields() {
         SourceFile sourceFile = new SourceFile("statements.mc", "int x = 1; return x; x;");
-        SourceRange initializerRange = new SourceRange(sourceFile, 8, 9);
+        IntegerLiteralExpr initializer = new IntegerLiteralExpr(1, "1", new SourceRange(sourceFile, 8, 9));
         SourceRange varRange = new SourceRange(sourceFile, 0, 10);
-        SourceRange returnExpressionRange = new SourceRange(sourceFile, 18, 19);
+        NameExpr returnExpression = new NameExpr("x", new SourceRange(sourceFile, 18, 19));
         SourceRange returnRange = new SourceRange(sourceFile, 11, 20);
-        SourceRange exprRange = new SourceRange(sourceFile, 21, 22);
+        NameExpr expression = new NameExpr("x", new SourceRange(sourceFile, 21, 22));
         SourceRange exprStmtRange = new SourceRange(sourceFile, 21, 23);
 
-        VarDeclStmt varDeclStmt = new VarDeclStmt("x", initializerRange, varRange);
-        ReturnStmt returnStmt = new ReturnStmt(returnExpressionRange, returnRange);
-        ExprStmt exprStmt = new ExprStmt(exprRange, exprStmtRange);
+        VarDeclStmt varDeclStmt = new VarDeclStmt("x", initializer, varRange);
+        ReturnStmt returnStmt = new ReturnStmt(returnExpression, returnRange);
+        ExprStmt exprStmt = new ExprStmt(expression, exprStmtRange);
 
         assertThat(varDeclStmt.name()).isEqualTo("x");
-        assertThat(varDeclStmt.initializerRangeOptional()).contains(initializerRange);
+        assertThat(varDeclStmt.initializerOptional()).contains(initializer);
         assertThat(varDeclStmt.range()).isSameAs(varRange);
-        assertThat(returnStmt.expressionRangeOptional()).contains(returnExpressionRange);
+        assertThat(returnStmt.expressionOptional()).contains(returnExpression);
         assertThat(returnStmt.range()).isSameAs(returnRange);
-        assertThat(exprStmt.expressionRange()).isSameAs(exprRange);
+        assertThat(exprStmt.expression()).isSameAs(expression);
         assertThat(exprStmt.range()).isSameAs(exprStmtRange);
     }
 }

@@ -2,9 +2,17 @@ package minic.compiler.parser;
 
 import minic.compiler.ast.FunctionDecl;
 import minic.compiler.ast.BlockStmt;
+import minic.compiler.ast.AssignmentExpr;
+import minic.compiler.ast.BinaryExpr;
+import minic.compiler.ast.CallExpr;
 import minic.compiler.ast.ExprStmt;
+import minic.compiler.ast.Expression;
+import minic.compiler.ast.GroupingExpr;
+import minic.compiler.ast.IntegerLiteralExpr;
+import minic.compiler.ast.NameExpr;
 import minic.compiler.ast.ReturnStmt;
 import minic.compiler.ast.VarDeclStmt;
+import minic.compiler.lexer.TokenKind;
 import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
 import minic.diagnostics.DiagnosticSeverity;
@@ -70,13 +78,13 @@ class ParserTest {
 
         VarDeclStmt varDeclStmt = (VarDeclStmt) body.statements().get(0);
         assertThat(varDeclStmt.name()).isEqualTo("x");
-        assertThat(varDeclStmt.initializerRangeOptional())
-                .contains(new SourceRange(sourceFile, 21, 22));
+        assertThat(varDeclStmt.initializerOptional()).isPresent();
+        assertThat(varDeclStmt.initializerOptional().get().range()).isEqualTo(new SourceRange(sourceFile, 21, 22));
         assertThat(varDeclStmt.range()).isEqualTo(new SourceRange(sourceFile, 13, 23));
 
         ReturnStmt returnStmt = (ReturnStmt) body.statements().get(1);
-        assertThat(returnStmt.expressionRangeOptional())
-                .contains(new SourceRange(sourceFile, 31, 32));
+        assertThat(returnStmt.expressionOptional()).isPresent();
+        assertThat(returnStmt.expressionOptional().get().range()).isEqualTo(new SourceRange(sourceFile, 31, 32));
         assertThat(returnStmt.range()).isEqualTo(new SourceRange(sourceFile, 24, 33));
     }
 
@@ -92,8 +100,61 @@ class ParserTest {
         ExprStmt exprStmt = (ExprStmt) innerBlock.statements().getFirst();
 
         assertThat(innerBlock.range()).isEqualTo(new SourceRange(sourceFile, 13, 23));
-        assertThat(exprStmt.expressionRange()).isEqualTo(new SourceRange(sourceFile, 15, 20));
+        assertThat(exprStmt.expression().range()).isEqualTo(new SourceRange(sourceFile, 15, 20));
         assertThat(exprStmt.range()).isEqualTo(new SourceRange(sourceFile, 15, 21));
+    }
+
+    @Test
+    void parsesBinaryPrecedence() {
+        SourceFile sourceFile = new SourceFile("precedence.mc", "int main() { return 1 + 2 * 3; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        ReturnStmt returnStmt = (ReturnStmt) result.program().functions().getFirst().body().statements().getFirst();
+        BinaryExpr plus = (BinaryExpr) returnStmt.expressionOptional().orElseThrow();
+        BinaryExpr multiply = (BinaryExpr) plus.right();
+
+        assertThat(plus.operator()).isEqualTo(TokenKind.PLUS);
+        assertThat(((IntegerLiteralExpr) plus.left()).value()).isEqualTo(1);
+        assertThat(multiply.operator()).isEqualTo(TokenKind.STAR);
+        assertThat(((IntegerLiteralExpr) multiply.left()).value()).isEqualTo(2);
+        assertThat(((IntegerLiteralExpr) multiply.right()).value()).isEqualTo(3);
+    }
+
+    @Test
+    void parsesRightAssociativeAssignment() {
+        SourceFile sourceFile = new SourceFile("assignment.mc", "int main() { a = b = 1; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        ExprStmt exprStmt = (ExprStmt) result.program().functions().getFirst().body().statements().getFirst();
+        AssignmentExpr leftAssignment = (AssignmentExpr) exprStmt.expression();
+        AssignmentExpr rightAssignment = (AssignmentExpr) leftAssignment.value();
+
+        assertThat(leftAssignment.targetName()).isEqualTo("a");
+        assertThat(rightAssignment.targetName()).isEqualTo("b");
+        assertThat(((IntegerLiteralExpr) rightAssignment.value()).value()).isEqualTo(1);
+    }
+
+    @Test
+    void parsesGroupingAndFunctionCallArguments() {
+        SourceFile sourceFile = new SourceFile("call.mc", "int main() { return add(1, (x + 2)); }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        ReturnStmt returnStmt = (ReturnStmt) result.program().functions().getFirst().body().statements().getFirst();
+        CallExpr callExpr = (CallExpr) returnStmt.expressionOptional().orElseThrow();
+        GroupingExpr groupingExpr = (GroupingExpr) callExpr.arguments().get(1);
+        BinaryExpr groupedBinary = (BinaryExpr) groupingExpr.expression();
+
+        assertThat(callExpr.calleeName()).isEqualTo("add");
+        assertThat(callExpr.arguments()).hasSize(2);
+        assertThat(((IntegerLiteralExpr) callExpr.arguments().getFirst()).value()).isEqualTo(1);
+        assertThat(((NameExpr) groupedBinary.left()).name()).isEqualTo("x");
+        assertThat(groupedBinary.operator()).isEqualTo(TokenKind.PLUS);
     }
 
     @Test

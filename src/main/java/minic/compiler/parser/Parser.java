@@ -2,7 +2,14 @@ package minic.compiler.parser;
 
 import minic.compiler.ast.FunctionDecl;
 import minic.compiler.ast.BlockStmt;
+import minic.compiler.ast.AssignmentExpr;
+import minic.compiler.ast.BinaryExpr;
+import minic.compiler.ast.CallExpr;
 import minic.compiler.ast.ExprStmt;
+import minic.compiler.ast.Expression;
+import minic.compiler.ast.GroupingExpr;
+import minic.compiler.ast.IntegerLiteralExpr;
+import minic.compiler.ast.NameExpr;
 import minic.compiler.ast.Parameter;
 import minic.compiler.ast.Program;
 import minic.compiler.ast.ReturnStmt;
@@ -23,8 +30,7 @@ import java.util.Objects;
  *
  * <p>当前阶段覆盖函数声明和基础语句级别的语法：
  * {@code program ::= functionDecl* EOF}，
- * {@code functionDecl ::= "int" identifier "(" parameterList? ")" block}。
- * 表达式内部结构会在后续任务中接入。</p>
+ * {@code functionDecl ::= "int" identifier "(" parameterList? ")" block}。</p>
  *
  * <p>解析器不直接读取源码文本，而是消费 lexer 产出的 token 列表。它维护一个
  * 指向“当前待消费 token”的游标 {@code currentIndex}；所有解析方法都通过
@@ -90,8 +96,7 @@ public final class Parser {
     /**
      * 解析一个函数声明。
      *
-     * <p>A032 阶段会解析函数体 block 和其中的基础语句。表达式内部暂时保留为
-     * {@link SourceRange}，完整表达式 AST 会在 A033 接入。</p>
+     * <p>A033 阶段会解析函数体 block、基础语句和表达式 AST。</p>
      *
      * <p>方法返回 {@code null} 表示当前函数声明无法可靠构造 AST。调用方会据此触发
      * {@link #synchronize()}，避免继续在错误位置解释 token。</p>
@@ -193,9 +198,9 @@ public final class Parser {
     private VarDeclStmt parseVarDeclStmt() {
         Token startToken = consume(TokenKind.INT, "期望变量类型 int");
         Token nameToken = consume(TokenKind.IDENTIFIER, "期望变量名");
-        SourceRange initializerRange = null;
+        Expression initializer = null;
         if (match(TokenKind.EQUAL)) {
-            initializerRange = consumeExpressionRangeUntilSemicolon("期望初始化表达式");
+            initializer = parseExpression();
         }
         Token semicolonToken = consume(TokenKind.SEMICOLON, "期望 ';'");
 
@@ -204,7 +209,7 @@ public final class Parser {
         }
         return new VarDeclStmt(
                 nameToken.lexeme(),
-                initializerRange,
+                initializer,
                 new SourceRange(
                         startToken.range().sourceFile(),
                         startToken.range().startOffset(),
@@ -220,9 +225,9 @@ public final class Parser {
      */
     private ReturnStmt parseReturnStmt() {
         Token startToken = consume(TokenKind.RETURN, "期望 return");
-        SourceRange expressionRange = null;
+        Expression expression = null;
         if (!check(TokenKind.SEMICOLON)) {
-            expressionRange = consumeExpressionRangeUntilSemicolon("期望返回表达式");
+            expression = parseExpression();
         }
         Token semicolonToken = consume(TokenKind.SEMICOLON, "期望 ';'");
 
@@ -230,7 +235,7 @@ public final class Parser {
             return null;
         }
         return new ReturnStmt(
-                expressionRange,
+                expression,
                 new SourceRange(
                         startToken.range().sourceFile(),
                         startToken.range().startOffset(),
@@ -246,13 +251,13 @@ public final class Parser {
      */
     private ExprStmt parseExprStmt() {
         Token startToken = peek();
-        SourceRange expressionRange = consumeExpressionRangeUntilSemicolon("期望表达式");
+        Expression expression = parseExpression();
         Token semicolonToken = consume(TokenKind.SEMICOLON, "期望 ';'");
-        if (expressionRange == null || semicolonToken == null) {
+        if (expression == null || semicolonToken == null) {
             return null;
         }
         return new ExprStmt(
-                expressionRange,
+                expression,
                 new SourceRange(
                         startToken.range().sourceFile(),
                         startToken.range().startOffset(),
@@ -262,28 +267,169 @@ public final class Parser {
     }
 
     /**
-     * 消费直到分号之前的 token，并把这段 token 视为一个待解析表达式范围。
+     * 解析表达式。
      *
-     * <p>A032 只需要语句边界，因此这里不解析表达式内部结构。A033 会替换为真正的表达式解析。</p>
-     *
-     * @param emptyMessage 表达式为空时的诊断消息
-     * @return 表达式源码范围；表达式为空时返回 {@code null}
+     * @return 表达式 AST；无法解析时返回 {@code null}
      */
-    private SourceRange consumeExpressionRangeUntilSemicolon(String emptyMessage) {
-        if (check(TokenKind.SEMICOLON) || check(TokenKind.RIGHT_BRACE) || isAtEnd()) {
-            report(peek(), emptyMessage);
-            return null;
+    private Expression parseExpression() {
+        return parseAssignment();
+    }
+
+    /**
+     * 解析赋值表达式。
+     *
+     * <p>赋值是右结合的，因此右侧递归调用 {@link #parseAssignment()}。</p>
+     *
+     * @return 表达式 AST；无法解析时返回 {@code null}
+     */
+    private Expression parseAssignment() {
+        Expression expression = parseAdditive();
+        if (!match(TokenKind.EQUAL)) {
+            return expression;
         }
 
-        Token startToken = peek();
-        Token endToken = startToken;
-        while (!check(TokenKind.SEMICOLON) && !check(TokenKind.RIGHT_BRACE) && !isAtEnd()) {
-            endToken = advance();
+        Token equalsToken = previous();
+        Expression value = parseAssignment();
+        if (expression instanceof NameExpr nameExpr && value != null) {
+            return new AssignmentExpr(
+                    nameExpr.name(),
+                    value,
+                    new SourceRange(
+                            nameExpr.range().sourceFile(),
+                            nameExpr.range().startOffset(),
+                            value.range().endOffset()
+                    )
+            );
         }
-        return new SourceRange(
-                startToken.range().sourceFile(),
-                startToken.range().startOffset(),
-                endToken.range().endOffset()
+
+        report(equalsToken, "赋值左侧必须是标识符");
+        return value;
+    }
+
+    /**
+     * 解析加减表达式。
+     *
+     * @return 表达式 AST；无法解析时返回 {@code null}
+     */
+    private Expression parseAdditive() {
+        Expression expression = parseMultiplicative();
+        while (match(TokenKind.PLUS) || match(TokenKind.MINUS)) {
+            Token operator = previous();
+            Expression right = parseMultiplicative();
+            expression = combineBinary(expression, operator, right);
+        }
+        return expression;
+    }
+
+    /**
+     * 解析乘除表达式。
+     *
+     * @return 表达式 AST；无法解析时返回 {@code null}
+     */
+    private Expression parseMultiplicative() {
+        Expression expression = parsePrimary();
+        while (match(TokenKind.STAR) || match(TokenKind.SLASH)) {
+            Token operator = previous();
+            Expression right = parsePrimary();
+            expression = combineBinary(expression, operator, right);
+        }
+        return expression;
+    }
+
+    /**
+     * 解析 primary 表达式。
+     *
+     * @return 表达式 AST；无法解析时返回 {@code null}
+     */
+    private Expression parsePrimary() {
+        if (match(TokenKind.INTEGER_LITERAL)) {
+            Token integerToken = previous();
+            return new IntegerLiteralExpr((Integer) integerToken.literalValue(), integerToken.lexeme(), integerToken.range());
+        }
+        if (match(TokenKind.IDENTIFIER)) {
+            Token nameToken = previous();
+            if (match(TokenKind.LEFT_PAREN)) {
+                return finishCall(nameToken);
+            }
+            return new NameExpr(nameToken.lexeme(), nameToken.range());
+        }
+        if (match(TokenKind.LEFT_PAREN)) {
+            Token startToken = previous();
+            Expression expression = parseExpression();
+            Token endToken = consume(TokenKind.RIGHT_PAREN, "期望 ')'");
+            if (expression == null || endToken == null) {
+                return expression;
+            }
+            return new GroupingExpr(
+                    expression,
+                    new SourceRange(
+                            startToken.range().sourceFile(),
+                            startToken.range().startOffset(),
+                            endToken.range().endOffset()
+                    )
+            );
+        }
+
+        report(peek(), "期望表达式");
+        if (!isAtEnd()) {
+            advance();
+        }
+        return null;
+    }
+
+    /**
+     * 完成函数调用表达式解析。
+     *
+     * @param calleeToken 已消费的函数名 token
+     * @return 函数调用表达式；无法可靠构造时返回 {@code null}
+     */
+    private Expression finishCall(Token calleeToken) {
+        ArrayList<Expression> arguments = new ArrayList<>();
+        if (!check(TokenKind.RIGHT_PAREN)) {
+            do {
+                Expression argument = parseExpression();
+                if (argument != null) {
+                    arguments.add(argument);
+                }
+            } while (match(TokenKind.COMMA));
+        }
+
+        Token endToken = consume(TokenKind.RIGHT_PAREN, "期望 ')'");
+        if (endToken == null) {
+            return null;
+        }
+        return new CallExpr(
+                calleeToken.lexeme(),
+                arguments,
+                new SourceRange(
+                        calleeToken.range().sourceFile(),
+                        calleeToken.range().startOffset(),
+                        endToken.range().endOffset()
+                )
+        );
+    }
+
+    /**
+     * 组合二元表达式。
+     *
+     * @param left 左表达式
+     * @param operator 运算符 token
+     * @param right 右表达式
+     * @return 二元表达式；任一操作数缺失时返回可保留的操作数
+     */
+    private Expression combineBinary(Expression left, Token operator, Expression right) {
+        if (left == null || right == null) {
+            return left != null ? left : right;
+        }
+        return new BinaryExpr(
+                left,
+                operator.kind(),
+                right,
+                new SourceRange(
+                        left.range().sourceFile(),
+                        left.range().startOffset(),
+                        right.range().endOffset()
+                )
         );
     }
 

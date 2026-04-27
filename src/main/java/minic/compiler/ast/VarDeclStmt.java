@@ -9,15 +9,15 @@ import java.util.Optional;
  * 局部变量声明语句 AST 节点。
  *
  * @param name 变量名
- * @param initializerRange 初始化表达式源码范围；不存在时为 {@code null}
+ * @param initializer 初始化表达式；不存在时为 {@code null}
  * @param range 变量声明语句覆盖的源码范围
  */
-public record VarDeclStmt(String name, SourceRange initializerRange, SourceRange range) implements Statement {
+public record VarDeclStmt(String name, Expression initializer, SourceRange range) implements Statement {
     /**
      * 创建局部变量声明语句节点。
      *
      * @param name 变量名
-     * @param initializerRange 初始化表达式源码范围；不存在时为 {@code null}
+     * @param initializer 初始化表达式；不存在时为 {@code null}
      * @param range 变量声明语句覆盖的源码范围
      */
     public VarDeclStmt {
@@ -29,11 +29,11 @@ public record VarDeclStmt(String name, SourceRange initializerRange, SourceRange
     }
 
     /**
-     * 以 {@link Optional} 形式返回初始化表达式范围。
+     * 以 {@link Optional} 形式返回初始化表达式。
      *
-     * @return 初始化表达式范围；不存在时为空
+     * @return 初始化表达式；不存在时为空
      */
-    public Optional<SourceRange> initializerRangeOptional() {
-        return Optional.ofNullable(initializerRange);
+    public Optional<Expression> initializerOptional() {
+        return Optional.ofNullable(initializer);
     }
 }
