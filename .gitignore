@@ -10,3 +10,4 @@ out/
 .vscode/
 
 .local/
+.gradle-home/
