@@ -1,8 +1,13 @@
 package minic.compiler.parser;
 
 import minic.compiler.ast.FunctionDecl;
+import minic.compiler.ast.BlockStmt;
+import minic.compiler.ast.ExprStmt;
 import minic.compiler.ast.Parameter;
 import minic.compiler.ast.Program;
+import minic.compiler.ast.ReturnStmt;
+import minic.compiler.ast.Statement;
+import minic.compiler.ast.VarDeclStmt;
 import minic.compiler.lexer.Token;
 import minic.compiler.lexer.TokenKind;
 import minic.diagnostics.Diagnostic;
@@ -16,10 +21,10 @@ import java.util.Objects;
 /**
  * MiniC 递归下降语法分析器。
  *
- * <p>当前阶段只覆盖函数声明级别的语法：
+ * <p>当前阶段覆盖函数声明和基础语句级别的语法：
  * {@code program ::= functionDecl* EOF}，
- * {@code functionDecl ::= "int" identifier "(" parameterList? ")" "{" "}"}。
- * 语句和表达式会在后续任务中接入。</p>
+ * {@code functionDecl ::= "int" identifier "(" parameterList? ")" block}。
+ * 表达式内部结构会在后续任务中接入。</p>
  *
  * <p>解析器不直接读取源码文本，而是消费 lexer 产出的 token 列表。它维护一个
  * 指向“当前待消费 token”的游标 {@code currentIndex}；所有解析方法都通过
@@ -85,8 +90,8 @@ public final class Parser {
     /**
      * 解析一个函数声明。
      *
-     * <p>A031 阶段只接受空函数体，因此函数声明最后必须是 {@code {}}。
-     * 后续 A032 会把函数体扩展为 block statement AST。</p>
+     * <p>A032 阶段会解析函数体 block 和其中的基础语句。表达式内部暂时保留为
+     * {@link SourceRange}，完整表达式 AST 会在 A033 接入。</p>
      *
      * <p>方法返回 {@code null} 表示当前函数声明无法可靠构造 AST。调用方会据此触发
      * {@link #synchronize()}，避免继续在错误位置解释 token。</p>
@@ -105,21 +110,180 @@ public final class Parser {
         consume(TokenKind.LEFT_PAREN, "期望 '('");
         List<Parameter> parameters = parseParameters();
         consume(TokenKind.RIGHT_PAREN, "期望 ')'");
-        consume(TokenKind.LEFT_BRACE, "期望 '{'");
-        Token endToken = consume(TokenKind.RIGHT_BRACE, "期望 '}'");
+        BlockStmt body = parseBlock();
 
         // 函数名和结束位置是构造 FunctionDecl 的最低必要信息。
-        if (nameToken == null || endToken == null) {
+        if (nameToken == null || body == null) {
             return null;
         }
         return new FunctionDecl(
                 nameToken.lexeme(),
                 parameters,
+                body,
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        body.range().endOffset()
+                )
+        );
+    }
+
+    /**
+     * 解析 block。
+     *
+     * <p>block 由左右花括号包围，内部可以包含 0 个或多个语句。</p>
+     *
+     * @return block 语句节点；缺少必要边界时返回 {@code null}
+     */
+    private BlockStmt parseBlock() {
+        Token startToken = consume(TokenKind.LEFT_BRACE, "期望 '{'");
+        if (startToken == null) {
+            return null;
+        }
+
+        ArrayList<Statement> statements = new ArrayList<>();
+        while (!check(TokenKind.RIGHT_BRACE) && !isAtEnd()) {
+            Statement statement = parseStatement();
+            if (statement != null) {
+                statements.add(statement);
+            } else {
+                synchronizeStatement();
+            }
+        }
+
+        Token endToken = consume(TokenKind.RIGHT_BRACE, "期望 '}'");
+        if (endToken == null) {
+            return null;
+        }
+        return new BlockStmt(
+                statements,
                 new SourceRange(
                         startToken.range().sourceFile(),
                         startToken.range().startOffset(),
                         endToken.range().endOffset()
                 )
+        );
+    }
+
+    /**
+     * 解析一条语句。
+     *
+     * <p>当前支持 block、局部变量声明、return 和表达式语句。</p>
+     *
+     * @return 语句节点；无法解析时返回 {@code null}
+     */
+    private Statement parseStatement() {
+        if (check(TokenKind.LEFT_BRACE)) {
+            return parseBlock();
+        }
+        if (check(TokenKind.INT)) {
+            return parseVarDeclStmt();
+        }
+        if (check(TokenKind.RETURN)) {
+            return parseReturnStmt();
+        }
+        return parseExprStmt();
+    }
+
+    /**
+     * 解析局部变量声明语句。
+     *
+     * @return 局部变量声明语句节点；无法可靠构造时返回 {@code null}
+     */
+    private VarDeclStmt parseVarDeclStmt() {
+        Token startToken = consume(TokenKind.INT, "期望变量类型 int");
+        Token nameToken = consume(TokenKind.IDENTIFIER, "期望变量名");
+        SourceRange initializerRange = null;
+        if (match(TokenKind.EQUAL)) {
+            initializerRange = consumeExpressionRangeUntilSemicolon("期望初始化表达式");
+        }
+        Token semicolonToken = consume(TokenKind.SEMICOLON, "期望 ';'");
+
+        if (startToken == null || nameToken == null || semicolonToken == null) {
+            return null;
+        }
+        return new VarDeclStmt(
+                nameToken.lexeme(),
+                initializerRange,
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        semicolonToken.range().endOffset()
+                )
+        );
+    }
+
+    /**
+     * 解析 return 语句。
+     *
+     * @return return 语句节点；无法可靠构造时返回 {@code null}
+     */
+    private ReturnStmt parseReturnStmt() {
+        Token startToken = consume(TokenKind.RETURN, "期望 return");
+        SourceRange expressionRange = null;
+        if (!check(TokenKind.SEMICOLON)) {
+            expressionRange = consumeExpressionRangeUntilSemicolon("期望返回表达式");
+        }
+        Token semicolonToken = consume(TokenKind.SEMICOLON, "期望 ';'");
+
+        if (startToken == null || semicolonToken == null) {
+            return null;
+        }
+        return new ReturnStmt(
+                expressionRange,
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        semicolonToken.range().endOffset()
+                )
+        );
+    }
+
+    /**
+     * 解析表达式语句。
+     *
+     * @return 表达式语句节点；无法可靠构造时返回 {@code null}
+     */
+    private ExprStmt parseExprStmt() {
+        Token startToken = peek();
+        SourceRange expressionRange = consumeExpressionRangeUntilSemicolon("期望表达式");
+        Token semicolonToken = consume(TokenKind.SEMICOLON, "期望 ';'");
+        if (expressionRange == null || semicolonToken == null) {
+            return null;
+        }
+        return new ExprStmt(
+                expressionRange,
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        semicolonToken.range().endOffset()
+                )
+        );
+    }
+
+    /**
+     * 消费直到分号之前的 token，并把这段 token 视为一个待解析表达式范围。
+     *
+     * <p>A032 只需要语句边界，因此这里不解析表达式内部结构。A033 会替换为真正的表达式解析。</p>
+     *
+     * @param emptyMessage 表达式为空时的诊断消息
+     * @return 表达式源码范围；表达式为空时返回 {@code null}
+     */
+    private SourceRange consumeExpressionRangeUntilSemicolon(String emptyMessage) {
+        if (check(TokenKind.SEMICOLON) || check(TokenKind.RIGHT_BRACE) || isAtEnd()) {
+            report(peek(), emptyMessage);
+            return null;
+        }
+
+        Token startToken = peek();
+        Token endToken = startToken;
+        while (!check(TokenKind.SEMICOLON) && !check(TokenKind.RIGHT_BRACE) && !isAtEnd()) {
+            endToken = advance();
+        }
+        return new SourceRange(
+                startToken.range().sourceFile(),
+                startToken.range().startOffset(),
+                endToken.range().endOffset()
         );
     }
 
@@ -289,5 +453,17 @@ public final class Parser {
         while (!isAtEnd() && previous().kind() != TokenKind.RIGHT_BRACE) {
             advance();
         }
+    }
+
+    /**
+     * 语句级错误恢复。
+     *
+     * <p>语句解析失败时跳到分号或右花括号，降低后续语句被连带误报的概率。</p>
+     */
+    private void synchronizeStatement() {
+        while (!isAtEnd() && !check(TokenKind.SEMICOLON) && !check(TokenKind.RIGHT_BRACE)) {
+            advance();
+        }
+        match(TokenKind.SEMICOLON);
     }
 }
