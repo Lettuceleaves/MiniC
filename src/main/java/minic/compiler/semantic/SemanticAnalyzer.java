@@ -41,6 +41,7 @@ public final class SemanticAnalyzer {
         diagnostics.clear();
         globalScope = new Scope();
         defineFunctions(program);
+        validateMain(program);
         for (FunctionDecl functionDecl : program.functions()) {
             analyzeFunction(functionDecl);
         }
@@ -49,10 +50,21 @@ public final class SemanticAnalyzer {
 
     private void defineFunctions(Program program) {
         for (FunctionDecl functionDecl : program.functions()) {
-            Symbol symbol = new Symbol(functionDecl.name(), SymbolKind.FUNCTION, functionDecl.range());
+            Symbol symbol = new Symbol(
+                    functionDecl.name(),
+                    SymbolKind.FUNCTION,
+                    functionDecl.range(),
+                    functionDecl.parameters().size()
+            );
             if (!globalScope.define(symbol)) {
                 report(functionDecl.range(), "重复函数定义：" + functionDecl.name());
             }
+        }
+    }
+
+    private void validateMain(Program program) {
+        if (globalScope.resolve("main").filter(symbol -> symbol.kind() == SymbolKind.FUNCTION).isEmpty()) {
+            report(program.range(), "缺少 main 函数");
         }
     }
 
@@ -78,8 +90,13 @@ public final class SemanticAnalyzer {
                 varDeclStmt.initializerOptional().ifPresent(initializer -> analyzeExpression(initializer, scope));
                 defineVariable(scope, varDeclStmt.name(), varDeclStmt.range());
             }
-            case ReturnStmt returnStmt -> returnStmt.expressionOptional()
-                    .ifPresent(expression -> analyzeExpression(expression, scope));
+            case ReturnStmt returnStmt -> {
+                if (returnStmt.expressionOptional().isEmpty()) {
+                    report(returnStmt.range(), "int 函数中 return 必须包含表达式");
+                } else {
+                    analyzeExpression(returnStmt.expressionOptional().orElseThrow(), scope);
+                }
+            }
             case ExprStmt exprStmt -> analyzeExpression(exprStmt.expression(), scope);
         }
     }
@@ -121,8 +138,15 @@ public final class SemanticAnalyzer {
     }
 
     private void resolveFunction(CallExpr callExpr) {
-        if (globalScope.resolve(callExpr.calleeName()).filter(symbol -> symbol.kind() == SymbolKind.FUNCTION).isEmpty()) {
+        var functionSymbol = globalScope.resolve(callExpr.calleeName())
+                .filter(symbol -> symbol.kind() == SymbolKind.FUNCTION);
+        if (functionSymbol.isEmpty()) {
             report(callExpr.range(), "未解析函数调用：" + callExpr.calleeName());
+            return;
+        }
+        Integer arity = functionSymbol.orElseThrow().arity();
+        if (arity != null && arity != callExpr.arguments().size()) {
+            report(callExpr.range(), "函数调用实参数量不匹配：" + callExpr.calleeName());
         }
     }
 

@@ -47,6 +47,36 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void reportsMissingMainFunction() {
+        SemanticResult result = analyze("int helper() { return 1; }");
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("缺少 main 函数");
+    }
+
+    @Test
+    void reportsFunctionArgumentCountMismatch() {
+        SemanticResult result = analyze("""
+                int add(int a, int b) { return a; }
+                int main() { return add(1); }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("函数调用实参数量不匹配：add");
+    }
+
+    @Test
+    void reportsEmptyReturnInIntFunction() {
+        SemanticResult result = analyze("int main() { return; }");
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("int 函数中 return 必须包含表达式");
+    }
+
+    @Test
     void resolvesFunctionsParametersAndLocals() {
         SemanticResult result = analyze("""
                 int id(int x) { return x; }
@@ -60,7 +90,7 @@ class SemanticAnalyzerTest {
 
     @Test
     void allowsNestedBlockToShadowOuterVariable() {
-        SemanticResult result = analyze("int main() { int x; { int x; } }");
+        SemanticResult result = analyze("int main() { int x; { int x; } return 1; }");
 
         assertThat(result.diagnostics()).isEmpty();
     }
