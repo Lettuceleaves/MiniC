@@ -210,7 +210,7 @@ gradle test
 
 验证：`./gradlew test`
 
-## Phase 5：解释器
+## Phase 5：解释执行
 
 ### A050：添加运行时值和状态模型
 
@@ -252,21 +252,53 @@ gradle test
 
 验证：`./gradlew test`
 
-## Phase 6：Debugger 模型
+## Phase 6：编译器链路闭环
 
-### A060：添加 Debugger 命令和快照模型
+### A060：添加编译管线入口和结果模型
 
 依赖：A053。
 
-目标：实现 `DebuggerCommand`、`DebuggerSnapshot`、`Breakpoint`。
+目标：实现统一编排入口，串联 lexer、parser、semantic 和 interpreter，并返回结构化结果。
 
-验收：snapshot 暴露 status、current range、call stack、locals；不添加 UI。
+验收：单次调用即可完成从 `SourceFile` 到 `ExecutionResult` 的核心链路；结果对象保留各阶段 diagnostics；core 仍不依赖 CLI/UI。
 
 验证：`./gradlew test`
 
-### A061：添加单步执行
+### A061：添加 CLI 执行入口
 
 依赖：A060。
+
+目标：提供最小 CLI，支持加载源码文件并执行完整编译链路。
+
+验收：合法程序可通过 CLI 执行并返回退出结果；非法程序可输出 diagnostics；CLI 不直接承载 debugger 交互。
+
+验证：`./gradlew test`
+
+### A062：添加阶段化观测输出
+
+依赖：A061。
+
+目标：让完整编译链路在无 debugger 的前提下可观测。
+
+验收：可按需导出或展示 tokens、AST、semantic diagnostics、运行结果等结构化数据；为后续 UI 和 debugger 复用同一套核心结果模型。
+
+验证：`./gradlew test`
+
+## Phase 7：Debugger 模型
+
+### A070：添加 Debugger 命令和快照模型
+
+依赖：A062。
+
+目标：实现 `DebuggerCommand`、`DebuggerSnapshot`、`Breakpoint`。
+
+验收：snapshot 暴露 status、current range、call stack、locals；建立在已完成的编译链路之上；不添加 UI。
+
+验证：`./gradlew test`
+
+### A071：添加单步执行
+
+依赖：A070。
 
 目标：支持确定性 step。
 
@@ -274,9 +306,9 @@ gradle test
 
 验证：`./gradlew test`
 
-### A062：添加断点和 continue
+### A072：添加断点和 continue
 
-依赖：A061。
+依赖：A071。
 
 目标：支持源码断点和 continue。
 
@@ -284,11 +316,11 @@ gradle test
 
 验证：`./gradlew test`
 
-## Phase 7：可视化原型
+## Phase 8：可视化原型
 
-### A070：添加 JavaFX 应用骨架
+### A080：添加 JavaFX 应用骨架
 
-依赖：A062。
+依赖：A072。
 
 目标：添加最小 JavaFX app shell。
 
@@ -298,9 +330,9 @@ gradle test
 
 手动检查：`./gradlew run`
 
-### A071：显示源码和 Tokens
+### A081：显示源码和 Tokens
 
-依赖：A070。
+依赖：A080。
 
 目标：可视化 source 和 token stream。
 
@@ -310,9 +342,9 @@ gradle test
 
 手动检查：`./gradlew run`
 
-### A072：显示 AST 和 Diagnostics
+### A082：显示 AST 和 Diagnostics
 
-依赖：A071。
+依赖：A081。
 
 目标：可视化 parser output。
 
@@ -322,9 +354,21 @@ gradle test
 
 手动检查：`./gradlew run`
 
-### A073：显示 Debugger 状态
+### A083：显示执行状态
 
-依赖：A072。
+依赖：A082。
+
+目标：可视化执行结果和运行时状态。
+
+验收：用户可观察程序返回值、运行状态、调用栈和 locals；不要求提供 debugger 控制。
+
+验证：`./gradlew test`
+
+手动检查：`./gradlew run`
+
+### A084：显示 Debugger 状态
+
+依赖：A083、A072。
 
 目标：可视化 debugger snapshots。
 
