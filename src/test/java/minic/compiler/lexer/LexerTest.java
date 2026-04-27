@@ -108,4 +108,37 @@ class LexerTest {
         assertThat(result.tokens().get(1).range()).isEqualTo(new SourceRange(sourceFile, 7, 13));
         assertThat(result.tokens().get(2).range()).isEqualTo(new SourceRange(sourceFile, 13, 13));
     }
+
+    @Test
+    void lexesIntegerLiterals() {
+        SourceFile sourceFile = new SourceFile("integers.mc", "0 7 12345");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(
+                        TokenKind.INTEGER_LITERAL,
+                        TokenKind.INTEGER_LITERAL,
+                        TokenKind.INTEGER_LITERAL,
+                        TokenKind.EOF
+                );
+        assertThat(result.tokens())
+                .extracting(Token::lexeme)
+                .containsExactly("0", "7", "12345", "");
+        assertThat(result.tokens())
+                .extracting(Token::literalValue)
+                .containsExactly(0, 7, 12345, null);
+    }
+
+    @Test
+    void keepsIntegerLiteralRanges() {
+        SourceFile sourceFile = new SourceFile("integer-ranges.mc", "\n123 + 0");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.tokens().get(0).range()).isEqualTo(new SourceRange(sourceFile, 1, 4));
+        assertThat(result.tokens().get(2).range()).isEqualTo(new SourceRange(sourceFile, 7, 8));
+    }
 }

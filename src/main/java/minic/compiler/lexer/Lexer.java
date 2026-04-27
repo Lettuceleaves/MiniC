@@ -51,6 +51,8 @@ public final class Lexer {
                 default -> {
                     if (isIdentifierStart(character)) {
                         lexIdentifier(startOffset);
+                    } else if (isAsciiDigit(character)) {
+                        lexIntegerLiteral(startOffset);
                     }
                     // 非法字符诊断在 A024 添加；当前阶段仅保证已支持 token 可被识别。
                 }
@@ -85,6 +87,20 @@ public final class Lexer {
             default -> TokenKind.IDENTIFIER;
         };
         addToken(kind, startOffset);
+    }
+
+    private void lexIntegerLiteral(int startOffset) {
+        while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) {
+            currentOffset++;
+        }
+
+        String lexeme = sourceFile.content().substring(startOffset, currentOffset);
+        tokens.add(new Token(
+                TokenKind.INTEGER_LITERAL,
+                lexeme,
+                new SourceRange(sourceFile, startOffset, currentOffset),
+                Integer.parseInt(lexeme)
+        ));
     }
 
     private boolean isIdentifierStart(char character) {
