@@ -59,4 +59,53 @@ class LexerTest {
         assertThat(result.tokens().get(1).range()).isEqualTo(new SourceRange(sourceFile, 5, 6));
         assertThat(result.tokens().get(2).range()).isEqualTo(new SourceRange(sourceFile, 6, 6));
     }
+
+    @Test
+    void lexesIdentifiersWithUnderscoresAndDigitsAfterFirstCharacter() {
+        SourceFile sourceFile = new SourceFile("identifiers.mc", "_main value2 snake_case");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(
+                        TokenKind.IDENTIFIER,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.EOF
+                );
+        assertThat(result.tokens())
+                .extracting(Token::lexeme)
+                .containsExactly("_main", "value2", "snake_case", "");
+    }
+
+    @Test
+    void lexesKeywordsSeparatelyFromIdentifiers() {
+        SourceFile sourceFile = new SourceFile("keywords.mc", "int return integer returnValue");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(
+                        TokenKind.INT,
+                        TokenKind.RETURN,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.EOF
+                );
+    }
+
+    @Test
+    void keepsIdentifierRanges() {
+        SourceFile sourceFile = new SourceFile("identifier-ranges.mc", "  main\nreturn");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.tokens().get(0).range()).isEqualTo(new SourceRange(sourceFile, 2, 6));
+        assertThat(result.tokens().get(1).range()).isEqualTo(new SourceRange(sourceFile, 7, 13));
+        assertThat(result.tokens().get(2).range()).isEqualTo(new SourceRange(sourceFile, 13, 13));
+    }
 }

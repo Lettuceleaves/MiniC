@@ -49,6 +49,9 @@ public final class Lexer {
                 case ';' -> addToken(TokenKind.SEMICOLON, startOffset);
                 case ',' -> addToken(TokenKind.COMMA, startOffset);
                 default -> {
+                    if (isIdentifierStart(character)) {
+                        lexIdentifier(startOffset);
+                    }
                     // 非法字符诊断在 A024 添加；当前阶段仅保证已支持 token 可被识别。
                 }
             }
@@ -68,6 +71,36 @@ public final class Lexer {
 
     private char advance() {
         return sourceFile.content().charAt(currentOffset++);
+    }
+
+    private void lexIdentifier(int startOffset) {
+        while (!isAtEnd() && isIdentifierPart(sourceFile.content().charAt(currentOffset))) {
+            currentOffset++;
+        }
+
+        String lexeme = sourceFile.content().substring(startOffset, currentOffset);
+        TokenKind kind = switch (lexeme) {
+            case "int" -> TokenKind.INT;
+            case "return" -> TokenKind.RETURN;
+            default -> TokenKind.IDENTIFIER;
+        };
+        addToken(kind, startOffset);
+    }
+
+    private boolean isIdentifierStart(char character) {
+        return character == '_' || isAsciiLetter(character);
+    }
+
+    private boolean isIdentifierPart(char character) {
+        return isIdentifierStart(character) || isAsciiDigit(character);
+    }
+
+    private boolean isAsciiLetter(char character) {
+        return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z');
+    }
+
+    private boolean isAsciiDigit(char character) {
+        return character >= '0' && character <= '9';
     }
 
     private void addToken(TokenKind kind, int startOffset) {
