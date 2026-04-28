@@ -49,6 +49,19 @@ $LASTEXITCODE
 
 `samples\main.mc` 当前返回 `add(1, 2)` 的结果，期望退出码是 `3`。
 
+已验证的样例：
+
+```text
+samples\return_constant.mc      -> 退出码 7
+samples\arithmetic.mc           -> 退出码 7
+samples\multi_function.mc       -> 退出码 12
+samples\local_assignment.mc     -> 退出码 3
+samples\divide_by_zero.mc       -> 退出码 102
+samples\uninitialized_read.mc   -> 退出码 101
+```
+
+其中 `102` 是除零运行时检查 trap，`101` 是未初始化局部变量读取 trap。
+
 ## 协作规则
 
 - 全程使用中文沟通、记录需求、编写文档和汇报结果。
