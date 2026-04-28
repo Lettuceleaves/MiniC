@@ -1,20 +1,20 @@
 package minic.compiler.semantic;
 
-import minic.compiler.ast.AssignmentExpr;
-import minic.compiler.ast.BinaryExpr;
-import minic.compiler.ast.BlockStmt;
-import minic.compiler.ast.CallExpr;
-import minic.compiler.ast.ExprStmt;
-import minic.compiler.ast.Expression;
-import minic.compiler.ast.FunctionDecl;
-import minic.compiler.ast.GroupingExpr;
-import minic.compiler.ast.IntegerLiteralExpr;
-import minic.compiler.ast.NameExpr;
-import minic.compiler.ast.Parameter;
-import minic.compiler.ast.Program;
-import minic.compiler.ast.ReturnStmt;
-import minic.compiler.ast.Statement;
-import minic.compiler.ast.VarDeclStmt;
+import minic.compiler.ast.expr.AssignmentExpr;
+import minic.compiler.ast.expr.BinaryExpr;
+import minic.compiler.ast.stmt.BlockStmt;
+import minic.compiler.ast.expr.CallExpr;
+import minic.compiler.ast.stmt.ExprStmt;
+import minic.compiler.ast.expr.Expression;
+import minic.compiler.ast.decl.FunctionDecl;
+import minic.compiler.ast.expr.GroupingExpr;
+import minic.compiler.ast.expr.IntegerLiteralExpr;
+import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.decl.Parameter;
+import minic.compiler.ast.decl.Program;
+import minic.compiler.ast.stmt.ReturnStmt;
+import minic.compiler.ast.stmt.Statement;
+import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.diagnostics.Diagnostic;
 import minic.diagnostics.DiagnosticSeverity;
 import minic.source.SourceRange;
@@ -98,6 +98,8 @@ public final class SemanticAnalyzer {
                 }
             }
             case ExprStmt exprStmt -> analyzeExpression(exprStmt.expression(), scope);
+            default -> throw new IllegalArgumentException("unsupported statement: "
+                    + statement.getClass().getSimpleName());
         }
     }
 
@@ -121,6 +123,8 @@ public final class SemanticAnalyzer {
                     analyzeExpression(argument, scope);
                 }
             }
+            default -> throw new IllegalArgumentException("unsupported expression: "
+                    + expression.getClass().getSimpleName());
         }
     }
 

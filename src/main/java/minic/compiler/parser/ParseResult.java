@@ -1,6 +1,6 @@
 package minic.compiler.parser;
 
-import minic.compiler.ast.Program;
+import minic.compiler.ast.decl.Program;
 import minic.diagnostics.Diagnostic;
 
 import java.util.List;

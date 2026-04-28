@@ -120,13 +120,35 @@ minic.diagnostics
 minic.compiler.lexer
 minic.compiler.parser
 minic.compiler.ast
+minic.compiler.ast.decl
+minic.compiler.ast.expr
+minic.compiler.ast.stmt
 minic.compiler.semantic
 minic.compiler.ir
+minic.compiler.ir.model
+minic.compiler.ir.value
+minic.compiler.ir.instruction
+minic.compiler.ir.lowering
 minic.compiler.codegen
 minic.compiler.toolchain
 minic.runtime.debug
 minic.cli
 ```
+
+项目结构规范：
+
+- 根包只放该阶段的入口、门面或少量稳定聚合类型；当同类 public 顶层类型超过约 8 个时，应按职责拆子包。
+- AST 按职责拆分：
+  - `minic.compiler.ast.decl`：`Program`、函数、参数、后续全局/类型声明。
+  - `minic.compiler.ast.expr`：表达式基接口和表达式节点。
+  - `minic.compiler.ast.stmt`：语句基接口和语句节点。
+- IR 按职责拆分：
+  - `minic.compiler.ir.model`：模块、函数、基本块、类型、局部变量和形参等结构模型。
+  - `minic.compiler.ir.value`：常量、临时值、引用值等可作为操作数的值。
+  - `minic.compiler.ir.instruction`：所有 IR 指令和指令操作符。
+  - `minic.compiler.ir.lowering`：AST 到 IR 的 lowering、后续 IR 构造辅助逻辑。
+- 测试包结构应尽量镜像生产代码包结构，避免测试根目录继续堆积同类文件。
+- 新增语言能力时优先放入已有职责子包；只有出现新的稳定职责边界时才新增子包。
 
 依赖规则：
 
@@ -159,7 +181,7 @@ SourceFile
 ## 代码风格
 
 - 使用 Java 21。
-- AST 和值对象优先使用 records 和 sealed interfaces。
+- AST 和值对象优先使用 records；sealed interface 只在直接实现类型位于同一包或项目引入明确 Java module 边界时使用，跨子包的节点基接口使用普通 interface。
 - tokens、AST、diagnostics、source ranges 尽量不可变。
 - 避免全局可变状态。
 - 每个 public 顶层类型一个文件。
