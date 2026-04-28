@@ -68,16 +68,86 @@ class IrLowererTest {
         IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
 
         assertThat(main.blocks()).singleElement().satisfies(block -> {
-            assertThat(block.instructions()).hasSize(3);
+            assertThat(block.instructions()).hasSize(4);
             IrBinaryInstruction subtract = (IrBinaryInstruction) block.instructions().get(0);
-            IrBinaryInstruction divide = (IrBinaryInstruction) block.instructions().get(1);
+            IrCheckNonZeroInstruction checkNonZero = (IrCheckNonZeroInstruction) block.instructions().get(1);
+            IrBinaryInstruction divide = (IrBinaryInstruction) block.instructions().get(2);
 
             assertThat(subtract.operator()).isEqualTo(IrBinaryOperator.SUBTRACT);
             assertThat(subtract.left()).isEqualTo(new IrConstant(8));
             assertThat(subtract.right()).isEqualTo(new IrConstant(2));
+            assertThat(checkNonZero.value()).isEqualTo(new IrConstant(3));
             assertThat(divide.operator()).isEqualTo(IrBinaryOperator.DIVIDE);
             assertThat(divide.left()).isEqualTo(subtract.result());
             assertThat(divide.right()).isEqualTo(new IrConstant(3));
+        });
+    }
+
+    @Test
+    void lowersLocalsAssignmentAndInitializedReadChecks() {
+        Program program = parse("""
+                int main() {
+                    int x = 1;
+                    x = x + 2;
+                    return x;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).singleElement().satisfies(block -> {
+            assertThat(block.instructions()).hasSize(9);
+            IrDeclareLocalInstruction declare = (IrDeclareLocalInstruction) block.instructions().get(0);
+            IrStoreLocalInstruction initialize = (IrStoreLocalInstruction) block.instructions().get(1);
+            IrCheckInitializedInstruction assignmentCheck = (IrCheckInitializedInstruction) block.instructions().get(2);
+            IrLoadLocalInstruction assignmentLoad = (IrLoadLocalInstruction) block.instructions().get(3);
+            IrBinaryInstruction add = (IrBinaryInstruction) block.instructions().get(4);
+            IrStoreLocalInstruction assignmentStore = (IrStoreLocalInstruction) block.instructions().get(5);
+            IrCheckInitializedInstruction returnCheck = (IrCheckInitializedInstruction) block.instructions().get(6);
+            IrLoadLocalInstruction returnLoad = (IrLoadLocalInstruction) block.instructions().get(7);
+            IrReturnInstruction returnInstruction = (IrReturnInstruction) block.instructions().get(8);
+
+            assertThat(declare.local().sourceName()).isEqualTo("x");
+            assertThat(declare.local().name()).isEqualTo("x#0");
+            assertThat(initialize.local()).isEqualTo(declare.local());
+            assertThat(initialize.value()).isEqualTo(new IrConstant(1));
+            assertThat(assignmentCheck.local()).isEqualTo(declare.local());
+            assertThat(assignmentLoad.local()).isEqualTo(declare.local());
+            assertThat(add.left()).isEqualTo(assignmentLoad.result());
+            assertThat(add.right()).isEqualTo(new IrConstant(2));
+            assertThat(assignmentStore.local()).isEqualTo(declare.local());
+            assertThat(assignmentStore.value()).isEqualTo(add.result());
+            assertThat(returnCheck.local()).isEqualTo(declare.local());
+            assertThat(returnLoad.local()).isEqualTo(declare.local());
+            assertThat(returnInstruction.value()).isEqualTo(returnLoad.result());
+        });
+    }
+
+    @Test
+    void keepsShadowedLocalsDistinct() {
+        Program program = parse("""
+                int main() {
+                    int x = 1;
+                    {
+                        int x = 2;
+                        x = x + 1;
+                    }
+                    return x;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).singleElement().satisfies(block -> {
+            IrDeclareLocalInstruction outerDeclare = (IrDeclareLocalInstruction) block.instructions().get(0);
+            IrDeclareLocalInstruction innerDeclare = (IrDeclareLocalInstruction) block.instructions().get(2);
+            IrLoadLocalInstruction innerLoad = (IrLoadLocalInstruction) block.instructions().get(5);
+            IrLoadLocalInstruction outerLoad = (IrLoadLocalInstruction) block.instructions().get(9);
+
+            assertThat(outerDeclare.local().name()).isEqualTo("x#0");
+            assertThat(innerDeclare.local().name()).isEqualTo("x#1");
+            assertThat(innerLoad.local()).isEqualTo(innerDeclare.local());
+            assertThat(outerLoad.local()).isEqualTo(outerDeclare.local());
         });
     }
 

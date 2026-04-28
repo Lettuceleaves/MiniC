@@ -3,6 +3,7 @@ package minic.compiler.ir;
 import minic.compiler.ast.BinaryExpr;
 import minic.compiler.ast.BlockStmt;
 import minic.compiler.ast.CallExpr;
+import minic.compiler.ast.AssignmentExpr;
 import minic.compiler.ast.Expression;
 import minic.compiler.ast.ExprStmt;
 import minic.compiler.ast.FunctionDecl;
@@ -16,7 +17,9 @@ import minic.compiler.ast.Statement;
 import minic.compiler.ast.VarDeclStmt;
 import minic.compiler.lexer.TokenKind;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,8 +28,8 @@ import java.util.Objects;
 /**
  * 将 MiniC AST 降到 v0.1 基础 IR。
  *
- * <p>A051 阶段只覆盖 return、整数字面量、形参读取、二元算术、括号表达式和基础函数调用。
- * 局部变量、赋值和运行时检查会在 A052 中补齐。</p>
+ * <p>当前覆盖 return、整数字面量、形参读取、局部变量、赋值、二元算术、括号表达式、
+ * 基础函数调用，以及未初始化读取和除零运行时检查插桩。</p>
  */
 public final class IrLowerer {
     /**
@@ -53,7 +56,9 @@ public final class IrLowerer {
         private final FunctionDecl function;
         private final ArrayList<IrInstruction> instructions = new ArrayList<>();
         private final Map<String, IrParameterRef> parameterRefs = new HashMap<>();
+        private final Deque<Map<String, IrLocal>> localScopes = new ArrayDeque<>();
         private int nextTemporaryIndex;
+        private int nextLocalIndex;
 
         private FunctionLowering(FunctionDecl function) {
             this.function = Objects.requireNonNull(function, "function");
@@ -67,14 +72,22 @@ public final class IrLowerer {
                 parameterRefs.put(parameter.name(), irParameter.ref());
             }
 
-            lowerBlock(function.body());
+            localScopes.push(new HashMap<>());
+            lowerBlock(function.body(), false);
+            localScopes.pop();
             IrBlock entry = new IrBlock("entry", instructions);
             return new IrFunction(function.name(), parameters, List.of(entry), function.range());
         }
 
-        private void lowerBlock(BlockStmt block) {
+        private void lowerBlock(BlockStmt block, boolean createChildScope) {
+            if (createChildScope) {
+                localScopes.push(new HashMap<>());
+            }
             for (Statement statement : block.statements()) {
                 lowerStatement(statement);
+            }
+            if (createChildScope) {
+                localScopes.pop();
             }
         }
 
@@ -86,15 +99,21 @@ public final class IrLowerer {
                 return;
             }
             if (statement instanceof BlockStmt blockStmt) {
-                lowerBlock(blockStmt);
+                lowerBlock(blockStmt, true);
                 return;
             }
             if (statement instanceof ExprStmt exprStmt) {
                 lowerExpression(exprStmt.expression());
                 return;
             }
-            if (statement instanceof VarDeclStmt) {
-                throw new IllegalArgumentException("local variables are not supported by A051 lowering");
+            if (statement instanceof VarDeclStmt varDeclStmt) {
+                IrLocal local = declareLocal(varDeclStmt);
+                instructions.add(new IrDeclareLocalInstruction(local, varDeclStmt.range()));
+                varDeclStmt.initializerOptional().ifPresent(initializer -> {
+                    IrValue value = lowerExpression(initializer);
+                    instructions.add(new IrStoreLocalInstruction(local, value, varDeclStmt.range()));
+                });
+                return;
             }
             throw new IllegalArgumentException("unsupported statement: " + statement.getClass().getSimpleName());
         }
@@ -104,20 +123,35 @@ public final class IrLowerer {
                 return new IrConstant(integerLiteralExpr.value());
             }
             if (expression instanceof NameExpr nameExpr) {
-                IrParameterRef parameterRef = parameterRefs.get(nameExpr.name());
-                if (parameterRef == null) {
-                    throw new IllegalArgumentException("only parameter references are supported by A051 lowering: "
-                            + nameExpr.name());
+                IrLocal local = resolveLocal(nameExpr.name());
+                if (local != null) {
+                    instructions.add(new IrCheckInitializedInstruction(local, nameExpr.range()));
+                    IrTemporary result = newTemporary();
+                    instructions.add(new IrLoadLocalInstruction(result, local, nameExpr.range()));
+                    return result;
                 }
-                return parameterRef;
+                return resolveParameter(nameExpr.name());
             }
             if (expression instanceof GroupingExpr groupingExpr) {
                 return lowerExpression(groupingExpr.expression());
+            }
+            if (expression instanceof AssignmentExpr assignmentExpr) {
+                IrLocal local = resolveLocal(assignmentExpr.targetName());
+                if (local == null) {
+                    throw new IllegalArgumentException("assignment target must be a local variable: "
+                            + assignmentExpr.targetName());
+                }
+                IrValue value = lowerExpression(assignmentExpr.value());
+                instructions.add(new IrStoreLocalInstruction(local, value, assignmentExpr.range()));
+                return value;
             }
             if (expression instanceof BinaryExpr binaryExpr) {
                 IrValue left = lowerExpression(binaryExpr.left());
                 IrValue right = lowerExpression(binaryExpr.right());
                 IrTemporary result = newTemporary();
+                if (binaryExpr.operator() == TokenKind.SLASH) {
+                    instructions.add(new IrCheckNonZeroInstruction(right, binaryExpr.range()));
+                }
                 instructions.add(new IrBinaryInstruction(
                         result,
                         lowerOperator(binaryExpr.operator()),
@@ -137,6 +171,35 @@ public final class IrLowerer {
                 return result;
             }
             throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
+        }
+
+        private IrLocal declareLocal(VarDeclStmt varDeclStmt) {
+            IrLocal local = new IrLocal(
+                    varDeclStmt.name() + "#" + nextLocalIndex++,
+                    varDeclStmt.name(),
+                    IrType.INT,
+                    varDeclStmt.range()
+            );
+            localScopes.peek().put(varDeclStmt.name(), local);
+            return local;
+        }
+
+        private IrLocal resolveLocal(String name) {
+            for (Map<String, IrLocal> scope : localScopes) {
+                IrLocal local = scope.get(name);
+                if (local != null) {
+                    return local;
+                }
+            }
+            return null;
+        }
+
+        private IrParameterRef resolveParameter(String name) {
+            IrParameterRef parameterRef = parameterRefs.get(name);
+            if (parameterRef == null) {
+                throw new IllegalArgumentException("unresolved value: " + name);
+            }
+            return parameterRef;
         }
 
         private IrTemporary newTemporary() {
