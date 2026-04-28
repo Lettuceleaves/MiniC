@@ -28,10 +28,54 @@ class WindowsX64AssemblyEmitterTest {
                 "PUBLIC main",
                 ".code",
                 "main PROC",
+                "    push rbp",
+                "    mov rbp, rsp",
                 "    mov eax, 1",
-                "    ret",
+                "    jmp main$epilogue",
+                "main$epilogue:",
                 "main ENDP",
                 "END"
+        );
+    }
+
+    @Test
+    void emitsWindowsX64AssemblyForLocalsAssignmentCallsAndRuntimeChecks() {
+        IrModule module = lower("""
+                int add(int a, int b) {
+                    return a + b;
+                }
+
+                int main() {
+                    int x = 4;
+                    x = add(x, 2);
+                    return x / 2;
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "add PROC",
+                "    mov DWORD PTR [rbp-4], ecx",
+                "    mov DWORD PTR [rbp-8], edx",
+                "    add eax, ecx",
+                "main PROC",
+                "    mov DWORD PTR [rbp-8], 1",
+                "    cmp DWORD PTR [rbp-8], 0",
+                "    je main$trap_uninitialized",
+                "    mov ecx, DWORD PTR [rbp-12]",
+                "    mov edx, 2",
+                "    call add",
+                "    cmp eax, 0",
+                "    je main$trap_divide_by_zero",
+                "    cdq",
+                "    idiv ecx",
+                "main$trap_uninitialized:",
+                "    mov eax, 101",
+                "    jmp main$epilogue",
+                "main$trap_divide_by_zero:",
+                "    mov eax, 102",
+                "    jmp main$epilogue"
         );
     }
 
