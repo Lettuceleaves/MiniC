@@ -48,7 +48,19 @@ public final class MiniCompiler {
      * @return 编译结果
      */
     public CompileResult compile(SourceFile sourceFile) {
+        return compile(sourceFile, CompileOptions.assemblyOnly());
+    }
+
+    /**
+     * 使用指定选项编译源码。
+     *
+     * @param sourceFile 源码文件
+     * @param options 编译选项
+     * @return 编译结果
+     */
+    public CompileResult compile(SourceFile sourceFile, CompileOptions options) {
         Objects.requireNonNull(sourceFile, "sourceFile");
+        Objects.requireNonNull(options, "options");
         LexResult lexResult = new Lexer(sourceFile).lex();
         if (!lexResult.diagnostics().isEmpty()) {
             return new CompileResult(lexResult, null, null, null, null, ToolchainResult.notRun());
@@ -66,13 +78,21 @@ public final class MiniCompiler {
 
         IrModule irModule = new IrLowerer().lower(parseResult.program());
         AssemblySource assemblySource = assemblyEmitter.emit(irModule);
+        ToolchainResult toolchainResult = options.runToolchain()
+                ? options.toolchain().buildExecutable(
+                        sourceFile,
+                        assemblySource,
+                        options.outputDirectory(),
+                        options.artifactName()
+                )
+                : ToolchainResult.notRun();
         return new CompileResult(
                 lexResult,
                 parseResult,
                 semanticResult,
                 irModule,
                 assemblySource,
-                ToolchainResult.notRun()
+                toolchainResult
         );
     }
 }

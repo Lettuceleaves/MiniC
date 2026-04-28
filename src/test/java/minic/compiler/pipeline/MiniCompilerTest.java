@@ -1,12 +1,23 @@
 package minic.compiler.pipeline;
 
 import minic.compiler.codegen.target.TargetPlatform;
+import minic.compiler.codegen.AssemblySource;
+import minic.compiler.toolchain.ExecutableArtifact;
+import minic.compiler.toolchain.Toolchain;
+import minic.compiler.toolchain.ToolchainResult;
 import minic.source.SourceFile;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class MiniCompilerTest {
+    @TempDir
+    Path tempDir;
+
     @Test
     void compilesSourceThroughAssemblyAndKeepsIntermediateResults() {
         SourceFile sourceFile = new SourceFile("main.mc", """
@@ -69,5 +80,29 @@ class MiniCompilerTest {
         assertThat(result.semanticResultOptional()).isEmpty();
         assertThat(result.irModuleOptional()).isEmpty();
         assertThat(result.assemblySourceOptional()).isEmpty();
+    }
+
+    @Test
+    void canRunConfiguredToolchainAndKeepExecutableArtifact() {
+        SourceFile sourceFile = new SourceFile("main.mc", "int main() { return 1; }");
+        Toolchain toolchain = (source, assembly, outputDirectory, artifactName) -> new ToolchainResult(
+                outputDirectory.resolve(artifactName + ".asm"),
+                outputDirectory.resolve(artifactName + ".obj"),
+                new ExecutableArtifact(outputDirectory.resolve(artifactName + ".exe")),
+                List.of()
+        );
+
+        CompileResult result = new MiniCompiler().compile(
+                sourceFile,
+                new CompileOptions(tempDir, "main", true, toolchain)
+        );
+
+        assertThat(result.succeeded()).isTrue();
+        assertThat(result.assemblySourceOptional()).map(AssemblySource::entrySymbol).contains("main");
+        assertThat(result.toolchainResult().assemblyPathOptional()).contains(tempDir.resolve("main.asm"));
+        assertThat(result.toolchainResult().objectPathOptional()).contains(tempDir.resolve("main.obj"));
+        assertThat(result.toolchainResult().executableArtifactOptional())
+                .map(ExecutableArtifact::path)
+                .contains(tempDir.resolve("main.exe"));
     }
 }
