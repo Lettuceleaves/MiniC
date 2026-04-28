@@ -55,7 +55,7 @@ class WindowsX64AssemblyEmitterTest {
         AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
 
         assertThat(assemblySource.text()).contains(
-                "add PROC",
+                "minic$add PROC",
                 "    mov DWORD PTR [rbp-4], ecx",
                 "    mov DWORD PTR [rbp-8], edx",
                 "    add eax, ecx",
@@ -65,7 +65,7 @@ class WindowsX64AssemblyEmitterTest {
                 "    je main$trap_uninitialized",
                 "    mov ecx, DWORD PTR [rbp-12]",
                 "    mov edx, 2",
-                "    call add",
+                "    call minic$add",
                 "    cmp eax, 0",
                 "    je main$trap_divide_by_zero",
                 "    cdq",

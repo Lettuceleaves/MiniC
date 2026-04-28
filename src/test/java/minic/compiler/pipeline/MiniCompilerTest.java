@@ -43,7 +43,7 @@ class MiniCompilerTest {
         assertThat(result.irModuleOptional()).isPresent();
         assertThat(result.assemblySourceOptional()).hasValueSatisfying(assemblySource -> {
             assertThat(assemblySource.targetPlatform()).isEqualTo(TargetPlatform.WINDOWS_X86_64);
-            assertThat(assemblySource.text()).contains("add PROC", "main PROC", "    call add");
+            assertThat(assemblySource.text()).contains("minic$add PROC", "main PROC", "    call minic$add");
         });
         assertThat(result.toolchainResult().assemblyPathOptional()).isEmpty();
         assertThat(result.toolchainResult().objectPathOptional()).isEmpty();

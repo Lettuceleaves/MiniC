@@ -68,7 +68,13 @@ public final class WindowsMsvcToolchain implements Toolchain {
         if (!runCommand(
                 sourceFile,
                 diagnostics,
-                List.of(assemblerCommand, "/c", "/Fo:" + objectPath, assemblyPath.toString()),
+                List.of(
+                        assemblerCommand,
+                        "/c",
+                        "/Fo",
+                        objectPath.toAbsolutePath().toString(),
+                        assemblyPath.toAbsolutePath().toString()
+                ),
                 outputDirectory,
                 "汇编失败"
         )) {
@@ -82,8 +88,8 @@ public final class WindowsMsvcToolchain implements Toolchain {
                         linkerCommand,
                         "/ENTRY:" + assemblySource.entrySymbol(),
                         "/SUBSYSTEM:CONSOLE",
-                        "/OUT:" + executablePath,
-                        objectPath.toString()
+                        "/OUT:" + executablePath.toAbsolutePath(),
+                        objectPath.toAbsolutePath().toString()
                 ),
                 outputDirectory,
                 "链接失败"

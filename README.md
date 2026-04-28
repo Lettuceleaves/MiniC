@@ -10,6 +10,45 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器与 d
 - [PLAN.md](PLAN.md)：agent 小步执行计划，每次只做一个可验收任务
 - [README.md](README.md)：项目入口
 
+## 本地编译为 exe
+
+Windows x64 可执行文件生成依赖 Visual Studio 2022 Build Tools 的 C++ 工具链，必须能使用 `ml64.exe` 和 `link.exe`。
+
+本机安装命令：
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools --source winget --accept-package-agreements --accept-source-agreements --override "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+在普通 PowerShell 中可通过 `VsDevCmd.bat` 临时启用 x64 工具链环境：
+
+```powershell
+cmd /c "`"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat`" -arch=x64 && where ml64 && where link"
+```
+
+编译样例并生成可执行文件。下面命令显式传入本机已验证的 `ml64.exe` 和 `link.exe` 路径，并使用 `--no-daemon` 避免 Gradle daemon 复用未加载 MSVC 环境的旧进程：
+
+```powershell
+cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && set "JAVA_HOME=E:\projects\MiniC\.local\tools\jdk-21.0.10+7" && set "PATH=E:\projects\MiniC\.local\tools\jdk-21.0.10+7\bin;%PATH%" && set "GRADLE_USER_HOME=E:\projects\MiniC\.gradle-home" && .\gradlew --no-daemon run --args="compile samples\main.mc --out-dir build\minic --emit-asm --ml64 \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\ml64.exe\" --link \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\link.exe\""'
+```
+
+成功后产物位于：
+
+```text
+build\minic\main.asm
+build\minic\main.obj
+build\minic\main.exe
+```
+
+运行可执行文件并查看退出码：
+
+```powershell
+.\build\minic\main.exe
+$LASTEXITCODE
+```
+
+`samples\main.mc` 当前返回 `add(1, 2)` 的结果，期望退出码是 `3`。
+
 ## 协作规则
 
 - 全程使用中文沟通、记录需求、编写文档和汇报结果。

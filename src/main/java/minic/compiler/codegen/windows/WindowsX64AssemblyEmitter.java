@@ -50,8 +50,9 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
 
     private void emitFunction(StringBuilder builder, IrFunction function) {
         FunctionFrame frame = FunctionFrame.create(function);
-        String epilogueLabel = function.name() + "$epilogue";
-        builder.append(function.name()).append(" PROC").append(System.lineSeparator());
+        String functionSymbol = symbolName(function.name());
+        String epilogueLabel = functionSymbol + "$epilogue";
+        builder.append(functionSymbol).append(" PROC").append(System.lineSeparator());
         builder.append("    push rbp").append(System.lineSeparator());
         builder.append("    mov rbp, rsp").append(System.lineSeparator());
         if (frame.frameSize() > 0) {
@@ -59,15 +60,15 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
         }
         emitParameterStores(builder, function, frame);
         for (IrInstruction instruction : function.blocks().getFirst().instructions()) {
-            emitInstruction(builder, frame, function.name(), epilogueLabel, instruction);
+            emitInstruction(builder, frame, functionSymbol, epilogueLabel, instruction);
         }
-        emitFunctionTrap(builder, function.name(), "uninitialized", 101, epilogueLabel);
-        emitFunctionTrap(builder, function.name(), "divide_by_zero", 102, epilogueLabel);
+        emitFunctionTrap(builder, functionSymbol, "uninitialized", 101, epilogueLabel);
+        emitFunctionTrap(builder, functionSymbol, "divide_by_zero", 102, epilogueLabel);
         builder.append(epilogueLabel).append(":").append(System.lineSeparator());
         builder.append("    mov rsp, rbp").append(System.lineSeparator());
         builder.append("    pop rbp").append(System.lineSeparator());
         builder.append("    ret").append(System.lineSeparator());
-        builder.append(function.name()).append(" ENDP").append(System.lineSeparator());
+        builder.append(functionSymbol).append(" ENDP").append(System.lineSeparator());
     }
 
     private void emitParameterStores(StringBuilder builder, IrFunction function, FunctionFrame frame) {
@@ -158,7 +159,7 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
         for (int index = 0; index < call.arguments().size(); index++) {
             emitLoadValue(builder, frame, call.arguments().get(index), INTEGER_ARGUMENT_REGISTERS.get(index));
         }
-        builder.append("    call ").append(call.calleeName()).append(System.lineSeparator());
+        builder.append("    call ").append(symbolName(call.calleeName())).append(System.lineSeparator());
         builder.append("    mov ").append(frame.temporarySlot(call.result()))
                 .append(", eax").append(System.lineSeparator());
     }
@@ -191,6 +192,13 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
         builder.append(functionName).append("$trap_").append(trapName).append(":").append(System.lineSeparator());
         builder.append("    mov eax, ").append(exitCode).append(System.lineSeparator());
         builder.append("    jmp ").append(epilogueLabel).append(System.lineSeparator());
+    }
+
+    private String symbolName(String functionName) {
+        if (ENTRY_SYMBOL.equals(functionName)) {
+            return ENTRY_SYMBOL;
+        }
+        return "minic$" + functionName;
     }
 
     private record FunctionFrame(
