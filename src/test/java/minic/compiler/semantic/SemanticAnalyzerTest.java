@@ -16,7 +16,47 @@ class SemanticAnalyzerTest {
 
         assertThat(result.diagnostics())
                 .extracting(diagnostic -> diagnostic.message())
-                .containsExactly("重复函数定义：main");
+                .containsExactly("重复函数签名：main/0");
+    }
+
+    @Test
+    void reportsInvalidFunctionNames() {
+        SemanticResult result = analyze("int _helper() { return 1; } int main() { return 0; }");
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("非法函数名：_helper");
+    }
+
+    @Test
+    void reportsInvalidMainSignature() {
+        SemanticResult result = analyze("int main(int argc) { return argc; }");
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("非法 main 函数签名：main 必须无参数");
+    }
+
+    @Test
+    void reportsUserFunctionsWithTooManyParameters() {
+        SemanticResult result = analyze("""
+                int too_many(int a, int b, int c, int d, int e) { return a; }
+                int main() { return 0; }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("非法函数签名：too_many 参数数量不能超过 4");
+    }
+
+    @Test
+    void acceptsValidFunctionNamesAndSignatures() {
+        SemanticResult result = analyze("""
+                int helper_1(int a, int b, int c, int d) { return a; }
+                int main() { return helper_1(1, 2, 3, 4); }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
     }
 
     @Test

@@ -27,6 +27,7 @@ import java.util.Objects;
  * MiniC 语义分析器。
  */
 public final class SemanticAnalyzer {
+    private static final int MAX_USER_FUNCTION_PARAMETERS = 4;
     private final List<Diagnostic> diagnostics = new ArrayList<>();
     private Scope globalScope;
 
@@ -50,6 +51,8 @@ public final class SemanticAnalyzer {
 
     private void defineFunctions(Program program) {
         for (FunctionDecl functionDecl : program.functions()) {
+            validateFunctionName(functionDecl);
+            validateFunctionSignature(functionDecl);
             Symbol symbol = new Symbol(
                     functionDecl.name(),
                     SymbolKind.FUNCTION,
@@ -57,7 +60,7 @@ public final class SemanticAnalyzer {
                     functionDecl.parameters().size()
             );
             if (!globalScope.define(symbol)) {
-                report(functionDecl.range(), "重复函数定义：" + functionDecl.name());
+                report(functionDecl.range(), "重复函数签名：" + functionSignature(functionDecl));
             }
         }
     }
@@ -66,6 +69,52 @@ public final class SemanticAnalyzer {
         if (globalScope.resolve("main").filter(symbol -> symbol.kind() == SymbolKind.FUNCTION).isEmpty()) {
             report(program.range(), "缺少 main 函数");
         }
+    }
+
+    private void validateFunctionName(FunctionDecl functionDecl) {
+        String name = functionDecl.name();
+        if (!isValidFunctionName(name)) {
+            report(functionDecl.range(), "非法函数名：" + name);
+        }
+    }
+
+    private boolean isValidFunctionName(String name) {
+        if (name.isEmpty() || name.charAt(0) == '_') {
+            return false;
+        }
+        if (!isAsciiLetter(name.charAt(0))) {
+            return false;
+        }
+        for (int index = 1; index < name.length(); index++) {
+            char character = name.charAt(index);
+            if (!isAsciiLetter(character) && !isAsciiDigit(character) && character != '_') {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isAsciiLetter(char character) {
+        return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z');
+    }
+
+    private boolean isAsciiDigit(char character) {
+        return character >= '0' && character <= '9';
+    }
+
+    private void validateFunctionSignature(FunctionDecl functionDecl) {
+        if ("main".equals(functionDecl.name()) && !functionDecl.parameters().isEmpty()) {
+            report(functionDecl.range(), "非法 main 函数签名：main 必须无参数");
+        }
+        if (!"main".equals(functionDecl.name())
+                && functionDecl.parameters().size() > MAX_USER_FUNCTION_PARAMETERS) {
+            report(functionDecl.range(), "非法函数签名：" + functionDecl.name() + " 参数数量不能超过 "
+                    + MAX_USER_FUNCTION_PARAMETERS);
+        }
+    }
+
+    private String functionSignature(FunctionDecl functionDecl) {
+        return functionDecl.name() + "/" + functionDecl.parameters().size();
     }
 
     private void analyzeFunction(FunctionDecl functionDecl) {
