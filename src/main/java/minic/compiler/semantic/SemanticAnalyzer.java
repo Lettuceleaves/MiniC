@@ -29,7 +29,6 @@ import java.util.Objects;
  * MiniC 语义分析器。
  */
 public final class SemanticAnalyzer {
-    private static final int MAX_USER_FUNCTION_PARAMETERS = 4;
     private final List<Diagnostic> diagnostics = new ArrayList<>();
     private final Map<String, FunctionState> functionStates = new HashMap<>();
     private Scope globalScope;
@@ -125,11 +124,6 @@ public final class SemanticAnalyzer {
     private void validateFunctionSignature(FunctionDecl functionDecl) {
         if ("main".equals(functionDecl.name()) && !functionDecl.parameters().isEmpty()) {
             report(functionDecl.range(), "非法 main 函数签名：main 必须无参数");
-        }
-        if (!"main".equals(functionDecl.name())
-                && functionDecl.parameters().size() > MAX_USER_FUNCTION_PARAMETERS) {
-            report(functionDecl.range(), "非法函数签名：" + functionDecl.name() + " 参数数量不能超过 "
-                    + MAX_USER_FUNCTION_PARAMETERS);
         }
     }
 

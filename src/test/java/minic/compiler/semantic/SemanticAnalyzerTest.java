@@ -97,15 +97,13 @@ class SemanticAnalyzerTest {
     }
 
     @Test
-    void reportsUserFunctionsWithTooManyParameters() {
+    void acceptsUserFunctionsWithStackPassedParameters() {
         SemanticResult result = analyze("""
-                int too_many(int a, int b, int c, int d, int e) { return a; }
-                int main() { return 0; }
+                int sum6(int a, int b, int c, int d, int e, int f) { return a + b + c + d + e + f; }
+                int main() { return sum6(1, 2, 3, 4, 5, 6); }
                 """);
 
-        assertThat(result.diagnostics())
-                .extracting(diagnostic -> diagnostic.message())
-                .containsExactly("非法函数签名：too_many 参数数量不能超过 4");
+        assertThat(result.diagnostics()).isEmpty();
     }
 
     @Test

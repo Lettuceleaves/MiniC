@@ -56,14 +56,14 @@ class WindowsX64AssemblyEmitterTest {
 
         assertThat(assemblySource.text()).contains(
                 "minic$add PROC",
-                "    mov DWORD PTR [rbp-4], ecx",
-                "    mov DWORD PTR [rbp-8], edx",
+                "    mov DWORD PTR [rbp-36], ecx",
+                "    mov DWORD PTR [rbp-40], edx",
                 "    add eax, ecx",
                 "main PROC",
-                "    mov DWORD PTR [rbp-8], 1",
-                "    cmp DWORD PTR [rbp-8], 0",
+                "    mov DWORD PTR [rbp-40], 1",
+                "    cmp DWORD PTR [rbp-40], 0",
                 "    je main$trap_uninitialized",
-                "    mov ecx, DWORD PTR [rbp-12]",
+                "    mov ecx, DWORD PTR [rbp-44]",
                 "    mov edx, 2",
                 "    call minic$add",
                 "    cmp eax, 0",
@@ -76,6 +76,59 @@ class WindowsX64AssemblyEmitterTest {
                 "main$trap_divide_by_zero:",
                 "    mov eax, 102",
                 "    jmp main$epilogue"
+        );
+    }
+
+    @Test
+    void emitsWindowsX64AssemblyForStackPassedArguments() {
+        IrModule module = lower("""
+                int pick6(int a, int b, int c, int d, int e, int f) {
+                    return e + f;
+                }
+
+                int main() {
+                    return pick6(1, 2, 3, 4, 5, 6);
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "minic$pick6 PROC",
+                "    mov eax, DWORD PTR [rbp+48]",
+                "    mov DWORD PTR [rbp-52], eax",
+                "    mov eax, DWORD PTR [rbp+56]",
+                "    mov DWORD PTR [rbp-56], eax",
+                "main PROC",
+                "    mov eax, 5",
+                "    mov DWORD PTR [rsp+32], eax",
+                "    mov eax, 6",
+                "    mov DWORD PTR [rsp+40], eax",
+                "    mov ecx, 1",
+                "    mov edx, 2",
+                "    mov r8d, 3",
+                "    mov r9d, 4",
+                "    call minic$pick6"
+        );
+    }
+
+    @Test
+    void emitsRecursiveCallTarget() {
+        IrModule module = lower("""
+                int recur() {
+                    return recur();
+                }
+
+                int main() {
+                    return 0;
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "minic$recur PROC",
+                "    call minic$recur"
         );
     }
 

@@ -153,11 +153,15 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
     }
 
     private void emitCall(StringBuilder builder, FunctionFrame frame, IrCallInstruction call) {
-        if (call.arguments().size() > 4) {
-            throw new IllegalArgumentException("A060 emitter supports up to four call arguments");
+        for (int index = INTEGER_ARGUMENT_REGISTERS.size(); index < call.arguments().size(); index++) {
+            emitLoadValue(builder, frame, call.arguments().get(index), "eax");
+            builder.append("    mov ").append(frame.outgoingStackArgumentSlot(index)).append(", eax")
+                    .append(System.lineSeparator());
         }
         for (int index = 0; index < call.arguments().size(); index++) {
-            emitLoadValue(builder, frame, call.arguments().get(index), INTEGER_ARGUMENT_REGISTERS.get(index));
+            if (index < INTEGER_ARGUMENT_REGISTERS.size()) {
+                emitLoadValue(builder, frame, call.arguments().get(index), INTEGER_ARGUMENT_REGISTERS.get(index));
+            }
         }
         builder.append("    call ").append(symbolName(call.calleeName())).append(System.lineSeparator());
         builder.append("    mov ").append(frame.temporarySlot(call.result()))
@@ -206,6 +210,7 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
             Map<String, Integer> localOffsets,
             Map<String, Integer> localInitializedOffsets,
             Map<String, Integer> temporaryOffsets,
+            int outgoingArgumentAreaSize,
             int frameSize
     ) {
         private static FunctionFrame create(IrFunction function) {
@@ -213,6 +218,7 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
             LinkedHashMap<String, Integer> localOffsets = new LinkedHashMap<>();
             LinkedHashMap<String, Integer> localInitializedOffsets = new LinkedHashMap<>();
             LinkedHashMap<String, Integer> temporaryOffsets = new LinkedHashMap<>();
+            int outgoingArgumentAreaSize = collectOutgoingArgumentAreaSize(function);
             int nextOffset = 0;
             for (IrParameter parameter : function.parameters()) {
                 nextOffset += 4;
@@ -227,14 +233,26 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
                         nextOffset
                 );
             }
-            int frameSize = alignTo16(Math.max(32, nextOffset));
+            int frameSize = alignTo16(outgoingArgumentAreaSize + nextOffset);
             return new FunctionFrame(
                     parameterOffsets,
                     localOffsets,
                     localInitializedOffsets,
                     temporaryOffsets,
+                    outgoingArgumentAreaSize,
                     frameSize
             );
+        }
+
+        private static int collectOutgoingArgumentAreaSize(IrFunction function) {
+            int maxArgumentCount = 0;
+            for (IrInstruction instruction : function.blocks().getFirst().instructions()) {
+                if (instruction instanceof IrCallInstruction call) {
+                    maxArgumentCount = Math.max(maxArgumentCount, call.arguments().size());
+                }
+            }
+            int stackArgumentCount = Math.max(0, maxArgumentCount - INTEGER_ARGUMENT_REGISTERS.size());
+            return alignTo16(32 + stackArgumentCount * 8);
         }
 
         private static int collectSlots(
@@ -308,11 +326,19 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
             return stackSlot(temporaryOffsets.get(temporary.name()));
         }
 
+        private String outgoingStackArgumentSlot(int argumentIndex) {
+            if (argumentIndex < INTEGER_ARGUMENT_REGISTERS.size()) {
+                throw new IllegalArgumentException("register argument has no outgoing stack slot");
+            }
+            int stackOffset = 32 + (argumentIndex - INTEGER_ARGUMENT_REGISTERS.size()) * 8;
+            return "DWORD PTR [rsp+" + stackOffset + "]";
+        }
+
         private String stackSlot(Integer offset) {
             if (offset == null) {
                 throw new IllegalArgumentException("missing stack slot");
             }
-            return "DWORD PTR [rbp-" + offset + "]";
+            return "DWORD PTR [rbp-" + (outgoingArgumentAreaSize + offset) + "]";
         }
     }
 }
