@@ -30,7 +30,7 @@ import java.util.Objects;
  *
  * <p>当前阶段覆盖函数声明和基础语句级别的语法：
  * {@code program ::= functionDecl* EOF}，
- * {@code functionDecl ::= "int" identifier "(" parameterList? ")" block}。</p>
+ * {@code functionDecl ::= "int" identifier "(" parameterList? ")" (block | ";")}。</p>
  *
  * <p>解析器不直接读取源码文本，而是消费 lexer 产出的 token 列表。它维护一个
  * 指向“当前待消费 token”的游标 {@code currentIndex}；所有解析方法都通过
@@ -115,12 +115,19 @@ public final class Parser {
         consume(TokenKind.LEFT_PAREN, "期望 '('");
         List<Parameter> parameters = parseParameters();
         consume(TokenKind.RIGHT_PAREN, "期望 ')'");
-        BlockStmt body = parseBlock();
+        Token semicolonToken = null;
+        BlockStmt body = null;
+        if (match(TokenKind.SEMICOLON)) {
+            semicolonToken = previous();
+        } else {
+            body = parseBlock();
+        }
 
         // 函数名和结束位置是构造 FunctionDecl 的最低必要信息。
-        if (nameToken == null || body == null) {
+        if (nameToken == null || (body == null && semicolonToken == null)) {
             return null;
         }
+        int endOffset = body != null ? body.range().endOffset() : semicolonToken.range().endOffset();
         return new FunctionDecl(
                 nameToken.lexeme(),
                 parameters,
@@ -128,7 +135,7 @@ public final class Parser {
                 new SourceRange(
                         startToken.range().sourceFile(),
                         startToken.range().startOffset(),
-                        body.range().endOffset()
+                        endOffset
                 )
         );
     }

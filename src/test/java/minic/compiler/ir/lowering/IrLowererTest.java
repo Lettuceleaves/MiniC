@@ -28,6 +28,19 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class IrLowererTest {
     @Test
+    void skipsFunctionDeclarationsWithoutBodies() {
+        Program program = parse("""
+                int add(int a, int b);
+                int main() { return 0; }
+                int add(int a, int b) { return a + b; }
+                """);
+
+        IrModule module = new IrLowerer().lower(program);
+
+        assertThat(module.functions()).extracting(IrFunction::name).containsExactly("main", "add");
+    }
+
+    @Test
     void lowersReturnLiteralArithmeticAndCallInEvaluationOrder() {
         Program program = parse("""
                 int add(int a, int b) {

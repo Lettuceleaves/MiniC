@@ -26,6 +26,8 @@ class DeclarationAstTest {
         assertThat(program.range()).isSameAs(programRange);
         assertThat(functionDecl.name()).isEqualTo("add");
         assertThat(functionDecl.parameters()).containsExactly(parameter);
+        assertThat(functionDecl.hasBody()).isFalse();
+        assertThat(functionDecl.bodyOptional()).isEmpty();
         assertThat(functionDecl.range()).isSameAs(functionRange);
         assertThat(parameter.name()).isEqualTo("x");
         assertThat(parameter.range()).isSameAs(parameterRange);

@@ -62,7 +62,9 @@ public final class IrLowerer {
         Objects.requireNonNull(program, "program");
         ArrayList<IrFunction> functions = new ArrayList<>();
         for (FunctionDecl function : program.functions()) {
-            functions.add(lowerFunction(function));
+            if (function.hasBody()) {
+                functions.add(lowerFunction(function));
+            }
         }
         return new IrModule(functions);
     }
@@ -93,7 +95,7 @@ public final class IrLowerer {
             }
 
             localScopes.push(new HashMap<>());
-            lowerBlock(function.body(), false);
+            lowerBlock(function.bodyOptional().orElseThrow(), false);
             localScopes.pop();
             IrBlock entry = new IrBlock("entry", instructions);
             return new IrFunction(function.name(), parameters, List.of(entry), function.range());

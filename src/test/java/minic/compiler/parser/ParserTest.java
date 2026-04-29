@@ -45,8 +45,27 @@ class ParserTest {
         FunctionDecl functionDecl = result.program().functions().getFirst();
         assertThat(functionDecl.name()).isEqualTo("main");
         assertThat(functionDecl.parameters()).isEmpty();
+        assertThat(functionDecl.hasBody()).isTrue();
         assertThat(functionDecl.body().statements()).isEmpty();
         assertThat(functionDecl.range()).isEqualTo(new SourceRange(sourceFile, 0, 13));
+    }
+
+    @Test
+    void parsesFunctionDeclarationWithoutBody() {
+        SourceFile sourceFile = new SourceFile("decl.mc", "int add(int left, int right); int main() { return 0; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.program().functions()).hasSize(2);
+        FunctionDecl declaration = result.program().functions().getFirst();
+        assertThat(declaration.name()).isEqualTo("add");
+        assertThat(declaration.parameters())
+                .extracting(parameter -> parameter.name())
+                .containsExactly("left", "right");
+        assertThat(declaration.hasBody()).isFalse();
+        assertThat(declaration.bodyOptional()).isEmpty();
+        assertThat(declaration.range()).isEqualTo(new SourceRange(sourceFile, 0, 29));
     }
 
     @Test

@@ -16,7 +16,66 @@ class SemanticAnalyzerTest {
 
         assertThat(result.diagnostics())
                 .extracting(diagnostic -> diagnostic.message())
-                .containsExactly("重复函数签名：main/0");
+                .containsExactly("重复函数定义：main/0");
+    }
+
+    @Test
+    void acceptsFunctionDeclarationBeforeDefinition() {
+        SemanticResult result = analyze("""
+                int add(int a, int b);
+                int main() { return add(1, 2); }
+                int add(int a, int b) { return a + b; }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+    }
+
+    @Test
+    void reportsDuplicateFunctionDefinitionsAfterDeclaration() {
+        SemanticResult result = analyze("""
+                int helper();
+                int helper() { return 1; }
+                int helper() { return 2; }
+                int main() { return helper(); }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("重复函数定义：helper/0");
+    }
+
+    @Test
+    void reportsDeclaredFunctionCallWithoutDefinition() {
+        SemanticResult result = analyze("""
+                int helper();
+                int main() { return helper(); }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("未定义函数调用：helper");
+    }
+
+    @Test
+    void reportsFunctionDeclarationSignatureMismatch() {
+        SemanticResult result = analyze("""
+                int helper(int value);
+                int helper() { return 1; }
+                int main() { return 0; }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("函数声明签名不一致：helper");
+    }
+
+    @Test
+    void reportsMainDeclarationWithoutDefinition() {
+        SemanticResult result = analyze("int main();");
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("缺少 main 函数定义");
     }
 
     @Test

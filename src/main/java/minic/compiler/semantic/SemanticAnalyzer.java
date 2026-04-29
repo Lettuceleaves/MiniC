@@ -20,7 +20,9 @@ import minic.diagnostics.DiagnosticSeverity;
 import minic.source.SourceRange;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -29,6 +31,7 @@ import java.util.Objects;
 public final class SemanticAnalyzer {
     private static final int MAX_USER_FUNCTION_PARAMETERS = 4;
     private final List<Diagnostic> diagnostics = new ArrayList<>();
+    private final Map<String, FunctionState> functionStates = new HashMap<>();
     private Scope globalScope;
 
     /**
@@ -40,11 +43,14 @@ public final class SemanticAnalyzer {
     public SemanticResult analyze(Program program) {
         Objects.requireNonNull(program, "program");
         diagnostics.clear();
+        functionStates.clear();
         globalScope = new Scope();
         defineFunctions(program);
         validateMain(program);
         for (FunctionDecl functionDecl : program.functions()) {
-            analyzeFunction(functionDecl);
+            if (functionDecl.hasBody()) {
+                analyzeFunction(functionDecl);
+            }
         }
         return new SemanticResult(globalScope, diagnostics);
     }
@@ -53,21 +59,35 @@ public final class SemanticAnalyzer {
         for (FunctionDecl functionDecl : program.functions()) {
             validateFunctionName(functionDecl);
             validateFunctionSignature(functionDecl);
-            Symbol symbol = new Symbol(
-                    functionDecl.name(),
-                    SymbolKind.FUNCTION,
-                    functionDecl.range(),
-                    functionDecl.parameters().size()
-            );
-            if (!globalScope.define(symbol)) {
-                report(functionDecl.range(), "重复函数签名：" + functionSignature(functionDecl));
+            String name = functionDecl.name();
+            int arity = functionDecl.parameters().size();
+            FunctionState existingState = functionStates.get(name);
+            if (existingState == null) {
+                Symbol symbol = new Symbol(name, SymbolKind.FUNCTION, functionDecl.range(), arity);
+                globalScope.define(symbol);
+                functionStates.put(name, new FunctionState(arity, functionDecl.hasBody()));
+                continue;
+            }
+            if (existingState.arity() != arity) {
+                report(functionDecl.range(), "函数声明签名不一致：" + name);
+                continue;
+            }
+            if (functionDecl.hasBody()) {
+                if (existingState.defined()) {
+                    report(functionDecl.range(), "重复函数定义：" + functionSignature(functionDecl));
+                } else {
+                    functionStates.put(name, existingState.asDefined());
+                }
             }
         }
     }
 
     private void validateMain(Program program) {
-        if (globalScope.resolve("main").filter(symbol -> symbol.kind() == SymbolKind.FUNCTION).isEmpty()) {
+        FunctionState mainState = functionStates.get("main");
+        if (mainState == null) {
             report(program.range(), "缺少 main 函数");
+        } else if (!mainState.defined()) {
+            report(program.range(), "缺少 main 函数定义");
         }
     }
 
@@ -122,7 +142,7 @@ public final class SemanticAnalyzer {
         for (Parameter parameter : functionDecl.parameters()) {
             defineVariable(functionScope, parameter.name(), parameter.range());
         }
-        analyzeBlock(functionDecl.body(), functionScope, false);
+        analyzeBlock(functionDecl.bodyOptional().orElseThrow(), functionScope, false);
     }
 
     private void analyzeBlock(BlockStmt blockStmt, Scope parentScope, boolean createChildScope) {
@@ -197,6 +217,10 @@ public final class SemanticAnalyzer {
             report(callExpr.range(), "未解析函数调用：" + callExpr.calleeName());
             return;
         }
+        FunctionState functionState = functionStates.get(callExpr.calleeName());
+        if (functionState != null && !functionState.defined()) {
+            report(callExpr.range(), "未定义函数调用：" + callExpr.calleeName());
+        }
         Integer arity = functionSymbol.orElseThrow().arity();
         if (arity != null && arity != callExpr.arguments().size()) {
             report(callExpr.range(), "函数调用实参数量不匹配：" + callExpr.calleeName());
@@ -205,5 +229,11 @@ public final class SemanticAnalyzer {
 
     private void report(SourceRange range, String message) {
         diagnostics.add(new Diagnostic("SEM001", DiagnosticSeverity.ERROR, message, range));
+    }
+
+    private record FunctionState(int arity, boolean defined) {
+        private FunctionState asDefined() {
+            return new FunctionState(arity, true);
+        }
     }
 }
