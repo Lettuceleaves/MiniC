@@ -158,7 +158,18 @@ minic.cli
   - `minic.compiler.ir.model`：模块、函数、基本块、类型、局部变量和形参等结构模型。
   - `minic.compiler.ir.value`：常量、临时值、引用值等可作为操作数的值。
   - `minic.compiler.ir.instruction`：所有 IR 指令和指令操作符。
-  - `minic.compiler.ir.lowering`：AST 到 IR 的 lowering、后续 IR 构造辅助逻辑。
+  - `minic.compiler.ir.lowering`：AST 到 IR 的 lowering；函数级 builder、语句 lowering、表达式 lowering 和控制流 lowering 应按职责拆分。
+- Parser 按职责拆分：
+  - 入口 `Parser` 只负责编排 token 流、组装 `ParseResult` 和 `Program` 范围。
+  - 声明、语句、表达式解析分别放入独立 parser 类；新增语法优先扩展对应职责类。
+  - token 游标、消费、诊断和错误恢复集中在共享 parser state 中。
+- Semantic 按职责拆分：
+  - 入口 `SemanticAnalyzer` 只负责编排符号收集和 AST 遍历。
+  - 函数声明/定义、外部函数、调用解析等全局函数规则由函数注册组件维护。
+  - 语句分析、表达式分析和后续类型检查应拆到独立组件。
+- Windows x86_64 codegen 按职责拆分：
+  - 顶层 emitter 只负责编排模块、函数和汇编段结构。
+  - 调用约定、栈帧布局、IR 指令输出、IR 值装载分别放入独立组件。
 - 测试包结构应尽量镜像生产代码包结构，避免测试根目录继续堆积同类文件。
 - 新增语言能力时优先放入已有职责子包；只有出现新的稳定职责边界时才新增子包。
 

@@ -328,9 +328,19 @@ gradle test
 
 验证：`./gradlew test`
 
-### A081：添加 if 和 else
+### A080R：拆分语法扩展前的核心职责
 
 依赖：A080。
+
+目标：在继续添加控制流前，拆分 parser、semantic analyzer、IR lowering 和 Windows x64 codegen 中已经膨胀的职责边界。
+
+验收：`Parser` 只保留入口编排；声明、语句、表达式解析拆到独立类；语义分析拆出函数注册、语句分析和表达式分析；IR lowering 拆出函数 builder、语句 lowering 和表达式 lowering；Windows x64 codegen 拆出调用约定、栈帧布局、值装载和指令输出；现有语言行为不变。
+
+验证：`./gradlew test`
+
+### A081：添加 if 和 else
+
+依赖：A080R。
 
 目标：支持 `if`、`else` 语句及其 CFG lowering。
 
