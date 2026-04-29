@@ -113,6 +113,28 @@ class IrLowererTest {
     }
 
     @Test
+    void lowersComparisonOperators() {
+        Program program = parse("int main() { return 1 < 2 == 3 != 4 <= 5 > 6 >= 7; }");
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).singleElement().satisfies(block -> {
+            assertThat(block.instructions())
+                    .filteredOn(IrBinaryInstruction.class::isInstance)
+                    .map(IrBinaryInstruction.class::cast)
+                    .extracting(IrBinaryInstruction::operator)
+                    .containsExactly(
+                            IrBinaryOperator.LESS_THAN,
+                            IrBinaryOperator.EQUAL,
+                            IrBinaryOperator.LESS_EQUAL,
+                            IrBinaryOperator.GREATER_THAN,
+                            IrBinaryOperator.GREATER_EQUAL,
+                            IrBinaryOperator.NOT_EQUAL
+                    );
+        });
+    }
+
+    @Test
     void lowersLocalsAssignmentAndInitializedReadChecks() {
         Program program = parse("""
                 int main() {

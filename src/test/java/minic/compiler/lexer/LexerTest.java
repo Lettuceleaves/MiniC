@@ -23,7 +23,7 @@ class LexerTest {
 
     @Test
     void lexesSingleCharacterTokens() {
-        SourceFile sourceFile = new SourceFile("operators.mc", "+-*/=(){};,");
+        SourceFile sourceFile = new SourceFile("operators.mc", "+-*/=(){};,<>");
 
         LexResult result = new Lexer(sourceFile).lex();
 
@@ -42,11 +42,36 @@ class LexerTest {
                         TokenKind.RIGHT_BRACE,
                         TokenKind.SEMICOLON,
                         TokenKind.COMMA,
+                        TokenKind.LESS,
+                        TokenKind.GREATER,
                         TokenKind.EOF
                 );
         assertThat(result.tokens())
                 .extracting(Token::lexeme)
-                .containsExactly("+", "-", "*", "/", "=", "(", ")", "{", "}", ";", ",", "");
+                .containsExactly("+", "-", "*", "/", "=", "(", ")", "{", "}", ";", ",", "<", ">", "");
+    }
+
+    @Test
+    void lexesComparisonTokens() {
+        SourceFile sourceFile = new SourceFile("comparison.mc", "== != <= >= < >");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(
+                        TokenKind.EQUAL_EQUAL,
+                        TokenKind.BANG_EQUAL,
+                        TokenKind.LESS_EQUAL,
+                        TokenKind.GREATER_EQUAL,
+                        TokenKind.LESS,
+                        TokenKind.GREATER,
+                        TokenKind.EOF
+                );
+        assertThat(result.tokens())
+                .extracting(Token::lexeme)
+                .containsExactly("==", "!=", "<=", ">=", "<", ">", "");
     }
 
     @Test

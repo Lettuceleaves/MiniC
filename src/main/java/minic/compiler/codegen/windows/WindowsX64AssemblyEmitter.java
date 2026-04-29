@@ -147,9 +147,21 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
                 builder.append("    cdq").append(System.lineSeparator());
                 builder.append("    idiv ecx").append(System.lineSeparator());
             }
+            case EQUAL -> emitComparison(builder, "sete");
+            case NOT_EQUAL -> emitComparison(builder, "setne");
+            case LESS_THAN -> emitComparison(builder, "setl");
+            case LESS_EQUAL -> emitComparison(builder, "setle");
+            case GREATER_THAN -> emitComparison(builder, "setg");
+            case GREATER_EQUAL -> emitComparison(builder, "setge");
         }
         builder.append("    mov ").append(frame.temporarySlot(binary.result()))
                 .append(", eax").append(System.lineSeparator());
+    }
+
+    private void emitComparison(StringBuilder builder, String setInstruction) {
+        builder.append("    cmp eax, ecx").append(System.lineSeparator());
+        builder.append("    ").append(setInstruction).append(" al").append(System.lineSeparator());
+        builder.append("    movzx eax, al").append(System.lineSeparator());
     }
 
     private void emitCall(StringBuilder builder, FunctionFrame frame, IrCallInstruction call) {

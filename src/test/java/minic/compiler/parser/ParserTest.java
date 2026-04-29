@@ -142,6 +142,25 @@ class ParserTest {
     }
 
     @Test
+    void parsesComparisonPrecedence() {
+        SourceFile sourceFile = new SourceFile("comparison.mc", "int main() { return 1 + 2 < 4 == 0; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        ReturnStmt returnStmt = (ReturnStmt) result.program().functions().getFirst().body().statements().getFirst();
+        BinaryExpr equality = (BinaryExpr) returnStmt.expressionOptional().orElseThrow();
+        BinaryExpr less = (BinaryExpr) equality.left();
+        BinaryExpr plus = (BinaryExpr) less.left();
+
+        assertThat(equality.operator()).isEqualTo(TokenKind.EQUAL_EQUAL);
+        assertThat(less.operator()).isEqualTo(TokenKind.LESS);
+        assertThat(plus.operator()).isEqualTo(TokenKind.PLUS);
+        assertThat(((IntegerLiteralExpr) less.right()).value()).isEqualTo(4);
+        assertThat(((IntegerLiteralExpr) equality.right()).value()).isEqualTo(0);
+    }
+
+    @Test
     void parsesRightAssociativeAssignment() {
         SourceFile sourceFile = new SourceFile("assignment.mc", "int main() { a = b = 1; }");
 

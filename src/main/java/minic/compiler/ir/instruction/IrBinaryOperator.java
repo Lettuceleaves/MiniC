@@ -1,7 +1,7 @@
 package minic.compiler.ir.instruction;
 
 /**
- * IR 二元算术操作符。
+ * IR 二元操作符。
  */
 public enum IrBinaryOperator {
     /**
@@ -22,5 +22,35 @@ public enum IrBinaryOperator {
     /**
      * 整数除法。
      */
-    DIVIDE
+    DIVIDE,
+
+    /**
+     * 相等比较。
+     */
+    EQUAL,
+
+    /**
+     * 不等比较。
+     */
+    NOT_EQUAL,
+
+    /**
+     * 小于比较。
+     */
+    LESS_THAN,
+
+    /**
+     * 小于等于比较。
+     */
+    LESS_EQUAL,
+
+    /**
+     * 大于比较。
+     */
+    GREATER_THAN,
+
+    /**
+     * 大于等于比较。
+     */
+    GREATER_EQUAL
 }

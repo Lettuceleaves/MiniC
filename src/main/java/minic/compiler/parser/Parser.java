@@ -290,7 +290,7 @@ public final class Parser {
      * @return 表达式 AST；无法解析时返回 {@code null}
      */
     private Expression parseAssignment() {
-        Expression expression = parseAdditive();
+        Expression expression = parseEquality();
         if (!match(TokenKind.EQUAL)) {
             return expression;
         }
@@ -311,6 +311,39 @@ public final class Parser {
 
         report(equalsToken, "赋值左侧必须是标识符");
         return value;
+    }
+
+    /**
+     * 解析相等比较表达式。
+     *
+     * @return 表达式 AST；无法解析时返回 {@code null}
+     */
+    private Expression parseEquality() {
+        Expression expression = parseRelational();
+        while (match(TokenKind.EQUAL_EQUAL) || match(TokenKind.BANG_EQUAL)) {
+            Token operator = previous();
+            Expression right = parseRelational();
+            expression = combineBinary(expression, operator, right);
+        }
+        return expression;
+    }
+
+    /**
+     * 解析大小比较表达式。
+     *
+     * @return 表达式 AST；无法解析时返回 {@code null}
+     */
+    private Expression parseRelational() {
+        Expression expression = parseAdditive();
+        while (match(TokenKind.LESS)
+                || match(TokenKind.LESS_EQUAL)
+                || match(TokenKind.GREATER)
+                || match(TokenKind.GREATER_EQUAL)) {
+            Token operator = previous();
+            Expression right = parseAdditive();
+            expression = combineBinary(expression, operator, right);
+        }
+        return expression;
     }
 
     /**

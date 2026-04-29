@@ -234,6 +234,12 @@ public final class IrLowerer {
                 case MINUS -> IrBinaryOperator.SUBTRACT;
                 case STAR -> IrBinaryOperator.MULTIPLY;
                 case SLASH -> IrBinaryOperator.DIVIDE;
+                case EQUAL_EQUAL -> IrBinaryOperator.EQUAL;
+                case BANG_EQUAL -> IrBinaryOperator.NOT_EQUAL;
+                case LESS -> IrBinaryOperator.LESS_THAN;
+                case LESS_EQUAL -> IrBinaryOperator.LESS_EQUAL;
+                case GREATER -> IrBinaryOperator.GREATER_THAN;
+                case GREATER_EQUAL -> IrBinaryOperator.GREATER_EQUAL;
                 default -> throw new IllegalArgumentException("unsupported binary operator: " + operator);
             };
         }

@@ -55,6 +55,36 @@ public enum TokenKind {
     EQUAL,
 
     /**
+     * {@code ==}。
+     */
+    EQUAL_EQUAL,
+
+    /**
+     * {@code !=}。
+     */
+    BANG_EQUAL,
+
+    /**
+     * {@code <}。
+     */
+    LESS,
+
+    /**
+     * {@code <=}。
+     */
+    LESS_EQUAL,
+
+    /**
+     * {@code >}。
+     */
+    GREATER,
+
+    /**
+     * {@code >=}。
+     */
+    GREATER_EQUAL,
+
+    /**
      * {@code (}。
      */
     LEFT_PAREN,

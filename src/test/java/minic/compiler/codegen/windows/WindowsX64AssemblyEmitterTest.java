@@ -132,6 +132,28 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsWindowsX64AssemblyForComparisons() {
+        IrModule module = lower("""
+                int main() {
+                    return (1 < 2) + (2 <= 2) + (3 > 4) + (5 >= 5) + (6 == 6) + (7 != 8);
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "    cmp eax, ecx",
+                "    setl al",
+                "    setle al",
+                "    setg al",
+                "    setge al",
+                "    sete al",
+                "    setne al",
+                "    movzx eax, al"
+        );
+    }
+
     private IrModule lower(String source) {
         SourceFile sourceFile = new SourceFile("codegen.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

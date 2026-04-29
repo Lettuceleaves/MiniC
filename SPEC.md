@@ -58,6 +58,7 @@ v0.1 后端先限定单目标平台，优先 `Windows x86_64`；编译器核心�
 - 整数字面量
 - 标识符
 - `+ - * /`
+- `== != < <= > >=`
 - 函数调用
 - `//` 行注释
 
@@ -83,7 +84,9 @@ varDecl        ::= "int" identifier ("=" expression)? ";" ;
 returnStmt     ::= "return" expression? ";" ;
 exprStmt       ::= expression ";" ;
 expression     ::= assignment ;
-assignment     ::= identifier "=" assignment | additive ;
+assignment     ::= identifier "=" assignment | equality ;
+equality       ::= relational (("==" | "!=") relational)* ;
+relational     ::= additive (("<" | "<=" | ">" | ">=") additive)* ;
 additive       ::= multiplicative (("+" | "-") multiplicative)* ;
 multiplicative ::= primary (("*" | "/") primary)* ;
 primary        ::= integerLiteral | identifier | callExpr | "(" expression ")" ;
@@ -107,6 +110,7 @@ argumentList   ::= expression ("," expression)* ;
 - 实参个数必须匹配形参个数。
 - Windows x86_64 目标上，前 4 个 `int` 实参使用 `ecx`、`edx`、`r8d`、`r9d`，第 5 个及之后的 `int` 实参通过调用方栈参数区传递。
 - v0.1 中所有表达式类型都是 `int`。
+- 比较表达式结果是 `int`，真为 `1`，假为 `0`。
 - 未初始化局部变量被读取是运行时错误，生成产物必须保留该检查。
 - 除零是运行时错误，生成产物必须保留该检查。
 

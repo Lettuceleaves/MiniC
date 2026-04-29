@@ -50,7 +50,16 @@ public final class Lexer {
                         addToken(TokenKind.SLASH, startOffset);
                     }
                 }
-                case '=' -> addToken(TokenKind.EQUAL, startOffset);
+                case '=' -> addToken(match('=') ? TokenKind.EQUAL_EQUAL : TokenKind.EQUAL, startOffset);
+                case '!' -> {
+                    if (match('=')) {
+                        addToken(TokenKind.BANG_EQUAL, startOffset);
+                    } else {
+                        addInvalidCharacterDiagnostic(startOffset);
+                    }
+                }
+                case '<' -> addToken(match('=') ? TokenKind.LESS_EQUAL : TokenKind.LESS, startOffset);
+                case '>' -> addToken(match('=') ? TokenKind.GREATER_EQUAL : TokenKind.GREATER, startOffset);
                 case '(' -> addToken(TokenKind.LEFT_PAREN, startOffset);
                 case ')' -> addToken(TokenKind.RIGHT_PAREN, startOffset);
                 case '{' -> addToken(TokenKind.LEFT_BRACE, startOffset);
