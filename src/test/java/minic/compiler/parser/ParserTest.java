@@ -156,6 +156,43 @@ class ParserTest {
         assertThat(innerIf.thenBranch()).isInstanceOf(ReturnStmt.class);
     }
 
+    @Test
+    void parsesElseIfAsNestedElseBranch() {
+        SourceFile sourceFile = new SourceFile(
+                "else-if.mc",
+                "int main() { if (0) return 1; else if (1) return 2; else return 3; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        IfStmt outerIf = (IfStmt) result.program().functions().getFirst().body().statements().getFirst();
+        IfStmt elseIf = (IfStmt) outerIf.elseBranchOptional().orElseThrow();
+
+        assertThat(outerIf.thenBranch()).isInstanceOf(ReturnStmt.class);
+        assertThat(elseIf.thenBranch()).isInstanceOf(ReturnStmt.class);
+        assertThat(elseIf.elseBranchOptional()).hasValueSatisfying(elseBranch ->
+                assertThat(elseBranch).isInstanceOf(ReturnStmt.class));
+    }
+
+    @Test
+    void bindsElseToNearestIfInElseIfChain() {
+        SourceFile sourceFile = new SourceFile(
+                "dangling-else-if.mc",
+                "int main() { if (1) if (0) return 1; else if (1) return 2; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        IfStmt outerIf = (IfStmt) result.program().functions().getFirst().body().statements().getFirst();
+        IfStmt innerIf = (IfStmt) outerIf.thenBranch();
+        IfStmt elseIf = (IfStmt) innerIf.elseBranchOptional().orElseThrow();
+
+        assertThat(outerIf.elseBranchOptional()).isEmpty();
+        assertThat(elseIf.thenBranch()).isInstanceOf(ReturnStmt.class);
+    }
+
 
     @Test
     void parsesBinaryPrecedence() {

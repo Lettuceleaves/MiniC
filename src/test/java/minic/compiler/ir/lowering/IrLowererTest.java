@@ -175,6 +175,31 @@ class IrLowererTest {
         assertThat(branch.elseLabel()).isEqualTo("merge_1");
     }
 
+    @Test
+    void lowersElseIfChainAsNestedIfBlocks() {
+        Program program = parse("""
+                int main() {
+                    if (0) {
+                        return 1;
+                    } else if (1) {
+                        return 2;
+                    } else {
+                        return 3;
+                    }
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(block -> block.label())
+                .containsExactly("entry", "then_0", "else_1", "then_3", "else_4", "merge_5", "merge_2");
+        IrBranchInstruction outerBranch = (IrBranchInstruction) main.blocks().getFirst().instructions().getFirst();
+        IrBranchInstruction elseIfBranch = (IrBranchInstruction) main.blocks().get(2).instructions().getFirst();
+        assertThat(outerBranch.thenLabel()).isEqualTo("then_0");
+        assertThat(outerBranch.elseLabel()).isEqualTo("else_1");
+        assertThat(elseIfBranch.thenLabel()).isEqualTo("then_3");
+        assertThat(elseIfBranch.elseLabel()).isEqualTo("else_4");
+    }
 
     @Test
     void lowersLocalsAssignmentAndInitializedReadChecks() {

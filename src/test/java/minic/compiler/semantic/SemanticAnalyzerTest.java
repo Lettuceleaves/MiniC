@@ -206,6 +206,26 @@ class SemanticAnalyzerTest {
                 .containsExactly("未解析变量：x");
     }
 
+    @Test
+    void analyzesElseIfChainConditionsAndBranchScopes() {
+        SemanticResult result = analyze("""
+                int main() {
+                    if (missing) {
+                        return 1;
+                    } else if (1) {
+                        int y = 2;
+                    } else {
+                        int y = 3;
+                    }
+                    return y;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("未解析变量：missing", "未解析变量：y");
+    }
+
     private SemanticResult analyze(String source) {
         SourceFile sourceFile = new SourceFile("semantic.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

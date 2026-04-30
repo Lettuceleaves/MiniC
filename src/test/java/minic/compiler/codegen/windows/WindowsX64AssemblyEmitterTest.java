@@ -181,6 +181,37 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsWindowsX64AssemblyForElseIfChain() {
+        IrModule module = lower("""
+                int main() {
+                    if (0) {
+                        return 1;
+                    } else if (1) {
+                        return 2;
+                    } else {
+                        return 3;
+                    }
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "    jne main$then_0",
+                "    jmp main$else_1",
+                "main$else_1:",
+                "    jne main$then_3",
+                "    jmp main$else_4",
+                "main$then_3:",
+                "    mov eax, 2",
+                "main$else_4:",
+                "    mov eax, 3",
+                "main$merge_5:",
+                "main$merge_2:"
+        );
+    }
+
     private IrModule lower(String source) {
         SourceFile sourceFile = new SourceFile("codegen.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();
