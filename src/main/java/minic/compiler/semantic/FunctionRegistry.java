@@ -3,6 +3,7 @@ package minic.compiler.semantic;
 import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Program;
 import minic.compiler.ast.expr.CallExpr;
+import minic.compiler.type.MiniType;
 
 final class FunctionRegistry {
     private final Scope globalScope;
@@ -59,12 +60,12 @@ final class FunctionRegistry {
         }
     }
 
-    void resolveFunction(CallExpr callExpr) {
+    MiniType resolveFunction(CallExpr callExpr) {
         var functionSymbol = globalScope.resolve(callExpr.calleeName())
                 .filter(symbol -> symbol.kind() == SymbolKind.FUNCTION);
         if (functionSymbol.isEmpty()) {
             reporter.report(callExpr.range(), "未解析函数调用：" + callExpr.calleeName());
-            return;
+            return MiniType.INT;
         }
         FunctionState functionState = functionStates.get(callExpr.calleeName());
         if (functionState != null && !functionState.defined() && !functionState.external()) {
@@ -74,6 +75,7 @@ final class FunctionRegistry {
         if (arity != null && arity != callExpr.arguments().size()) {
             reporter.report(callExpr.range(), "函数调用实参数量不匹配：" + callExpr.calleeName());
         }
+        return functionSymbol.orElseThrow().type();
     }
 
     private void validateFunctionName(FunctionDecl functionDecl) {

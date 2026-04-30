@@ -2,6 +2,7 @@ package minic.compiler.semantic;
 
 import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Parameter;
+import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.BreakStmt;
 import minic.compiler.ast.stmt.ContinueStmt;
@@ -12,7 +13,10 @@ import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
 import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.ast.stmt.WhileStmt;
+import minic.compiler.type.MiniType;
 import minic.source.SourceRange;
+
+import java.util.Map;
 
 final class StatementSemanticAnalyzer {
     private final Scope globalScope;
@@ -20,16 +24,21 @@ final class StatementSemanticAnalyzer {
     private final ExpressionSemanticAnalyzer expressionAnalyzer;
     private int loopDepth;
 
-    StatementSemanticAnalyzer(Scope globalScope, FunctionRegistry functionRegistry, SemanticReporter reporter) {
+    StatementSemanticAnalyzer(
+            Scope globalScope,
+            FunctionRegistry functionRegistry,
+            SemanticReporter reporter,
+            Map<Expression, MiniType> expressionTypes
+    ) {
         this.globalScope = globalScope;
         this.reporter = reporter;
-        expressionAnalyzer = new ExpressionSemanticAnalyzer(functionRegistry, reporter);
+        expressionAnalyzer = new ExpressionSemanticAnalyzer(functionRegistry, reporter, expressionTypes);
     }
 
     void analyzeFunction(FunctionDecl functionDecl) {
         Scope functionScope = new Scope(globalScope);
         for (Parameter parameter : functionDecl.parameters()) {
-            defineVariable(functionScope, parameter.name(), parameter.range());
+            defineVariable(functionScope, parameter.name(), parameter.range(), MiniType.INT);
         }
         analyzeBlock(functionDecl.bodyOptional().orElseThrow(), functionScope, false);
     }
@@ -47,7 +56,7 @@ final class StatementSemanticAnalyzer {
             case VarDeclStmt varDeclStmt -> {
                 varDeclStmt.initializerOptional()
                         .ifPresent(initializer -> expressionAnalyzer.analyzeExpression(initializer, scope));
-                defineVariable(scope, varDeclStmt.name(), varDeclStmt.range());
+                defineVariable(scope, varDeclStmt.name(), varDeclStmt.range(), MiniType.INT);
             }
             case ReturnStmt returnStmt -> {
                 if (returnStmt.expressionOptional().isEmpty()) {
@@ -107,8 +116,8 @@ final class StatementSemanticAnalyzer {
         }
     }
 
-    private void defineVariable(Scope scope, String name, SourceRange range) {
-        Symbol symbol = new Symbol(name, SymbolKind.VARIABLE, range);
+    private void defineVariable(Scope scope, String name, SourceRange range, MiniType type) {
+        Symbol symbol = new Symbol(name, SymbolKind.VARIABLE, range, type, null);
         if (!scope.define(symbol)) {
             reporter.report(range, "重复局部变量定义：" + name);
         }

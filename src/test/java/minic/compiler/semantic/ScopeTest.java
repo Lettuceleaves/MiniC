@@ -1,5 +1,6 @@
 package minic.compiler.semantic;
 
+import minic.compiler.type.MiniType;
 import minic.source.SourceFile;
 import minic.source.SourceRange;
 import org.junit.jupiter.api.Test;
@@ -65,6 +66,15 @@ class ScopeTest {
 
         assertThatThrownBy(() -> new Symbol(" ", SymbolKind.VARIABLE, range))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void storesSymbolType() {
+        SourceFile sourceFile = new SourceFile("symbol.mc", "x");
+        SourceRange range = new SourceRange(sourceFile, 0, 1);
+        Symbol symbol = new Symbol("x", SymbolKind.VARIABLE, range, MiniType.INT.pointerTo(), null);
+
+        assertThat(symbol.type()).isEqualTo(MiniType.INT.pointerTo());
     }
 
     private Symbol symbol(String name, SymbolKind kind) {

@@ -2,7 +2,11 @@ package minic.compiler.semantic;
 
 import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Program;
+import minic.compiler.ast.expr.Expression;
+import minic.compiler.type.MiniType;
 
+import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -19,6 +23,7 @@ public final class SemanticAnalyzer {
         Objects.requireNonNull(program, "program");
         SemanticReporter reporter = new SemanticReporter();
         Scope globalScope = new Scope();
+        Map<Expression, MiniType> expressionTypes = new IdentityHashMap<>();
         FunctionRegistry functionRegistry = new FunctionRegistry(globalScope, reporter);
         functionRegistry.defineFunctions(program);
         functionRegistry.validateMain(program);
@@ -26,13 +31,14 @@ public final class SemanticAnalyzer {
         StatementSemanticAnalyzer statementAnalyzer = new StatementSemanticAnalyzer(
                 globalScope,
                 functionRegistry,
-                reporter
+                reporter,
+                expressionTypes
         );
         for (FunctionDecl functionDecl : program.functions()) {
             if (functionDecl.hasBody()) {
                 statementAnalyzer.analyzeFunction(functionDecl);
             }
         }
-        return new SemanticResult(globalScope, reporter.diagnostics());
+        return new SemanticResult(globalScope, expressionTypes, reporter.diagnostics());
     }
 }

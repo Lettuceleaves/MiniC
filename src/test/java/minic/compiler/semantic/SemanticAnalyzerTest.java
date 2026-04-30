@@ -1,5 +1,14 @@
 package minic.compiler.semantic;
 
+import minic.compiler.ast.decl.Program;
+import minic.compiler.ast.expr.BinaryExpr;
+import minic.compiler.ast.expr.CallExpr;
+import minic.compiler.ast.expr.IntegerLiteralExpr;
+import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.expr.StringLiteralExpr;
+import minic.compiler.ast.stmt.ExprStmt;
+import minic.compiler.ast.stmt.ReturnStmt;
+import minic.compiler.type.MiniType;
 import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParseResult;
@@ -221,6 +230,45 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void recordsExpressionTypesAndSymbolTypes() {
+        Program program = parse("""
+                extern int printf(int format, int value);
+
+                int id(int x) {
+                    return x;
+                }
+
+                int main() {
+                    int y = id(1);
+                    printf("value=%d\\n", y);
+                    return y + 1;
+                }
+                """);
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.globalScope().resolve("printf")).hasValueSatisfying(symbol ->
+                assertThat(symbol.type()).isEqualTo(MiniType.INT));
+        ReturnStmt idReturn = (ReturnStmt) program.functions().get(1).body().statements().getFirst();
+        NameExpr returnedName = (NameExpr) idReturn.expressionOptional().orElseThrow();
+        ExprStmt printfStatement = (ExprStmt) program.functions().get(2).body().statements().get(1);
+        CallExpr printfCall = (CallExpr) printfStatement.expression();
+        StringLiteralExpr format = (StringLiteralExpr) printfCall.arguments().getFirst();
+        NameExpr valueArgument = (NameExpr) printfCall.arguments().get(1);
+        ReturnStmt mainReturn = (ReturnStmt) program.functions().get(2).body().statements().get(2);
+        BinaryExpr sum = (BinaryExpr) mainReturn.expressionOptional().orElseThrow();
+        IntegerLiteralExpr one = (IntegerLiteralExpr) sum.right();
+
+        assertThat(result.typeOf(returnedName)).contains(MiniType.INT);
+        assertThat(result.typeOf(printfCall)).contains(MiniType.INT);
+        assertThat(result.typeOf(format)).contains(MiniType.INT.pointerTo());
+        assertThat(result.typeOf(valueArgument)).contains(MiniType.INT);
+        assertThat(result.typeOf(sum)).contains(MiniType.INT);
+        assertThat(result.typeOf(one)).contains(MiniType.INT);
+    }
+
+    @Test
     void allowsNestedBlockToShadowOuterVariable() {
         SemanticResult result = analyze("int main() { int x; { int x; } return 1; }");
 
@@ -321,11 +369,15 @@ class SemanticAnalyzerTest {
     }
 
     private SemanticResult analyze(String source) {
+        return new SemanticAnalyzer().analyze(parse(source));
+    }
+
+    private Program parse(String source) {
         SourceFile sourceFile = new SourceFile("semantic.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();
         assertThat(lexResult.diagnostics()).isEmpty();
         ParseResult parseResult = new Parser(lexResult.tokens()).parse();
         assertThat(parseResult.diagnostics()).isEmpty();
-        return new SemanticAnalyzer().analyze(parseResult.program());
+        return parseResult.program();
     }
 }
