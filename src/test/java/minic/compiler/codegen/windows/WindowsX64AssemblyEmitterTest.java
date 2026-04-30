@@ -212,6 +212,31 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsWindowsX64AssemblyForWhileLoop() {
+        IrModule module = lower("""
+                int main() {
+                    int x = 0;
+                    while (x < 3) {
+                        x = x + 1;
+                    }
+                    return x;
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "    jmp main$while_condition_0",
+                "main$while_condition_0:",
+                "    jne main$while_body_1",
+                "    jmp main$while_exit_2",
+                "main$while_body_1:",
+                "    jmp main$while_condition_0",
+                "main$while_exit_2:"
+        );
+    }
+
     private IrModule lower(String source) {
         SourceFile sourceFile = new SourceFile("codegen.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

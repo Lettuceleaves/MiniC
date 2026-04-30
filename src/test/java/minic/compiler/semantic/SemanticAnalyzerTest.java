@@ -226,6 +226,20 @@ class SemanticAnalyzerTest {
                 .containsExactly("未解析变量：missing", "未解析变量：y");
     }
 
+    @Test
+    void analyzesWhileConditionAndBodyScope() {
+        SemanticResult result = analyze("""
+                int main() {
+                    while (missing) int y = 1;
+                    return y;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("未解析变量：missing", "未解析变量：y");
+    }
+
     private SemanticResult analyze(String source) {
         SourceFile sourceFile = new SourceFile("semantic.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

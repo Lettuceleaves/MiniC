@@ -40,6 +40,11 @@ public enum TokenKind {
     ELSE,
 
     /**
+     * {@code while} 关键字。
+     */
+    WHILE,
+
+    /**
      * {@code +}。
      */
     PLUS,

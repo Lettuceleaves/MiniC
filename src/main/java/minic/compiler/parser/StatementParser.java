@@ -7,6 +7,7 @@ import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
 import minic.compiler.ast.stmt.VarDeclStmt;
+import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.lexer.Token;
 import minic.compiler.lexer.TokenKind;
 import minic.source.SourceRange;
@@ -65,6 +66,9 @@ final class StatementParser {
         if (state.check(TokenKind.IF)) {
             return parseIfStmt();
         }
+        if (state.check(TokenKind.WHILE)) {
+            return parseWhileStmt();
+        }
         return parseExprStmt();
     }
 
@@ -91,6 +95,27 @@ final class StatementParser {
                         startToken.range().sourceFile(),
                         startToken.range().startOffset(),
                         endBranch.range().endOffset()
+                )
+        );
+    }
+
+    private WhileStmt parseWhileStmt() {
+        Token startToken = state.consume(TokenKind.WHILE, "期望 while");
+        state.consume(TokenKind.LEFT_PAREN, "期望 '('");
+        Expression condition = expressionParser.parseExpression();
+        state.consume(TokenKind.RIGHT_PAREN, "期望 ')'");
+        Statement body = parseStatement();
+
+        if (startToken == null || condition == null || body == null) {
+            return null;
+        }
+        return new WhileStmt(
+                condition,
+                body,
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        body.range().endOffset()
                 )
         );
     }

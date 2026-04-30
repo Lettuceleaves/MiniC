@@ -13,6 +13,7 @@ import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.VarDeclStmt;
+import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.lexer.TokenKind;
 import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
@@ -191,6 +192,21 @@ class ParserTest {
 
         assertThat(outerIf.elseBranchOptional()).isEmpty();
         assertThat(elseIf.thenBranch()).isInstanceOf(ReturnStmt.class);
+    }
+
+    @Test
+    void parsesWhileStatement() {
+        SourceFile sourceFile = new SourceFile("while.mc", "int main() { while (x < 3) x = x + 1; return x; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        WhileStmt whileStmt = (WhileStmt) result.program().functions().getFirst().body().statements().getFirst();
+        BinaryExpr condition = (BinaryExpr) whileStmt.condition();
+
+        assertThat(condition.operator()).isEqualTo(TokenKind.LESS);
+        assertThat(whileStmt.body()).isInstanceOf(ExprStmt.class);
+        assertThat(whileStmt.range()).isEqualTo(new SourceRange(sourceFile, 13, 37));
     }
 
 

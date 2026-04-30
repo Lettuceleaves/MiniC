@@ -202,6 +202,27 @@ class IrLowererTest {
     }
 
     @Test
+    void lowersWhileToConditionBodyAndExitBlocks() {
+        Program program = parse("""
+                int main() {
+                    int x = 0;
+                    while (x < 3) {
+                        x = x + 1;
+                    }
+                    return x;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(block -> block.label())
+                .containsExactly("entry", "while_condition_0", "while_body_1", "while_exit_2");
+        IrBranchInstruction branch = (IrBranchInstruction) main.blocks().get(1).instructions().getLast();
+        assertThat(branch.thenLabel()).isEqualTo("while_body_1");
+        assertThat(branch.elseLabel()).isEqualTo("while_exit_2");
+    }
+
+    @Test
     void lowersLocalsAssignmentAndInitializedReadChecks() {
         Program program = parse("""
                 int main() {

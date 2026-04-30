@@ -119,6 +119,7 @@ public final class Lexer {
             case "return" -> TokenKind.RETURN;
             case "if" -> TokenKind.IF;
             case "else" -> TokenKind.ELSE;
+            case "while" -> TokenKind.WHILE;
             default -> TokenKind.IDENTIFIER;
         };
         addToken(kind, startOffset);

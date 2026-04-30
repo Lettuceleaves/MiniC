@@ -107,7 +107,10 @@ class LexerTest {
 
     @Test
     void lexesKeywordsSeparatelyFromIdentifiers() {
-        SourceFile sourceFile = new SourceFile("keywords.mc", "int return if else integer returnValue ifValue elseValue");
+        SourceFile sourceFile = new SourceFile(
+                "keywords.mc",
+                "int return if else while integer returnValue ifValue elseValue whileValue"
+        );
 
         LexResult result = new Lexer(sourceFile).lex();
 
@@ -119,6 +122,8 @@ class LexerTest {
                         TokenKind.RETURN,
                         TokenKind.IF,
                         TokenKind.ELSE,
+                        TokenKind.WHILE,
+                        TokenKind.IDENTIFIER,
                         TokenKind.IDENTIFIER,
                         TokenKind.IDENTIFIER,
                         TokenKind.IDENTIFIER,

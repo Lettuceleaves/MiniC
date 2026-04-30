@@ -8,6 +8,7 @@ import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
 import minic.compiler.ast.stmt.VarDeclStmt;
+import minic.compiler.ast.stmt.WhileStmt;
 import minic.source.SourceRange;
 
 final class StatementSemanticAnalyzer {
@@ -56,6 +57,10 @@ final class StatementSemanticAnalyzer {
                 expressionAnalyzer.analyzeExpression(ifStmt.condition(), scope);
                 analyzeBranch(ifStmt.thenBranch(), scope);
                 ifStmt.elseBranchOptional().ifPresent(elseBranch -> analyzeBranch(elseBranch, scope));
+            }
+            case WhileStmt whileStmt -> {
+                expressionAnalyzer.analyzeExpression(whileStmt.condition(), scope);
+                analyzeBranch(whileStmt.body(), scope);
             }
             default -> throw new IllegalArgumentException("unsupported statement: "
                     + statement.getClass().getSimpleName());

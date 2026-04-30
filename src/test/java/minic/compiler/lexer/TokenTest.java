@@ -45,6 +45,7 @@ class TokenTest {
                         TokenKind.RETURN,
                         TokenKind.IF,
                         TokenKind.ELSE,
+                        TokenKind.WHILE,
                         TokenKind.PLUS,
                         TokenKind.MINUS,
                         TokenKind.STAR,

@@ -7,6 +7,7 @@ import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
 import minic.compiler.ast.stmt.VarDeclStmt;
+import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
@@ -63,6 +64,10 @@ final class StatementLowerer {
             lowerIf(ifStmt);
             return;
         }
+        if (statement instanceof WhileStmt whileStmt) {
+            lowerWhile(whileStmt);
+            return;
+        }
         throw new IllegalArgumentException("unsupported statement: " + statement.getClass().getSimpleName());
     }
 
@@ -88,6 +93,24 @@ final class StatementLowerer {
         });
 
         builder.switchToBlock(mergeLabel);
+    }
+
+    private void lowerWhile(WhileStmt whileStmt) {
+        String conditionLabel = builder.newBlockLabel("while_condition");
+        String bodyLabel = builder.newBlockLabel("while_body");
+        String exitLabel = builder.newBlockLabel("while_exit");
+
+        builder.addJumpIfOpen(conditionLabel, whileStmt.range());
+
+        builder.switchToBlock(conditionLabel);
+        IrValue condition = expressionLowerer.lowerExpression(whileStmt.condition());
+        builder.addInstruction(new IrBranchInstruction(condition, bodyLabel, exitLabel, whileStmt.condition().range()));
+
+        builder.switchToBlock(bodyLabel);
+        lowerBranch(whileStmt.body());
+        builder.addJumpIfOpen(conditionLabel, whileStmt.body().range());
+
+        builder.switchToBlock(exitLabel);
     }
 
     private void lowerBranch(Statement statement) {
