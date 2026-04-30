@@ -20,6 +20,7 @@ import java.util.Map;
 
 final class StatementSemanticAnalyzer {
     private final Scope globalScope;
+    private final StructRegistry structRegistry;
     private final SemanticReporter reporter;
     private final ExpressionSemanticAnalyzer expressionAnalyzer;
     private int loopDepth;
@@ -27,10 +28,12 @@ final class StatementSemanticAnalyzer {
     StatementSemanticAnalyzer(
             Scope globalScope,
             FunctionRegistry functionRegistry,
+            StructRegistry structRegistry,
             SemanticReporter reporter,
             Map<Expression, MiniType> expressionTypes
     ) {
         this.globalScope = globalScope;
+        this.structRegistry = structRegistry;
         this.reporter = reporter;
         expressionAnalyzer = new ExpressionSemanticAnalyzer(functionRegistry, reporter, expressionTypes);
     }
@@ -59,6 +62,7 @@ final class StatementSemanticAnalyzer {
                 }
                 varDeclStmt.initializerOptional()
                         .ifPresent(initializer -> expressionAnalyzer.analyzeExpression(initializer, scope));
+                structRegistry.validateDeclaredType(varDeclStmt.type(), varDeclStmt.range());
                 defineVariable(scope, varDeclStmt.name(), varDeclStmt.range(), varDeclStmt.type());
             }
             case ReturnStmt returnStmt -> {

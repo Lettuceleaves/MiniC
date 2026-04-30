@@ -63,7 +63,7 @@ final class StatementParser {
         if (state.check(TokenKind.LEFT_BRACE)) {
             return parseBlock();
         }
-        if (state.check(TokenKind.INT)) {
+        if (state.check(TokenKind.INT) || state.check(TokenKind.STRUCT)) {
             return parseVarDeclStmt();
         }
         if (state.check(TokenKind.RETURN)) {
@@ -197,7 +197,7 @@ final class StatementParser {
         if (state.match(TokenKind.SEMICOLON)) {
             return null;
         }
-        if (state.check(TokenKind.INT)) {
+        if (state.check(TokenKind.INT) || state.check(TokenKind.STRUCT)) {
             return parseVarDeclStmt();
         }
         return parseExprStmt();

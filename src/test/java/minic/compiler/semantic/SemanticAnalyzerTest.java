@@ -374,6 +374,57 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void definesStructTypeSymbolsAndAcceptsStructVariables() {
+        SemanticResult result = analyze("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                int main() {
+                    struct Point point;
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.globalScope().resolve("Point")).hasValueSatisfying(symbol -> {
+            assertThat(symbol.kind()).isEqualTo(SymbolKind.STRUCT);
+            assertThat(symbol.type()).isEqualTo(MiniType.struct("Point"));
+        });
+    }
+
+    @Test
+    void reportsDuplicateStructFields() {
+        SemanticResult result = analyze("""
+                struct Point {
+                    int x;
+                    int x;
+                };
+
+                int main() { return 0; }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("重复结构体字段：x");
+    }
+
+    @Test
+    void reportsUndeclaredStructTypeUse() {
+        SemanticResult result = analyze("""
+                int main() {
+                    struct Missing value;
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("未声明结构体类型：Missing");
+    }
+
+    @Test
     void reportsInvalidDereference() {
         SemanticResult result = analyze("int main() { int x = 1; return *x; }");
 

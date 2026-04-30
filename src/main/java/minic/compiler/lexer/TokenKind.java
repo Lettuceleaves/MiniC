@@ -35,6 +35,11 @@ public enum TokenKind {
     EXTERN,
 
     /**
+     * {@code struct} 关键字。
+     */
+    STRUCT,
+
+    /**
      * {@code return} 关键字。
      */
     RETURN,

@@ -2,6 +2,8 @@ package minic.compiler.parser;
 
 import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Parameter;
+import minic.compiler.ast.decl.StructDecl;
+import minic.compiler.ast.decl.StructField;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.lexer.Token;
 import minic.compiler.lexer.TokenKind;
@@ -57,6 +59,53 @@ final class DeclarationParser {
                         startToken.range().sourceFile(),
                         startToken.range().startOffset(),
                         endOffset
+                )
+        );
+    }
+
+    StructDecl parseStructDecl() {
+        Token startToken = state.consume(TokenKind.STRUCT, "期望 struct");
+        Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望结构体名");
+        state.consume(TokenKind.LEFT_BRACE, "期望 '{'");
+        ArrayList<StructField> fields = new ArrayList<>();
+        while (!state.check(TokenKind.RIGHT_BRACE) && !state.isAtEnd()) {
+            StructField field = parseStructField();
+            if (field != null) {
+                fields.add(field);
+            } else {
+                state.synchronizeStatement();
+            }
+        }
+        state.consume(TokenKind.RIGHT_BRACE, "期望 '}'");
+        Token semicolonToken = state.consume(TokenKind.SEMICOLON, "期望 ';'");
+        if (startToken == null || nameToken == null || semicolonToken == null) {
+            return null;
+        }
+        return new StructDecl(
+                nameToken.lexeme(),
+                fields,
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        semicolonToken.range().endOffset()
+                )
+        );
+    }
+
+    private StructField parseStructField() {
+        ParsedType type = typeParser.parseType("期望字段类型");
+        Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望字段名");
+        Token semicolonToken = state.consume(TokenKind.SEMICOLON, "期望 ';'");
+        if (type == null || nameToken == null || semicolonToken == null) {
+            return null;
+        }
+        return new StructField(
+                nameToken.lexeme(),
+                type.type(),
+                new SourceRange(
+                        type.range().sourceFile(),
+                        type.range().startOffset(),
+                        semicolonToken.range().endOffset()
                 )
         );
     }

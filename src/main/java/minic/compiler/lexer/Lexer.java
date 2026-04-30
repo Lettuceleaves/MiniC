@@ -121,6 +121,7 @@ public final class Lexer {
         TokenKind kind = switch (lexeme) {
             case "int" -> TokenKind.INT;
             case "extern" -> TokenKind.EXTERN;
+            case "struct" -> TokenKind.STRUCT;
             case "return" -> TokenKind.RETURN;
             case "if" -> TokenKind.IF;
             case "else" -> TokenKind.ELSE;

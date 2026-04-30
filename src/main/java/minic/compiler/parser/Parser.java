@@ -2,7 +2,9 @@ package minic.compiler.parser;
 
 import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Program;
+import minic.compiler.ast.decl.StructDecl;
 import minic.compiler.lexer.Token;
+import minic.compiler.lexer.TokenKind;
 import minic.source.SourceRange;
 
 import java.util.ArrayList;
@@ -38,25 +40,38 @@ public final class Parser {
      * @return 语法分析结果
      */
     public ParseResult parse() {
+        ArrayList<StructDecl> structs = new ArrayList<>();
         ArrayList<FunctionDecl> functions = new ArrayList<>();
         while (!state.isAtEnd()) {
-            FunctionDecl functionDecl = declarationParser.parseFunctionDecl();
-            if (functionDecl != null) {
-                functions.add(functionDecl);
+            if (state.check(TokenKind.STRUCT)) {
+                StructDecl structDecl = declarationParser.parseStructDecl();
+                if (structDecl != null) {
+                    structs.add(structDecl);
+                } else {
+                    state.synchronizeFunction();
+                }
             } else {
-                state.synchronizeFunction();
+                FunctionDecl functionDecl = declarationParser.parseFunctionDecl();
+                if (functionDecl != null) {
+                    functions.add(functionDecl);
+                } else {
+                    state.synchronizeFunction();
+                }
             }
         }
 
-        return new ParseResult(new Program(functions, programRange(functions)), state.diagnostics());
+        return new ParseResult(new Program(structs, functions, programRange(structs, functions)), state.diagnostics());
     }
 
-    private SourceRange programRange(List<FunctionDecl> functions) {
-        if (functions.isEmpty()) {
+    private SourceRange programRange(List<StructDecl> structs, List<FunctionDecl> functions) {
+        ArrayList<SourceRange> ranges = new ArrayList<>();
+        structs.stream().map(StructDecl::range).forEach(ranges::add);
+        functions.stream().map(FunctionDecl::range).forEach(ranges::add);
+        if (ranges.isEmpty()) {
             return state.peek().range();
         }
-        SourceRange firstRange = functions.getFirst().range();
-        SourceRange lastRange = functions.getLast().range();
+        SourceRange firstRange = ranges.getFirst();
+        SourceRange lastRange = ranges.getLast();
         return new SourceRange(firstRange.sourceFile(), firstRange.startOffset(), lastRange.endOffset());
     }
 }

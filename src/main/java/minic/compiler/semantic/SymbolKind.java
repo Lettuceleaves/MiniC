@@ -12,5 +12,10 @@ public enum SymbolKind {
     /**
      * 局部变量或形参符号。
      */
-    VARIABLE
+    VARIABLE,
+
+    /**
+     * 结构体类型符号。
+     */
+    STRUCT
 }

@@ -5,7 +5,7 @@ import java.util.Objects;
 /**
  * MiniC 前端类型。
  */
-public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType, MiniType.ArrayType {
+public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType, MiniType.ArrayType, MiniType.StructType {
     /**
      * MiniC int 类型。
      */
@@ -31,6 +31,16 @@ public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType,
     }
 
     /**
+     * 创建命名结构体类型。
+     *
+     * @param name 结构体名
+     * @return 结构体类型
+     */
+    static MiniType struct(String name) {
+        return new StructType(name);
+    }
+
+    /**
      * 判断当前类型是否为指针。
      *
      * @return 指针类型返回 {@code true}
@@ -46,6 +56,15 @@ public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType,
      */
     default boolean isArray() {
         return this instanceof ArrayType;
+    }
+
+    /**
+     * 判断当前类型是否为结构体。
+     *
+     * @return 结构体类型返回 {@code true}
+     */
+    default boolean isStruct() {
+        return this instanceof StructType;
     }
 
     /**
@@ -141,6 +160,30 @@ public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType,
         @Override
         public String toString() {
             return elementType + "[" + length + "]";
+        }
+    }
+
+    /**
+     * MiniC 命名结构体类型。
+     *
+     * @param name 结构体名
+     */
+    record StructType(String name) implements MiniType {
+        /**
+         * 创建命名结构体类型。
+         *
+         * @param name 结构体名
+         */
+        public StructType {
+            Objects.requireNonNull(name, "name");
+            if (name.isBlank()) {
+                throw new IllegalArgumentException("name must not be blank");
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "struct " + name;
         }
     }
 }

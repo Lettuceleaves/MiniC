@@ -1,6 +1,7 @@
 package minic.compiler.parser;
 
 import minic.compiler.ast.decl.FunctionDecl;
+import minic.compiler.ast.decl.StructDecl;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.BreakStmt;
 import minic.compiler.ast.stmt.ContinueStmt;
@@ -329,6 +330,39 @@ class ParserTest {
         assertThat(target.target()).isInstanceOf(NameExpr.class);
         assertThat(((IntegerLiteralExpr) target.index()).value()).isEqualTo(0);
         assertThat(returned.target()).isInstanceOf(NameExpr.class);
+    }
+
+    @Test
+    void parsesStructDeclarationAndStructVariable() {
+        SourceFile sourceFile = new SourceFile(
+                "struct.mc",
+                "struct Point { int x; int *next; }; int main() { struct Point point; return 0; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.program().structs()).singleElement().satisfies(structDecl -> {
+            assertThat(structDecl.name()).isEqualTo("Point");
+            assertThat(structDecl.fields()).extracting(field -> field.name()).containsExactly("x", "next");
+            assertThat(structDecl.fields().getFirst().type()).isEqualTo(MiniType.INT);
+            assertThat(structDecl.fields().get(1).type()).isEqualTo(MiniType.INT.pointerTo());
+        });
+        VarDeclStmt pointDecl = (VarDeclStmt) result.program().functions().getFirst().body().statements().getFirst();
+        assertThat(pointDecl.name()).isEqualTo("point");
+        assertThat(pointDecl.type()).isEqualTo(MiniType.struct("Point"));
+        assertThat(result.program().range()).isEqualTo(new SourceRange(sourceFile, 0, sourceFile.content().length()));
+    }
+
+    @Test
+    void parsesStructPointerParameter() {
+        SourceFile sourceFile = new SourceFile("struct-pointer.mc", "int use(struct Point *point) { return 0; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        FunctionDecl functionDecl = result.program().functions().getFirst();
+        assertThat(functionDecl.parameters().getFirst().type()).isEqualTo(MiniType.struct("Point").pointerTo());
     }
 
 

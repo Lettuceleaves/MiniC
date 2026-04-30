@@ -16,24 +16,48 @@ final class TypeParser {
     }
 
     ParsedType parseType(String expectedMessage) {
-        Token startToken = state.consume(TokenKind.INT, expectedMessage);
-        if (startToken == null) {
+        BaseType baseType = parseBaseType(expectedMessage);
+        if (baseType == null) {
             return null;
         }
-        MiniType type = MiniType.INT;
-        Token endToken = startToken;
+        MiniType type = baseType.type();
+        Token endToken = baseType.endToken();
         while (state.match(TokenKind.STAR)) {
             endToken = state.previous();
             type = type.pointerTo();
         }
         return new ParsedType(
                 type,
-                startToken,
+                baseType.startToken(),
                 new SourceRange(
-                        startToken.range().sourceFile(),
-                        startToken.range().startOffset(),
+                        baseType.startToken().range().sourceFile(),
+                        baseType.startToken().range().startOffset(),
                         endToken.range().endOffset()
                 )
         );
+    }
+
+    private BaseType parseBaseType(String expectedMessage) {
+        if (state.check(TokenKind.INT)) {
+            Token token = state.advance();
+            return new BaseType(MiniType.INT, token, token);
+        }
+        if (state.check(TokenKind.STRUCT)) {
+            return parseStructType();
+        }
+        state.report(state.peek(), expectedMessage);
+        return null;
+    }
+
+    private BaseType parseStructType() {
+        Token startToken = state.advance();
+        Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望结构体类型名");
+        if (nameToken == null) {
+            return null;
+        }
+        return new BaseType(MiniType.struct(nameToken.lexeme()), startToken, nameToken);
+    }
+
+    private record BaseType(MiniType type, Token startToken, Token endToken) {
     }
 }

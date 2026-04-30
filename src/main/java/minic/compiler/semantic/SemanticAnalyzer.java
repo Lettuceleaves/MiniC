@@ -24,6 +24,9 @@ public final class SemanticAnalyzer {
         SemanticReporter reporter = new SemanticReporter();
         Scope globalScope = new Scope();
         Map<Expression, MiniType> expressionTypes = new IdentityHashMap<>();
+        StructRegistry structRegistry = new StructRegistry(globalScope, reporter);
+        structRegistry.defineStructs(program);
+        structRegistry.validateProgramTypes(program);
         FunctionRegistry functionRegistry = new FunctionRegistry(globalScope, reporter);
         functionRegistry.defineFunctions(program);
         functionRegistry.validateMain(program);
@@ -31,6 +34,7 @@ public final class SemanticAnalyzer {
         StatementSemanticAnalyzer statementAnalyzer = new StatementSemanticAnalyzer(
                 globalScope,
                 functionRegistry,
+                structRegistry,
                 reporter,
                 expressionTypes
         );

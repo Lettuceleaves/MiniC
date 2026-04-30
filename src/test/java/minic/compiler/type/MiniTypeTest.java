@@ -25,4 +25,13 @@ class MiniTypeTest {
         assertThat(arrayType.arrayLength()).isEqualTo(3);
         assertThat(arrayType.toString()).isEqualTo("int[3]");
     }
+
+    @Test
+    void representsStructTypes() {
+        MiniType pointType = MiniType.struct("Point");
+
+        assertThat(pointType).isEqualTo(new MiniType.StructType("Point"));
+        assertThat(pointType.isStruct()).isTrue();
+        assertThat(pointType.toString()).isEqualTo("struct Point");
+    }
 }
