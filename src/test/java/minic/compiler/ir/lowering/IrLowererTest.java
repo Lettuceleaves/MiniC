@@ -8,6 +8,7 @@ import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
@@ -220,6 +221,45 @@ class IrLowererTest {
         IrBranchInstruction branch = (IrBranchInstruction) main.blocks().get(1).instructions().getLast();
         assertThat(branch.thenLabel()).isEqualTo("while_body_1");
         assertThat(branch.elseLabel()).isEqualTo("while_exit_2");
+    }
+
+    @Test
+    void lowersForToConditionBodyStepAndExitBlocks() {
+        Program program = parse("""
+                int main() {
+                    int x = 0;
+                    for (int i = 0; i < 3; i = i + 1) {
+                        x = x + i;
+                    }
+                    return x;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(block -> block.label())
+                .containsExactly("entry", "for_condition_0", "for_body_1", "for_step_2", "for_exit_3");
+        IrBranchInstruction branch = (IrBranchInstruction) main.blocks().get(1).instructions().getLast();
+        assertThat(branch.thenLabel()).isEqualTo("for_body_1");
+        assertThat(branch.elseLabel()).isEqualTo("for_exit_3");
+    }
+
+    @Test
+    void lowersForWithOmittedClauses() {
+        Program program = parse("""
+                int main() {
+                    for (;;) {
+                        return 7;
+                    }
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(block -> block.label())
+                .containsExactly("entry", "for_condition_0", "for_body_1", "for_step_2", "for_exit_3");
+        IrJumpInstruction jump = (IrJumpInstruction) main.blocks().get(1).instructions().getLast();
+        assertThat(jump.targetLabel()).isEqualTo("for_body_1");
     }
 
     @Test

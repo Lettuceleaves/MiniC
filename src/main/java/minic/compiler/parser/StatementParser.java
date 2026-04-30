@@ -3,6 +3,7 @@ package minic.compiler.parser;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.ExprStmt;
+import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
@@ -69,6 +70,9 @@ final class StatementParser {
         if (state.check(TokenKind.WHILE)) {
             return parseWhileStmt();
         }
+        if (state.check(TokenKind.FOR)) {
+            return parseForStmt();
+        }
         return parseExprStmt();
     }
 
@@ -118,6 +122,48 @@ final class StatementParser {
                         body.range().endOffset()
                 )
         );
+    }
+
+    private ForStmt parseForStmt() {
+        Token startToken = state.consume(TokenKind.FOR, "期望 for");
+        state.consume(TokenKind.LEFT_PAREN, "期望 '('");
+        Statement initializer = parseForInitializer();
+        Expression condition = null;
+        if (!state.check(TokenKind.SEMICOLON)) {
+            condition = expressionParser.parseExpression();
+        }
+        state.consume(TokenKind.SEMICOLON, "期望 ';'");
+        Expression step = null;
+        if (!state.check(TokenKind.RIGHT_PAREN)) {
+            step = expressionParser.parseExpression();
+        }
+        state.consume(TokenKind.RIGHT_PAREN, "期望 ')'");
+        Statement body = parseStatement();
+
+        if (startToken == null || body == null) {
+            return null;
+        }
+        return new ForStmt(
+                initializer,
+                condition,
+                step,
+                body,
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        body.range().endOffset()
+                )
+        );
+    }
+
+    private Statement parseForInitializer() {
+        if (state.match(TokenKind.SEMICOLON)) {
+            return null;
+        }
+        if (state.check(TokenKind.INT)) {
+            return parseVarDeclStmt();
+        }
+        return parseExprStmt();
     }
 
     private VarDeclStmt parseVarDeclStmt() {

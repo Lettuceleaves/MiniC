@@ -10,6 +10,7 @@ import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.VarDeclStmt;
@@ -209,6 +210,41 @@ class ParserTest {
         assertThat(whileStmt.range()).isEqualTo(new SourceRange(sourceFile, 13, 37));
     }
 
+    @Test
+    void parsesForStatement() {
+        SourceFile sourceFile = new SourceFile(
+                "for.mc",
+                "int main() { for (int i = 0; i < 3; i = i + 1) x = x + i; return x; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        ForStmt forStmt = (ForStmt) result.program().functions().getFirst().body().statements().getFirst();
+        VarDeclStmt initializer = (VarDeclStmt) forStmt.initializerOptional().orElseThrow();
+        BinaryExpr condition = (BinaryExpr) forStmt.conditionOptional().orElseThrow();
+        AssignmentExpr step = (AssignmentExpr) forStmt.stepOptional().orElseThrow();
+
+        assertThat(initializer.name()).isEqualTo("i");
+        assertThat(condition.operator()).isEqualTo(TokenKind.LESS);
+        assertThat(step.targetName()).isEqualTo("i");
+        assertThat(forStmt.body()).isInstanceOf(ExprStmt.class);
+        assertThat(forStmt.range()).isEqualTo(new SourceRange(sourceFile, 13, sourceFile.content().indexOf(" return")));
+    }
+
+    @Test
+    void parsesForStatementWithOmittedClauses() {
+        SourceFile sourceFile = new SourceFile("for-omitted.mc", "int main() { for (;;) return 1; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        ForStmt forStmt = (ForStmt) result.program().functions().getFirst().body().statements().getFirst();
+        assertThat(forStmt.initializerOptional()).isEmpty();
+        assertThat(forStmt.conditionOptional()).isEmpty();
+        assertThat(forStmt.stepOptional()).isEmpty();
+        assertThat(forStmt.body()).isInstanceOf(ReturnStmt.class);
+    }
 
     @Test
     void parsesBinaryPrecedence() {

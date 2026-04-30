@@ -4,6 +4,7 @@ import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Parameter;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.ExprStmt;
+import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
@@ -62,9 +63,18 @@ final class StatementSemanticAnalyzer {
                 expressionAnalyzer.analyzeExpression(whileStmt.condition(), scope);
                 analyzeBranch(whileStmt.body(), scope);
             }
+            case ForStmt forStmt -> analyzeFor(forStmt, scope);
             default -> throw new IllegalArgumentException("unsupported statement: "
                     + statement.getClass().getSimpleName());
         }
+    }
+
+    private void analyzeFor(ForStmt forStmt, Scope parentScope) {
+        Scope scope = new Scope(parentScope);
+        forStmt.initializerOptional().ifPresent(initializer -> analyzeStatement(initializer, scope));
+        forStmt.conditionOptional().ifPresent(condition -> expressionAnalyzer.analyzeExpression(condition, scope));
+        forStmt.stepOptional().ifPresent(step -> expressionAnalyzer.analyzeExpression(step, scope));
+        analyzeBranch(forStmt.body(), scope);
     }
 
     private void analyzeBranch(Statement statement, Scope parentScope) {

@@ -3,6 +3,7 @@ package minic.compiler.ir.lowering;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.ExprStmt;
+import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
@@ -68,6 +69,10 @@ final class StatementLowerer {
             lowerWhile(whileStmt);
             return;
         }
+        if (statement instanceof ForStmt forStmt) {
+            lowerFor(forStmt);
+            return;
+        }
         throw new IllegalArgumentException("unsupported statement: " + statement.getClass().getSimpleName());
     }
 
@@ -111,6 +116,37 @@ final class StatementLowerer {
         builder.addJumpIfOpen(conditionLabel, whileStmt.body().range());
 
         builder.switchToBlock(exitLabel);
+    }
+
+    private void lowerFor(ForStmt forStmt) {
+        String conditionLabel = builder.newBlockLabel("for_condition");
+        String bodyLabel = builder.newBlockLabel("for_body");
+        String stepLabel = builder.newBlockLabel("for_step");
+        String exitLabel = builder.newBlockLabel("for_exit");
+
+        builder.pushLocalScope();
+        forStmt.initializerOptional().ifPresent(this::lowerStatement);
+        builder.addJumpIfOpen(conditionLabel, forStmt.range());
+
+        builder.switchToBlock(conditionLabel);
+        if (forStmt.conditionOptional().isPresent()) {
+            Expression condition = forStmt.conditionOptional().orElseThrow();
+            IrValue conditionValue = expressionLowerer.lowerExpression(condition);
+            builder.addInstruction(new IrBranchInstruction(conditionValue, bodyLabel, exitLabel, condition.range()));
+        } else {
+            builder.addJumpIfOpen(bodyLabel, forStmt.range());
+        }
+
+        builder.switchToBlock(bodyLabel);
+        lowerBranch(forStmt.body());
+        builder.addJumpIfOpen(stepLabel, forStmt.body().range());
+
+        builder.switchToBlock(stepLabel);
+        forStmt.stepOptional().ifPresent(expressionLowerer::lowerExpression);
+        builder.addJumpIfOpen(conditionLabel, forStmt.range());
+
+        builder.switchToBlock(exitLabel);
+        builder.popLocalScope();
     }
 
     private void lowerBranch(Statement statement) {

@@ -63,13 +63,13 @@ v0.1 后端先限定单目标平台，优先 `Windows x86_64`；编译器核心�
 - `//` 行注释
 - `if`、`else`
 - `while`
+- `for`
 
 暂不支持：
 
 - 预处理器和头文件
 - 指针、数组、struct、union、enum
 - 浮点数
-- `for`
 - 多目标平台代码生成
 - 优化 pass
 
@@ -81,11 +81,14 @@ functionDecl   ::= "int" identifier "(" parameterList? ")" (block | ";") ;
 parameterList  ::= parameter ("," parameter)* ;
 parameter      ::= "int" identifier ;
 block          ::= "{" statement* "}" ;
-statement      ::= varDecl | returnStmt | ifStmt | whileStmt | exprStmt | block ;
+statement      ::= varDecl | returnStmt | ifStmt | whileStmt | forStmt | exprStmt | block ;
 varDecl        ::= "int" identifier ("=" expression)? ";" ;
 returnStmt     ::= "return" expression? ";" ;
 ifStmt         ::= "if" "(" expression ")" statement ("else" statement)? ;
 whileStmt      ::= "while" "(" expression ")" statement ;
+forStmt        ::= "for" "(" forInit? ";" expression? ";" expression? ")" statement ;
+forInit        ::= varDeclNoSemicolon | expression ;
+varDeclNoSemicolon ::= "int" identifier ("=" expression)? ;
 exprStmt       ::= expression ";" ;
 expression     ::= assignment ;
 assignment     ::= identifier "=" assignment | equality ;
@@ -118,6 +121,7 @@ argumentList   ::= expression ("," expression)* ;
 - `if` 条件按 `int` 判断，非 0 为真，0 为假；`else` 绑定最近的未匹配 `if`。
 - `else if` 不引入独立语义，按 `else` 分支中的嵌套 `if` 处理。
 - `while` 条件按 `int` 判断，非 0 为真，0 为假；条件为真时重复执行循环体，条件为假时退出循环。
+- `for` 按 init、condition、body、step、exit 执行；condition 省略时视为恒真，init 中声明的变量作用域限于该 `for`。
 - 未初始化局部变量被读取是运行时错误，生成产物必须保留该检查。
 - 除零是运行时错误，生成产物必须保留该检查。
 

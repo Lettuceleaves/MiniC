@@ -237,6 +237,33 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsWindowsX64AssemblyForForLoop() {
+        IrModule module = lower("""
+                int main() {
+                    int x = 0;
+                    for (int i = 0; i < 3; i = i + 1) {
+                        x = x + i;
+                    }
+                    return x;
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "    jmp main$for_condition_0",
+                "main$for_condition_0:",
+                "    jne main$for_body_1",
+                "    jmp main$for_exit_3",
+                "main$for_body_1:",
+                "    jmp main$for_step_2",
+                "main$for_step_2:",
+                "    jmp main$for_condition_0",
+                "main$for_exit_3:"
+        );
+    }
+
     private IrModule lower(String source) {
         SourceFile sourceFile = new SourceFile("codegen.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

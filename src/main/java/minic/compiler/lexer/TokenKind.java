@@ -45,6 +45,11 @@ public enum TokenKind {
     WHILE,
 
     /**
+     * {@code for} 关键字。
+     */
+    FOR,
+
+    /**
      * {@code +}。
      */
     PLUS,
