@@ -54,6 +54,9 @@ final class StatementSemanticAnalyzer {
         switch (statement) {
             case BlockStmt blockStmt -> analyzeBlock(blockStmt, scope, true);
             case VarDeclStmt varDeclStmt -> {
+                if (varDeclStmt.type().isArray() && varDeclStmt.initializerOptional().isPresent()) {
+                    reporter.report(varDeclStmt.range(), "数组声明暂不支持初始化表达式");
+                }
                 varDeclStmt.initializerOptional()
                         .ifPresent(initializer -> expressionAnalyzer.analyzeExpression(initializer, scope));
                 defineVariable(scope, varDeclStmt.name(), varDeclStmt.range(), varDeclStmt.type());

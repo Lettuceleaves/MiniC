@@ -12,5 +12,10 @@ public enum IrType {
     /**
      * 指针或地址类型。
      */
-    POINTER
+    POINTER,
+
+    /**
+     * 固定长度 int 数组。
+     */
+    INT_ARRAY
 }

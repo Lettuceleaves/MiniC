@@ -336,6 +336,27 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsWindowsX64AssemblyForArrayIndexReadAndWrite() {
+        IrModule module = lower("""
+                int main() {
+                    int values[3];
+                    values[1] = 7;
+                    return values[1];
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "    lea rax, [rbp-",
+                "    movsxd rcx, ecx",
+                "    lea rax, [rax+rcx*4]",
+                "    mov DWORD PTR [rax], ecx",
+                "    mov eax, DWORD PTR [rax]"
+        );
+    }
+
     private IrModule lower(String source) {
         SourceFile sourceFile = new SourceFile("codegen.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

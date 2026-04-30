@@ -5,6 +5,7 @@ import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.GroupingExpr;
+import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
@@ -46,6 +47,7 @@ final class ExpressionSemanticAnalyzer {
                 yield MiniType.INT;
             }
             case GroupingExpr groupingExpr -> analyzeExpression(groupingExpr.expression(), scope);
+            case IndexExpr indexExpr -> analyzeIndex(indexExpr, scope);
             case UnaryExpr unaryExpr -> analyzeUnary(unaryExpr, scope);
             case CallExpr callExpr -> {
                 MiniType returnType = functionRegistry.resolveFunction(callExpr);
@@ -86,7 +88,23 @@ final class ExpressionSemanticAnalyzer {
         if (target instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenKind.STAR) {
             return analyzeExpression(target, scope);
         }
+        if (target instanceof IndexExpr) {
+            return analyzeExpression(target, scope);
+        }
         reporter.report(range, "赋值左侧必须是变量或解引用表达式");
+        return MiniType.INT;
+    }
+
+    private MiniType analyzeIndex(IndexExpr indexExpr, Scope scope) {
+        MiniType targetType = analyzeExpression(indexExpr.target(), scope);
+        analyzeExpression(indexExpr.index(), scope);
+        if (targetType.isArray()) {
+            return targetType.elementType();
+        }
+        if (targetType.isPointer()) {
+            return targetType.pointee();
+        }
+        reporter.report(indexExpr.range(), "下标访问目标必须是数组或指针");
         return MiniType.INT;
     }
 
@@ -96,6 +114,10 @@ final class ExpressionSemanticAnalyzer {
             reporter.report(range, "未解析变量：" + name);
             return MiniType.INT;
         }
-        return symbol.orElseThrow().type();
+        MiniType type = symbol.orElseThrow().type();
+        if (type.isArray()) {
+            return type.elementType().pointerTo();
+        }
+        return type;
     }
 }

@@ -5,6 +5,7 @@ import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
@@ -135,6 +136,8 @@ record WindowsX64FrameLayout(
             nextOffset = ensureTemporary(addressOfLocal.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrLoadPointerInstruction loadPointer) {
             nextOffset = ensureTemporary(loadPointer.result(), temporaryOffsets, nextOffset);
+        } else if (instruction instanceof IrElementAddressInstruction elementAddress) {
+            nextOffset = ensureTemporary(elementAddress.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrStoreLocalInstruction storeLocal) {
             nextOffset = ensureLocal(storeLocal.local(), localOffsets, localInitializedOffsets, nextOffset);
         } else if (instruction instanceof IrStorePointerInstruction) {
@@ -152,7 +155,7 @@ record WindowsX64FrameLayout(
             int nextOffset
     ) {
         if (!localOffsets.containsKey(local.name())) {
-            nextOffset += slotSize(local.type());
+            nextOffset += slotSize(local.type(), local.elementCount());
             localOffsets.put(local.name(), nextOffset);
             nextOffset += 4;
             localInitializedOffsets.put(local.name(), nextOffset);
@@ -173,6 +176,13 @@ record WindowsX64FrameLayout(
     }
 
     private static int slotSize(IrType type) {
+        return slotSize(type, 1);
+    }
+
+    private static int slotSize(IrType type, int elementCount) {
+        if (type == IrType.INT_ARRAY) {
+            return 4 * elementCount;
+        }
         if (type == IrType.POINTER) {
             return 8;
         }

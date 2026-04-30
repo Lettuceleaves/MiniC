@@ -65,6 +65,8 @@ public final class Lexer {
                 case ')' -> addToken(TokenKind.RIGHT_PAREN, startOffset);
                 case '{' -> addToken(TokenKind.LEFT_BRACE, startOffset);
                 case '}' -> addToken(TokenKind.RIGHT_BRACE, startOffset);
+                case '[' -> addToken(TokenKind.LEFT_BRACKET, startOffset);
+                case ']' -> addToken(TokenKind.RIGHT_BRACKET, startOffset);
                 case ';' -> addToken(TokenKind.SEMICOLON, startOffset);
                 case ',' -> addToken(TokenKind.COMMA, startOffset);
                 case '"' -> lexStringLiteral(startOffset);

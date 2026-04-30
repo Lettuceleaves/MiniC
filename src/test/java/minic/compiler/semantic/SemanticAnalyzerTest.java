@@ -3,6 +3,7 @@ package minic.compiler.semantic;
 import minic.compiler.ast.decl.Program;
 import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
+import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
@@ -294,6 +295,47 @@ class SemanticAnalyzerTest {
         assertThat(result.typeOf(addressOf)).contains(MiniType.INT.pointerTo());
         assertThat(result.typeOf(dereferenceStore)).contains(MiniType.INT);
         assertThat(result.typeOf(dereferenceReturn)).contains(MiniType.INT);
+    }
+
+    @Test
+    void recordsArrayIndexTypes() {
+        Program program = parse("""
+                int main() {
+                    int values[3];
+                    values[0] = 7;
+                    return values[0];
+                }
+                """);
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics()).isEmpty();
+        var statements = program.functions().getFirst().body().statements();
+        IndexExpr assignmentTarget = (IndexExpr) ((minic.compiler.ast.expr.AssignmentExpr)
+                ((ExprStmt) statements.get(1)).expression()).target();
+        IndexExpr returned = (IndexExpr) ((ReturnStmt) statements.get(2)).expressionOptional().orElseThrow();
+
+        assertThat(result.typeOf(assignmentTarget.target())).contains(MiniType.INT.pointerTo());
+        assertThat(result.typeOf(assignmentTarget)).contains(MiniType.INT);
+        assertThat(result.typeOf(returned)).contains(MiniType.INT);
+    }
+
+    @Test
+    void reportsIndexingNonArrayOrPointer() {
+        SemanticResult result = analyze("int main() { int x = 1; return x[0]; }");
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("下标访问目标必须是数组或指针");
+    }
+
+    @Test
+    void reportsArrayInitializer() {
+        SemanticResult result = analyze("int main() { int values[3] = 1; return 0; }");
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("数组声明暂不支持初始化表达式");
     }
 
     @Test

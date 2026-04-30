@@ -13,6 +13,7 @@ import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.lexer.Token;
 import minic.compiler.lexer.TokenKind;
+import minic.compiler.type.MiniType;
 import minic.source.SourceRange;
 
 import java.util.ArrayList;
@@ -205,6 +206,7 @@ final class StatementParser {
     private VarDeclStmt parseVarDeclStmt() {
         ParsedType type = typeParser.parseType("期望变量类型 int");
         Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望变量名");
+        MiniType declaredType = type != null ? parseArraySuffix(type.type()) : null;
         Expression initializer = null;
         if (state.match(TokenKind.EQUAL)) {
             initializer = expressionParser.parseExpression();
@@ -216,7 +218,7 @@ final class StatementParser {
         }
         return new VarDeclStmt(
                 nameToken.lexeme(),
-                type.type(),
+                declaredType,
                 initializer,
                 new SourceRange(
                         type.range().sourceFile(),
@@ -224,6 +226,23 @@ final class StatementParser {
                         semicolonToken.range().endOffset()
                 )
         );
+    }
+
+    private MiniType parseArraySuffix(MiniType baseType) {
+        if (!state.match(TokenKind.LEFT_BRACKET)) {
+            return baseType;
+        }
+        Token lengthToken = state.consume(TokenKind.INTEGER_LITERAL, "期望数组长度");
+        Token endToken = state.consume(TokenKind.RIGHT_BRACKET, "期望 ']'");
+        if (lengthToken == null || endToken == null) {
+            return baseType;
+        }
+        int length = (Integer) lengthToken.literalValue();
+        if (length <= 0) {
+            state.report(lengthToken, "数组长度必须大于 0");
+            return baseType;
+        }
+        return baseType.arrayOf(length);
     }
 
     private ReturnStmt parseReturnStmt() {

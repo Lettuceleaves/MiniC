@@ -5,6 +5,7 @@ import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.GroupingExpr;
+import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
@@ -52,6 +53,9 @@ final class ExpressionParser {
 
     private boolean isAssignmentTarget(Expression expression) {
         if (expression instanceof NameExpr) {
+            return true;
+        }
+        if (expression instanceof IndexExpr) {
             return true;
         }
         return expression instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenKind.STAR;
@@ -117,7 +121,28 @@ final class ExpressionParser {
                     )
             );
         }
-        return parsePrimary();
+        return parsePostfix();
+    }
+
+    private Expression parsePostfix() {
+        Expression expression = parsePrimary();
+        while (expression != null && state.match(TokenKind.LEFT_BRACKET)) {
+            Expression index = parseExpression();
+            Token endToken = state.consume(TokenKind.RIGHT_BRACKET, "期望 ']'");
+            if (index == null || endToken == null) {
+                return expression;
+            }
+            expression = new IndexExpr(
+                    expression,
+                    index,
+                    new SourceRange(
+                            expression.range().sourceFile(),
+                            expression.range().startOffset(),
+                            endToken.range().endOffset()
+                    )
+            );
+        }
+        return expression;
     }
 
     private Expression parsePrimary() {

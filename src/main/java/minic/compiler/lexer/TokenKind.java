@@ -150,6 +150,16 @@ public enum TokenKind {
     RIGHT_BRACE,
 
     /**
+     * {@code [}。
+     */
+    LEFT_BRACKET,
+
+    /**
+     * {@code ]}。
+     */
+    RIGHT_BRACKET,
+
+    /**
      * {@code ;}。
      */
     SEMICOLON,

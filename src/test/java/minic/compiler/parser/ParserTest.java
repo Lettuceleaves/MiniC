@@ -10,6 +10,7 @@ import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.GroupingExpr;
+import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
@@ -309,6 +310,27 @@ class ParserTest {
         assertThat(pointerDecl.type()).isEqualTo(MiniType.INT.pointerTo());
         assertThat(addressOf.operator()).isEqualTo(TokenKind.AMPERSAND);
     }
+
+    @Test
+    void parsesArrayDeclarationAndIndexAssignment() {
+        SourceFile sourceFile = new SourceFile("array.mc", "int main() { int values[3]; values[0] = 7; return values[0]; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        BlockStmt body = result.program().functions().getFirst().body();
+        VarDeclStmt arrayDecl = (VarDeclStmt) body.statements().getFirst();
+        AssignmentExpr assignment = (AssignmentExpr) ((ExprStmt) body.statements().get(1)).expression();
+        IndexExpr target = (IndexExpr) assignment.target();
+        ReturnStmt returnStmt = (ReturnStmt) body.statements().get(2);
+        IndexExpr returned = (IndexExpr) returnStmt.expressionOptional().orElseThrow();
+
+        assertThat(arrayDecl.type()).isEqualTo(MiniType.INT.arrayOf(3));
+        assertThat(target.target()).isInstanceOf(NameExpr.class);
+        assertThat(((IntegerLiteralExpr) target.index()).value()).isEqualTo(0);
+        assertThat(returned.target()).isInstanceOf(NameExpr.class);
+    }
+
 
 
     @Test

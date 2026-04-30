@@ -9,6 +9,7 @@ import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
@@ -422,6 +423,34 @@ class IrLowererTest {
                 assertThat(block.instructions())
                         .filteredOn(IrLoadPointerInstruction.class::isInstance)
                         .hasSize(1));
+    }
+
+    @Test
+    void lowersArrayIndexReadAndWriteToElementAddresses() {
+        Program program = parse("""
+                int main() {
+                    int values[3];
+                    values[0] = 7;
+                    return values[0];
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).singleElement().satisfies(block -> {
+            IrDeclareLocalInstruction declare = (IrDeclareLocalInstruction) block.instructions().getFirst();
+            assertThat(declare.local().type()).isEqualTo(IrType.INT_ARRAY);
+            assertThat(declare.local().elementCount()).isEqualTo(3);
+            assertThat(block.instructions())
+                    .filteredOn(IrElementAddressInstruction.class::isInstance)
+                    .hasSize(2);
+            assertThat(block.instructions())
+                    .filteredOn(IrStorePointerInstruction.class::isInstance)
+                    .hasSize(1);
+            assertThat(block.instructions())
+                    .filteredOn(IrLoadPointerInstruction.class::isInstance)
+                    .hasSize(1);
+        });
     }
 
     @Test

@@ -75,6 +75,7 @@ final class IrFunctionBuilder {
                 varDeclStmt.name() + "#" + nextLocalIndex++,
                 varDeclStmt.name(),
                 IrTypeLowerer.lower(varDeclStmt.type()),
+                IrTypeLowerer.elementCount(varDeclStmt.type()),
                 varDeclStmt.range()
         );
         localScopes.peek().put(varDeclStmt.name(), local);

@@ -62,10 +62,12 @@ final class StatementLowerer {
         if (statement instanceof VarDeclStmt varDeclStmt) {
             IrLocal local = builder.declareLocal(varDeclStmt);
             builder.addInstruction(new IrDeclareLocalInstruction(local, varDeclStmt.range()));
-            varDeclStmt.initializerOptional().ifPresent(initializer -> {
+            if (!varDeclStmt.type().isArray()) {
+                varDeclStmt.initializerOptional().ifPresent(initializer -> {
                 IrValue value = expressionLowerer.lowerExpression(initializer);
                 builder.addInstruction(new IrStoreLocalInstruction(local, value, varDeclStmt.range()));
-            });
+                });
+            }
             return;
         }
         if (statement instanceof BreakStmt breakStmt) {

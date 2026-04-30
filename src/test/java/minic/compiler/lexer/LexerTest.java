@@ -23,7 +23,7 @@ class LexerTest {
 
     @Test
     void lexesSingleCharacterTokens() {
-        SourceFile sourceFile = new SourceFile("operators.mc", "+-*/&=(){};,<>");
+        SourceFile sourceFile = new SourceFile("operators.mc", "+-*/&=(){}[];,<>");
 
         LexResult result = new Lexer(sourceFile).lex();
 
@@ -41,6 +41,8 @@ class LexerTest {
                         TokenKind.RIGHT_PAREN,
                         TokenKind.LEFT_BRACE,
                         TokenKind.RIGHT_BRACE,
+                        TokenKind.LEFT_BRACKET,
+                        TokenKind.RIGHT_BRACKET,
                         TokenKind.SEMICOLON,
                         TokenKind.COMMA,
                         TokenKind.LESS,
@@ -49,7 +51,7 @@ class LexerTest {
                 );
         assertThat(result.tokens())
                 .extracting(Token::lexeme)
-                .containsExactly("+", "-", "*", "/", "&", "=", "(", ")", "{", "}", ";", ",", "<", ">", "");
+                .containsExactly("+", "-", "*", "/", "&", "=", "(", ")", "{", "}", "[", "]", ";", ",", "<", ">", "");
     }
 
     @Test

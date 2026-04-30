@@ -7,6 +7,7 @@ import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
@@ -93,6 +94,14 @@ final class WindowsX64InstructionEmitter {
                 builder.append("    lea rax, ").append(frame.localAddress(addressOfLocal.local()))
                         .append(System.lineSeparator());
                 builder.append("    mov ").append(frame.temporarySlot(addressOfLocal.result()))
+                        .append(", rax").append(System.lineSeparator());
+            }
+            case IrElementAddressInstruction elementAddress -> {
+                valueEmitter.emitLoadValue(builder, elementAddress.baseAddress(), "rax");
+                valueEmitter.emitLoadValue(builder, elementAddress.index(), "ecx");
+                builder.append("    movsxd rcx, ecx").append(System.lineSeparator());
+                builder.append("    lea rax, [rax+rcx*4]").append(System.lineSeparator());
+                builder.append("    mov ").append(frame.temporarySlot(elementAddress.result()))
                         .append(", rax").append(System.lineSeparator());
             }
             case IrLoadPointerInstruction loadPointer -> {

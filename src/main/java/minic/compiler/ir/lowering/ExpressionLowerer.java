@@ -5,6 +5,7 @@ import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.GroupingExpr;
+import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
@@ -14,6 +15,7 @@ import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
+import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
@@ -63,6 +65,12 @@ final class ExpressionLowerer {
         }
         if (expression instanceof UnaryExpr unaryExpr) {
             return lowerUnary(unaryExpr);
+        }
+        if (expression instanceof IndexExpr indexExpr) {
+            IrValue address = lowerElementAddress(indexExpr);
+            IrTemporary result = builder.newTemporary(IrType.INT);
+            builder.addInstruction(new IrLoadPointerInstruction(result, address, indexExpr.range()));
+            return result;
         }
         if (expression instanceof BinaryExpr binaryExpr) {
             IrValue left = lowerExpression(binaryExpr.left());
@@ -125,6 +133,32 @@ final class ExpressionLowerer {
             builder.addInstruction(new IrStorePointerInstruction(address, value, range));
             return;
         }
+        if (target instanceof IndexExpr indexExpr) {
+            IrValue address = lowerElementAddress(indexExpr);
+            builder.addInstruction(new IrStorePointerInstruction(address, value, range));
+            return;
+        }
         throw new IllegalArgumentException("unsupported assignment target: " + target.getClass().getSimpleName());
+    }
+
+    private IrValue lowerElementAddress(IndexExpr indexExpr) {
+        IrValue baseAddress = lowerAddress(indexExpr.target());
+        IrValue index = lowerExpression(indexExpr.index());
+        IrTemporary result = builder.newTemporary(IrType.POINTER);
+        builder.addInstruction(new IrElementAddressInstruction(result, baseAddress, index, indexExpr.range()));
+        return result;
+    }
+
+    private IrValue lowerAddress(Expression expression) {
+        if (expression instanceof NameExpr nameExpr) {
+            IrLocal local = builder.resolveLocal(nameExpr.name());
+            if (local == null) {
+                return builder.resolveParameter(nameExpr.name());
+            }
+            IrTemporary result = builder.newTemporary(IrType.POINTER);
+            builder.addInstruction(new IrAddressOfLocalInstruction(result, local, nameExpr.range()));
+            return result;
+        }
+        return lowerExpression(expression);
     }
 }
