@@ -321,6 +321,41 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void acceptsArrayArgumentForPointerParameter() {
+        SemanticResult result = analyze("""
+                int writeFirst(int *values) {
+                    values[0] = 7;
+                    return values[0];
+                }
+
+                int main() {
+                    int values[2];
+                    return writeFirst(values);
+                }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+    }
+
+    @Test
+    void reportsScalarArgumentForPointerParameter() {
+        SemanticResult result = analyze("""
+                int read(int *value) {
+                    return value[0];
+                }
+
+                int main() {
+                    int value = 1;
+                    return read(value);
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("函数调用实参类型不匹配：read");
+    }
+
+    @Test
     void reportsIndexingNonArrayOrPointer() {
         SemanticResult result = analyze("int main() { int x = 1; return x[0]; }");
 

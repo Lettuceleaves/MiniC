@@ -14,6 +14,7 @@ import minic.compiler.type.MiniType;
 import minic.compiler.lexer.TokenKind;
 import minic.source.SourceRange;
 
+import java.util.ArrayList;
 import java.util.Map;
 
 final class ExpressionSemanticAnalyzer {
@@ -50,10 +51,11 @@ final class ExpressionSemanticAnalyzer {
             case IndexExpr indexExpr -> analyzeIndex(indexExpr, scope);
             case UnaryExpr unaryExpr -> analyzeUnary(unaryExpr, scope);
             case CallExpr callExpr -> {
-                MiniType returnType = functionRegistry.resolveFunction(callExpr);
+                ArrayList<MiniType> argumentTypes = new ArrayList<>();
                 for (Expression argument : callExpr.arguments()) {
-                    analyzeExpression(argument, scope);
+                    argumentTypes.add(analyzeExpression(argument, scope));
                 }
+                MiniType returnType = functionRegistry.resolveFunction(callExpr, argumentTypes);
                 yield returnType;
             }
             default -> throw new IllegalArgumentException("unsupported expression: "

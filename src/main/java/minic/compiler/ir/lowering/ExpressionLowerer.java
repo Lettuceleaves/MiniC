@@ -48,6 +48,9 @@ final class ExpressionLowerer {
         if (expression instanceof NameExpr nameExpr) {
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local != null) {
+                if (local.type() == IrType.INT_ARRAY) {
+                    return lowerAddress(nameExpr);
+                }
                 builder.addInstruction(new IrCheckInitializedInstruction(local, nameExpr.range()));
                 IrTemporary result = builder.newTemporary(local.type());
                 builder.addInstruction(new IrLoadLocalInstruction(result, local, nameExpr.range()));

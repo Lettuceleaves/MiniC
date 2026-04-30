@@ -1,9 +1,12 @@
 package minic.compiler.semantic;
 
 import minic.compiler.ast.decl.FunctionDecl;
+import minic.compiler.ast.decl.Parameter;
 import minic.compiler.ast.decl.Program;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.type.MiniType;
+
+import java.util.List;
 
 final class FunctionRegistry {
     private final Scope globalScope;
@@ -20,18 +23,23 @@ final class FunctionRegistry {
             validateFunctionName(functionDecl);
             validateFunctionSignature(functionDecl);
             String name = functionDecl.name();
-            int arity = functionDecl.parameters().size();
+            List<MiniType> parameterTypes = parameterTypes(functionDecl);
             FunctionState existingState = functionStates.get(name);
             if (existingState == null) {
-                Symbol symbol = new Symbol(name, SymbolKind.FUNCTION, functionDecl.range(), MiniType.INT, arity);
+                Symbol symbol = new Symbol(name, SymbolKind.FUNCTION, functionDecl.range(), MiniType.INT,
+                        parameterTypes.size());
                 globalScope.define(symbol);
-                functionStates.put(name, new FunctionState(arity, functionDecl.hasBody(), functionDecl.external()));
+                functionStates.put(name, new FunctionState(
+                        parameterTypes,
+                        functionDecl.hasBody(),
+                        functionDecl.external()
+                ));
                 if (functionDecl.external() && functionDecl.hasBody()) {
                     reporter.report(functionDecl.range(), "外部函数不能携带函数体：" + name);
                 }
                 continue;
             }
-            if (existingState.arity() != arity) {
+            if (!existingState.parameterTypes().equals(parameterTypes)) {
                 reporter.report(functionDecl.range(), "函数声明签名不一致：" + name);
                 continue;
             }
@@ -60,7 +68,7 @@ final class FunctionRegistry {
         }
     }
 
-    MiniType resolveFunction(CallExpr callExpr) {
+    MiniType resolveFunction(CallExpr callExpr, List<MiniType> argumentTypes) {
         var functionSymbol = globalScope.resolve(callExpr.calleeName())
                 .filter(symbol -> symbol.kind() == SymbolKind.FUNCTION);
         if (functionSymbol.isEmpty()) {
@@ -75,7 +83,26 @@ final class FunctionRegistry {
         if (arity != null && arity != callExpr.arguments().size()) {
             reporter.report(callExpr.range(), "函数调用实参数量不匹配：" + callExpr.calleeName());
         }
+        if (functionState != null && functionState.parameterTypes().size() == argumentTypes.size()) {
+            for (int index = 0; index < argumentTypes.size(); index++) {
+                MiniType parameterType = functionState.parameterTypes().get(index);
+                MiniType argumentType = argumentTypes.get(index);
+                if (!isArgumentCompatible(parameterType, argumentType)) {
+                    reporter.report(
+                            callExpr.arguments().get(index).range(),
+                            "函数调用实参类型不匹配：" + callExpr.calleeName()
+                    );
+                }
+            }
+        }
         return functionSymbol.orElseThrow().type();
+    }
+
+    private boolean isArgumentCompatible(MiniType parameterType, MiniType argumentType) {
+        if (parameterType.equals(argumentType)) {
+            return true;
+        }
+        return !parameterType.isPointer();
     }
 
     private void validateFunctionName(FunctionDecl functionDecl) {
@@ -119,13 +146,23 @@ final class FunctionRegistry {
         return functionDecl.name() + "/" + functionDecl.parameters().size();
     }
 
-    private record FunctionState(int arity, boolean defined, boolean external) {
+    private List<MiniType> parameterTypes(FunctionDecl functionDecl) {
+        return functionDecl.parameters().stream()
+                .map(Parameter::type)
+                .toList();
+    }
+
+    private record FunctionState(List<MiniType> parameterTypes, boolean defined, boolean external) {
+        private FunctionState {
+            parameterTypes = List.copyOf(parameterTypes);
+        }
+
         private FunctionState asDefined() {
-            return new FunctionState(arity, true, external);
+            return new FunctionState(parameterTypes, true, external);
         }
 
         private FunctionState asExternal() {
-            return new FunctionState(arity, defined, true);
+            return new FunctionState(parameterTypes, defined, true);
         }
     }
 }

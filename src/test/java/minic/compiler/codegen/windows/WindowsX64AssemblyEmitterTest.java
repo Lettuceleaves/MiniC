@@ -357,6 +357,33 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsWindowsX64AssemblyForArrayPointerArgument() {
+        IrModule module = lower("""
+                int writeFirst(int *values) {
+                    values[0] = 7;
+                    return values[0];
+                }
+
+                int main() {
+                    int values[2];
+                    return writeFirst(values);
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "minic$writeFirst PROC",
+                "    mov QWORD PTR [rbp-",
+                "    mov DWORD PTR [rax], ecx",
+                "main PROC",
+                "    lea rax, [rbp-",
+                "    mov rcx, QWORD PTR [rbp-",
+                "    call minic$writeFirst"
+        );
+    }
+
     private IrModule lower(String source) {
         SourceFile sourceFile = new SourceFile("codegen.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

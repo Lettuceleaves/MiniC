@@ -454,6 +454,41 @@ class IrLowererTest {
     }
 
     @Test
+    void lowersArrayArgumentToPointerForFunctionCall() {
+        Program program = parse("""
+                int writeFirst(int *values) {
+                    values[0] = 7;
+                    return values[0];
+                }
+
+                int main() {
+                    int values[2];
+                    return writeFirst(values);
+                }
+                """);
+
+        IrModule module = new IrLowerer().lower(program);
+
+        IrFunction writeFirst = module.findFunction("writeFirst").orElseThrow();
+        assertThat(writeFirst.parameters()).singleElement().satisfies(parameter -> {
+            assertThat(parameter.name()).isEqualTo("values");
+            assertThat(parameter.type()).isEqualTo(IrType.POINTER);
+        });
+
+        IrFunction main = module.findFunction("main").orElseThrow();
+        assertThat(main.blocks()).singleElement().satisfies(block -> {
+            IrDeclareLocalInstruction declare = (IrDeclareLocalInstruction) block.instructions().getFirst();
+            IrAddressOfLocalInstruction addressOf = (IrAddressOfLocalInstruction) block.instructions().get(1);
+            IrCallInstruction call = (IrCallInstruction) block.instructions().get(2);
+
+            assertThat(declare.local().sourceName()).isEqualTo("values");
+            assertThat(declare.local().type()).isEqualTo(IrType.INT_ARRAY);
+            assertThat(addressOf.local()).isEqualTo(declare.local());
+            assertThat(call.arguments()).containsExactly(addressOf.result());
+        });
+    }
+
+    @Test
     void keepsShadowedLocalsDistinct() {
         Program program = parse("""
                 int main() {
