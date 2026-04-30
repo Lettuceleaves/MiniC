@@ -10,6 +10,7 @@ import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.lexer.TokenKind;
@@ -122,6 +123,39 @@ class ParserTest {
         assertThat(exprStmt.expression().range()).isEqualTo(new SourceRange(sourceFile, 15, 20));
         assertThat(exprStmt.range()).isEqualTo(new SourceRange(sourceFile, 15, 21));
     }
+
+    @Test
+    void parsesIfElseStatement() {
+        SourceFile sourceFile = new SourceFile("if.mc", "int main() { if (1 < 2) return 3; else return 4; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        IfStmt ifStmt = (IfStmt) result.program().functions().getFirst().body().statements().getFirst();
+        BinaryExpr condition = (BinaryExpr) ifStmt.condition();
+
+        assertThat(condition.operator()).isEqualTo(TokenKind.LESS);
+        assertThat(ifStmt.thenBranch()).isInstanceOf(ReturnStmt.class);
+        assertThat(ifStmt.elseBranchOptional()).hasValueSatisfying(elseBranch ->
+                assertThat(elseBranch).isInstanceOf(ReturnStmt.class));
+        assertThat(ifStmt.range()).isEqualTo(new SourceRange(sourceFile, 13, 48));
+    }
+
+    @Test
+    void parsesIfWithoutElseAndNestedIf() {
+        SourceFile sourceFile = new SourceFile("nested-if.mc", "int main() { if (1) if (0) return 1; return 2; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        IfStmt outerIf = (IfStmt) result.program().functions().getFirst().body().statements().getFirst();
+        IfStmt innerIf = (IfStmt) outerIf.thenBranch();
+
+        assertThat(outerIf.elseBranchOptional()).isEmpty();
+        assertThat(innerIf.elseBranchOptional()).isEmpty();
+        assertThat(innerIf.thenBranch()).isInstanceOf(ReturnStmt.class);
+    }
+
 
     @Test
     void parsesBinaryPrecedence() {

@@ -1,11 +1,13 @@
 package minic.compiler.codegen.windows;
 
 import minic.compiler.ir.instruction.IrBinaryInstruction;
+import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
+import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
@@ -74,6 +76,8 @@ final class WindowsX64InstructionEmitter {
             }
             case IrBinaryInstruction binary -> emitBinary(builder, binary);
             case IrCallInstruction call -> emitCall(builder, call);
+            case IrBranchInstruction branch -> emitBranch(builder, functionName, branch);
+            case IrJumpInstruction jump -> emitJump(builder, functionName, jump.targetLabel());
             case IrReturnInstruction returnInstruction -> {
                 valueEmitter.emitLoadValue(builder, returnInstruction.value(), "eax");
                 builder.append("    jmp ").append(epilogueLabel).append(System.lineSeparator());
@@ -81,6 +85,10 @@ final class WindowsX64InstructionEmitter {
             default -> throw new IllegalArgumentException("unsupported IR instruction: "
                     + instruction.getClass().getSimpleName());
         }
+    }
+
+    String blockSymbol(String functionName, String blockLabel) {
+        return functionName + "$" + blockLabel;
     }
 
     void emitFunctionTrap(
@@ -146,5 +154,16 @@ final class WindowsX64InstructionEmitter {
                 .append(System.lineSeparator());
         builder.append("    mov ").append(frame.temporarySlot(call.result()))
                 .append(", eax").append(System.lineSeparator());
+    }
+
+    private void emitBranch(StringBuilder builder, String functionName, IrBranchInstruction branch) {
+        valueEmitter.emitLoadValue(builder, branch.condition(), "eax");
+        builder.append("    cmp eax, 0").append(System.lineSeparator());
+        builder.append("    jne ").append(blockSymbol(functionName, branch.thenLabel())).append(System.lineSeparator());
+        emitJump(builder, functionName, branch.elseLabel());
+    }
+
+    private void emitJump(StringBuilder builder, String functionName, String targetLabel) {
+        builder.append("    jmp ").append(blockSymbol(functionName, targetLabel)).append(System.lineSeparator());
     }
 }

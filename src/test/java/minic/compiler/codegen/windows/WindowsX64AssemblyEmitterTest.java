@@ -154,6 +154,33 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsWindowsX64AssemblyForIfElseBlocks() {
+        IrModule module = lower("""
+                int main() {
+                    if (1 < 2) {
+                        return 7;
+                    } else {
+                        return 9;
+                    }
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "    cmp eax, 0",
+                "    jne main$then_0",
+                "    jmp main$else_1",
+                "main$then_0:",
+                "    mov eax, 7",
+                "    jmp main$epilogue",
+                "main$else_1:",
+                "    mov eax, 9",
+                "main$merge_2:"
+        );
+    }
+
     private IrModule lower(String source) {
         SourceFile sourceFile = new SourceFile("codegen.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

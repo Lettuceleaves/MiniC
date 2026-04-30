@@ -34,14 +34,16 @@ record WindowsX64FrameLayout(
             nextOffset += 4;
             parameterOffsets.put(parameter.name(), nextOffset);
         }
-        for (IrInstruction instruction : function.blocks().getFirst().instructions()) {
-            nextOffset = collectSlots(
-                    instruction,
-                    localOffsets,
-                    localInitializedOffsets,
-                    temporaryOffsets,
-                    nextOffset
-            );
+        for (var block : function.blocks()) {
+            for (IrInstruction instruction : block.instructions()) {
+                nextOffset = collectSlots(
+                        instruction,
+                        localOffsets,
+                        localInitializedOffsets,
+                        temporaryOffsets,
+                        nextOffset
+                );
+            }
         }
         int frameSize = WindowsX64CallingConvention.alignTo16(outgoingArgumentAreaSize + nextOffset);
         return new WindowsX64FrameLayout(
@@ -79,9 +81,11 @@ record WindowsX64FrameLayout(
 
     private static int collectOutgoingArgumentAreaSize(IrFunction function) {
         int maxArgumentCount = 0;
-        for (IrInstruction instruction : function.blocks().getFirst().instructions()) {
-            if (instruction instanceof IrCallInstruction call) {
-                maxArgumentCount = Math.max(maxArgumentCount, call.arguments().size());
+        for (var block : function.blocks()) {
+            for (IrInstruction instruction : block.instructions()) {
+                if (instruction instanceof IrCallInstruction call) {
+                    maxArgumentCount = Math.max(maxArgumentCount, call.arguments().size());
+                }
             }
         }
         return WindowsX64CallingConvention.outgoingArgumentAreaSize(maxArgumentCount);

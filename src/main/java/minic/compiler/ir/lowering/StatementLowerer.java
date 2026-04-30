@@ -3,9 +3,11 @@ package minic.compiler.ir.lowering;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.ExprStmt;
+import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
 import minic.compiler.ast.stmt.VarDeclStmt;
+import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
@@ -57,6 +59,44 @@ final class StatementLowerer {
             });
             return;
         }
+        if (statement instanceof IfStmt ifStmt) {
+            lowerIf(ifStmt);
+            return;
+        }
         throw new IllegalArgumentException("unsupported statement: " + statement.getClass().getSimpleName());
+    }
+
+    private void lowerIf(IfStmt ifStmt) {
+        IrValue condition = expressionLowerer.lowerExpression(ifStmt.condition());
+        String thenLabel = builder.newBlockLabel("then");
+        String elseLabel = ifStmt.elseBranchOptional().isPresent()
+                ? builder.newBlockLabel("else")
+                : builder.newBlockLabel("merge");
+        String mergeLabel = ifStmt.elseBranchOptional().isPresent()
+                ? builder.newBlockLabel("merge")
+                : elseLabel;
+        builder.addInstruction(new IrBranchInstruction(condition, thenLabel, elseLabel, ifStmt.condition().range()));
+
+        builder.switchToBlock(thenLabel);
+        lowerBranch(ifStmt.thenBranch());
+        builder.addJumpIfOpen(mergeLabel, ifStmt.thenBranch().range());
+
+        ifStmt.elseBranchOptional().ifPresent(elseBranch -> {
+            builder.switchToBlock(elseLabel);
+            lowerBranch(elseBranch);
+            builder.addJumpIfOpen(mergeLabel, elseBranch.range());
+        });
+
+        builder.switchToBlock(mergeLabel);
+    }
+
+    private void lowerBranch(Statement statement) {
+        if (statement instanceof BlockStmt blockStmt) {
+            lowerBlock(blockStmt, true);
+        } else {
+            builder.pushLocalScope();
+            lowerStatement(statement);
+            builder.popLocalScope();
+        }
     }
 }

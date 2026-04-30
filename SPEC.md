@@ -61,13 +61,14 @@ v0.1 后端先限定单目标平台，优先 `Windows x86_64`；编译器核心�
 - `== != < <= > >=`
 - 函数调用
 - `//` 行注释
+- `if`、`else`
 
 暂不支持：
 
 - 预处理器和头文件
 - 指针、数组、struct、union、enum
 - 浮点数
-- `if`、`while`、`for`
+- `while`、`for`
 - 多目标平台代码生成
 - 优化 pass
 
@@ -79,9 +80,10 @@ functionDecl   ::= "int" identifier "(" parameterList? ")" (block | ";") ;
 parameterList  ::= parameter ("," parameter)* ;
 parameter      ::= "int" identifier ;
 block          ::= "{" statement* "}" ;
-statement      ::= varDecl | returnStmt | exprStmt | block ;
+statement      ::= varDecl | returnStmt | ifStmt | exprStmt | block ;
 varDecl        ::= "int" identifier ("=" expression)? ";" ;
 returnStmt     ::= "return" expression? ";" ;
+ifStmt         ::= "if" "(" expression ")" statement ("else" statement)? ;
 exprStmt       ::= expression ";" ;
 expression     ::= assignment ;
 assignment     ::= identifier "=" assignment | equality ;
@@ -111,6 +113,7 @@ argumentList   ::= expression ("," expression)* ;
 - Windows x86_64 目标上，前 4 个 `int` 实参使用 `ecx`、`edx`、`r8d`、`r9d`，第 5 个及之后的 `int` 实参通过调用方栈参数区传递。
 - v0.1 中所有表达式类型都是 `int`。
 - 比较表达式结果是 `int`，真为 `1`，假为 `0`。
+- `if` 条件按 `int` 判断，非 0 为真，0 为假；`else` 绑定最近的未匹配 `if`。
 - 未初始化局部变量被读取是运行时错误，生成产物必须保留该检查。
 - 除零是运行时错误，生成产物必须保留该检查。
 

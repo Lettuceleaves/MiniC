@@ -192,6 +192,20 @@ class SemanticAnalyzerTest {
         assertThat(result.diagnostics()).isEmpty();
     }
 
+    @Test
+    void analyzesIfBranchesWithChildScopes() {
+        SemanticResult result = analyze("""
+                int main() {
+                    if (1) int x = 1; else int x = 2;
+                    return x;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("未解析变量：x");
+    }
+
     private SemanticResult analyze(String source) {
         SourceFile sourceFile = new SourceFile("semantic.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

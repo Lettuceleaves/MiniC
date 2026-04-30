@@ -3,6 +3,7 @@ package minic.compiler.parser;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.ExprStmt;
+import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
 import minic.compiler.ast.stmt.VarDeclStmt;
@@ -61,7 +62,37 @@ final class StatementParser {
         if (state.check(TokenKind.RETURN)) {
             return parseReturnStmt();
         }
+        if (state.check(TokenKind.IF)) {
+            return parseIfStmt();
+        }
         return parseExprStmt();
+    }
+
+    private IfStmt parseIfStmt() {
+        Token startToken = state.consume(TokenKind.IF, "期望 if");
+        state.consume(TokenKind.LEFT_PAREN, "期望 '('");
+        Expression condition = expressionParser.parseExpression();
+        state.consume(TokenKind.RIGHT_PAREN, "期望 ')'");
+        Statement thenBranch = parseStatement();
+        Statement elseBranch = null;
+        if (state.match(TokenKind.ELSE)) {
+            elseBranch = parseStatement();
+        }
+
+        if (startToken == null || condition == null || thenBranch == null) {
+            return null;
+        }
+        Statement endBranch = elseBranch != null ? elseBranch : thenBranch;
+        return new IfStmt(
+                condition,
+                thenBranch,
+                elseBranch,
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        endBranch.range().endOffset()
+                )
+        );
     }
 
     private VarDeclStmt parseVarDeclStmt() {

@@ -107,7 +107,7 @@ class LexerTest {
 
     @Test
     void lexesKeywordsSeparatelyFromIdentifiers() {
-        SourceFile sourceFile = new SourceFile("keywords.mc", "int return integer returnValue");
+        SourceFile sourceFile = new SourceFile("keywords.mc", "int return if else integer returnValue ifValue elseValue");
 
         LexResult result = new Lexer(sourceFile).lex();
 
@@ -117,6 +117,10 @@ class LexerTest {
                 .containsExactly(
                         TokenKind.INT,
                         TokenKind.RETURN,
+                        TokenKind.IF,
+                        TokenKind.ELSE,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.IDENTIFIER,
                         TokenKind.IDENTIFIER,
                         TokenKind.IDENTIFIER,
                         TokenKind.EOF

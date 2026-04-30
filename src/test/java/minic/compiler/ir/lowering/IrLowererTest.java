@@ -3,6 +3,7 @@ package minic.compiler.ir.lowering;
 import minic.compiler.ast.decl.Program;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrBinaryOperator;
+import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
@@ -133,6 +134,47 @@ class IrLowererTest {
                     );
         });
     }
+
+    @Test
+    void lowersIfElseToBasicBlocks() {
+        Program program = parse("""
+                int main() {
+                    if (1) {
+                        return 2;
+                    } else {
+                        return 3;
+                    }
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(block -> block.label())
+                .containsExactly("entry", "then_0", "else_1", "merge_2");
+        IrBranchInstruction branch = (IrBranchInstruction) main.blocks().getFirst().instructions().getFirst();
+        assertThat(branch.thenLabel()).isEqualTo("then_0");
+        assertThat(branch.elseLabel()).isEqualTo("else_1");
+    }
+
+    @Test
+    void lowersIfWithoutElseToMergeBlock() {
+        Program program = parse("""
+                int main() {
+                    int x = 1;
+                    if (1) x = 2;
+                    return x;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(block -> block.label())
+                .containsExactly("entry", "then_0", "merge_1");
+        IrBranchInstruction branch = (IrBranchInstruction) main.blocks().getFirst().instructions().getLast();
+        assertThat(branch.thenLabel()).isEqualTo("then_0");
+        assertThat(branch.elseLabel()).isEqualTo("merge_1");
+    }
+
 
     @Test
     void lowersLocalsAssignmentAndInitializedReadChecks() {

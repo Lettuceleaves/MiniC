@@ -62,6 +62,9 @@ samples\nested_call.mc          -> 退出码 10
 samples\stack_arguments.mc      -> 退出码 11
 samples\declaration_call.mc     -> 退出码 12
 samples\comparison.mc           -> 退出码 5
+samples\if_else.mc              -> 退出码 7
+samples\if_no_else.mc           -> 退出码 8
+samples\nested_if.mc            -> 退出码 6
 ```
 
 其中 `102` 是除零运行时检查 trap，`101` 是未初始化局部变量读取 trap。
@@ -76,6 +79,6 @@ samples\comparison.mc           -> 退出码 5
 
 ## 当前状态
 
-当前已完成项目文档整理、git 仓库初始化、Git 规范与验收要求补充、Java Gradle 骨架、Gradle Wrapper、临时文件清理验收要求、源码位置模型、诊断模型、Token 模型、v0.1 lexer、Program 和声明 AST、基础函数解析、语句 AST 和解析、表达式 AST 和解析、符号模型、函数和变量解析、v0.1 语义规则、IR 模型、基础 AST 到 IR lowering、变量、赋值和运行时检查插桩、AST/IR 包结构整理、目标平台和汇编输出模型、完整 v0.1 目标汇编生成、编译管线入口和产物结果模型、CLI 编译入口和阶段化观测输出、函数命名和签名规则、函数声明和定义分离、用户函数调用代码生成完善、比较表达式，以及语法扩展前的核心职责拆分。执行计划已调整为先完成从前端到真实可执行文件生成的编译链路，再扩展语言能力，随后进入 debugger。
+当前已完成项目文档整理、git 仓库初始化、Git 规范与验收要求补充、Java Gradle 骨架、Gradle Wrapper、临时文件清理验收要求、源码位置模型、诊断模型、Token 模型、v0.1 lexer、Program 和声明 AST、基础函数解析、语句 AST 和解析、表达式 AST 和解析、符号模型、函数和变量解析、v0.1 语义规则、IR 模型、基础 AST 到 IR lowering、变量、赋值和运行时检查插桩、AST/IR 包结构整理、目标平台和汇编输出模型、完整 v0.1 目标汇编生成、编译管线入口和产物结果模型、CLI 编译入口和阶段化观测输出、函数命名和签名规则、函数声明和定义分离、用户函数调用代码生成完善、比较表达式、语法扩展前的核心职责拆分，以及 if/else 控制流。执行计划已调整为先完成从前端到真实可执行文件生成的编译链路，再扩展语言能力，随后进入 debugger。
 
-下一步应执行 `A081：添加 if 和 else`，之后按计划补充控制流、动态链接、指针、数组和结构体。
+下一步应执行 `A082：添加 else if`，之后按计划补充控制流、动态链接、指针、数组和结构体。

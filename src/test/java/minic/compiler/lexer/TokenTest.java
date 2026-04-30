@@ -43,6 +43,8 @@ class TokenTest {
                         TokenKind.INTEGER_LITERAL,
                         TokenKind.INT,
                         TokenKind.RETURN,
+                        TokenKind.IF,
+                        TokenKind.ELSE,
                         TokenKind.PLUS,
                         TokenKind.MINUS,
                         TokenKind.STAR,

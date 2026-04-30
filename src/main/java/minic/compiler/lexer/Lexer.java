@@ -117,6 +117,8 @@ public final class Lexer {
         TokenKind kind = switch (lexeme) {
             case "int" -> TokenKind.INT;
             case "return" -> TokenKind.RETURN;
+            case "if" -> TokenKind.IF;
+            case "else" -> TokenKind.ELSE;
             default -> TokenKind.IDENTIFIER;
         };
         addToken(kind, startOffset);

@@ -4,6 +4,7 @@ import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Parameter;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.ExprStmt;
+import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
 import minic.compiler.ast.stmt.VarDeclStmt;
@@ -51,8 +52,21 @@ final class StatementSemanticAnalyzer {
                 }
             }
             case ExprStmt exprStmt -> expressionAnalyzer.analyzeExpression(exprStmt.expression(), scope);
+            case IfStmt ifStmt -> {
+                expressionAnalyzer.analyzeExpression(ifStmt.condition(), scope);
+                analyzeBranch(ifStmt.thenBranch(), scope);
+                ifStmt.elseBranchOptional().ifPresent(elseBranch -> analyzeBranch(elseBranch, scope));
+            }
             default -> throw new IllegalArgumentException("unsupported statement: "
                     + statement.getClass().getSimpleName());
+        }
+    }
+
+    private void analyzeBranch(Statement statement, Scope parentScope) {
+        if (statement instanceof BlockStmt blockStmt) {
+            analyzeBlock(blockStmt, parentScope, true);
+        } else {
+            analyzeStatement(statement, new Scope(parentScope));
         }
     }
 

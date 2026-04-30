@@ -30,6 +30,16 @@ public enum TokenKind {
     RETURN,
 
     /**
+     * {@code if} 关键字。
+     */
+    IF,
+
+    /**
+     * {@code else} 关键字。
+     */
+    ELSE,
+
+    /**
      * {@code +}。
      */
     PLUS,

@@ -4,6 +4,7 @@ import minic.compiler.codegen.AssemblyEmitter;
 import minic.compiler.codegen.AssemblySource;
 import minic.compiler.codegen.target.TargetPlatform;
 import minic.compiler.ir.instruction.IrInstruction;
+import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrModule;
 
@@ -40,8 +41,14 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
             builder.append("    sub rsp, ").append(frame.frameSize()).append(System.lineSeparator());
         }
         instructionEmitter.emitParameterStores(builder, function);
-        for (IrInstruction instruction : function.blocks().getFirst().instructions()) {
-            instructionEmitter.emitInstruction(builder, functionSymbol, epilogueLabel, instruction);
+        for (IrBlock block : function.blocks()) {
+            if (!"entry".equals(block.label())) {
+                builder.append(instructionEmitter.blockSymbol(functionSymbol, block.label()))
+                        .append(":").append(System.lineSeparator());
+            }
+            for (IrInstruction instruction : block.instructions()) {
+                instructionEmitter.emitInstruction(builder, functionSymbol, epilogueLabel, instruction);
+            }
         }
         instructionEmitter.emitFunctionTrap(builder, functionSymbol, "uninitialized", 101, epilogueLabel);
         instructionEmitter.emitFunctionTrap(builder, functionSymbol, "divide_by_zero", 102, epilogueLabel);

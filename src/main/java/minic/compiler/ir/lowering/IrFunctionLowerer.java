@@ -2,7 +2,6 @@ package minic.compiler.ir.lowering;
 
 import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Parameter;
-import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
@@ -30,7 +29,6 @@ final class IrFunctionLowerer {
         builder.pushLocalScope();
         new StatementLowerer(builder).lowerBlock(function.bodyOptional().orElseThrow(), false);
         builder.popLocalScope();
-        IrBlock entry = new IrBlock("entry", builder.instructions());
-        return new IrFunction(function.name(), parameters, List.of(entry), function.range());
+        return new IrFunction(function.name(), parameters, builder.buildBlocks(), function.range());
     }
 }
