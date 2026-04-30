@@ -7,6 +7,7 @@ import minic.compiler.ast.decl.StructField;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.lexer.Token;
 import minic.compiler.lexer.TokenKind;
+import minic.compiler.type.MiniType;
 import minic.source.SourceRange;
 
 import java.util.ArrayList;
@@ -95,19 +96,37 @@ final class DeclarationParser {
     private StructField parseStructField() {
         ParsedType type = typeParser.parseType("期望字段类型");
         Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望字段名");
+        MiniType declaredType = type != null ? parseArraySuffix(type.type()) : null;
         Token semicolonToken = state.consume(TokenKind.SEMICOLON, "期望 ';'");
         if (type == null || nameToken == null || semicolonToken == null) {
             return null;
         }
         return new StructField(
                 nameToken.lexeme(),
-                type.type(),
+                declaredType,
                 new SourceRange(
                         type.range().sourceFile(),
                         type.range().startOffset(),
                         semicolonToken.range().endOffset()
                 )
         );
+    }
+
+    private MiniType parseArraySuffix(MiniType baseType) {
+        if (!state.match(TokenKind.LEFT_BRACKET)) {
+            return baseType;
+        }
+        Token lengthToken = state.consume(TokenKind.INTEGER_LITERAL, "期望数组长度");
+        state.consume(TokenKind.RIGHT_BRACKET, "期望 ']'");
+        if (lengthToken == null) {
+            return baseType;
+        }
+        int length = (Integer) lengthToken.literalValue();
+        if (length <= 0) {
+            state.report(lengthToken, "数组长度必须大于 0");
+            return baseType;
+        }
+        return baseType.arrayOf(length);
     }
 
     private List<Parameter> parseParameters() {

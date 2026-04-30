@@ -27,6 +27,9 @@ public final class SemanticAnalyzer {
         StructRegistry structRegistry = new StructRegistry(globalScope, reporter);
         structRegistry.defineStructs(program);
         structRegistry.validateProgramTypes(program);
+        Map<String, StructLayout> structLayouts = reporter.diagnostics().isEmpty()
+                ? structRegistry.computeLayouts()
+                : Map.of();
         FunctionRegistry functionRegistry = new FunctionRegistry(globalScope, reporter);
         functionRegistry.defineFunctions(program);
         functionRegistry.validateMain(program);
@@ -43,6 +46,6 @@ public final class SemanticAnalyzer {
                 statementAnalyzer.analyzeFunction(functionDecl);
             }
         }
-        return new SemanticResult(globalScope, expressionTypes, reporter.diagnostics());
+        return new SemanticResult(globalScope, expressionTypes, structLayouts, reporter.diagnostics());
     }
 }

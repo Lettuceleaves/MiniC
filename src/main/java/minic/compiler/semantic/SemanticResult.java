@@ -14,21 +14,30 @@ import java.util.Optional;
  *
  * @param globalScope 全局函数作用域
  * @param expressionTypes 表达式类型映射
+ * @param structLayouts 结构体布局映射
  * @param diagnostics 语义诊断列表
  */
-public record SemanticResult(Scope globalScope, Map<Expression, MiniType> expressionTypes, List<Diagnostic> diagnostics) {
+public record SemanticResult(
+        Scope globalScope,
+        Map<Expression, MiniType> expressionTypes,
+        Map<String, StructLayout> structLayouts,
+        List<Diagnostic> diagnostics
+) {
     /**
      * 创建语义分析结果，并防御性复制诊断列表。
      *
      * @param globalScope 全局函数作用域
      * @param expressionTypes 表达式类型映射
+     * @param structLayouts 结构体布局映射
      * @param diagnostics 语义诊断列表
      */
     public SemanticResult {
         Objects.requireNonNull(globalScope, "globalScope");
         Objects.requireNonNull(expressionTypes, "expressionTypes");
+        Objects.requireNonNull(structLayouts, "structLayouts");
         Objects.requireNonNull(diagnostics, "diagnostics");
         expressionTypes = Map.copyOf(expressionTypes);
+        structLayouts = Map.copyOf(structLayouts);
         diagnostics = List.copyOf(diagnostics);
     }
 
@@ -39,7 +48,18 @@ public record SemanticResult(Scope globalScope, Map<Expression, MiniType> expres
      * @param diagnostics 语义诊断列表
      */
     public SemanticResult(Scope globalScope, List<Diagnostic> diagnostics) {
-        this(globalScope, Map.of(), diagnostics);
+        this(globalScope, Map.of(), Map.of(), diagnostics);
+    }
+
+    /**
+     * 创建不携带结构体布局映射的语义分析结果。
+     *
+     * @param globalScope 全局函数作用域
+     * @param expressionTypes 表达式类型映射
+     * @param diagnostics 语义诊断列表
+     */
+    public SemanticResult(Scope globalScope, Map<Expression, MiniType> expressionTypes, List<Diagnostic> diagnostics) {
+        this(globalScope, expressionTypes, Map.of(), diagnostics);
     }
 
     /**
@@ -51,5 +71,16 @@ public record SemanticResult(Scope globalScope, Map<Expression, MiniType> expres
     public Optional<MiniType> typeOf(Expression expression) {
         Objects.requireNonNull(expression, "expression");
         return Optional.ofNullable(expressionTypes.get(expression));
+    }
+
+    /**
+     * 查询结构体布局。
+     *
+     * @param name 结构体名
+     * @return 结构体布局；不存在时为空
+     */
+    public Optional<StructLayout> structLayout(String name) {
+        Objects.requireNonNull(name, "name");
+        return Optional.ofNullable(structLayouts.get(name));
     }
 }

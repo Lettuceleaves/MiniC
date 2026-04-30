@@ -425,6 +425,88 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void computesStructLayoutForIntPointerAndArrayFields() {
+        SemanticResult result = analyze("""
+                struct Node {
+                    int value;
+                    int *next;
+                    int values[3];
+                };
+
+                int main() { return 0; }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.structLayout("Node")).hasValueSatisfying(layout -> {
+            assertThat(layout.size()).isEqualTo(32);
+            assertThat(layout.alignment()).isEqualTo(8);
+            assertThat(layout.fields()).extracting(StructFieldLayout::name)
+                    .containsExactly("value", "next", "values");
+            assertThat(layout.field("value")).hasValueSatisfying(field -> {
+                assertThat(field.offset()).isEqualTo(0);
+                assertThat(field.size()).isEqualTo(4);
+                assertThat(field.alignment()).isEqualTo(4);
+            });
+            assertThat(layout.field("next")).hasValueSatisfying(field -> {
+                assertThat(field.offset()).isEqualTo(8);
+                assertThat(field.size()).isEqualTo(8);
+                assertThat(field.alignment()).isEqualTo(8);
+            });
+            assertThat(layout.field("values")).hasValueSatisfying(field -> {
+                assertThat(field.offset()).isEqualTo(16);
+                assertThat(field.size()).isEqualTo(12);
+                assertThat(field.alignment()).isEqualTo(4);
+            });
+        });
+    }
+
+    @Test
+    void computesNestedStructLayout() {
+        SemanticResult result = analyze("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                struct Line {
+                    struct Point start;
+                    struct Point end;
+                    int *tag;
+                };
+
+                int main() { return 0; }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.structLayout("Point")).hasValueSatisfying(layout -> {
+            assertThat(layout.size()).isEqualTo(8);
+            assertThat(layout.alignment()).isEqualTo(4);
+        });
+        assertThat(result.structLayout("Line")).hasValueSatisfying(layout -> {
+            assertThat(layout.size()).isEqualTo(24);
+            assertThat(layout.alignment()).isEqualTo(8);
+            assertThat(layout.field("start")).hasValueSatisfying(field -> assertThat(field.offset()).isEqualTo(0));
+            assertThat(layout.field("end")).hasValueSatisfying(field -> assertThat(field.offset()).isEqualTo(8));
+            assertThat(layout.field("tag")).hasValueSatisfying(field -> assertThat(field.offset()).isEqualTo(16));
+        });
+    }
+
+    @Test
+    void reportsDirectRecursiveStructField() {
+        SemanticResult result = analyze("""
+                struct Node {
+                    struct Node next;
+                };
+
+                int main() { return 0; }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("结构体字段不能直接包含自身：Node");
+    }
+
+    @Test
     void reportsInvalidDereference() {
         SemanticResult result = analyze("int main() { int x = 1; return *x; }");
 
