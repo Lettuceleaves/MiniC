@@ -7,6 +7,7 @@ import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
@@ -23,14 +24,19 @@ import java.util.ArrayList;
 
 final class ExpressionLowerer {
     private final IrFunctionBuilder builder;
+    private final StringLiteralRegistry stringLiteralRegistry;
 
-    ExpressionLowerer(IrFunctionBuilder builder) {
+    ExpressionLowerer(IrFunctionBuilder builder, StringLiteralRegistry stringLiteralRegistry) {
         this.builder = builder;
+        this.stringLiteralRegistry = stringLiteralRegistry;
     }
 
     IrValue lowerExpression(Expression expression) {
         if (expression instanceof IntegerLiteralExpr integerLiteralExpr) {
             return new IrConstant(integerLiteralExpr.value());
+        }
+        if (expression instanceof StringLiteralExpr stringLiteralExpr) {
+            return stringLiteralRegistry.define(stringLiteralExpr.value());
         }
         if (expression instanceof NameExpr nameExpr) {
             IrLocal local = builder.resolveLocal(nameExpr.name());

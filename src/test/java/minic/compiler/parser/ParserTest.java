@@ -12,6 +12,7 @@ import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
@@ -351,6 +352,23 @@ class ParserTest {
         assertThat(((IntegerLiteralExpr) callExpr.arguments().getFirst()).value()).isEqualTo(1);
         assertThat(((NameExpr) groupedBinary.left()).name()).isEqualTo("x");
         assertThat(groupedBinary.operator()).isEqualTo(TokenKind.PLUS);
+    }
+
+    @Test
+    void parsesStringLiteralAsCallArgument() {
+        SourceFile sourceFile = new SourceFile("string-call.mc", "int main() { return puts(\"hello\"); }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        ReturnStmt returnStmt = (ReturnStmt) result.program().functions().getFirst().body().statements().getFirst();
+        CallExpr callExpr = (CallExpr) returnStmt.expressionOptional().orElseThrow();
+        StringLiteralExpr stringLiteralExpr = (StringLiteralExpr) callExpr.arguments().getFirst();
+
+        assertThat(callExpr.calleeName()).isEqualTo("puts");
+        assertThat(stringLiteralExpr.value()).isEqualTo("hello");
+        assertThat(stringLiteralExpr.lexeme()).isEqualTo("\"hello\"");
+        assertThat(stringLiteralExpr.range()).isEqualTo(new SourceRange(sourceFile, 25, 32));
     }
 
     @Test

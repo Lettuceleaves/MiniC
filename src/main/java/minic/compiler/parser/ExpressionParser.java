@@ -7,6 +7,7 @@ import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.lexer.Token;
 import minic.compiler.lexer.TokenKind;
 import minic.source.SourceRange;
@@ -98,6 +99,14 @@ final class ExpressionParser {
                     (Integer) integerToken.literalValue(),
                     integerToken.lexeme(),
                     integerToken.range()
+            );
+        }
+        if (state.match(TokenKind.STRING_LITERAL)) {
+            Token stringToken = state.previous();
+            return new StringLiteralExpr(
+                    (String) stringToken.literalValue(),
+                    stringToken.lexeme(),
+                    stringToken.range()
             );
         }
         if (state.match(TokenKind.IDENTIFIER)) {

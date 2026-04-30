@@ -27,9 +27,9 @@ final class StatementLowerer {
     private final ExpressionLowerer expressionLowerer;
     private final Deque<LoopTarget> loopTargets = new ArrayDeque<>();
 
-    StatementLowerer(IrFunctionBuilder builder) {
+    StatementLowerer(IrFunctionBuilder builder, StringLiteralRegistry stringLiteralRegistry) {
         this.builder = builder;
-        expressionLowerer = new ExpressionLowerer(builder);
+        expressionLowerer = new ExpressionLowerer(builder, stringLiteralRegistry);
     }
 
     void lowerBlock(BlockStmt block, boolean createChildScope) {

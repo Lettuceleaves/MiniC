@@ -13,6 +13,7 @@ import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrParameter;
+import minic.compiler.ir.model.IrType;
 
 final class WindowsX64InstructionEmitter {
     private final WindowsX64FrameLayout frame;
@@ -137,16 +138,23 @@ final class WindowsX64InstructionEmitter {
         for (int index = WindowsX64CallingConvention.INTEGER_ARGUMENT_REGISTERS.size();
              index < call.arguments().size();
              index++) {
-            valueEmitter.emitLoadValue(builder, call.arguments().get(index), "eax");
-            builder.append("    mov ").append(frame.outgoingStackArgumentSlot(index)).append(", eax")
-                    .append(System.lineSeparator());
+            if (call.arguments().get(index).type() == IrType.STRING_POINTER) {
+                valueEmitter.emitLoadValue(builder, call.arguments().get(index), "rax");
+                builder.append("    mov QWORD PTR [rsp+")
+                        .append(WindowsX64CallingConvention.outgoingStackArgumentOffset(index))
+                        .append("], rax").append(System.lineSeparator());
+            } else {
+                valueEmitter.emitLoadValue(builder, call.arguments().get(index), "eax");
+                builder.append("    mov ").append(frame.outgoingStackArgumentSlot(index)).append(", eax")
+                        .append(System.lineSeparator());
+            }
         }
         for (int index = 0; index < call.arguments().size(); index++) {
             if (WindowsX64CallingConvention.isRegisterArgument(index)) {
                 valueEmitter.emitLoadValue(
                         builder,
                         call.arguments().get(index),
-                        WindowsX64CallingConvention.integerArgumentRegister(index)
+                        argumentRegister(call.arguments().get(index).type(), index)
                 );
             }
         }
@@ -154,6 +162,13 @@ final class WindowsX64InstructionEmitter {
                 .append(System.lineSeparator());
         builder.append("    mov ").append(frame.temporarySlot(call.result()))
                 .append(", eax").append(System.lineSeparator());
+    }
+
+    private String argumentRegister(IrType type, int argumentIndex) {
+        if (type == IrType.STRING_POINTER) {
+            return WindowsX64CallingConvention.pointerArgumentRegister(argumentIndex);
+        }
+        return WindowsX64CallingConvention.integerArgumentRegister(argumentIndex);
     }
 
     private void emitBranch(StringBuilder builder, String functionName, IrBranchInstruction branch) {

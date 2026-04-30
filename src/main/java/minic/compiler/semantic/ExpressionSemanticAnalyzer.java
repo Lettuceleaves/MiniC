@@ -7,6 +7,7 @@ import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.source.SourceRange;
 
 final class ExpressionSemanticAnalyzer {
@@ -21,6 +22,8 @@ final class ExpressionSemanticAnalyzer {
     void analyzeExpression(Expression expression, Scope scope) {
         switch (expression) {
             case IntegerLiteralExpr ignored -> {
+            }
+            case StringLiteralExpr ignored -> {
             }
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case AssignmentExpr assignmentExpr -> {

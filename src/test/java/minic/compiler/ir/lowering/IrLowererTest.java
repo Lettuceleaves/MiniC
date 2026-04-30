@@ -19,6 +19,7 @@ import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
 import minic.compiler.ir.value.IrParameterRef;
+import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
@@ -91,6 +92,27 @@ class IrLowererTest {
             IrReturnInstruction returnInstruction = (IrReturnInstruction) block.instructions().get(2);
             assertThat(returnInstruction.value()).isEqualTo(multiply.result());
         });
+    }
+
+    @Test
+    void lowersStringLiteralArgumentsToReadOnlyData() {
+        Program program = parse("""
+                extern int puts(int text);
+
+                int main() {
+                    return puts("hello");
+                }
+                """);
+
+        IrModule module = new IrLowerer().lower(program);
+
+        assertThat(module.stringData()).singleElement().satisfies(stringData -> {
+            assertThat(stringData.label()).isEqualTo("__minic$str$0");
+            assertThat(stringData.value()).isEqualTo("hello");
+        });
+        IrFunction main = module.findFunction("main").orElseThrow();
+        IrCallInstruction call = (IrCallInstruction) main.blocks().getFirst().instructions().getFirst();
+        assertThat(call.arguments()).containsExactly(new IrStringLiteral("__minic$str$0"));
     }
 
     @Test

@@ -66,6 +66,7 @@ public final class Lexer {
                 case '}' -> addToken(TokenKind.RIGHT_BRACE, startOffset);
                 case ';' -> addToken(TokenKind.SEMICOLON, startOffset);
                 case ',' -> addToken(TokenKind.COMMA, startOffset);
+                case '"' -> lexStringLiteral(startOffset);
                 default -> {
                     if (isIdentifierStart(character)) {
                         lexIdentifier(startOffset);
@@ -140,6 +141,74 @@ public final class Lexer {
                 lexeme,
                 new SourceRange(sourceFile, startOffset, currentOffset),
                 Integer.parseInt(lexeme)
+        ));
+    }
+
+    private void lexStringLiteral(int startOffset) {
+        StringBuilder value = new StringBuilder();
+        while (!isAtEnd() && sourceFile.content().charAt(currentOffset) != '"') {
+            char character = advance();
+            if (character == '\n' || character == '\r') {
+                diagnostics.add(new Diagnostic(
+                        "LEX002",
+                        DiagnosticSeverity.ERROR,
+                        "字符串字面量不能跨行",
+                        new SourceRange(sourceFile, startOffset, currentOffset)
+                ));
+                return;
+            }
+            if (character == '\\') {
+                if (isAtEnd()) {
+                    addUnterminatedStringDiagnostic(startOffset);
+                    return;
+                }
+                value.append(lexEscape(startOffset));
+            } else {
+                value.append(character);
+            }
+        }
+
+        if (isAtEnd()) {
+            addUnterminatedStringDiagnostic(startOffset);
+            return;
+        }
+
+        currentOffset++;
+        tokens.add(new Token(
+                TokenKind.STRING_LITERAL,
+                sourceFile.content().substring(startOffset, currentOffset),
+                new SourceRange(sourceFile, startOffset, currentOffset),
+                value.toString()
+        ));
+    }
+
+    private char lexEscape(int startOffset) {
+        char escaped = advance();
+        return switch (escaped) {
+            case 'n' -> '\n';
+            case 'r' -> '\r';
+            case 't' -> '\t';
+            case '\\' -> '\\';
+            case '"' -> '"';
+            case '0' -> '\0';
+            default -> {
+                diagnostics.add(new Diagnostic(
+                        "LEX003",
+                        DiagnosticSeverity.ERROR,
+                        "不支持的字符串转义：" + escaped,
+                        new SourceRange(sourceFile, startOffset, currentOffset)
+                ));
+                yield escaped;
+            }
+        };
+    }
+
+    private void addUnterminatedStringDiagnostic(int startOffset) {
+        diagnostics.add(new Diagnostic(
+                "LEX002",
+                DiagnosticSeverity.ERROR,
+                "字符串字面量缺少结束引号",
+                new SourceRange(sourceFile, startOffset, currentOffset)
         ));
     }
 

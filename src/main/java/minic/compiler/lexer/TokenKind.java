@@ -20,6 +20,11 @@ public enum TokenKind {
     INTEGER_LITERAL,
 
     /**
+     * 字符串字面量。
+     */
+    STRING_LITERAL,
+
+    /**
      * {@code int} 关键字。
      */
     INT,

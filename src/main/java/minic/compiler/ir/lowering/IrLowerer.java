@@ -21,11 +21,12 @@ public final class IrLowerer {
     public IrModule lower(Program program) {
         Objects.requireNonNull(program, "program");
         ArrayList<IrFunction> functions = new ArrayList<>();
+        StringLiteralRegistry stringLiteralRegistry = new StringLiteralRegistry();
         for (FunctionDecl function : program.functions()) {
             if (function.hasBody()) {
-                functions.add(new IrFunctionLowerer(function).lower());
+                functions.add(new IrFunctionLowerer(function, stringLiteralRegistry).lower());
             }
         }
-        return new IrModule(functions);
+        return new IrModule(functions, stringLiteralRegistry.stringData());
     }
 }

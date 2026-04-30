@@ -7,5 +7,10 @@ public enum IrType {
     /**
      * v0.1 唯一的整数类型。
      */
-    INT
+    INT,
+
+    /**
+     * 指向只读字符串数据的地址值。
+     */
+    STRING_POINTER
 }

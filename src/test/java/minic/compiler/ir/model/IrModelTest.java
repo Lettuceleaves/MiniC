@@ -6,6 +6,7 @@ import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.value.IrConstant;
+import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
 import minic.source.SourceFile;
@@ -50,6 +51,27 @@ class IrModelTest {
         assertThat(multiply.operator()).isEqualTo(IrBinaryOperator.MULTIPLY);
         assertThat(returnInstruction.value()).isEqualTo(multiplyResult);
     }
+
+    @Test
+    void representsStringDataAndStringLiteralValues() {
+        SourceRange range = range("int main() { return puts(\"hi\"); }");
+        IrStringData stringData = new IrStringData("__minic$str$0", "hi");
+        IrStringLiteral stringLiteral = new IrStringLiteral("__minic$str$0");
+        IrCallInstruction call = new IrCallInstruction(
+                new IrTemporary("%0", IrType.INT),
+                "puts",
+                List.of(stringLiteral),
+                range
+        );
+        IrFunction main = new IrFunction("main", List.of(), List.of(new IrBlock("entry", List.of(call))), range);
+
+        IrModule module = new IrModule(List.of(main), List.of(stringData));
+
+        assertThat(module.stringData()).containsExactly(stringData);
+        assertThat(call.arguments()).containsExactly(stringLiteral);
+        assertThat(stringLiteral.type()).isEqualTo(IrType.STRING_POINTER);
+    }
+
 
     @Test
     void defensivelyCopiesLists() {

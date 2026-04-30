@@ -204,6 +204,35 @@ class LexerTest {
     }
 
     @Test
+    void lexesStringLiteralsWithEscapes() {
+        SourceFile sourceFile = new SourceFile("strings.mc", "\"hello\\n\\\"MiniC\\\"\"");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(TokenKind.STRING_LITERAL, TokenKind.EOF);
+        assertThat(result.tokens().getFirst().lexeme()).isEqualTo("\"hello\\n\\\"MiniC\\\"\"");
+        assertThat(result.tokens().getFirst().literalValue()).isEqualTo("hello\n\"MiniC\"");
+        assertThat(result.tokens().getFirst().range()).isEqualTo(new SourceRange(sourceFile, 0, 18));
+    }
+
+    @Test
+    void reportsUnterminatedStringLiteral() {
+        SourceFile sourceFile = new SourceFile("bad-string.mc", "\"hello");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(TokenKind.EOF);
+        assertThat(result.diagnostics()).hasSize(1);
+        assertThat(result.diagnostics().getFirst().code()).isEqualTo("LEX002");
+        assertThat(result.diagnostics().getFirst().range()).isEqualTo(new SourceRange(sourceFile, 0, 6));
+    }
+
+    @Test
     void keepsIntegerLiteralRanges() {
         SourceFile sourceFile = new SourceFile("integer-ranges.mc", "\n123 + 0");
 

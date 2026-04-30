@@ -5,6 +5,7 @@ import java.util.List;
 final class WindowsX64CallingConvention {
     static final String ENTRY_SYMBOL = "main";
     static final List<String> INTEGER_ARGUMENT_REGISTERS = List.of("ecx", "edx", "r8d", "r9d");
+    static final List<String> POINTER_ARGUMENT_REGISTERS = List.of("rcx", "rdx", "r8", "r9");
 
     private WindowsX64CallingConvention() {
     }
@@ -22,6 +23,10 @@ final class WindowsX64CallingConvention {
 
     static String integerArgumentRegister(int argumentIndex) {
         return INTEGER_ARGUMENT_REGISTERS.get(argumentIndex);
+    }
+
+    static String pointerArgumentRegister(int argumentIndex) {
+        return POINTER_ARGUMENT_REGISTERS.get(argumentIndex);
     }
 
     static int incomingStackArgumentOffset(int argumentIndex) {

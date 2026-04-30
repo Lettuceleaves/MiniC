@@ -12,9 +12,11 @@ import java.util.Objects;
 
 final class IrFunctionLowerer {
     private final FunctionDecl function;
+    private final StringLiteralRegistry stringLiteralRegistry;
 
-    IrFunctionLowerer(FunctionDecl function) {
+    IrFunctionLowerer(FunctionDecl function, StringLiteralRegistry stringLiteralRegistry) {
         this.function = Objects.requireNonNull(function, "function");
+        this.stringLiteralRegistry = Objects.requireNonNull(stringLiteralRegistry, "stringLiteralRegistry");
     }
 
     IrFunction lower() {
@@ -27,7 +29,7 @@ final class IrFunctionLowerer {
         }
 
         builder.pushLocalScope();
-        new StatementLowerer(builder).lowerBlock(function.bodyOptional().orElseThrow(), false);
+        new StatementLowerer(builder, stringLiteralRegistry).lowerBlock(function.bodyOptional().orElseThrow(), false);
         builder.popLocalScope();
         return new IrFunction(function.name(), parameters, builder.buildBlocks(), function.range());
     }

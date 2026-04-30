@@ -133,6 +133,28 @@ class WindowsX64AssemblyEmitterTest {
     }
 
     @Test
+    void emitsReadOnlyStringDataAndPassesAddressToCall() {
+        IrModule module = lower("""
+                extern int puts(int text);
+
+                int main() {
+                    return puts("hello");
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                ".const",
+                "__minic$str$0 BYTE 104, 101, 108, 108, 111, 0",
+                ".code",
+                "    lea rcx, __minic$str$0",
+                "    call minic$puts"
+        );
+    }
+
+
+    @Test
     void emitsWindowsX64AssemblyForComparisons() {
         IrModule module = lower("""
                 int main() {

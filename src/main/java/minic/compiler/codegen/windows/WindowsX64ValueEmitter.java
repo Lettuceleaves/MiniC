@@ -2,6 +2,7 @@ package minic.compiler.codegen.windows;
 
 import minic.compiler.ir.value.IrConstant;
 import minic.compiler.ir.value.IrParameterRef;
+import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
 
@@ -27,6 +28,22 @@ final class WindowsX64ValueEmitter {
                     .append(frame.parameterSlot(parameterRef.name())).append(System.lineSeparator());
             return;
         }
+        if (value instanceof IrStringLiteral stringLiteral) {
+            builder.append("    lea ").append(pointerRegister(register)).append(", ")
+                    .append(stringLiteral.label()).append(System.lineSeparator());
+            return;
+        }
         throw new IllegalArgumentException("unsupported IR value: " + value.getClass().getSimpleName());
+    }
+
+    private String pointerRegister(String register) {
+        return switch (register) {
+            case "eax" -> "rax";
+            case "ecx" -> "rcx";
+            case "edx" -> "rdx";
+            case "r8d" -> "r8";
+            case "r9d" -> "r9";
+            default -> register;
+        };
     }
 }
