@@ -12,6 +12,7 @@ import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
+import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrModule;
 import minic.compiler.ir.model.IrParameter;
@@ -150,9 +151,9 @@ class IrLowererTest {
 
         IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
 
-        assertThat(main.blocks()).extracting(block -> block.label())
-                .containsExactly("entry", "then_0", "else_1", "merge_2");
-        IrBranchInstruction branch = (IrBranchInstruction) main.blocks().getFirst().instructions().getFirst();
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .contains("entry", "then_0", "else_1", "merge_2");
+        IrBranchInstruction branch = firstBranch(main, "entry");
         assertThat(branch.thenLabel()).isEqualTo("then_0");
         assertThat(branch.elseLabel()).isEqualTo("else_1");
     }
@@ -169,9 +170,9 @@ class IrLowererTest {
 
         IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
 
-        assertThat(main.blocks()).extracting(block -> block.label())
-                .containsExactly("entry", "then_0", "merge_1");
-        IrBranchInstruction branch = (IrBranchInstruction) main.blocks().getFirst().instructions().getLast();
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .contains("entry", "then_0", "merge_1");
+        IrBranchInstruction branch = lastBranch(main, "entry");
         assertThat(branch.thenLabel()).isEqualTo("then_0");
         assertThat(branch.elseLabel()).isEqualTo("merge_1");
     }
@@ -192,10 +193,10 @@ class IrLowererTest {
 
         IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
 
-        assertThat(main.blocks()).extracting(block -> block.label())
-                .containsExactly("entry", "then_0", "else_1", "then_3", "else_4", "merge_5", "merge_2");
-        IrBranchInstruction outerBranch = (IrBranchInstruction) main.blocks().getFirst().instructions().getFirst();
-        IrBranchInstruction elseIfBranch = (IrBranchInstruction) main.blocks().get(2).instructions().getFirst();
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .contains("entry", "then_0", "else_1", "then_3", "else_4", "merge_5", "merge_2");
+        IrBranchInstruction outerBranch = firstBranch(main, "entry");
+        IrBranchInstruction elseIfBranch = firstBranch(main, "else_1");
         assertThat(outerBranch.thenLabel()).isEqualTo("then_0");
         assertThat(outerBranch.elseLabel()).isEqualTo("else_1");
         assertThat(elseIfBranch.thenLabel()).isEqualTo("then_3");
@@ -216,9 +217,9 @@ class IrLowererTest {
 
         IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
 
-        assertThat(main.blocks()).extracting(block -> block.label())
-                .containsExactly("entry", "while_condition_0", "while_body_1", "while_exit_2");
-        IrBranchInstruction branch = (IrBranchInstruction) main.blocks().get(1).instructions().getLast();
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .contains("entry", "while_condition_0", "while_body_1", "while_exit_2");
+        IrBranchInstruction branch = lastBranch(main, "while_condition_0");
         assertThat(branch.thenLabel()).isEqualTo("while_body_1");
         assertThat(branch.elseLabel()).isEqualTo("while_exit_2");
     }
@@ -237,9 +238,9 @@ class IrLowererTest {
 
         IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
 
-        assertThat(main.blocks()).extracting(block -> block.label())
-                .containsExactly("entry", "for_condition_0", "for_body_1", "for_step_2", "for_exit_3");
-        IrBranchInstruction branch = (IrBranchInstruction) main.blocks().get(1).instructions().getLast();
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .contains("entry", "for_condition_0", "for_body_1", "for_step_2", "for_exit_3");
+        IrBranchInstruction branch = lastBranch(main, "for_condition_0");
         assertThat(branch.thenLabel()).isEqualTo("for_body_1");
         assertThat(branch.elseLabel()).isEqualTo("for_exit_3");
     }
@@ -256,9 +257,9 @@ class IrLowererTest {
 
         IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
 
-        assertThat(main.blocks()).extracting(block -> block.label())
-                .containsExactly("entry", "for_condition_0", "for_body_1", "for_step_2", "for_exit_3");
-        IrJumpInstruction jump = (IrJumpInstruction) main.blocks().get(1).instructions().getLast();
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .contains("entry", "for_condition_0", "for_body_1", "for_step_2", "for_exit_3");
+        IrJumpInstruction jump = (IrJumpInstruction) block(main, "for_condition_0").instructions().getLast();
         assertThat(jump.targetLabel()).isEqualTo("for_body_1");
     }
 
@@ -337,5 +338,20 @@ class IrLowererTest {
         ParseResult parseResult = new Parser(lexResult.tokens()).parse();
         assertThat(parseResult.diagnostics()).isEmpty();
         return parseResult.program();
+    }
+
+    private IrBranchInstruction firstBranch(IrFunction function, String label) {
+        return (IrBranchInstruction) block(function, label).instructions().getFirst();
+    }
+
+    private IrBranchInstruction lastBranch(IrFunction function, String label) {
+        return (IrBranchInstruction) block(function, label).instructions().getLast();
+    }
+
+    private IrBlock block(IrFunction function, String label) {
+        return function.blocks().stream()
+                .filter(block -> block.label().equals(label))
+                .findFirst()
+                .orElseThrow();
     }
 }
