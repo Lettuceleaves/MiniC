@@ -6,6 +6,7 @@ import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
+import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.type.MiniType;
@@ -266,6 +267,42 @@ class SemanticAnalyzerTest {
         assertThat(result.typeOf(valueArgument)).contains(MiniType.INT);
         assertThat(result.typeOf(sum)).contains(MiniType.INT);
         assertThat(result.typeOf(one)).contains(MiniType.INT);
+    }
+
+    @Test
+    void recordsPointerExpressionTypes() {
+        Program program = parse("""
+                int main() {
+                    int x = 1;
+                    int *p = &x;
+                    *p = 2;
+                    return *p;
+                }
+                """);
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics()).isEmpty();
+        var statements = program.functions().getFirst().body().statements();
+        UnaryExpr addressOf = (UnaryExpr) ((minic.compiler.ast.stmt.VarDeclStmt) statements.get(1))
+                .initializerOptional()
+                .orElseThrow();
+        UnaryExpr dereferenceStore = (UnaryExpr) ((minic.compiler.ast.expr.AssignmentExpr)
+                ((ExprStmt) statements.get(2)).expression()).target();
+        UnaryExpr dereferenceReturn = (UnaryExpr) ((ReturnStmt) statements.get(3)).expressionOptional().orElseThrow();
+
+        assertThat(result.typeOf(addressOf)).contains(MiniType.INT.pointerTo());
+        assertThat(result.typeOf(dereferenceStore)).contains(MiniType.INT);
+        assertThat(result.typeOf(dereferenceReturn)).contains(MiniType.INT);
+    }
+
+    @Test
+    void reportsInvalidDereference() {
+        SemanticResult result = analyze("int main() { int x = 1; return *x; }");
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("解引用操作数必须是指针");
     }
 
     @Test

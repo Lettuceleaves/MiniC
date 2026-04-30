@@ -21,6 +21,28 @@ public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType 
     }
 
     /**
+     * 判断当前类型是否为指针。
+     *
+     * @return 指针类型返回 {@code true}
+     */
+    default boolean isPointer() {
+        return this instanceof PointerType;
+    }
+
+    /**
+     * 返回当前类型的指向元素类型。
+     *
+     * @return 指向元素类型
+     * @throws IllegalStateException 当前类型不是指针时抛出
+     */
+    default MiniType pointee() {
+        if (this instanceof PointerType pointerType) {
+            return pointerType.pointee();
+        }
+        throw new IllegalStateException("type is not a pointer: " + this);
+    }
+
+    /**
      * MiniC int 类型。
      */
     record IntType() implements MiniType {

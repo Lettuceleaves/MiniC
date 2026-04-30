@@ -13,6 +13,7 @@ import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
+import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
@@ -21,6 +22,7 @@ import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.lexer.TokenKind;
 import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
+import minic.compiler.type.MiniType;
 import minic.diagnostics.DiagnosticSeverity;
 import minic.source.SourceFile;
 import minic.source.SourceRange;
@@ -281,6 +283,33 @@ class ParserTest {
         assertThat(body.statements().get(1)).isInstanceOf(ContinueStmt.class);
         assertThat(body.statements().get(1).range()).isEqualTo(new SourceRange(sourceFile, 32, 41));
     }
+
+    @Test
+    void parsesPointerDeclarationsAddressOfAndDereferenceAssignment() {
+        SourceFile sourceFile = new SourceFile(
+                "pointer.mc",
+                "int set(int *p) { *p = 3; return *p; } int main() { int x = 0; int *p = &x; return set(p); }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        FunctionDecl set = result.program().functions().getFirst();
+        assertThat(set.parameters().getFirst().type()).isEqualTo(MiniType.INT.pointerTo());
+        ExprStmt assignmentStatement = (ExprStmt) set.body().statements().getFirst();
+        AssignmentExpr assignment = (AssignmentExpr) assignmentStatement.expression();
+        UnaryExpr target = (UnaryExpr) assignment.target();
+        ReturnStmt returnStmt = (ReturnStmt) set.body().statements().get(1);
+        UnaryExpr returned = (UnaryExpr) returnStmt.expressionOptional().orElseThrow();
+        VarDeclStmt pointerDecl = (VarDeclStmt) result.program().functions().get(1).body().statements().get(1);
+        UnaryExpr addressOf = (UnaryExpr) pointerDecl.initializerOptional().orElseThrow();
+
+        assertThat(target.operator()).isEqualTo(TokenKind.STAR);
+        assertThat(returned.operator()).isEqualTo(TokenKind.STAR);
+        assertThat(pointerDecl.type()).isEqualTo(MiniType.INT.pointerTo());
+        assertThat(addressOf.operator()).isEqualTo(TokenKind.AMPERSAND);
+    }
+
 
     @Test
     void parsesBinaryPrecedence() {

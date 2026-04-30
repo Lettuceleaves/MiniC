@@ -5,6 +5,7 @@ import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
+import minic.compiler.ir.model.IrType;
 
 final class WindowsX64ValueEmitter {
     private final WindowsX64FrameLayout frame;
@@ -19,12 +20,12 @@ final class WindowsX64ValueEmitter {
             return;
         }
         if (value instanceof IrTemporary temporary) {
-            builder.append("    mov ").append(register).append(", ")
+            builder.append("    mov ").append(registerForType(register, temporary.type())).append(", ")
                     .append(frame.temporarySlot(temporary)).append(System.lineSeparator());
             return;
         }
         if (value instanceof IrParameterRef parameterRef) {
-            builder.append("    mov ").append(register).append(", ")
+            builder.append("    mov ").append(registerForType(register, parameterRef.type())).append(", ")
                     .append(frame.parameterSlot(parameterRef.name())).append(System.lineSeparator());
             return;
         }
@@ -45,5 +46,12 @@ final class WindowsX64ValueEmitter {
             case "r9d" -> "r9";
             default -> register;
         };
+    }
+
+    private String registerForType(String register, IrType type) {
+        if (type == IrType.POINTER) {
+            return pointerRegister(register);
+        }
+        return register;
     }
 }

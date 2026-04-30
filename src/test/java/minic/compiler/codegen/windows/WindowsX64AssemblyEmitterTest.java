@@ -315,6 +315,27 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsWindowsX64AssemblyForPointerAddressDereferenceAndStore() {
+        IrModule module = lower("""
+                int main() {
+                    int x = 1;
+                    int *p = &x;
+                    *p = 3;
+                    return *p;
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "    lea rax, [rbp-",
+                "    mov QWORD PTR [rbp-",
+                "    mov eax, DWORD PTR [rax]",
+                "    mov DWORD PTR [rax], ecx"
+        );
+    }
+
     private IrModule lower(String source) {
         SourceFile sourceFile = new SourceFile("codegen.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

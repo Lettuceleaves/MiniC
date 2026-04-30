@@ -24,6 +24,6 @@ public record IrStringLiteral(String label) implements IrValue {
 
     @Override
     public IrType type() {
-        return IrType.STRING_POINTER;
+        return IrType.POINTER;
     }
 }

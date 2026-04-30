@@ -8,13 +8,18 @@ import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
+import minic.compiler.ast.expr.UnaryExpr;
+import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
+import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
+import minic.compiler.ir.instruction.IrStorePointerInstruction;
 import minic.compiler.ir.model.IrLocal;
+import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
@@ -42,7 +47,7 @@ final class ExpressionLowerer {
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local != null) {
                 builder.addInstruction(new IrCheckInitializedInstruction(local, nameExpr.range()));
-                IrTemporary result = builder.newTemporary();
+                IrTemporary result = builder.newTemporary(local.type());
                 builder.addInstruction(new IrLoadLocalInstruction(result, local, nameExpr.range()));
                 return result;
             }
@@ -52,14 +57,12 @@ final class ExpressionLowerer {
             return lowerExpression(groupingExpr.expression());
         }
         if (expression instanceof AssignmentExpr assignmentExpr) {
-            IrLocal local = builder.resolveLocal(assignmentExpr.targetName());
-            if (local == null) {
-                throw new IllegalArgumentException("assignment target must be a local variable: "
-                        + assignmentExpr.targetName());
-            }
             IrValue value = lowerExpression(assignmentExpr.value());
-            builder.addInstruction(new IrStoreLocalInstruction(local, value, assignmentExpr.range()));
+            lowerStore(assignmentExpr.target(), value, assignmentExpr.range());
             return value;
+        }
+        if (expression instanceof UnaryExpr unaryExpr) {
+            return lowerUnary(unaryExpr);
         }
         if (expression instanceof BinaryExpr binaryExpr) {
             IrValue left = lowerExpression(binaryExpr.left());
@@ -87,5 +90,41 @@ final class ExpressionLowerer {
             return result;
         }
         throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
+    }
+
+    private IrValue lowerUnary(UnaryExpr unaryExpr) {
+        if (unaryExpr.operator() == TokenKind.AMPERSAND && unaryExpr.operand() instanceof NameExpr nameExpr) {
+            IrLocal local = builder.resolveLocal(nameExpr.name());
+            if (local == null) {
+                throw new IllegalArgumentException("address-of target must be a local variable: " + nameExpr.name());
+            }
+            IrTemporary result = builder.newTemporary(IrType.POINTER);
+            builder.addInstruction(new IrAddressOfLocalInstruction(result, local, unaryExpr.range()));
+            return result;
+        }
+        if (unaryExpr.operator() == TokenKind.STAR) {
+            IrValue address = lowerExpression(unaryExpr.operand());
+            IrTemporary result = builder.newTemporary(IrType.INT);
+            builder.addInstruction(new IrLoadPointerInstruction(result, address, unaryExpr.range()));
+            return result;
+        }
+        throw new IllegalArgumentException("unsupported unary expression: " + unaryExpr.operator());
+    }
+
+    private void lowerStore(Expression target, IrValue value, minic.source.SourceRange range) {
+        if (target instanceof NameExpr nameExpr) {
+            IrLocal local = builder.resolveLocal(nameExpr.name());
+            if (local == null) {
+                throw new IllegalArgumentException("assignment target must be a local variable: " + nameExpr.name());
+            }
+            builder.addInstruction(new IrStoreLocalInstruction(local, value, range));
+            return;
+        }
+        if (target instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenKind.STAR) {
+            IrValue address = lowerExpression(unaryExpr.operand());
+            builder.addInstruction(new IrStorePointerInstruction(address, value, range));
+            return;
+        }
+        throw new IllegalArgumentException("unsupported assignment target: " + target.getClass().getSimpleName());
     }
 }

@@ -38,7 +38,7 @@ final class StatementSemanticAnalyzer {
     void analyzeFunction(FunctionDecl functionDecl) {
         Scope functionScope = new Scope(globalScope);
         for (Parameter parameter : functionDecl.parameters()) {
-            defineVariable(functionScope, parameter.name(), parameter.range(), MiniType.INT);
+            defineVariable(functionScope, parameter.name(), parameter.range(), parameter.type());
         }
         analyzeBlock(functionDecl.bodyOptional().orElseThrow(), functionScope, false);
     }
@@ -56,7 +56,7 @@ final class StatementSemanticAnalyzer {
             case VarDeclStmt varDeclStmt -> {
                 varDeclStmt.initializerOptional()
                         .ifPresent(initializer -> expressionAnalyzer.analyzeExpression(initializer, scope));
-                defineVariable(scope, varDeclStmt.name(), varDeclStmt.range(), MiniType.INT);
+                defineVariable(scope, varDeclStmt.name(), varDeclStmt.range(), varDeclStmt.type());
             }
             case ReturnStmt returnStmt -> {
                 if (returnStmt.expressionOptional().isEmpty()) {

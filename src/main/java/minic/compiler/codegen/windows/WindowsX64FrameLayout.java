@@ -1,15 +1,19 @@
 package minic.compiler.codegen.windows;
 
 import minic.compiler.ir.instruction.IrBinaryInstruction;
+import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
+import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
+import minic.compiler.ir.instruction.IrStorePointerInstruction;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrParameter;
+import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrTemporary;
 
 import java.util.LinkedHashMap;
@@ -17,6 +21,7 @@ import java.util.Map;
 
 record WindowsX64FrameLayout(
         Map<String, Integer> parameterOffsets,
+        Map<String, IrType> parameterTypes,
         Map<String, Integer> localOffsets,
         Map<String, Integer> localInitializedOffsets,
         Map<String, Integer> temporaryOffsets,
@@ -25,14 +30,16 @@ record WindowsX64FrameLayout(
 ) {
     static WindowsX64FrameLayout create(IrFunction function) {
         LinkedHashMap<String, Integer> parameterOffsets = new LinkedHashMap<>();
+        LinkedHashMap<String, IrType> parameterTypes = new LinkedHashMap<>();
         LinkedHashMap<String, Integer> localOffsets = new LinkedHashMap<>();
         LinkedHashMap<String, Integer> localInitializedOffsets = new LinkedHashMap<>();
         LinkedHashMap<String, Integer> temporaryOffsets = new LinkedHashMap<>();
         int outgoingArgumentAreaSize = collectOutgoingArgumentAreaSize(function);
         int nextOffset = 0;
         for (IrParameter parameter : function.parameters()) {
-            nextOffset += 4;
+            nextOffset += slotSize(parameter.type());
             parameterOffsets.put(parameter.name(), nextOffset);
+            parameterTypes.put(parameter.name(), parameter.type());
         }
         for (var block : function.blocks()) {
             for (IrInstruction instruction : block.instructions()) {
@@ -48,6 +55,7 @@ record WindowsX64FrameLayout(
         int frameSize = WindowsX64CallingConvention.alignTo16(outgoingArgumentAreaSize + nextOffset);
         return new WindowsX64FrameLayout(
                 parameterOffsets,
+                parameterTypes,
                 localOffsets,
                 localInitializedOffsets,
                 temporaryOffsets,
@@ -57,19 +65,34 @@ record WindowsX64FrameLayout(
     }
 
     String parameterSlot(String name) {
-        return stackSlot(parameterOffsets.get(name));
+        return stackSlot(parameterOffsets.get(name), parameterTypes.get(name));
+    }
+
+    String parameterSlot(String name, IrType type) {
+        return stackSlot(parameterOffsets.get(name), type);
     }
 
     String localSlot(IrLocal local) {
-        return stackSlot(localOffsets.get(local.name()));
+        return stackSlot(localOffsets.get(local.name()), local.type());
     }
 
     String localInitializedSlot(IrLocal local) {
-        return stackSlot(localInitializedOffsets.get(local.name()));
+        return stackSlot(localInitializedOffsets.get(local.name()), IrType.INT);
     }
 
     String temporarySlot(IrTemporary temporary) {
-        return stackSlot(temporaryOffsets.get(temporary.name()));
+        return stackSlot(temporaryOffsets.get(temporary.name()), temporary.type());
+    }
+
+    String stackAddress(Integer offset) {
+        if (offset == null) {
+            throw new IllegalArgumentException("missing stack slot");
+        }
+        return "[rbp-" + (outgoingArgumentAreaSize + offset) + "]";
+    }
+
+    String localAddress(IrLocal local) {
+        return stackAddress(localOffsets.get(local.name()));
     }
 
     String outgoingStackArgumentSlot(int argumentIndex) {
@@ -107,8 +130,15 @@ record WindowsX64FrameLayout(
             nextOffset = ensureTemporary(binary.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrCallInstruction call) {
             nextOffset = ensureTemporary(call.result(), temporaryOffsets, nextOffset);
+        } else if (instruction instanceof IrAddressOfLocalInstruction addressOfLocal) {
+            nextOffset = ensureLocal(addressOfLocal.local(), localOffsets, localInitializedOffsets, nextOffset);
+            nextOffset = ensureTemporary(addressOfLocal.result(), temporaryOffsets, nextOffset);
+        } else if (instruction instanceof IrLoadPointerInstruction loadPointer) {
+            nextOffset = ensureTemporary(loadPointer.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrStoreLocalInstruction storeLocal) {
             nextOffset = ensureLocal(storeLocal.local(), localOffsets, localInitializedOffsets, nextOffset);
+        } else if (instruction instanceof IrStorePointerInstruction) {
+            return nextOffset;
         } else if (instruction instanceof IrCheckInitializedInstruction checkInitialized) {
             nextOffset = ensureLocal(checkInitialized.local(), localOffsets, localInitializedOffsets, nextOffset);
         }
@@ -122,7 +152,7 @@ record WindowsX64FrameLayout(
             int nextOffset
     ) {
         if (!localOffsets.containsKey(local.name())) {
-            nextOffset += 4;
+            nextOffset += slotSize(local.type());
             localOffsets.put(local.name(), nextOffset);
             nextOffset += 4;
             localInitializedOffsets.put(local.name(), nextOffset);
@@ -136,16 +166,24 @@ record WindowsX64FrameLayout(
             int nextOffset
     ) {
         if (!temporaryOffsets.containsKey(temporary.name())) {
-            nextOffset += 4;
+            nextOffset += slotSize(temporary.type());
             temporaryOffsets.put(temporary.name(), nextOffset);
         }
         return nextOffset;
     }
 
-    private String stackSlot(Integer offset) {
+    private static int slotSize(IrType type) {
+        if (type == IrType.POINTER) {
+            return 8;
+        }
+        return 4;
+    }
+
+    private String stackSlot(Integer offset, IrType type) {
         if (offset == null) {
             throw new IllegalArgumentException("missing stack slot");
         }
-        return "DWORD PTR [rbp-" + (outgoingArgumentAreaSize + offset) + "]";
+        String prefix = type == IrType.POINTER ? "QWORD PTR" : "DWORD PTR";
+        return prefix + " [rbp-" + (outgoingArgumentAreaSize + offset) + "]";
     }
 }

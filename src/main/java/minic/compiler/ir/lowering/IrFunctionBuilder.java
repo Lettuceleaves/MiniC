@@ -74,7 +74,7 @@ final class IrFunctionBuilder {
         IrLocal local = new IrLocal(
                 varDeclStmt.name() + "#" + nextLocalIndex++,
                 varDeclStmt.name(),
-                IrType.INT,
+                IrTypeLowerer.lower(varDeclStmt.type()),
                 varDeclStmt.range()
         );
         localScopes.peek().put(varDeclStmt.name(), local);
@@ -100,7 +100,11 @@ final class IrFunctionBuilder {
     }
 
     IrTemporary newTemporary() {
-        return new IrTemporary("%" + nextTemporaryIndex++, IrType.INT);
+        return newTemporary(IrType.INT);
+    }
+
+    IrTemporary newTemporary(IrType type) {
+        return new IrTemporary("%" + nextTemporaryIndex++, type);
     }
 
     private static final class IrBlockBuilder {

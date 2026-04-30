@@ -13,10 +13,12 @@ import java.util.List;
 final class DeclarationParser {
     private final ParserState state;
     private final StatementParser statementParser;
+    private final TypeParser typeParser;
 
     DeclarationParser(ParserState state, StatementParser statementParser) {
         this.state = state;
         this.statementParser = statementParser;
+        typeParser = new TypeParser(state);
     }
 
     FunctionDecl parseFunctionDecl() {
@@ -25,8 +27,8 @@ final class DeclarationParser {
         if (external) {
             startToken = state.previous();
         }
-        if (!state.match(TokenKind.INT)) {
-            state.report(state.peek(), "期望函数声明以 int 开始");
+        ParsedType returnType = typeParser.parseType("期望函数声明以 int 开始");
+        if (returnType == null) {
             return null;
         }
 
@@ -66,14 +68,15 @@ final class DeclarationParser {
         }
 
         do {
-            Token startToken = state.consume(TokenKind.INT, "期望参数类型 int");
+            ParsedType type = typeParser.parseType("期望参数类型 int");
             Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望参数名");
-            if (startToken != null && nameToken != null) {
+            if (type != null && nameToken != null) {
                 parameters.add(new Parameter(
                         nameToken.lexeme(),
+                        type.type(),
                         new SourceRange(
-                                startToken.range().sourceFile(),
-                                startToken.range().startOffset(),
+                                type.range().sourceFile(),
+                                type.range().startOffset(),
                                 nameToken.range().endOffset()
                         )
                 ));

@@ -43,6 +43,7 @@ public final class Lexer {
                 case '+' -> addToken(TokenKind.PLUS, startOffset);
                 case '-' -> addToken(TokenKind.MINUS, startOffset);
                 case '*' -> addToken(TokenKind.STAR, startOffset);
+                case '&' -> addToken(TokenKind.AMPERSAND, startOffset);
                 case '/' -> {
                     if (match('/')) {
                         skipLineComment();

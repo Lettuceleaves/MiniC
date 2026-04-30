@@ -8,6 +8,7 @@ import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
+import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.lexer.Token;
 import minic.compiler.lexer.TokenKind;
 import minic.source.SourceRange;
@@ -33,13 +34,13 @@ final class ExpressionParser {
 
         Token equalsToken = state.previous();
         Expression value = parseAssignment();
-        if (expression instanceof NameExpr nameExpr && value != null) {
+        if (isAssignmentTarget(expression) && value != null) {
             return new AssignmentExpr(
-                    nameExpr.name(),
+                    expression,
                     value,
                     new SourceRange(
-                            nameExpr.range().sourceFile(),
-                            nameExpr.range().startOffset(),
+                            expression.range().sourceFile(),
+                            expression.range().startOffset(),
                             value.range().endOffset()
                     )
             );
@@ -47,6 +48,13 @@ final class ExpressionParser {
 
         state.report(equalsToken, "赋值左侧必须是标识符");
         return value;
+    }
+
+    private boolean isAssignmentTarget(Expression expression) {
+        if (expression instanceof NameExpr) {
+            return true;
+        }
+        return expression instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenKind.STAR;
     }
 
     private Expression parseEquality() {
@@ -83,13 +91,33 @@ final class ExpressionParser {
     }
 
     private Expression parseMultiplicative() {
-        Expression expression = parsePrimary();
+        Expression expression = parseUnary();
         while (state.match(TokenKind.STAR) || state.match(TokenKind.SLASH)) {
             Token operator = state.previous();
-            Expression right = parsePrimary();
+            Expression right = parseUnary();
             expression = combineBinary(expression, operator, right);
         }
         return expression;
+    }
+
+    private Expression parseUnary() {
+        if (state.match(TokenKind.AMPERSAND) || state.match(TokenKind.STAR)) {
+            Token operator = state.previous();
+            Expression operand = parseUnary();
+            if (operand == null) {
+                return null;
+            }
+            return new UnaryExpr(
+                    operator.kind(),
+                    operand,
+                    new SourceRange(
+                            operator.range().sourceFile(),
+                            operator.range().startOffset(),
+                            operand.range().endOffset()
+                    )
+            );
+        }
+        return parsePrimary();
     }
 
     private Expression parsePrimary() {

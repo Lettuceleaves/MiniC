@@ -8,7 +8,9 @@ import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
+import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.type.MiniType;
+import minic.compiler.lexer.TokenKind;
 import minic.source.SourceRange;
 
 import java.util.Map;
@@ -34,9 +36,9 @@ final class ExpressionSemanticAnalyzer {
             case StringLiteralExpr ignored -> MiniType.INT.pointerTo();
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case AssignmentExpr assignmentExpr -> {
-                resolveVariable(scope, assignmentExpr.targetName(), assignmentExpr.range());
+                MiniType targetType = analyzeAssignmentTarget(assignmentExpr.target(), scope, assignmentExpr.range());
                 analyzeExpression(assignmentExpr.value(), scope);
-                yield MiniType.INT;
+                yield targetType;
             }
             case BinaryExpr binaryExpr -> {
                 analyzeExpression(binaryExpr.left(), scope);
@@ -44,6 +46,7 @@ final class ExpressionSemanticAnalyzer {
                 yield MiniType.INT;
             }
             case GroupingExpr groupingExpr -> analyzeExpression(groupingExpr.expression(), scope);
+            case UnaryExpr unaryExpr -> analyzeUnary(unaryExpr, scope);
             case CallExpr callExpr -> {
                 MiniType returnType = functionRegistry.resolveFunction(callExpr);
                 for (Expression argument : callExpr.arguments()) {
@@ -56,6 +59,35 @@ final class ExpressionSemanticAnalyzer {
         };
         expressionTypes.put(expression, type);
         return type;
+    }
+
+    private MiniType analyzeUnary(UnaryExpr unaryExpr, Scope scope) {
+        MiniType operandType = analyzeExpression(unaryExpr.operand(), scope);
+        if (unaryExpr.operator() == TokenKind.AMPERSAND) {
+            if (!(unaryExpr.operand() instanceof NameExpr)) {
+                reporter.report(unaryExpr.range(), "取址操作数必须是变量");
+            }
+            return operandType.pointerTo();
+        }
+        if (unaryExpr.operator() == TokenKind.STAR) {
+            if (!operandType.isPointer()) {
+                reporter.report(unaryExpr.range(), "解引用操作数必须是指针");
+                return MiniType.INT;
+            }
+            return operandType.pointee();
+        }
+        throw new IllegalArgumentException("unsupported unary operator: " + unaryExpr.operator());
+    }
+
+    private MiniType analyzeAssignmentTarget(Expression target, Scope scope, SourceRange range) {
+        if (target instanceof NameExpr) {
+            return analyzeExpression(target, scope);
+        }
+        if (target instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenKind.STAR) {
+            return analyzeExpression(target, scope);
+        }
+        reporter.report(range, "赋值左侧必须是变量或解引用表达式");
+        return MiniType.INT;
     }
 
     private MiniType resolveVariable(Scope scope, String name, SourceRange range) {

@@ -1,5 +1,6 @@
 package minic.compiler.codegen.windows;
 
+import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
@@ -9,8 +10,10 @@ import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
+import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
+import minic.compiler.ir.instruction.IrStorePointerInstruction;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
@@ -31,15 +34,18 @@ final class WindowsX64InstructionEmitter {
     void emitParameterStores(StringBuilder builder, IrFunction function) {
         for (int index = 0; index < function.parameters().size(); index++) {
             IrParameter parameter = function.parameters().get(index);
-            String destination = frame.parameterSlot(parameter.name());
+            String destination = frame.parameterSlot(parameter.name(), parameter.type());
             if (WindowsX64CallingConvention.isRegisterArgument(index)) {
                 builder.append("    mov ").append(destination).append(", ")
-                        .append(WindowsX64CallingConvention.integerArgumentRegister(index)).append(System.lineSeparator());
+                        .append(argumentRegister(parameter.type(), index)).append(System.lineSeparator());
             } else {
                 int stackOffset = WindowsX64CallingConvention.incomingStackArgumentOffset(index);
-                builder.append("    mov eax, DWORD PTR [rbp+").append(stackOffset).append("]")
+                String register = registerForType(parameter.type());
+                builder.append("    mov ").append(register).append(", ")
+                        .append(memoryPrefix(parameter.type())).append(" [rbp+").append(stackOffset).append("]")
                         .append(System.lineSeparator());
-                builder.append("    mov ").append(destination).append(", eax").append(System.lineSeparator());
+                builder.append("    mov ").append(destination).append(", ").append(register)
+                        .append(System.lineSeparator());
             }
         }
     }
@@ -56,9 +62,10 @@ final class WindowsX64InstructionEmitter {
                         .append(", 0").append(System.lineSeparator());
             }
             case IrStoreLocalInstruction storeLocal -> {
-                valueEmitter.emitLoadValue(builder, storeLocal.value(), "eax");
+                String register = registerForType(storeLocal.local().type());
+                valueEmitter.emitLoadValue(builder, storeLocal.value(), register);
                 builder.append("    mov ").append(frame.localSlot(storeLocal.local()))
-                        .append(", eax").append(System.lineSeparator());
+                        .append(", ").append(register).append(System.lineSeparator());
                 builder.append("    mov ").append(frame.localInitializedSlot(storeLocal.local()))
                         .append(", 1").append(System.lineSeparator());
             }
@@ -69,9 +76,11 @@ final class WindowsX64InstructionEmitter {
                         .append(System.lineSeparator());
             }
             case IrLoadLocalInstruction loadLocal -> {
-                builder.append("    mov eax, ").append(frame.localSlot(loadLocal.local())).append(System.lineSeparator());
+                String register = registerForType(loadLocal.result().type());
+                builder.append("    mov ").append(register).append(", ").append(frame.localSlot(loadLocal.local()))
+                        .append(System.lineSeparator());
                 builder.append("    mov ").append(frame.temporarySlot(loadLocal.result()))
-                        .append(", eax").append(System.lineSeparator());
+                        .append(", ").append(register).append(System.lineSeparator());
             }
             case IrCheckNonZeroInstruction checkNonZero -> {
                 valueEmitter.emitLoadValue(builder, checkNonZero.value(), "eax");
@@ -80,6 +89,23 @@ final class WindowsX64InstructionEmitter {
                         .append(System.lineSeparator());
             }
             case IrBinaryInstruction binary -> emitBinary(builder, binary);
+            case IrAddressOfLocalInstruction addressOfLocal -> {
+                builder.append("    lea rax, ").append(frame.localAddress(addressOfLocal.local()))
+                        .append(System.lineSeparator());
+                builder.append("    mov ").append(frame.temporarySlot(addressOfLocal.result()))
+                        .append(", rax").append(System.lineSeparator());
+            }
+            case IrLoadPointerInstruction loadPointer -> {
+                valueEmitter.emitLoadValue(builder, loadPointer.address(), "rax");
+                builder.append("    mov eax, DWORD PTR [rax]").append(System.lineSeparator());
+                builder.append("    mov ").append(frame.temporarySlot(loadPointer.result()))
+                        .append(", eax").append(System.lineSeparator());
+            }
+            case IrStorePointerInstruction storePointer -> {
+                valueEmitter.emitLoadValue(builder, storePointer.address(), "rax");
+                valueEmitter.emitLoadValue(builder, storePointer.value(), "ecx");
+                builder.append("    mov DWORD PTR [rax], ecx").append(System.lineSeparator());
+            }
             case IrCallInstruction call -> emitCall(builder, call);
             case IrBranchInstruction branch -> emitBranch(builder, functionName, branch);
             case IrJumpInstruction jump -> emitJump(builder, functionName, jump.targetLabel());
@@ -142,7 +168,7 @@ final class WindowsX64InstructionEmitter {
         for (int index = WindowsX64CallingConvention.INTEGER_ARGUMENT_REGISTERS.size();
              index < call.arguments().size();
              index++) {
-            if (call.arguments().get(index).type() == IrType.STRING_POINTER) {
+            if (call.arguments().get(index).type() == IrType.POINTER) {
                 valueEmitter.emitLoadValue(builder, call.arguments().get(index), "rax");
                 builder.append("    mov QWORD PTR [rsp+")
                         .append(WindowsX64CallingConvention.outgoingStackArgumentOffset(index))
@@ -172,10 +198,24 @@ final class WindowsX64InstructionEmitter {
     }
 
     private String argumentRegister(IrType type, int argumentIndex) {
-        if (type == IrType.STRING_POINTER) {
+        if (type == IrType.POINTER) {
             return WindowsX64CallingConvention.pointerArgumentRegister(argumentIndex);
         }
         return WindowsX64CallingConvention.integerArgumentRegister(argumentIndex);
+    }
+
+    private String registerForType(IrType type) {
+        if (type == IrType.POINTER) {
+            return "rax";
+        }
+        return "eax";
+    }
+
+    private String memoryPrefix(IrType type) {
+        if (type == IrType.POINTER) {
+            return "QWORD PTR";
+        }
+        return "DWORD PTR";
     }
 
     private void emitBranch(StringBuilder builder, String functionName, IrBranchInstruction branch) {

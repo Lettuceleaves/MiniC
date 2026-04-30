@@ -23,7 +23,7 @@ final class FunctionRegistry {
             int arity = functionDecl.parameters().size();
             FunctionState existingState = functionStates.get(name);
             if (existingState == null) {
-                Symbol symbol = new Symbol(name, SymbolKind.FUNCTION, functionDecl.range(), arity);
+                Symbol symbol = new Symbol(name, SymbolKind.FUNCTION, functionDecl.range(), MiniType.INT, arity);
                 globalScope.define(symbol);
                 functionStates.put(name, new FunctionState(arity, functionDecl.hasBody(), functionDecl.external()));
                 if (functionDecl.external() && functionDecl.hasBody()) {

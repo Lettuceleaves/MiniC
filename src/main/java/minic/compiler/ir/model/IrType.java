@@ -10,7 +10,7 @@ public enum IrType {
     INT,
 
     /**
-     * 指向只读字符串数据的地址值。
+     * 指针或地址类型。
      */
-    STRING_POINTER
+    POINTER
 }

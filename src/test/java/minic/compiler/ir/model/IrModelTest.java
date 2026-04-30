@@ -70,7 +70,7 @@ class IrModelTest {
         assertThat(module.stringData()).containsExactly(stringData);
         assertThat(module.externalFunctionNames()).containsExactly("puts");
         assertThat(call.arguments()).containsExactly(stringLiteral);
-        assertThat(stringLiteral.type()).isEqualTo(IrType.STRING_POINTER);
+        assertThat(stringLiteral.type()).isEqualTo(IrType.POINTER);
     }
 
 

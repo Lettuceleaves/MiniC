@@ -3,6 +3,7 @@ package minic.compiler.ir.lowering;
 import minic.compiler.ast.decl.Program;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrBinaryOperator;
+import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
@@ -10,8 +11,10 @@ import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
+import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
+import minic.compiler.ir.instruction.IrStorePointerInstruction;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrModule;
@@ -373,6 +376,52 @@ class IrLowererTest {
             assertThat(returnLoad.local()).isEqualTo(declare.local());
             assertThat(returnInstruction.value()).isEqualTo(returnLoad.result());
         });
+    }
+
+    @Test
+    void lowersAddressOfDereferenceAndPointerStore() {
+        Program program = parse("""
+                int main() {
+                    int x = 1;
+                    int *p = &x;
+                    *p = 2;
+                    return x;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).singleElement().satisfies(block -> {
+            assertThat(block.instructions())
+                    .filteredOn(IrAddressOfLocalInstruction.class::isInstance)
+                    .map(IrAddressOfLocalInstruction.class::cast)
+                    .singleElement()
+                    .satisfies(addressOf -> {
+                        assertThat(addressOf.local().sourceName()).isEqualTo("x");
+                        assertThat(addressOf.result().type()).isEqualTo(IrType.POINTER);
+                    });
+            assertThat(block.instructions())
+                    .filteredOn(IrStorePointerInstruction.class::isInstance)
+                    .hasSize(1);
+        });
+    }
+
+    @Test
+    void lowersDereferenceRead() {
+        Program program = parse("""
+                int main() {
+                    int x = 1;
+                    int *p = &x;
+                    return *p;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).singleElement().satisfies(block ->
+                assertThat(block.instructions())
+                        .filteredOn(IrLoadPointerInstruction.class::isInstance)
+                        .hasSize(1));
     }
 
     @Test

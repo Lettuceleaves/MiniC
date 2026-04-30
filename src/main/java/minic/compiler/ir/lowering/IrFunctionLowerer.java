@@ -4,10 +4,8 @@ import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Parameter;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrParameter;
-import minic.compiler.ir.model.IrType;
 
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 
 final class IrFunctionLowerer {
@@ -23,7 +21,11 @@ final class IrFunctionLowerer {
         IrFunctionBuilder builder = new IrFunctionBuilder();
         ArrayList<IrParameter> parameters = new ArrayList<>();
         for (Parameter parameter : function.parameters()) {
-            IrParameter irParameter = new IrParameter(parameter.name(), IrType.INT, parameter.range());
+            IrParameter irParameter = new IrParameter(
+                    parameter.name(),
+                    IrTypeLowerer.lower(parameter.type()),
+                    parameter.range()
+            );
             parameters.add(irParameter);
             builder.defineParameter(parameter.name(), irParameter.ref());
         }

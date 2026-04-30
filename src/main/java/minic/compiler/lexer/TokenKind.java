@@ -85,6 +85,11 @@ public enum TokenKind {
     STAR,
 
     /**
+     * {@code &}。
+     */
+    AMPERSAND,
+
+    /**
      * {@code /}。
      */
     SLASH,

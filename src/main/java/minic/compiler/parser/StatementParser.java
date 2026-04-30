@@ -20,10 +20,12 @@ import java.util.ArrayList;
 final class StatementParser {
     private final ParserState state;
     private final ExpressionParser expressionParser;
+    private final TypeParser typeParser;
 
     StatementParser(ParserState state, ExpressionParser expressionParser) {
         this.state = state;
         this.expressionParser = expressionParser;
+        typeParser = new TypeParser(state);
     }
 
     BlockStmt parseBlock() {
@@ -201,7 +203,7 @@ final class StatementParser {
     }
 
     private VarDeclStmt parseVarDeclStmt() {
-        Token startToken = state.consume(TokenKind.INT, "期望变量类型 int");
+        ParsedType type = typeParser.parseType("期望变量类型 int");
         Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望变量名");
         Expression initializer = null;
         if (state.match(TokenKind.EQUAL)) {
@@ -209,15 +211,16 @@ final class StatementParser {
         }
         Token semicolonToken = state.consume(TokenKind.SEMICOLON, "期望 ';'");
 
-        if (startToken == null || nameToken == null || semicolonToken == null) {
+        if (type == null || nameToken == null || semicolonToken == null) {
             return null;
         }
         return new VarDeclStmt(
                 nameToken.lexeme(),
+                type.type(),
                 initializer,
                 new SourceRange(
-                        startToken.range().sourceFile(),
-                        startToken.range().startOffset(),
+                        type.range().sourceFile(),
+                        type.range().startOffset(),
                         semicolonToken.range().endOffset()
                 )
         );
