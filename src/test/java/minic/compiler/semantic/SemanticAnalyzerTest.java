@@ -57,6 +57,41 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void acceptsExternalFunctionCallWithoutDefinition() {
+        SemanticResult result = analyze("""
+                extern int helper(int value);
+                int main() { return helper(1); }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.globalScope().resolve("helper")).isPresent();
+    }
+
+    @Test
+    void stillChecksExternalFunctionArity() {
+        SemanticResult result = analyze("""
+                extern int helper(int value);
+                int main() { return helper(); }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("函数调用实参数量不匹配：helper");
+    }
+
+    @Test
+    void reportsExternalFunctionWithBody() {
+        SemanticResult result = analyze("""
+                extern int helper() { return 1; }
+                int main() { return 0; }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("外部函数不能携带函数体：helper");
+    }
+
+    @Test
     void reportsFunctionDeclarationSignatureMismatch() {
         SemanticResult result = analyze("""
                 int helper(int value);

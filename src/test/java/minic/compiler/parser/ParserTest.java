@@ -74,6 +74,23 @@ class ParserTest {
     }
 
     @Test
+    void parsesExternalFunctionDeclaration() {
+        SourceFile sourceFile = new SourceFile("extern.mc", "extern int puts(int value); int main() { return 0; }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        FunctionDecl declaration = result.program().functions().getFirst();
+        assertThat(declaration.name()).isEqualTo("puts");
+        assertThat(declaration.external()).isTrue();
+        assertThat(declaration.hasBody()).isFalse();
+        assertThat(declaration.parameters())
+                .extracting(parameter -> parameter.name())
+                .containsExactly("value");
+        assertThat(declaration.range()).isEqualTo(new SourceRange(sourceFile, 0, 27));
+    }
+
+    @Test
     void parsesFunctionParameters() {
         SourceFile sourceFile = new SourceFile("add.mc", "int add(int left, int right) {}");
 

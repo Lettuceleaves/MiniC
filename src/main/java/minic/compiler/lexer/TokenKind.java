@@ -25,6 +25,11 @@ public enum TokenKind {
     INT,
 
     /**
+     * {@code extern} 关键字。
+     */
+    EXTERN,
+
+    /**
      * {@code return} 关键字。
      */
     RETURN,

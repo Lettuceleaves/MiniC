@@ -24,11 +24,18 @@ final class FunctionRegistry {
             if (existingState == null) {
                 Symbol symbol = new Symbol(name, SymbolKind.FUNCTION, functionDecl.range(), arity);
                 globalScope.define(symbol);
-                functionStates.put(name, new FunctionState(arity, functionDecl.hasBody()));
+                functionStates.put(name, new FunctionState(arity, functionDecl.hasBody(), functionDecl.external()));
+                if (functionDecl.external() && functionDecl.hasBody()) {
+                    reporter.report(functionDecl.range(), "外部函数不能携带函数体：" + name);
+                }
                 continue;
             }
             if (existingState.arity() != arity) {
                 reporter.report(functionDecl.range(), "函数声明签名不一致：" + name);
+                continue;
+            }
+            if (functionDecl.external() && functionDecl.hasBody()) {
+                reporter.report(functionDecl.range(), "外部函数不能携带函数体：" + name);
                 continue;
             }
             if (functionDecl.hasBody()) {
@@ -37,6 +44,8 @@ final class FunctionRegistry {
                 } else {
                     functionStates.put(name, existingState.asDefined());
                 }
+            } else if (functionDecl.external() && !existingState.external()) {
+                functionStates.put(name, existingState.asExternal());
             }
         }
     }
@@ -58,7 +67,7 @@ final class FunctionRegistry {
             return;
         }
         FunctionState functionState = functionStates.get(callExpr.calleeName());
-        if (functionState != null && !functionState.defined()) {
+        if (functionState != null && !functionState.defined() && !functionState.external()) {
             reporter.report(callExpr.range(), "未定义函数调用：" + callExpr.calleeName());
         }
         Integer arity = functionSymbol.orElseThrow().arity();
@@ -108,9 +117,13 @@ final class FunctionRegistry {
         return functionDecl.name() + "/" + functionDecl.parameters().size();
     }
 
-    private record FunctionState(int arity, boolean defined) {
+    private record FunctionState(int arity, boolean defined, boolean external) {
         private FunctionState asDefined() {
-            return new FunctionState(arity, true);
+            return new FunctionState(arity, true, external);
+        }
+
+        private FunctionState asExternal() {
+            return new FunctionState(arity, defined, true);
         }
     }
 }

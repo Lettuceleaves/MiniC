@@ -116,6 +116,7 @@ public final class Lexer {
         String lexeme = sourceFile.content().substring(startOffset, currentOffset);
         TokenKind kind = switch (lexeme) {
             case "int" -> TokenKind.INT;
+            case "extern" -> TokenKind.EXTERN;
             case "return" -> TokenKind.RETURN;
             case "if" -> TokenKind.IF;
             case "else" -> TokenKind.ELSE;

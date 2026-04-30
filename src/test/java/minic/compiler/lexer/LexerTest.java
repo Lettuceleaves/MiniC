@@ -153,6 +153,23 @@ class LexerTest {
     }
 
     @Test
+    void lexesExternKeywordSeparatelyFromIdentifiers() {
+        SourceFile sourceFile = new SourceFile("extern.mc", "extern external externValue");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(
+                        TokenKind.EXTERN,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.EOF
+                );
+    }
+
+    @Test
     void keepsIdentifierRanges() {
         SourceFile sourceFile = new SourceFile("identifier-ranges.mc", "  main\nreturn");
 

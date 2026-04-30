@@ -49,8 +49,10 @@ v0.1 后端先限定单目标平台，优先 `Windows x86_64`；编译器核心�
 支持：
 
 - `int`
+- `extern`
 - `return`
 - 函数声明和函数定义
+- 外部函数声明
 - 函数参数
 - block
 - 局部变量声明
@@ -78,7 +80,8 @@ v0.1 后端先限定单目标平台，优先 `Windows x86_64`；编译器核心�
 
 ```ebnf
 program        ::= functionDecl* EOF ;
-functionDecl   ::= "int" identifier "(" parameterList? ")" (block | ";") ;
+functionDecl   ::= external? "int" identifier "(" parameterList? ")" (block | ";") ;
+external       ::= "extern" ;
 parameterList  ::= parameter ("," parameter)* ;
 parameter      ::= "int" identifier ;
 block          ::= "{" statement* "}" ;
@@ -111,12 +114,14 @@ argumentList   ::= expression ("," expression)* ;
 - `main` 函数签名必须是 `int main()`，不允许参数。
 - v0.1 用户函数返回类型必须是 `int`，参数类型必须是 `int`。
 - 函数声明以 `;` 结束，不携带函数体；函数定义携带 block 函数体。
+- 外部函数使用 `extern int name(...);` 声明，进入全局函数符号表，允许无函数体且允许被调用。
+- 外部函数声明不能携带函数体。
 - 同名函数允许先声明后定义，重复声明必须保持参数数量一致。
 - 重复函数定义是错误；v0.1 暂不支持函数重载，因此同名函数声明或定义的参数数量不一致是错误。
 - 同一作用域内重复局部变量名是错误。
 - 变量使用前必须声明。
 - 函数调用目标必须存在。
-- 非外部函数仅声明未定义时不可调用；外部函数声明模型在后续任务中补充。
+- 非外部函数仅声明未定义时不可调用；外部函数声明允许未定义调用，后续动态链接任务负责生成可链接调用。
 - 实参个数必须匹配形参个数。
 - Windows x86_64 目标上，前 4 个 `int` 实参使用 `ecx`、`edx`、`r8d`、`r9d`，第 5 个及之后的 `int` 实参通过调用方栈参数区传递。
 - v0.1 中所有表达式类型都是 `int`。

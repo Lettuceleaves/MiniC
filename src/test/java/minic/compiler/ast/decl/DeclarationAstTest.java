@@ -26,6 +26,7 @@ class DeclarationAstTest {
         assertThat(program.range()).isSameAs(programRange);
         assertThat(functionDecl.name()).isEqualTo("add");
         assertThat(functionDecl.parameters()).containsExactly(parameter);
+        assertThat(functionDecl.external()).isFalse();
         assertThat(functionDecl.hasBody()).isFalse();
         assertThat(functionDecl.bodyOptional()).isEmpty();
         assertThat(functionDecl.range()).isSameAs(functionRange);
@@ -63,5 +64,17 @@ class DeclarationAstTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new Parameter("", range))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void storesExternalFunctionDeclarationFlag() {
+        SourceFile sourceFile = new SourceFile("extern.mc", "extern int puts(int value);");
+        SourceRange range = new SourceRange(sourceFile, 0, sourceFile.content().length());
+
+        FunctionDecl functionDecl = new FunctionDecl("puts", List.of(), true, range);
+
+        assertThat(functionDecl.external()).isTrue();
+        assertThat(functionDecl.hasBody()).isFalse();
+        assertThat(functionDecl.bodyOptional()).isEmpty();
     }
 }

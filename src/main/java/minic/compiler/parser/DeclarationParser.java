@@ -21,6 +21,10 @@ final class DeclarationParser {
 
     FunctionDecl parseFunctionDecl() {
         Token startToken = state.peek();
+        boolean external = state.match(TokenKind.EXTERN);
+        if (external) {
+            startToken = state.previous();
+        }
         if (!state.match(TokenKind.INT)) {
             state.report(state.peek(), "期望函数声明以 int 开始");
             return null;
@@ -46,6 +50,7 @@ final class DeclarationParser {
                 nameToken.lexeme(),
                 parameters,
                 body,
+                external,
                 new SourceRange(
                         startToken.range().sourceFile(),
                         startToken.range().startOffset(),

@@ -42,6 +42,7 @@ class TokenTest {
                         TokenKind.IDENTIFIER,
                         TokenKind.INTEGER_LITERAL,
                         TokenKind.INT,
+                        TokenKind.EXTERN,
                         TokenKind.RETURN,
                         TokenKind.IF,
                         TokenKind.ELSE,
