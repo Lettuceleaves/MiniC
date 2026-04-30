@@ -47,6 +47,20 @@ build\minic\main.exe
 $LASTEXITCODE
 ```
 
+也可以使用 `compile-run` 一次完成编译、链接、运行，并捕获 stdout、stderr 和退出码：
+
+```powershell
+cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && set "JAVA_HOME=E:\projects\MiniC\.local\tools\jdk-21.0.10+7" && set "PATH=E:\projects\MiniC\.local\tools\jdk-21.0.10+7\bin;%PATH%" && set "GRADLE_USER_HOME=E:\projects\MiniC\.gradle-home" && .\gradlew --no-daemon run --args="compile-run samples\printf.mc --out-dir build\minic --emit-asm --ml64 \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\ml64.exe\" --link \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\link.exe\""'
+```
+
+成功时会输出类似：
+
+```text
+run.stdout=value=42\r\n
+run.stderr=
+run.exitCode=42
+```
+
 `samples\main.mc` 当前返回 `add(1, 2)` 的结果，期望退出码是 `3`。
 
 已验证的样例：
@@ -88,6 +102,6 @@ samples\printf.mc               -> 输出 value=42，退出码 42
 
 ## 当前状态
 
-当前已完成项目文档整理、git 仓库初始化、Git 规范与验收要求补充、Java Gradle 骨架、Gradle Wrapper、临时文件清理验收要求、源码位置模型、诊断模型、Token 模型、v0.1 lexer、Program 和声明 AST、基础函数解析、语句 AST 和解析、表达式 AST 和解析、符号模型、函数和变量解析、v0.1 语义规则、IR 模型、基础 AST 到 IR lowering、变量、赋值和运行时检查插桩、AST/IR 包结构整理、目标平台和汇编输出模型、完整 v0.1 目标汇编生成、编译管线入口和产物结果模型、CLI 编译入口和阶段化观测输出、函数命名和签名规则、函数声明和定义分离、用户函数调用代码生成完善、比较表达式、语法扩展前的核心职责拆分、if/else 控制流、else if 链式分支、while 循环、for 循环、break/continue 循环控制、外部函数声明模型、字符串字面量，以及动态链接 printf。执行计划已调整为先完成从前端到真实可执行文件生成的编译链路，再扩展语言能力，随后进入 debugger。
+当前已完成项目文档整理、git 仓库初始化、Git 规范与验收要求补充、Java Gradle 骨架、Gradle Wrapper、临时文件清理验收要求、源码位置模型、诊断模型、Token 模型、v0.1 lexer、Program 和声明 AST、基础函数解析、语句 AST 和解析、表达式 AST 和解析、符号模型、函数和变量解析、v0.1 语义规则、IR 模型、基础 AST 到 IR lowering、变量、赋值和运行时检查插桩、AST/IR 包结构整理、目标平台和汇编输出模型、完整 v0.1 目标汇编生成、编译管线入口和产物结果模型、CLI 编译入口和阶段化观测输出、函数命名和签名规则、函数声明和定义分离、用户函数调用代码生成完善、比较表达式、语法扩展前的核心职责拆分、if/else 控制流、else if 链式分支、while 循环、for 循环、break/continue 循环控制、外部函数声明模型、字符串字面量、动态链接 printf，以及编译运行反馈闭环。执行计划已调整为先完成从前端到真实可执行文件生成的编译链路，再扩展语言能力，随后进入 debugger。
 
-下一步应执行 `A103：添加编译运行反馈闭环`，之后按计划补充指针、数组和结构体。
+下一步应执行 `A110：添加类型系统基础`，之后按计划补充指针、数组和结构体。

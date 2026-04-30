@@ -8,6 +8,7 @@ import minic.compiler.parser.ParseResult;
 import minic.compiler.semantic.SemanticResult;
 import minic.compiler.toolchain.ToolchainResult;
 import minic.diagnostics.Diagnostic;
+import minic.runtime.execution.ExecutionResult;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -23,6 +24,7 @@ import java.util.Optional;
  * @param irModule IR 模块；前序失败导致未生成时为 {@code null}
  * @param assemblySource 汇编文本；前序失败导致未生成时为 {@code null}
  * @param toolchainResult 工具链结果
+ * @param executionResult 运行结果
  */
 public record CompileResult(
         LexResult lexResult,
@@ -30,7 +32,8 @@ public record CompileResult(
         SemanticResult semanticResult,
         IrModule irModule,
         AssemblySource assemblySource,
-        ToolchainResult toolchainResult
+        ToolchainResult toolchainResult,
+        ExecutionResult executionResult
 ) {
     /**
      * 创建核心编译流水线结果。
@@ -41,10 +44,41 @@ public record CompileResult(
      * @param irModule IR 模块；前序失败导致未生成时为 {@code null}
      * @param assemblySource 汇编文本；前序失败导致未生成时为 {@code null}
      * @param toolchainResult 工具链结果
+     * @param executionResult 运行结果
      */
     public CompileResult {
         Objects.requireNonNull(lexResult, "lexResult");
         Objects.requireNonNull(toolchainResult, "toolchainResult");
+        Objects.requireNonNull(executionResult, "executionResult");
+    }
+
+    /**
+     * 创建未执行运行阶段的编译结果。
+     *
+     * @param lexResult 词法分析结果
+     * @param parseResult 语法分析结果；词法失败导致未执行时为 {@code null}
+     * @param semanticResult 语义分析结果；前序失败导致未执行时为 {@code null}
+     * @param irModule IR 模块；前序失败导致未生成时为 {@code null}
+     * @param assemblySource 汇编文本；前序失败导致未生成时为 {@code null}
+     * @param toolchainResult 工具链结果
+     */
+    public CompileResult(
+            LexResult lexResult,
+            ParseResult parseResult,
+            SemanticResult semanticResult,
+            IrModule irModule,
+            AssemblySource assemblySource,
+            ToolchainResult toolchainResult
+    ) {
+        this(
+                lexResult,
+                parseResult,
+                semanticResult,
+                irModule,
+                assemblySource,
+                toolchainResult,
+                ExecutionResult.notRun()
+        );
     }
 
     /**
@@ -107,6 +141,7 @@ public record CompileResult(
             diagnostics.addAll(semanticResult.diagnostics());
         }
         diagnostics.addAll(toolchainResult.diagnostics());
+        diagnostics.addAll(executionResult.diagnostics());
         return List.copyOf(diagnostics);
     }
 

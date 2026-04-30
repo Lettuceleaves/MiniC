@@ -12,6 +12,8 @@ import minic.compiler.parser.Parser;
 import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.semantic.SemanticResult;
 import minic.compiler.toolchain.ToolchainResult;
+import minic.runtime.execution.ExecutableRunner;
+import minic.runtime.execution.ExecutionResult;
 import minic.source.SourceFile;
 
 import java.util.Objects;
@@ -86,13 +88,20 @@ public final class MiniCompiler {
                         options.artifactName()
                 )
                 : ToolchainResult.notRun();
+        ExecutionResult executionResult = ExecutionResult.notRun();
+        if (options.runExecutable() && toolchainResult.diagnostics().isEmpty()) {
+            executionResult = toolchainResult.executableArtifactOptional()
+                    .map(artifact -> new ExecutableRunner().run(sourceFile, artifact))
+                    .orElse(ExecutionResult.notRun());
+        }
         return new CompileResult(
                 lexResult,
                 parseResult,
                 semanticResult,
                 irModule,
                 assemblySource,
-                toolchainResult
+                toolchainResult,
+                executionResult
         );
     }
 }

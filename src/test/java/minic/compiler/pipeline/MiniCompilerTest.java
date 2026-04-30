@@ -105,4 +105,38 @@ class MiniCompilerTest {
                 .map(ExecutableArtifact::path)
                 .contains(tempDir.resolve("main.exe"));
     }
+
+    @Test
+    void canCompileAndRunExecutableArtifact() throws Exception {
+        SourceFile sourceFile = new SourceFile("main.mc", "int main() { return 7; }");
+        Path executablePath = tempDir.resolve("main.cmd");
+        Toolchain toolchain = (source, assembly, outputDirectory, artifactName) -> {
+            try {
+                java.nio.file.Files.writeString(executablePath, """
+                        @echo off
+                        echo hello
+                        echo warning 1>&2
+                        exit /b 7
+                        """);
+            } catch (java.io.IOException exception) {
+                throw new IllegalStateException(exception);
+            }
+            return new ToolchainResult(
+                    outputDirectory.resolve(artifactName + ".asm"),
+                    outputDirectory.resolve(artifactName + ".obj"),
+                    new ExecutableArtifact(executablePath),
+                    List.of()
+            );
+        };
+
+        CompileResult result = new MiniCompiler().compile(
+                sourceFile,
+                new CompileOptions(tempDir, "main", true, true, toolchain)
+        );
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.executionResult().stdout()).contains("hello");
+        assertThat(result.executionResult().stderr()).contains("warning");
+        assertThat(result.executionResult().exitCodeOptional()).hasValue(7);
+    }
 }

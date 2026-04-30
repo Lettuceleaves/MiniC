@@ -12,12 +12,14 @@ import java.util.Objects;
  * @param outputDirectory 输出目录
  * @param artifactName 产物基础名称
  * @param runToolchain 是否运行工具链
+ * @param runExecutable 是否在工具链成功后运行可执行文件
  * @param toolchain 工具链实现
  */
 public record CompileOptions(
         Path outputDirectory,
         String artifactName,
         boolean runToolchain,
+        boolean runExecutable,
         Toolchain toolchain
 ) {
     /**
@@ -26,6 +28,7 @@ public record CompileOptions(
      * @param outputDirectory 输出目录
      * @param artifactName 产物基础名称
      * @param runToolchain 是否运行工具链
+     * @param runExecutable 是否在工具链成功后运行可执行文件
      * @param toolchain 工具链实现
      */
     public CompileOptions {
@@ -43,6 +46,18 @@ public record CompileOptions(
      * @return 默认编译选项
      */
     public static CompileOptions assemblyOnly() {
-        return new CompileOptions(Path.of("build", "minic"), "a", false, new NoOpToolchain());
+        return new CompileOptions(Path.of("build", "minic"), "a", false, false, new NoOpToolchain());
+    }
+
+    /**
+     * 创建不运行可执行文件的编译选项。
+     *
+     * @param outputDirectory 输出目录
+     * @param artifactName 产物基础名称
+     * @param runToolchain 是否运行工具链
+     * @param toolchain 工具链实现
+     */
+    public CompileOptions(Path outputDirectory, String artifactName, boolean runToolchain, Toolchain toolchain) {
+        this(outputDirectory, artifactName, runToolchain, false, toolchain);
     }
 }

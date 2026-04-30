@@ -15,6 +15,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.BiFunction;
 
 /**
  * MiniC 命令行接口。
@@ -22,6 +23,7 @@ import java.util.Set;
 public final class MiniCli {
     private final PrintStream out;
     private final PrintStream err;
+    private final BiFunction<SourceFile, CompileOptions, CompileResult> compiler;
 
     /**
      * 创建命令行接口。
@@ -30,8 +32,17 @@ public final class MiniCli {
      * @param err 标准错误
      */
     public MiniCli(PrintStream out, PrintStream err) {
+        this(out, err, (sourceFile, options) -> new MiniCompiler().compile(sourceFile, options));
+    }
+
+    MiniCli(
+            PrintStream out,
+            PrintStream err,
+            BiFunction<SourceFile, CompileOptions, CompileResult> compiler
+    ) {
         this.out = Objects.requireNonNull(out, "out");
         this.err = Objects.requireNonNull(err, "err");
+        this.compiler = Objects.requireNonNull(compiler, "compiler");
     }
 
     /**
@@ -47,7 +58,7 @@ public final class MiniCli {
                 printUsage(out);
                 return 0;
             }
-            if (!"compile".equals(options.command())) {
+            if (!"compile".equals(options.command()) && !"compile-run".equals(options.command())) {
                 printUsage(err);
                 return 2;
             }
@@ -73,9 +84,10 @@ public final class MiniCli {
                 options.outputDirectory(),
                 artifactName,
                 true,
+                "compile-run".equals(options.command()),
                 new WindowsMsvcToolchain(options.assemblerCommand(), options.linkerCommand())
         );
-        CompileResult result = new MiniCompiler().compile(sourceFile, compileOptions);
+        CompileResult result = compiler.apply(sourceFile, compileOptions);
         printRequestedStages(result, options.showStages());
         if (options.emitAssembly() || result.toolchainResult().assemblyPathOptional().isPresent()) {
             result.toolchainResult().assemblyPathOptional()
@@ -85,6 +97,11 @@ public final class MiniCli {
                 .ifPresent(path -> out.println("object=" + path));
         result.toolchainResult().executableArtifactOptional()
                 .ifPresent(artifact -> out.println("executable=" + artifact.path()));
+        if ("compile-run".equals(options.command()) && result.executionResult().exitCodeOptional().isPresent()) {
+            out.println("run.stdout=" + escape(result.executionResult().stdout()));
+            out.println("run.stderr=" + escape(result.executionResult().stderr()));
+            out.println("run.exitCode=" + result.executionResult().exitCodeOptional().orElseThrow());
+        }
 
         if (!result.diagnostics().isEmpty()) {
             printDiagnostics(result.diagnostics());
@@ -127,7 +144,14 @@ public final class MiniCli {
     }
 
     private void printUsage(PrintStream stream) {
-        stream.println("用法：minic compile <source.mc> [--out-dir <dir>] [--emit-asm] [--show tokens,ast,ir,assembly,diagnostics]");
+        stream.println("用法：minic <compile|compile-run> <source.mc> [--out-dir <dir>] [--emit-asm] [--show tokens,ast,ir,assembly,diagnostics]");
+    }
+
+    private String escape(String value) {
+        return value
+                .replace("\\", "\\\\")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n");
     }
 
     private record CliOptions(
@@ -194,8 +218,8 @@ public final class MiniCli {
                 }
                 index++;
             }
-            if ("compile".equals(command) && sourcePath == null) {
-                throw new IllegalArgumentException("compile 需要源码文件路径");
+            if (("compile".equals(command) || "compile-run".equals(command)) && sourcePath == null) {
+                throw new IllegalArgumentException(command + " 需要源码文件路径");
             }
             return new CliOptions(
                     command,
