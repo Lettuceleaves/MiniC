@@ -98,7 +98,7 @@ class MiniCompilerTest {
         );
 
         assertThat(result.succeeded()).isTrue();
-        assertThat(result.assemblySourceOptional()).map(AssemblySource::entrySymbol).contains("main");
+        assertThat(result.assemblySourceOptional()).map(AssemblySource::entrySymbol).contains("minic$entry");
         assertThat(result.toolchainResult().assemblyPathOptional()).contains(tempDir.resolve("main.asm"));
         assertThat(result.toolchainResult().objectPathOptional()).contains(tempDir.resolve("main.obj"));
         assertThat(result.toolchainResult().executableArtifactOptional())

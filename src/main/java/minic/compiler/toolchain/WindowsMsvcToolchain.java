@@ -18,8 +18,14 @@ import java.util.Objects;
  * 基于 MSVC {@code ml64.exe} 和 {@code link.exe} 的 Windows x64 工具链。
  */
 public final class WindowsMsvcToolchain implements Toolchain {
+    private static final List<String> DEFAULT_LIBRARIES = List.of(
+            "kernel32.lib",
+            "ucrt.lib",
+            "legacy_stdio_definitions.lib"
+    );
     private final String assemblerCommand;
     private final String linkerCommand;
+    private final List<String> libraries;
 
     /**
      * 使用 PATH 中的 {@code ml64} 和 {@code link} 创建工具链。
@@ -35,8 +41,24 @@ public final class WindowsMsvcToolchain implements Toolchain {
      * @param linkerCommand 链接器命令或路径
      */
     public WindowsMsvcToolchain(String assemblerCommand, String linkerCommand) {
+        this(assemblerCommand, linkerCommand, DEFAULT_LIBRARIES);
+    }
+
+    /**
+     * 使用指定命令和链接库创建工具链。
+     *
+     * @param assemblerCommand 汇编器命令或路径
+     * @param linkerCommand 链接器命令或路径
+     * @param libraries 额外链接库
+     */
+    public WindowsMsvcToolchain(String assemblerCommand, String linkerCommand, List<String> libraries) {
         this.assemblerCommand = requireCommand(assemblerCommand, "assemblerCommand");
         this.linkerCommand = requireCommand(linkerCommand, "linkerCommand");
+        Objects.requireNonNull(libraries, "libraries");
+        for (String library : libraries) {
+            requireCommand(library, "library");
+        }
+        this.libraries = List.copyOf(libraries);
     }
 
     @Override
@@ -81,16 +103,19 @@ public final class WindowsMsvcToolchain implements Toolchain {
             return new ToolchainResult(assemblyPath, objectPath, null, diagnostics);
         }
 
+        ArrayList<String> linkCommand = new ArrayList<>(List.of(
+                linkerCommand,
+                "/ENTRY:" + assemblySource.entrySymbol(),
+                "/SUBSYSTEM:CONSOLE",
+                "/OUT:" + executablePath.toAbsolutePath(),
+                objectPath.toAbsolutePath().toString()
+        ));
+        linkCommand.addAll(libraries);
+
         if (!runCommand(
                 sourceFile,
                 diagnostics,
-                List.of(
-                        linkerCommand,
-                        "/ENTRY:" + assemblySource.entrySymbol(),
-                        "/SUBSYSTEM:CONSOLE",
-                        "/OUT:" + executablePath.toAbsolutePath(),
-                        objectPath.toAbsolutePath().toString()
-                ),
+                linkCommand,
                 outputDirectory,
                 "链接失败"
         )) {

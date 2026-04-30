@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -35,5 +36,44 @@ class WindowsMsvcToolchainTest {
         assertThat(result.diagnostics())
                 .extracting(diagnostic -> diagnostic.code())
                 .containsExactly("TOOL001");
+    }
+
+    @Test
+    void passesRuntimeLibrariesToLinker() throws Exception {
+        SourceFile sourceFile = new SourceFile("main.mc", "int main() { return 1; }");
+        AssemblySource assemblySource = new AssemblySource(
+                TargetPlatform.WINDOWS_X86_64,
+                "minic$entry",
+                "PUBLIC minic$entry\n.code\nminic$entry PROC\n    ret\nminic$entry ENDP\nEND\n"
+        );
+        Path assemblerCommand = tempDir.resolve("fake-ml64.cmd");
+        Path linkerCommand = tempDir.resolve("fake-link.cmd");
+        Path linkArgsPath = tempDir.resolve("link-args.txt");
+        Files.writeString(assemblerCommand, """
+                @echo off
+                exit /b 0
+                """);
+        Files.writeString(linkerCommand, """
+                @echo off
+                echo %%* > "%s"
+                exit /b 0
+                """.formatted(linkArgsPath.toString()));
+        WindowsMsvcToolchain toolchain = new WindowsMsvcToolchain(
+                assemblerCommand.toString(),
+                linkerCommand.toString(),
+                List.of("kernel32.lib", "ucrt.lib", "legacy_stdio_definitions.lib")
+        );
+
+        ToolchainResult result = toolchain.buildExecutable(sourceFile, assemblySource, tempDir, "main");
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(Files.readString(linkArgsPath)).contains(
+                "/ENTRY:minic$entry",
+                "/SUBSYSTEM:CONSOLE",
+                "main.obj",
+                "kernel32.lib",
+                "ucrt.lib",
+                "legacy_stdio_definitions.lib"
+        );
     }
 }

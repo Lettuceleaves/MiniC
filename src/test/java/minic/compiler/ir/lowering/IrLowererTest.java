@@ -106,6 +106,7 @@ class IrLowererTest {
 
         IrModule module = new IrLowerer().lower(program);
 
+        assertThat(module.externalFunctionNames()).containsExactly("puts");
         assertThat(module.stringData()).singleElement().satisfies(stringData -> {
             assertThat(stringData.label()).isEqualTo("__minic$str$0");
             assertThat(stringData.value()).isEqualTo("hello");

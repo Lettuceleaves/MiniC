@@ -21,6 +21,10 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
         StringBuilder builder = new StringBuilder();
         builder.append("; target: ").append(TargetPlatform.WINDOWS_X86_64.id()).append(System.lineSeparator());
         builder.append("PUBLIC ").append(WindowsX64CallingConvention.ENTRY_SYMBOL).append(System.lineSeparator());
+        builder.append("EXTERN ExitProcess:PROC").append(System.lineSeparator());
+        for (String externalFunctionName : module.externalFunctionNames()) {
+            builder.append("EXTERN ").append(externalFunctionName).append(":PROC").append(System.lineSeparator());
+        }
         if (!module.stringData().isEmpty()) {
             builder.append(".const").append(System.lineSeparator());
             for (IrStringData stringData : module.stringData()) {
@@ -28,18 +32,31 @@ public final class WindowsX64AssemblyEmitter implements AssemblyEmitter {
             }
         }
         builder.append(".code").append(System.lineSeparator());
+        emitEntryPoint(builder);
         for (IrFunction function : module.functions()) {
-            emitFunction(builder, function);
+            emitFunction(builder, module, function);
         }
         builder.append("END").append(System.lineSeparator());
         return new AssemblySource(TargetPlatform.WINDOWS_X86_64, WindowsX64CallingConvention.ENTRY_SYMBOL, builder.toString());
     }
 
-    private void emitFunction(StringBuilder builder, IrFunction function) {
+    private void emitEntryPoint(StringBuilder builder) {
+        builder.append(WindowsX64CallingConvention.ENTRY_SYMBOL).append(" PROC").append(System.lineSeparator());
+        builder.append("    sub rsp, 40").append(System.lineSeparator());
+        builder.append("    call ").append(WindowsX64CallingConvention.USER_MAIN_SYMBOL).append(System.lineSeparator());
+        builder.append("    mov ecx, eax").append(System.lineSeparator());
+        builder.append("    call ExitProcess").append(System.lineSeparator());
+        builder.append(WindowsX64CallingConvention.ENTRY_SYMBOL).append(" ENDP").append(System.lineSeparator());
+    }
+
+    private void emitFunction(StringBuilder builder, IrModule module, IrFunction function) {
         WindowsX64FrameLayout frame = WindowsX64FrameLayout.create(function);
-        String functionSymbol = WindowsX64CallingConvention.symbolName(function.name());
+        String functionSymbol = WindowsX64CallingConvention.functionDefinitionSymbol(function.name());
         String epilogueLabel = functionSymbol + "$epilogue";
-        WindowsX64InstructionEmitter instructionEmitter = new WindowsX64InstructionEmitter(frame);
+        WindowsX64InstructionEmitter instructionEmitter = new WindowsX64InstructionEmitter(
+                frame,
+                module.externalFunctionNames()
+        );
 
         builder.append(functionSymbol).append(" PROC").append(System.lineSeparator());
         builder.append("    push rbp").append(System.lineSeparator());

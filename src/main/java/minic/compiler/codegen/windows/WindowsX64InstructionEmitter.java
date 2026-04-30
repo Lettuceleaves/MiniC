@@ -15,12 +15,16 @@ import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
 
+import java.util.Set;
+
 final class WindowsX64InstructionEmitter {
     private final WindowsX64FrameLayout frame;
     private final WindowsX64ValueEmitter valueEmitter;
+    private final Set<String> externalFunctionNames;
 
-    WindowsX64InstructionEmitter(WindowsX64FrameLayout frame) {
+    WindowsX64InstructionEmitter(WindowsX64FrameLayout frame, Set<String> externalFunctionNames) {
         this.frame = frame;
+        this.externalFunctionNames = Set.copyOf(externalFunctionNames);
         valueEmitter = new WindowsX64ValueEmitter(frame);
     }
 
@@ -158,7 +162,10 @@ final class WindowsX64InstructionEmitter {
                 );
             }
         }
-        builder.append("    call ").append(WindowsX64CallingConvention.symbolName(call.calleeName()))
+        builder.append("    call ").append(WindowsX64CallingConvention.callSymbol(
+                        call.calleeName(),
+                        externalFunctionNames.contains(call.calleeName())
+                ))
                 .append(System.lineSeparator());
         builder.append("    mov ").append(frame.temporarySlot(call.result()))
                 .append(", eax").append(System.lineSeparator());

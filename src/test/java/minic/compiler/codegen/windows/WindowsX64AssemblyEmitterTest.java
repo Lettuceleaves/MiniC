@@ -22,11 +22,16 @@ class WindowsX64AssemblyEmitterTest {
         AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
 
         assertThat(assemblySource.targetPlatform()).isEqualTo(TargetPlatform.WINDOWS_X86_64);
-        assertThat(assemblySource.entrySymbol()).isEqualTo("main");
+        assertThat(assemblySource.entrySymbol()).isEqualTo("minic$entry");
         assertThat(assemblySource.text()).contains(
                 "; target: windows-x86_64",
-                "PUBLIC main",
+                "PUBLIC minic$entry",
+                "EXTERN ExitProcess:PROC",
                 ".code",
+                "minic$entry PROC",
+                "    call main",
+                "    mov ecx, eax",
+                "    call ExitProcess",
                 "main PROC",
                 "    push rbp",
                 "    mov rbp, rsp",
@@ -146,11 +151,35 @@ class WindowsX64AssemblyEmitterTest {
 
         assertThat(assemblySource.text()).contains(
                 ".const",
+                "EXTERN puts:PROC",
                 "__minic$str$0 BYTE 104, 101, 108, 108, 111, 0",
                 ".code",
                 "    lea rcx, __minic$str$0",
-                "    call minic$puts"
+                "    call puts"
         );
+    }
+
+    @Test
+    void emitsPrintfCallWithStringFormatAndIntegerArgument() {
+        IrModule module = lower("""
+                extern int printf(int format, int value);
+
+                int main() {
+                    printf("value=%d\\n", 42);
+                    return 42;
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "EXTERN printf:PROC",
+                "__minic$str$0 BYTE 118, 97, 108, 117, 101, 61, 37, 100, 10, 0",
+                "    lea rcx, __minic$str$0",
+                "    mov edx, 42",
+                "    call printf"
+        );
+        assertThat(assemblySource.text()).doesNotContain("call minic$printf");
     }
 
 

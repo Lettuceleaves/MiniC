@@ -6,6 +6,7 @@ import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrModule;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.Objects;
 
 /**
@@ -21,12 +22,16 @@ public final class IrLowerer {
     public IrModule lower(Program program) {
         Objects.requireNonNull(program, "program");
         ArrayList<IrFunction> functions = new ArrayList<>();
+        LinkedHashSet<String> externalFunctionNames = new LinkedHashSet<>();
         StringLiteralRegistry stringLiteralRegistry = new StringLiteralRegistry();
         for (FunctionDecl function : program.functions()) {
+            if (function.external()) {
+                externalFunctionNames.add(function.name());
+            }
             if (function.hasBody()) {
                 functions.add(new IrFunctionLowerer(function, stringLiteralRegistry).lower());
             }
         }
-        return new IrModule(functions, stringLiteralRegistry.stringData());
+        return new IrModule(functions, stringLiteralRegistry.stringData(), externalFunctionNames);
     }
 }

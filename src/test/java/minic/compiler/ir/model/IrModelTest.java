@@ -65,9 +65,10 @@ class IrModelTest {
         );
         IrFunction main = new IrFunction("main", List.of(), List.of(new IrBlock("entry", List.of(call))), range);
 
-        IrModule module = new IrModule(List.of(main), List.of(stringData));
+        IrModule module = new IrModule(List.of(main), List.of(stringData), java.util.Set.of("puts"));
 
         assertThat(module.stringData()).containsExactly(stringData);
+        assertThat(module.externalFunctionNames()).containsExactly("puts");
         assertThat(call.arguments()).containsExactly(stringLiteral);
         assertThat(stringLiteral.type()).isEqualTo(IrType.STRING_POINTER);
     }
