@@ -3,6 +3,8 @@ package minic.compiler.semantic;
 import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Parameter;
 import minic.compiler.ast.stmt.BlockStmt;
+import minic.compiler.ast.stmt.BreakStmt;
+import minic.compiler.ast.stmt.ContinueStmt;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
@@ -16,6 +18,7 @@ final class StatementSemanticAnalyzer {
     private final Scope globalScope;
     private final SemanticReporter reporter;
     private final ExpressionSemanticAnalyzer expressionAnalyzer;
+    private int loopDepth;
 
     StatementSemanticAnalyzer(Scope globalScope, FunctionRegistry functionRegistry, SemanticReporter reporter) {
         this.globalScope = globalScope;
@@ -54,6 +57,16 @@ final class StatementSemanticAnalyzer {
                 }
             }
             case ExprStmt exprStmt -> expressionAnalyzer.analyzeExpression(exprStmt.expression(), scope);
+            case BreakStmt breakStmt -> {
+                if (loopDepth == 0) {
+                    reporter.report(breakStmt.range(), "break 只能在循环内使用");
+                }
+            }
+            case ContinueStmt continueStmt -> {
+                if (loopDepth == 0) {
+                    reporter.report(continueStmt.range(), "continue 只能在循环内使用");
+                }
+            }
             case IfStmt ifStmt -> {
                 expressionAnalyzer.analyzeExpression(ifStmt.condition(), scope);
                 analyzeBranch(ifStmt.thenBranch(), scope);
@@ -61,7 +74,7 @@ final class StatementSemanticAnalyzer {
             }
             case WhileStmt whileStmt -> {
                 expressionAnalyzer.analyzeExpression(whileStmt.condition(), scope);
-                analyzeBranch(whileStmt.body(), scope);
+                analyzeLoopBranch(whileStmt.body(), scope);
             }
             case ForStmt forStmt -> analyzeFor(forStmt, scope);
             default -> throw new IllegalArgumentException("unsupported statement: "
@@ -74,7 +87,16 @@ final class StatementSemanticAnalyzer {
         forStmt.initializerOptional().ifPresent(initializer -> analyzeStatement(initializer, scope));
         forStmt.conditionOptional().ifPresent(condition -> expressionAnalyzer.analyzeExpression(condition, scope));
         forStmt.stepOptional().ifPresent(step -> expressionAnalyzer.analyzeExpression(step, scope));
-        analyzeBranch(forStmt.body(), scope);
+        analyzeLoopBranch(forStmt.body(), scope);
+    }
+
+    private void analyzeLoopBranch(Statement statement, Scope parentScope) {
+        loopDepth++;
+        try {
+            analyzeBranch(statement, parentScope);
+        } finally {
+            loopDepth--;
+        }
     }
 
     private void analyzeBranch(Statement statement, Scope parentScope) {

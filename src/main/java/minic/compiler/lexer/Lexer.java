@@ -121,6 +121,8 @@ public final class Lexer {
             case "else" -> TokenKind.ELSE;
             case "while" -> TokenKind.WHILE;
             case "for" -> TokenKind.FOR;
+            case "break" -> TokenKind.BREAK;
+            case "continue" -> TokenKind.CONTINUE;
             default -> TokenKind.IDENTIFIER;
         };
         addToken(kind, startOffset);

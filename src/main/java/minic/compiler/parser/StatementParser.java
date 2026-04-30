@@ -2,6 +2,8 @@ package minic.compiler.parser;
 
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.stmt.BlockStmt;
+import minic.compiler.ast.stmt.BreakStmt;
+import minic.compiler.ast.stmt.ContinueStmt;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
@@ -64,6 +66,12 @@ final class StatementParser {
         if (state.check(TokenKind.RETURN)) {
             return parseReturnStmt();
         }
+        if (state.check(TokenKind.BREAK)) {
+            return parseBreakStmt();
+        }
+        if (state.check(TokenKind.CONTINUE)) {
+            return parseContinueStmt();
+        }
         if (state.check(TokenKind.IF)) {
             return parseIfStmt();
         }
@@ -101,6 +109,32 @@ final class StatementParser {
                         endBranch.range().endOffset()
                 )
         );
+    }
+
+    private BreakStmt parseBreakStmt() {
+        Token startToken = state.consume(TokenKind.BREAK, "期望 break");
+        Token semicolonToken = state.consume(TokenKind.SEMICOLON, "期望 ';'");
+        if (startToken == null || semicolonToken == null) {
+            return null;
+        }
+        return new BreakStmt(new SourceRange(
+                startToken.range().sourceFile(),
+                startToken.range().startOffset(),
+                semicolonToken.range().endOffset()
+        ));
+    }
+
+    private ContinueStmt parseContinueStmt() {
+        Token startToken = state.consume(TokenKind.CONTINUE, "期望 continue");
+        Token semicolonToken = state.consume(TokenKind.SEMICOLON, "期望 ';'");
+        if (startToken == null || semicolonToken == null) {
+            return null;
+        }
+        return new ContinueStmt(new SourceRange(
+                startToken.range().sourceFile(),
+                startToken.range().startOffset(),
+                semicolonToken.range().endOffset()
+        ));
     }
 
     private WhileStmt parseWhileStmt() {

@@ -50,6 +50,16 @@ public enum TokenKind {
     FOR,
 
     /**
+     * {@code break} 关键字。
+     */
+    BREAK,
+
+    /**
+     * {@code continue} 关键字。
+     */
+    CONTINUE,
+
+    /**
      * {@code +}。
      */
     PLUS,

@@ -2,6 +2,8 @@ package minic.compiler.parser;
 
 import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.stmt.BlockStmt;
+import minic.compiler.ast.stmt.BreakStmt;
+import minic.compiler.ast.stmt.ContinueStmt;
 import minic.compiler.ast.expr.AssignmentExpr;
 import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
@@ -244,6 +246,22 @@ class ParserTest {
         assertThat(forStmt.conditionOptional()).isEmpty();
         assertThat(forStmt.stepOptional()).isEmpty();
         assertThat(forStmt.body()).isInstanceOf(ReturnStmt.class);
+    }
+
+    @Test
+    void parsesBreakAndContinueStatements() {
+        SourceFile sourceFile = new SourceFile("loop-control.mc", "int main() { while (1) { break; continue; } }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        WhileStmt whileStmt = (WhileStmt) result.program().functions().getFirst().body().statements().getFirst();
+        BlockStmt body = (BlockStmt) whileStmt.body();
+
+        assertThat(body.statements().get(0)).isInstanceOf(BreakStmt.class);
+        assertThat(body.statements().get(0).range()).isEqualTo(new SourceRange(sourceFile, 25, 31));
+        assertThat(body.statements().get(1)).isInstanceOf(ContinueStmt.class);
+        assertThat(body.statements().get(1).range()).isEqualTo(new SourceRange(sourceFile, 32, 41));
     }
 
     @Test

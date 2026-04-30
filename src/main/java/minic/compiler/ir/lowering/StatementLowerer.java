@@ -2,6 +2,8 @@ package minic.compiler.ir.lowering;
 
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.stmt.BlockStmt;
+import minic.compiler.ast.stmt.BreakStmt;
+import minic.compiler.ast.stmt.ContinueStmt;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
@@ -11,14 +13,19 @@ import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.value.IrValue;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+
 final class StatementLowerer {
     private final IrFunctionBuilder builder;
     private final ExpressionLowerer expressionLowerer;
+    private final Deque<LoopTarget> loopTargets = new ArrayDeque<>();
 
     StatementLowerer(IrFunctionBuilder builder) {
         this.builder = builder;
@@ -59,6 +66,14 @@ final class StatementLowerer {
                 IrValue value = expressionLowerer.lowerExpression(initializer);
                 builder.addInstruction(new IrStoreLocalInstruction(local, value, varDeclStmt.range()));
             });
+            return;
+        }
+        if (statement instanceof BreakStmt breakStmt) {
+            builder.addInstruction(new IrJumpInstruction(loopTargets.peek().breakLabel(), breakStmt.range()));
+            return;
+        }
+        if (statement instanceof ContinueStmt continueStmt) {
+            builder.addInstruction(new IrJumpInstruction(loopTargets.peek().continueLabel(), continueStmt.range()));
             return;
         }
         if (statement instanceof IfStmt ifStmt) {
@@ -112,7 +127,7 @@ final class StatementLowerer {
         builder.addInstruction(new IrBranchInstruction(condition, bodyLabel, exitLabel, whileStmt.condition().range()));
 
         builder.switchToBlock(bodyLabel);
-        lowerBranch(whileStmt.body());
+        lowerLoopBranch(whileStmt.body(), exitLabel, conditionLabel);
         builder.addJumpIfOpen(conditionLabel, whileStmt.body().range());
 
         builder.switchToBlock(exitLabel);
@@ -138,7 +153,7 @@ final class StatementLowerer {
         }
 
         builder.switchToBlock(bodyLabel);
-        lowerBranch(forStmt.body());
+        lowerLoopBranch(forStmt.body(), exitLabel, stepLabel);
         builder.addJumpIfOpen(stepLabel, forStmt.body().range());
 
         builder.switchToBlock(stepLabel);
@@ -149,6 +164,15 @@ final class StatementLowerer {
         builder.popLocalScope();
     }
 
+    private void lowerLoopBranch(Statement statement, String breakLabel, String continueLabel) {
+        loopTargets.push(new LoopTarget(breakLabel, continueLabel));
+        try {
+            lowerBranch(statement);
+        } finally {
+            loopTargets.pop();
+        }
+    }
+
     private void lowerBranch(Statement statement) {
         if (statement instanceof BlockStmt blockStmt) {
             lowerBlock(blockStmt, true);
@@ -157,5 +181,8 @@ final class StatementLowerer {
             lowerStatement(statement);
             builder.popLocalScope();
         }
+    }
+
+    private record LoopTarget(String breakLabel, String continueLabel) {
     }
 }

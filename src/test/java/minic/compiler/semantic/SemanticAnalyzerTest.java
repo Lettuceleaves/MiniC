@@ -256,6 +256,35 @@ class SemanticAnalyzerTest {
                 .containsExactly("未解析变量：missing", "未解析变量：i", "未解析变量：y");
     }
 
+    @Test
+    void reportsBreakAndContinueOutsideLoops() {
+        SemanticResult result = analyze("""
+                int main() {
+                    break;
+                    continue;
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("break 只能在循环内使用", "continue 只能在循环内使用");
+    }
+
+    @Test
+    void acceptsBreakAndContinueInsideNestedBranchesInLoops() {
+        SemanticResult result = analyze("""
+                int main() {
+                    while (1) {
+                        if (1) break; else continue;
+                    }
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+    }
+
     private SemanticResult analyze(String source) {
         SourceFile sourceFile = new SourceFile("semantic.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

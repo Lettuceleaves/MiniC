@@ -264,6 +264,55 @@ class IrLowererTest {
     }
 
     @Test
+    void lowersBreakAndContinueInWhileLoop() {
+        Program program = parse("""
+                int main() {
+                    int x = 0;
+                    while (x < 10) {
+                        x = x + 1;
+                        if (x == 3) continue;
+                        if (x == 5) break;
+                    }
+                    return x;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .contains("while_condition_0", "while_exit_2");
+        assertThat(main.blocks()).flatExtracting(IrBlock::instructions)
+                .filteredOn(IrJumpInstruction.class::isInstance)
+                .map(IrJumpInstruction.class::cast)
+                .extracting(IrJumpInstruction::targetLabel)
+                .contains("while_condition_0", "while_exit_2");
+    }
+
+    @Test
+    void lowersContinueInForLoopToStepBlock() {
+        Program program = parse("""
+                int main() {
+                    int sum = 0;
+                    for (int i = 0; i < 5; i = i + 1) {
+                        if (i == 2) continue;
+                        sum = sum + i;
+                    }
+                    return sum;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .contains("for_step_2");
+        assertThat(main.blocks()).flatExtracting(IrBlock::instructions)
+                .filteredOn(IrJumpInstruction.class::isInstance)
+                .map(IrJumpInstruction.class::cast)
+                .extracting(IrJumpInstruction::targetLabel)
+                .contains("for_step_2");
+    }
+
+    @Test
     void lowersLocalsAssignmentAndInitializedReadChecks() {
         Program program = parse("""
                 int main() {

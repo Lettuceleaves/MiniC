@@ -47,6 +47,8 @@ class TokenTest {
                         TokenKind.ELSE,
                         TokenKind.WHILE,
                         TokenKind.FOR,
+                        TokenKind.BREAK,
+                        TokenKind.CONTINUE,
                         TokenKind.PLUS,
                         TokenKind.MINUS,
                         TokenKind.STAR,

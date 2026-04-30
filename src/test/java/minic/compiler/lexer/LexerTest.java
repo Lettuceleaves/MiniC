@@ -135,6 +135,24 @@ class LexerTest {
     }
 
     @Test
+    void lexesLoopControlKeywordsSeparatelyFromIdentifiers() {
+        SourceFile sourceFile = new SourceFile("loop-control.mc", "break continue breakValue continueValue");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(
+                        TokenKind.BREAK,
+                        TokenKind.CONTINUE,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.EOF
+                );
+    }
+
+    @Test
     void keepsIdentifierRanges() {
         SourceFile sourceFile = new SourceFile("identifier-ranges.mc", "  main\nreturn");
 
