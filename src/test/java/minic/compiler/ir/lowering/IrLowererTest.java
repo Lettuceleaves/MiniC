@@ -518,6 +518,37 @@ class IrLowererTest {
     }
 
     @Test
+    void lowersFunctionPointerParameterCallToIndirectCall() {
+        Program program = parse("""
+                int add(int left, int right) { return left + right; }
+                int apply(int (*operation)(int, int), int left, int right) {
+                    return operation(left, right);
+                }
+
+                int main() {
+                    return apply(add, 5, 7);
+                }
+                """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+
+        IrModule module = new IrLowerer().lower(program, semanticResult);
+
+        IrFunction apply = module.findFunction("apply").orElseThrow();
+        assertThat(apply.parameters()).extracting(IrParameter::type)
+                .containsExactly(IrType.POINTER, IrType.INT, IrType.INT);
+        assertThat(apply.blocks().getFirst().instructions())
+                .filteredOn(IrIndirectCallInstruction.class::isInstance)
+                .map(IrIndirectCallInstruction.class::cast)
+                .singleElement()
+                .satisfies(call -> assertThat(call.calleeAddress()).isEqualTo(new IrParameterRef("operation", IrType.POINTER)));
+
+        IrFunction main = module.findFunction("main").orElseThrow();
+        IrCallInstruction call = (IrCallInstruction) main.blocks().getFirst().instructions().getFirst();
+        assertThat(call.arguments()).containsExactly(new IrFunctionAddress("add"), new IrConstant(5), new IrConstant(7));
+    }
+
+    @Test
     void lowersStructFieldReadAndWriteToFieldAddresses() {
         Program program = parse("""
                 struct Point {

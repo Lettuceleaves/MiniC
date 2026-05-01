@@ -34,6 +34,10 @@ final class DeclarationParser {
         if (returnType == null) {
             return null;
         }
+        if (state.check(TokenKind.LEFT_PAREN)) {
+            rejectFunctionPointerReturnType();
+            return null;
+        }
 
         Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望函数名");
         state.consume(TokenKind.LEFT_PAREN, "期望 '('");
@@ -179,5 +183,21 @@ final class DeclarationParser {
         } while (state.match(TokenKind.COMMA));
 
         return parameters;
+    }
+
+    private void rejectFunctionPointerReturnType() {
+        state.report(state.peek(), "暂不支持函数指针返回值");
+        int parenthesisDepth = 0;
+        while (!state.isAtEnd()) {
+            if (state.check(TokenKind.LEFT_PAREN)) {
+                parenthesisDepth++;
+            } else if (state.check(TokenKind.RIGHT_PAREN)) {
+                parenthesisDepth = Math.max(0, parenthesisDepth - 1);
+            }
+            if (parenthesisDepth == 0 && (state.check(TokenKind.LEFT_BRACE) || state.check(TokenKind.SEMICOLON))) {
+                break;
+            }
+            state.advance();
+        }
     }
 }

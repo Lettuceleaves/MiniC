@@ -404,6 +404,38 @@ class ParserTest {
     }
 
     @Test
+    void reportsFunctionPointerReturnValueAsUnsupported() {
+        SourceFile sourceFile = new SourceFile(
+                "function-pointer-return.mc",
+                "int (*factory())(int);"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("暂不支持函数指针返回值");
+        assertThat(result.program().functions()).isEmpty();
+    }
+
+    @Test
+    void recoversAfterUnsupportedFunctionPointerReturnValue() {
+        SourceFile sourceFile = new SourceFile(
+                "function-pointer-return-recovery.mc",
+                "int (*factory())(int); int main() { return 0; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("暂不支持函数指针返回值");
+        assertThat(result.program().functions())
+                .extracting(FunctionDecl::name)
+                .containsExactly("main");
+    }
+
+    @Test
     void parsesFunctionPointerStructField() {
         SourceFile sourceFile = new SourceFile(
                 "function-pointer-field.mc",

@@ -412,6 +412,37 @@ class WindowsX64AssemblyEmitterTest {
     }
 
     @Test
+    void emitsWindowsX64AssemblyForFunctionPointerParameterCall() {
+        IrModule module = lowerWithSemantic("""
+                int add(int left, int right) {
+                    return left + right;
+                }
+
+                int apply(int (*operation)(int, int), int left, int right) {
+                    return operation(left, right);
+                }
+
+                int main() {
+                    return apply(add, 5, 7);
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "minic$apply PROC",
+                "    mov QWORD PTR [rbp-",
+                "    mov rax, QWORD PTR [rbp-",
+                "    call rax",
+                "main PROC",
+                "    lea rcx, minic$add",
+                "    mov edx, 5",
+                "    mov r8d, 7",
+                "    call minic$apply"
+        );
+    }
+
+    @Test
     void emitsWindowsX64AssemblyForStructFieldReadAndWrite() {
         IrModule module = lowerWithSemantic("""
                 struct Point {

@@ -72,7 +72,9 @@ final class ParserState {
             return;
         }
         advance();
-        while (!isAtEnd() && previous().kind() != TokenKind.RIGHT_BRACE) {
+        while (!isAtEnd()
+                && previous().kind() != TokenKind.RIGHT_BRACE
+                && previous().kind() != TokenKind.SEMICOLON) {
             advance();
         }
     }
