@@ -14,6 +14,9 @@ final class IrTypeLowerer {
         if (type.isPointer()) {
             return IrType.POINTER;
         }
+        if (type.isStruct()) {
+            return IrType.STRUCT;
+        }
         return IrType.INT;
     }
 

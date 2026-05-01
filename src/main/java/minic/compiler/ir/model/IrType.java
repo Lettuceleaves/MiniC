@@ -17,5 +17,10 @@ public enum IrType {
     /**
      * 固定长度 int 数组。
      */
-    INT_ARRAY
+    INT_ARRAY,
+
+    /**
+     * 结构体局部存储。
+     */
+    STRUCT
 }

@@ -10,6 +10,8 @@ import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrTemporary;
+import minic.compiler.semantic.StructLayout;
+import minic.compiler.type.MiniType;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -22,12 +24,14 @@ final class IrFunctionBuilder {
     private final ArrayList<IrBlockBuilder> blocks = new ArrayList<>();
     private final Map<String, IrParameterRef> parameterRefs = new HashMap<>();
     private final Deque<Map<String, IrLocal>> localScopes = new ArrayDeque<>();
+    private final Map<String, StructLayout> structLayouts;
     private int nextTemporaryIndex;
     private int nextLocalIndex;
     private int nextBlockIndex;
     private IrBlockBuilder currentBlock = new IrBlockBuilder("entry");
 
-    IrFunctionBuilder() {
+    IrFunctionBuilder(Map<String, StructLayout> structLayouts) {
+        this.structLayouts = Map.copyOf(structLayouts);
         blocks.add(currentBlock);
     }
 
@@ -71,15 +75,52 @@ final class IrFunctionBuilder {
     }
 
     IrLocal declareLocal(VarDeclStmt varDeclStmt) {
+        MiniType declaredType = varDeclStmt.type();
+        IrType irType = IrTypeLowerer.lower(declaredType);
         IrLocal local = new IrLocal(
                 varDeclStmt.name() + "#" + nextLocalIndex++,
                 varDeclStmt.name(),
-                IrTypeLowerer.lower(varDeclStmt.type()),
-                IrTypeLowerer.elementCount(varDeclStmt.type()),
+                irType,
+                IrTypeLowerer.elementCount(declaredType),
+                sizeBytes(declaredType, irType),
                 varDeclStmt.range()
         );
         localScopes.peek().put(varDeclStmt.name(), local);
         return local;
+    }
+
+    int fieldOffset(String structName, String fieldName) {
+        StructLayout layout = structLayouts.get(structName);
+        if (layout == null) {
+            throw new IllegalArgumentException("missing struct layout: " + structName);
+        }
+        return layout.field(fieldName)
+                .orElseThrow(() -> new IllegalArgumentException("missing struct field: " + structName + "." + fieldName))
+                .offset();
+    }
+
+    private int sizeBytes(MiniType declaredType, IrType irType) {
+        if (declaredType instanceof MiniType.StructType structType) {
+            StructLayout layout = structLayouts.get(structType.name());
+            if (layout == null) {
+                throw new IllegalArgumentException("missing struct layout: " + structType.name());
+            }
+            return layout.size();
+        }
+        if (declaredType.isArray() && declaredType.elementType() instanceof MiniType.StructType structType) {
+            StructLayout layout = structLayouts.get(structType.name());
+            if (layout == null) {
+                throw new IllegalArgumentException("missing struct layout: " + structType.name());
+            }
+            return layout.size() * declaredType.arrayLength();
+        }
+        if (irType == IrType.INT_ARRAY) {
+            return 4 * declaredType.arrayLength();
+        }
+        if (irType == IrType.POINTER) {
+            return 8;
+        }
+        return 4;
     }
 
     IrLocal resolveLocal(String name) {

@@ -4,6 +4,7 @@ import minic.compiler.ast.decl.Program;
 import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.IndexExpr;
+import minic.compiler.ast.expr.FieldAccessExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
@@ -613,6 +614,54 @@ class SemanticAnalyzerTest {
                 """);
 
         assertThat(result.diagnostics()).isEmpty();
+    }
+
+    @Test
+    void resolvesStructFieldAccessTypes() {
+        Program program = parse("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                int main() {
+                    struct Point point;
+                    point.x = 7;
+                    return point.x;
+                }
+                """);
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics()).isEmpty();
+        FieldAccessExpr assignmentTarget = (FieldAccessExpr) ((minic.compiler.ast.expr.AssignmentExpr)
+                ((minic.compiler.ast.stmt.ExprStmt) program.functions().getFirst().body().statements().get(1))
+                        .expression()).target();
+        FieldAccessExpr returned = (FieldAccessExpr) ((minic.compiler.ast.stmt.ReturnStmt)
+                program.functions().getFirst().body().statements().get(2))
+                .expressionOptional().orElseThrow();
+
+        assertThat(result.typeOf(assignmentTarget.target())).contains(MiniType.struct("Point"));
+        assertThat(result.typeOf(assignmentTarget)).contains(MiniType.INT);
+        assertThat(result.typeOf(returned)).contains(MiniType.INT);
+    }
+
+    @Test
+    void reportsUnknownStructFieldAccess() {
+        SemanticResult result = analyze("""
+                struct Point {
+                    int x;
+                };
+
+                int main() {
+                    struct Point point;
+                    return point.y;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("未知结构体字段：y");
     }
 
     private SemanticResult analyze(String source) {

@@ -4,6 +4,7 @@ import minic.compiler.ast.expr.AssignmentExpr;
 import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.Expression;
+import minic.compiler.ast.expr.FieldAccessExpr;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
@@ -55,7 +56,7 @@ final class ExpressionParser {
         if (expression instanceof NameExpr) {
             return true;
         }
-        if (expression instanceof IndexExpr) {
+        if (expression instanceof IndexExpr || expression instanceof FieldAccessExpr) {
             return true;
         }
         return expression instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenKind.STAR;
@@ -126,21 +127,41 @@ final class ExpressionParser {
 
     private Expression parsePostfix() {
         Expression expression = parsePrimary();
-        while (expression != null && state.match(TokenKind.LEFT_BRACKET)) {
-            Expression index = parseExpression();
-            Token endToken = state.consume(TokenKind.RIGHT_BRACKET, "期望 ']'");
-            if (index == null || endToken == null) {
-                return expression;
+        while (expression != null) {
+            if (state.match(TokenKind.LEFT_BRACKET)) {
+                Expression index = parseExpression();
+                Token endToken = state.consume(TokenKind.RIGHT_BRACKET, "期望 ']'");
+                if (index == null || endToken == null) {
+                    return expression;
+                }
+                expression = new IndexExpr(
+                        expression,
+                        index,
+                        new SourceRange(
+                                expression.range().sourceFile(),
+                                expression.range().startOffset(),
+                                endToken.range().endOffset()
+                        )
+                );
+                continue;
             }
-            expression = new IndexExpr(
-                    expression,
-                    index,
-                    new SourceRange(
-                            expression.range().sourceFile(),
-                            expression.range().startOffset(),
-                            endToken.range().endOffset()
-                    )
-            );
+            if (state.match(TokenKind.DOT)) {
+                Token fieldToken = state.consume(TokenKind.IDENTIFIER, "期望字段名");
+                if (fieldToken == null) {
+                    return expression;
+                }
+                expression = new FieldAccessExpr(
+                        expression,
+                        fieldToken.lexeme(),
+                        new SourceRange(
+                                expression.range().sourceFile(),
+                                expression.range().startOffset(),
+                                fieldToken.range().endOffset()
+                        )
+                );
+                continue;
+            }
+            break;
         }
         return expression;
     }

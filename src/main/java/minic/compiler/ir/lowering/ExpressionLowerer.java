@@ -4,6 +4,7 @@ import minic.compiler.ast.expr.AssignmentExpr;
 import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.Expression;
+import minic.compiler.ast.expr.FieldAccessExpr;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
@@ -16,6 +17,7 @@ import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
+import minic.compiler.ir.instruction.IrFieldAddressInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
@@ -26,16 +28,24 @@ import minic.compiler.ir.value.IrConstant;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
 import minic.compiler.lexer.TokenKind;
+import minic.compiler.type.MiniType;
 
 import java.util.ArrayList;
+import java.util.Map;
 
 final class ExpressionLowerer {
     private final IrFunctionBuilder builder;
     private final StringLiteralRegistry stringLiteralRegistry;
+    private final Map<Expression, MiniType> expressionTypes;
 
-    ExpressionLowerer(IrFunctionBuilder builder, StringLiteralRegistry stringLiteralRegistry) {
+    ExpressionLowerer(
+            IrFunctionBuilder builder,
+            StringLiteralRegistry stringLiteralRegistry,
+            Map<Expression, MiniType> expressionTypes
+    ) {
         this.builder = builder;
         this.stringLiteralRegistry = stringLiteralRegistry;
+        this.expressionTypes = Map.copyOf(expressionTypes);
     }
 
     IrValue lowerExpression(Expression expression) {
@@ -73,6 +83,12 @@ final class ExpressionLowerer {
             IrValue address = lowerElementAddress(indexExpr);
             IrTemporary result = builder.newTemporary(IrType.INT);
             builder.addInstruction(new IrLoadPointerInstruction(result, address, indexExpr.range()));
+            return result;
+        }
+        if (expression instanceof FieldAccessExpr fieldAccessExpr) {
+            IrValue address = lowerFieldAddress(fieldAccessExpr);
+            IrTemporary result = builder.newTemporary(irTypeOf(fieldAccessExpr));
+            builder.addInstruction(new IrLoadPointerInstruction(result, address, fieldAccessExpr.range()));
             return result;
         }
         if (expression instanceof BinaryExpr binaryExpr) {
@@ -141,6 +157,11 @@ final class ExpressionLowerer {
             builder.addInstruction(new IrStorePointerInstruction(address, value, range));
             return;
         }
+        if (target instanceof FieldAccessExpr fieldAccessExpr) {
+            IrValue address = lowerFieldAddress(fieldAccessExpr);
+            builder.addInstruction(new IrStorePointerInstruction(address, value, range));
+            return;
+        }
         throw new IllegalArgumentException("unsupported assignment target: " + target.getClass().getSimpleName());
     }
 
@@ -149,6 +170,21 @@ final class ExpressionLowerer {
         IrValue index = lowerExpression(indexExpr.index());
         IrTemporary result = builder.newTemporary(IrType.POINTER);
         builder.addInstruction(new IrElementAddressInstruction(result, baseAddress, index, indexExpr.range()));
+        return result;
+    }
+
+    private IrValue lowerFieldAddress(FieldAccessExpr fieldAccessExpr) {
+        IrValue baseAddress = lowerAddress(fieldAccessExpr.target());
+        String structName = structName(fieldAccessExpr.target());
+        int offset = builder.fieldOffset(structName, fieldAccessExpr.fieldName());
+        IrTemporary result = builder.newTemporary(IrType.POINTER);
+        builder.addInstruction(new IrFieldAddressInstruction(
+                result,
+                baseAddress,
+                fieldAccessExpr.fieldName(),
+                offset,
+                fieldAccessExpr.range()
+        ));
         return result;
     }
 
@@ -162,6 +198,25 @@ final class ExpressionLowerer {
             builder.addInstruction(new IrAddressOfLocalInstruction(result, local, nameExpr.range()));
             return result;
         }
+        if (expression instanceof FieldAccessExpr fieldAccessExpr) {
+            return lowerFieldAddress(fieldAccessExpr);
+        }
         return lowerExpression(expression);
+    }
+
+    private String structName(Expression expression) {
+        MiniType type = expressionTypes.get(expression);
+        if (type instanceof MiniType.StructType structType) {
+            return structType.name();
+        }
+        throw new IllegalArgumentException("unsupported field access target: " + expression.getClass().getSimpleName());
+    }
+
+    private IrType irTypeOf(Expression expression) {
+        MiniType type = expressionTypes.get(expression);
+        if (type != null) {
+            return IrTypeLowerer.lower(type);
+        }
+        return IrType.INT;
     }
 }

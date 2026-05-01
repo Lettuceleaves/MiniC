@@ -68,6 +68,16 @@ final class StructRegistry {
         return Map.copyOf(structLayouts);
     }
 
+    java.util.Optional<StructFieldLayout> field(MiniType type, String fieldName) {
+        if (type instanceof MiniType.StructType structType) {
+            StructLayout layout = layoutOf(structType.name());
+            if (layout != null) {
+                return layout.field(fieldName);
+            }
+        }
+        return java.util.Optional.empty();
+    }
+
     private void validateFields(StructDecl structDecl) {
         Set<String> fieldNames = new HashSet<>();
         for (StructField field : structDecl.fields()) {

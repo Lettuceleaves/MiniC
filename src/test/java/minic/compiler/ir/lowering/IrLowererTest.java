@@ -10,6 +10,7 @@ import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
+import minic.compiler.ir.instruction.IrFieldAddressInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
@@ -29,6 +30,8 @@ import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParseResult;
 import minic.compiler.parser.Parser;
+import minic.compiler.semantic.SemanticAnalyzer;
+import minic.compiler.semantic.SemanticResult;
 import minic.source.SourceFile;
 import org.junit.jupiter.api.Test;
 
@@ -485,6 +488,43 @@ class IrLowererTest {
             assertThat(declare.local().type()).isEqualTo(IrType.INT_ARRAY);
             assertThat(addressOf.local()).isEqualTo(declare.local());
             assertThat(call.arguments()).containsExactly(addressOf.result());
+        });
+    }
+
+    @Test
+    void lowersStructFieldReadAndWriteToFieldAddresses() {
+        Program program = parse("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                int main() {
+                    struct Point point;
+                    point.y = 9;
+                    return point.y;
+                }
+                """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+
+        IrFunction main = new IrLowerer().lower(program, semanticResult).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).singleElement().satisfies(block -> {
+            IrDeclareLocalInstruction declare = (IrDeclareLocalInstruction) block.instructions().getFirst();
+            assertThat(declare.local().type()).isEqualTo(IrType.STRUCT);
+            assertThat(declare.local().sizeBytes()).isEqualTo(8);
+            assertThat(block.instructions())
+                    .filteredOn(IrFieldAddressInstruction.class::isInstance)
+                    .map(IrFieldAddressInstruction.class::cast)
+                    .extracting(IrFieldAddressInstruction::offset)
+                    .containsExactly(4, 4);
+            assertThat(block.instructions())
+                    .filteredOn(IrStorePointerInstruction.class::isInstance)
+                    .hasSize(1);
+            assertThat(block.instructions())
+                    .filteredOn(IrLoadPointerInstruction.class::isInstance)
+                    .hasSize(1);
         });
     }
 

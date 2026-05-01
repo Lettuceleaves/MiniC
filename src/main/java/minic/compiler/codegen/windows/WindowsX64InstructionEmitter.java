@@ -8,6 +8,7 @@ import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
+import minic.compiler.ir.instruction.IrFieldAddressInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
@@ -104,16 +105,30 @@ final class WindowsX64InstructionEmitter {
                 builder.append("    mov ").append(frame.temporarySlot(elementAddress.result()))
                         .append(", rax").append(System.lineSeparator());
             }
+            case IrFieldAddressInstruction fieldAddress -> {
+                valueEmitter.emitLoadValue(builder, fieldAddress.baseAddress(), "rax");
+                if (fieldAddress.offset() != 0) {
+                    builder.append("    lea rax, [rax+").append(fieldAddress.offset()).append("]")
+                            .append(System.lineSeparator());
+                }
+                builder.append("    mov ").append(frame.temporarySlot(fieldAddress.result()))
+                        .append(", rax").append(System.lineSeparator());
+            }
             case IrLoadPointerInstruction loadPointer -> {
                 valueEmitter.emitLoadValue(builder, loadPointer.address(), "rax");
-                builder.append("    mov eax, DWORD PTR [rax]").append(System.lineSeparator());
+                builder.append("    mov ").append(registerForType(loadPointer.result().type()))
+                        .append(", ").append(memoryPrefix(loadPointer.result().type()))
+                        .append(" [rax]").append(System.lineSeparator());
                 builder.append("    mov ").append(frame.temporarySlot(loadPointer.result()))
-                        .append(", eax").append(System.lineSeparator());
+                        .append(", ").append(registerForType(loadPointer.result().type()))
+                        .append(System.lineSeparator());
             }
             case IrStorePointerInstruction storePointer -> {
                 valueEmitter.emitLoadValue(builder, storePointer.address(), "rax");
-                valueEmitter.emitLoadValue(builder, storePointer.value(), "ecx");
-                builder.append("    mov DWORD PTR [rax], ecx").append(System.lineSeparator());
+                String register = storeValueRegister(storePointer.value().type());
+                valueEmitter.emitLoadValue(builder, storePointer.value(), register);
+                builder.append("    mov ").append(memoryPrefix(storePointer.value().type()))
+                        .append(" [rax], ").append(register).append(System.lineSeparator());
             }
             case IrCallInstruction call -> emitCall(builder, call);
             case IrBranchInstruction branch -> emitBranch(builder, functionName, branch);
@@ -225,6 +240,13 @@ final class WindowsX64InstructionEmitter {
             return "QWORD PTR";
         }
         return "DWORD PTR";
+    }
+
+    private String storeValueRegister(IrType type) {
+        if (type == IrType.POINTER) {
+            return "rcx";
+        }
+        return "ecx";
     }
 
     private void emitBranch(StringBuilder builder, String functionName, IrBranchInstruction branch) {

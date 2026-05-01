@@ -78,7 +78,7 @@ public final class MiniCompiler {
             return new CompileResult(lexResult, parseResult, semanticResult, null, null, ToolchainResult.notRun());
         }
 
-        IrModule irModule = new IrLowerer().lower(parseResult.program());
+        IrModule irModule = new IrLowerer().lower(parseResult.program(), semanticResult);
         AssemblySource assemblySource = assemblyEmitter.emit(irModule);
         ToolchainResult toolchainResult = options.runToolchain()
                 ? options.toolchain().buildExecutable(

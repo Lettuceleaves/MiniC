@@ -172,5 +172,10 @@ public enum TokenKind {
     /**
      * {@code ,}。
      */
-    COMMA
+    COMMA,
+
+    /**
+     * {@code .}。
+     */
+    DOT
 }

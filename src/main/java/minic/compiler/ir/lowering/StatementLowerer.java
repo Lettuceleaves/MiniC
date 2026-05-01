@@ -18,18 +18,24 @@ import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.value.IrValue;
+import minic.compiler.type.MiniType;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.Map;
 
 final class StatementLowerer {
     private final IrFunctionBuilder builder;
     private final ExpressionLowerer expressionLowerer;
     private final Deque<LoopTarget> loopTargets = new ArrayDeque<>();
 
-    StatementLowerer(IrFunctionBuilder builder, StringLiteralRegistry stringLiteralRegistry) {
+    StatementLowerer(
+            IrFunctionBuilder builder,
+            StringLiteralRegistry stringLiteralRegistry,
+            Map<Expression, MiniType> expressionTypes
+    ) {
         this.builder = builder;
-        expressionLowerer = new ExpressionLowerer(builder, stringLiteralRegistry);
+        expressionLowerer = new ExpressionLowerer(builder, stringLiteralRegistry, expressionTypes);
     }
 
     void lowerBlock(BlockStmt block, boolean createChildScope) {

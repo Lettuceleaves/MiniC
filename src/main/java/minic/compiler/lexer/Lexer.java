@@ -69,6 +69,7 @@ public final class Lexer {
                 case ']' -> addToken(TokenKind.RIGHT_BRACKET, startOffset);
                 case ';' -> addToken(TokenKind.SEMICOLON, startOffset);
                 case ',' -> addToken(TokenKind.COMMA, startOffset);
+                case '.' -> addToken(TokenKind.DOT, startOffset);
                 case '"' -> lexStringLiteral(startOffset);
                 default -> {
                     if (isIdentifierStart(character)) {

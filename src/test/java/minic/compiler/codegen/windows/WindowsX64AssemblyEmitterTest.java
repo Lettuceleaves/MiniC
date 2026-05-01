@@ -9,6 +9,8 @@ import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParseResult;
 import minic.compiler.parser.Parser;
+import minic.compiler.semantic.SemanticAnalyzer;
+import minic.compiler.semantic.SemanticResult;
 import minic.source.SourceFile;
 import org.junit.jupiter.api.Test;
 
@@ -384,6 +386,31 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsWindowsX64AssemblyForStructFieldReadAndWrite() {
+        IrModule module = lowerWithSemantic("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                int main() {
+                    struct Point point;
+                    point.y = 9;
+                    return point.y;
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "    lea rax, [rbp-",
+                "    lea rax, [rax+4]",
+                "    mov DWORD PTR [rax], ecx",
+                "    mov eax, DWORD PTR [rax]"
+        );
+    }
+
     private IrModule lower(String source) {
         SourceFile sourceFile = new SourceFile("codegen.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();
@@ -392,5 +419,17 @@ class WindowsX64AssemblyEmitterTest {
         assertThat(parseResult.diagnostics()).isEmpty();
         Program program = parseResult.program();
         return new IrLowerer().lower(program);
+    }
+
+    private IrModule lowerWithSemantic(String source) {
+        SourceFile sourceFile = new SourceFile("codegen.mc", source);
+        LexResult lexResult = new Lexer(sourceFile).lex();
+        assertThat(lexResult.diagnostics()).isEmpty();
+        ParseResult parseResult = new Parser(lexResult.tokens()).parse();
+        assertThat(parseResult.diagnostics()).isEmpty();
+        Program program = parseResult.program();
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+        return new IrLowerer().lower(program, semanticResult);
     }
 }

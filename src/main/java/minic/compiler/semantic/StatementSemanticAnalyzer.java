@@ -35,7 +35,7 @@ final class StatementSemanticAnalyzer {
         this.globalScope = globalScope;
         this.structRegistry = structRegistry;
         this.reporter = reporter;
-        expressionAnalyzer = new ExpressionSemanticAnalyzer(functionRegistry, reporter, expressionTypes);
+        expressionAnalyzer = new ExpressionSemanticAnalyzer(functionRegistry, structRegistry, reporter, expressionTypes);
     }
 
     void analyzeFunction(FunctionDecl functionDecl) {
@@ -69,7 +69,13 @@ final class StatementSemanticAnalyzer {
                 if (returnStmt.expressionOptional().isEmpty()) {
                     reporter.report(returnStmt.range(), "int 函数中 return 必须包含表达式");
                 } else {
-                    expressionAnalyzer.analyzeExpression(returnStmt.expressionOptional().orElseThrow(), scope);
+                    MiniType returnType = expressionAnalyzer.analyzeExpression(
+                            returnStmt.expressionOptional().orElseThrow(),
+                            scope
+                    );
+                    if (returnType.isStruct()) {
+                        reporter.report(returnStmt.range(), "int 函数不能返回结构体值");
+                    }
                 }
             }
             case ExprStmt exprStmt -> expressionAnalyzer.analyzeExpression(exprStmt.expression(), scope);

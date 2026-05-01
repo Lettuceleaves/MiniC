@@ -10,6 +10,7 @@ import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.expr.Expression;
+import minic.compiler.ast.expr.FieldAccessExpr;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
@@ -363,6 +364,28 @@ class ParserTest {
         assertThat(result.diagnostics()).isEmpty();
         FunctionDecl functionDecl = result.program().functions().getFirst();
         assertThat(functionDecl.parameters().getFirst().type()).isEqualTo(MiniType.struct("Point").pointerTo());
+    }
+
+    @Test
+    void parsesStructFieldAccessReadAndWrite() {
+        SourceFile sourceFile = new SourceFile(
+                "field.mc",
+                "struct Point { int x; int y; }; int main() { struct Point point; point.x = 7; return point.x; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        BlockStmt body = result.program().functions().getFirst().body();
+        AssignmentExpr assignment = (AssignmentExpr) ((ExprStmt) body.statements().get(1)).expression();
+        FieldAccessExpr target = (FieldAccessExpr) assignment.target();
+        ReturnStmt returnStmt = (ReturnStmt) body.statements().get(2);
+        FieldAccessExpr returned = (FieldAccessExpr) returnStmt.expressionOptional().orElseThrow();
+
+        assertThat(target.target()).isInstanceOf(NameExpr.class);
+        assertThat(target.fieldName()).isEqualTo("x");
+        assertThat(returned.target()).isInstanceOf(NameExpr.class);
+        assertThat(returned.fieldName()).isEqualTo("x");
     }
 
 

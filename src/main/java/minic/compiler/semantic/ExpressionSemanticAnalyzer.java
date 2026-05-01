@@ -4,6 +4,7 @@ import minic.compiler.ast.expr.AssignmentExpr;
 import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.Expression;
+import minic.compiler.ast.expr.FieldAccessExpr;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
@@ -19,15 +20,18 @@ import java.util.Map;
 
 final class ExpressionSemanticAnalyzer {
     private final FunctionRegistry functionRegistry;
+    private final StructRegistry structRegistry;
     private final SemanticReporter reporter;
     private final Map<Expression, MiniType> expressionTypes;
 
     ExpressionSemanticAnalyzer(
             FunctionRegistry functionRegistry,
+            StructRegistry structRegistry,
             SemanticReporter reporter,
             Map<Expression, MiniType> expressionTypes
     ) {
         this.functionRegistry = functionRegistry;
+        this.structRegistry = structRegistry;
         this.reporter = reporter;
         this.expressionTypes = expressionTypes;
     }
@@ -39,7 +43,10 @@ final class ExpressionSemanticAnalyzer {
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case AssignmentExpr assignmentExpr -> {
                 MiniType targetType = analyzeAssignmentTarget(assignmentExpr.target(), scope, assignmentExpr.range());
-                analyzeExpression(assignmentExpr.value(), scope);
+                MiniType valueType = analyzeExpression(assignmentExpr.value(), scope);
+                if (targetType.isStruct() || valueType.isStruct()) {
+                    reporter.report(assignmentExpr.range(), "暂不支持结构体整体赋值");
+                }
                 yield targetType;
             }
             case BinaryExpr binaryExpr -> {
@@ -49,6 +56,7 @@ final class ExpressionSemanticAnalyzer {
             }
             case GroupingExpr groupingExpr -> analyzeExpression(groupingExpr.expression(), scope);
             case IndexExpr indexExpr -> analyzeIndex(indexExpr, scope);
+            case FieldAccessExpr fieldAccessExpr -> analyzeFieldAccess(fieldAccessExpr, scope);
             case UnaryExpr unaryExpr -> analyzeUnary(unaryExpr, scope);
             case CallExpr callExpr -> {
                 ArrayList<MiniType> argumentTypes = new ArrayList<>();
@@ -90,7 +98,7 @@ final class ExpressionSemanticAnalyzer {
         if (target instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenKind.STAR) {
             return analyzeExpression(target, scope);
         }
-        if (target instanceof IndexExpr) {
+        if (target instanceof IndexExpr || target instanceof FieldAccessExpr) {
             return analyzeExpression(target, scope);
         }
         reporter.report(range, "赋值左侧必须是变量或解引用表达式");
@@ -108,6 +116,20 @@ final class ExpressionSemanticAnalyzer {
         }
         reporter.report(indexExpr.range(), "下标访问目标必须是数组或指针");
         return MiniType.INT;
+    }
+
+    private MiniType analyzeFieldAccess(FieldAccessExpr fieldAccessExpr, Scope scope) {
+        MiniType targetType = analyzeExpression(fieldAccessExpr.target(), scope);
+        if (!(targetType instanceof MiniType.StructType)) {
+            reporter.report(fieldAccessExpr.range(), "字段访问目标必须是结构体");
+            return MiniType.INT;
+        }
+        return structRegistry.field(targetType, fieldAccessExpr.fieldName())
+                .map(StructFieldLayout::type)
+                .orElseGet(() -> {
+                    reporter.report(fieldAccessExpr.range(), "未知结构体字段：" + fieldAccessExpr.fieldName());
+                    return MiniType.INT;
+                });
     }
 
     private MiniType resolveVariable(Scope scope, String name, SourceRange range) {
