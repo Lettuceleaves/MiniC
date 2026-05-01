@@ -5,7 +5,12 @@ import minic.compiler.lexer.TokenKind;
 import minic.compiler.type.MiniType;
 import minic.source.SourceRange;
 
+import java.util.ArrayList;
+
 record ParsedType(MiniType type, Token startToken, SourceRange range) {
+}
+
+record ParsedNamedType(String name, MiniType type, SourceRange range) {
 }
 
 final class TypeParser {
@@ -35,6 +40,46 @@ final class TypeParser {
                         endToken.range().endOffset()
                 )
         );
+    }
+
+    ParsedNamedType parseFunctionPointerDeclarator(ParsedType returnType, String expectedNameMessage) {
+        Token startToken = returnType.startToken();
+        state.consume(TokenKind.LEFT_PAREN, "期望 '('");
+        state.consume(TokenKind.STAR, "期望 '*'");
+        Token nameToken = state.consume(TokenKind.IDENTIFIER, expectedNameMessage);
+        state.consume(TokenKind.RIGHT_PAREN, "期望 ')'");
+        state.consume(TokenKind.LEFT_PAREN, "期望 '('");
+        ArrayList<MiniType> parameterTypes = parseFunctionPointerParameterTypes();
+        Token endToken = state.consume(TokenKind.RIGHT_PAREN, "期望 ')'");
+        if (nameToken == null || endToken == null) {
+            return null;
+        }
+        return new ParsedNamedType(
+                nameToken.lexeme(),
+                MiniType.function(returnType.type(), parameterTypes).pointerTo(),
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        endToken.range().endOffset()
+                )
+        );
+    }
+
+    private ArrayList<MiniType> parseFunctionPointerParameterTypes() {
+        ArrayList<MiniType> parameterTypes = new ArrayList<>();
+        if (state.check(TokenKind.RIGHT_PAREN)) {
+            return parameterTypes;
+        }
+        do {
+            ParsedType parameterType = parseType("期望函数指针参数类型");
+            if (parameterType != null) {
+                parameterTypes.add(parameterType.type());
+                if (state.check(TokenKind.IDENTIFIER)) {
+                    state.advance();
+                }
+            }
+        } while (state.match(TokenKind.COMMA));
+        return parameterTypes;
     }
 
     private BaseType parseBaseType(String expectedMessage) {

@@ -31,6 +31,8 @@ import minic.source.SourceFile;
 import minic.source.SourceRange;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ParserTest {
@@ -364,6 +366,58 @@ class ParserTest {
         assertThat(result.diagnostics()).isEmpty();
         FunctionDecl functionDecl = result.program().functions().getFirst();
         assertThat(functionDecl.parameters().getFirst().type()).isEqualTo(MiniType.struct("Point").pointerTo());
+    }
+
+    @Test
+    void parsesFunctionPointerLocalVariable() {
+        SourceFile sourceFile = new SourceFile(
+                "function-pointer-local.mc",
+                "int main() { int (*operation)(int, int *); return 0; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        VarDeclStmt declaration = (VarDeclStmt) result.program().functions().getFirst().body().statements().getFirst();
+        MiniType functionType = MiniType.function(MiniType.INT, List.of(MiniType.INT, MiniType.INT.pointerTo()));
+
+        assertThat(declaration.name()).isEqualTo("operation");
+        assertThat(declaration.type()).isEqualTo(functionType.pointerTo());
+    }
+
+    @Test
+    void parsesFunctionPointerParameter() {
+        SourceFile sourceFile = new SourceFile(
+                "function-pointer-parameter.mc",
+                "int apply(int (*operation)(int value, int *data), int value) { return value; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        FunctionDecl functionDecl = result.program().functions().getFirst();
+        MiniType functionType = MiniType.function(MiniType.INT, List.of(MiniType.INT, MiniType.INT.pointerTo()));
+
+        assertThat(functionDecl.parameters().getFirst().name()).isEqualTo("operation");
+        assertThat(functionDecl.parameters().getFirst().type()).isEqualTo(functionType.pointerTo());
+        assertThat(functionDecl.parameters().get(1).type()).isEqualTo(MiniType.INT);
+    }
+
+    @Test
+    void parsesFunctionPointerStructField() {
+        SourceFile sourceFile = new SourceFile(
+                "function-pointer-field.mc",
+                "struct Handler { int (*operation)(int); }; int main() { return 0; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        MiniType functionType = MiniType.function(MiniType.INT, List.of(MiniType.INT));
+
+        assertThat(result.program().structs().getFirst().fields().getFirst().name()).isEqualTo("operation");
+        assertThat(result.program().structs().getFirst().fields().getFirst().type())
+                .isEqualTo(functionType.pointerTo());
     }
 
     @Test

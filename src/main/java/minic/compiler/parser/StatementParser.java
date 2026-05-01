@@ -205,26 +205,46 @@ final class StatementParser {
 
     private VarDeclStmt parseVarDeclStmt() {
         ParsedType type = typeParser.parseType("期望变量类型 int");
-        Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望变量名");
-        MiniType declaredType = type != null ? parseArraySuffix(type.type()) : null;
+        ParsedNamedType functionPointer = null;
+        Token nameToken = null;
+        MiniType declaredType = null;
+        SourceRange declarationRange = null;
+        if (type != null && state.check(TokenKind.LEFT_PAREN)) {
+            functionPointer = typeParser.parseFunctionPointerDeclarator(type, "期望变量名");
+            if (functionPointer != null) {
+                declaredType = functionPointer.type();
+                declarationRange = functionPointer.range();
+            }
+        } else {
+            nameToken = state.consume(TokenKind.IDENTIFIER, "期望变量名");
+            declaredType = type != null ? parseArraySuffix(type.type()) : null;
+        }
         Expression initializer = null;
         if (state.match(TokenKind.EQUAL)) {
             initializer = expressionParser.parseExpression();
         }
         Token semicolonToken = state.consume(TokenKind.SEMICOLON, "期望 ';'");
 
-        if (type == null || nameToken == null || semicolonToken == null) {
+        if (type == null || (nameToken == null && functionPointer == null) || semicolonToken == null) {
             return null;
         }
-        return new VarDeclStmt(
-                nameToken.lexeme(),
-                declaredType,
-                initializer,
-                new SourceRange(
+        String name = functionPointer != null ? functionPointer.name() : nameToken.lexeme();
+        SourceRange range = declarationRange != null
+                ? new SourceRange(
+                        declarationRange.sourceFile(),
+                        declarationRange.startOffset(),
+                        semicolonToken.range().endOffset()
+                )
+                : new SourceRange(
                         type.range().sourceFile(),
                         type.range().startOffset(),
                         semicolonToken.range().endOffset()
-                )
+                );
+        return new VarDeclStmt(
+                name,
+                declaredType,
+                initializer,
+                range
         );
     }
 

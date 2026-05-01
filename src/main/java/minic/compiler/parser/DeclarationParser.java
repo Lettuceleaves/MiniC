@@ -95,20 +95,40 @@ final class DeclarationParser {
 
     private StructField parseStructField() {
         ParsedType type = typeParser.parseType("期望字段类型");
-        Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望字段名");
-        MiniType declaredType = type != null ? parseArraySuffix(type.type()) : null;
+        ParsedNamedType functionPointer = null;
+        Token nameToken = null;
+        MiniType declaredType = null;
+        SourceRange declarationRange = null;
+        if (type != null && state.check(TokenKind.LEFT_PAREN)) {
+            functionPointer = typeParser.parseFunctionPointerDeclarator(type, "期望字段名");
+            if (functionPointer != null) {
+                declaredType = functionPointer.type();
+                declarationRange = functionPointer.range();
+            }
+        } else {
+            nameToken = state.consume(TokenKind.IDENTIFIER, "期望字段名");
+            declaredType = type != null ? parseArraySuffix(type.type()) : null;
+        }
         Token semicolonToken = state.consume(TokenKind.SEMICOLON, "期望 ';'");
-        if (type == null || nameToken == null || semicolonToken == null) {
+        if (type == null || (nameToken == null && functionPointer == null) || semicolonToken == null) {
             return null;
         }
-        return new StructField(
-                nameToken.lexeme(),
-                declaredType,
-                new SourceRange(
+        String name = functionPointer != null ? functionPointer.name() : nameToken.lexeme();
+        SourceRange range = declarationRange != null
+                ? new SourceRange(
+                        declarationRange.sourceFile(),
+                        declarationRange.startOffset(),
+                        semicolonToken.range().endOffset()
+                )
+                : new SourceRange(
                         type.range().sourceFile(),
                         type.range().startOffset(),
                         semicolonToken.range().endOffset()
-                )
+                );
+        return new StructField(
+                name,
+                declaredType,
+                range
         );
     }
 
@@ -137,17 +157,24 @@ final class DeclarationParser {
 
         do {
             ParsedType type = typeParser.parseType("期望参数类型 int");
-            Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望参数名");
-            if (type != null && nameToken != null) {
-                parameters.add(new Parameter(
-                        nameToken.lexeme(),
-                        type.type(),
-                        new SourceRange(
-                                type.range().sourceFile(),
-                                type.range().startOffset(),
-                                nameToken.range().endOffset()
-                        )
-                ));
+            if (type != null && state.check(TokenKind.LEFT_PAREN)) {
+                ParsedNamedType functionPointer = typeParser.parseFunctionPointerDeclarator(type, "期望参数名");
+                if (functionPointer != null) {
+                    parameters.add(new Parameter(functionPointer.name(), functionPointer.type(), functionPointer.range()));
+                }
+            } else {
+                Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望参数名");
+                if (type != null && nameToken != null) {
+                    parameters.add(new Parameter(
+                            nameToken.lexeme(),
+                            type.type(),
+                            new SourceRange(
+                                    type.range().sourceFile(),
+                                    type.range().startOffset(),
+                                    nameToken.range().endOffset()
+                            )
+                    ));
+                }
             }
         } while (state.match(TokenKind.COMMA));
 
