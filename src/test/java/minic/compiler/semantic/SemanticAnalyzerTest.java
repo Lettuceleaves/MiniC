@@ -664,6 +664,48 @@ class SemanticAnalyzerTest {
                 .containsExactly("未知结构体字段：y");
     }
 
+    @Test
+    void resolvesStructPointerFieldAccessTypes() {
+        Program program = parse("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                int write(struct Point *point) {
+                    point->y = 9;
+                    return point->y;
+                }
+
+                int main() {
+                    return 0;
+                }
+                """);
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics()).isEmpty();
+        FieldAccessExpr assignmentTarget = (FieldAccessExpr) ((minic.compiler.ast.expr.AssignmentExpr)
+                ((minic.compiler.ast.stmt.ExprStmt) program.functions().getFirst().body().statements().getFirst())
+                        .expression()).target();
+        FieldAccessExpr returned = (FieldAccessExpr) ((minic.compiler.ast.stmt.ReturnStmt)
+                program.functions().getFirst().body().statements().get(1))
+                .expressionOptional().orElseThrow();
+
+        assertThat(result.typeOf(assignmentTarget.target())).contains(MiniType.struct("Point").pointerTo());
+        assertThat(result.typeOf(assignmentTarget)).contains(MiniType.INT);
+        assertThat(result.typeOf(returned)).contains(MiniType.INT);
+    }
+
+    @Test
+    void reportsStructPointerFieldAccessOnNonStructPointer() {
+        SemanticResult result = analyze("int main() { int *p; return p->x; }");
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("指针字段访问目标必须是结构体指针");
+    }
+
     private SemanticResult analyze(String source) {
         return new SemanticAnalyzer().analyze(parse(source));
     }

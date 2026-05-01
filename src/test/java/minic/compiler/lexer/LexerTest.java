@@ -78,6 +78,21 @@ class LexerTest {
     }
 
     @Test
+    void lexesStructFieldAccessTokens() {
+        SourceFile sourceFile = new SourceFile("field.mc", ". -> -");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(TokenKind.DOT, TokenKind.ARROW, TokenKind.MINUS, TokenKind.EOF);
+        assertThat(result.tokens())
+                .extracting(Token::lexeme)
+                .containsExactly(".", "->", "-", "");
+    }
+
+    @Test
     void keepsCorrectTokenRangesAcrossWhitespace() {
         SourceFile sourceFile = new SourceFile("ranges.mc", " \n+ \t;");
 

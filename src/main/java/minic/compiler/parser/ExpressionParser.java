@@ -146,24 +146,33 @@ final class ExpressionParser {
                 continue;
             }
             if (state.match(TokenKind.DOT)) {
-                Token fieldToken = state.consume(TokenKind.IDENTIFIER, "期望字段名");
-                if (fieldToken == null) {
-                    return expression;
-                }
-                expression = new FieldAccessExpr(
-                        expression,
-                        fieldToken.lexeme(),
-                        new SourceRange(
-                                expression.range().sourceFile(),
-                                expression.range().startOffset(),
-                                fieldToken.range().endOffset()
-                        )
-                );
+                expression = finishFieldAccess(expression, false);
+                continue;
+            }
+            if (state.match(TokenKind.ARROW)) {
+                expression = finishFieldAccess(expression, true);
                 continue;
             }
             break;
         }
         return expression;
+    }
+
+    private Expression finishFieldAccess(Expression target, boolean viaPointer) {
+        Token fieldToken = state.consume(TokenKind.IDENTIFIER, "期望字段名");
+        if (fieldToken == null) {
+            return target;
+        }
+        return new FieldAccessExpr(
+                target,
+                fieldToken.lexeme(),
+                viaPointer,
+                new SourceRange(
+                        target.range().sourceFile(),
+                        target.range().startOffset(),
+                        fieldToken.range().endOffset()
+                )
+        );
     }
 
     private Expression parsePrimary() {

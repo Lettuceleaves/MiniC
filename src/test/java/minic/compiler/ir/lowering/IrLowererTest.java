@@ -529,6 +529,48 @@ class IrLowererTest {
     }
 
     @Test
+    void lowersStructPointerFieldReadAndWriteToFieldAddresses() {
+        Program program = parse("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                int write(struct Point *point) {
+                    point->y = 9;
+                    return point->y;
+                }
+
+                int main() {
+                    return 0;
+                }
+                """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+
+        IrFunction write = new IrLowerer().lower(program, semanticResult).findFunction("write").orElseThrow();
+
+        assertThat(write.parameters()).singleElement().satisfies(parameter ->
+                assertThat(parameter.type()).isEqualTo(IrType.POINTER));
+        assertThat(write.blocks()).singleElement().satisfies(block -> {
+            assertThat(block.instructions())
+                    .filteredOn(IrAddressOfLocalInstruction.class::isInstance)
+                    .isEmpty();
+            assertThat(block.instructions())
+                    .filteredOn(IrFieldAddressInstruction.class::isInstance)
+                    .map(IrFieldAddressInstruction.class::cast)
+                    .extracting(IrFieldAddressInstruction::offset)
+                    .containsExactly(4, 4);
+            assertThat(block.instructions())
+                    .filteredOn(IrStorePointerInstruction.class::isInstance)
+                    .hasSize(1);
+            assertThat(block.instructions())
+                    .filteredOn(IrLoadPointerInstruction.class::isInstance)
+                    .hasSize(1);
+        });
+    }
+
+    @Test
     void keepsShadowedLocalsDistinct() {
         Program program = parse("""
                 int main() {

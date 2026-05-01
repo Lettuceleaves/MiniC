@@ -41,7 +41,7 @@ public final class Lexer {
                     // 空白由 lexer 跳过，不产出 token。
                 }
                 case '+' -> addToken(TokenKind.PLUS, startOffset);
-                case '-' -> addToken(TokenKind.MINUS, startOffset);
+                case '-' -> addToken(match('>') ? TokenKind.ARROW : TokenKind.MINUS, startOffset);
                 case '*' -> addToken(TokenKind.STAR, startOffset);
                 case '&' -> addToken(TokenKind.AMPERSAND, startOffset);
                 case '/' -> {

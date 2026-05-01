@@ -388,6 +388,29 @@ class ParserTest {
         assertThat(returned.fieldName()).isEqualTo("x");
     }
 
+    @Test
+    void parsesStructPointerFieldAccessReadAndWrite() {
+        SourceFile sourceFile = new SourceFile(
+                "arrow.mc",
+                "struct Point { int x; }; int write(struct Point *point) { point->x = 7; return point->x; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        BlockStmt body = result.program().functions().getFirst().body();
+        AssignmentExpr assignment = (AssignmentExpr) ((ExprStmt) body.statements().getFirst()).expression();
+        FieldAccessExpr target = (FieldAccessExpr) assignment.target();
+        ReturnStmt returnStmt = (ReturnStmt) body.statements().get(1);
+        FieldAccessExpr returned = (FieldAccessExpr) returnStmt.expressionOptional().orElseThrow();
+
+        assertThat(target.target()).isInstanceOf(NameExpr.class);
+        assertThat(target.fieldName()).isEqualTo("x");
+        assertThat(target.viaPointer()).isTrue();
+        assertThat(returned.fieldName()).isEqualTo("x");
+        assertThat(returned.viaPointer()).isTrue();
+    }
+
 
 
     @Test

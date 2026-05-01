@@ -411,6 +411,35 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsWindowsX64AssemblyForStructPointerFieldReadAndWrite() {
+        IrModule module = lowerWithSemantic("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                int write(struct Point *point) {
+                    point->y = 9;
+                    return point->y;
+                }
+
+                int main() {
+                    return 0;
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "minic$write PROC",
+                "    mov QWORD PTR [rbp-",
+                "    lea rax, [rax+4]",
+                "    mov DWORD PTR [rax], ecx",
+                "    mov eax, DWORD PTR [rax]"
+        );
+    }
+
     private IrModule lower(String source) {
         SourceFile sourceFile = new SourceFile("codegen.mc", source);
         LexResult lexResult = new Lexer(sourceFile).lex();

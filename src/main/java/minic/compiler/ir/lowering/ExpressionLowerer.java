@@ -174,7 +174,9 @@ final class ExpressionLowerer {
     }
 
     private IrValue lowerFieldAddress(FieldAccessExpr fieldAccessExpr) {
-        IrValue baseAddress = lowerAddress(fieldAccessExpr.target());
+        IrValue baseAddress = fieldAccessExpr.viaPointer()
+                ? lowerExpression(fieldAccessExpr.target())
+                : lowerAddress(fieldAccessExpr.target());
         String structName = structName(fieldAccessExpr.target());
         int offset = builder.fieldOffset(structName, fieldAccessExpr.fieldName());
         IrTemporary result = builder.newTemporary(IrType.POINTER);
@@ -207,6 +209,9 @@ final class ExpressionLowerer {
     private String structName(Expression expression) {
         MiniType type = expressionTypes.get(expression);
         if (type instanceof MiniType.StructType structType) {
+            return structType.name();
+        }
+        if (type != null && type.isPointer() && type.pointee() instanceof MiniType.StructType structType) {
             return structType.name();
         }
         throw new IllegalArgumentException("unsupported field access target: " + expression.getClass().getSimpleName());

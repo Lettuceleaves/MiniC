@@ -85,6 +85,11 @@ public enum TokenKind {
     MINUS,
 
     /**
+     * {@code ->}。
+     */
+    ARROW,
+
+    /**
      * {@code *}。
      */
     STAR,

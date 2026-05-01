@@ -120,11 +120,18 @@ final class ExpressionSemanticAnalyzer {
 
     private MiniType analyzeFieldAccess(FieldAccessExpr fieldAccessExpr, Scope scope) {
         MiniType targetType = analyzeExpression(fieldAccessExpr.target(), scope);
-        if (!(targetType instanceof MiniType.StructType)) {
+        MiniType structType = targetType;
+        if (fieldAccessExpr.viaPointer()) {
+            if (!targetType.isPointer() || !(targetType.pointee() instanceof MiniType.StructType)) {
+                reporter.report(fieldAccessExpr.range(), "指针字段访问目标必须是结构体指针");
+                return MiniType.INT;
+            }
+            structType = targetType.pointee();
+        } else if (!(targetType instanceof MiniType.StructType)) {
             reporter.report(fieldAccessExpr.range(), "字段访问目标必须是结构体");
             return MiniType.INT;
         }
-        return structRegistry.field(targetType, fieldAccessExpr.fieldName())
+        return structRegistry.field(structType, fieldAccessExpr.fieldName())
                 .map(StructFieldLayout::type)
                 .orElseGet(() -> {
                     reporter.report(fieldAccessExpr.range(), "未知结构体字段：" + fieldAccessExpr.fieldName());
