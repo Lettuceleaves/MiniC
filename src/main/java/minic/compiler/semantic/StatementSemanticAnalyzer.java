@@ -23,6 +23,7 @@ final class StatementSemanticAnalyzer {
     private final StructRegistry structRegistry;
     private final SemanticReporter reporter;
     private final ExpressionSemanticAnalyzer expressionAnalyzer;
+    private FunctionDecl currentFunction;
     private int loopDepth;
 
     StatementSemanticAnalyzer(
@@ -39,11 +40,17 @@ final class StatementSemanticAnalyzer {
     }
 
     void analyzeFunction(FunctionDecl functionDecl) {
+        FunctionDecl previousFunction = currentFunction;
+        currentFunction = functionDecl;
         Scope functionScope = new Scope(globalScope);
-        for (Parameter parameter : functionDecl.parameters()) {
-            defineVariable(functionScope, parameter.name(), parameter.range(), parameter.type());
+        try {
+            for (Parameter parameter : functionDecl.parameters()) {
+                defineVariable(functionScope, parameter.name(), parameter.range(), parameter.type());
+            }
+            analyzeBlock(functionDecl.bodyOptional().orElseThrow(), functionScope, false);
+        } finally {
+            currentFunction = previousFunction;
         }
-        analyzeBlock(functionDecl.bodyOptional().orElseThrow(), functionScope, false);
     }
 
     private void analyzeBlock(BlockStmt blockStmt, Scope parentScope, boolean createChildScope) {
@@ -57,13 +64,16 @@ final class StatementSemanticAnalyzer {
         switch (statement) {
             case BlockStmt blockStmt -> analyzeBlock(blockStmt, scope, true);
             case VarDeclStmt varDeclStmt -> {
+                boolean unsupportedArrayInitializer = varDeclStmt.type().isArray()
+                        && varDeclStmt.initializerOptional().isPresent();
                 if (varDeclStmt.type().isArray() && varDeclStmt.initializerOptional().isPresent()) {
                     reporter.report(varDeclStmt.range(), "数组声明暂不支持初始化表达式");
                 }
                 varDeclStmt.initializerOptional()
                         .ifPresent(initializer -> {
                             MiniType initializerType = expressionAnalyzer.analyzeExpression(initializer, scope);
-                            if (!isInitializerCompatible(varDeclStmt.type(), initializerType)) {
+                            if (!unsupportedArrayInitializer
+                                    && !isInitializerCompatible(varDeclStmt.type(), initializerType)) {
                                 reporter.report(varDeclStmt.range(), "变量初始化类型不匹配：" + varDeclStmt.name());
                             }
                         });
@@ -79,7 +89,10 @@ final class StatementSemanticAnalyzer {
                             scope
                     );
                     if (returnType.isStruct()) {
-                        reporter.report(returnStmt.range(), "int 函数不能返回结构体值");
+                        reporter.report(returnStmt.range(), "函数不能返回结构体值");
+                    }
+                    if (!TypeCompatibility.isAssignmentCompatible(currentFunction.returnType(), returnType)) {
+                        reporter.report(returnStmt.range(), "return 类型不匹配");
                     }
                 }
             }
@@ -142,15 +155,6 @@ final class StatementSemanticAnalyzer {
     }
 
     private boolean isInitializerCompatible(MiniType targetType, MiniType initializerType) {
-        if (targetType.equals(initializerType)) {
-            return true;
-        }
-        if (targetType.isPointer() && initializerType.isNullPointer()) {
-            return true;
-        }
-        if (targetType.isPointer() && targetType.pointee().isFunction()) {
-            return false;
-        }
-        return !targetType.isPointer();
+        return TypeCompatibility.isAssignmentCompatible(targetType, initializerType);
     }
 }

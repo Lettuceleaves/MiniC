@@ -59,15 +59,18 @@ final class ExpressionSemanticAnalyzer {
                 if (targetType.isStruct() || valueType.isStruct()) {
                     reporter.report(assignmentExpr.range(), "暂不支持结构体整体赋值");
                 }
-                if (!isAssignmentCompatible(targetType, valueType)) {
+                if (!TypeCompatibility.isAssignmentCompatible(targetType, valueType)) {
                     reporter.report(assignmentExpr.range(), "赋值类型不匹配");
                 }
                 yield targetType;
             }
             case BinaryExpr binaryExpr -> {
-                analyzeExpression(binaryExpr.left(), scope);
-                analyzeExpression(binaryExpr.right(), scope);
-                yield MiniType.INT;
+                MiniType leftType = analyzeExpression(binaryExpr.left(), scope);
+                MiniType rightType = analyzeExpression(binaryExpr.right(), scope);
+                if (!TypeCompatibility.isBinaryCompatible(leftType, rightType, binaryExpr.operator())) {
+                    reporter.report(binaryExpr.range(), "二元表达式操作数类型不匹配");
+                }
+                yield TypeCompatibility.binaryResultType(leftType, rightType, binaryExpr.operator());
             }
             case GroupingExpr groupingExpr -> analyzeExpression(groupingExpr.expression(), scope);
             case IndexExpr indexExpr -> analyzeIndex(indexExpr, scope);
@@ -172,19 +175,6 @@ final class ExpressionSemanticAnalyzer {
         return MiniType.INT;
     }
 
-    private boolean isAssignmentCompatible(MiniType targetType, MiniType valueType) {
-        if (targetType.equals(valueType)) {
-            return true;
-        }
-        if (targetType.isPointer() && valueType.isNullPointer()) {
-            return true;
-        }
-        if (targetType.isPointer() && targetType.pointee().isFunction()) {
-            return false;
-        }
-        return !targetType.isPointer();
-    }
-
     private MiniType resolveFunctionPointerCall(CallExpr callExpr, Scope scope, ArrayList<MiniType> argumentTypes) {
         MiniType calleeType = analyzeExpression(callExpr.callee(), scope);
         if (!calleeType.isPointer() || !calleeType.pointee().isFunction()) {
@@ -196,7 +186,10 @@ final class ExpressionSemanticAnalyzer {
             reporter.report(callExpr.range(), "函数指针调用实参数量不匹配");
         } else {
             for (int index = 0; index < argumentTypes.size(); index++) {
-                if (!functionType.parameterTypes().get(index).equals(argumentTypes.get(index))) {
+                if (!TypeCompatibility.isArgumentCompatible(
+                        functionType.parameterTypes().get(index),
+                        argumentTypes.get(index)
+                )) {
                     reporter.report(callExpr.arguments().get(index).range(), "函数指针调用实参类型不匹配");
                 }
             }

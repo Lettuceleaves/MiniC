@@ -123,13 +123,7 @@ final class FunctionRegistry {
     }
 
     private boolean isArgumentCompatible(MiniType parameterType, MiniType argumentType) {
-        if (parameterType.equals(argumentType)) {
-            return true;
-        }
-        if (parameterType.isPointer() && argumentType.isNullPointer()) {
-            return true;
-        }
-        return !parameterType.isPointer();
+        return TypeCompatibility.isArgumentCompatible(parameterType, argumentType);
     }
 
     private void validateFunctionName(FunctionDecl functionDecl) {

@@ -395,7 +395,7 @@ class SemanticAnalyzerTest {
     @Test
     void recordsExpressionTypesAndSymbolTypes() {
         Program program = parse("""
-                extern int printf(int format, int value);
+                extern int printf(int *format, int value);
 
                 int id(int x) {
                     return x;
@@ -414,7 +414,7 @@ class SemanticAnalyzerTest {
         assertThat(result.globalScope().resolve("printf")).hasValueSatisfying(symbol ->
                 assertThat(symbol.type()).isEqualTo(MiniType.function(
                         MiniType.INT,
-                        java.util.List.of(MiniType.INT, MiniType.INT)
+                        java.util.List.of(MiniType.INT.pointerTo(), MiniType.INT)
                 )));
         ReturnStmt idReturn = (ReturnStmt) program.functions().get(1).body().statements().getFirst();
         NameExpr returnedName = (NameExpr) idReturn.expressionOptional().orElseThrow();
@@ -512,6 +512,110 @@ class SemanticAnalyzerTest {
         assertThat(result.typeOf(initializer)).contains(MiniType.NULL);
         assertThat(result.typeOf(assignmentValue)).contains(MiniType.NULL);
         assertThat(result.typeOf(argument)).contains(MiniType.NULL);
+    }
+
+    @Test
+    void recordsUsualArithmeticResultTypes() {
+        Program program = parse("""
+                double toDouble(double value) { return value; }
+
+                int main() {
+                    long count = 1L + 2;
+                    float ratio = 1.0f + 2;
+                    double score = 1.0f + 2.0;
+                    return toDouble(score) == 3.0;
+                }
+                """);
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics()).isEmpty();
+        var statements = program.functions().get(1).body().statements();
+        BinaryExpr longSum = (BinaryExpr) ((minic.compiler.ast.stmt.VarDeclStmt) statements.get(0))
+                .initializerOptional().orElseThrow();
+        BinaryExpr floatSum = (BinaryExpr) ((minic.compiler.ast.stmt.VarDeclStmt) statements.get(1))
+                .initializerOptional().orElseThrow();
+        BinaryExpr doubleSum = (BinaryExpr) ((minic.compiler.ast.stmt.VarDeclStmt) statements.get(2))
+                .initializerOptional().orElseThrow();
+        BinaryExpr comparison = (BinaryExpr) ((ReturnStmt) statements.get(3)).expressionOptional().orElseThrow();
+
+        assertThat(result.typeOf(longSum)).contains(MiniType.LONG);
+        assertThat(result.typeOf(floatSum)).contains(MiniType.FLOAT);
+        assertThat(result.typeOf(doubleSum)).contains(MiniType.DOUBLE);
+        assertThat(result.typeOf(comparison)).contains(MiniType.INT);
+    }
+
+    @Test
+    void acceptsScalarConversionsForAssignmentReturnAndArguments() {
+        SemanticResult result = analyze("""
+                double widen(double value) { return value; }
+                long idLong(long value) { return value; }
+
+                double mainValue() {
+                    bool flag = 1;
+                    char tag = 65;
+                    int count = 'a';
+                    long total = count;
+                    float ratio = total;
+                    double score = ratio;
+                    return widen(idLong(count));
+                }
+
+                int main() { return 0; }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+    }
+
+    @Test
+    void reportsInvalidScalarPointerConversions() {
+        SemanticResult result = analyze("""
+                int read(int *value) { return 0; }
+
+                int main() {
+                    int *pointer = 1;
+                    int value = NULL;
+                    return read(1);
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly(
+                        "变量初始化类型不匹配：pointer",
+                        "变量初始化类型不匹配：value",
+                        "函数调用实参类型不匹配：read"
+                );
+    }
+
+    @Test
+    void reportsInvalidBinaryOperandTypes() {
+        SemanticResult result = analyze("""
+                int main() {
+                    int value = 1;
+                    int *pointer = &value;
+                    return pointer + value;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("二元表达式操作数类型不匹配");
+    }
+
+    @Test
+    void reportsReturnTypeMismatch() {
+        SemanticResult result = analyze("""
+                int *bad() {
+                    return 1;
+                }
+
+                int main() { return 0; }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("return 类型不匹配");
     }
 
     @Test
