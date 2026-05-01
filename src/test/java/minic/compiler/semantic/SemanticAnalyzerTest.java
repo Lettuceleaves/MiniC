@@ -191,6 +191,84 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void resolvesFunctionNameAsFunctionPointerValue() {
+        Program program = parse("""
+                int add(int left, int right) { return left + right; }
+
+                int main() {
+                    int (*operation)(int, int) = add;
+                    operation = add;
+                    return 0;
+                }
+                """);
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics()).isEmpty();
+        MiniType functionPointerType = MiniType.function(
+                MiniType.INT,
+                java.util.List.of(MiniType.INT, MiniType.INT)
+        ).pointerTo();
+        NameExpr initializer = (NameExpr) ((minic.compiler.ast.stmt.VarDeclStmt)
+                program.functions().get(1).body().statements().getFirst())
+                .initializerOptional().orElseThrow();
+        NameExpr assignmentValue = (NameExpr) ((minic.compiler.ast.expr.AssignmentExpr)
+                ((ExprStmt) program.functions().get(1).body().statements().get(1)).expression()).value();
+
+        assertThat(result.typeOf(initializer)).contains(functionPointerType);
+        assertThat(result.typeOf(assignmentValue)).contains(functionPointerType);
+    }
+
+    @Test
+    void reportsFunctionPointerAssignmentSignatureMismatch() {
+        SemanticResult result = analyze("""
+                int unary(int value) { return value; }
+
+                int main() {
+                    int (*operation)(int, int);
+                    operation = unary;
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("赋值类型不匹配");
+    }
+
+    @Test
+    void reportsFunctionPointerInitializerSignatureMismatch() {
+        SemanticResult result = analyze("""
+                int unary(int value) { return value; }
+
+                int main() {
+                    int (*operation)(int, int) = unary;
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("变量初始化类型不匹配：operation");
+    }
+
+    @Test
+    void reportsDeclaredFunctionAddressWithoutDefinition() {
+        SemanticResult result = analyze("""
+                int add(int left, int right);
+
+                int main() {
+                    int (*operation)(int, int) = add;
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("未定义函数取址：add");
+    }
+
+    @Test
     void reportsMissingMainFunction() {
         SemanticResult result = analyze("int helper() { return 1; }");
 
@@ -252,7 +330,10 @@ class SemanticAnalyzerTest {
 
         assertThat(result.diagnostics()).isEmpty();
         assertThat(result.globalScope().resolve("printf")).hasValueSatisfying(symbol ->
-                assertThat(symbol.type()).isEqualTo(MiniType.INT));
+                assertThat(symbol.type()).isEqualTo(MiniType.function(
+                        MiniType.INT,
+                        java.util.List.of(MiniType.INT, MiniType.INT)
+                )));
         ReturnStmt idReturn = (ReturnStmt) program.functions().get(1).body().statements().getFirst();
         NameExpr returnedName = (NameExpr) idReturn.expressionOptional().orElseThrow();
         ExprStmt printfStatement = (ExprStmt) program.functions().get(2).body().statements().get(1);

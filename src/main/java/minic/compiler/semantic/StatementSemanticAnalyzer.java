@@ -61,7 +61,12 @@ final class StatementSemanticAnalyzer {
                     reporter.report(varDeclStmt.range(), "数组声明暂不支持初始化表达式");
                 }
                 varDeclStmt.initializerOptional()
-                        .ifPresent(initializer -> expressionAnalyzer.analyzeExpression(initializer, scope));
+                        .ifPresent(initializer -> {
+                            MiniType initializerType = expressionAnalyzer.analyzeExpression(initializer, scope);
+                            if (!isInitializerCompatible(varDeclStmt.type(), initializerType)) {
+                                reporter.report(varDeclStmt.range(), "变量初始化类型不匹配：" + varDeclStmt.name());
+                            }
+                        });
                 structRegistry.validateDeclaredType(varDeclStmt.type(), varDeclStmt.range());
                 defineVariable(scope, varDeclStmt.name(), varDeclStmt.range(), varDeclStmt.type());
             }
@@ -134,5 +139,15 @@ final class StatementSemanticAnalyzer {
         if (!scope.define(symbol)) {
             reporter.report(range, "重复局部变量定义：" + name);
         }
+    }
+
+    private boolean isInitializerCompatible(MiniType targetType, MiniType initializerType) {
+        if (targetType.equals(initializerType)) {
+            return true;
+        }
+        if (targetType.isPointer() && targetType.pointee().isFunction()) {
+            return false;
+        }
+        return !targetType.isPointer();
     }
 }

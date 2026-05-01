@@ -26,8 +26,13 @@ final class FunctionRegistry {
             List<MiniType> parameterTypes = parameterTypes(functionDecl);
             FunctionState existingState = functionStates.get(name);
             if (existingState == null) {
-                Symbol symbol = new Symbol(name, SymbolKind.FUNCTION, functionDecl.range(), MiniType.INT,
-                        parameterTypes.size());
+                Symbol symbol = new Symbol(
+                        name,
+                        SymbolKind.FUNCTION,
+                        functionDecl.range(),
+                        MiniType.function(MiniType.INT, parameterTypes),
+                        parameterTypes.size()
+                );
                 globalScope.define(symbol);
                 functionStates.put(name, new FunctionState(
                         parameterTypes,
@@ -95,7 +100,21 @@ final class FunctionRegistry {
                 }
             }
         }
-        return functionSymbol.orElseThrow().type();
+        return functionSymbol.orElseThrow().type().returnType();
+    }
+
+    MiniType resolveFunctionAddress(String name, minic.source.SourceRange range) {
+        var functionSymbol = globalScope.resolve(name)
+                .filter(symbol -> symbol.kind() == SymbolKind.FUNCTION);
+        if (functionSymbol.isEmpty()) {
+            reporter.report(range, "未解析变量：" + name);
+            return MiniType.INT;
+        }
+        FunctionState functionState = functionStates.get(name);
+        if (functionState != null && !functionState.defined() && !functionState.external()) {
+            reporter.report(range, "未定义函数取址：" + name);
+        }
+        return functionSymbol.orElseThrow().type().pointerTo();
     }
 
     private boolean isArgumentCompatible(MiniType parameterType, MiniType argumentType) {

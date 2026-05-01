@@ -47,6 +47,9 @@ final class ExpressionSemanticAnalyzer {
                 if (targetType.isStruct() || valueType.isStruct()) {
                     reporter.report(assignmentExpr.range(), "暂不支持结构体整体赋值");
                 }
+                if (!isAssignmentCompatible(targetType, valueType)) {
+                    reporter.report(assignmentExpr.range(), "赋值类型不匹配");
+                }
                 yield targetType;
             }
             case BinaryExpr binaryExpr -> {
@@ -141,14 +144,27 @@ final class ExpressionSemanticAnalyzer {
 
     private MiniType resolveVariable(Scope scope, String name, SourceRange range) {
         var symbol = scope.resolve(name).filter(candidate -> candidate.kind() == SymbolKind.VARIABLE);
-        if (symbol.isEmpty()) {
-            reporter.report(range, "未解析变量：" + name);
-            return MiniType.INT;
+        if (symbol.isPresent()) {
+            MiniType type = symbol.orElseThrow().type();
+            if (type.isArray()) {
+                return type.elementType().pointerTo();
+            }
+            return type;
         }
-        MiniType type = symbol.orElseThrow().type();
-        if (type.isArray()) {
-            return type.elementType().pointerTo();
+        if (scope.resolve(name).filter(candidate -> candidate.kind() == SymbolKind.FUNCTION).isPresent()) {
+            return functionRegistry.resolveFunctionAddress(name, range);
         }
-        return type;
+        reporter.report(range, "未解析变量：" + name);
+        return MiniType.INT;
+    }
+
+    private boolean isAssignmentCompatible(MiniType targetType, MiniType valueType) {
+        if (targetType.equals(valueType)) {
+            return true;
+        }
+        if (targetType.isPointer() && targetType.pointee().isFunction()) {
+            return false;
+        }
+        return !targetType.isPointer();
     }
 }
