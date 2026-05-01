@@ -443,6 +443,42 @@ class WindowsX64AssemblyEmitterTest {
     }
 
     @Test
+    void emitsWindowsX64AssemblyForScalarWidthsAndNull() {
+        IrModule module = lowerWithSemantic("""
+                long bump(long value) {
+                    return value + 2L;
+                }
+
+                int main() {
+                    bool flag = true;
+                    char tag = 'a';
+                    long total = bump(40L);
+                    int *missing = NULL;
+                    return flag + tag + (total == 42L);
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "minic$bump PROC",
+                "    mov QWORD PTR [rbp-40], rcx",
+                "    add rax, rcx",
+                "    mov QWORD PTR [rbp-48], rax",
+                "main PROC",
+                "    mov BYTE PTR [rbp-",
+                "    mov rcx, 40",
+                "    call minic$bump",
+                "    mov QWORD PTR [rbp-",
+                "    mov rax, 0",
+                "    mov QWORD PTR [rbp-",
+                "    movzx ecx, BYTE PTR [rbp-",
+                "    movsx ecx, BYTE PTR [rbp-",
+                "    cmp rax, rcx"
+        );
+    }
+
+    @Test
     void emitsWindowsX64AssemblyForStructFieldReadAndWrite() {
         IrModule module = lowerWithSemantic("""
                 struct Point {

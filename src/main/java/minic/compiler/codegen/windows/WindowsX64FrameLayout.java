@@ -105,6 +105,13 @@ record WindowsX64FrameLayout(
         return "DWORD PTR [rsp+" + WindowsX64CallingConvention.outgoingStackArgumentOffset(argumentIndex) + "]";
     }
 
+    String outgoingStackArgumentSlot(int argumentIndex, IrType type) {
+        if (WindowsX64CallingConvention.isRegisterArgument(argumentIndex)) {
+            throw new IllegalArgumentException("register argument has no outgoing stack slot");
+        }
+        return memoryPrefix(type) + " [rsp+" + WindowsX64CallingConvention.outgoingStackArgumentOffset(argumentIndex) + "]";
+    }
+
     private static int collectOutgoingArgumentAreaSize(IrFunction function) {
         int maxArgumentCount = 0;
         for (var block : function.blocks()) {
@@ -191,17 +198,21 @@ record WindowsX64FrameLayout(
         if (type == IrType.INT_ARRAY) {
             return 4 * elementCount;
         }
-        if (type == IrType.POINTER) {
-            return 8;
-        }
-        return 4;
+        return type.sizeBytes();
     }
 
     private String stackSlot(Integer offset, IrType type) {
         if (offset == null) {
             throw new IllegalArgumentException("missing stack slot");
         }
-        String prefix = type == IrType.POINTER ? "QWORD PTR" : "DWORD PTR";
-        return prefix + " [rbp-" + (outgoingArgumentAreaSize + offset) + "]";
+        return memoryPrefix(type) + " [rbp-" + (outgoingArgumentAreaSize + offset) + "]";
+    }
+
+    private static String memoryPrefix(IrType type) {
+        return switch (type) {
+            case BOOL, CHAR -> "BYTE PTR";
+            case LONG, POINTER -> "QWORD PTR";
+            case INT, INT_ARRAY, STRUCT -> "DWORD PTR";
+        };
     }
 }

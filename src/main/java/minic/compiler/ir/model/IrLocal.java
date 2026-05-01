@@ -81,9 +81,6 @@ public record IrLocal(
         if (type == IrType.INT_ARRAY) {
             return TypeLayout.sizeOf(minic.compiler.type.MiniType.INT.arrayOf(elementCount));
         }
-        if (type == IrType.POINTER) {
-            return TypeLayout.POINTER_SIZE_BYTES;
-        }
-        return TypeLayout.sizeOf(minic.compiler.type.MiniType.INT);
+        return type.sizeBytes();
     }
 }

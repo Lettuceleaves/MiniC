@@ -17,6 +17,18 @@ final class IrTypeLowerer {
         if (type.isStruct()) {
             return IrType.STRUCT;
         }
+        if (type.equals(MiniType.BOOL)) {
+            return IrType.BOOL;
+        }
+        if (type.equals(MiniType.CHAR)) {
+            return IrType.CHAR;
+        }
+        if (type.equals(MiniType.LONG)) {
+            return IrType.LONG;
+        }
+        if (type.isNullPointer()) {
+            return IrType.POINTER;
+        }
         return IrType.INT;
     }
 

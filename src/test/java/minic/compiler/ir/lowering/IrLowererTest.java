@@ -412,6 +412,61 @@ class IrLowererTest {
     }
 
     @Test
+    void lowersScalarWidthsAndNullConstants() {
+        Program program = parse("""
+                long idLong(long value) { return value; }
+                int main() {
+                    bool flag = true;
+                    char tag = 'a';
+                    long count = 1L + 2L;
+                    int *missing = NULL;
+                    return idLong(count) == 3L;
+                }
+                """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+
+        IrModule module = new IrLowerer().lower(program, semanticResult);
+
+        IrFunction idLong = module.findFunction("idLong").orElseThrow();
+        assertThat(idLong.parameters()).singleElement().satisfies(parameter ->
+                assertThat(parameter.type()).isEqualTo(IrType.LONG));
+
+        IrFunction main = module.findFunction("main").orElseThrow();
+        assertThat(main.blocks().getFirst().instructions())
+                .filteredOn(IrStoreLocalInstruction.class::isInstance)
+                .map(IrStoreLocalInstruction.class::cast)
+                .satisfiesExactly(
+                        store -> {
+                            assertThat(store.local().type()).isEqualTo(IrType.BOOL);
+                            assertThat(store.value()).isEqualTo(new IrConstant(1, IrType.BOOL));
+                        },
+                        store -> {
+                            assertThat(store.local().type()).isEqualTo(IrType.CHAR);
+                            assertThat(store.value()).isEqualTo(new IrConstant('a', IrType.CHAR));
+                        },
+                        store -> {
+                            assertThat(store.local().type()).isEqualTo(IrType.LONG);
+                            assertThat(store.value().type()).isEqualTo(IrType.LONG);
+                        },
+                        store -> {
+                            assertThat(store.local().type()).isEqualTo(IrType.POINTER);
+                            assertThat(store.value()).isEqualTo(new IrConstant(0, IrType.POINTER));
+                        }
+                );
+        assertThat(main.blocks().getFirst().instructions())
+                .filteredOn(IrBinaryInstruction.class::isInstance)
+                .map(IrBinaryInstruction.class::cast)
+                .extracting(binary -> binary.result().type())
+                .contains(IrType.LONG, IrType.INT);
+        assertThat(main.blocks().getFirst().instructions())
+                .filteredOn(IrCallInstruction.class::isInstance)
+                .map(IrCallInstruction.class::cast)
+                .singleElement()
+                .satisfies(call -> assertThat(call.result().type()).isEqualTo(IrType.LONG));
+    }
+
+    @Test
     void lowersAddressOfDereferenceAndPointerStore() {
         Program program = parse("""
                 int main() {

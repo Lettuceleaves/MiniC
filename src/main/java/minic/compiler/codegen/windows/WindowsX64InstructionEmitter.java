@@ -43,7 +43,7 @@ final class WindowsX64InstructionEmitter {
                         .append(argumentRegister(parameter.type(), index)).append(System.lineSeparator());
             } else {
                 int stackOffset = WindowsX64CallingConvention.incomingStackArgumentOffset(index);
-                String register = registerForType(parameter.type());
+                String register = fullRegisterForType(parameter.type());
                 builder.append("    mov ").append(register).append(", ")
                         .append(memoryPrefix(parameter.type())).append(" [rbp+").append(stackOffset).append("]")
                         .append(System.lineSeparator());
@@ -65,7 +65,7 @@ final class WindowsX64InstructionEmitter {
                         .append(", 0").append(System.lineSeparator());
             }
             case IrStoreLocalInstruction storeLocal -> {
-                String register = registerForType(storeLocal.local().type());
+                String register = storeLocalRegister(storeLocal.local().type());
                 valueEmitter.emitLoadValue(builder, storeLocal.value(), register);
                 builder.append("    mov ").append(frame.localSlot(storeLocal.local()))
                         .append(", ").append(register).append(System.lineSeparator());
@@ -79,11 +79,9 @@ final class WindowsX64InstructionEmitter {
                         .append(System.lineSeparator());
             }
             case IrLoadLocalInstruction loadLocal -> {
-                String register = registerForType(loadLocal.result().type());
-                builder.append("    mov ").append(register).append(", ").append(frame.localSlot(loadLocal.local()))
-                        .append(System.lineSeparator());
+                emitLoadMemoryToRegister(builder, frame.localSlot(loadLocal.local()), loadLocal.local().type(), "rcx");
                 builder.append("    mov ").append(frame.temporarySlot(loadLocal.result()))
-                        .append(", ").append(register).append(System.lineSeparator());
+                        .append(", ").append(storeValueRegister(loadLocal.result().type())).append(System.lineSeparator());
             }
             case IrCheckNonZeroInstruction checkNonZero -> {
                 valueEmitter.emitLoadValue(builder, checkNonZero.value(), "eax");
@@ -117,11 +115,14 @@ final class WindowsX64InstructionEmitter {
             }
             case IrLoadPointerInstruction loadPointer -> {
                 valueEmitter.emitLoadValue(builder, loadPointer.address(), "rax");
-                builder.append("    mov ").append(registerForType(loadPointer.result().type()))
-                        .append(", ").append(memoryPrefix(loadPointer.result().type()))
-                        .append(" [rax]").append(System.lineSeparator());
+                emitLoadMemoryToRegister(
+                        builder,
+                        memoryPrefix(loadPointer.result().type()) + " [rax]",
+                        loadPointer.result().type(),
+                        "rax"
+                );
                 builder.append("    mov ").append(frame.temporarySlot(loadPointer.result()))
-                        .append(", ").append(registerForType(loadPointer.result().type()))
+                        .append(", ").append(valueEmitter.storeRegister("rax", loadPointer.result().type()))
                         .append(System.lineSeparator());
             }
             case IrStorePointerInstruction storePointer -> {
@@ -136,7 +137,7 @@ final class WindowsX64InstructionEmitter {
             case IrBranchInstruction branch -> emitBranch(builder, functionName, branch);
             case IrJumpInstruction jump -> emitJump(builder, functionName, jump.targetLabel());
             case IrReturnInstruction returnInstruction -> {
-                valueEmitter.emitLoadValue(builder, returnInstruction.value(), "eax");
+                valueEmitter.emitLoadValue(builder, returnInstruction.value(), returnRegister(returnInstruction.value().type()));
                 builder.append("    jmp ").append(epilogueLabel).append(System.lineSeparator());
             }
             default -> throw new IllegalArgumentException("unsupported IR instruction: "
@@ -161,31 +162,38 @@ final class WindowsX64InstructionEmitter {
     }
 
     private void emitBinary(StringBuilder builder, IrBinaryInstruction binary) {
-        valueEmitter.emitLoadValue(builder, binary.left(), "eax");
+        IrType operationType = binaryOperationType(binary);
+        String leftRegister = arithmeticRegister("rax", operationType);
+        String rightRegister = arithmeticRegister("rcx", operationType);
+        valueEmitter.emitLoadValue(builder, binary.left(), leftRegister);
         builder.append("    push rax").append(System.lineSeparator());
-        valueEmitter.emitLoadValue(builder, binary.right(), "ecx");
+        valueEmitter.emitLoadValue(builder, binary.right(), rightRegister);
         builder.append("    pop rax").append(System.lineSeparator());
         switch (binary.operator()) {
-            case ADD -> builder.append("    add eax, ecx").append(System.lineSeparator());
-            case SUBTRACT -> builder.append("    sub eax, ecx").append(System.lineSeparator());
-            case MULTIPLY -> builder.append("    imul eax, ecx").append(System.lineSeparator());
+            case ADD -> builder.append("    add ").append(leftRegister).append(", ").append(rightRegister)
+                    .append(System.lineSeparator());
+            case SUBTRACT -> builder.append("    sub ").append(leftRegister).append(", ").append(rightRegister)
+                    .append(System.lineSeparator());
+            case MULTIPLY -> builder.append("    imul ").append(leftRegister).append(", ").append(rightRegister)
+                    .append(System.lineSeparator());
             case DIVIDE -> {
-                builder.append("    cdq").append(System.lineSeparator());
-                builder.append("    idiv ecx").append(System.lineSeparator());
+                builder.append(operationType == IrType.LONG ? "    cqo" : "    cdq").append(System.lineSeparator());
+                builder.append("    idiv ").append(rightRegister).append(System.lineSeparator());
             }
-            case EQUAL -> emitComparison(builder, "sete");
-            case NOT_EQUAL -> emitComparison(builder, "setne");
-            case LESS_THAN -> emitComparison(builder, "setl");
-            case LESS_EQUAL -> emitComparison(builder, "setle");
-            case GREATER_THAN -> emitComparison(builder, "setg");
-            case GREATER_EQUAL -> emitComparison(builder, "setge");
+            case EQUAL -> emitComparison(builder, "sete", leftRegister, rightRegister);
+            case NOT_EQUAL -> emitComparison(builder, "setne", leftRegister, rightRegister);
+            case LESS_THAN -> emitComparison(builder, "setl", leftRegister, rightRegister);
+            case LESS_EQUAL -> emitComparison(builder, "setle", leftRegister, rightRegister);
+            case GREATER_THAN -> emitComparison(builder, "setg", leftRegister, rightRegister);
+            case GREATER_EQUAL -> emitComparison(builder, "setge", leftRegister, rightRegister);
         }
         builder.append("    mov ").append(frame.temporarySlot(binary.result()))
-                .append(", eax").append(System.lineSeparator());
+                .append(", ").append(valueEmitter.storeRegister("rax", binary.result().type()))
+                .append(System.lineSeparator());
     }
 
-    private void emitComparison(StringBuilder builder, String setInstruction) {
-        builder.append("    cmp eax, ecx").append(System.lineSeparator());
+    private void emitComparison(StringBuilder builder, String setInstruction, String leftRegister, String rightRegister) {
+        builder.append("    cmp ").append(leftRegister).append(", ").append(rightRegister).append(System.lineSeparator());
         builder.append("    ").append(setInstruction).append(" al").append(System.lineSeparator());
         builder.append("    movzx eax, al").append(System.lineSeparator());
     }
@@ -198,7 +206,7 @@ final class WindowsX64InstructionEmitter {
                 ))
                 .append(System.lineSeparator());
         builder.append("    mov ").append(frame.temporarySlot(call.result()))
-                .append(", eax").append(System.lineSeparator());
+                .append(", ").append(returnRegister(call.result().type())).append(System.lineSeparator());
     }
 
     private void emitIndirectCall(StringBuilder builder, IrIndirectCallInstruction call) {
@@ -206,23 +214,18 @@ final class WindowsX64InstructionEmitter {
         valueEmitter.emitLoadValue(builder, call.calleeAddress(), "rax");
         builder.append("    call rax").append(System.lineSeparator());
         builder.append("    mov ").append(frame.temporarySlot(call.result()))
-                .append(", eax").append(System.lineSeparator());
+                .append(", ").append(returnRegister(call.result().type())).append(System.lineSeparator());
     }
 
     private void emitCallArguments(StringBuilder builder, java.util.List<minic.compiler.ir.value.IrValue> arguments) {
         for (int index = WindowsX64CallingConvention.INTEGER_ARGUMENT_REGISTERS.size();
              index < arguments.size();
              index++) {
-            if (arguments.get(index).type() == IrType.POINTER) {
-                valueEmitter.emitLoadValue(builder, arguments.get(index), "rax");
-                builder.append("    mov QWORD PTR [rsp+")
-                        .append(WindowsX64CallingConvention.outgoingStackArgumentOffset(index))
-                        .append("], rax").append(System.lineSeparator());
-            } else {
-                valueEmitter.emitLoadValue(builder, arguments.get(index), "eax");
-                builder.append("    mov ").append(frame.outgoingStackArgumentSlot(index)).append(", eax")
-                        .append(System.lineSeparator());
-            }
+            IrType type = arguments.get(index).type();
+            String register = stackArgumentRegister(type);
+            valueEmitter.emitLoadValue(builder, arguments.get(index), register);
+            builder.append("    mov ").append(frame.outgoingStackArgumentSlot(index, type))
+                    .append(", ").append(register).append(System.lineSeparator());
         }
         for (int index = 0; index < arguments.size(); index++) {
             if (WindowsX64CallingConvention.isRegisterArgument(index)) {
@@ -236,31 +239,83 @@ final class WindowsX64InstructionEmitter {
     }
 
     private String argumentRegister(IrType type, int argumentIndex) {
-        if (type == IrType.POINTER) {
-            return WindowsX64CallingConvention.pointerArgumentRegister(argumentIndex);
-        }
-        return WindowsX64CallingConvention.integerArgumentRegister(argumentIndex);
-    }
-
-    private String registerForType(IrType type) {
-        if (type == IrType.POINTER) {
-            return "rax";
-        }
-        return "eax";
+        return switch (type) {
+            case BOOL, CHAR -> byteArgumentRegister(argumentIndex);
+            case LONG, POINTER -> WindowsX64CallingConvention.pointerArgumentRegister(argumentIndex);
+            case INT, INT_ARRAY, STRUCT -> WindowsX64CallingConvention.integerArgumentRegister(argumentIndex);
+        };
     }
 
     private String memoryPrefix(IrType type) {
-        if (type == IrType.POINTER) {
-            return "QWORD PTR";
-        }
-        return "DWORD PTR";
+        return valueEmitter.memoryPrefix(type);
     }
 
     private String storeValueRegister(IrType type) {
-        if (type == IrType.POINTER) {
-            return "rcx";
+        return valueEmitter.storeRegister("rcx", type);
+    }
+
+    private String storeLocalRegister(IrType type) {
+        return switch (type) {
+            case LONG, POINTER -> valueEmitter.storeRegister("rax", type);
+            case BOOL, CHAR, INT, INT_ARRAY, STRUCT -> valueEmitter.storeRegister("rcx", type);
+        };
+    }
+
+    private String fullRegisterForType(IrType type) {
+        return switch (type) {
+            case BOOL, CHAR, INT, INT_ARRAY, STRUCT -> "eax";
+            case LONG, POINTER -> "rax";
+        };
+    }
+
+    private String returnRegister(IrType type) {
+        return valueEmitter.storeRegister("rax", type);
+    }
+
+    private String stackArgumentRegister(IrType type) {
+        return valueEmitter.storeRegister("rax", type);
+    }
+
+    private String arithmeticRegister(String preferredRegister, IrType type) {
+        return valueEmitter.arithmeticRegister(preferredRegister, type);
+    }
+
+    private String byteArgumentRegister(int argumentIndex) {
+        return switch (WindowsX64CallingConvention.pointerArgumentRegister(argumentIndex)) {
+            case "rcx" -> "cl";
+            case "rdx" -> "dl";
+            case "r8" -> "r8b";
+            case "r9" -> "r9b";
+            default -> throw new IllegalArgumentException("unsupported argument index: " + argumentIndex);
+        };
+    }
+
+    private IrType binaryOperationType(IrBinaryInstruction binary) {
+        if (binary.left().type() == IrType.LONG || binary.right().type() == IrType.LONG
+                || binary.left().type() == IrType.POINTER || binary.right().type() == IrType.POINTER) {
+            return IrType.LONG;
         }
-        return "ecx";
+        return IrType.INT;
+    }
+
+    private void emitLoadMemoryToRegister(
+            StringBuilder builder,
+            String source,
+            IrType type,
+            String preferredRegister
+    ) {
+        if (type == IrType.BOOL) {
+            builder.append("    movzx ").append(valueEmitter.intRegisterName(preferredRegister))
+                    .append(", ").append(source).append(System.lineSeparator());
+            return;
+        }
+        if (type == IrType.CHAR) {
+            builder.append("    movsx ").append(valueEmitter.intRegisterName(preferredRegister))
+                    .append(", ").append(source).append(System.lineSeparator());
+            return;
+        }
+        builder.append("    mov ").append(valueEmitter.loadRegister(preferredRegister, type))
+                .append(", ").append(source).append(System.lineSeparator());
     }
 
     private void emitBranch(StringBuilder builder, String functionName, IrBranchInstruction branch) {

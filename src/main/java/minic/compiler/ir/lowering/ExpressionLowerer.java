@@ -2,13 +2,19 @@ package minic.compiler.ir.lowering;
 
 import minic.compiler.ast.expr.AssignmentExpr;
 import minic.compiler.ast.expr.BinaryExpr;
+import minic.compiler.ast.expr.BoolLiteralExpr;
 import minic.compiler.ast.expr.CallExpr;
+import minic.compiler.ast.expr.CharLiteralExpr;
+import minic.compiler.ast.expr.DoubleLiteralExpr;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.FieldAccessExpr;
+import minic.compiler.ast.expr.FloatLiteralExpr;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
+import minic.compiler.ast.expr.LongLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.expr.NullLiteralExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
@@ -51,8 +57,23 @@ final class ExpressionLowerer {
     }
 
     IrValue lowerExpression(Expression expression) {
+        if (expression instanceof BoolLiteralExpr boolLiteralExpr) {
+            return new IrConstant(boolLiteralExpr.value() ? 1 : 0, IrType.BOOL);
+        }
+        if (expression instanceof CharLiteralExpr charLiteralExpr) {
+            return new IrConstant(charLiteralExpr.value(), IrType.CHAR);
+        }
         if (expression instanceof IntegerLiteralExpr integerLiteralExpr) {
             return new IrConstant(integerLiteralExpr.value());
+        }
+        if (expression instanceof LongLiteralExpr longLiteralExpr) {
+            return new IrConstant(longLiteralExpr.value(), IrType.LONG);
+        }
+        if (expression instanceof FloatLiteralExpr || expression instanceof DoubleLiteralExpr) {
+            throw new IllegalArgumentException("floating lowering is scheduled for A144");
+        }
+        if (expression instanceof NullLiteralExpr) {
+            return new IrConstant(0, IrType.POINTER);
         }
         if (expression instanceof StringLiteralExpr stringLiteralExpr) {
             return stringLiteralRegistry.define(stringLiteralExpr.value());
@@ -103,7 +124,7 @@ final class ExpressionLowerer {
         if (expression instanceof BinaryExpr binaryExpr) {
             IrValue left = lowerExpression(binaryExpr.left());
             IrValue right = lowerExpression(binaryExpr.right());
-            IrTemporary result = builder.newTemporary();
+            IrTemporary result = builder.newTemporary(irTypeOf(binaryExpr));
             if (binaryExpr.operator() == TokenKind.SLASH) {
                 builder.addInstruction(new IrCheckNonZeroInstruction(right, binaryExpr.range()));
             }
@@ -121,7 +142,7 @@ final class ExpressionLowerer {
             for (Expression argument : callExpr.arguments()) {
                 arguments.add(lowerExpression(argument));
             }
-            IrTemporary result = builder.newTemporary();
+            IrTemporary result = builder.newTemporary(irTypeOf(callExpr));
             if (isDirectFunctionCall(callExpr)) {
                 builder.addInstruction(new IrCallInstruction(result, callExpr.calleeName(), arguments, callExpr.range()));
             } else {
