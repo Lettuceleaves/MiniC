@@ -7,15 +7,46 @@ import java.util.Objects;
  * MiniC 前端类型。
  */
 public sealed interface MiniType permits
-        MiniType.IntType,
+        MiniType.ScalarType,
+        MiniType.NullPointerType,
         MiniType.PointerType,
         MiniType.ArrayType,
         MiniType.StructType,
         MiniType.FunctionType {
     /**
+     * MiniC bool 类型。
+     */
+    MiniType BOOL = new ScalarType(ScalarKind.BOOL);
+
+    /**
+     * MiniC 有符号 char 类型。
+     */
+    MiniType CHAR = new ScalarType(ScalarKind.CHAR);
+
+    /**
      * MiniC int 类型。
      */
-    MiniType INT = new IntType();
+    MiniType INT = new ScalarType(ScalarKind.INT);
+
+    /**
+     * MiniC long 类型。
+     */
+    MiniType LONG = new ScalarType(ScalarKind.LONG);
+
+    /**
+     * MiniC float 类型。
+     */
+    MiniType FLOAT = new ScalarType(ScalarKind.FLOAT);
+
+    /**
+     * MiniC double 类型。
+     */
+    MiniType DOUBLE = new ScalarType(ScalarKind.DOUBLE);
+
+    /**
+     * NULL 空指针常量类型。
+     */
+    MiniType NULL = new NullPointerType();
 
     /**
      * 返回指向当前类型的指针类型。
@@ -94,6 +125,42 @@ public sealed interface MiniType permits
     }
 
     /**
+     * 判断当前类型是否为基础标量。
+     *
+     * @return 基础标量返回 {@code true}
+     */
+    default boolean isScalar() {
+        return this instanceof ScalarType;
+    }
+
+    /**
+     * 判断当前类型是否为整数标量。
+     *
+     * @return bool、char、int、long 返回 {@code true}
+     */
+    default boolean isIntegerScalar() {
+        return this instanceof ScalarType scalarType && scalarType.kind().integer();
+    }
+
+    /**
+     * 判断当前类型是否为浮点标量。
+     *
+     * @return float、double 返回 {@code true}
+     */
+    default boolean isFloatingScalar() {
+        return this instanceof ScalarType scalarType && scalarType.kind().floating();
+    }
+
+    /**
+     * 判断当前类型是否为空指针常量类型。
+     *
+     * @return NULL 类型返回 {@code true}
+     */
+    default boolean isNullPointer() {
+        return this instanceof NullPointerType;
+    }
+
+    /**
      * 返回当前类型的指向元素类型。
      *
      * @return 指向元素类型
@@ -158,13 +225,90 @@ public sealed interface MiniType permits
         throw new IllegalStateException("type is not a function: " + this);
     }
 
+    enum ScalarKind {
+        BOOL("bool", 1, 1, false, true, false),
+        CHAR("char", 1, 1, true, true, false),
+        INT("int", 4, 4, true, true, false),
+        LONG("long", 8, 8, true, true, false),
+        FLOAT("float", 4, 4, true, false, true),
+        DOUBLE("double", 8, 8, true, false, true);
+
+        private final String displayName;
+        private final int sizeBytes;
+        private final int alignmentBytes;
+        private final boolean signed;
+        private final boolean integer;
+        private final boolean floating;
+
+        ScalarKind(
+                String displayName,
+                int sizeBytes,
+                int alignmentBytes,
+                boolean signed,
+                boolean integer,
+                boolean floating
+        ) {
+            this.displayName = displayName;
+            this.sizeBytes = sizeBytes;
+            this.alignmentBytes = alignmentBytes;
+            this.signed = signed;
+            this.integer = integer;
+            this.floating = floating;
+        }
+
+        public String displayName() {
+            return displayName;
+        }
+
+        public int sizeBytes() {
+            return sizeBytes;
+        }
+
+        public int alignmentBytes() {
+            return alignmentBytes;
+        }
+
+        public boolean signed() {
+            return signed;
+        }
+
+        public boolean integer() {
+            return integer;
+        }
+
+        public boolean floating() {
+            return floating;
+        }
+    }
+
     /**
-     * MiniC int 类型。
+     * MiniC 基础标量类型。
+     *
+     * @param kind 标量种类
      */
-    record IntType() implements MiniType {
+    record ScalarType(ScalarKind kind) implements MiniType {
+        /**
+         * 创建基础标量类型。
+         *
+         * @param kind 标量种类
+         */
+        public ScalarType {
+            Objects.requireNonNull(kind, "kind");
+        }
+
         @Override
         public String toString() {
-            return "int";
+            return kind.displayName();
+        }
+    }
+
+    /**
+     * MiniC NULL 空指针常量类型。
+     */
+    record NullPointerType() implements MiniType {
+        @Override
+        public String toString() {
+            return "NULL";
         }
     }
 

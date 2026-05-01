@@ -1,5 +1,6 @@
 package minic.compiler.ir.model;
 
+import minic.compiler.type.TypeLayout;
 import minic.source.SourceRange;
 
 import java.util.Objects;
@@ -78,11 +79,11 @@ public record IrLocal(
 
     private static int defaultSizeBytes(IrType type, int elementCount) {
         if (type == IrType.INT_ARRAY) {
-            return 4 * elementCount;
+            return TypeLayout.sizeOf(minic.compiler.type.MiniType.INT.arrayOf(elementCount));
         }
         if (type == IrType.POINTER) {
-            return 8;
+            return TypeLayout.POINTER_SIZE_BYTES;
         }
-        return 4;
+        return TypeLayout.sizeOf(minic.compiler.type.MiniType.INT);
     }
 }

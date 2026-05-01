@@ -1,6 +1,8 @@
 package minic.compiler.semantic;
 
 import minic.compiler.ast.decl.Program;
+import minic.compiler.ast.decl.StructDecl;
+import minic.compiler.ast.decl.StructField;
 import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.IndexExpr;
@@ -17,6 +19,7 @@ import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParseResult;
 import minic.compiler.parser.Parser;
 import minic.source.SourceFile;
+import minic.source.SourceRange;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -598,6 +601,62 @@ class SemanticAnalyzerTest {
                 assertThat(field.offset()).isEqualTo(16);
                 assertThat(field.size()).isEqualTo(12);
                 assertThat(field.alignment()).isEqualTo(4);
+            });
+        });
+    }
+
+    @Test
+    void computesStructLayoutFromExtendedScalarTypes() {
+        SourceFile sourceFile = new SourceFile("layout.mc", "");
+        SourceRange range = new SourceRange(sourceFile, 0, 0);
+        Program program = new Program(
+                java.util.List.of(new StructDecl(
+                        "Mixed",
+                        java.util.List.of(
+                                new StructField("flag", MiniType.BOOL, range),
+                                new StructField("tag", MiniType.CHAR, range),
+                                new StructField("count", MiniType.LONG, range),
+                                new StructField("ratio", MiniType.FLOAT, range),
+                                new StructField("score", MiniType.DOUBLE, range)
+                        ),
+                        range
+                )),
+                java.util.List.of(),
+                range
+        );
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("缺少 main 函数");
+        assertThat(result.structLayout("Mixed")).hasValueSatisfying(layout -> {
+            assertThat(layout.size()).isEqualTo(32);
+            assertThat(layout.alignment()).isEqualTo(8);
+            assertThat(layout.field("flag")).hasValueSatisfying(field -> {
+                assertThat(field.offset()).isEqualTo(0);
+                assertThat(field.size()).isEqualTo(1);
+                assertThat(field.alignment()).isEqualTo(1);
+            });
+            assertThat(layout.field("tag")).hasValueSatisfying(field -> {
+                assertThat(field.offset()).isEqualTo(1);
+                assertThat(field.size()).isEqualTo(1);
+                assertThat(field.alignment()).isEqualTo(1);
+            });
+            assertThat(layout.field("count")).hasValueSatisfying(field -> {
+                assertThat(field.offset()).isEqualTo(8);
+                assertThat(field.size()).isEqualTo(8);
+                assertThat(field.alignment()).isEqualTo(8);
+            });
+            assertThat(layout.field("ratio")).hasValueSatisfying(field -> {
+                assertThat(field.offset()).isEqualTo(16);
+                assertThat(field.size()).isEqualTo(4);
+                assertThat(field.alignment()).isEqualTo(4);
+            });
+            assertThat(layout.field("score")).hasValueSatisfying(field -> {
+                assertThat(field.offset()).isEqualTo(24);
+                assertThat(field.size()).isEqualTo(8);
+                assertThat(field.alignment()).isEqualTo(8);
             });
         });
     }

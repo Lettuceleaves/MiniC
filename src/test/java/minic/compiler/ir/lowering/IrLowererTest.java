@@ -1,6 +1,10 @@
 package minic.compiler.ir.lowering;
 
+import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Program;
+import minic.compiler.ast.stmt.BlockStmt;
+import minic.compiler.ast.stmt.ReturnStmt;
+import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrBinaryOperator;
 import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
@@ -34,7 +38,9 @@ import minic.compiler.parser.ParseResult;
 import minic.compiler.parser.Parser;
 import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.semantic.SemanticResult;
+import minic.compiler.type.MiniType;
 import minic.source.SourceFile;
+import minic.source.SourceRange;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -382,6 +388,27 @@ class IrLowererTest {
             assertThat(returnLoad.local()).isEqualTo(declare.local());
             assertThat(returnInstruction.value()).isEqualTo(returnLoad.result());
         });
+    }
+
+    @Test
+    void lowersLocalStorageSizeFromDeclaredTypeLayout() {
+        SourceFile sourceFile = new SourceFile("manual-lower.mc", "");
+        SourceRange range = new SourceRange(sourceFile, 0, 0);
+        Program program = new Program(java.util.List.of(new FunctionDecl(
+                "main",
+                java.util.List.of(),
+                new BlockStmt(java.util.List.of(
+                        new VarDeclStmt("value", MiniType.LONG, null, range),
+                        new ReturnStmt(new minic.compiler.ast.expr.IntegerLiteralExpr(0, "0", range), range)
+                ), range),
+                false,
+                range
+        )), range);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        IrDeclareLocalInstruction declare = (IrDeclareLocalInstruction) main.blocks().getFirst().instructions().getFirst();
+        assertThat(declare.local().sizeBytes()).isEqualTo(8);
     }
 
     @Test

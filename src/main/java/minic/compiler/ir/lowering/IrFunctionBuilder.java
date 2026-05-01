@@ -12,6 +12,7 @@ import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.semantic.StructLayout;
 import minic.compiler.type.MiniType;
+import minic.compiler.type.TypeLayout;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -115,12 +116,12 @@ final class IrFunctionBuilder {
             return layout.size() * declaredType.arrayLength();
         }
         if (irType == IrType.INT_ARRAY) {
-            return 4 * declaredType.arrayLength();
+            return TypeLayout.sizeOf(declaredType);
         }
         if (irType == IrType.POINTER) {
-            return 8;
+            return TypeLayout.sizeOf(declaredType);
         }
-        return 4;
+        return TypeLayout.sizeOf(declaredType);
     }
 
     IrLocal resolveLocal(String name) {

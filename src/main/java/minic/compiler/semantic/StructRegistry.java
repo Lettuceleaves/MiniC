@@ -4,6 +4,7 @@ import minic.compiler.ast.decl.Program;
 import minic.compiler.ast.decl.StructDecl;
 import minic.compiler.ast.decl.StructField;
 import minic.compiler.type.MiniType;
+import minic.compiler.type.TypeLayout;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -150,13 +151,13 @@ final class StructRegistry {
             return sizeOf(type.elementType()) * type.arrayLength();
         }
         if (type.isPointer()) {
-            return 8;
+            return TypeLayout.sizeOf(type);
         }
         if (type instanceof MiniType.StructType structType) {
             StructLayout layout = layoutOf(structType.name());
             return layout != null ? layout.size() : 1;
         }
-        return 4;
+        return TypeLayout.sizeOf(type);
     }
 
     private int alignmentOf(MiniType type) {
@@ -164,13 +165,13 @@ final class StructRegistry {
             return alignmentOf(type.elementType());
         }
         if (type.isPointer()) {
-            return 8;
+            return TypeLayout.alignmentOf(type);
         }
         if (type instanceof MiniType.StructType structType) {
             StructLayout layout = layoutOf(structType.name());
             return layout != null ? layout.alignment() : 1;
         }
-        return 4;
+        return TypeLayout.alignmentOf(type);
     }
 
     private int alignTo(int value, int alignment) {

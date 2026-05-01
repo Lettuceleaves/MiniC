@@ -20,6 +20,30 @@ class MiniTypeTest {
     }
 
     @Test
+    void representsScalarTypesAndNullPointerType() {
+        assertThat(MiniType.BOOL.toString()).isEqualTo("bool");
+        assertThat(MiniType.CHAR.toString()).isEqualTo("char");
+        assertThat(MiniType.INT.toString()).isEqualTo("int");
+        assertThat(MiniType.LONG.toString()).isEqualTo("long");
+        assertThat(MiniType.FLOAT.toString()).isEqualTo("float");
+        assertThat(MiniType.DOUBLE.toString()).isEqualTo("double");
+        assertThat(MiniType.NULL.toString()).isEqualTo("NULL");
+
+        assertThat(MiniType.BOOL.isIntegerScalar()).isTrue();
+        assertThat(MiniType.CHAR.isIntegerScalar()).isTrue();
+        assertThat(MiniType.LONG.isIntegerScalar()).isTrue();
+        assertThat(MiniType.FLOAT.isFloatingScalar()).isTrue();
+        assertThat(MiniType.DOUBLE.isFloatingScalar()).isTrue();
+        assertThat(MiniType.NULL.isNullPointer()).isTrue();
+        assertThat(((MiniType.ScalarType) MiniType.BOOL).kind().signed()).isFalse();
+        assertThat(((MiniType.ScalarType) MiniType.CHAR).kind().signed()).isTrue();
+        assertThat(((MiniType.ScalarType) MiniType.INT).kind().signed()).isTrue();
+        assertThat(((MiniType.ScalarType) MiniType.LONG).kind().signed()).isTrue();
+        assertThat(((MiniType.ScalarType) MiniType.FLOAT).kind().signed()).isTrue();
+        assertThat(((MiniType.ScalarType) MiniType.DOUBLE).kind().signed()).isTrue();
+    }
+
+    @Test
     void representsFixedLengthArrayTypes() {
         MiniType arrayType = MiniType.INT.arrayOf(3);
 
