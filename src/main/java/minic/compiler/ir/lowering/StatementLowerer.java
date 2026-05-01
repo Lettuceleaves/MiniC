@@ -17,6 +17,7 @@ import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.model.IrLocal;
+import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrValue;
 import minic.compiler.type.MiniType;
 
@@ -27,15 +28,19 @@ import java.util.Map;
 final class StatementLowerer {
     private final IrFunctionBuilder builder;
     private final ExpressionLowerer expressionLowerer;
+    private final IrType returnType;
     private final Deque<LoopTarget> loopTargets = new ArrayDeque<>();
 
     StatementLowerer(
             IrFunctionBuilder builder,
             StringLiteralRegistry stringLiteralRegistry,
-            Map<Expression, MiniType> expressionTypes
+            Map<Expression, MiniType> expressionTypes,
+            Map<String, IrFunctionSignature> functionSignatures,
+            IrType returnType
     ) {
         this.builder = builder;
-        expressionLowerer = new ExpressionLowerer(builder, stringLiteralRegistry, expressionTypes);
+        this.returnType = returnType;
+        expressionLowerer = new ExpressionLowerer(builder, stringLiteralRegistry, expressionTypes, functionSignatures);
     }
 
     void lowerBlock(BlockStmt block, boolean createChildScope) {
@@ -54,7 +59,11 @@ final class StatementLowerer {
         if (statement instanceof ReturnStmt returnStmt) {
             Expression expression = returnStmt.expressionOptional()
                     .orElseThrow(() -> new IllegalArgumentException("return statement must have a value"));
-            builder.addInstruction(new IrReturnInstruction(expressionLowerer.lowerExpression(expression), returnStmt.range()));
+            IrValue value = expressionLowerer.lowerExpression(expression);
+            builder.addInstruction(new IrReturnInstruction(
+                    expressionLowerer.castForTarget(value, returnType, returnStmt.range()),
+                    returnStmt.range()
+            ));
             return;
         }
         if (statement instanceof BlockStmt blockStmt) {
@@ -70,8 +79,12 @@ final class StatementLowerer {
             builder.addInstruction(new IrDeclareLocalInstruction(local, varDeclStmt.range()));
             if (!varDeclStmt.type().isArray()) {
                 varDeclStmt.initializerOptional().ifPresent(initializer -> {
-                IrValue value = expressionLowerer.lowerExpression(initializer);
-                builder.addInstruction(new IrStoreLocalInstruction(local, value, varDeclStmt.range()));
+                    IrValue value = expressionLowerer.lowerExpression(initializer);
+                    builder.addInstruction(new IrStoreLocalInstruction(
+                            local,
+                            expressionLowerer.castForTarget(value, local.type(), varDeclStmt.range()),
+                            varDeclStmt.range()
+                    ));
                 });
             }
             return;

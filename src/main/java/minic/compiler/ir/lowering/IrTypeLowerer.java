@@ -26,6 +26,12 @@ final class IrTypeLowerer {
         if (type.equals(MiniType.LONG)) {
             return IrType.LONG;
         }
+        if (type.equals(MiniType.FLOAT)) {
+            return IrType.FLOAT;
+        }
+        if (type.equals(MiniType.DOUBLE)) {
+            return IrType.DOUBLE;
+        }
         if (type.isNullPointer()) {
             return IrType.POINTER;
         }

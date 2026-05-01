@@ -17,17 +17,20 @@ final class IrFunctionLowerer {
     private final StringLiteralRegistry stringLiteralRegistry;
     private final Map<String, StructLayout> structLayouts;
     private final Map<Expression, MiniType> expressionTypes;
+    private final Map<String, IrFunctionSignature> functionSignatures;
 
     IrFunctionLowerer(
             FunctionDecl function,
             StringLiteralRegistry stringLiteralRegistry,
             Map<String, StructLayout> structLayouts,
-            Map<Expression, MiniType> expressionTypes
+            Map<Expression, MiniType> expressionTypes,
+            Map<String, IrFunctionSignature> functionSignatures
     ) {
         this.function = Objects.requireNonNull(function, "function");
         this.stringLiteralRegistry = Objects.requireNonNull(stringLiteralRegistry, "stringLiteralRegistry");
         this.structLayouts = Map.copyOf(structLayouts);
         this.expressionTypes = Map.copyOf(expressionTypes);
+        this.functionSignatures = Map.copyOf(functionSignatures);
     }
 
     IrFunction lower() {
@@ -44,7 +47,7 @@ final class IrFunctionLowerer {
         }
 
         builder.pushLocalScope();
-        new StatementLowerer(builder, stringLiteralRegistry, expressionTypes)
+        new StatementLowerer(builder, stringLiteralRegistry, expressionTypes, functionSignatures, IrTypeLowerer.lower(function.returnType()))
                 .lowerBlock(function.bodyOptional().orElseThrow(), false);
         builder.popLocalScope();
         return new IrFunction(function.name(), parameters, builder.buildBlocks(), function.range());

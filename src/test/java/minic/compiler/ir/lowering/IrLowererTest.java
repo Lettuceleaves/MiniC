@@ -10,6 +10,7 @@ import minic.compiler.ir.instruction.IrBinaryOperator;
 import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
+import minic.compiler.ir.instruction.IrCastInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
@@ -28,6 +29,7 @@ import minic.compiler.ir.model.IrModule;
 import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
+import minic.compiler.ir.value.IrFloatConstant;
 import minic.compiler.ir.value.IrFunctionAddress;
 import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrStringLiteral;
@@ -464,6 +466,50 @@ class IrLowererTest {
                 .map(IrCallInstruction.class::cast)
                 .singleElement()
                 .satisfies(call -> assertThat(call.result().type()).isEqualTo(IrType.LONG));
+    }
+
+    @Test
+    void lowersFloatingConstantsAndCasts() {
+        Program program = parse("""
+                int main() {
+                    float ratio = 1.25f;
+                    double score = ratio + 2.5;
+                    double widened = 3;
+                    return score > widened;
+                }
+                """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+
+        IrFunction main = new IrLowerer().lower(program, semanticResult).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks().getFirst().instructions())
+                .filteredOn(IrStoreLocalInstruction.class::isInstance)
+                .map(IrStoreLocalInstruction.class::cast)
+                .satisfiesExactly(
+                        store -> {
+                            assertThat(store.local().type()).isEqualTo(IrType.FLOAT);
+                            assertThat(store.value()).isEqualTo(new IrFloatConstant(1.25f));
+                        },
+                        store -> {
+                            assertThat(store.local().type()).isEqualTo(IrType.DOUBLE);
+                            assertThat(store.value().type()).isEqualTo(IrType.DOUBLE);
+                        },
+                        store -> {
+                            assertThat(store.local().type()).isEqualTo(IrType.DOUBLE);
+                            assertThat(store.value().type()).isEqualTo(IrType.DOUBLE);
+                        }
+                );
+        assertThat(main.blocks().getFirst().instructions())
+                .filteredOn(IrCastInstruction.class::isInstance)
+                .map(IrCastInstruction.class::cast)
+                .extracting(cast -> cast.result().type())
+                .contains(IrType.DOUBLE);
+        assertThat(main.blocks().getFirst().instructions())
+                .filteredOn(IrBinaryInstruction.class::isInstance)
+                .map(IrBinaryInstruction.class::cast)
+                .extracting(binary -> binary.result().type())
+                .contains(IrType.DOUBLE, IrType.INT);
     }
 
     @Test

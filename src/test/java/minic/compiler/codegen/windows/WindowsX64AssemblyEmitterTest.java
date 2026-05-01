@@ -479,6 +479,41 @@ class WindowsX64AssemblyEmitterTest {
     }
 
     @Test
+    void emitsWindowsX64AssemblyForFloatingScalarsAndArrayElements() {
+        IrModule module = lowerWithSemantic("""
+                double mix(float ratio, double score) {
+                    double widened = ratio + score;
+                    double values[2];
+                    values[1] = widened / 2.0;
+                    return values[1] > 1.0;
+                }
+
+                int main() {
+                    double result = mix(1.5f, 2.0);
+                    return result == 1.75;
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "minic$mix PROC",
+                "    movss DWORD PTR [rbp-",
+                "    movsd QWORD PTR [rbp-",
+                "    cvtss2sd xmm0, xmm0",
+                "    addsd xmm0, xmm1",
+                "    divsd xmm0, xmm1",
+                "    lea rax, [rax+rcx*8]",
+                "    ucomisd xmm0, xmm1",
+                "main PROC",
+                "    movd xmm0, eax",
+                "    movq xmm1, rax",
+                "    call minic$mix",
+                "    movsd QWORD PTR [rbp-"
+        );
+    }
+
+    @Test
     void emitsWindowsX64AssemblyForStructFieldReadAndWrite() {
         IrModule module = lowerWithSemantic("""
                 struct Point {

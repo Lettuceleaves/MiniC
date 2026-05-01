@@ -20,6 +20,7 @@ import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
+import minic.compiler.ir.instruction.IrCastInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
@@ -32,6 +33,7 @@ import minic.compiler.ir.instruction.IrStorePointerInstruction;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
+import minic.compiler.ir.value.IrFloatConstant;
 import minic.compiler.ir.value.IrFunctionAddress;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
@@ -45,15 +47,18 @@ final class ExpressionLowerer {
     private final IrFunctionBuilder builder;
     private final StringLiteralRegistry stringLiteralRegistry;
     private final Map<Expression, MiniType> expressionTypes;
+    private final Map<String, IrFunctionSignature> functionSignatures;
 
     ExpressionLowerer(
             IrFunctionBuilder builder,
             StringLiteralRegistry stringLiteralRegistry,
-            Map<Expression, MiniType> expressionTypes
+            Map<Expression, MiniType> expressionTypes,
+            Map<String, IrFunctionSignature> functionSignatures
     ) {
         this.builder = builder;
         this.stringLiteralRegistry = stringLiteralRegistry;
         this.expressionTypes = Map.copyOf(expressionTypes);
+        this.functionSignatures = Map.copyOf(functionSignatures);
     }
 
     IrValue lowerExpression(Expression expression) {
@@ -69,8 +74,11 @@ final class ExpressionLowerer {
         if (expression instanceof LongLiteralExpr longLiteralExpr) {
             return new IrConstant(longLiteralExpr.value(), IrType.LONG);
         }
-        if (expression instanceof FloatLiteralExpr || expression instanceof DoubleLiteralExpr) {
-            throw new IllegalArgumentException("floating lowering is scheduled for A144");
+        if (expression instanceof FloatLiteralExpr floatLiteralExpr) {
+            return new IrFloatConstant(floatLiteralExpr.value(), IrType.FLOAT);
+        }
+        if (expression instanceof DoubleLiteralExpr doubleLiteralExpr) {
+            return new IrFloatConstant(doubleLiteralExpr.value(), IrType.DOUBLE);
         }
         if (expression instanceof NullLiteralExpr) {
             return new IrConstant(0, IrType.POINTER);
@@ -111,7 +119,7 @@ final class ExpressionLowerer {
         }
         if (expression instanceof IndexExpr indexExpr) {
             IrValue address = lowerElementAddress(indexExpr);
-            IrTemporary result = builder.newTemporary(IrType.INT);
+            IrTemporary result = builder.newTemporary(irTypeOf(indexExpr));
             builder.addInstruction(new IrLoadPointerInstruction(result, address, indexExpr.range()));
             return result;
         }
@@ -125,6 +133,9 @@ final class ExpressionLowerer {
             IrValue left = lowerExpression(binaryExpr.left());
             IrValue right = lowerExpression(binaryExpr.right());
             IrTemporary result = builder.newTemporary(irTypeOf(binaryExpr));
+            IrType operandType = arithmeticOperandType(left.type(), right.type(), result.type());
+            left = castIfNeeded(left, operandType, binaryExpr.left().range());
+            right = castIfNeeded(right, operandType, binaryExpr.right().range());
             if (binaryExpr.operator() == TokenKind.SLASH) {
                 builder.addInstruction(new IrCheckNonZeroInstruction(right, binaryExpr.range()));
             }
@@ -144,14 +155,20 @@ final class ExpressionLowerer {
             }
             IrTemporary result = builder.newTemporary(irTypeOf(callExpr));
             if (isDirectFunctionCall(callExpr)) {
+                arguments = castArguments(callExpr.calleeName(), arguments, callExpr);
                 builder.addInstruction(new IrCallInstruction(result, callExpr.calleeName(), arguments, callExpr.range()));
             } else {
                 IrValue calleeAddress = lowerExpression(callExpr.callee());
+                arguments = castArguments(callExpr, arguments);
                 builder.addInstruction(new IrIndirectCallInstruction(result, calleeAddress, arguments, callExpr.range()));
             }
             return result;
         }
         throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
+    }
+
+    IrValue castForTarget(IrValue value, IrType targetType, minic.source.SourceRange range) {
+        return castIfNeeded(value, targetType, range);
     }
 
     private IrValue lowerUnary(UnaryExpr unaryExpr) {
@@ -166,7 +183,7 @@ final class ExpressionLowerer {
         }
         if (unaryExpr.operator() == TokenKind.STAR) {
             IrValue address = lowerExpression(unaryExpr.operand());
-            IrTemporary result = builder.newTemporary(IrType.INT);
+            IrTemporary result = builder.newTemporary(irTypeOf(unaryExpr));
             builder.addInstruction(new IrLoadPointerInstruction(result, address, unaryExpr.range()));
             return result;
         }
@@ -179,7 +196,7 @@ final class ExpressionLowerer {
             if (local == null) {
                 throw new IllegalArgumentException("assignment target must be a local variable: " + nameExpr.name());
             }
-            builder.addInstruction(new IrStoreLocalInstruction(local, value, range));
+            builder.addInstruction(new IrStoreLocalInstruction(local, castIfNeeded(value, local.type(), range), range));
             return;
         }
         if (target instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenKind.STAR) {
@@ -204,8 +221,25 @@ final class ExpressionLowerer {
         IrValue baseAddress = lowerAddress(indexExpr.target());
         IrValue index = lowerExpression(indexExpr.index());
         IrTemporary result = builder.newTemporary(IrType.POINTER);
-        builder.addInstruction(new IrElementAddressInstruction(result, baseAddress, index, indexExpr.range()));
+        builder.addInstruction(new IrElementAddressInstruction(
+                result,
+                baseAddress,
+                index,
+                elementSizeBytes(indexExpr),
+                indexExpr.range()
+        ));
         return result;
+    }
+
+    private int elementSizeBytes(IndexExpr indexExpr) {
+        MiniType targetType = expressionTypes.get(indexExpr.target());
+        MiniType elementType = MiniType.INT;
+        if (targetType != null && targetType.isArray()) {
+            elementType = targetType.elementType();
+        } else if (targetType != null && targetType.isPointer()) {
+            elementType = targetType.pointee();
+        }
+        return minic.compiler.type.TypeLayout.sizeOf(elementType);
     }
 
     private IrValue lowerFieldAddress(FieldAccessExpr fieldAccessExpr) {
@@ -260,6 +294,35 @@ final class ExpressionLowerer {
         return IrType.INT;
     }
 
+    private IrType arithmeticOperandType(IrType leftType, IrType rightType, IrType resultType) {
+        if (resultType.isFloatingScalar()) {
+            return resultType;
+        }
+        if (resultType == IrType.INT && (leftType.isFloatingScalar() || rightType.isFloatingScalar())) {
+            if (leftType == IrType.DOUBLE || rightType == IrType.DOUBLE) {
+                return IrType.DOUBLE;
+            }
+            return IrType.FLOAT;
+        }
+        if (resultType == IrType.INT && (leftType == IrType.LONG || rightType == IrType.LONG
+                || leftType == IrType.POINTER || rightType == IrType.POINTER)) {
+            return IrType.LONG;
+        }
+        return resultType;
+    }
+
+    private IrValue castIfNeeded(IrValue value, IrType targetType, minic.source.SourceRange range) {
+        if (value.type() == targetType || value.type() == IrType.POINTER || targetType == IrType.POINTER) {
+            return value;
+        }
+        if (!value.type().isScalar() || !targetType.isScalar()) {
+            return value;
+        }
+        IrTemporary result = builder.newTemporary(targetType);
+        builder.addInstruction(new IrCastInstruction(result, value, range));
+        return result;
+    }
+
     private boolean isDirectFunctionCall(CallExpr callExpr) {
         if (!callExpr.hasDirectCalleeName()) {
             return false;
@@ -271,5 +334,36 @@ final class ExpressionLowerer {
             return false;
         }
         return !expressionTypes.containsKey(callExpr.callee());
+    }
+
+    private ArrayList<IrValue> castArguments(String functionName, ArrayList<IrValue> arguments, CallExpr callExpr) {
+        IrFunctionSignature signature = functionSignatures.get(functionName);
+        if (signature == null) {
+            return arguments;
+        }
+        return castArguments(arguments, signature.parameterTypes(), callExpr);
+    }
+
+    private ArrayList<IrValue> castArguments(CallExpr callExpr, ArrayList<IrValue> arguments) {
+        MiniType calleeType = expressionTypes.get(callExpr.callee());
+        if (calleeType == null || !calleeType.isPointer() || !calleeType.pointee().isFunction()) {
+            return arguments;
+        }
+        java.util.ArrayList<IrType> parameterTypes = new java.util.ArrayList<>();
+        for (MiniType parameterType : calleeType.pointee().parameterTypes()) {
+            parameterTypes.add(IrTypeLowerer.lower(parameterType));
+        }
+        return castArguments(arguments, parameterTypes, callExpr);
+    }
+
+    private ArrayList<IrValue> castArguments(ArrayList<IrValue> arguments, java.util.List<IrType> parameterTypes, CallExpr callExpr) {
+        if (arguments.size() != parameterTypes.size()) {
+            return arguments;
+        }
+        ArrayList<IrValue> casted = new ArrayList<>();
+        for (int index = 0; index < arguments.size(); index++) {
+            casted.add(castIfNeeded(arguments.get(index), parameterTypes.get(index), callExpr.arguments().get(index).range()));
+        }
+        return casted;
     }
 }

@@ -7,17 +7,19 @@ import minic.source.SourceRange;
 import java.util.Objects;
 
 /**
- * 计算 int 元素地址。
+ * 计算元素地址。
  *
  * @param result 保存元素地址的临时值
  * @param baseAddress 数组或指针基地址
  * @param index 元素下标值
+ * @param elementSizeBytes 元素字节数
  * @param range 指令对应的源码范围
  */
 public record IrElementAddressInstruction(
         IrTemporary result,
         IrValue baseAddress,
         IrValue index,
+        int elementSizeBytes,
         SourceRange range
 ) implements IrInstruction {
     /**
@@ -26,6 +28,7 @@ public record IrElementAddressInstruction(
      * @param result 保存元素地址的临时值
      * @param baseAddress 数组或指针基地址
      * @param index 元素下标值
+     * @param elementSizeBytes 元素字节数
      * @param range 指令对应的源码范围
      */
     public IrElementAddressInstruction {
@@ -33,5 +36,15 @@ public record IrElementAddressInstruction(
         Objects.requireNonNull(baseAddress, "baseAddress");
         Objects.requireNonNull(index, "index");
         Objects.requireNonNull(range, "range");
+        if (elementSizeBytes <= 0) {
+            throw new IllegalArgumentException("elementSizeBytes must be positive");
+        }
+    }
+
+    /**
+     * 创建兼容旧 int 数组的元素地址计算指令。
+     */
+    public IrElementAddressInstruction(IrTemporary result, IrValue baseAddress, IrValue index, SourceRange range) {
+        this(result, baseAddress, index, 4, range);
     }
 }

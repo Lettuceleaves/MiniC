@@ -7,6 +7,7 @@ final class WindowsX64CallingConvention {
     static final String USER_MAIN_SYMBOL = "main";
     static final List<String> INTEGER_ARGUMENT_REGISTERS = List.of("ecx", "edx", "r8d", "r9d");
     static final List<String> POINTER_ARGUMENT_REGISTERS = List.of("rcx", "rdx", "r8", "r9");
+    static final List<String> FLOAT_ARGUMENT_REGISTERS = List.of("xmm0", "xmm1", "xmm2", "xmm3");
 
     private WindowsX64CallingConvention() {
     }
@@ -42,6 +43,10 @@ final class WindowsX64CallingConvention {
 
     static String pointerArgumentRegister(int argumentIndex) {
         return POINTER_ARGUMENT_REGISTERS.get(argumentIndex);
+    }
+
+    static String floatArgumentRegister(int argumentIndex) {
+        return FLOAT_ARGUMENT_REGISTERS.get(argumentIndex);
     }
 
     static int incomingStackArgumentOffset(int argumentIndex) {

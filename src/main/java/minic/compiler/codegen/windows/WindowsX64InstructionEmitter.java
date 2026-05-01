@@ -4,6 +4,7 @@ import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
+import minic.compiler.ir.instruction.IrCastInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
@@ -39,16 +40,21 @@ final class WindowsX64InstructionEmitter {
             IrParameter parameter = function.parameters().get(index);
             String destination = frame.parameterSlot(parameter.name(), parameter.type());
             if (WindowsX64CallingConvention.isRegisterArgument(index)) {
-                builder.append("    mov ").append(destination).append(", ")
-                        .append(argumentRegister(parameter.type(), index)).append(System.lineSeparator());
+                emitStoreRegisterToMemory(builder, destination, parameter.type(), argumentRegister(parameter.type(), index));
             } else {
                 int stackOffset = WindowsX64CallingConvention.incomingStackArgumentOffset(index);
                 String register = fullRegisterForType(parameter.type());
-                builder.append("    mov ").append(register).append(", ")
-                        .append(memoryPrefix(parameter.type())).append(" [rbp+").append(stackOffset).append("]")
-                        .append(System.lineSeparator());
-                builder.append("    mov ").append(destination).append(", ").append(register)
-                        .append(System.lineSeparator());
+                String source = memoryPrefix(parameter.type()) + " [rbp+" + stackOffset + "]";
+                if (parameter.type().isFloatingScalar()) {
+                    emitLoadMemoryToRegister(builder, source, parameter.type(), register);
+                    emitStoreRegisterToMemory(builder, destination, parameter.type(), register);
+                } else {
+                    builder.append("    mov ").append(register).append(", ")
+                            .append(source)
+                            .append(System.lineSeparator());
+                    builder.append("    mov ").append(destination).append(", ").append(register)
+                            .append(System.lineSeparator());
+                }
             }
         }
     }
@@ -67,8 +73,7 @@ final class WindowsX64InstructionEmitter {
             case IrStoreLocalInstruction storeLocal -> {
                 String register = storeLocalRegister(storeLocal.local().type());
                 valueEmitter.emitLoadValue(builder, storeLocal.value(), register);
-                builder.append("    mov ").append(frame.localSlot(storeLocal.local()))
-                        .append(", ").append(register).append(System.lineSeparator());
+                emitStoreRegisterToMemory(builder, frame.localSlot(storeLocal.local()), storeLocal.local().type(), register);
                 builder.append("    mov ").append(frame.localInitializedSlot(storeLocal.local()))
                         .append(", 1").append(System.lineSeparator());
             }
@@ -80,15 +85,31 @@ final class WindowsX64InstructionEmitter {
             }
             case IrLoadLocalInstruction loadLocal -> {
                 emitLoadMemoryToRegister(builder, frame.localSlot(loadLocal.local()), loadLocal.local().type(), "rcx");
-                builder.append("    mov ").append(frame.temporarySlot(loadLocal.result()))
-                        .append(", ").append(storeValueRegister(loadLocal.result().type())).append(System.lineSeparator());
+                emitStoreRegisterToMemory(
+                        builder,
+                        frame.temporarySlot(loadLocal.result()),
+                        loadLocal.result().type(),
+                        storeValueRegister(loadLocal.result().type())
+                );
             }
             case IrCheckNonZeroInstruction checkNonZero -> {
-                valueEmitter.emitLoadValue(builder, checkNonZero.value(), "eax");
-                builder.append("    cmp eax, 0").append(System.lineSeparator());
+                if (checkNonZero.value().type().isFloatingScalar()) {
+                    valueEmitter.emitLoadValue(builder, checkNonZero.value(), "xmm0");
+                    if (checkNonZero.value().type() == IrType.FLOAT) {
+                        builder.append("    xorps xmm1, xmm1").append(System.lineSeparator());
+                        builder.append("    ucomiss xmm0, xmm1").append(System.lineSeparator());
+                    } else {
+                        builder.append("    xorpd xmm1, xmm1").append(System.lineSeparator());
+                        builder.append("    ucomisd xmm0, xmm1").append(System.lineSeparator());
+                    }
+                } else {
+                    valueEmitter.emitLoadValue(builder, checkNonZero.value(), "eax");
+                    builder.append("    cmp eax, 0").append(System.lineSeparator());
+                }
                 builder.append("    je ").append(functionName).append("$trap_divide_by_zero")
                         .append(System.lineSeparator());
             }
+            case IrCastInstruction cast -> emitCast(builder, cast);
             case IrBinaryInstruction binary -> emitBinary(builder, binary);
             case IrAddressOfLocalInstruction addressOfLocal -> {
                 builder.append("    lea rax, ").append(frame.localAddress(addressOfLocal.local()))
@@ -100,7 +121,7 @@ final class WindowsX64InstructionEmitter {
                 valueEmitter.emitLoadValue(builder, elementAddress.baseAddress(), "rax");
                 valueEmitter.emitLoadValue(builder, elementAddress.index(), "ecx");
                 builder.append("    movsxd rcx, ecx").append(System.lineSeparator());
-                builder.append("    lea rax, [rax+rcx*4]").append(System.lineSeparator());
+                emitElementAddressScale(builder, elementAddress.elementSizeBytes());
                 builder.append("    mov ").append(frame.temporarySlot(elementAddress.result()))
                         .append(", rax").append(System.lineSeparator());
             }
@@ -121,16 +142,23 @@ final class WindowsX64InstructionEmitter {
                         loadPointer.result().type(),
                         "rax"
                 );
-                builder.append("    mov ").append(frame.temporarySlot(loadPointer.result()))
-                        .append(", ").append(valueEmitter.storeRegister("rax", loadPointer.result().type()))
-                        .append(System.lineSeparator());
+                emitStoreRegisterToMemory(
+                        builder,
+                        frame.temporarySlot(loadPointer.result()),
+                        loadPointer.result().type(),
+                        valueEmitter.storeRegister("rax", loadPointer.result().type())
+                );
             }
             case IrStorePointerInstruction storePointer -> {
                 valueEmitter.emitLoadValue(builder, storePointer.address(), "rax");
                 String register = storeValueRegister(storePointer.value().type());
                 valueEmitter.emitLoadValue(builder, storePointer.value(), register);
-                builder.append("    mov ").append(memoryPrefix(storePointer.value().type()))
-                        .append(" [rax], ").append(register).append(System.lineSeparator());
+                emitStoreRegisterToMemory(
+                        builder,
+                        memoryPrefix(storePointer.value().type()) + " [rax]",
+                        storePointer.value().type(),
+                        register
+                );
             }
             case IrCallInstruction call -> emitCall(builder, call);
             case IrIndirectCallInstruction call -> emitIndirectCall(builder, call);
@@ -166,33 +194,98 @@ final class WindowsX64InstructionEmitter {
         String leftRegister = arithmeticRegister("rax", operationType);
         String rightRegister = arithmeticRegister("rcx", operationType);
         valueEmitter.emitLoadValue(builder, binary.left(), leftRegister);
-        builder.append("    push rax").append(System.lineSeparator());
-        valueEmitter.emitLoadValue(builder, binary.right(), rightRegister);
-        builder.append("    pop rax").append(System.lineSeparator());
-        switch (binary.operator()) {
-            case ADD -> builder.append("    add ").append(leftRegister).append(", ").append(rightRegister)
+        if (operationType.isFloatingScalar()) {
+            builder.append(operationType == IrType.FLOAT ? "    sub rsp, 4" : "    sub rsp, 8")
                     .append(System.lineSeparator());
-            case SUBTRACT -> builder.append("    sub ").append(leftRegister).append(", ").append(rightRegister)
-                    .append(System.lineSeparator());
-            case MULTIPLY -> builder.append("    imul ").append(leftRegister).append(", ").append(rightRegister)
-                    .append(System.lineSeparator());
-            case DIVIDE -> {
-                builder.append(operationType == IrType.LONG ? "    cqo" : "    cdq").append(System.lineSeparator());
-                builder.append("    idiv ").append(rightRegister).append(System.lineSeparator());
-            }
-            case EQUAL -> emitComparison(builder, "sete", leftRegister, rightRegister);
-            case NOT_EQUAL -> emitComparison(builder, "setne", leftRegister, rightRegister);
-            case LESS_THAN -> emitComparison(builder, "setl", leftRegister, rightRegister);
-            case LESS_EQUAL -> emitComparison(builder, "setle", leftRegister, rightRegister);
-            case GREATER_THAN -> emitComparison(builder, "setg", leftRegister, rightRegister);
-            case GREATER_EQUAL -> emitComparison(builder, "setge", leftRegister, rightRegister);
+            emitStoreRegisterToMemory(builder, floatingScratchSlot(operationType), operationType, leftRegister);
+        } else {
+            builder.append("    push rax").append(System.lineSeparator());
         }
-        builder.append("    mov ").append(frame.temporarySlot(binary.result()))
-                .append(", ").append(valueEmitter.storeRegister("rax", binary.result().type()))
-                .append(System.lineSeparator());
+        valueEmitter.emitLoadValue(builder, binary.right(), rightRegister);
+        if (operationType.isFloatingScalar()) {
+            emitLoadMemoryToRegister(builder, floatingScratchSlot(operationType), operationType, leftRegister);
+            builder.append(operationType == IrType.FLOAT ? "    add rsp, 4" : "    add rsp, 8")
+                    .append(System.lineSeparator());
+        } else {
+            builder.append("    pop rax").append(System.lineSeparator());
+        }
+        switch (binary.operator()) {
+            case ADD -> emitArithmetic(builder, operationType, "add", leftRegister, rightRegister);
+            case SUBTRACT -> emitArithmetic(builder, operationType, "sub", leftRegister, rightRegister);
+            case MULTIPLY -> emitArithmetic(builder, operationType, "mul", leftRegister, rightRegister);
+            case DIVIDE -> {
+                if (operationType.isFloatingScalar()) {
+                    emitArithmetic(builder, operationType, "div", leftRegister, rightRegister);
+                } else {
+                    builder.append(operationType == IrType.LONG ? "    cqo" : "    cdq").append(System.lineSeparator());
+                    builder.append("    idiv ").append(rightRegister).append(System.lineSeparator());
+                }
+            }
+            case EQUAL -> emitComparison(builder, operationType, "sete", leftRegister, rightRegister);
+            case NOT_EQUAL -> emitComparison(builder, operationType, "setne", leftRegister, rightRegister);
+            case LESS_THAN -> emitComparison(builder, operationType, operationType.isFloatingScalar() ? "setb" : "setl", leftRegister, rightRegister);
+            case LESS_EQUAL -> emitComparison(builder, operationType, operationType.isFloatingScalar() ? "setbe" : "setle", leftRegister, rightRegister);
+            case GREATER_THAN -> emitComparison(builder, operationType, operationType.isFloatingScalar() ? "seta" : "setg", leftRegister, rightRegister);
+            case GREATER_EQUAL -> emitComparison(builder, operationType, operationType.isFloatingScalar() ? "setae" : "setge", leftRegister, rightRegister);
+        }
+        emitStoreRegisterToMemory(
+                builder,
+                frame.temporarySlot(binary.result()),
+                binary.result().type(),
+                valueEmitter.storeRegister("rax", binary.result().type())
+        );
     }
 
-    private void emitComparison(StringBuilder builder, String setInstruction, String leftRegister, String rightRegister) {
+    private void emitCast(StringBuilder builder, IrCastInstruction cast) {
+        IrType sourceType = cast.value().type();
+        IrType targetType = cast.result().type();
+        if (sourceType == targetType) {
+            valueEmitter.emitLoadValue(builder, cast.value(), valueEmitter.storeRegister("rax", targetType));
+            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, valueEmitter.storeRegister("rax", targetType));
+            return;
+        }
+        if (targetType.isFloatingScalar()) {
+            if (sourceType == IrType.FLOAT && targetType == IrType.DOUBLE) {
+                valueEmitter.emitLoadValue(builder, cast.value(), "xmm0");
+                builder.append("    cvtss2sd xmm0, xmm0").append(System.lineSeparator());
+            } else if (sourceType.isIntegerScalar()) {
+                valueEmitter.emitLoadValue(builder, cast.value(), integerCastRegister(sourceType));
+                builder.append(targetType == IrType.FLOAT ? "    cvtsi2ss " : "    cvtsi2sd ")
+                        .append("xmm0, ").append(integerCastRegister(sourceType)).append(System.lineSeparator());
+            } else if (sourceType == IrType.DOUBLE && targetType == IrType.FLOAT) {
+                valueEmitter.emitLoadValue(builder, cast.value(), "xmm0");
+                builder.append("    cvtsd2ss xmm0, xmm0").append(System.lineSeparator());
+            } else {
+                valueEmitter.emitLoadValue(builder, cast.value(), "xmm0");
+            }
+            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, "xmm0");
+            return;
+        }
+        if (sourceType.isFloatingScalar() && targetType.isIntegerScalar()) {
+            valueEmitter.emitLoadValue(builder, cast.value(), "xmm0");
+            builder.append(sourceType == IrType.FLOAT ? "    cvttss2si " : "    cvttsd2si ")
+                    .append(integerCastRegister(targetType)).append(", xmm0").append(System.lineSeparator());
+            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, integerCastRegister(targetType));
+            return;
+        }
+        valueEmitter.emitLoadValue(builder, cast.value(), valueEmitter.storeRegister("rax", sourceType));
+        emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, valueEmitter.storeRegister("rax", targetType));
+    }
+
+    private void emitComparison(
+            StringBuilder builder,
+            IrType operationType,
+            String setInstruction,
+            String leftRegister,
+            String rightRegister
+    ) {
+        if (operationType.isFloatingScalar()) {
+            builder.append(operationType == IrType.FLOAT ? "    ucomiss " : "    ucomisd ")
+                    .append(leftRegister).append(", ").append(rightRegister).append(System.lineSeparator());
+            builder.append("    ").append(setInstruction).append(" al").append(System.lineSeparator());
+            builder.append("    movzx eax, al").append(System.lineSeparator());
+            return;
+        }
         builder.append("    cmp ").append(leftRegister).append(", ").append(rightRegister).append(System.lineSeparator());
         builder.append("    ").append(setInstruction).append(" al").append(System.lineSeparator());
         builder.append("    movzx eax, al").append(System.lineSeparator());
@@ -205,16 +298,14 @@ final class WindowsX64InstructionEmitter {
                         externalFunctionNames.contains(call.calleeName())
                 ))
                 .append(System.lineSeparator());
-        builder.append("    mov ").append(frame.temporarySlot(call.result()))
-                .append(", ").append(returnRegister(call.result().type())).append(System.lineSeparator());
+        emitStoreRegisterToMemory(builder, frame.temporarySlot(call.result()), call.result().type(), returnRegister(call.result().type()));
     }
 
     private void emitIndirectCall(StringBuilder builder, IrIndirectCallInstruction call) {
         emitCallArguments(builder, call.arguments());
         valueEmitter.emitLoadValue(builder, call.calleeAddress(), "rax");
         builder.append("    call rax").append(System.lineSeparator());
-        builder.append("    mov ").append(frame.temporarySlot(call.result()))
-                .append(", ").append(returnRegister(call.result().type())).append(System.lineSeparator());
+        emitStoreRegisterToMemory(builder, frame.temporarySlot(call.result()), call.result().type(), returnRegister(call.result().type()));
     }
 
     private void emitCallArguments(StringBuilder builder, java.util.List<minic.compiler.ir.value.IrValue> arguments) {
@@ -224,8 +315,7 @@ final class WindowsX64InstructionEmitter {
             IrType type = arguments.get(index).type();
             String register = stackArgumentRegister(type);
             valueEmitter.emitLoadValue(builder, arguments.get(index), register);
-            builder.append("    mov ").append(frame.outgoingStackArgumentSlot(index, type))
-                    .append(", ").append(register).append(System.lineSeparator());
+            emitStoreRegisterToMemory(builder, frame.outgoingStackArgumentSlot(index, type), type, register);
         }
         for (int index = 0; index < arguments.size(); index++) {
             if (WindowsX64CallingConvention.isRegisterArgument(index)) {
@@ -240,6 +330,7 @@ final class WindowsX64InstructionEmitter {
 
     private String argumentRegister(IrType type, int argumentIndex) {
         return switch (type) {
+            case FLOAT, DOUBLE -> WindowsX64CallingConvention.floatArgumentRegister(argumentIndex);
             case BOOL, CHAR -> byteArgumentRegister(argumentIndex);
             case LONG, POINTER -> WindowsX64CallingConvention.pointerArgumentRegister(argumentIndex);
             case INT, INT_ARRAY, STRUCT -> WindowsX64CallingConvention.integerArgumentRegister(argumentIndex);
@@ -256,13 +347,14 @@ final class WindowsX64InstructionEmitter {
 
     private String storeLocalRegister(IrType type) {
         return switch (type) {
-            case LONG, POINTER -> valueEmitter.storeRegister("rax", type);
+            case FLOAT, DOUBLE, LONG, POINTER -> valueEmitter.storeRegister("rax", type);
             case BOOL, CHAR, INT, INT_ARRAY, STRUCT -> valueEmitter.storeRegister("rcx", type);
         };
     }
 
     private String fullRegisterForType(IrType type) {
         return switch (type) {
+            case FLOAT, DOUBLE -> "xmm0";
             case BOOL, CHAR, INT, INT_ARRAY, STRUCT -> "eax";
             case LONG, POINTER -> "rax";
         };
@@ -291,6 +383,12 @@ final class WindowsX64InstructionEmitter {
     }
 
     private IrType binaryOperationType(IrBinaryInstruction binary) {
+        if (binary.left().type() == IrType.DOUBLE || binary.right().type() == IrType.DOUBLE) {
+            return IrType.DOUBLE;
+        }
+        if (binary.left().type() == IrType.FLOAT || binary.right().type() == IrType.FLOAT) {
+            return IrType.FLOAT;
+        }
         if (binary.left().type() == IrType.LONG || binary.right().type() == IrType.LONG
                 || binary.left().type() == IrType.POINTER || binary.right().type() == IrType.POINTER) {
             return IrType.LONG;
@@ -304,6 +402,12 @@ final class WindowsX64InstructionEmitter {
             IrType type,
             String preferredRegister
     ) {
+        if (type == IrType.FLOAT || type == IrType.DOUBLE) {
+            builder.append(type == IrType.FLOAT ? "    movss " : "    movsd ")
+                    .append(valueEmitter.floatRegisterName(preferredRegister))
+                    .append(", ").append(source).append(System.lineSeparator());
+            return;
+        }
         if (type == IrType.BOOL) {
             builder.append("    movzx ").append(valueEmitter.intRegisterName(preferredRegister))
                     .append(", ").append(source).append(System.lineSeparator());
@@ -318,11 +422,77 @@ final class WindowsX64InstructionEmitter {
                 .append(", ").append(source).append(System.lineSeparator());
     }
 
+    private void emitStoreRegisterToMemory(StringBuilder builder, String destination, IrType type, String register) {
+        if (type == IrType.FLOAT || type == IrType.DOUBLE) {
+            builder.append(type == IrType.FLOAT ? "    movss " : "    movsd ")
+                    .append(destination)
+                    .append(", ").append(valueEmitter.floatRegisterName(register))
+                    .append(System.lineSeparator());
+            return;
+        }
+        builder.append("    mov ").append(destination).append(", ")
+                .append(valueEmitter.storeRegister(register, type)).append(System.lineSeparator());
+    }
+
+    private String integerCastRegister(IrType type) {
+        return switch (type) {
+            case LONG -> "rax";
+            case BOOL, CHAR, INT -> "eax";
+            default -> throw new IllegalArgumentException("not an integer scalar type: " + type);
+        };
+    }
+
+    private void emitArithmetic(
+            StringBuilder builder,
+            IrType operationType,
+            String operation,
+            String leftRegister,
+            String rightRegister
+    ) {
+        if (operationType == IrType.FLOAT || operationType == IrType.DOUBLE) {
+            String suffix = operationType == IrType.FLOAT ? "ss" : "sd";
+            builder.append("    ").append(operation).append(suffix).append(" ")
+                    .append(leftRegister).append(", ").append(rightRegister)
+                    .append(System.lineSeparator());
+            return;
+        }
+        String instruction = operation.equals("mul") ? "imul" : operation;
+        builder.append("    ").append(instruction).append(" ").append(leftRegister).append(", ").append(rightRegister)
+                .append(System.lineSeparator());
+    }
+
+    private String floatingScratchSlot(IrType type) {
+        return (type == IrType.FLOAT ? "DWORD PTR" : "QWORD PTR") + " [rsp]";
+    }
+
     private void emitBranch(StringBuilder builder, String functionName, IrBranchInstruction branch) {
-        valueEmitter.emitLoadValue(builder, branch.condition(), "eax");
-        builder.append("    cmp eax, 0").append(System.lineSeparator());
+        if (branch.condition().type().isFloatingScalar()) {
+            valueEmitter.emitLoadValue(builder, branch.condition(), "xmm0");
+            if (branch.condition().type() == IrType.FLOAT) {
+                builder.append("    xorps xmm1, xmm1").append(System.lineSeparator());
+                builder.append("    ucomiss xmm0, xmm1").append(System.lineSeparator());
+            } else {
+                builder.append("    xorpd xmm1, xmm1").append(System.lineSeparator());
+                builder.append("    ucomisd xmm0, xmm1").append(System.lineSeparator());
+            }
+        } else {
+            valueEmitter.emitLoadValue(builder, branch.condition(), "eax");
+            builder.append("    cmp eax, 0").append(System.lineSeparator());
+        }
         builder.append("    jne ").append(blockSymbol(functionName, branch.thenLabel())).append(System.lineSeparator());
         emitJump(builder, functionName, branch.elseLabel());
+    }
+
+    private void emitElementAddressScale(StringBuilder builder, int elementSizeBytes) {
+        switch (elementSizeBytes) {
+            case 1 -> builder.append("    lea rax, [rax+rcx]").append(System.lineSeparator());
+            case 2, 4, 8 -> builder.append("    lea rax, [rax+rcx*").append(elementSizeBytes).append("]")
+                    .append(System.lineSeparator());
+            default -> {
+                builder.append("    imul rcx, ").append(elementSizeBytes).append(System.lineSeparator());
+                builder.append("    lea rax, [rax+rcx]").append(System.lineSeparator());
+            }
+        }
     }
 
     private void emitJump(StringBuilder builder, String functionName, String targetLabel) {

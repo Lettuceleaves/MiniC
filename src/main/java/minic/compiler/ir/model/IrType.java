@@ -25,6 +25,16 @@ public enum IrType {
     LONG(8),
 
     /**
+     * 4 字节 float 类型。
+     */
+    FLOAT(4),
+
+    /**
+     * 8 字节 double 类型。
+     */
+    DOUBLE(8),
+
+    /**
      * 指针或地址类型。
      */
     POINTER(8),
@@ -51,5 +61,13 @@ public enum IrType {
 
     public boolean isIntegerScalar() {
         return this == BOOL || this == CHAR || this == INT || this == LONG;
+    }
+
+    public boolean isFloatingScalar() {
+        return this == FLOAT || this == DOUBLE;
+    }
+
+    public boolean isScalar() {
+        return isIntegerScalar() || isFloatingScalar();
     }
 }

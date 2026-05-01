@@ -3,6 +3,7 @@ package minic.compiler.codegen.windows;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
+import minic.compiler.ir.instruction.IrCastInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
@@ -140,6 +141,8 @@ record WindowsX64FrameLayout(
             nextOffset = ensureTemporary(loadLocal.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrBinaryInstruction binary) {
             nextOffset = ensureTemporary(binary.result(), temporaryOffsets, nextOffset);
+        } else if (instruction instanceof IrCastInstruction cast) {
+            nextOffset = ensureTemporary(cast.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrCallInstruction call) {
             nextOffset = ensureTemporary(call.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrIndirectCallInstruction call) {
@@ -211,8 +214,8 @@ record WindowsX64FrameLayout(
     private static String memoryPrefix(IrType type) {
         return switch (type) {
             case BOOL, CHAR -> "BYTE PTR";
-            case LONG, POINTER -> "QWORD PTR";
-            case INT, INT_ARRAY, STRUCT -> "DWORD PTR";
+            case LONG, POINTER, DOUBLE -> "QWORD PTR";
+            case INT, INT_ARRAY, STRUCT, FLOAT -> "DWORD PTR";
         };
     }
 }

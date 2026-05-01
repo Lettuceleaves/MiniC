@@ -5,6 +5,7 @@ import minic.compiler.ast.decl.Program;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrModule;
+import minic.compiler.ir.model.IrType;
 import minic.compiler.semantic.SemanticResult;
 import minic.compiler.semantic.StructLayout;
 import minic.compiler.type.MiniType;
@@ -49,6 +50,7 @@ public final class IrLowerer {
         ArrayList<IrFunction> functions = new ArrayList<>();
         LinkedHashSet<String> externalFunctionNames = new LinkedHashSet<>();
         StringLiteralRegistry stringLiteralRegistry = new StringLiteralRegistry();
+        Map<String, IrFunctionSignature> functionSignatures = collectFunctionSignatures(program);
         for (FunctionDecl function : program.functions()) {
             if (function.external()) {
                 externalFunctionNames.add(function.name());
@@ -58,10 +60,26 @@ public final class IrLowerer {
                         function,
                         stringLiteralRegistry,
                         structLayouts,
-                        expressionTypes
+                        expressionTypes,
+                        functionSignatures
                 ).lower());
             }
         }
         return new IrModule(functions, stringLiteralRegistry.stringData(), externalFunctionNames);
+    }
+
+    private Map<String, IrFunctionSignature> collectFunctionSignatures(Program program) {
+        java.util.LinkedHashMap<String, IrFunctionSignature> signatures = new java.util.LinkedHashMap<>();
+        for (FunctionDecl function : program.functions()) {
+            ArrayList<IrType> parameterTypes = new ArrayList<>();
+            for (var parameter : function.parameters()) {
+                parameterTypes.add(IrTypeLowerer.lower(parameter.type()));
+            }
+            signatures.put(function.name(), new IrFunctionSignature(
+                    IrTypeLowerer.lower(function.returnType()),
+                    parameterTypes
+            ));
+        }
+        return signatures;
     }
 }
