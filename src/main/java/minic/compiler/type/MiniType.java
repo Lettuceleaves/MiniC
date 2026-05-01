@@ -1,11 +1,17 @@
 package minic.compiler.type;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
  * MiniC 前端类型。
  */
-public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType, MiniType.ArrayType, MiniType.StructType {
+public sealed interface MiniType permits
+        MiniType.IntType,
+        MiniType.PointerType,
+        MiniType.ArrayType,
+        MiniType.StructType,
+        MiniType.FunctionType {
     /**
      * MiniC int 类型。
      */
@@ -41,6 +47,17 @@ public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType,
     }
 
     /**
+     * 创建函数签名类型。
+     *
+     * @param returnType 返回类型
+     * @param parameterTypes 参数类型列表
+     * @return 函数签名类型
+     */
+    static MiniType function(MiniType returnType, List<MiniType> parameterTypes) {
+        return new FunctionType(returnType, parameterTypes);
+    }
+
+    /**
      * 判断当前类型是否为指针。
      *
      * @return 指针类型返回 {@code true}
@@ -65,6 +82,15 @@ public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType,
      */
     default boolean isStruct() {
         return this instanceof StructType;
+    }
+
+    /**
+     * 判断当前类型是否为函数签名。
+     *
+     * @return 函数签名类型返回 {@code true}
+     */
+    default boolean isFunction() {
+        return this instanceof FunctionType;
     }
 
     /**
@@ -104,6 +130,32 @@ public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType,
             return arrayType.length();
         }
         throw new IllegalStateException("type is not an array: " + this);
+    }
+
+    /**
+     * 返回函数返回类型。
+     *
+     * @return 函数返回类型
+     * @throws IllegalStateException 当前类型不是函数签名时抛出
+     */
+    default MiniType returnType() {
+        if (this instanceof FunctionType functionType) {
+            return functionType.returnType();
+        }
+        throw new IllegalStateException("type is not a function: " + this);
+    }
+
+    /**
+     * 返回函数参数类型列表。
+     *
+     * @return 函数参数类型列表
+     * @throws IllegalStateException 当前类型不是函数签名时抛出
+     */
+    default List<MiniType> parameterTypes() {
+        if (this instanceof FunctionType functionType) {
+            return functionType.parameterTypes();
+        }
+        throw new IllegalStateException("type is not a function: " + this);
     }
 
     /**
@@ -184,6 +236,33 @@ public sealed interface MiniType permits MiniType.IntType, MiniType.PointerType,
         @Override
         public String toString() {
             return "struct " + name;
+        }
+    }
+
+    /**
+     * MiniC 函数签名类型。
+     *
+     * @param returnType 返回类型
+     * @param parameterTypes 参数类型列表
+     */
+    record FunctionType(MiniType returnType, List<MiniType> parameterTypes) implements MiniType {
+        /**
+         * 创建函数签名类型。
+         *
+         * @param returnType 返回类型
+         * @param parameterTypes 参数类型列表
+         */
+        public FunctionType {
+            Objects.requireNonNull(returnType, "returnType");
+            Objects.requireNonNull(parameterTypes, "parameterTypes");
+            parameterTypes = List.copyOf(parameterTypes);
+        }
+
+        @Override
+        public String toString() {
+            return returnType + " (" + String.join(", ", parameterTypes.stream()
+                    .map(Object::toString)
+                    .toList()) + ")";
         }
     }
 }

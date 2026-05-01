@@ -2,7 +2,11 @@ package minic.compiler.type;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class MiniTypeTest {
     @Test
@@ -33,5 +37,35 @@ class MiniTypeTest {
         assertThat(pointType).isEqualTo(new MiniType.StructType("Point"));
         assertThat(pointType.isStruct()).isTrue();
         assertThat(pointType.toString()).isEqualTo("struct Point");
+    }
+
+    @Test
+    void representsFunctionTypesAndFunctionPointers() {
+        MiniType functionType = MiniType.function(MiniType.INT, List.of(MiniType.INT, MiniType.INT.pointerTo()));
+        MiniType functionPointer = functionType.pointerTo();
+
+        assertThat(functionType).isEqualTo(new MiniType.FunctionType(
+                MiniType.INT,
+                List.of(MiniType.INT, MiniType.INT.pointerTo())
+        ));
+        assertThat(functionType.isFunction()).isTrue();
+        assertThat(functionType.returnType()).isEqualTo(MiniType.INT);
+        assertThat(functionType.parameterTypes()).containsExactly(MiniType.INT, MiniType.INT.pointerTo());
+        assertThat(functionType.toString()).isEqualTo("int (int, int*)");
+        assertThat(functionPointer.isPointer()).isTrue();
+        assertThat(functionPointer.pointee()).isEqualTo(functionType);
+        assertThat(functionPointer.toString()).isEqualTo("int (int, int*)*");
+    }
+
+    @Test
+    void copiesFunctionParameterTypesDefensively() {
+        ArrayList<MiniType> parameterTypes = new ArrayList<>(List.of(MiniType.INT));
+
+        MiniType functionType = MiniType.function(MiniType.INT, parameterTypes);
+        parameterTypes.add(MiniType.INT.pointerTo());
+
+        assertThat(functionType.parameterTypes()).containsExactly(MiniType.INT);
+        assertThatThrownBy(() -> functionType.parameterTypes().add(MiniType.INT))
+                .isInstanceOf(UnsupportedOperationException.class);
     }
 }
