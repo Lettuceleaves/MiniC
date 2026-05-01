@@ -11,6 +11,7 @@ import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrFieldAddressInstruction;
+import minic.compiler.ir.instruction.IrIndirectCallInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
@@ -23,6 +24,7 @@ import minic.compiler.ir.model.IrModule;
 import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
+import minic.compiler.ir.value.IrFunctionAddress;
 import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
@@ -488,6 +490,30 @@ class IrLowererTest {
             assertThat(declare.local().type()).isEqualTo(IrType.INT_ARRAY);
             assertThat(addressOf.local()).isEqualTo(declare.local());
             assertThat(call.arguments()).containsExactly(addressOf.result());
+        });
+    }
+
+    @Test
+    void lowersFunctionPointerCallToIndirectCall() {
+        Program program = parse("""
+                int add(int left, int right) { return left + right; }
+
+                int main() {
+                    int (*operation)(int, int) = add;
+                    return operation(5, 7);
+                }
+                """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+
+        IrFunction main = new IrLowerer().lower(program, semanticResult).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).singleElement().satisfies(block -> {
+            IrStoreLocalInstruction initialize = (IrStoreLocalInstruction) block.instructions().get(1);
+            assertThat(initialize.value()).isEqualTo(new IrFunctionAddress("add"));
+
+            IrIndirectCallInstruction call = (IrIndirectCallInstruction) block.instructions().get(4);
+            assertThat(call.arguments()).containsExactly(new IrConstant(5), new IrConstant(7));
         });
     }
 

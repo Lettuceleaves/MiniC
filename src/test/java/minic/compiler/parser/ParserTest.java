@@ -540,6 +540,22 @@ class ParserTest {
     }
 
     @Test
+    void parsesFunctionPointerCallExpression() {
+        SourceFile sourceFile = new SourceFile("function-pointer-call.mc", "int main() { return (operation)(1, 2); }");
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        ReturnStmt returnStmt = (ReturnStmt) result.program().functions().getFirst().body().statements().getFirst();
+        CallExpr callExpr = (CallExpr) returnStmt.expressionOptional().orElseThrow();
+        GroupingExpr callee = (GroupingExpr) callExpr.callee();
+
+        assertThat(callee.expression()).isInstanceOf(NameExpr.class);
+        assertThat(((NameExpr) callee.expression()).name()).isEqualTo("operation");
+        assertThat(callExpr.arguments()).hasSize(2);
+    }
+
+    @Test
     void parsesStringLiteralAsCallArgument() {
         SourceFile sourceFile = new SourceFile("string-call.mc", "int main() { return puts(\"hello\"); }");
 

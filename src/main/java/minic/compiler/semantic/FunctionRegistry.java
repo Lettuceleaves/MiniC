@@ -74,6 +74,9 @@ final class FunctionRegistry {
     }
 
     MiniType resolveFunction(CallExpr callExpr, List<MiniType> argumentTypes) {
+        if (!callExpr.hasDirectCalleeName()) {
+            throw new IllegalArgumentException("direct function resolution requires a named callee");
+        }
         var functionSymbol = globalScope.resolve(callExpr.calleeName())
                 .filter(symbol -> symbol.kind() == SymbolKind.FUNCTION);
         if (functionSymbol.isEmpty()) {

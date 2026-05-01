@@ -18,6 +18,7 @@ import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrFieldAddressInstruction;
+import minic.compiler.ir.instruction.IrIndirectCallInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
@@ -25,6 +26,7 @@ import minic.compiler.ir.instruction.IrStorePointerInstruction;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
+import minic.compiler.ir.value.IrFunctionAddress;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
 import minic.compiler.lexer.TokenKind;
@@ -56,6 +58,13 @@ final class ExpressionLowerer {
             return stringLiteralRegistry.define(stringLiteralExpr.value());
         }
         if (expression instanceof NameExpr nameExpr) {
+            MiniType nameType = expressionTypes.get(nameExpr);
+            if (nameType != null && nameType.isPointer() && nameType.pointee().isFunction()) {
+                IrLocal local = builder.resolveLocal(nameExpr.name());
+                if (local == null && builder.findParameter(nameExpr.name()) == null) {
+                    return new IrFunctionAddress(nameExpr.name());
+                }
+            }
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local != null) {
                 if (local.type() == IrType.INT_ARRAY) {
@@ -113,7 +122,12 @@ final class ExpressionLowerer {
                 arguments.add(lowerExpression(argument));
             }
             IrTemporary result = builder.newTemporary();
-            builder.addInstruction(new IrCallInstruction(result, callExpr.calleeName(), arguments, callExpr.range()));
+            if (isDirectFunctionCall(callExpr)) {
+                builder.addInstruction(new IrCallInstruction(result, callExpr.calleeName(), arguments, callExpr.range()));
+            } else {
+                IrValue calleeAddress = lowerExpression(callExpr.callee());
+                builder.addInstruction(new IrIndirectCallInstruction(result, calleeAddress, arguments, callExpr.range()));
+            }
             return result;
         }
         throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
@@ -223,5 +237,18 @@ final class ExpressionLowerer {
             return IrTypeLowerer.lower(type);
         }
         return IrType.INT;
+    }
+
+    private boolean isDirectFunctionCall(CallExpr callExpr) {
+        if (!callExpr.hasDirectCalleeName()) {
+            return false;
+        }
+        if (builder.resolveLocal(callExpr.calleeName()) != null) {
+            return false;
+        }
+        if (builder.findParameter(callExpr.calleeName()) != null) {
+            return false;
+        }
+        return !expressionTypes.containsKey(callExpr.callee());
     }
 }

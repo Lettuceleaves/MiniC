@@ -7,6 +7,7 @@ import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrFieldAddressInstruction;
+import minic.compiler.ir.instruction.IrIndirectCallInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
@@ -110,6 +111,8 @@ record WindowsX64FrameLayout(
             for (IrInstruction instruction : block.instructions()) {
                 if (instruction instanceof IrCallInstruction call) {
                     maxArgumentCount = Math.max(maxArgumentCount, call.arguments().size());
+                } else if (instruction instanceof IrIndirectCallInstruction call) {
+                    maxArgumentCount = Math.max(maxArgumentCount, call.arguments().size());
                 }
             }
         }
@@ -131,6 +134,8 @@ record WindowsX64FrameLayout(
         } else if (instruction instanceof IrBinaryInstruction binary) {
             nextOffset = ensureTemporary(binary.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrCallInstruction call) {
+            nextOffset = ensureTemporary(call.result(), temporaryOffsets, nextOffset);
+        } else if (instruction instanceof IrIndirectCallInstruction call) {
             nextOffset = ensureTemporary(call.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrAddressOfLocalInstruction addressOfLocal) {
             nextOffset = ensureLocal(addressOfLocal.local(), localOffsets, localInitializedOffsets, nextOffset);

@@ -269,6 +269,50 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void acceptsFunctionPointerCall() {
+        SemanticResult result = analyze("""
+                int add(int left, int right) { return left + right; }
+
+                int main() {
+                    int (*operation)(int, int) = add;
+                    return operation(5, 7);
+                }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+    }
+
+    @Test
+    void reportsFunctionPointerCallArgumentMismatch() {
+        SemanticResult result = analyze("""
+                int add(int left, int right) { return left + right; }
+
+                int main() {
+                    int (*operation)(int, int) = add;
+                    return operation(5);
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("函数指针调用实参数量不匹配");
+    }
+
+    @Test
+    void reportsCallingNonFunctionPointer() {
+        SemanticResult result = analyze("""
+                int main() {
+                    int value = 1;
+                    return (value)(2);
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("函数指针调用目标必须是函数指针");
+    }
+
+    @Test
     void reportsMissingMainFunction() {
         SemanticResult result = analyze("int helper() { return 1; }");
 

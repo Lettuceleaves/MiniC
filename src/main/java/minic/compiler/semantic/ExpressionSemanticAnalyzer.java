@@ -66,7 +66,9 @@ final class ExpressionSemanticAnalyzer {
                 for (Expression argument : callExpr.arguments()) {
                     argumentTypes.add(analyzeExpression(argument, scope));
                 }
-                MiniType returnType = functionRegistry.resolveFunction(callExpr, argumentTypes);
+                MiniType returnType = isDirectFunctionCall(callExpr, scope)
+                        ? functionRegistry.resolveFunction(callExpr, argumentTypes)
+                        : resolveFunctionPointerCall(callExpr, scope, argumentTypes);
                 yield returnType;
             }
             default -> throw new IllegalArgumentException("unsupported expression: "
@@ -166,5 +168,33 @@ final class ExpressionSemanticAnalyzer {
             return false;
         }
         return !targetType.isPointer();
+    }
+
+    private MiniType resolveFunctionPointerCall(CallExpr callExpr, Scope scope, ArrayList<MiniType> argumentTypes) {
+        MiniType calleeType = analyzeExpression(callExpr.callee(), scope);
+        if (!calleeType.isPointer() || !calleeType.pointee().isFunction()) {
+            reporter.report(callExpr.range(), "函数指针调用目标必须是函数指针");
+            return MiniType.INT;
+        }
+        MiniType functionType = calleeType.pointee();
+        if (functionType.parameterTypes().size() != argumentTypes.size()) {
+            reporter.report(callExpr.range(), "函数指针调用实参数量不匹配");
+        } else {
+            for (int index = 0; index < argumentTypes.size(); index++) {
+                if (!functionType.parameterTypes().get(index).equals(argumentTypes.get(index))) {
+                    reporter.report(callExpr.arguments().get(index).range(), "函数指针调用实参类型不匹配");
+                }
+            }
+        }
+        return functionType.returnType();
+    }
+
+    private boolean isDirectFunctionCall(CallExpr callExpr, Scope scope) {
+        if (!callExpr.hasDirectCalleeName()) {
+            return false;
+        }
+        return scope.resolve(callExpr.calleeName())
+                .map(symbol -> symbol.kind() == SymbolKind.FUNCTION)
+                .orElse(true);
     }
 }

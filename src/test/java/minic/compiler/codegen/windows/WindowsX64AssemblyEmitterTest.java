@@ -387,6 +387,31 @@ class WindowsX64AssemblyEmitterTest {
     }
 
     @Test
+    void emitsWindowsX64AssemblyForFunctionPointerCall() {
+        IrModule module = lowerWithSemantic("""
+                int add(int left, int right) {
+                    return left + right;
+                }
+
+                int main() {
+                    int (*operation)(int, int) = add;
+                    return operation(5, 7);
+                }
+                """);
+
+        AssemblySource assemblySource = new WindowsX64AssemblyEmitter().emit(module);
+
+        assertThat(assemblySource.text()).contains(
+                "    lea rax, minic$add",
+                "    mov QWORD PTR [rbp-",
+                "    mov ecx, 5",
+                "    mov edx, 7",
+                "    mov rax, QWORD PTR [rbp-",
+                "    call rax"
+        );
+    }
+
+    @Test
     void emitsWindowsX64AssemblyForStructFieldReadAndWrite() {
         IrModule module = lowerWithSemantic("""
                 struct Point {

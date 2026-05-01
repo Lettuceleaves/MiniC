@@ -153,6 +153,10 @@ final class ExpressionParser {
                 expression = finishFieldAccess(expression, true);
                 continue;
             }
+            if (state.match(TokenKind.LEFT_PAREN)) {
+                expression = finishCall(expression);
+                continue;
+            }
             break;
         }
         return expression;
@@ -194,9 +198,6 @@ final class ExpressionParser {
         }
         if (state.match(TokenKind.IDENTIFIER)) {
             Token nameToken = state.previous();
-            if (state.match(TokenKind.LEFT_PAREN)) {
-                return finishCall(nameToken);
-            }
             return new NameExpr(nameToken.lexeme(), nameToken.range());
         }
         if (state.match(TokenKind.LEFT_PAREN)) {
@@ -223,7 +224,7 @@ final class ExpressionParser {
         return null;
     }
 
-    private Expression finishCall(Token calleeToken) {
+    private Expression finishCall(Expression callee) {
         ArrayList<Expression> arguments = new ArrayList<>();
         if (!state.check(TokenKind.RIGHT_PAREN)) {
             do {
@@ -239,11 +240,11 @@ final class ExpressionParser {
             return null;
         }
         return new CallExpr(
-                calleeToken.lexeme(),
+                callee,
                 arguments,
                 new SourceRange(
-                        calleeToken.range().sourceFile(),
-                        calleeToken.range().startOffset(),
+                        callee.range().sourceFile(),
+                        callee.range().startOffset(),
                         endToken.range().endOffset()
                 )
         );

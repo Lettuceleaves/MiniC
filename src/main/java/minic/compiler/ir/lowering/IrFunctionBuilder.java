@@ -141,6 +141,10 @@ final class IrFunctionBuilder {
         return parameterRef;
     }
 
+    IrParameterRef findParameter(String name) {
+        return parameterRefs.get(name);
+    }
+
     IrTemporary newTemporary() {
         return newTemporary(IrType.INT);
     }

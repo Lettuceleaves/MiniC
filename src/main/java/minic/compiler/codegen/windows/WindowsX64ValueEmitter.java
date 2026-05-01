@@ -1,6 +1,7 @@
 package minic.compiler.codegen.windows;
 
 import minic.compiler.ir.value.IrConstant;
+import minic.compiler.ir.value.IrFunctionAddress;
 import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
@@ -9,9 +10,11 @@ import minic.compiler.ir.model.IrType;
 
 final class WindowsX64ValueEmitter {
     private final WindowsX64FrameLayout frame;
+    private final java.util.Set<String> externalFunctionNames;
 
-    WindowsX64ValueEmitter(WindowsX64FrameLayout frame) {
+    WindowsX64ValueEmitter(WindowsX64FrameLayout frame, java.util.Set<String> externalFunctionNames) {
         this.frame = frame;
+        this.externalFunctionNames = java.util.Set.copyOf(externalFunctionNames);
     }
 
     void emitLoadValue(StringBuilder builder, IrValue value, String register) {
@@ -32,6 +35,15 @@ final class WindowsX64ValueEmitter {
         if (value instanceof IrStringLiteral stringLiteral) {
             builder.append("    lea ").append(pointerRegister(register)).append(", ")
                     .append(stringLiteral.label()).append(System.lineSeparator());
+            return;
+        }
+        if (value instanceof IrFunctionAddress functionAddress) {
+            builder.append("    lea ").append(pointerRegister(register)).append(", ")
+                    .append(WindowsX64CallingConvention.callSymbol(
+                            functionAddress.functionName(),
+                            externalFunctionNames.contains(functionAddress.functionName())
+                    ))
+                    .append(System.lineSeparator());
             return;
         }
         throw new IllegalArgumentException("unsupported IR value: " + value.getClass().getSimpleName());

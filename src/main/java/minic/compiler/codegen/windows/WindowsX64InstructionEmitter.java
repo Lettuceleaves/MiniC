@@ -9,6 +9,7 @@ import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrFieldAddressInstruction;
+import minic.compiler.ir.instruction.IrIndirectCallInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
@@ -30,7 +31,7 @@ final class WindowsX64InstructionEmitter {
     WindowsX64InstructionEmitter(WindowsX64FrameLayout frame, Set<String> externalFunctionNames) {
         this.frame = frame;
         this.externalFunctionNames = Set.copyOf(externalFunctionNames);
-        valueEmitter = new WindowsX64ValueEmitter(frame);
+        valueEmitter = new WindowsX64ValueEmitter(frame, externalFunctionNames);
     }
 
     void emitParameterStores(StringBuilder builder, IrFunction function) {
@@ -131,6 +132,7 @@ final class WindowsX64InstructionEmitter {
                         .append(" [rax], ").append(register).append(System.lineSeparator());
             }
             case IrCallInstruction call -> emitCall(builder, call);
+            case IrIndirectCallInstruction call -> emitIndirectCall(builder, call);
             case IrBranchInstruction branch -> emitBranch(builder, functionName, branch);
             case IrJumpInstruction jump -> emitJump(builder, functionName, jump.targetLabel());
             case IrReturnInstruction returnInstruction -> {
@@ -189,29 +191,7 @@ final class WindowsX64InstructionEmitter {
     }
 
     private void emitCall(StringBuilder builder, IrCallInstruction call) {
-        for (int index = WindowsX64CallingConvention.INTEGER_ARGUMENT_REGISTERS.size();
-             index < call.arguments().size();
-             index++) {
-            if (call.arguments().get(index).type() == IrType.POINTER) {
-                valueEmitter.emitLoadValue(builder, call.arguments().get(index), "rax");
-                builder.append("    mov QWORD PTR [rsp+")
-                        .append(WindowsX64CallingConvention.outgoingStackArgumentOffset(index))
-                        .append("], rax").append(System.lineSeparator());
-            } else {
-                valueEmitter.emitLoadValue(builder, call.arguments().get(index), "eax");
-                builder.append("    mov ").append(frame.outgoingStackArgumentSlot(index)).append(", eax")
-                        .append(System.lineSeparator());
-            }
-        }
-        for (int index = 0; index < call.arguments().size(); index++) {
-            if (WindowsX64CallingConvention.isRegisterArgument(index)) {
-                valueEmitter.emitLoadValue(
-                        builder,
-                        call.arguments().get(index),
-                        argumentRegister(call.arguments().get(index).type(), index)
-                );
-            }
-        }
+        emitCallArguments(builder, call.arguments());
         builder.append("    call ").append(WindowsX64CallingConvention.callSymbol(
                         call.calleeName(),
                         externalFunctionNames.contains(call.calleeName())
@@ -219,6 +199,40 @@ final class WindowsX64InstructionEmitter {
                 .append(System.lineSeparator());
         builder.append("    mov ").append(frame.temporarySlot(call.result()))
                 .append(", eax").append(System.lineSeparator());
+    }
+
+    private void emitIndirectCall(StringBuilder builder, IrIndirectCallInstruction call) {
+        emitCallArguments(builder, call.arguments());
+        valueEmitter.emitLoadValue(builder, call.calleeAddress(), "rax");
+        builder.append("    call rax").append(System.lineSeparator());
+        builder.append("    mov ").append(frame.temporarySlot(call.result()))
+                .append(", eax").append(System.lineSeparator());
+    }
+
+    private void emitCallArguments(StringBuilder builder, java.util.List<minic.compiler.ir.value.IrValue> arguments) {
+        for (int index = WindowsX64CallingConvention.INTEGER_ARGUMENT_REGISTERS.size();
+             index < arguments.size();
+             index++) {
+            if (arguments.get(index).type() == IrType.POINTER) {
+                valueEmitter.emitLoadValue(builder, arguments.get(index), "rax");
+                builder.append("    mov QWORD PTR [rsp+")
+                        .append(WindowsX64CallingConvention.outgoingStackArgumentOffset(index))
+                        .append("], rax").append(System.lineSeparator());
+            } else {
+                valueEmitter.emitLoadValue(builder, arguments.get(index), "eax");
+                builder.append("    mov ").append(frame.outgoingStackArgumentSlot(index)).append(", eax")
+                        .append(System.lineSeparator());
+            }
+        }
+        for (int index = 0; index < arguments.size(); index++) {
+            if (WindowsX64CallingConvention.isRegisterArgument(index)) {
+                valueEmitter.emitLoadValue(
+                        builder,
+                        arguments.get(index),
+                        argumentRegister(arguments.get(index).type(), index)
+                );
+            }
+        }
     }
 
     private String argumentRegister(IrType type, int argumentIndex) {
