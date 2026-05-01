@@ -26,6 +26,7 @@ class DeclarationAstTest {
         assertThat(program.functions()).containsExactly(functionDecl);
         assertThat(program.range()).isSameAs(programRange);
         assertThat(functionDecl.name()).isEqualTo("add");
+        assertThat(functionDecl.returnType()).isEqualTo(minic.compiler.type.MiniType.INT);
         assertThat(functionDecl.parameters()).containsExactly(parameter);
         assertThat(functionDecl.external()).isFalse();
         assertThat(functionDecl.hasBody()).isFalse();
@@ -33,6 +34,22 @@ class DeclarationAstTest {
         assertThat(functionDecl.range()).isSameAs(functionRange);
         assertThat(parameter.name()).isEqualTo("x");
         assertThat(parameter.range()).isSameAs(parameterRange);
+    }
+
+    @Test
+    void storesFunctionReturnType() {
+        SourceFile sourceFile = new SourceFile("return-type.mc", "long id(long value);");
+        SourceRange range = new SourceRange(sourceFile, 0, sourceFile.content().length());
+
+        FunctionDecl functionDecl = new FunctionDecl(
+                "id",
+                minic.compiler.type.MiniType.LONG,
+                List.of(new Parameter("value", minic.compiler.type.MiniType.LONG, range)),
+                range
+        );
+
+        assertThat(functionDecl.returnType()).isEqualTo(minic.compiler.type.MiniType.LONG);
+        assertThat(functionDecl.parameters().getFirst().type()).isEqualTo(minic.compiler.type.MiniType.LONG);
     }
 
     @Test

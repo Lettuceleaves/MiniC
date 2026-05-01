@@ -71,6 +71,7 @@ public final class Lexer {
                 case ',' -> addToken(TokenKind.COMMA, startOffset);
                 case '.' -> addToken(TokenKind.DOT, startOffset);
                 case '"' -> lexStringLiteral(startOffset);
+                case '\'' -> lexCharLiteral(startOffset);
                 default -> {
                     if (isIdentifierStart(character)) {
                         lexIdentifier(startOffset);
@@ -120,7 +121,12 @@ public final class Lexer {
 
         String lexeme = sourceFile.content().substring(startOffset, currentOffset);
         TokenKind kind = switch (lexeme) {
+            case "bool" -> TokenKind.BOOL;
+            case "char" -> TokenKind.CHAR;
             case "int" -> TokenKind.INT;
+            case "long" -> TokenKind.LONG;
+            case "float" -> TokenKind.FLOAT;
+            case "double" -> TokenKind.DOUBLE;
             case "extern" -> TokenKind.EXTERN;
             case "struct" -> TokenKind.STRUCT;
             case "return" -> TokenKind.RETURN;
@@ -130,23 +136,83 @@ public final class Lexer {
             case "for" -> TokenKind.FOR;
             case "break" -> TokenKind.BREAK;
             case "continue" -> TokenKind.CONTINUE;
+            case "true", "false" -> TokenKind.BOOL_LITERAL;
+            case "NULL" -> TokenKind.NULL_LITERAL;
             default -> TokenKind.IDENTIFIER;
         };
-        addToken(kind, startOffset);
+        Object literalValue = switch (kind) {
+            case BOOL_LITERAL -> Boolean.parseBoolean(lexeme);
+            default -> null;
+        };
+        addToken(kind, startOffset, literalValue);
     }
 
     private void lexIntegerLiteral(int startOffset) {
         while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) {
             currentOffset++;
         }
+        boolean floating = false;
+        if (!isAtEnd()
+                && sourceFile.content().charAt(currentOffset) == '.'
+                && hasNextAsciiDigit()) {
+            floating = true;
+            currentOffset++;
+            while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) {
+                currentOffset++;
+            }
+        }
+        boolean longLiteral = false;
+        boolean floatLiteral = false;
+        if (!isAtEnd()) {
+            char suffix = sourceFile.content().charAt(currentOffset);
+            if (!floating && (suffix == 'l' || suffix == 'L')) {
+                longLiteral = true;
+                currentOffset++;
+            } else if (floating && (suffix == 'f' || suffix == 'F')) {
+                floatLiteral = true;
+                currentOffset++;
+            }
+        }
 
         String lexeme = sourceFile.content().substring(startOffset, currentOffset);
+        if (floating) {
+            String valueLexeme = floatLiteral ? lexeme.substring(0, lexeme.length() - 1) : lexeme;
+            Object literalValue;
+            if (floatLiteral) {
+                literalValue = Float.parseFloat(valueLexeme);
+            } else {
+                literalValue = Double.parseDouble(valueLexeme);
+            }
+            tokens.add(new Token(
+                    floatLiteral ? TokenKind.FLOAT_LITERAL : TokenKind.DOUBLE_LITERAL,
+                    lexeme,
+                    new SourceRange(sourceFile, startOffset, currentOffset),
+                    literalValue
+            ));
+            return;
+        }
+        if (longLiteral) {
+            String valueLexeme = lexeme.substring(0, lexeme.length() - 1);
+            tokens.add(new Token(
+                    TokenKind.LONG_LITERAL,
+                    lexeme,
+                    new SourceRange(sourceFile, startOffset, currentOffset),
+                    Long.parseLong(valueLexeme)
+            ));
+            return;
+        }
         tokens.add(new Token(
                 TokenKind.INTEGER_LITERAL,
                 lexeme,
                 new SourceRange(sourceFile, startOffset, currentOffset),
                 Integer.parseInt(lexeme)
         ));
+    }
+
+    private boolean hasNextAsciiDigit() {
+        int nextOffset = currentOffset + 1;
+        return nextOffset < sourceFile.content().length()
+                && isAsciiDigit(sourceFile.content().charAt(nextOffset));
     }
 
     private void lexStringLiteral(int startOffset) {
@@ -208,11 +274,66 @@ public final class Lexer {
         };
     }
 
+    private void lexCharLiteral(int startOffset) {
+        if (isAtEnd()) {
+            addUnterminatedCharDiagnostic(startOffset);
+            return;
+        }
+        char value = advance();
+        if (value == '\n' || value == '\r') {
+            diagnostics.add(new Diagnostic(
+                    "LEX004",
+                    DiagnosticSeverity.ERROR,
+                    "字符字面量不能跨行",
+                    new SourceRange(sourceFile, startOffset, currentOffset)
+            ));
+            return;
+        }
+        if (value == '\\') {
+            if (isAtEnd()) {
+                addUnterminatedCharDiagnostic(startOffset);
+                return;
+            }
+            value = lexEscape(startOffset);
+        }
+        if (isAtEnd() || advance() != '\'') {
+            diagnostics.add(new Diagnostic(
+                    "LEX004",
+                    DiagnosticSeverity.ERROR,
+                    "字符字面量必须只包含一个字符",
+                    new SourceRange(sourceFile, startOffset, currentOffset)
+            ));
+            while (!isAtEnd()
+                    && sourceFile.content().charAt(currentOffset) != '\''
+                    && sourceFile.content().charAt(currentOffset) != '\n'
+                    && sourceFile.content().charAt(currentOffset) != '\r') {
+                currentOffset++;
+            }
+            match('\'');
+            return;
+        }
+        tokens.add(new Token(
+                TokenKind.CHAR_LITERAL,
+                sourceFile.content().substring(startOffset, currentOffset),
+                new SourceRange(sourceFile, startOffset, currentOffset),
+                value
+        ));
+    }
+
     private void addUnterminatedStringDiagnostic(int startOffset) {
         diagnostics.add(new Diagnostic(
                 "LEX002",
                 DiagnosticSeverity.ERROR,
                 "字符串字面量缺少结束引号",
+                new SourceRange(sourceFile, startOffset, currentOffset)
+        ));
+    }
+
+    private void addUnterminatedCharDiagnostic(int startOffset) {
+        diagnostics.add(new Diagnostic(
+                "LEX004",
+                DiagnosticSeverity.ERROR,
+                "字符字面量缺少结束引号",
                 new SourceRange(sourceFile, startOffset, currentOffset)
         ));
     }
@@ -243,10 +364,15 @@ public final class Lexer {
     }
 
     private void addToken(TokenKind kind, int startOffset) {
+        addToken(kind, startOffset, null);
+    }
+
+    private void addToken(TokenKind kind, int startOffset, Object literalValue) {
         tokens.add(new Token(
                 kind,
                 sourceFile.content().substring(startOffset, currentOffset),
-                new SourceRange(sourceFile, startOffset, currentOffset)
+                new SourceRange(sourceFile, startOffset, currentOffset),
+                literalValue
         ));
     }
 }

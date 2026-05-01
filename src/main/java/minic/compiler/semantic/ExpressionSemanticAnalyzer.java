@@ -2,13 +2,19 @@ package minic.compiler.semantic;
 
 import minic.compiler.ast.expr.AssignmentExpr;
 import minic.compiler.ast.expr.BinaryExpr;
+import minic.compiler.ast.expr.BoolLiteralExpr;
 import minic.compiler.ast.expr.CallExpr;
+import minic.compiler.ast.expr.CharLiteralExpr;
+import minic.compiler.ast.expr.DoubleLiteralExpr;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.FieldAccessExpr;
+import minic.compiler.ast.expr.FloatLiteralExpr;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
+import minic.compiler.ast.expr.LongLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.expr.NullLiteralExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.type.MiniType;
@@ -38,7 +44,13 @@ final class ExpressionSemanticAnalyzer {
 
     MiniType analyzeExpression(Expression expression, Scope scope) {
         MiniType type = switch (expression) {
+            case BoolLiteralExpr ignored -> MiniType.BOOL;
+            case CharLiteralExpr ignored -> MiniType.CHAR;
             case IntegerLiteralExpr ignored -> MiniType.INT;
+            case LongLiteralExpr ignored -> MiniType.LONG;
+            case FloatLiteralExpr ignored -> MiniType.FLOAT;
+            case DoubleLiteralExpr ignored -> MiniType.DOUBLE;
+            case NullLiteralExpr ignored -> MiniType.NULL;
             case StringLiteralExpr ignored -> MiniType.INT.pointerTo();
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case AssignmentExpr assignmentExpr -> {
@@ -162,6 +174,9 @@ final class ExpressionSemanticAnalyzer {
 
     private boolean isAssignmentCompatible(MiniType targetType, MiniType valueType) {
         if (targetType.equals(valueType)) {
+            return true;
+        }
+        if (targetType.isPointer() && valueType.isNullPointer()) {
             return true;
         }
         if (targetType.isPointer() && targetType.pointee().isFunction()) {

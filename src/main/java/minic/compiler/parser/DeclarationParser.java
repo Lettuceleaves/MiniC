@@ -57,6 +57,7 @@ final class DeclarationParser {
         int endOffset = body != null ? body.range().endOffset() : semicolonToken.range().endOffset();
         return new FunctionDecl(
                 nameToken.lexeme(),
+                returnType.type(),
                 parameters,
                 body,
                 external,

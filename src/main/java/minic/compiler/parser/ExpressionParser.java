@@ -2,13 +2,19 @@ package minic.compiler.parser;
 
 import minic.compiler.ast.expr.AssignmentExpr;
 import minic.compiler.ast.expr.BinaryExpr;
+import minic.compiler.ast.expr.BoolLiteralExpr;
 import minic.compiler.ast.expr.CallExpr;
+import minic.compiler.ast.expr.CharLiteralExpr;
+import minic.compiler.ast.expr.DoubleLiteralExpr;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.FieldAccessExpr;
+import minic.compiler.ast.expr.FloatLiteralExpr;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
+import minic.compiler.ast.expr.LongLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.expr.NullLiteralExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.lexer.Token;
@@ -187,6 +193,50 @@ final class ExpressionParser {
                     integerToken.lexeme(),
                     integerToken.range()
             );
+        }
+        if (state.match(TokenKind.LONG_LITERAL)) {
+            Token longToken = state.previous();
+            return new LongLiteralExpr(
+                    (Long) longToken.literalValue(),
+                    longToken.lexeme(),
+                    longToken.range()
+            );
+        }
+        if (state.match(TokenKind.FLOAT_LITERAL)) {
+            Token floatToken = state.previous();
+            return new FloatLiteralExpr(
+                    (Float) floatToken.literalValue(),
+                    floatToken.lexeme(),
+                    floatToken.range()
+            );
+        }
+        if (state.match(TokenKind.DOUBLE_LITERAL)) {
+            Token doubleToken = state.previous();
+            return new DoubleLiteralExpr(
+                    (Double) doubleToken.literalValue(),
+                    doubleToken.lexeme(),
+                    doubleToken.range()
+            );
+        }
+        if (state.match(TokenKind.CHAR_LITERAL)) {
+            Token charToken = state.previous();
+            return new CharLiteralExpr(
+                    (Character) charToken.literalValue(),
+                    charToken.lexeme(),
+                    charToken.range()
+            );
+        }
+        if (state.match(TokenKind.BOOL_LITERAL)) {
+            Token boolToken = state.previous();
+            return new BoolLiteralExpr(
+                    (Boolean) boolToken.literalValue(),
+                    boolToken.lexeme(),
+                    boolToken.range()
+            );
+        }
+        if (state.match(TokenKind.NULL_LITERAL)) {
+            Token nullToken = state.previous();
+            return new NullLiteralExpr(nullToken.lexeme(), nullToken.range());
         }
         if (state.match(TokenKind.STRING_LITERAL)) {
             Token stringToken = state.previous();

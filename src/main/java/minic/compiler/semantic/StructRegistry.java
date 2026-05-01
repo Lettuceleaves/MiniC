@@ -44,6 +44,7 @@ final class StructRegistry {
     void validateProgramTypes(Program program) {
         program.structs().forEach(this::validateStructFieldTypes);
         program.functions().forEach(functionDecl -> {
+            validateDeclaredType(functionDecl.returnType(), functionDecl.range());
             functionDecl.parameters().forEach(parameter -> validateDeclaredType(parameter.type(), parameter.range()));
             functionDecl.bodyOptional().ifPresent(body -> {
                 // 局部声明会在语句语义分析阶段校验。

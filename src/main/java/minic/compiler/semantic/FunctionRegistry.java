@@ -30,11 +30,12 @@ final class FunctionRegistry {
                         name,
                         SymbolKind.FUNCTION,
                         functionDecl.range(),
-                        MiniType.function(MiniType.INT, parameterTypes),
+                        MiniType.function(functionDecl.returnType(), parameterTypes),
                         parameterTypes.size()
                 );
                 globalScope.define(symbol);
                 functionStates.put(name, new FunctionState(
+                        functionDecl.returnType(),
                         parameterTypes,
                         functionDecl.hasBody(),
                         functionDecl.external()
@@ -44,7 +45,8 @@ final class FunctionRegistry {
                 }
                 continue;
             }
-            if (!existingState.parameterTypes().equals(parameterTypes)) {
+            if (!existingState.returnType().equals(functionDecl.returnType())
+                    || !existingState.parameterTypes().equals(parameterTypes)) {
                 reporter.report(functionDecl.range(), "函数声明签名不一致：" + name);
                 continue;
             }
@@ -124,6 +126,9 @@ final class FunctionRegistry {
         if (parameterType.equals(argumentType)) {
             return true;
         }
+        if (parameterType.isPointer() && argumentType.isNullPointer()) {
+            return true;
+        }
         return !parameterType.isPointer();
     }
 
@@ -174,17 +179,18 @@ final class FunctionRegistry {
                 .toList();
     }
 
-    private record FunctionState(List<MiniType> parameterTypes, boolean defined, boolean external) {
+    private record FunctionState(MiniType returnType, List<MiniType> parameterTypes, boolean defined, boolean external) {
         private FunctionState {
+            java.util.Objects.requireNonNull(returnType, "returnType");
             parameterTypes = List.copyOf(parameterTypes);
         }
 
         private FunctionState asDefined() {
-            return new FunctionState(parameterTypes, true, external);
+            return new FunctionState(returnType, parameterTypes, true, external);
         }
 
         private FunctionState asExternal() {
-            return new FunctionState(parameterTypes, defined, true);
+            return new FunctionState(returnType, parameterTypes, defined, true);
         }
     }
 }

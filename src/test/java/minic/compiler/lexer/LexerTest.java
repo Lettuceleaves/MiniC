@@ -127,7 +127,8 @@ class LexerTest {
     void lexesKeywordsSeparatelyFromIdentifiers() {
         SourceFile sourceFile = new SourceFile(
                 "keywords.mc",
-                "int struct return if else while for integer structValue returnValue ifValue elseValue whileValue forValue"
+                "bool char int long float double struct return if else while for "
+                        + "integer structValue returnValue ifValue elseValue whileValue forValue"
         );
 
         LexResult result = new Lexer(sourceFile).lex();
@@ -136,7 +137,12 @@ class LexerTest {
         assertThat(result.tokens())
                 .extracting(Token::kind)
                 .containsExactly(
+                        TokenKind.BOOL,
+                        TokenKind.CHAR,
                         TokenKind.INT,
+                        TokenKind.LONG,
+                        TokenKind.FLOAT,
+                        TokenKind.DOUBLE,
                         TokenKind.STRUCT,
                         TokenKind.RETURN,
                         TokenKind.IF,
@@ -152,6 +158,44 @@ class LexerTest {
                         TokenKind.IDENTIFIER,
                         TokenKind.EOF
                 );
+    }
+
+    @Test
+    void lexesExtendedLiterals() {
+        SourceFile sourceFile = new SourceFile("extended-literals.mc", "true false NULL 'a' '\\n' 123L 1.25f 2.5");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(
+                        TokenKind.BOOL_LITERAL,
+                        TokenKind.BOOL_LITERAL,
+                        TokenKind.NULL_LITERAL,
+                        TokenKind.CHAR_LITERAL,
+                        TokenKind.CHAR_LITERAL,
+                        TokenKind.LONG_LITERAL,
+                        TokenKind.FLOAT_LITERAL,
+                        TokenKind.DOUBLE_LITERAL,
+                        TokenKind.EOF
+                );
+        assertThat(result.tokens())
+                .extracting(Token::literalValue)
+                .containsExactly(true, false, null, 'a', '\n', 123L, 1.25f, 2.5d, null);
+    }
+
+    @Test
+    void reportsInvalidCharLiteral() {
+        SourceFile sourceFile = new SourceFile("bad-char.mc", "'ab'");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(TokenKind.EOF);
+        assertThat(result.diagnostics()).hasSize(1);
+        assertThat(result.diagnostics().getFirst().code()).isEqualTo("LEX004");
     }
 
     @Test

@@ -4,11 +4,17 @@ import minic.compiler.ast.decl.Program;
 import minic.compiler.ast.decl.StructDecl;
 import minic.compiler.ast.decl.StructField;
 import minic.compiler.ast.expr.BinaryExpr;
+import minic.compiler.ast.expr.BoolLiteralExpr;
 import minic.compiler.ast.expr.CallExpr;
+import minic.compiler.ast.expr.CharLiteralExpr;
+import minic.compiler.ast.expr.DoubleLiteralExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.FieldAccessExpr;
+import minic.compiler.ast.expr.FloatLiteralExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
+import minic.compiler.ast.expr.LongLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.expr.NullLiteralExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ast.stmt.ExprStmt;
@@ -111,6 +117,19 @@ class SemanticAnalyzerTest {
         SemanticResult result = analyze("""
                 int helper(int value);
                 int helper() { return 1; }
+                int main() { return 0; }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("函数声明签名不一致：helper");
+    }
+
+    @Test
+    void reportsFunctionDeclarationReturnTypeMismatch() {
+        SemanticResult result = analyze("""
+                int helper(int value);
+                long helper(int value) { return 1L; }
                 int main() { return 0; }
                 """);
 
@@ -413,6 +432,86 @@ class SemanticAnalyzerTest {
         assertThat(result.typeOf(valueArgument)).contains(MiniType.INT);
         assertThat(result.typeOf(sum)).contains(MiniType.INT);
         assertThat(result.typeOf(one)).contains(MiniType.INT);
+    }
+
+    @Test
+    void recordsExtendedFunctionVariableAndLiteralTypes() {
+        Program program = parse("""
+                double mix(bool flag, char tag, long count, float ratio, double score) {
+                    bool localFlag = true;
+                    char localTag = 'a';
+                    long localCount = 123L;
+                    float localRatio = 1.25f;
+                    double localScore = 2.5;
+                    return score;
+                }
+
+                int main() { return 0; }
+                """);
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.globalScope().resolve("mix")).hasValueSatisfying(symbol ->
+                assertThat(symbol.type()).isEqualTo(MiniType.function(
+                        MiniType.DOUBLE,
+                        java.util.List.of(
+                                MiniType.BOOL,
+                                MiniType.CHAR,
+                                MiniType.LONG,
+                                MiniType.FLOAT,
+                                MiniType.DOUBLE
+                        )
+                )));
+
+        var statements = program.functions().getFirst().body().statements();
+        BoolLiteralExpr boolLiteral = (BoolLiteralExpr) ((minic.compiler.ast.stmt.VarDeclStmt) statements.get(0))
+                .initializerOptional().orElseThrow();
+        CharLiteralExpr charLiteral = (CharLiteralExpr) ((minic.compiler.ast.stmt.VarDeclStmt) statements.get(1))
+                .initializerOptional().orElseThrow();
+        LongLiteralExpr longLiteral = (LongLiteralExpr) ((minic.compiler.ast.stmt.VarDeclStmt) statements.get(2))
+                .initializerOptional().orElseThrow();
+        FloatLiteralExpr floatLiteral = (FloatLiteralExpr) ((minic.compiler.ast.stmt.VarDeclStmt) statements.get(3))
+                .initializerOptional().orElseThrow();
+        DoubleLiteralExpr doubleLiteral = (DoubleLiteralExpr) ((minic.compiler.ast.stmt.VarDeclStmt) statements.get(4))
+                .initializerOptional().orElseThrow();
+
+        assertThat(result.typeOf(boolLiteral)).contains(MiniType.BOOL);
+        assertThat(result.typeOf(charLiteral)).contains(MiniType.CHAR);
+        assertThat(result.typeOf(longLiteral)).contains(MiniType.LONG);
+        assertThat(result.typeOf(floatLiteral)).contains(MiniType.FLOAT);
+        assertThat(result.typeOf(doubleLiteral)).contains(MiniType.DOUBLE);
+    }
+
+    @Test
+    void acceptsNullPointerConstantInPointerContexts() {
+        Program program = parse("""
+                int read(int *value) {
+                    return 0;
+                }
+
+                int main() {
+                    int *value = NULL;
+                    value = NULL;
+                    return read(NULL);
+                }
+                """);
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics()).isEmpty();
+        NullLiteralExpr initializer = (NullLiteralExpr) ((minic.compiler.ast.stmt.VarDeclStmt)
+                program.functions().get(1).body().statements().getFirst())
+                .initializerOptional().orElseThrow();
+        NullLiteralExpr assignmentValue = (NullLiteralExpr) ((minic.compiler.ast.expr.AssignmentExpr)
+                ((ExprStmt) program.functions().get(1).body().statements().get(1)).expression()).value();
+        NullLiteralExpr argument = (NullLiteralExpr) ((CallExpr)
+                ((ReturnStmt) program.functions().get(1).body().statements().get(2))
+                        .expressionOptional().orElseThrow()).arguments().getFirst();
+
+        assertThat(result.typeOf(initializer)).contains(MiniType.NULL);
+        assertThat(result.typeOf(assignmentValue)).contains(MiniType.NULL);
+        assertThat(result.typeOf(argument)).contains(MiniType.NULL);
     }
 
     @Test

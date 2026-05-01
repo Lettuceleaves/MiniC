@@ -20,14 +20,69 @@ public enum TokenKind {
     INTEGER_LITERAL,
 
     /**
+     * 十进制 long 整数字面量。
+     */
+    LONG_LITERAL,
+
+    /**
+     * 浮点数字面量。
+     */
+    FLOAT_LITERAL,
+
+    /**
+     * double 字面量。
+     */
+    DOUBLE_LITERAL,
+
+    /**
+     * 字符字面量。
+     */
+    CHAR_LITERAL,
+
+    /**
      * 字符串字面量。
      */
     STRING_LITERAL,
 
     /**
+     * 布尔字面量。
+     */
+    BOOL_LITERAL,
+
+    /**
+     * NULL 空指针常量。
+     */
+    NULL_LITERAL,
+
+    /**
+     * {@code bool} 关键字。
+     */
+    BOOL,
+
+    /**
+     * {@code char} 关键字。
+     */
+    CHAR,
+
+    /**
      * {@code int} 关键字。
      */
     INT,
+
+    /**
+     * {@code long} 关键字。
+     */
+    LONG,
+
+    /**
+     * {@code float} 关键字。
+     */
+    FLOAT,
+
+    /**
+     * {@code double} 关键字。
+     */
+    DOUBLE,
 
     /**
      * {@code extern} 关键字。

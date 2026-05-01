@@ -7,14 +7,20 @@ import minic.compiler.ast.stmt.BreakStmt;
 import minic.compiler.ast.stmt.ContinueStmt;
 import minic.compiler.ast.expr.AssignmentExpr;
 import minic.compiler.ast.expr.BinaryExpr;
+import minic.compiler.ast.expr.BoolLiteralExpr;
 import minic.compiler.ast.expr.CallExpr;
+import minic.compiler.ast.expr.CharLiteralExpr;
+import minic.compiler.ast.expr.DoubleLiteralExpr;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.FieldAccessExpr;
+import minic.compiler.ast.expr.FloatLiteralExpr;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
+import minic.compiler.ast.expr.LongLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
+import minic.compiler.ast.expr.NullLiteralExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ast.stmt.ForStmt;
@@ -115,6 +121,23 @@ class ParserTest {
     }
 
     @Test
+    void parsesExtendedFunctionReturnAndParameterTypes() {
+        SourceFile sourceFile = new SourceFile(
+                "extended-function-types.mc",
+                "double mix(bool flag, char tag, long count, float ratio, double score) { return score; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        FunctionDecl functionDecl = result.program().functions().getFirst();
+        assertThat(functionDecl.returnType()).isEqualTo(MiniType.DOUBLE);
+        assertThat(functionDecl.parameters())
+                .extracting(parameter -> parameter.type())
+                .containsExactly(MiniType.BOOL, MiniType.CHAR, MiniType.LONG, MiniType.FLOAT, MiniType.DOUBLE);
+    }
+
+    @Test
     void parsesVariableDeclarationAndReturnStatements() {
         SourceFile sourceFile = new SourceFile("statements.mc", "int main() { int x = 1; return x; }");
 
@@ -135,6 +158,25 @@ class ParserTest {
         assertThat(returnStmt.expressionOptional()).isPresent();
         assertThat(returnStmt.expressionOptional().get().range()).isEqualTo(new SourceRange(sourceFile, 31, 32));
         assertThat(returnStmt.range()).isEqualTo(new SourceRange(sourceFile, 24, 33));
+    }
+
+    @Test
+    void parsesExtendedLocalVariableTypes() {
+        SourceFile sourceFile = new SourceFile(
+                "extended-local-types.mc",
+                "int main() { bool flag; char tag; long count; float ratio; double score; return 0; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        BlockStmt body = result.program().functions().getFirst().body();
+        assertThat(body.statements().stream()
+                .filter(VarDeclStmt.class::isInstance)
+                .map(VarDeclStmt.class::cast)
+                .map(VarDeclStmt::type)
+                .toList())
+                .containsExactly(MiniType.BOOL, MiniType.CHAR, MiniType.LONG, MiniType.FLOAT, MiniType.DOUBLE);
     }
 
     @Test
@@ -602,6 +644,25 @@ class ParserTest {
         assertThat(stringLiteralExpr.value()).isEqualTo("hello");
         assertThat(stringLiteralExpr.lexeme()).isEqualTo("\"hello\"");
         assertThat(stringLiteralExpr.range()).isEqualTo(new SourceRange(sourceFile, 25, 32));
+    }
+
+    @Test
+    void parsesExtendedLiteralExpressions() {
+        SourceFile sourceFile = new SourceFile(
+                "extended-literals.mc",
+                "int main() { true; 'a'; 123L; 1.25f; 2.5; NULL; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        BlockStmt body = result.program().functions().getFirst().body();
+        assertThat(((ExprStmt) body.statements().get(0)).expression()).isInstanceOf(BoolLiteralExpr.class);
+        assertThat(((ExprStmt) body.statements().get(1)).expression()).isInstanceOf(CharLiteralExpr.class);
+        assertThat(((ExprStmt) body.statements().get(2)).expression()).isInstanceOf(LongLiteralExpr.class);
+        assertThat(((ExprStmt) body.statements().get(3)).expression()).isInstanceOf(FloatLiteralExpr.class);
+        assertThat(((ExprStmt) body.statements().get(4)).expression()).isInstanceOf(DoubleLiteralExpr.class);
+        assertThat(((ExprStmt) body.statements().get(5)).expression()).isInstanceOf(NullLiteralExpr.class);
     }
 
     @Test

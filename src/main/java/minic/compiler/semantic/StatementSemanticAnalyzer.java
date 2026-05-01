@@ -145,6 +145,9 @@ final class StatementSemanticAnalyzer {
         if (targetType.equals(initializerType)) {
             return true;
         }
+        if (targetType.isPointer() && initializerType.isNullPointer()) {
+            return true;
+        }
         if (targetType.isPointer() && targetType.pointee().isFunction()) {
             return false;
         }

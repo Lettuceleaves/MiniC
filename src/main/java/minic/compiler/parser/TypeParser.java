@@ -83,9 +83,29 @@ final class TypeParser {
     }
 
     private BaseType parseBaseType(String expectedMessage) {
+        if (state.check(TokenKind.BOOL)) {
+            Token token = state.advance();
+            return new BaseType(MiniType.BOOL, token, token);
+        }
+        if (state.check(TokenKind.CHAR)) {
+            Token token = state.advance();
+            return new BaseType(MiniType.CHAR, token, token);
+        }
         if (state.check(TokenKind.INT)) {
             Token token = state.advance();
             return new BaseType(MiniType.INT, token, token);
+        }
+        if (state.check(TokenKind.LONG)) {
+            Token token = state.advance();
+            return new BaseType(MiniType.LONG, token, token);
+        }
+        if (state.check(TokenKind.FLOAT)) {
+            Token token = state.advance();
+            return new BaseType(MiniType.FLOAT, token, token);
+        }
+        if (state.check(TokenKind.DOUBLE)) {
+            Token token = state.advance();
+            return new BaseType(MiniType.DOUBLE, token, token);
         }
         if (state.check(TokenKind.STRUCT)) {
             return parseStructType();

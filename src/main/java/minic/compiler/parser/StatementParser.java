@@ -63,7 +63,7 @@ final class StatementParser {
         if (state.check(TokenKind.LEFT_BRACE)) {
             return parseBlock();
         }
-        if (state.check(TokenKind.INT) || state.check(TokenKind.STRUCT)) {
+        if (isTypeStart()) {
             return parseVarDeclStmt();
         }
         if (state.check(TokenKind.RETURN)) {
@@ -197,7 +197,7 @@ final class StatementParser {
         if (state.match(TokenKind.SEMICOLON)) {
             return null;
         }
-        if (state.check(TokenKind.INT) || state.check(TokenKind.STRUCT)) {
+        if (isTypeStart()) {
             return parseVarDeclStmt();
         }
         return parseExprStmt();
@@ -301,5 +301,15 @@ final class StatementParser {
                         semicolonToken.range().endOffset()
                 )
         );
+    }
+
+    private boolean isTypeStart() {
+        return state.check(TokenKind.BOOL)
+                || state.check(TokenKind.CHAR)
+                || state.check(TokenKind.INT)
+                || state.check(TokenKind.LONG)
+                || state.check(TokenKind.FLOAT)
+                || state.check(TokenKind.DOUBLE)
+                || state.check(TokenKind.STRUCT);
     }
 }
