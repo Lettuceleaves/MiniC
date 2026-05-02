@@ -2,20 +2,23 @@ package minic.session;
 
 import minic.compiler.ast.decl.Program;
 import minic.compiler.codegen.AssemblySource;
-import minic.compiler.codegen.windows.WindowsX64CodegenStepState;
 import minic.compiler.ir.model.IrModule;
 import minic.compiler.lexer.LexResult;
 import minic.compiler.parser.ParseResult;
 import minic.compiler.semantic.SemanticResult;
+import minic.runtime.step.CodegenStageStepper;
 import minic.runtime.step.CompileStage;
 import minic.runtime.step.CurrentStepState;
 import minic.runtime.step.GlobalStepData;
+import minic.runtime.step.IrStageStepper;
 import minic.runtime.step.LexerStageStepper;
+import minic.runtime.step.ParserStageStepper;
 import minic.runtime.step.PlaybackMode;
-import minic.runtime.step.StageProgress;
+import minic.runtime.step.SemanticStageStepper;
 import minic.runtime.step.StageStepData;
 import minic.runtime.step.StageStepper;
 import minic.runtime.step.StepCapabilities;
+import minic.runtime.step.StepResult;
 import minic.source.SourceFile;
 
 import java.time.Duration;
@@ -118,6 +121,29 @@ public final class CompileObservationSession {
      */
     public PlaybackMode playbackMode() {
         return playbackMode;
+    }
+
+    /**
+     * 全局推进一步。当前阶段完成后，本次调用只切换到下一个阶段。
+     *
+     * @return 单步结果
+     */
+    public StepResult next() {
+        StageStepper stepper = currentStepper();
+        if (stepper.canNext()) {
+            StepResult result = stepper.next();
+            globalStepCount++;
+            if (!stepper.canNext()) {
+                cacheCurrentStageOutput();
+            }
+            return result;
+        }
+        if (atLastStage()) {
+            return StepResult.cannotAdvance(currentStage(), "编译观测已完成", "没有更多编译步骤。");
+        }
+        prepareNextStage();
+        advanceStageIndex();
+        return StepResult.advanced(currentStage(), "进入阶段", "已准备 " + currentStage().id() + " 阶段。");
     }
 
     /**
@@ -263,6 +289,60 @@ public final class CompileObservationSession {
 
     void setPlaybackMode(PlaybackMode playbackMode) {
         this.playbackMode = Objects.requireNonNull(playbackMode, "playbackMode");
+    }
+
+    private void cacheCurrentStageOutput() {
+        switch (currentStage()) {
+            case LEXER -> cacheLexResult(((LexerStageStepper) currentStepper()).lexerState().toLexResult());
+            case PARSER -> cacheParseResult(((ParserStageStepper) currentStepper()).parserState().toParseResult());
+            case SEMANTIC -> cacheSemanticResult(((SemanticStageStepper) currentStepper()).semanticState().toSemanticResult());
+            case IR -> cacheIrModule(((IrStageStepper) currentStepper()).irState().toIrModule());
+            case CODEGEN -> cacheAssemblySource(((CodegenStageStepper) currentStepper()).codegenState().toAssemblySource());
+            case SOURCE, TOOLCHAIN -> {
+                // 本阶段不调度 source/toolchain。
+            }
+        }
+    }
+
+    private void prepareNextStage() {
+        CompileStage nextStage = STAGE_ORDER.get(currentStageIndex + 1);
+        switch (nextStage) {
+            case PARSER -> {
+                LexResult readyLexResult = lexResult().orElseGet(() -> {
+                    LexResult result = ((LexerStageStepper) currentStepper()).lexerState().toLexResult();
+                    cacheLexResult(result);
+                    return result;
+                });
+                putStepper(CompileStage.PARSER, new ParserStageStepper(readyLexResult.tokens()));
+            }
+            case SEMANTIC -> {
+                ParseResult readyParseResult = parseResult().orElseGet(() -> {
+                    ParseResult result = ((ParserStageStepper) currentStepper()).parserState().toParseResult();
+                    cacheParseResult(result);
+                    return result;
+                });
+                putStepper(CompileStage.SEMANTIC, new SemanticStageStepper(readyParseResult.program()));
+            }
+            case IR -> {
+                ParseResult readyParseResult = parseResult().orElseThrow(() ->
+                        new IllegalStateException("parse result is required before IR stage"));
+                SemanticResult readySemanticResult = semanticResult().orElseGet(() -> {
+                    SemanticResult result = ((SemanticStageStepper) currentStepper()).semanticState().toSemanticResult();
+                    cacheSemanticResult(result);
+                    return result;
+                });
+                putStepper(CompileStage.IR, new IrStageStepper(readyParseResult.program(), readySemanticResult));
+            }
+            case CODEGEN -> {
+                IrModule readyIrModule = irModule().orElseGet(() -> {
+                    IrModule result = ((IrStageStepper) currentStepper()).irState().toIrModule();
+                    cacheIrModule(result);
+                    return result;
+                });
+                putStepper(CompileStage.CODEGEN, new CodegenStageStepper(readyIrModule));
+            }
+            default -> throw new IllegalStateException("unsupported next stage: " + nextStage);
+        }
     }
 
     private StepCapabilities capabilities() {
