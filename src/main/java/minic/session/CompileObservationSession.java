@@ -170,6 +170,24 @@ public final class CompileObservationSession {
     }
 
     /**
+     * 反向退回一步的未来扩展点。本阶段仅预留接口，不执行状态回退。
+     *
+     * @return unsupported 单步结果
+     */
+    public StepResult previous() {
+        return StepResult.unsupported(currentStage(), "上一步暂不支持", "调度层只预留反向步进能力，当前版本不执行状态回退。");
+    }
+
+    /**
+     * 自动倒放的未来扩展点。本阶段仅预留接口，不改变播放状态。
+     *
+     * @return unsupported 单步结果
+     */
+    public StepResult reversePlay() {
+        return StepResult.unsupported(currentStage(), "自动倒放暂不支持", "调度层只预留自动倒放能力，当前版本不执行反向播放。");
+    }
+
+    /**
      * 全局推进一步。当前阶段完成后，本次调用只切换到下一个阶段。
      *
      * @return 单步结果
