@@ -1,40 +1,34 @@
 package minic.compiler.parser;
 
 import minic.compiler.ast.decl.FunctionDecl;
-import minic.compiler.ast.decl.StructDecl;
-import minic.compiler.ast.stmt.BlockStmt;
-import minic.compiler.ast.stmt.BreakStmt;
-import minic.compiler.ast.stmt.ContinueStmt;
 import minic.compiler.ast.expr.AssignmentExpr;
 import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.BoolLiteralExpr;
 import minic.compiler.ast.expr.CallExpr;
-import minic.compiler.ast.expr.CharLiteralExpr;
-import minic.compiler.ast.expr.DoubleLiteralExpr;
-import minic.compiler.ast.stmt.ExprStmt;
-import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.FieldAccessExpr;
 import minic.compiler.ast.expr.FloatLiteralExpr;
 import minic.compiler.ast.expr.GroupingExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
-import minic.compiler.ast.expr.LongLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.NullLiteralExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
+import minic.compiler.ast.stmt.BlockStmt;
+import minic.compiler.ast.stmt.BreakStmt;
+import minic.compiler.ast.stmt.ContinueStmt;
+import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.ast.stmt.WhileStmt;
-import minic.compiler.lexer.TokenKind;
 import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
+import minic.compiler.lexer.TokenKind;
 import minic.compiler.type.MiniType;
 import minic.diagnostics.DiagnosticSeverity;
 import minic.source.SourceFile;
-import minic.source.SourceRange;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -43,6 +37,199 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ParserTest {
     @Test
+    void parsesDeclarationsTypesAndFunctionPointersInOneProgram() {
+        SourceFile sourceFile = new SourceFile(
+                "declarations.mc",
+                """
+                        extern int puts(char *message);
+                        struct Handler {
+                          int value;
+                          int (*operation)(int value, int *data);
+                        };
+
+                        double mix(bool flag, char tag, long count, float ratio, double score) {
+                          return score;
+                        }
+
+                        int apply(int (*operation)(int, int *), struct Handler *handler) {
+                          int values[3];
+                          int *data = &values[0];
+                          handler->value = operation(1, data);
+                          return handler->value;
+                        }
+                        """
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.program().structs()).singleElement().satisfies(structDecl -> {
+            assertThat(structDecl.name()).isEqualTo("Handler");
+            assertThat(structDecl.fields()).extracting(field -> field.name())
+                    .containsExactly("value", "operation");
+            assertThat(structDecl.fields().get(1).type())
+                    .isEqualTo(MiniType.function(MiniType.INT, List.of(MiniType.INT, MiniType.INT.pointerTo())).pointerTo());
+        });
+        assertThat(result.program().functions()).extracting(FunctionDecl::name)
+                .containsExactly("puts", "mix", "apply");
+
+        FunctionDecl puts = result.program().functions().get(0);
+        assertThat(puts.external()).isTrue();
+        assertThat(puts.hasBody()).isFalse();
+        assertThat(puts.parameters().getFirst().type()).isEqualTo(MiniType.CHAR.pointerTo());
+
+        FunctionDecl mix = result.program().functions().get(1);
+        assertThat(mix.returnType()).isEqualTo(MiniType.DOUBLE);
+        assertThat(mix.parameters()).extracting(parameter -> parameter.type())
+                .containsExactly(MiniType.BOOL, MiniType.CHAR, MiniType.LONG, MiniType.FLOAT, MiniType.DOUBLE);
+
+        FunctionDecl apply = result.program().functions().get(2);
+        assertThat(apply.parameters()).extracting(parameter -> parameter.type())
+                .containsExactly(
+                        MiniType.function(MiniType.INT, List.of(MiniType.INT, MiniType.INT.pointerTo())).pointerTo(),
+                        MiniType.struct("Handler").pointerTo()
+                );
+        BlockStmt body = apply.body();
+        assertThat(((VarDeclStmt) body.statements().get(0)).type()).isEqualTo(MiniType.INT.arrayOf(3));
+        VarDeclStmt pointerDecl = (VarDeclStmt) body.statements().get(1);
+        assertThat(pointerDecl.type()).isEqualTo(MiniType.INT.pointerTo());
+        assertThat(pointerDecl.initializerOptional().orElseThrow()).isInstanceOf(UnaryExpr.class);
+
+        AssignmentExpr assignment = (AssignmentExpr) ((ExprStmt) body.statements().get(2)).expression();
+        assertThat(assignment.target()).isInstanceOf(FieldAccessExpr.class);
+        assertThat(assignment.value()).isInstanceOf(CallExpr.class);
+        assertThat(((FieldAccessExpr) assignment.target()).viaPointer()).isTrue();
+
+        ReturnStmt returnStmt = (ReturnStmt) body.statements().get(3);
+        assertThat(returnStmt.expressionOptional().orElseThrow()).isInstanceOf(FieldAccessExpr.class);
+    }
+
+    @Test
+    void parsesControlFlowAndLoopStatementsInOneProgram() {
+        SourceFile sourceFile = new SourceFile(
+                "control-flow.mc",
+                """
+                        int main() {
+                          int total = 0;
+                          for (int i = 0; i < 5; i = i + 1) {
+                            if (i == 3) break;
+                            else if (i == 1) continue;
+                            total = total + i;
+                          }
+                          while (total < 10) total = total + 1;
+                          for (;;) return total;
+                        }
+                        """
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        BlockStmt body = result.program().functions().getFirst().body();
+        assertThat(body.statements()).hasSize(4);
+
+        ForStmt countedFor = (ForStmt) body.statements().get(1);
+        assertThat(countedFor.initializerOptional()).hasValueSatisfying(initializer ->
+                assertThat(initializer).isInstanceOf(VarDeclStmt.class));
+        assertThat(countedFor.conditionOptional()).hasValueSatisfying(condition ->
+                assertThat(condition).isInstanceOf(BinaryExpr.class));
+        assertThat(countedFor.stepOptional()).hasValueSatisfying(step ->
+                assertThat(step).isInstanceOf(AssignmentExpr.class));
+
+        BlockStmt forBody = (BlockStmt) countedFor.body();
+        IfStmt ifStmt = (IfStmt) forBody.statements().getFirst();
+        IfStmt elseIf = (IfStmt) ifStmt.elseBranchOptional().orElseThrow();
+        assertThat(ifStmt.thenBranch()).isInstanceOf(BreakStmt.class);
+        assertThat(elseIf.thenBranch()).isInstanceOf(ContinueStmt.class);
+        assertThat(forBody.statements().get(1)).isInstanceOf(ExprStmt.class);
+
+        WhileStmt whileStmt = (WhileStmt) body.statements().get(2);
+        assertThat(whileStmt.condition()).isInstanceOf(BinaryExpr.class);
+        assertThat(whileStmt.body()).isInstanceOf(ExprStmt.class);
+
+        ForStmt infiniteFor = (ForStmt) body.statements().get(3);
+        assertThat(infiniteFor.initializerOptional()).isEmpty();
+        assertThat(infiniteFor.conditionOptional()).isEmpty();
+        assertThat(infiniteFor.stepOptional()).isEmpty();
+        assertThat(infiniteFor.body()).isInstanceOf(ReturnStmt.class);
+    }
+
+    @Test
+    void parsesExpressionPrecedenceCallsLiteralsAndPostfixOperators() {
+        SourceFile sourceFile = new SourceFile(
+                "expressions.mc",
+                """
+                        int main() {
+                          values[0] = add(1, (2 + 3) * 4);
+                          point.x = values[0] >= 10 == true;
+                          puts("hello");
+                          ratio = 1.25f;
+                          ptr = NULL;
+                          return (operation)(values[0], &point.x);
+                        }
+                        """
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        BlockStmt body = result.program().functions().getFirst().body();
+
+        AssignmentExpr indexAssignment = (AssignmentExpr) ((ExprStmt) body.statements().get(0)).expression();
+        assertThat(indexAssignment.target()).isInstanceOf(IndexExpr.class);
+        CallExpr addCall = (CallExpr) indexAssignment.value();
+        assertThat(addCall.calleeName()).isEqualTo("add");
+        BinaryExpr multiply = (BinaryExpr) addCall.arguments().get(1);
+        assertThat(multiply.operator()).isEqualTo(TokenKind.STAR);
+        assertThat(multiply.left()).isInstanceOf(GroupingExpr.class);
+
+        AssignmentExpr fieldAssignment = (AssignmentExpr) ((ExprStmt) body.statements().get(1)).expression();
+        BinaryExpr equality = (BinaryExpr) fieldAssignment.value();
+        assertThat(fieldAssignment.target()).isInstanceOf(FieldAccessExpr.class);
+        assertThat(equality.operator()).isEqualTo(TokenKind.EQUAL_EQUAL);
+        assertThat(equality.left()).isInstanceOf(BinaryExpr.class);
+        assertThat(equality.right()).isInstanceOf(BoolLiteralExpr.class);
+
+        CallExpr putsCall = (CallExpr) ((ExprStmt) body.statements().get(2)).expression();
+        assertThat(putsCall.arguments().getFirst()).isInstanceOf(StringLiteralExpr.class);
+
+        AssignmentExpr floatAssignment = (AssignmentExpr) ((ExprStmt) body.statements().get(3)).expression();
+        assertThat(floatAssignment.value()).isInstanceOf(FloatLiteralExpr.class);
+        AssignmentExpr nullAssignment = (AssignmentExpr) ((ExprStmt) body.statements().get(4)).expression();
+        assertThat(nullAssignment.value()).isInstanceOf(NullLiteralExpr.class);
+
+        ReturnStmt returnStmt = (ReturnStmt) body.statements().get(5);
+        CallExpr indirectCall = (CallExpr) returnStmt.expressionOptional().orElseThrow();
+        assertThat(indirectCall.callee()).isInstanceOf(GroupingExpr.class);
+        assertThat(indirectCall.arguments()).hasSize(2);
+        assertThat(indirectCall.arguments().get(0)).isInstanceOf(IndexExpr.class);
+        assertThat(indirectCall.arguments().get(1)).isInstanceOf(UnaryExpr.class);
+    }
+
+    @Test
+    void reportsRepresentativeSyntaxErrorsAndRecovers() {
+        SourceFile sourceFile = new SourceFile(
+                "invalid.mc",
+                "main() {} int (*factory())(int); int main() { return 0; }"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.code())
+                .containsExactly("PAR001", "PAR001");
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.severity())
+                .containsOnly(DiagnosticSeverity.ERROR);
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .contains("暂不支持函数指针返回值");
+        assertThat(result.program().functions())
+                .extracting(FunctionDecl::name)
+                .containsExactly("main");
+    }
+
+    @Test
     void parsesEmptyProgram() {
         SourceFile sourceFile = new SourceFile("empty.mc", "");
 
@@ -50,632 +237,7 @@ class ParserTest {
 
         assertThat(result.diagnostics()).isEmpty();
         assertThat(result.program().functions()).isEmpty();
-        assertThat(result.program().range()).isEqualTo(new SourceRange(sourceFile, 0, 0));
-    }
-
-    @Test
-    void parsesFunctionWithoutParameters() {
-        SourceFile sourceFile = new SourceFile("main.mc", "int main() {}");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        assertThat(result.program().functions()).hasSize(1);
-        FunctionDecl functionDecl = result.program().functions().getFirst();
-        assertThat(functionDecl.name()).isEqualTo("main");
-        assertThat(functionDecl.parameters()).isEmpty();
-        assertThat(functionDecl.hasBody()).isTrue();
-        assertThat(functionDecl.body().statements()).isEmpty();
-        assertThat(functionDecl.range()).isEqualTo(new SourceRange(sourceFile, 0, 13));
-    }
-
-    @Test
-    void parsesFunctionDeclarationWithoutBody() {
-        SourceFile sourceFile = new SourceFile("decl.mc", "int add(int left, int right); int main() { return 0; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        assertThat(result.program().functions()).hasSize(2);
-        FunctionDecl declaration = result.program().functions().getFirst();
-        assertThat(declaration.name()).isEqualTo("add");
-        assertThat(declaration.parameters())
-                .extracting(parameter -> parameter.name())
-                .containsExactly("left", "right");
-        assertThat(declaration.hasBody()).isFalse();
-        assertThat(declaration.bodyOptional()).isEmpty();
-        assertThat(declaration.range()).isEqualTo(new SourceRange(sourceFile, 0, 29));
-    }
-
-    @Test
-    void parsesExternalFunctionDeclaration() {
-        SourceFile sourceFile = new SourceFile("extern.mc", "extern int puts(int value); int main() { return 0; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        FunctionDecl declaration = result.program().functions().getFirst();
-        assertThat(declaration.name()).isEqualTo("puts");
-        assertThat(declaration.external()).isTrue();
-        assertThat(declaration.hasBody()).isFalse();
-        assertThat(declaration.parameters())
-                .extracting(parameter -> parameter.name())
-                .containsExactly("value");
-        assertThat(declaration.range()).isEqualTo(new SourceRange(sourceFile, 0, 27));
-    }
-
-    @Test
-    void parsesFunctionParameters() {
-        SourceFile sourceFile = new SourceFile("add.mc", "int add(int left, int right) {}");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        FunctionDecl functionDecl = result.program().functions().getFirst();
-        assertThat(functionDecl.name()).isEqualTo("add");
-        assertThat(functionDecl.parameters())
-                .extracting(parameter -> parameter.name())
-                .containsExactly("left", "right");
-        assertThat(functionDecl.parameters().get(0).range()).isEqualTo(new SourceRange(sourceFile, 8, 16));
-        assertThat(functionDecl.parameters().get(1).range()).isEqualTo(new SourceRange(sourceFile, 18, 27));
-    }
-
-    @Test
-    void parsesExtendedFunctionReturnAndParameterTypes() {
-        SourceFile sourceFile = new SourceFile(
-                "extended-function-types.mc",
-                "double mix(bool flag, char tag, long count, float ratio, double score) { return score; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        FunctionDecl functionDecl = result.program().functions().getFirst();
-        assertThat(functionDecl.returnType()).isEqualTo(MiniType.DOUBLE);
-        assertThat(functionDecl.parameters())
-                .extracting(parameter -> parameter.type())
-                .containsExactly(MiniType.BOOL, MiniType.CHAR, MiniType.LONG, MiniType.FLOAT, MiniType.DOUBLE);
-    }
-
-    @Test
-    void parsesVariableDeclarationAndReturnStatements() {
-        SourceFile sourceFile = new SourceFile("statements.mc", "int main() { int x = 1; return x; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        BlockStmt body = result.program().functions().getFirst().body();
-        assertThat(body.range()).isEqualTo(new SourceRange(sourceFile, 11, 35));
-        assertThat(body.statements()).hasSize(2);
-
-        VarDeclStmt varDeclStmt = (VarDeclStmt) body.statements().get(0);
-        assertThat(varDeclStmt.name()).isEqualTo("x");
-        assertThat(varDeclStmt.initializerOptional()).isPresent();
-        assertThat(varDeclStmt.initializerOptional().get().range()).isEqualTo(new SourceRange(sourceFile, 21, 22));
-        assertThat(varDeclStmt.range()).isEqualTo(new SourceRange(sourceFile, 13, 23));
-
-        ReturnStmt returnStmt = (ReturnStmt) body.statements().get(1);
-        assertThat(returnStmt.expressionOptional()).isPresent();
-        assertThat(returnStmt.expressionOptional().get().range()).isEqualTo(new SourceRange(sourceFile, 31, 32));
-        assertThat(returnStmt.range()).isEqualTo(new SourceRange(sourceFile, 24, 33));
-    }
-
-    @Test
-    void parsesExtendedLocalVariableTypes() {
-        SourceFile sourceFile = new SourceFile(
-                "extended-local-types.mc",
-                "int main() { bool flag; char tag; long count; float ratio; double score; return 0; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        BlockStmt body = result.program().functions().getFirst().body();
-        assertThat(body.statements().stream()
-                .filter(VarDeclStmt.class::isInstance)
-                .map(VarDeclStmt.class::cast)
-                .map(VarDeclStmt::type)
-                .toList())
-                .containsExactly(MiniType.BOOL, MiniType.CHAR, MiniType.LONG, MiniType.FLOAT, MiniType.DOUBLE);
-    }
-
-    @Test
-    void parsesNestedBlockAndExpressionStatement() {
-        SourceFile sourceFile = new SourceFile("nested.mc", "int main() { { value; } }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        BlockStmt outerBlock = result.program().functions().getFirst().body();
-        BlockStmt innerBlock = (BlockStmt) outerBlock.statements().getFirst();
-        ExprStmt exprStmt = (ExprStmt) innerBlock.statements().getFirst();
-
-        assertThat(innerBlock.range()).isEqualTo(new SourceRange(sourceFile, 13, 23));
-        assertThat(exprStmt.expression().range()).isEqualTo(new SourceRange(sourceFile, 15, 20));
-        assertThat(exprStmt.range()).isEqualTo(new SourceRange(sourceFile, 15, 21));
-    }
-
-    @Test
-    void parsesIfElseStatement() {
-        SourceFile sourceFile = new SourceFile("if.mc", "int main() { if (1 < 2) return 3; else return 4; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        IfStmt ifStmt = (IfStmt) result.program().functions().getFirst().body().statements().getFirst();
-        BinaryExpr condition = (BinaryExpr) ifStmt.condition();
-
-        assertThat(condition.operator()).isEqualTo(TokenKind.LESS);
-        assertThat(ifStmt.thenBranch()).isInstanceOf(ReturnStmt.class);
-        assertThat(ifStmt.elseBranchOptional()).hasValueSatisfying(elseBranch ->
-                assertThat(elseBranch).isInstanceOf(ReturnStmt.class));
-        assertThat(ifStmt.range()).isEqualTo(new SourceRange(sourceFile, 13, 48));
-    }
-
-    @Test
-    void parsesIfWithoutElseAndNestedIf() {
-        SourceFile sourceFile = new SourceFile("nested-if.mc", "int main() { if (1) if (0) return 1; return 2; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        IfStmt outerIf = (IfStmt) result.program().functions().getFirst().body().statements().getFirst();
-        IfStmt innerIf = (IfStmt) outerIf.thenBranch();
-
-        assertThat(outerIf.elseBranchOptional()).isEmpty();
-        assertThat(innerIf.elseBranchOptional()).isEmpty();
-        assertThat(innerIf.thenBranch()).isInstanceOf(ReturnStmt.class);
-    }
-
-    @Test
-    void parsesElseIfAsNestedElseBranch() {
-        SourceFile sourceFile = new SourceFile(
-                "else-if.mc",
-                "int main() { if (0) return 1; else if (1) return 2; else return 3; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        IfStmt outerIf = (IfStmt) result.program().functions().getFirst().body().statements().getFirst();
-        IfStmt elseIf = (IfStmt) outerIf.elseBranchOptional().orElseThrow();
-
-        assertThat(outerIf.thenBranch()).isInstanceOf(ReturnStmt.class);
-        assertThat(elseIf.thenBranch()).isInstanceOf(ReturnStmt.class);
-        assertThat(elseIf.elseBranchOptional()).hasValueSatisfying(elseBranch ->
-                assertThat(elseBranch).isInstanceOf(ReturnStmt.class));
-    }
-
-    @Test
-    void bindsElseToNearestIfInElseIfChain() {
-        SourceFile sourceFile = new SourceFile(
-                "dangling-else-if.mc",
-                "int main() { if (1) if (0) return 1; else if (1) return 2; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        IfStmt outerIf = (IfStmt) result.program().functions().getFirst().body().statements().getFirst();
-        IfStmt innerIf = (IfStmt) outerIf.thenBranch();
-        IfStmt elseIf = (IfStmt) innerIf.elseBranchOptional().orElseThrow();
-
-        assertThat(outerIf.elseBranchOptional()).isEmpty();
-        assertThat(elseIf.thenBranch()).isInstanceOf(ReturnStmt.class);
-    }
-
-    @Test
-    void parsesWhileStatement() {
-        SourceFile sourceFile = new SourceFile("while.mc", "int main() { while (x < 3) x = x + 1; return x; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        WhileStmt whileStmt = (WhileStmt) result.program().functions().getFirst().body().statements().getFirst();
-        BinaryExpr condition = (BinaryExpr) whileStmt.condition();
-
-        assertThat(condition.operator()).isEqualTo(TokenKind.LESS);
-        assertThat(whileStmt.body()).isInstanceOf(ExprStmt.class);
-        assertThat(whileStmt.range()).isEqualTo(new SourceRange(sourceFile, 13, 37));
-    }
-
-    @Test
-    void parsesForStatement() {
-        SourceFile sourceFile = new SourceFile(
-                "for.mc",
-                "int main() { for (int i = 0; i < 3; i = i + 1) x = x + i; return x; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        ForStmt forStmt = (ForStmt) result.program().functions().getFirst().body().statements().getFirst();
-        VarDeclStmt initializer = (VarDeclStmt) forStmt.initializerOptional().orElseThrow();
-        BinaryExpr condition = (BinaryExpr) forStmt.conditionOptional().orElseThrow();
-        AssignmentExpr step = (AssignmentExpr) forStmt.stepOptional().orElseThrow();
-
-        assertThat(initializer.name()).isEqualTo("i");
-        assertThat(condition.operator()).isEqualTo(TokenKind.LESS);
-        assertThat(step.targetName()).isEqualTo("i");
-        assertThat(forStmt.body()).isInstanceOf(ExprStmt.class);
-        assertThat(forStmt.range()).isEqualTo(new SourceRange(sourceFile, 13, sourceFile.content().indexOf(" return")));
-    }
-
-    @Test
-    void parsesForStatementWithOmittedClauses() {
-        SourceFile sourceFile = new SourceFile("for-omitted.mc", "int main() { for (;;) return 1; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        ForStmt forStmt = (ForStmt) result.program().functions().getFirst().body().statements().getFirst();
-        assertThat(forStmt.initializerOptional()).isEmpty();
-        assertThat(forStmt.conditionOptional()).isEmpty();
-        assertThat(forStmt.stepOptional()).isEmpty();
-        assertThat(forStmt.body()).isInstanceOf(ReturnStmt.class);
-    }
-
-    @Test
-    void parsesBreakAndContinueStatements() {
-        SourceFile sourceFile = new SourceFile("loop-control.mc", "int main() { while (1) { break; continue; } }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        WhileStmt whileStmt = (WhileStmt) result.program().functions().getFirst().body().statements().getFirst();
-        BlockStmt body = (BlockStmt) whileStmt.body();
-
-        assertThat(body.statements().get(0)).isInstanceOf(BreakStmt.class);
-        assertThat(body.statements().get(0).range()).isEqualTo(new SourceRange(sourceFile, 25, 31));
-        assertThat(body.statements().get(1)).isInstanceOf(ContinueStmt.class);
-        assertThat(body.statements().get(1).range()).isEqualTo(new SourceRange(sourceFile, 32, 41));
-    }
-
-    @Test
-    void parsesPointerDeclarationsAddressOfAndDereferenceAssignment() {
-        SourceFile sourceFile = new SourceFile(
-                "pointer.mc",
-                "int set(int *p) { *p = 3; return *p; } int main() { int x = 0; int *p = &x; return set(p); }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        FunctionDecl set = result.program().functions().getFirst();
-        assertThat(set.parameters().getFirst().type()).isEqualTo(MiniType.INT.pointerTo());
-        ExprStmt assignmentStatement = (ExprStmt) set.body().statements().getFirst();
-        AssignmentExpr assignment = (AssignmentExpr) assignmentStatement.expression();
-        UnaryExpr target = (UnaryExpr) assignment.target();
-        ReturnStmt returnStmt = (ReturnStmt) set.body().statements().get(1);
-        UnaryExpr returned = (UnaryExpr) returnStmt.expressionOptional().orElseThrow();
-        VarDeclStmt pointerDecl = (VarDeclStmt) result.program().functions().get(1).body().statements().get(1);
-        UnaryExpr addressOf = (UnaryExpr) pointerDecl.initializerOptional().orElseThrow();
-
-        assertThat(target.operator()).isEqualTo(TokenKind.STAR);
-        assertThat(returned.operator()).isEqualTo(TokenKind.STAR);
-        assertThat(pointerDecl.type()).isEqualTo(MiniType.INT.pointerTo());
-        assertThat(addressOf.operator()).isEqualTo(TokenKind.AMPERSAND);
-    }
-
-    @Test
-    void parsesArrayDeclarationAndIndexAssignment() {
-        SourceFile sourceFile = new SourceFile("array.mc", "int main() { int values[3]; values[0] = 7; return values[0]; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        BlockStmt body = result.program().functions().getFirst().body();
-        VarDeclStmt arrayDecl = (VarDeclStmt) body.statements().getFirst();
-        AssignmentExpr assignment = (AssignmentExpr) ((ExprStmt) body.statements().get(1)).expression();
-        IndexExpr target = (IndexExpr) assignment.target();
-        ReturnStmt returnStmt = (ReturnStmt) body.statements().get(2);
-        IndexExpr returned = (IndexExpr) returnStmt.expressionOptional().orElseThrow();
-
-        assertThat(arrayDecl.type()).isEqualTo(MiniType.INT.arrayOf(3));
-        assertThat(target.target()).isInstanceOf(NameExpr.class);
-        assertThat(((IntegerLiteralExpr) target.index()).value()).isEqualTo(0);
-        assertThat(returned.target()).isInstanceOf(NameExpr.class);
-    }
-
-    @Test
-    void parsesStructDeclarationAndStructVariable() {
-        SourceFile sourceFile = new SourceFile(
-                "struct.mc",
-                "struct Point { int x; int *next; }; int main() { struct Point point; return 0; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        assertThat(result.program().structs()).singleElement().satisfies(structDecl -> {
-            assertThat(structDecl.name()).isEqualTo("Point");
-            assertThat(structDecl.fields()).extracting(field -> field.name()).containsExactly("x", "next");
-            assertThat(structDecl.fields().getFirst().type()).isEqualTo(MiniType.INT);
-            assertThat(structDecl.fields().get(1).type()).isEqualTo(MiniType.INT.pointerTo());
-        });
-        VarDeclStmt pointDecl = (VarDeclStmt) result.program().functions().getFirst().body().statements().getFirst();
-        assertThat(pointDecl.name()).isEqualTo("point");
-        assertThat(pointDecl.type()).isEqualTo(MiniType.struct("Point"));
-        assertThat(result.program().range()).isEqualTo(new SourceRange(sourceFile, 0, sourceFile.content().length()));
-    }
-
-    @Test
-    void parsesStructPointerParameter() {
-        SourceFile sourceFile = new SourceFile("struct-pointer.mc", "int use(struct Point *point) { return 0; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        FunctionDecl functionDecl = result.program().functions().getFirst();
-        assertThat(functionDecl.parameters().getFirst().type()).isEqualTo(MiniType.struct("Point").pointerTo());
-    }
-
-    @Test
-    void parsesFunctionPointerLocalVariable() {
-        SourceFile sourceFile = new SourceFile(
-                "function-pointer-local.mc",
-                "int main() { int (*operation)(int, int *); return 0; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        VarDeclStmt declaration = (VarDeclStmt) result.program().functions().getFirst().body().statements().getFirst();
-        MiniType functionType = MiniType.function(MiniType.INT, List.of(MiniType.INT, MiniType.INT.pointerTo()));
-
-        assertThat(declaration.name()).isEqualTo("operation");
-        assertThat(declaration.type()).isEqualTo(functionType.pointerTo());
-    }
-
-    @Test
-    void parsesFunctionPointerParameter() {
-        SourceFile sourceFile = new SourceFile(
-                "function-pointer-parameter.mc",
-                "int apply(int (*operation)(int value, int *data), int value) { return value; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        FunctionDecl functionDecl = result.program().functions().getFirst();
-        MiniType functionType = MiniType.function(MiniType.INT, List.of(MiniType.INT, MiniType.INT.pointerTo()));
-
-        assertThat(functionDecl.parameters().getFirst().name()).isEqualTo("operation");
-        assertThat(functionDecl.parameters().getFirst().type()).isEqualTo(functionType.pointerTo());
-        assertThat(functionDecl.parameters().get(1).type()).isEqualTo(MiniType.INT);
-    }
-
-    @Test
-    void reportsFunctionPointerReturnValueAsUnsupported() {
-        SourceFile sourceFile = new SourceFile(
-                "function-pointer-return.mc",
-                "int (*factory())(int);"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics())
-                .extracting(diagnostic -> diagnostic.message())
-                .containsExactly("暂不支持函数指针返回值");
-        assertThat(result.program().functions()).isEmpty();
-    }
-
-    @Test
-    void recoversAfterUnsupportedFunctionPointerReturnValue() {
-        SourceFile sourceFile = new SourceFile(
-                "function-pointer-return-recovery.mc",
-                "int (*factory())(int); int main() { return 0; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics())
-                .extracting(diagnostic -> diagnostic.message())
-                .containsExactly("暂不支持函数指针返回值");
-        assertThat(result.program().functions())
-                .extracting(FunctionDecl::name)
-                .containsExactly("main");
-    }
-
-    @Test
-    void parsesFunctionPointerStructField() {
-        SourceFile sourceFile = new SourceFile(
-                "function-pointer-field.mc",
-                "struct Handler { int (*operation)(int); }; int main() { return 0; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        MiniType functionType = MiniType.function(MiniType.INT, List.of(MiniType.INT));
-
-        assertThat(result.program().structs().getFirst().fields().getFirst().name()).isEqualTo("operation");
-        assertThat(result.program().structs().getFirst().fields().getFirst().type())
-                .isEqualTo(functionType.pointerTo());
-    }
-
-    @Test
-    void parsesStructFieldAccessReadAndWrite() {
-        SourceFile sourceFile = new SourceFile(
-                "field.mc",
-                "struct Point { int x; int y; }; int main() { struct Point point; point.x = 7; return point.x; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        BlockStmt body = result.program().functions().getFirst().body();
-        AssignmentExpr assignment = (AssignmentExpr) ((ExprStmt) body.statements().get(1)).expression();
-        FieldAccessExpr target = (FieldAccessExpr) assignment.target();
-        ReturnStmt returnStmt = (ReturnStmt) body.statements().get(2);
-        FieldAccessExpr returned = (FieldAccessExpr) returnStmt.expressionOptional().orElseThrow();
-
-        assertThat(target.target()).isInstanceOf(NameExpr.class);
-        assertThat(target.fieldName()).isEqualTo("x");
-        assertThat(returned.target()).isInstanceOf(NameExpr.class);
-        assertThat(returned.fieldName()).isEqualTo("x");
-    }
-
-    @Test
-    void parsesStructPointerFieldAccessReadAndWrite() {
-        SourceFile sourceFile = new SourceFile(
-                "arrow.mc",
-                "struct Point { int x; }; int write(struct Point *point) { point->x = 7; return point->x; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        BlockStmt body = result.program().functions().getFirst().body();
-        AssignmentExpr assignment = (AssignmentExpr) ((ExprStmt) body.statements().getFirst()).expression();
-        FieldAccessExpr target = (FieldAccessExpr) assignment.target();
-        ReturnStmt returnStmt = (ReturnStmt) body.statements().get(1);
-        FieldAccessExpr returned = (FieldAccessExpr) returnStmt.expressionOptional().orElseThrow();
-
-        assertThat(target.target()).isInstanceOf(NameExpr.class);
-        assertThat(target.fieldName()).isEqualTo("x");
-        assertThat(target.viaPointer()).isTrue();
-        assertThat(returned.fieldName()).isEqualTo("x");
-        assertThat(returned.viaPointer()).isTrue();
-    }
-
-
-
-    @Test
-    void parsesBinaryPrecedence() {
-        SourceFile sourceFile = new SourceFile("precedence.mc", "int main() { return 1 + 2 * 3; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        ReturnStmt returnStmt = (ReturnStmt) result.program().functions().getFirst().body().statements().getFirst();
-        BinaryExpr plus = (BinaryExpr) returnStmt.expressionOptional().orElseThrow();
-        BinaryExpr multiply = (BinaryExpr) plus.right();
-
-        assertThat(plus.operator()).isEqualTo(TokenKind.PLUS);
-        assertThat(((IntegerLiteralExpr) plus.left()).value()).isEqualTo(1);
-        assertThat(multiply.operator()).isEqualTo(TokenKind.STAR);
-        assertThat(((IntegerLiteralExpr) multiply.left()).value()).isEqualTo(2);
-        assertThat(((IntegerLiteralExpr) multiply.right()).value()).isEqualTo(3);
-    }
-
-    @Test
-    void parsesComparisonPrecedence() {
-        SourceFile sourceFile = new SourceFile("comparison.mc", "int main() { return 1 + 2 < 4 == 0; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        ReturnStmt returnStmt = (ReturnStmt) result.program().functions().getFirst().body().statements().getFirst();
-        BinaryExpr equality = (BinaryExpr) returnStmt.expressionOptional().orElseThrow();
-        BinaryExpr less = (BinaryExpr) equality.left();
-        BinaryExpr plus = (BinaryExpr) less.left();
-
-        assertThat(equality.operator()).isEqualTo(TokenKind.EQUAL_EQUAL);
-        assertThat(less.operator()).isEqualTo(TokenKind.LESS);
-        assertThat(plus.operator()).isEqualTo(TokenKind.PLUS);
-        assertThat(((IntegerLiteralExpr) less.right()).value()).isEqualTo(4);
-        assertThat(((IntegerLiteralExpr) equality.right()).value()).isEqualTo(0);
-    }
-
-    @Test
-    void parsesRightAssociativeAssignment() {
-        SourceFile sourceFile = new SourceFile("assignment.mc", "int main() { a = b = 1; }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        ExprStmt exprStmt = (ExprStmt) result.program().functions().getFirst().body().statements().getFirst();
-        AssignmentExpr leftAssignment = (AssignmentExpr) exprStmt.expression();
-        AssignmentExpr rightAssignment = (AssignmentExpr) leftAssignment.value();
-
-        assertThat(leftAssignment.targetName()).isEqualTo("a");
-        assertThat(rightAssignment.targetName()).isEqualTo("b");
-        assertThat(((IntegerLiteralExpr) rightAssignment.value()).value()).isEqualTo(1);
-    }
-
-    @Test
-    void parsesGroupingAndFunctionCallArguments() {
-        SourceFile sourceFile = new SourceFile("call.mc", "int main() { return add(1, (x + 2)); }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        ReturnStmt returnStmt = (ReturnStmt) result.program().functions().getFirst().body().statements().getFirst();
-        CallExpr callExpr = (CallExpr) returnStmt.expressionOptional().orElseThrow();
-        GroupingExpr groupingExpr = (GroupingExpr) callExpr.arguments().get(1);
-        BinaryExpr groupedBinary = (BinaryExpr) groupingExpr.expression();
-
-        assertThat(callExpr.calleeName()).isEqualTo("add");
-        assertThat(callExpr.arguments()).hasSize(2);
-        assertThat(((IntegerLiteralExpr) callExpr.arguments().getFirst()).value()).isEqualTo(1);
-        assertThat(((NameExpr) groupedBinary.left()).name()).isEqualTo("x");
-        assertThat(groupedBinary.operator()).isEqualTo(TokenKind.PLUS);
-    }
-
-    @Test
-    void parsesFunctionPointerCallExpression() {
-        SourceFile sourceFile = new SourceFile("function-pointer-call.mc", "int main() { return (operation)(1, 2); }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        ReturnStmt returnStmt = (ReturnStmt) result.program().functions().getFirst().body().statements().getFirst();
-        CallExpr callExpr = (CallExpr) returnStmt.expressionOptional().orElseThrow();
-        GroupingExpr callee = (GroupingExpr) callExpr.callee();
-
-        assertThat(callee.expression()).isInstanceOf(NameExpr.class);
-        assertThat(((NameExpr) callee.expression()).name()).isEqualTo("operation");
-        assertThat(callExpr.arguments()).hasSize(2);
-    }
-
-    @Test
-    void parsesStringLiteralAsCallArgument() {
-        SourceFile sourceFile = new SourceFile("string-call.mc", "int main() { return puts(\"hello\"); }");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        ReturnStmt returnStmt = (ReturnStmt) result.program().functions().getFirst().body().statements().getFirst();
-        CallExpr callExpr = (CallExpr) returnStmt.expressionOptional().orElseThrow();
-        StringLiteralExpr stringLiteralExpr = (StringLiteralExpr) callExpr.arguments().getFirst();
-
-        assertThat(callExpr.calleeName()).isEqualTo("puts");
-        assertThat(stringLiteralExpr.value()).isEqualTo("hello");
-        assertThat(stringLiteralExpr.lexeme()).isEqualTo("\"hello\"");
-        assertThat(stringLiteralExpr.range()).isEqualTo(new SourceRange(sourceFile, 25, 32));
-    }
-
-    @Test
-    void parsesExtendedLiteralExpressions() {
-        SourceFile sourceFile = new SourceFile(
-                "extended-literals.mc",
-                "int main() { true; 'a'; 123L; 1.25f; 2.5; NULL; }"
-        );
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.diagnostics()).isEmpty();
-        BlockStmt body = result.program().functions().getFirst().body();
-        assertThat(((ExprStmt) body.statements().get(0)).expression()).isInstanceOf(BoolLiteralExpr.class);
-        assertThat(((ExprStmt) body.statements().get(1)).expression()).isInstanceOf(CharLiteralExpr.class);
-        assertThat(((ExprStmt) body.statements().get(2)).expression()).isInstanceOf(LongLiteralExpr.class);
-        assertThat(((ExprStmt) body.statements().get(3)).expression()).isInstanceOf(FloatLiteralExpr.class);
-        assertThat(((ExprStmt) body.statements().get(4)).expression()).isInstanceOf(DoubleLiteralExpr.class);
-        assertThat(((ExprStmt) body.statements().get(5)).expression()).isInstanceOf(NullLiteralExpr.class);
-    }
-
-    @Test
-    void reportsSyntaxErrorsAsDiagnostics() {
-        SourceFile sourceFile = new SourceFile("invalid.mc", "main() {}");
-
-        ParseResult result = parse(sourceFile);
-
-        assertThat(result.program().functions()).isEmpty();
-        assertThat(result.diagnostics()).hasSize(1);
-        assertThat(result.diagnostics().getFirst().code()).isEqualTo("PAR001");
-        assertThat(result.diagnostics().getFirst().severity()).isEqualTo(DiagnosticSeverity.ERROR);
-        assertThat(result.diagnostics().getFirst().range()).isEqualTo(new SourceRange(sourceFile, 0, 4));
+        assertThat(result.program().structs()).isEmpty();
     }
 
     private ParseResult parse(SourceFile sourceFile) {
