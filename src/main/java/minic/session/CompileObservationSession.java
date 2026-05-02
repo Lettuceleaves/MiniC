@@ -154,6 +154,22 @@ public final class CompileObservationSession {
     }
 
     /**
+     * 手动驱动一次播放帧。该方法不等待真实时间，供 UI 定时器或测试调用。
+     *
+     * @return 单步结果
+     */
+    public StepResult tick() {
+        if (playbackMode == PlaybackMode.PAUSED) {
+            return StepResult.cannotAdvance(currentStage(), "播放已暂停", "暂停状态不会自动推进。");
+        }
+        StepResult result = next();
+        if (!currentState().canNext()) {
+            playbackMode = PlaybackMode.PAUSED;
+        }
+        return result;
+    }
+
+    /**
      * 全局推进一步。当前阶段完成后，本次调用只切换到下一个阶段。
      *
      * @return 单步结果
