@@ -70,7 +70,7 @@ class CompilerStageModelTest {
         assertThat(state.work().offset()).isEqualTo(0);
         assertThat(state.snapshot().status()).isEqualTo(CompilerStageStatus.NOT_STARTED);
 
-        CompilerStageSnapshot snapshot = state.next();
+        CompilerStageSnapshot snapshot = state.advance();
 
         assertThat(snapshot.status()).isEqualTo(CompilerStageStatus.COMPLETED);
         assertThat(state.canNext()).isFalse();
@@ -133,7 +133,7 @@ class CompilerStageModelTest {
         }
 
         @Override
-        public CompilerStageSnapshot next() {
+        public CompilerStageSnapshot advance() {
             work = new DummyWork(input.source().length());
             snapshot = new CompilerStageSnapshot(
                     CompileStage.LEXER,

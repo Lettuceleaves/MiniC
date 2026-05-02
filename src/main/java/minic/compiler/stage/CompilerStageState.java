@@ -53,7 +53,7 @@ public interface CompilerStageState<
      *
      * @return 推进后的快照
      */
-    CompilerStageSnapshot next();
+    CompilerStageSnapshot advance();
 
     /**
      * 构建当前阶段输出数据。
