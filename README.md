@@ -125,5 +125,6 @@ samples\function_pointer_parameter.mc -> 退出码 12
 B001 已完成：Lexer 和 Parser 测试已收敛为代表性词法边界、综合语法能力和代表性 parser diagnostic 回归。
 B002 已完成：Semantic 测试已收敛为综合合法程序、基础契约保留和代表性语义 diagnostic 回归。
 B003 已完成：IR lowering 测试已收敛为综合程序路径，保留关键 IR 指令类型、数据流、控制流、类型宽度和复合数据契约断言。
+B004 已完成：Windows x64 Codegen 测试已收敛为关键能力综合片段，保留入口符号、调用约定、运行时 trap、控制流、复合数据、函数指针、标量宽度和浮点代码生成检查。
 
-下一步编号：`B004`。
+下一步编号：`B005`。
