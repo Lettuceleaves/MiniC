@@ -146,5 +146,6 @@ B022 已完成：Parser 已支持可步进状态，每步完成一个顶层 AST 
 B023 已完成：Semantic 已支持可步进状态，按注册结构体、校验类型、计算布局、注册函数、校验 main、逐个函数体分析等真实语义动作推进，并可构建等价 `SemanticResult`。
 B024 已完成：IR lowering 已支持可步进状态，每步处理一个外部函数声明或函数 IR lowering，最终完成模块组装，并可构建等价 `IrModule`。
 B025 已完成：Windows x64 codegen 已支持可步进状态，每步产出一行汇编或结构行，状态保存 IR 输入、当前函数、frame layout、section 和已产出汇编行，并可构建等价 `AssemblySource`。
+B030 已完成：已定义运行时兼容层统一 `StageStepper` 接口，支持 `next`、`previous` 预留、`snapshot`、`data`、`canNext` 和 `canPrevious`，且不暴露编译层内部工作数据。
 
-下一步编号：`B030`。
+下一步编号：`B031`。
