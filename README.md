@@ -150,5 +150,6 @@ B030 已完成：已定义运行时兼容层统一 `StageStepper` 接口，支�
 B031 已完成：Lexer 阶段已适配统一 `StageStepper` API，`next` 推进一个 token 或词法 diagnostic，阶段数据包含源码摘要、当前项、累计 tokens 和 diagnostics。
 B032 已完成：Parser 阶段已适配统一 `StageStepper` API，`next` 推进一个顶层 AST 节点或错误恢复步骤，阶段数据包含 token 输入摘要、当前 AST 节点、已完成节点和 diagnostics，并能定位源码范围。
 B033 已完成：Semantic 阶段已适配统一 `StageStepper` API，`next` 推进一个稳定类型的语义动作，阶段数据包含 AST 输入摘要、当前动作、符号/类型摘要和 diagnostics。
+B034 已完成：IR 阶段已适配统一 `StageStepper` API，`next` 推进一个 IR 结构动作，阶段数据包含当前函数/结构动作、当前 IR 项和已产出 IR 摘要，并在可关联时保留源码范围。
 
-下一步编号：`B034`。
+下一步编号：`B035`。

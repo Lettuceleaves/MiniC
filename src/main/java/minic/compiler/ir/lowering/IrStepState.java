@@ -237,6 +237,30 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
         public int externalFunctionCount() {
             return externalFunctionNames.size();
         }
+
+        /**
+         * 返回已产出 IR 函数摘要。
+         *
+         * @return IR 函数摘要
+         */
+        public List<String> functionSummaries() {
+            return functions.stream()
+                    .map(function -> function.name()
+                            + " blocks=" + function.blocks().size()
+                            + " instructions=" + function.blocks().stream()
+                            .mapToInt(block -> block.instructions().size())
+                            .sum())
+                    .toList();
+        }
+
+        /**
+         * 返回已注册外部函数名称。
+         *
+         * @return 外部函数名称
+         */
+        public List<String> externalFunctionNames() {
+            return List.copyOf(externalFunctionNames);
+        }
     }
 
     /**
