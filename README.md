@@ -123,5 +123,6 @@ samples\function_pointer_parameter.mc -> 退出码 12
 - UI API：暴露不依赖 JavaFX 的简单门面。上一步和自动倒放只作为未来扩展能力预留，本阶段不实现。
 
 B001 已完成：Lexer 和 Parser 测试已收敛为代表性词法边界、综合语法能力和代表性 parser diagnostic 回归。
+B002 已完成：Semantic 测试已收敛为综合合法程序、基础契约保留和代表性语义 diagnostic 回归。
 
-下一步编号：`B002`。
+下一步编号：`B003`。
