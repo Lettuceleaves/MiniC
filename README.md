@@ -102,6 +102,14 @@ samples\function_pointer_parameter.mc -> 退出码 12
 其中 `102` 是除零运行时检查 trap，`101` 是未初始化局部变量读取 trap。
 `samples\function_pointer_return_unsupported.mc` 用于覆盖当前限制：函数指针返回值暂不支持，会产出 parser diagnostic `暂不支持函数指针返回值`。
 
+## 回归基线
+
+`samples/**` 和 `src/test/java/minic/compiler/pipeline/**` 共同作为 `0.1.0` 功能健全基线：
+
+- `samples/**` 记录已经验证过的端到端语言能力，预期结果以退出码、stdout 或代表性 diagnostic 为准。
+- `MiniCompilerTest` 保留编译管线串联、代表性合法程序、词法/语义 diagnostic 短路、工具链产物和 compile-run 运行反馈。
+- 后续结构化改造优先测试新增的数据契约、步进状态和调度行为；除非发现真实回归，不再为已经覆盖的旧语法补大量单语法细节测试。
+
 ## 协作规则
 
 - 全程使用中文沟通、记录需求、编写文档和汇报结果。
@@ -127,5 +135,6 @@ B002 已完成：Semantic 测试已收敛为综合合法程序、基础契约保
 B003 已完成：IR lowering 测试已收敛为综合程序路径，保留关键 IR 指令类型、数据流、控制流、类型宽度和复合数据契约断言。
 B004 已完成：Windows x64 Codegen 测试已收敛为关键能力综合片段，保留入口符号、调用约定、运行时 trap、控制流、复合数据、函数指针、标量宽度和浮点代码生成检查。
 B005 已完成：AST 纯模型测试已收敛为不可变集合、防御性复制、非法名称和关键辅助方法不变量检查，普通 AST 结构覆盖继续由 Parser 综合测试承担。
+B006 已完成：已明确 `samples/**` 和 `MiniCompilerTest` 是 `0.1.0` 功能健全基线，后续结构化任务优先覆盖新契约，不重复补旧语法细节。
 
-下一步编号：`B006`。
+下一步编号：`B007`。
