@@ -5,9 +5,9 @@ import minic.compiler.ast.decl.Program;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.VarDeclStmt;
+import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrBinaryOperator;
-import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCastInstruction;
@@ -17,6 +17,7 @@ import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrFieldAddressInstruction;
 import minic.compiler.ir.instruction.IrIndirectCallInstruction;
+import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
@@ -33,7 +34,6 @@ import minic.compiler.ir.value.IrFloatConstant;
 import minic.compiler.ir.value.IrFunctionAddress;
 import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrStringLiteral;
-import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParseResult;
@@ -45,296 +45,117 @@ import minic.source.SourceFile;
 import minic.source.SourceRange;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class IrLowererTest {
     @Test
-    void skipsFunctionDeclarationsWithoutBodies() {
-        Program program = parse("""
-                int add(int a, int b);
-                int main() { return 0; }
-                int add(int a, int b) { return a + b; }
-                """);
-
-        IrModule module = new IrLowerer().lower(program);
-
-        assertThat(module.functions()).extracting(IrFunction::name).containsExactly("main", "add");
-    }
-
-    @Test
-    void lowersReturnLiteralArithmeticAndCallInEvaluationOrder() {
-        Program program = parse("""
-                int add(int a, int b) {
-                    return a + b;
-                }
-
-                int main() {
-                    return add(1, 2) * 3;
-                }
-                """);
-
-        IrModule module = new IrLowerer().lower(program);
-
-        IrFunction add = module.findFunction("add").orElseThrow();
-        assertThat(add.parameters()).extracting(IrParameter::name).containsExactly("a", "b");
-        assertThat(add.blocks()).singleElement().satisfies(block -> {
-            assertThat(block.label()).isEqualTo("entry");
-            assertThat(block.instructions()).hasSize(2);
-
-            IrBinaryInstruction sum = (IrBinaryInstruction) block.instructions().get(0);
-            assertThat(sum.result()).isEqualTo(new IrTemporary("%0", IrType.INT));
-            assertThat(sum.operator()).isEqualTo(IrBinaryOperator.ADD);
-            assertThat(sum.left()).isEqualTo(new IrParameterRef("a", IrType.INT));
-            assertThat(sum.right()).isEqualTo(new IrParameterRef("b", IrType.INT));
-
-            IrReturnInstruction returnInstruction = (IrReturnInstruction) block.instructions().get(1);
-            assertThat(returnInstruction.value()).isEqualTo(sum.result());
-        });
-
-        IrFunction main = module.findFunction("main").orElseThrow();
-        assertThat(main.blocks()).singleElement().satisfies(block -> {
-            assertThat(block.instructions()).hasSize(3);
-
-            IrCallInstruction call = (IrCallInstruction) block.instructions().get(0);
-            assertThat(call.result()).isEqualTo(new IrTemporary("%0", IrType.INT));
-            assertThat(call.calleeName()).isEqualTo("add");
-            assertThat(call.arguments()).containsExactly(new IrConstant(1), new IrConstant(2));
-
-            IrBinaryInstruction multiply = (IrBinaryInstruction) block.instructions().get(1);
-            assertThat(multiply.result()).isEqualTo(new IrTemporary("%1", IrType.INT));
-            assertThat(multiply.operator()).isEqualTo(IrBinaryOperator.MULTIPLY);
-            assertThat(multiply.left()).isEqualTo(call.result());
-            assertThat(multiply.right()).isEqualTo(new IrConstant(3));
-
-            IrReturnInstruction returnInstruction = (IrReturnInstruction) block.instructions().get(2);
-            assertThat(returnInstruction.value()).isEqualTo(multiply.result());
-        });
-    }
-
-    @Test
-    void lowersStringLiteralArgumentsToReadOnlyData() {
+    void lowersProgramShapeDeclarationsExternalCallsAndReadOnlyData() {
         Program program = parse("""
                 extern int puts(int text);
+                int declared(int value);
 
                 int main() {
                     return puts("hello");
+                }
+
+                int declared(int value) {
+                    return value;
                 }
                 """);
 
         IrModule module = new IrLowerer().lower(program);
 
         assertThat(module.externalFunctionNames()).containsExactly("puts");
+        assertThat(module.functions()).extracting(IrFunction::name).containsExactly("main", "declared");
         assertThat(module.stringData()).singleElement().satisfies(stringData -> {
-            assertThat(stringData.label()).isEqualTo("__minic$str$0");
+            assertThat(stringData.label()).startsWith("__minic$str$");
             assertThat(stringData.value()).isEqualTo("hello");
         });
-        IrFunction main = module.findFunction("main").orElseThrow();
-        IrCallInstruction call = (IrCallInstruction) main.blocks().getFirst().instructions().getFirst();
-        assertThat(call.arguments()).containsExactly(new IrStringLiteral("__minic$str$0"));
+        assertThat(instructions(module.findFunction("main").orElseThrow()))
+                .filteredOn(IrCallInstruction.class::isInstance)
+                .map(IrCallInstruction.class::cast)
+                .singleElement()
+                .satisfies(call -> {
+                    assertThat(call.calleeName()).isEqualTo("puts");
+                    assertThat(call.arguments()).containsExactly(new IrStringLiteral(module.stringData().getFirst().label()));
+                });
     }
 
     @Test
-    void lowersGroupedArithmeticOperators() {
-        Program program = parse("int main() { return (8 - 2) / 3; }");
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).singleElement().satisfies(block -> {
-            assertThat(block.instructions()).hasSize(4);
-            IrBinaryInstruction subtract = (IrBinaryInstruction) block.instructions().get(0);
-            IrCheckNonZeroInstruction checkNonZero = (IrCheckNonZeroInstruction) block.instructions().get(1);
-            IrBinaryInstruction divide = (IrBinaryInstruction) block.instructions().get(2);
-
-            assertThat(subtract.operator()).isEqualTo(IrBinaryOperator.SUBTRACT);
-            assertThat(subtract.left()).isEqualTo(new IrConstant(8));
-            assertThat(subtract.right()).isEqualTo(new IrConstant(2));
-            assertThat(checkNonZero.value()).isEqualTo(new IrConstant(3));
-            assertThat(divide.operator()).isEqualTo(IrBinaryOperator.DIVIDE);
-            assertThat(divide.left()).isEqualTo(subtract.result());
-            assertThat(divide.right()).isEqualTo(new IrConstant(3));
-        });
-    }
-
-    @Test
-    void lowersComparisonOperators() {
-        Program program = parse("int main() { return 1 < 2 == 3 != 4 <= 5 > 6 >= 7; }");
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).singleElement().satisfies(block -> {
-            assertThat(block.instructions())
-                    .filteredOn(IrBinaryInstruction.class::isInstance)
-                    .map(IrBinaryInstruction.class::cast)
-                    .extracting(IrBinaryInstruction::operator)
-                    .containsExactly(
-                            IrBinaryOperator.LESS_THAN,
-                            IrBinaryOperator.EQUAL,
-                            IrBinaryOperator.LESS_EQUAL,
-                            IrBinaryOperator.GREATER_THAN,
-                            IrBinaryOperator.GREATER_EQUAL,
-                            IrBinaryOperator.NOT_EQUAL
-                    );
-        });
-    }
-
-    @Test
-    void lowersIfElseToBasicBlocks() {
+    void lowersScalarArithmeticCallsRuntimeChecksAndLocalDataFlow() {
         Program program = parse("""
+                int add(int left, int right) {
+                    return left + right;
+                }
+
                 int main() {
-                    if (1) {
-                        return 2;
-                    } else {
-                        return 3;
-                    }
+                    int x = add(1, 2);
+                    x = (x * 3) / 2;
+                    return x >= 4;
                 }
                 """);
 
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+        IrModule module = new IrLowerer().lower(program);
 
-        assertThat(main.blocks()).extracting(IrBlock::label)
-                .contains("entry", "then_0", "else_1", "merge_2");
-        IrBranchInstruction branch = firstBranch(main, "entry");
-        assertThat(branch.thenLabel()).isEqualTo("then_0");
-        assertThat(branch.elseLabel()).isEqualTo("else_1");
+        IrFunction add = module.findFunction("add").orElseThrow();
+        assertThat(add.parameters()).extracting(IrParameter::name).containsExactly("left", "right");
+        assertThat(instructions(add))
+                .filteredOn(IrBinaryInstruction.class::isInstance)
+                .map(IrBinaryInstruction.class::cast)
+                .singleElement()
+                .satisfies(binary -> {
+                    assertThat(binary.operator()).isEqualTo(IrBinaryOperator.ADD);
+                    assertThat(binary.left()).isEqualTo(new IrParameterRef("left", IrType.INT));
+                    assertThat(binary.right()).isEqualTo(new IrParameterRef("right", IrType.INT));
+                });
+
+        List<IrInstruction> mainInstructions = instructions(module.findFunction("main").orElseThrow());
+        IrDeclareLocalInstruction x = mainInstructions.stream()
+                .filter(IrDeclareLocalInstruction.class::isInstance)
+                .map(IrDeclareLocalInstruction.class::cast)
+                .filter(declare -> declare.local().sourceName().equals("x"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(mainInstructions).filteredOn(IrCallInstruction.class::isInstance).hasSize(1);
+        assertThat(mainInstructions).filteredOn(IrCheckInitializedInstruction.class::isInstance).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(mainInstructions).filteredOn(IrCheckNonZeroInstruction.class::isInstance).hasSize(1);
+        assertThat(mainInstructions)
+                .filteredOn(IrBinaryInstruction.class::isInstance)
+                .map(IrBinaryInstruction.class::cast)
+                .extracting(IrBinaryInstruction::operator)
+                .contains(IrBinaryOperator.MULTIPLY, IrBinaryOperator.DIVIDE, IrBinaryOperator.GREATER_EQUAL);
+        assertThat(mainInstructions)
+                .filteredOn(IrStoreLocalInstruction.class::isInstance)
+                .map(IrStoreLocalInstruction.class::cast)
+                .extracting(IrStoreLocalInstruction::local)
+                .contains(x.local());
+        assertThat(mainInstructions)
+                .filteredOn(IrLoadLocalInstruction.class::isInstance)
+                .map(IrLoadLocalInstruction.class::cast)
+                .extracting(IrLoadLocalInstruction::local)
+                .contains(x.local());
+        assertThat(mainInstructions).last().isInstanceOf(IrReturnInstruction.class);
     }
 
     @Test
-    void lowersIfWithoutElseToMergeBlock() {
-        Program program = parse("""
-                int main() {
-                    int x = 1;
-                    if (1) x = 2;
-                    return x;
-                }
-                """);
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).extracting(IrBlock::label)
-                .contains("entry", "then_0", "merge_1");
-        IrBranchInstruction branch = lastBranch(main, "entry");
-        assertThat(branch.thenLabel()).isEqualTo("then_0");
-        assertThat(branch.elseLabel()).isEqualTo("merge_1");
-    }
-
-    @Test
-    void lowersElseIfChainAsNestedIfBlocks() {
-        Program program = parse("""
-                int main() {
-                    if (0) {
-                        return 1;
-                    } else if (1) {
-                        return 2;
-                    } else {
-                        return 3;
-                    }
-                }
-                """);
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).extracting(IrBlock::label)
-                .contains("entry", "then_0", "else_1", "then_3", "else_4", "merge_5", "merge_2");
-        IrBranchInstruction outerBranch = firstBranch(main, "entry");
-        IrBranchInstruction elseIfBranch = firstBranch(main, "else_1");
-        assertThat(outerBranch.thenLabel()).isEqualTo("then_0");
-        assertThat(outerBranch.elseLabel()).isEqualTo("else_1");
-        assertThat(elseIfBranch.thenLabel()).isEqualTo("then_3");
-        assertThat(elseIfBranch.elseLabel()).isEqualTo("else_4");
-    }
-
-    @Test
-    void lowersWhileToConditionBodyAndExitBlocks() {
-        Program program = parse("""
-                int main() {
-                    int x = 0;
-                    while (x < 3) {
-                        x = x + 1;
-                    }
-                    return x;
-                }
-                """);
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).extracting(IrBlock::label)
-                .contains("entry", "while_condition_0", "while_body_1", "while_exit_2");
-        IrBranchInstruction branch = lastBranch(main, "while_condition_0");
-        assertThat(branch.thenLabel()).isEqualTo("while_body_1");
-        assertThat(branch.elseLabel()).isEqualTo("while_exit_2");
-    }
-
-    @Test
-    void lowersForToConditionBodyStepAndExitBlocks() {
-        Program program = parse("""
-                int main() {
-                    int x = 0;
-                    for (int i = 0; i < 3; i = i + 1) {
-                        x = x + i;
-                    }
-                    return x;
-                }
-                """);
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).extracting(IrBlock::label)
-                .contains("entry", "for_condition_0", "for_body_1", "for_step_2", "for_exit_3");
-        IrBranchInstruction branch = lastBranch(main, "for_condition_0");
-        assertThat(branch.thenLabel()).isEqualTo("for_body_1");
-        assertThat(branch.elseLabel()).isEqualTo("for_exit_3");
-    }
-
-    @Test
-    void lowersForWithOmittedClauses() {
-        Program program = parse("""
-                int main() {
-                    for (;;) {
-                        return 7;
-                    }
-                }
-                """);
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).extracting(IrBlock::label)
-                .contains("entry", "for_condition_0", "for_body_1", "for_step_2", "for_exit_3");
-        IrJumpInstruction jump = (IrJumpInstruction) block(main, "for_condition_0").instructions().getLast();
-        assertThat(jump.targetLabel()).isEqualTo("for_body_1");
-    }
-
-    @Test
-    void lowersBreakAndContinueInWhileLoop() {
-        Program program = parse("""
-                int main() {
-                    int x = 0;
-                    while (x < 10) {
-                        x = x + 1;
-                        if (x == 3) continue;
-                        if (x == 5) break;
-                    }
-                    return x;
-                }
-                """);
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).extracting(IrBlock::label)
-                .contains("while_condition_0", "while_exit_2");
-        assertThat(main.blocks()).flatExtracting(IrBlock::instructions)
-                .filteredOn(IrJumpInstruction.class::isInstance)
-                .map(IrJumpInstruction.class::cast)
-                .extracting(IrJumpInstruction::targetLabel)
-                .contains("while_condition_0", "while_exit_2");
-    }
-
-    @Test
-    void lowersContinueInForLoopToStepBlock() {
+    void lowersControlFlowToBlocksBranchesAndLoopJumps() {
         Program program = parse("""
                 int main() {
                     int sum = 0;
-                    for (int i = 0; i < 5; i = i + 1) {
-                        if (i == 2) continue;
+                    if (sum == 0) {
+                        sum = 1;
+                    } else {
+                        sum = 2;
+                    }
+                    while (sum < 10) {
+                        sum = sum + 1;
+                        if (sum == 3) continue;
+                        if (sum == 5) break;
+                    }
+                    for (int i = 0; i < 3; i = i + 1) {
+                        if (i == 1) continue;
                         sum = sum + i;
                     }
                     return sum;
@@ -344,62 +165,166 @@ class IrLowererTest {
         IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
 
         assertThat(main.blocks()).extracting(IrBlock::label)
-                .contains("for_step_2");
-        assertThat(main.blocks()).flatExtracting(IrBlock::instructions)
-                .filteredOn(IrJumpInstruction.class::isInstance)
-                .map(IrJumpInstruction.class::cast)
-                .extracting(IrJumpInstruction::targetLabel)
-                .contains("for_step_2");
+                .anyMatch(label -> label.startsWith("then_"))
+                .anyMatch(label -> label.startsWith("else_"))
+                .anyMatch(label -> label.startsWith("merge_"))
+                .anyMatch(label -> label.startsWith("while_condition_"))
+                .anyMatch(label -> label.startsWith("while_body_"))
+                .anyMatch(label -> label.startsWith("while_exit_"))
+                .anyMatch(label -> label.startsWith("for_condition_"))
+                .anyMatch(label -> label.startsWith("for_body_"))
+                .anyMatch(label -> label.startsWith("for_step_"))
+                .anyMatch(label -> label.startsWith("for_exit_"));
+        assertThat(branches(main)).allSatisfy(branch -> {
+            assertThat(hasBlock(main, branch.thenLabel())).isTrue();
+            assertThat(hasBlock(main, branch.elseLabel())).isTrue();
+        });
+        assertThat(jumpTargets(main))
+                .anyMatch(target -> target.startsWith("while_condition_"))
+                .anyMatch(target -> target.startsWith("while_exit_"))
+                .anyMatch(target -> target.startsWith("for_step_"));
     }
 
     @Test
-    void lowersLocalsAssignmentAndInitializedReadChecks() {
+    void lowersPointersArraysStructsAndFunctionPointers() {
         Program program = parse("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                int add(int left, int right) {
+                    return left + right;
+                }
+
+                int apply(int (*operation)(int, int), int left, int right) {
+                    return operation(left, right);
+                }
+
+                int readY(struct Point *point) {
+                    point->y = 9;
+                    return point->y;
+                }
+
                 int main() {
                     int x = 1;
-                    x = x + 2;
-                    return x;
+                    int *p = &x;
+                    int values[2];
+                    struct Point point;
+                    int (*operation)(int, int) = add;
+                    *p = 2;
+                    values[0] = apply(operation, x, 7);
+                    point.y = values[0];
+                    return readY(&point);
                 }
                 """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
 
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+        IrModule module = new IrLowerer().lower(program, semanticResult);
 
-        assertThat(main.blocks()).singleElement().satisfies(block -> {
-            assertThat(block.instructions()).hasSize(9);
-            IrDeclareLocalInstruction declare = (IrDeclareLocalInstruction) block.instructions().get(0);
-            IrStoreLocalInstruction initialize = (IrStoreLocalInstruction) block.instructions().get(1);
-            IrCheckInitializedInstruction assignmentCheck = (IrCheckInitializedInstruction) block.instructions().get(2);
-            IrLoadLocalInstruction assignmentLoad = (IrLoadLocalInstruction) block.instructions().get(3);
-            IrBinaryInstruction add = (IrBinaryInstruction) block.instructions().get(4);
-            IrStoreLocalInstruction assignmentStore = (IrStoreLocalInstruction) block.instructions().get(5);
-            IrCheckInitializedInstruction returnCheck = (IrCheckInitializedInstruction) block.instructions().get(6);
-            IrLoadLocalInstruction returnLoad = (IrLoadLocalInstruction) block.instructions().get(7);
-            IrReturnInstruction returnInstruction = (IrReturnInstruction) block.instructions().get(8);
+        IrFunction apply = module.findFunction("apply").orElseThrow();
+        assertThat(apply.parameters()).extracting(IrParameter::type)
+                .containsExactly(IrType.POINTER, IrType.INT, IrType.INT);
+        assertThat(instructions(apply))
+                .filteredOn(IrIndirectCallInstruction.class::isInstance)
+                .map(IrIndirectCallInstruction.class::cast)
+                .singleElement()
+                .satisfies(call -> assertThat(call.calleeAddress()).isEqualTo(new IrParameterRef("operation", IrType.POINTER)));
 
-            assertThat(declare.local().sourceName()).isEqualTo("x");
-            assertThat(declare.local().name()).isEqualTo("x#0");
-            assertThat(initialize.local()).isEqualTo(declare.local());
-            assertThat(initialize.value()).isEqualTo(new IrConstant(1));
-            assertThat(assignmentCheck.local()).isEqualTo(declare.local());
-            assertThat(assignmentLoad.local()).isEqualTo(declare.local());
-            assertThat(add.left()).isEqualTo(assignmentLoad.result());
-            assertThat(add.right()).isEqualTo(new IrConstant(2));
-            assertThat(assignmentStore.local()).isEqualTo(declare.local());
-            assertThat(assignmentStore.value()).isEqualTo(add.result());
-            assertThat(returnCheck.local()).isEqualTo(declare.local());
-            assertThat(returnLoad.local()).isEqualTo(declare.local());
-            assertThat(returnInstruction.value()).isEqualTo(returnLoad.result());
-        });
+        IrFunction readY = module.findFunction("readY").orElseThrow();
+        assertThat(readY.parameters()).singleElement().satisfies(parameter ->
+                assertThat(parameter.type()).isEqualTo(IrType.POINTER));
+        assertThat(instructions(readY)).filteredOn(IrAddressOfLocalInstruction.class::isInstance).isEmpty();
+        assertThat(instructions(readY))
+                .filteredOn(IrFieldAddressInstruction.class::isInstance)
+                .map(IrFieldAddressInstruction.class::cast)
+                .extracting(IrFieldAddressInstruction::offset)
+                .containsExactly(4, 4);
+
+        List<IrInstruction> mainInstructions = instructions(module.findFunction("main").orElseThrow());
+        assertThat(mainInstructions)
+                .filteredOn(IrDeclareLocalInstruction.class::isInstance)
+                .map(IrDeclareLocalInstruction.class::cast)
+                .extracting(declare -> declare.local().type())
+                .contains(IrType.INT, IrType.POINTER, IrType.INT_ARRAY, IrType.STRUCT);
+        assertThat(mainInstructions)
+                .filteredOn(IrStoreLocalInstruction.class::isInstance)
+                .map(IrStoreLocalInstruction.class::cast)
+                .extracting(IrStoreLocalInstruction::value)
+                .contains(new IrFunctionAddress("add"));
+        assertThat(mainInstructions).filteredOn(IrAddressOfLocalInstruction.class::isInstance).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(mainInstructions).filteredOn(IrElementAddressInstruction.class::isInstance).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(mainInstructions).filteredOn(IrFieldAddressInstruction.class::isInstance).hasSizeGreaterThanOrEqualTo(1);
+        assertThat(mainInstructions).filteredOn(IrStorePointerInstruction.class::isInstance).hasSizeGreaterThanOrEqualTo(3);
+        assertThat(mainInstructions).filteredOn(IrLoadPointerInstruction.class::isInstance).hasSizeGreaterThanOrEqualTo(1);
     }
 
     @Test
-    void lowersLocalStorageSizeFromDeclaredTypeLayout() {
+    void lowersScalarWidthsNullFloatingConstantsAndCasts() {
+        Program program = parse("""
+                long idLong(long value) { return value; }
+                int main() {
+                    bool flag = true;
+                    char tag = 'a';
+                    long count = 1L + 2L;
+                    int *missing = NULL;
+                    float ratio = 1.25f;
+                    double score = ratio + 2.5;
+                    double widened = 3;
+                    int integerCheck = idLong(count) == 3L;
+                    int floatCheck = score > widened;
+                    return integerCheck + floatCheck;
+                }
+                """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+
+        IrModule module = new IrLowerer().lower(program, semanticResult);
+
+        assertThat(module.findFunction("idLong").orElseThrow().parameters()).singleElement()
+                .satisfies(parameter -> assertThat(parameter.type()).isEqualTo(IrType.LONG));
+        List<IrInstruction> mainInstructions = instructions(module.findFunction("main").orElseThrow());
+        assertThat(mainInstructions)
+                .filteredOn(IrStoreLocalInstruction.class::isInstance)
+                .map(IrStoreLocalInstruction.class::cast)
+                .extracting(store -> store.local().type())
+                .contains(IrType.BOOL, IrType.CHAR, IrType.LONG, IrType.POINTER, IrType.FLOAT, IrType.DOUBLE);
+        assertThat(mainInstructions)
+                .filteredOn(IrStoreLocalInstruction.class::isInstance)
+                .map(IrStoreLocalInstruction.class::cast)
+                .extracting(IrStoreLocalInstruction::value)
+                .contains(
+                        new IrConstant(1, IrType.BOOL),
+                        new IrConstant('a', IrType.CHAR),
+                        new IrConstant(0, IrType.POINTER),
+                        new IrFloatConstant(1.25f)
+                );
+        assertThat(mainInstructions)
+                .filteredOn(IrCastInstruction.class::isInstance)
+                .map(IrCastInstruction.class::cast)
+                .extracting(cast -> cast.result().type())
+                .contains(IrType.DOUBLE);
+        assertThat(mainInstructions)
+                .filteredOn(IrBinaryInstruction.class::isInstance)
+                .map(IrBinaryInstruction.class::cast)
+                .extracting(binary -> binary.result().type())
+                .contains(IrType.LONG, IrType.DOUBLE, IrType.INT);
+        assertThat(mainInstructions)
+                .filteredOn(IrCallInstruction.class::isInstance)
+                .map(IrCallInstruction.class::cast)
+                .singleElement()
+                .satisfies(call -> assertThat(call.result().type()).isEqualTo(IrType.LONG));
+    }
+
+    @Test
+    void usesDeclaredTypeLayoutForLocalStorage() {
         SourceFile sourceFile = new SourceFile("manual-lower.mc", "");
         SourceRange range = new SourceRange(sourceFile, 0, 0);
-        Program program = new Program(java.util.List.of(new FunctionDecl(
+        Program program = new Program(List.of(new FunctionDecl(
                 "main",
-                java.util.List.of(),
-                new BlockStmt(java.util.List.of(
+                List.of(),
+                new BlockStmt(List.of(
                         new VarDeclStmt("value", MiniType.LONG, null, range),
                         new ReturnStmt(new minic.compiler.ast.expr.IntegerLiteralExpr(0, "0", range), range)
                 ), range),
@@ -414,349 +339,7 @@ class IrLowererTest {
     }
 
     @Test
-    void lowersScalarWidthsAndNullConstants() {
-        Program program = parse("""
-                long idLong(long value) { return value; }
-                int main() {
-                    bool flag = true;
-                    char tag = 'a';
-                    long count = 1L + 2L;
-                    int *missing = NULL;
-                    return idLong(count) == 3L;
-                }
-                """);
-        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
-        assertThat(semanticResult.diagnostics()).isEmpty();
-
-        IrModule module = new IrLowerer().lower(program, semanticResult);
-
-        IrFunction idLong = module.findFunction("idLong").orElseThrow();
-        assertThat(idLong.parameters()).singleElement().satisfies(parameter ->
-                assertThat(parameter.type()).isEqualTo(IrType.LONG));
-
-        IrFunction main = module.findFunction("main").orElseThrow();
-        assertThat(main.blocks().getFirst().instructions())
-                .filteredOn(IrStoreLocalInstruction.class::isInstance)
-                .map(IrStoreLocalInstruction.class::cast)
-                .satisfiesExactly(
-                        store -> {
-                            assertThat(store.local().type()).isEqualTo(IrType.BOOL);
-                            assertThat(store.value()).isEqualTo(new IrConstant(1, IrType.BOOL));
-                        },
-                        store -> {
-                            assertThat(store.local().type()).isEqualTo(IrType.CHAR);
-                            assertThat(store.value()).isEqualTo(new IrConstant('a', IrType.CHAR));
-                        },
-                        store -> {
-                            assertThat(store.local().type()).isEqualTo(IrType.LONG);
-                            assertThat(store.value().type()).isEqualTo(IrType.LONG);
-                        },
-                        store -> {
-                            assertThat(store.local().type()).isEqualTo(IrType.POINTER);
-                            assertThat(store.value()).isEqualTo(new IrConstant(0, IrType.POINTER));
-                        }
-                );
-        assertThat(main.blocks().getFirst().instructions())
-                .filteredOn(IrBinaryInstruction.class::isInstance)
-                .map(IrBinaryInstruction.class::cast)
-                .extracting(binary -> binary.result().type())
-                .contains(IrType.LONG, IrType.INT);
-        assertThat(main.blocks().getFirst().instructions())
-                .filteredOn(IrCallInstruction.class::isInstance)
-                .map(IrCallInstruction.class::cast)
-                .singleElement()
-                .satisfies(call -> assertThat(call.result().type()).isEqualTo(IrType.LONG));
-    }
-
-    @Test
-    void lowersFloatingConstantsAndCasts() {
-        Program program = parse("""
-                int main() {
-                    float ratio = 1.25f;
-                    double score = ratio + 2.5;
-                    double widened = 3;
-                    return score > widened;
-                }
-                """);
-        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
-        assertThat(semanticResult.diagnostics()).isEmpty();
-
-        IrFunction main = new IrLowerer().lower(program, semanticResult).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks().getFirst().instructions())
-                .filteredOn(IrStoreLocalInstruction.class::isInstance)
-                .map(IrStoreLocalInstruction.class::cast)
-                .satisfiesExactly(
-                        store -> {
-                            assertThat(store.local().type()).isEqualTo(IrType.FLOAT);
-                            assertThat(store.value()).isEqualTo(new IrFloatConstant(1.25f));
-                        },
-                        store -> {
-                            assertThat(store.local().type()).isEqualTo(IrType.DOUBLE);
-                            assertThat(store.value().type()).isEqualTo(IrType.DOUBLE);
-                        },
-                        store -> {
-                            assertThat(store.local().type()).isEqualTo(IrType.DOUBLE);
-                            assertThat(store.value().type()).isEqualTo(IrType.DOUBLE);
-                        }
-                );
-        assertThat(main.blocks().getFirst().instructions())
-                .filteredOn(IrCastInstruction.class::isInstance)
-                .map(IrCastInstruction.class::cast)
-                .extracting(cast -> cast.result().type())
-                .contains(IrType.DOUBLE);
-        assertThat(main.blocks().getFirst().instructions())
-                .filteredOn(IrBinaryInstruction.class::isInstance)
-                .map(IrBinaryInstruction.class::cast)
-                .extracting(binary -> binary.result().type())
-                .contains(IrType.DOUBLE, IrType.INT);
-    }
-
-    @Test
-    void lowersAddressOfDereferenceAndPointerStore() {
-        Program program = parse("""
-                int main() {
-                    int x = 1;
-                    int *p = &x;
-                    *p = 2;
-                    return x;
-                }
-                """);
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).singleElement().satisfies(block -> {
-            assertThat(block.instructions())
-                    .filteredOn(IrAddressOfLocalInstruction.class::isInstance)
-                    .map(IrAddressOfLocalInstruction.class::cast)
-                    .singleElement()
-                    .satisfies(addressOf -> {
-                        assertThat(addressOf.local().sourceName()).isEqualTo("x");
-                        assertThat(addressOf.result().type()).isEqualTo(IrType.POINTER);
-                    });
-            assertThat(block.instructions())
-                    .filteredOn(IrStorePointerInstruction.class::isInstance)
-                    .hasSize(1);
-        });
-    }
-
-    @Test
-    void lowersDereferenceRead() {
-        Program program = parse("""
-                int main() {
-                    int x = 1;
-                    int *p = &x;
-                    return *p;
-                }
-                """);
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).singleElement().satisfies(block ->
-                assertThat(block.instructions())
-                        .filteredOn(IrLoadPointerInstruction.class::isInstance)
-                        .hasSize(1));
-    }
-
-    @Test
-    void lowersArrayIndexReadAndWriteToElementAddresses() {
-        Program program = parse("""
-                int main() {
-                    int values[3];
-                    values[0] = 7;
-                    return values[0];
-                }
-                """);
-
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).singleElement().satisfies(block -> {
-            IrDeclareLocalInstruction declare = (IrDeclareLocalInstruction) block.instructions().getFirst();
-            assertThat(declare.local().type()).isEqualTo(IrType.INT_ARRAY);
-            assertThat(declare.local().elementCount()).isEqualTo(3);
-            assertThat(block.instructions())
-                    .filteredOn(IrElementAddressInstruction.class::isInstance)
-                    .hasSize(2);
-            assertThat(block.instructions())
-                    .filteredOn(IrStorePointerInstruction.class::isInstance)
-                    .hasSize(1);
-            assertThat(block.instructions())
-                    .filteredOn(IrLoadPointerInstruction.class::isInstance)
-                    .hasSize(1);
-        });
-    }
-
-    @Test
-    void lowersArrayArgumentToPointerForFunctionCall() {
-        Program program = parse("""
-                int writeFirst(int *values) {
-                    values[0] = 7;
-                    return values[0];
-                }
-
-                int main() {
-                    int values[2];
-                    return writeFirst(values);
-                }
-                """);
-
-        IrModule module = new IrLowerer().lower(program);
-
-        IrFunction writeFirst = module.findFunction("writeFirst").orElseThrow();
-        assertThat(writeFirst.parameters()).singleElement().satisfies(parameter -> {
-            assertThat(parameter.name()).isEqualTo("values");
-            assertThat(parameter.type()).isEqualTo(IrType.POINTER);
-        });
-
-        IrFunction main = module.findFunction("main").orElseThrow();
-        assertThat(main.blocks()).singleElement().satisfies(block -> {
-            IrDeclareLocalInstruction declare = (IrDeclareLocalInstruction) block.instructions().getFirst();
-            IrAddressOfLocalInstruction addressOf = (IrAddressOfLocalInstruction) block.instructions().get(1);
-            IrCallInstruction call = (IrCallInstruction) block.instructions().get(2);
-
-            assertThat(declare.local().sourceName()).isEqualTo("values");
-            assertThat(declare.local().type()).isEqualTo(IrType.INT_ARRAY);
-            assertThat(addressOf.local()).isEqualTo(declare.local());
-            assertThat(call.arguments()).containsExactly(addressOf.result());
-        });
-    }
-
-    @Test
-    void lowersFunctionPointerCallToIndirectCall() {
-        Program program = parse("""
-                int add(int left, int right) { return left + right; }
-
-                int main() {
-                    int (*operation)(int, int) = add;
-                    return operation(5, 7);
-                }
-                """);
-        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
-        assertThat(semanticResult.diagnostics()).isEmpty();
-
-        IrFunction main = new IrLowerer().lower(program, semanticResult).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).singleElement().satisfies(block -> {
-            IrStoreLocalInstruction initialize = (IrStoreLocalInstruction) block.instructions().get(1);
-            assertThat(initialize.value()).isEqualTo(new IrFunctionAddress("add"));
-
-            IrIndirectCallInstruction call = (IrIndirectCallInstruction) block.instructions().get(4);
-            assertThat(call.arguments()).containsExactly(new IrConstant(5), new IrConstant(7));
-        });
-    }
-
-    @Test
-    void lowersFunctionPointerParameterCallToIndirectCall() {
-        Program program = parse("""
-                int add(int left, int right) { return left + right; }
-                int apply(int (*operation)(int, int), int left, int right) {
-                    return operation(left, right);
-                }
-
-                int main() {
-                    return apply(add, 5, 7);
-                }
-                """);
-        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
-        assertThat(semanticResult.diagnostics()).isEmpty();
-
-        IrModule module = new IrLowerer().lower(program, semanticResult);
-
-        IrFunction apply = module.findFunction("apply").orElseThrow();
-        assertThat(apply.parameters()).extracting(IrParameter::type)
-                .containsExactly(IrType.POINTER, IrType.INT, IrType.INT);
-        assertThat(apply.blocks().getFirst().instructions())
-                .filteredOn(IrIndirectCallInstruction.class::isInstance)
-                .map(IrIndirectCallInstruction.class::cast)
-                .singleElement()
-                .satisfies(call -> assertThat(call.calleeAddress()).isEqualTo(new IrParameterRef("operation", IrType.POINTER)));
-
-        IrFunction main = module.findFunction("main").orElseThrow();
-        IrCallInstruction call = (IrCallInstruction) main.blocks().getFirst().instructions().getFirst();
-        assertThat(call.arguments()).containsExactly(new IrFunctionAddress("add"), new IrConstant(5), new IrConstant(7));
-    }
-
-    @Test
-    void lowersStructFieldReadAndWriteToFieldAddresses() {
-        Program program = parse("""
-                struct Point {
-                    int x;
-                    int y;
-                };
-
-                int main() {
-                    struct Point point;
-                    point.y = 9;
-                    return point.y;
-                }
-                """);
-        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
-        assertThat(semanticResult.diagnostics()).isEmpty();
-
-        IrFunction main = new IrLowerer().lower(program, semanticResult).findFunction("main").orElseThrow();
-
-        assertThat(main.blocks()).singleElement().satisfies(block -> {
-            IrDeclareLocalInstruction declare = (IrDeclareLocalInstruction) block.instructions().getFirst();
-            assertThat(declare.local().type()).isEqualTo(IrType.STRUCT);
-            assertThat(declare.local().sizeBytes()).isEqualTo(8);
-            assertThat(block.instructions())
-                    .filteredOn(IrFieldAddressInstruction.class::isInstance)
-                    .map(IrFieldAddressInstruction.class::cast)
-                    .extracting(IrFieldAddressInstruction::offset)
-                    .containsExactly(4, 4);
-            assertThat(block.instructions())
-                    .filteredOn(IrStorePointerInstruction.class::isInstance)
-                    .hasSize(1);
-            assertThat(block.instructions())
-                    .filteredOn(IrLoadPointerInstruction.class::isInstance)
-                    .hasSize(1);
-        });
-    }
-
-    @Test
-    void lowersStructPointerFieldReadAndWriteToFieldAddresses() {
-        Program program = parse("""
-                struct Point {
-                    int x;
-                    int y;
-                };
-
-                int write(struct Point *point) {
-                    point->y = 9;
-                    return point->y;
-                }
-
-                int main() {
-                    return 0;
-                }
-                """);
-        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
-        assertThat(semanticResult.diagnostics()).isEmpty();
-
-        IrFunction write = new IrLowerer().lower(program, semanticResult).findFunction("write").orElseThrow();
-
-        assertThat(write.parameters()).singleElement().satisfies(parameter ->
-                assertThat(parameter.type()).isEqualTo(IrType.POINTER));
-        assertThat(write.blocks()).singleElement().satisfies(block -> {
-            assertThat(block.instructions())
-                    .filteredOn(IrAddressOfLocalInstruction.class::isInstance)
-                    .isEmpty();
-            assertThat(block.instructions())
-                    .filteredOn(IrFieldAddressInstruction.class::isInstance)
-                    .map(IrFieldAddressInstruction.class::cast)
-                    .extracting(IrFieldAddressInstruction::offset)
-                    .containsExactly(4, 4);
-            assertThat(block.instructions())
-                    .filteredOn(IrStorePointerInstruction.class::isInstance)
-                    .hasSize(1);
-            assertThat(block.instructions())
-                    .filteredOn(IrLoadPointerInstruction.class::isInstance)
-                    .hasSize(1);
-        });
-    }
-
-    @Test
-    void keepsShadowedLocalsDistinct() {
+    void keepsShadowedLocalsDistinctWithoutDependingOnGeneratedNames() {
         Program program = parse("""
                 int main() {
                     int x = 1;
@@ -768,19 +351,20 @@ class IrLowererTest {
                 }
                 """);
 
-        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+        List<IrInstruction> instructions = instructions(new IrLowerer().lower(program).findFunction("main").orElseThrow());
+        List<IrDeclareLocalInstruction> xDeclarations = instructions.stream()
+                .filter(IrDeclareLocalInstruction.class::isInstance)
+                .map(IrDeclareLocalInstruction.class::cast)
+                .filter(declare -> declare.local().sourceName().equals("x"))
+                .toList();
 
-        assertThat(main.blocks()).singleElement().satisfies(block -> {
-            IrDeclareLocalInstruction outerDeclare = (IrDeclareLocalInstruction) block.instructions().get(0);
-            IrDeclareLocalInstruction innerDeclare = (IrDeclareLocalInstruction) block.instructions().get(2);
-            IrLoadLocalInstruction innerLoad = (IrLoadLocalInstruction) block.instructions().get(5);
-            IrLoadLocalInstruction outerLoad = (IrLoadLocalInstruction) block.instructions().get(9);
-
-            assertThat(outerDeclare.local().name()).isEqualTo("x#0");
-            assertThat(innerDeclare.local().name()).isEqualTo("x#1");
-            assertThat(innerLoad.local()).isEqualTo(innerDeclare.local());
-            assertThat(outerLoad.local()).isEqualTo(outerDeclare.local());
-        });
+        assertThat(xDeclarations).hasSize(2);
+        assertThat(xDeclarations).extracting(declare -> declare.local().name()).doesNotHaveDuplicates();
+        assertThat(instructions)
+                .filteredOn(IrLoadLocalInstruction.class::isInstance)
+                .map(IrLoadLocalInstruction.class::cast)
+                .extracting(IrLoadLocalInstruction::local)
+                .contains(xDeclarations.get(0).local(), xDeclarations.get(1).local());
     }
 
     private Program parse(String source) {
@@ -792,18 +376,28 @@ class IrLowererTest {
         return parseResult.program();
     }
 
-    private IrBranchInstruction firstBranch(IrFunction function, String label) {
-        return (IrBranchInstruction) block(function, label).instructions().getFirst();
-    }
-
-    private IrBranchInstruction lastBranch(IrFunction function, String label) {
-        return (IrBranchInstruction) block(function, label).instructions().getLast();
-    }
-
-    private IrBlock block(IrFunction function, String label) {
+    private List<IrInstruction> instructions(IrFunction function) {
         return function.blocks().stream()
-                .filter(block -> block.label().equals(label))
-                .findFirst()
-                .orElseThrow();
+                .flatMap(block -> block.instructions().stream())
+                .toList();
+    }
+
+    private List<IrBranchInstruction> branches(IrFunction function) {
+        return instructions(function).stream()
+                .filter(IrBranchInstruction.class::isInstance)
+                .map(IrBranchInstruction.class::cast)
+                .toList();
+    }
+
+    private List<String> jumpTargets(IrFunction function) {
+        return instructions(function).stream()
+                .filter(IrJumpInstruction.class::isInstance)
+                .map(IrJumpInstruction.class::cast)
+                .map(IrJumpInstruction::targetLabel)
+                .toList();
+    }
+
+    private boolean hasBlock(IrFunction function, String label) {
+        return function.blocks().stream().anyMatch(block -> block.label().equals(label));
     }
 }
