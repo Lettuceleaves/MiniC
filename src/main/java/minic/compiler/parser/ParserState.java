@@ -24,6 +24,14 @@ final class ParserState {
         return diagnostics;
     }
 
+    List<Token> tokens() {
+        return tokens;
+    }
+
+    int currentIndex() {
+        return currentIndex;
+    }
+
     boolean match(TokenKind kind) {
         if (!check(kind)) {
             return false;
