@@ -501,6 +501,15 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
             return Optional.ofNullable(currentFrameLayout);
         }
 
+        /**
+         * 返回已产出汇编行摘要。
+         *
+         * @return 汇编行摘要
+         */
+        public List<String> assemblyLineSummaries() {
+            return List.copyOf(assemblyLines);
+        }
+
         private String assemblyText() {
             return String.join(System.lineSeparator(), assemblyLines) + System.lineSeparator();
         }
