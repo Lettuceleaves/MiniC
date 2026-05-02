@@ -20,32 +20,10 @@ public final class SemanticAnalyzer {
      * @return 语义分析结果
      */
     public SemanticResult analyze(Program program) {
-        Objects.requireNonNull(program, "program");
-        SemanticReporter reporter = new SemanticReporter();
-        Scope globalScope = new Scope();
-        Map<Expression, MiniType> expressionTypes = new IdentityHashMap<>();
-        StructRegistry structRegistry = new StructRegistry(globalScope, reporter);
-        structRegistry.defineStructs(program);
-        structRegistry.validateProgramTypes(program);
-        Map<String, StructLayout> structLayouts = reporter.diagnostics().isEmpty()
-                ? structRegistry.computeLayouts()
-                : Map.of();
-        FunctionRegistry functionRegistry = new FunctionRegistry(globalScope, reporter);
-        functionRegistry.defineFunctions(program);
-        functionRegistry.validateMain(program);
-
-        StatementSemanticAnalyzer statementAnalyzer = new StatementSemanticAnalyzer(
-                globalScope,
-                functionRegistry,
-                structRegistry,
-                reporter,
-                expressionTypes
-        );
-        for (FunctionDecl functionDecl : program.functions()) {
-            if (functionDecl.hasBody()) {
-                statementAnalyzer.analyzeFunction(functionDecl);
-            }
+        SemanticStepState state = new SemanticStepState(Objects.requireNonNull(program, "program"));
+        while (state.canNext()) {
+            state.next();
         }
-        return new SemanticResult(globalScope, expressionTypes, structLayouts, reporter.diagnostics());
+        return state.toSemanticResult();
     }
 }
