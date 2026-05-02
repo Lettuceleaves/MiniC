@@ -196,6 +196,12 @@
 - 保留完整编译链路回归、代表性错误诊断和关键后端能力检查。
 - README 当前状态指向 B1 编译层数据管理改造。
 
+执行记录：
+
+- Parser、Semantic、IR lowering、Windows x64 Codegen 和 AST 纯模型测试已完成收敛。
+- `samples/**`、`MiniCompilerTest`、CLI、toolchain、类型布局和基础模型测试继续作为低成本高价值回归基线保留。
+- B0 收敛后进入 B1 结构化数据契约，下一步为 `B010`。
+
 验证：`./gradlew test`
 
 ## Phase B1：结构化数据契约
