@@ -148,5 +148,6 @@ B024 已完成：IR lowering 已支持可步进状态，每步处理一个外部
 B025 已完成：Windows x64 codegen 已支持可步进状态，每步产出一行汇编或结构行，状态保存 IR 输入、当前函数、frame layout、section 和已产出汇编行，并可构建等价 `AssemblySource`。
 B030 已完成：已定义运行时兼容层统一 `StageStepper` 接口，支持 `next`、`previous` 预留、`snapshot`、`data`、`canNext` 和 `canPrevious`，且不暴露编译层内部工作数据。
 B031 已完成：Lexer 阶段已适配统一 `StageStepper` API，`next` 推进一个 token 或词法 diagnostic，阶段数据包含源码摘要、当前项、累计 tokens 和 diagnostics。
+B032 已完成：Parser 阶段已适配统一 `StageStepper` API，`next` 推进一个顶层 AST 节点或错误恢复步骤，阶段数据包含 token 输入摘要、当前 AST 节点、已完成节点和 diagnostics，并能定位源码范围。
 
-下一步编号：`B032`。
+下一步编号：`B033`。
