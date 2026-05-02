@@ -144,5 +144,6 @@ B020 已完成：已定义编译阶段输入、工作数据、输出数据、阶
 B021 已完成：Lexer 已支持可步进状态，每步产出一个 token 或词法 diagnostic，状态保存源码、偏移、已产出 tokens/diagnostics 和当前项，并可构建等价 `LexResult`。
 B022 已完成：Parser 已支持可步进状态，每步完成一个顶层 AST 节点或错误恢复推进，状态保存 token 输入、游标、解析上下文、已完成节点、diagnostics 和当前节点，并可构建等价 `ParseResult`。
 B023 已完成：Semantic 已支持可步进状态，按注册结构体、校验类型、计算布局、注册函数、校验 main、逐个函数体分析等真实语义动作推进，并可构建等价 `SemanticResult`。
+B024 已完成：IR lowering 已支持可步进状态，每步处理一个外部函数声明或函数 IR lowering，最终完成模块组装，并可构建等价 `IrModule`。
 
-下一步编号：`B024`。
+下一步编号：`B025`。
