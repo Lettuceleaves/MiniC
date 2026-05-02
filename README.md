@@ -110,6 +110,29 @@ samples\function_pointer_parameter.mc -> 退出码 12
 - `MiniCompilerTest` 保留编译管线串联、代表性合法程序、词法/语义 diagnostic 短路、工具链产物和 compile-run 运行反馈。
 - 后续结构化改造优先测试新增的数据契约、步进状态和调度行为；除非发现真实回归，不再为已经覆盖的旧语法补大量单语法细节测试。
 
+## UI API 最小示例
+
+`0.2.0` 提供不依赖 JavaFX 的 UI 门面，供后续界面层绑定当前状态、阶段数据和全局数据：
+
+```java
+MiniCObservationApi api = new MiniCObservationApi();
+api.loadSource("main.mc", "int main() { return 0; }");
+api.startSession();
+
+UiControlResultDto result = api.next();
+UiCurrentStateDto state = api.currentState();
+UiStageDataDto stageData = api.currentStageData();
+UiGlobalDataDto globalData = api.globalData();
+
+api.play();
+api.tick();
+api.playFast();
+api.tick();
+api.pause();
+```
+
+当前 UI API 支持正向下一步、自动播放、两倍速播放、暂停和手动 `tick`。`previous` 与 `reversePlay` 已作为未来扩展点保留，当前返回 `UNSUPPORTED`，状态能力中 `canPrevious=false`、`canReversePlay=false`。
+
 ## 协作规则
 
 - 全程使用中文沟通、记录需求、编写文档和汇报结果。
@@ -160,5 +183,6 @@ B044 已完成：调度层已预留 `previous` 和 `reversePlay` 接口，当前
 B050 已完成：已添加不依赖 JavaFX 的 UI 编译控制门面，支持加载源码、开始观测会话、下一步、播放、两倍速播放、tick、暂停，以及 previous/reversePlay 预留和状态/阶段/全局数据查询。
 B051 已完成：已添加 UI 状态 DTO，覆盖当前状态、当前阶段数据、全局数据和控制结果，使用不可变集合并隔离 compiler/runtime/session 内部模型。
 B052 已完成：已添加 UI 门面端到端测试，覆盖加载源码、开始会话、下一步、自动播放 tick、两倍速 tick、暂停，以及 previous/reversePlay 当前 unsupported。
+B060 已完成：已补充结构化接口文档，记录 `0.2.0` 四层结构、数据区设计、UI API 最小使用方式、依赖规则、已完成能力和未实现项。
 
-下一步编号：`B060`。
+下一步编号：`B061`。

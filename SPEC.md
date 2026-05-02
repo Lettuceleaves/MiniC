@@ -239,6 +239,28 @@ minic.cli
 - parser 不能依赖 codegen、toolchain 或 debugger。
 - 普通用户代码错误、工具链失败和运行时检查失败都必须转为 diagnostics，不能只打印 console。
 
+`0.2.0` 结构化观测分为四层：
+
+- 编译层：`minic.compiler.*` 内部提供可步进状态，负责真实编译动作和阶段输出构建。
+- 兼容层：`minic.runtime.step.*` 适配各编译阶段，统一暴露 `next`、`previous` 预留、`snapshot`、`data`、`canNext`、`canPrevious`，并只返回 UI 可消费数据。
+- 调度层：`minic.session.*` 串联各阶段 stepper，维护全局步骤游标、播放状态、当前状态数据、当前阶段数据和全局数据。
+- UI API 层：`minic.uiapi.*` 提供稳定门面和 DTO，不暴露 compiler、runtime stepper 或 session 内部对象，不依赖 JavaFX。
+
+`0.2.0` 四层依赖规则：
+
+- 编译层不得依赖兼容层、调度层或 UI API。
+- 兼容层可以依赖编译层公开阶段状态，但不得向外暴露编译层内部可变 work 数据。
+- 调度层可以依赖兼容层 stepper 和阶段输出缓存，但不得依赖 UI API。
+- UI API 只能依赖调度层和运行时稳定 DTO 输入来源，向 UI 返回 `Ui*Dto`，不得返回 compiler、runtime stepper 或 session 类型。
+- JavaFX 或其他具体 UI 框架不得进入 compiler、runtime、session、uiapi；后续 UI 应在独立包或应用层适配 `uiapi`。
+
+`0.2.0` 数据区设计：
+
+- 当前状态数据描述全局游标：源码名、当前阶段、全局/阶段步骤下标、播放模式、帧间隔、源码范围、标题、说明、diagnostics 和控制能力。
+- 当前阶段数据描述当前 tab 或阶段面板：阶段进度、输入摘要、当前项、累计输出摘要和阶段 diagnostics。
+- 全局数据描述跨阶段概览：源码文本、阶段摘要、全量 diagnostics、token/AST/semantic/IR/assembly/artifact 摘要。
+- UI DTO 必须不可变，并使用字符串、数字、布尔值和只读列表等易绑定字段，避免把 AST、IR、Scope、Stepper 等内部对象暴露给 UI。
+
 核心流水线：
 
 ```text
