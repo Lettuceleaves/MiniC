@@ -158,5 +158,6 @@ B042 已完成：调度层已支持 paused、playing、fastPlaying 播放状态�
 B043 已完成：调度层已支持不依赖 UI 框架的手动 `tick` 播放控制，自动播放按 `1000ms/帧`、两倍速按 `500ms/帧` 推进，到达编译末尾会自动暂停。
 B044 已完成：调度层已预留 `previous` 和 `reversePlay` 接口，当前返回 unsupported，状态能力保持 `canPrevious=false`、`canReversePlay=false`，并通过 JavaDoc 标明为未来扩展点。
 B050 已完成：已添加不依赖 JavaFX 的 UI 编译控制门面，支持加载源码、开始观测会话、下一步、播放、两倍速播放、tick、暂停，以及 previous/reversePlay 预留和状态/阶段/全局数据查询。
+B051 已完成：已添加 UI 状态 DTO，覆盖当前状态、当前阶段数据、全局数据和控制结果，使用不可变集合并隔离 compiler/runtime/session 内部模型。
 
-下一步编号：`B051`。
+下一步编号：`B052`。

@@ -1,7 +1,5 @@
 package minic.uiapi;
 
-import minic.runtime.step.CompileStage;
-import minic.runtime.step.StepOutcome;
 import minic.source.SourceFile;
 import org.junit.jupiter.api.Test;
 
@@ -17,16 +15,16 @@ class MiniCObservationApiTest {
         api.startSession();
 
         assertThat(api.currentState().sourceName()).isEqualTo("ui.mc");
-        assertThat(api.currentState().currentStage()).isEqualTo(CompileStage.LEXER);
-        assertThat(api.currentStageData().stage()).isEqualTo(CompileStage.LEXER);
+        assertThat(api.currentState().currentStage()).isEqualTo("lexer");
+        assertThat(api.currentStageData().stage()).isEqualTo("lexer");
         assertThat(api.globalData().source()).isEqualTo("int main() { return 0; }");
-        assertThat(api.next().outcome()).isEqualTo(StepOutcome.ADVANCED);
-        assertThat(api.play().outcome()).isEqualTo(StepOutcome.ADVANCED);
-        assertThat(api.playFast().outcome()).isEqualTo(StepOutcome.ADVANCED);
-        assertThat(api.tick().outcome()).isEqualTo(StepOutcome.ADVANCED);
-        assertThat(api.pause().outcome()).isEqualTo(StepOutcome.ADVANCED);
-        assertThat(api.previous().outcome()).isEqualTo(StepOutcome.UNSUPPORTED);
-        assertThat(api.reversePlay().outcome()).isEqualTo(StepOutcome.UNSUPPORTED);
+        assertThat(api.next().outcome()).isEqualTo("ADVANCED");
+        assertThat(api.play().outcome()).isEqualTo("ADVANCED");
+        assertThat(api.playFast().outcome()).isEqualTo("ADVANCED");
+        assertThat(api.tick().outcome()).isEqualTo("ADVANCED");
+        assertThat(api.pause().outcome()).isEqualTo("ADVANCED");
+        assertThat(api.previous().outcome()).isEqualTo("UNSUPPORTED");
+        assertThat(api.reversePlay().outcome()).isEqualTo("UNSUPPORTED");
     }
 
     @Test

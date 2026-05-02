@@ -1,9 +1,5 @@
 package minic.uiapi;
 
-import minic.runtime.step.CurrentStepState;
-import minic.runtime.step.GlobalStepData;
-import minic.runtime.step.StageStepData;
-import minic.runtime.step.StepResult;
 import minic.session.CompileObservationSession;
 import minic.source.SourceFile;
 
@@ -51,8 +47,8 @@ public final class MiniCObservationApi {
      *
      * @return 单步结果
      */
-    public StepResult next() {
-        return requireSession().next();
+    public UiControlResultDto next() {
+        return UiControlResultDto.from(requireSession().next());
     }
 
     /**
@@ -60,8 +56,8 @@ public final class MiniCObservationApi {
      *
      * @return 控制结果
      */
-    public StepResult play() {
-        return requireSession().play();
+    public UiControlResultDto play() {
+        return UiControlResultDto.from(requireSession().play());
     }
 
     /**
@@ -69,8 +65,8 @@ public final class MiniCObservationApi {
      *
      * @return 控制结果
      */
-    public StepResult playFast() {
-        return requireSession().playFast();
+    public UiControlResultDto playFast() {
+        return UiControlResultDto.from(requireSession().playFast());
     }
 
     /**
@@ -78,8 +74,8 @@ public final class MiniCObservationApi {
      *
      * @return 单步结果
      */
-    public StepResult tick() {
-        return requireSession().tick();
+    public UiControlResultDto tick() {
+        return UiControlResultDto.from(requireSession().tick());
     }
 
     /**
@@ -87,8 +83,8 @@ public final class MiniCObservationApi {
      *
      * @return 控制结果
      */
-    public StepResult pause() {
-        return requireSession().pause();
+    public UiControlResultDto pause() {
+        return UiControlResultDto.from(requireSession().pause());
     }
 
     /**
@@ -96,8 +92,8 @@ public final class MiniCObservationApi {
      *
      * @return unsupported 结果
      */
-    public StepResult previous() {
-        return requireSession().previous();
+    public UiControlResultDto previous() {
+        return UiControlResultDto.from(requireSession().previous());
     }
 
     /**
@@ -105,8 +101,8 @@ public final class MiniCObservationApi {
      *
      * @return unsupported 结果
      */
-    public StepResult reversePlay() {
-        return requireSession().reversePlay();
+    public UiControlResultDto reversePlay() {
+        return UiControlResultDto.from(requireSession().reversePlay());
     }
 
     /**
@@ -114,8 +110,8 @@ public final class MiniCObservationApi {
      *
      * @return 当前状态数据
      */
-    public CurrentStepState currentState() {
-        return requireSession().currentState();
+    public UiCurrentStateDto currentState() {
+        return UiCurrentStateDto.from(requireSession().currentState());
     }
 
     /**
@@ -123,8 +119,8 @@ public final class MiniCObservationApi {
      *
      * @return 当前阶段数据
      */
-    public StageStepData currentStageData() {
-        return requireSession().currentStageData();
+    public UiStageDataDto currentStageData() {
+        return UiStageDataDto.from(requireSession().currentStageData());
     }
 
     /**
@@ -132,8 +128,8 @@ public final class MiniCObservationApi {
      *
      * @return 全局数据
      */
-    public GlobalStepData globalData() {
-        return requireSession().globalData();
+    public UiGlobalDataDto globalData() {
+        return UiGlobalDataDto.from(requireSession().globalData());
     }
 
     private void ensureSourceLoaded() {
