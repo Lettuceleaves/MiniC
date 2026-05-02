@@ -124,6 +124,36 @@ public final class CompileObservationSession {
     }
 
     /**
+     * 进入自动播放状态。
+     *
+     * @return 单步控制结果
+     */
+    public StepResult play() {
+        playbackMode = PlaybackMode.PLAYING;
+        return StepResult.advanced(currentStage(), "自动播放", "自动播放已开启。");
+    }
+
+    /**
+     * 进入两倍速自动播放状态。
+     *
+     * @return 单步控制结果
+     */
+    public StepResult playFast() {
+        playbackMode = PlaybackMode.FAST_PLAYING;
+        return StepResult.advanced(currentStage(), "两倍速播放", "两倍速播放已开启。");
+    }
+
+    /**
+     * 暂停自动播放。
+     *
+     * @return 单步控制结果
+     */
+    public StepResult pause() {
+        playbackMode = PlaybackMode.PAUSED;
+        return StepResult.advanced(currentStage(), "暂停", "编译观测已暂停。");
+    }
+
+    /**
      * 全局推进一步。当前阶段完成后，本次调用只切换到下一个阶段。
      *
      * @return 单步结果
