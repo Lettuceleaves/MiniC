@@ -104,6 +104,23 @@
     -fx-border-width: 1px;
 }
 
+.stage-list {
+    -fx-padding: 8px;
+}
+
+.stage-card.running {
+    -fx-background-color: #25364a;
+    -fx-border-color: #007acc;
+}
+
+.stage-card.done {
+    -fx-border-color: #345b34;
+}
+
+.stage-card.error {
+    -fx-border-color: #f14c4c;
+}
+
 .stage-top {
     -fx-text-fill: #e5e5e5;
     -fx-font-weight: bold;

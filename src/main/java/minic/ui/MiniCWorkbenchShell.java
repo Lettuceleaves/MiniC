@@ -96,21 +96,7 @@ public final class MiniCWorkbenchShell {
     }
 
     private VBox sidebar() {
-        VBox sidebar = new VBox();
-        sidebar.getStyleClass().add("sidebar");
-        sidebar.getChildren().addAll(
-                panelTitle("Explorer"),
-                sectionLabel("MINIC WORKSPACE"),
-                bodyText("samples\n  main.mc\n  printf.mc\noutputs\n  tokens.json\n  semantic.log"),
-                sectionLabel("PIPELINE"),
-                stageCard("Source", "queued", "waiting for session"),
-                stageCard("Lexer", "queued", "tokens"),
-                stageCard("Parser", "queued", "AST nodes"),
-                stageCard("Semantic", "queued", "semantic actions"),
-                stageCard("IR", "queued", "IR summary"),
-                stageCard("Codegen", "queued", "assembly lines")
-        );
-        return sidebar;
+        return new MiniCSidebarView(viewModel);
     }
 
     private VBox editorArea() {
@@ -222,14 +208,4 @@ public final class MiniCWorkbenchShell {
         return label;
     }
 
-    private VBox stageCard(String title, String state, String detail) {
-        VBox card = new VBox(4);
-        card.getStyleClass().add("stage-card");
-        Label top = new Label(title + "    " + state);
-        top.getStyleClass().add("stage-top");
-        Label meta = new Label(detail);
-        meta.getStyleClass().add("stage-meta");
-        card.getChildren().addAll(top, meta);
-        return card;
-    }
 }
