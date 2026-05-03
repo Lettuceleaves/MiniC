@@ -2,7 +2,7 @@
 
 MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。当前已经完成从源码到 Windows x64 可执行文件的基础编译闭环，并完成 `0.2.0` 结构化编译观测阶段。
 
-当前版本：`0.3.0`。
+当前版本：`0.3.1-SNAPSHOT`。
 
 ## 文档入口
 
@@ -14,17 +14,20 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 
 ## 当前状态
 
-`0.2.0` 已完成。项目已经具备：
+`0.3.0` 已完成。项目已经具备：
 
 - MiniC 源码到 Windows x64 可执行文件的编译运行闭环。
 - Lexer、Parser、Semantic、IR lowering 和 Windows x64 codegen 的正向可步进状态。
 - `minic.runtime.step` 统一阶段 Stepper 和数据模型。
 - `minic.session` 全局观测会话、下一步、播放、两倍速播放、暂停和手动 tick。
 - `minic.uiapi` UI 门面和不可变 DTO，供后续界面层绑定。
+- JavaFX 版 MiniC Visual Workbench 首版 UI。
 
-`0.3.0` JavaFX UI 首版已完成。当前计划已执行到 `C080`。
+下一步直接执行：`C101：在 UI API 中暴露当前阶段 visual data`。
 
-`0.3.0` 将进入 JavaFX UI 阶段，目标是实现 VS Code 风格的 MiniC Visual Workbench。UI 风格参考：
+`0.3.1` 将进入阶段专属图形化增强：Lexer token 半透明遮罩、AST 树、Semantic 顶部 global scope 且反向箭头作用域树、Assembly 增量行文本视图。
+
+UI 风格继续参考：
 
 ```text
 C:\Users\Administrator\Desktop\styleOfMiniC\index.html
