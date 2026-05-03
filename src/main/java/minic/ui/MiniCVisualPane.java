@@ -31,6 +31,8 @@ import java.util.Objects;
 public final class MiniCVisualPane extends VBox {
     private static final String ACTIVE_CENTER_Y_KEY = "activeCenterY";
     private static final double DEFAULT_AST_ZOOM = 1.0;
+    private static final double MIN_AST_ZOOM = 0.001;
+    private static final double MAX_AST_ZOOM = 1.0;
 
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCVisualModelFactory modelFactory = new MiniCVisualModelFactory();
@@ -41,7 +43,7 @@ public final class MiniCVisualPane extends VBox {
     private final SplitPane splitPane = new SplitPane();
     private final StageColumn leftColumn = new StageColumn(false);
     private final StageColumn rightColumn = new StageColumn(true);
-    private final Slider astZoom = new Slider(0.55, 1.85, DEFAULT_AST_ZOOM);
+    private final Slider astZoom = new Slider(MIN_AST_ZOOM, MAX_AST_ZOOM, DEFAULT_AST_ZOOM);
     private final TextArea executionStdin = new TextArea();
     private final CheckBox executionNoInput = new CheckBox("无输入");
     private final Button executionConfirm = new Button("确认输入");
@@ -277,7 +279,7 @@ public final class MiniCVisualPane extends VBox {
         title.getStyleClass().add("ast-zoom-label");
         Label value = new Label();
         value.getStyleClass().add("ast-zoom-value");
-        value.textProperty().bind(astZoom.valueProperty().multiply(100).asString("%.0f%%"));
+        value.textProperty().bind(astZoom.valueProperty().multiply(100).asString("%.1f%%"));
         controls.getChildren().addAll(title, astZoom, value);
         Pane graph = astGraph(visual);
         Group graphGroup = new Group(graph);
