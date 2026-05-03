@@ -1,6 +1,5 @@
 package minic.ui;
 
-import javafx.geometry.Insets;
 import javafx.scene.Parent;
 import javafx.scene.control.Label;
 import javafx.scene.layout.BorderPane;
@@ -89,7 +88,7 @@ public final class MiniCWorkbenchShell {
         body.getStyleClass().add("workbench-body");
         VBox sidebar = sidebar();
         VBox editor = editorArea();
-        VBox inspector = inspector();
+        VBox inspector = new MiniCInspectorView(viewModel);
         HBox.setHgrow(editor, Priority.ALWAYS);
         body.getChildren().addAll(sidebar, editor, inspector);
         return body;
@@ -125,48 +124,6 @@ public final class MiniCWorkbenchShell {
         return editor;
     }
 
-    private VBox pane(String title, String content) {
-        VBox pane = new VBox();
-        pane.getStyleClass().add("pane");
-        Label head = new Label(title);
-        head.getStyleClass().add("pane-head");
-        Label body = new Label(content);
-        body.getStyleClass().add("mono-body");
-        body.setPadding(new Insets(12));
-        VBox.setVgrow(body, Priority.ALWAYS);
-        pane.getChildren().addAll(head, body);
-        return pane;
-    }
-
-    private VBox inspector() {
-        VBox inspector = new VBox();
-        inspector.getStyleClass().add("inspector");
-        inspector.getChildren().addAll(
-                panelTitle("MiniC Observation"),
-                controls(),
-                sectionLabel("CURRENT STATE"),
-                bodyText("stage: pending\nglobalStep: 0\nstageStep: 0\nframeInterval: 0ms"),
-                sectionLabel("CURRENT ITEM"),
-                bodyText("C020 ViewModel is ready. Later tasks will bind live DTO fields."),
-                sectionLabel("ACCUMULATED OUTPUT"),
-                bodyText("tokens: 0\nast: 0\nsemantic: 0\nir: 0\nassembly: 0")
-        );
-        return inspector;
-    }
-
-    private HBox controls() {
-        HBox controls = new HBox(6);
-        controls.getStyleClass().add("controls");
-        controls.getChildren().addAll(control("Next", true), control("Play", false), control("2x", false), control("Pause", false));
-        return controls;
-    }
-
-    private Label control(String text, boolean primary) {
-        Label label = new Label(text);
-        label.getStyleClass().add(primary ? "control-primary" : "control-secondary");
-        return label;
-    }
-
     private HBox statusBar() {
         HBox status = new HBox();
         status.getStyleClass().add("status-bar");
@@ -176,24 +133,6 @@ public final class MiniCWorkbenchShell {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         status.getChildren().addAll(left, spacer, right);
         return status;
-    }
-
-    private Label panelTitle(String text) {
-        Label label = new Label(text);
-        label.getStyleClass().add("panel-title");
-        return label;
-    }
-
-    private Label sectionLabel(String text) {
-        Label label = new Label(text);
-        label.getStyleClass().add("section-label");
-        return label;
-    }
-
-    private Label bodyText(String text) {
-        Label label = new Label(text);
-        label.getStyleClass().add("body-text");
-        return label;
     }
 
 }
