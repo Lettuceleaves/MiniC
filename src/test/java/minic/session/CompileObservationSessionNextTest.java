@@ -118,7 +118,7 @@ class CompileObservationSessionNextTest {
         CompileObservationSession session = CompileObservationSession.fromSource(
                 "full.mc",
                 """
-                        extern int puts(int *text);
+                        extern int puts(char *text);
                         int main() { return puts("ok"); }
                         """
         );

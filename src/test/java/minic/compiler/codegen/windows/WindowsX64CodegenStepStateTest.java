@@ -24,7 +24,7 @@ class WindowsX64CodegenStepStateTest {
     @Test
     void advancesAssemblyLinesAndBuildsEquivalentAssemblySource() {
         IrModule module = lowerWithSemantic("""
-                extern int printf(int *format, int value);
+                extern int printf(char *format, int value);
 
                 int add(int left, int right) {
                     return left + right;

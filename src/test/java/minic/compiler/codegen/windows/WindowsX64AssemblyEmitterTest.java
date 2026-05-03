@@ -20,7 +20,7 @@ class WindowsX64AssemblyEmitterTest {
     @Test
     void emitsWindowsX64EnvelopeEntryPointAndExternalData() {
         AssemblySource assemblySource = emit("""
-                extern int printf(int *format, int value);
+                extern int printf(char *format, int value);
 
                 int main() {
                     printf("value=%d\\n", 42);

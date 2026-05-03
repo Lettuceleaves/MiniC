@@ -58,7 +58,7 @@ final class ExpressionSemanticAnalyzer {
             case FloatLiteralExpr ignored -> MiniType.FLOAT;
             case DoubleLiteralExpr ignored -> MiniType.DOUBLE;
             case NullLiteralExpr ignored -> MiniType.NULL;
-            case StringLiteralExpr ignored -> MiniType.INT.pointerTo();
+            case StringLiteralExpr ignored -> MiniType.CHAR.pointerTo();
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case AssignmentExpr assignmentExpr -> {
                 if (assignmentExpr.target() instanceof NameExpr nameExpr) {

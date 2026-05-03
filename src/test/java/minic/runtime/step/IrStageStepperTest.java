@@ -16,7 +16,7 @@ class IrStageStepperTest {
     @Test
     void advancesIrStructureActionsThroughUnifiedStageApi() {
         Parsed parsed = parseAndAnalyze("""
-                extern int puts(int *text);
+                extern int puts(char *text);
                 int add(int left, int right) { return left + right; }
                 int main() { return puts("ok") + add(1, 2); }
                 """);

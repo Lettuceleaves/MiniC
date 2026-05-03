@@ -11,7 +11,7 @@ class MiniCObservationApiEndToEndTest {
         api.loadSource(
                 "ui-e2e.mc",
                 """
-                        extern int puts(int *text);
+                        extern int puts(char *text);
                         int main() {
                             return puts("ok");
                         }

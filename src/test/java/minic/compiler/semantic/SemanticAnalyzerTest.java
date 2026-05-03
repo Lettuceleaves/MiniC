@@ -9,6 +9,7 @@ import minic.compiler.ast.expr.FieldAccessExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.NullLiteralExpr;
+import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
@@ -29,7 +30,7 @@ class SemanticAnalyzerTest {
     @Test
     void acceptsComprehensiveLegalProgramAndRecordsRepresentativeTypes() {
         Program program = parse("""
-                extern int printf(int *format, int value);
+                extern int printf(char *format, int value);
 
                 struct Node {
                     int value;
@@ -71,7 +72,7 @@ class SemanticAnalyzerTest {
         assertThat(result.globalScope().resolve("printf")).hasValueSatisfying(symbol ->
                 assertThat(symbol.type()).isEqualTo(MiniType.function(
                         MiniType.INT,
-                        List.of(MiniType.INT.pointerTo(), MiniType.INT)
+                        List.of(MiniType.CHAR.pointerTo(), MiniType.INT)
                 )));
         assertThat(result.globalScope().resolve("Node")).hasValueSatisfying(symbol -> {
             assertThat(symbol.kind()).isEqualTo(SymbolKind.STRUCT);
@@ -88,6 +89,8 @@ class SemanticAnalyzerTest {
                 ((ExprStmt) mainStatements.get(4)).expression()).value();
         FieldAccessExpr nodeValue = (FieldAccessExpr) ((CallExpr)
                 ((ExprStmt) mainStatements.get(6)).expression()).arguments().get(1);
+        StringLiteralExpr formatLiteral = (StringLiteralExpr) ((CallExpr)
+                ((ExprStmt) mainStatements.get(6)).expression()).arguments().get(0);
         IndexExpr returned = (IndexExpr) ((ReturnStmt) mainStatements.get(7))
                 .expressionOptional().orElseThrow();
 
@@ -97,6 +100,7 @@ class SemanticAnalyzerTest {
                 List.of(MiniType.INT, MiniType.INT)
         ).pointerTo());
         assertThat(result.typeOf(arrayDecay)).contains(MiniType.INT.pointerTo());
+        assertThat(result.typeOf(formatLiteral)).contains(MiniType.CHAR.pointerTo());
         assertThat(result.typeOf(nodeValue)).contains(MiniType.INT);
         assertThat(result.typeOf(returned.target())).contains(MiniType.INT.pointerTo());
         assertThat(result.typeOf(returned)).contains(MiniType.INT);

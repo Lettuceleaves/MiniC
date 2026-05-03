@@ -21,7 +21,7 @@ class IrStepStateTest {
     @Test
     void advancesIrStructureActionsAndBuildsEquivalentModule() {
         Program program = parse("""
-                extern int puts(int *text);
+                extern int puts(char *text);
                 int add(int left, int right) { return left + right; }
                 int main() { return puts("hello") + add(1, 2); }
                 """);
