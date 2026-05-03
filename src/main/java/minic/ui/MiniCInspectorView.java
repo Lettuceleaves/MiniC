@@ -13,6 +13,7 @@ import java.util.Objects;
 public final class MiniCInspectorView extends VBox {
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCInspectorModelFactory modelFactory = new MiniCInspectorModelFactory();
+    private final MiniCPlaybackController playbackController;
     private final Label currentState = body("");
     private final Label currentItem = body("");
     private final Label accumulatedOutput = body("");
@@ -28,11 +29,12 @@ public final class MiniCInspectorView extends VBox {
      */
     public MiniCInspectorView(MiniCWorkbenchViewModel viewModel) {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
+        playbackController = new MiniCPlaybackController(viewModel);
         getStyleClass().add("inspector");
         nextButton.setOnAction(event -> viewModel.next());
-        playButton.setOnAction(event -> viewModel.play());
-        playFastButton.setOnAction(event -> viewModel.playFast());
-        pauseButton.setOnAction(event -> viewModel.pause());
+        playButton.setOnAction(event -> playbackController.play());
+        playFastButton.setOnAction(event -> playbackController.playFast());
+        pauseButton.setOnAction(event -> playbackController.pause());
         getChildren().addAll(
                 label("MiniC Observation", "panel-title"),
                 controls(),
