@@ -34,6 +34,15 @@ application {
 tasks.register('runUi', JavaExec) {
     group = 'application'
     description = '启动 MiniC Visual Workbench JavaFX UI'
-    classpath = sourceSets.main.runtimeClasspath
+    classpath = sourceSets.main.output
     mainClass = 'minic.ui.MiniCWorkbenchLauncher'
+    jvmArgs = [
+            '--module-path', configurations.runtimeClasspath.asPath,
+            '--add-modules', javafx.modules.join(','),
+            '-Dfile.encoding=UTF-8',
+            '-Dsun.stdout.encoding=UTF-8',
+            '-Dsun.stderr.encoding=UTF-8',
+            '-Duser.language=en',
+            '-Duser.country=US'
+    ]
 }
