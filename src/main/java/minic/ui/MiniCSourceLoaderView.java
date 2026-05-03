@@ -2,7 +2,6 @@ package minic.ui;
 
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
-import javafx.scene.control.TextArea;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -15,7 +14,7 @@ import java.util.Objects;
 public final class MiniCSourceLoaderView extends VBox {
     private final MiniCWorkbenchViewModel viewModel;
     private final ComboBox<String> sampleSelector = new ComboBox<>();
-    private final TextArea sourceEditor = new TextArea();
+    private final MiniCCodeEditor sourceEditor = new MiniCCodeEditor();
     private final Button startButton = new Button("Start");
 
     /**
@@ -30,14 +29,18 @@ public final class MiniCSourceLoaderView extends VBox {
         controls.getStyleClass().add("loader-controls");
         sampleSelector.getItems().setAll(MiniCSamplePrograms.all().stream().map(MiniCSampleProgram::name).toList());
         sampleSelector.getSelectionModel().select(MiniCSamplePrograms.defaultSample().name());
-        sourceEditor.getStyleClass().add("source-editor");
         sourceEditor.setText(MiniCSamplePrograms.defaultSample().source());
-        sourceEditor.setWrapText(false);
         startButton.getStyleClass().add("control-primary");
         sampleSelector.setOnAction(event -> applySelectedSample());
         startButton.setOnAction(event -> startSession());
-        sourceEditor.textProperty().addListener((observable, oldValue, newValue) -> submitRealtimeSource());
-        viewModel.realtimeAnalysisProperty().addListener((observable, oldValue, newValue) -> highlightFirstDiagnostic());
+        sourceEditor.input().textProperty().addListener((observable, oldValue, newValue) -> {
+            sourceEditor.render(viewModel.realtimeAnalysisProperty().get());
+            submitRealtimeSource();
+        });
+        viewModel.realtimeAnalysisProperty().addListener((observable, oldValue, newValue) -> {
+            sourceEditor.render(newValue);
+            highlightFirstDiagnostic();
+        });
         controls.getChildren().addAll(sampleSelector, startButton);
         getChildren().addAll(controls, sourceEditor);
         VBox.setVgrow(sourceEditor, Priority.ALWAYS);

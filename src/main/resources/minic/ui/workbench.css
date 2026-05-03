@@ -217,6 +217,62 @@
     -fx-font-size: 12px;
 }
 
+.code-editor {
+    -fx-background-color: #1e1e1e;
+}
+
+.code-highlight-layer {
+    -fx-padding: 7px 9px;
+    -fx-background-color: #1e1e1e;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-line-spacing: 0;
+}
+
+.code-token {
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-fill: #d4d4d4;
+}
+
+.token-keyword {
+    -fx-fill: #569cd6;
+}
+
+.token-identifier {
+    -fx-fill: #d4d4d4;
+}
+
+.token-string {
+    -fx-fill: #ce9178;
+}
+
+.token-literal {
+    -fx-fill: #b5cea8;
+}
+
+.token-operator {
+    -fx-fill: #d4d4d4;
+}
+
+.code-token.diagnostic {
+    -fx-underline: true;
+    -fx-fill: #f48771;
+}
+
+.code-editor .text-area,
+.code-editor .text-area .viewport,
+.code-editor .text-area .content {
+    -fx-background-color: transparent;
+}
+
+.code-editor .text-area {
+    -fx-text-fill: transparent;
+    -fx-caret-color: #ffffff;
+    -fx-highlight-fill: rgba(38, 79, 120, 0.65);
+    -fx-highlight-text-fill: transparent;
+}
+
 .execution-pane {
     -fx-background-color: #1e1e1e;
 }
