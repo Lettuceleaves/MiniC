@@ -186,6 +186,26 @@
     -fx-background-color: #1e1e1e;
 }
 
+.source-area {
+    -fx-background-color: #1e1e1e;
+}
+
+.source-loader {
+    -fx-background-color: #252526;
+    -fx-border-color: #1b1b1b;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.loader-controls {
+    -fx-padding: 8px 12px;
+}
+
+.source-editor {
+    -fx-pref-height: 120px;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
 .line-number {
     -fx-min-width: 48px;
     -fx-padding: 0 14px 0 0;

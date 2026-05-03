@@ -114,7 +114,7 @@ public final class MiniCWorkbenchShell {
         HBox split = new HBox();
         split.getStyleClass().add("split");
         VBox.setVgrow(split, Priority.ALWAYS);
-        VBox codePane = new MiniCSourceView(viewModel);
+        VBox codePane = sourceArea();
         VBox visualPane = new MiniCVisualPane(viewModel);
         HBox.setHgrow(codePane, Priority.ALWAYS);
         HBox.setHgrow(visualPane, Priority.ALWAYS);
@@ -122,6 +122,16 @@ public final class MiniCWorkbenchShell {
 
         editor.getChildren().addAll(tabs, split, new MiniCBottomPanel(viewModel));
         return editor;
+    }
+
+    private VBox sourceArea() {
+        VBox sourceArea = new VBox();
+        sourceArea.getStyleClass().add("source-area");
+        MiniCSourceLoaderView loader = new MiniCSourceLoaderView(viewModel);
+        MiniCSourceView sourceView = new MiniCSourceView(viewModel);
+        sourceArea.getChildren().addAll(loader, sourceView);
+        VBox.setVgrow(sourceView, Priority.ALWAYS);
+        return sourceArea;
     }
 
     private HBox statusBar() {
