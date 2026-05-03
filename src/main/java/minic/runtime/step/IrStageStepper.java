@@ -136,10 +136,19 @@ public final class IrStageStepper implements StageStepper {
     }
 
     private static String currentFunction(IrLoweringAction action) {
-        return action.kind() == IrLoweringActionKind.LOWER_FUNCTION ? action.subject() : "";
+        return switch (action.kind()) {
+            case BEGIN_FUNCTION, COMPLETE_FUNCTION -> action.subject();
+            case LOWER_STATEMENT -> action.subject().split(" ", 2)[0];
+            default -> "";
+        };
     }
 
     private static String currentBlock(IrLoweringAction action) {
-        return action.kind() == IrLoweringActionKind.LOWER_FUNCTION ? "<function>" : "";
+        return switch (action.kind()) {
+            case BEGIN_FUNCTION -> "entry";
+            case LOWER_STATEMENT -> "<statement>";
+            case COMPLETE_FUNCTION -> "<function>";
+            default -> "";
+        };
     }
 }

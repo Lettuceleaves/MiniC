@@ -30,7 +30,7 @@ class IrStageStepperTest {
 
         assertThat(first.outcome()).isEqualTo(StepOutcome.ADVANCED);
         assertThat(first.description()).contains("REGISTER_EXTERNAL puts");
-        assertThat(second.description()).contains("LOWER_FUNCTION add");
+        assertThat(second.description()).contains("BEGIN_FUNCTION add");
         assertThat(stepper.snapshot().sourceRangeOptional()).isPresent();
         assertThat(stepper.data().inputSummary()).contains("functions=3");
         assertThat(stepper.data().currentItem()).contains("COMPLETE_MODULE module");

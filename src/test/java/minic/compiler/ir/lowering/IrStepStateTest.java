@@ -34,9 +34,14 @@ class IrStepStateTest {
 
         assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.REGISTER_EXTERNAL, "puts"));
         assertThat(state.work().externalFunctionCount()).isEqualTo(1);
-        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_FUNCTION, "add"));
+        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.BEGIN_FUNCTION, "add"));
+        assertThat(state.work().functionCount()).isZero();
+        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_STATEMENT, "add ReturnStmt"));
+        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.COMPLETE_FUNCTION, "add"));
         assertThat(state.work().functionCount()).isEqualTo(1);
-        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_FUNCTION, "main"));
+        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.BEGIN_FUNCTION, "main"));
+        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_STATEMENT, "main ReturnStmt"));
+        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.COMPLETE_FUNCTION, "main"));
         assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.COMPLETE_MODULE, "module"));
 
         IrModule stepped = state.toIrModule();

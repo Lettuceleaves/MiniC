@@ -15,6 +15,21 @@ public enum IrLoweringActionKind {
     LOWER_FUNCTION,
 
     /**
+     * 进入函数 IR lowering。
+     */
+    BEGIN_FUNCTION,
+
+    /**
+     * 产出函数体语句 IR。
+     */
+    LOWER_STATEMENT,
+
+    /**
+     * 完成函数 IR。
+     */
+    COMPLETE_FUNCTION,
+
+    /**
      * 完成 IR 模块。
      */
     COMPLETE_MODULE

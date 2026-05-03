@@ -55,7 +55,7 @@ final class StatementLowerer {
         }
     }
 
-    private void lowerStatement(Statement statement) {
+    void lowerStatement(Statement statement) {
         if (statement instanceof ReturnStmt returnStmt) {
             Expression expression = returnStmt.expressionOptional()
                     .orElseThrow(() -> new IllegalArgumentException("return statement must have a value"));

@@ -34,6 +34,9 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
     private final Work work;
     private IrLoweringAction currentAction;
     private int nextFunctionIndex;
+    private IncrementalIrFunctionLowerer currentFunctionLowerer;
+    private FunctionDecl currentFunction;
+    private int completedStepCount;
     private boolean moduleCompleted;
 
     /**
@@ -85,7 +88,7 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
         return new CompilerStageSnapshot(
                 CompileStage.IR,
                 status,
-                new StageProgress(nextFunctionIndex + (moduleCompleted ? 1 : 0), input.program.functions().size() + 1, moduleCompleted),
+                new StageProgress(completedStepCount, plannedActionCount(), moduleCompleted),
                 currentAction == null ? "" : currentAction.kind() + " " + currentAction.subject(),
                 List.of()
         );
@@ -105,30 +108,50 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
         if (!canNext()) {
             throw new IllegalStateException("ir state is already completed");
         }
+        if (currentFunctionLowerer != null) {
+            if (currentFunctionLowerer.hasNextStatement()) {
+                currentAction = currentFunctionLowerer.lowerNextStatement();
+                completedStepCount++;
+                return currentAction;
+            }
+            work.functions.add(currentFunctionLowerer.complete());
+            currentAction = new IrLoweringAction(IrLoweringActionKind.COMPLETE_FUNCTION, currentFunction.name());
+            currentFunctionLowerer = null;
+            currentFunction = null;
+            nextFunctionIndex++;
+            completedStepCount++;
+            return currentAction;
+        }
         if (nextFunctionIndex < input.program.functions().size()) {
-            FunctionDecl function = input.program.functions().get(nextFunctionIndex++);
+            FunctionDecl function = input.program.functions().get(nextFunctionIndex);
             if (function.external()) {
                 work.externalFunctionNames.add(function.name());
                 currentAction = new IrLoweringAction(IrLoweringActionKind.REGISTER_EXTERNAL, function.name());
+                nextFunctionIndex++;
+                completedStepCount++;
                 return currentAction;
             }
             if (function.hasBody()) {
-                IrFunction irFunction = new IrFunctionLowerer(
+                currentFunction = function;
+                currentFunctionLowerer = new IncrementalIrFunctionLowerer(
                         function,
                         work.stringLiteralRegistry,
                         input.structLayouts,
                         input.expressionTypes,
                         work.functionSignatures
-                ).lower();
-                work.functions.add(irFunction);
-                currentAction = new IrLoweringAction(IrLoweringActionKind.LOWER_FUNCTION, function.name());
+                );
+                currentAction = currentFunctionLowerer.begin();
+                completedStepCount++;
                 return currentAction;
             }
             currentAction = new IrLoweringAction(IrLoweringActionKind.REGISTER_EXTERNAL, function.name());
+            nextFunctionIndex++;
+            completedStepCount++;
             return currentAction;
         }
         moduleCompleted = true;
         currentAction = new IrLoweringAction(IrLoweringActionKind.COMPLETE_MODULE, "module");
+        completedStepCount++;
         return currentAction;
     }
 
@@ -177,6 +200,18 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
             ));
         }
         return signatures;
+    }
+
+    private int plannedActionCount() {
+        int count = 1;
+        for (FunctionDecl function : input.program.functions()) {
+            if (function.hasBody()) {
+                count += 2 + function.bodyOptional().orElseThrow().statements().size();
+            } else {
+                count++;
+            }
+        }
+        return count;
     }
 
     /**
