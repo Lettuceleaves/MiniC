@@ -108,14 +108,18 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
         if (!canNext()) {
             throw new IllegalStateException("ir state is already completed");
         }
+        IrLoweringAction action;
         if (currentFunctionLowerer != null) {
-            if (currentFunctionLowerer.hasNextStatement()) {
-                currentAction = currentFunctionLowerer.lowerNextStatement();
+            if (currentFunctionLowerer.hasNextAstNode()) {
+                action = currentFunctionLowerer.lowerNextAstNode();
+                currentAction = action;
+                work.loweringLog.add(action.kind() + " " + action.subject());
                 completedStepCount++;
                 return currentAction;
             }
             work.functions.add(currentFunctionLowerer.complete());
             currentAction = new IrLoweringAction(IrLoweringActionKind.COMPLETE_FUNCTION, currentFunction.name());
+            work.loweringLog.add(currentAction.kind() + " " + currentAction.subject());
             currentFunctionLowerer = null;
             currentFunction = null;
             nextFunctionIndex++;
@@ -127,6 +131,7 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
             if (function.external()) {
                 work.externalFunctionNames.add(function.name());
                 currentAction = new IrLoweringAction(IrLoweringActionKind.REGISTER_EXTERNAL, function.name());
+                work.loweringLog.add(currentAction.kind() + " " + currentAction.subject());
                 nextFunctionIndex++;
                 completedStepCount++;
                 return currentAction;
@@ -141,16 +146,19 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
                         work.functionSignatures
                 );
                 currentAction = currentFunctionLowerer.begin();
+                work.loweringLog.add(currentAction.kind() + " " + currentAction.subject());
                 completedStepCount++;
                 return currentAction;
             }
             currentAction = new IrLoweringAction(IrLoweringActionKind.REGISTER_EXTERNAL, function.name());
+            work.loweringLog.add(currentAction.kind() + " " + currentAction.subject());
             nextFunctionIndex++;
             completedStepCount++;
             return currentAction;
         }
         moduleCompleted = true;
         currentAction = new IrLoweringAction(IrLoweringActionKind.COMPLETE_MODULE, "module");
+        work.loweringLog.add(currentAction.kind() + " " + currentAction.subject());
         completedStepCount++;
         return currentAction;
     }
@@ -206,9 +214,75 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
         int count = 1;
         for (FunctionDecl function : input.program.functions()) {
             if (function.hasBody()) {
-                count += 2 + function.bodyOptional().orElseThrow().statements().size();
+                count += 2 + countAstNodes(function.bodyOptional().orElseThrow());
             } else {
                 count++;
+            }
+        }
+        return count;
+    }
+
+    private int countAstNodes(minic.compiler.ast.stmt.BlockStmt body) {
+        int count = 0;
+        for (minic.compiler.ast.stmt.Statement statement : body.statements()) {
+            count += countStatementNodes(statement);
+        }
+        return count;
+    }
+
+    private int countStatementNodes(minic.compiler.ast.stmt.Statement statement) {
+        int count = 1;
+        switch (statement) {
+            case minic.compiler.ast.stmt.BlockStmt blockStmt -> {
+                for (minic.compiler.ast.stmt.Statement child : blockStmt.statements()) {
+                    count += countStatementNodes(child);
+                }
+            }
+            case minic.compiler.ast.stmt.VarDeclStmt varDeclStmt ->
+                    count += varDeclStmt.initializerOptional().map(this::countExpressionNodes).orElse(0);
+            case minic.compiler.ast.stmt.ReturnStmt returnStmt ->
+                    count += returnStmt.expressionOptional().map(this::countExpressionNodes).orElse(0);
+            case minic.compiler.ast.stmt.ExprStmt exprStmt -> count += countExpressionNodes(exprStmt.expression());
+            case minic.compiler.ast.stmt.IfStmt ifStmt -> {
+                count += countExpressionNodes(ifStmt.condition());
+                count += countStatementNodes(ifStmt.thenBranch());
+                count += ifStmt.elseBranchOptional().map(this::countStatementNodes).orElse(0);
+            }
+            case minic.compiler.ast.stmt.WhileStmt whileStmt -> {
+                count += countExpressionNodes(whileStmt.condition());
+                count += countStatementNodes(whileStmt.body());
+            }
+            case minic.compiler.ast.stmt.ForStmt forStmt -> {
+                count += forStmt.initializerOptional().map(this::countStatementNodes).orElse(0);
+                count += forStmt.conditionOptional().map(this::countExpressionNodes).orElse(0);
+                count += forStmt.stepOptional().map(this::countExpressionNodes).orElse(0);
+                count += countStatementNodes(forStmt.body());
+            }
+            default -> {
+            }
+        }
+        return count;
+    }
+
+    private int countExpressionNodes(Expression expression) {
+        int count = 1;
+        switch (expression) {
+            case minic.compiler.ast.expr.AssignmentExpr assignmentExpr ->
+                    count += countExpressionNodes(assignmentExpr.target()) + countExpressionNodes(assignmentExpr.value());
+            case minic.compiler.ast.expr.BinaryExpr binaryExpr ->
+                    count += countExpressionNodes(binaryExpr.left()) + countExpressionNodes(binaryExpr.right());
+            case minic.compiler.ast.expr.CallExpr callExpr -> {
+                count += countExpressionNodes(callExpr.callee());
+                for (Expression argument : callExpr.arguments()) {
+                    count += countExpressionNodes(argument);
+                }
+            }
+            case minic.compiler.ast.expr.FieldAccessExpr fieldAccessExpr -> count += countExpressionNodes(fieldAccessExpr.target());
+            case minic.compiler.ast.expr.GroupingExpr groupingExpr -> count += countExpressionNodes(groupingExpr.expression());
+            case minic.compiler.ast.expr.IndexExpr indexExpr ->
+                    count += countExpressionNodes(indexExpr.target()) + countExpressionNodes(indexExpr.index());
+            case minic.compiler.ast.expr.UnaryExpr unaryExpr -> count += countExpressionNodes(unaryExpr.operand());
+            default -> {
             }
         }
         return count;
@@ -248,6 +322,7 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
     public static final class Work implements CompilerStageWork {
         private final ArrayList<IrFunction> functions = new ArrayList<>();
         private final LinkedHashSet<String> externalFunctionNames = new LinkedHashSet<>();
+        private final ArrayList<String> loweringLog = new ArrayList<>();
         private final StringLiteralRegistry stringLiteralRegistry = new StringLiteralRegistry();
         private final Map<String, IrFunctionSignature> functionSignatures;
 
@@ -295,6 +370,15 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
          */
         public List<String> externalFunctionNames() {
             return List.copyOf(externalFunctionNames);
+        }
+
+        /**
+         * 返回逐步 lowering 输出。
+         *
+         * @return lowering 输出
+         */
+        public List<String> loweringLog() {
+            return List.copyOf(loweringLog);
         }
     }
 

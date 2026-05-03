@@ -124,6 +124,7 @@ public final class IrStageStepper implements StageStepper {
 
     private List<String> irSummary() {
         ArrayList<String> summary = new ArrayList<>();
+        summary.addAll(irState.work().loweringLog());
         irState.work().externalFunctionNames().stream()
                 .map(name -> "extern " + name)
                 .forEach(summary::add);

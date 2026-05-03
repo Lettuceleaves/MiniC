@@ -25,6 +25,11 @@ public enum IrLoweringActionKind {
     LOWER_STATEMENT,
 
     /**
+     * 处理函数体 AST 节点。
+     */
+    LOWER_AST_NODE,
+
+    /**
      * 完成函数 IR。
      */
     COMPLETE_FUNCTION,
