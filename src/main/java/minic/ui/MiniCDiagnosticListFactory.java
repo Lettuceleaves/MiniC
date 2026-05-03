@@ -2,6 +2,7 @@ package minic.ui;
 
 import minic.uiapi.UiDiagnosticDto;
 import minic.uiapi.UiGlobalDataDto;
+import minic.uiapi.UiRealtimeAnalysisDto;
 import minic.uiapi.UiSourceRangeDto;
 import minic.uiapi.UiStageDataDto;
 
@@ -19,6 +20,25 @@ public final class MiniCDiagnosticListFactory {
      * @return 诊断项
      */
     public List<MiniCDiagnosticItem> create(UiStageDataDto stageData, UiGlobalDataDto globalData) {
+        return create(stageData, globalData, null);
+    }
+
+    /**
+     * 创建诊断项。
+     *
+     * @param stageData 当前阶段数据
+     * @param globalData 全局数据
+     * @param realtimeAnalysis 实时分析数据
+     * @return 诊断项
+     */
+    public List<MiniCDiagnosticItem> create(
+            UiStageDataDto stageData,
+            UiGlobalDataDto globalData,
+            UiRealtimeAnalysisDto realtimeAnalysis
+    ) {
+        if (realtimeAnalysis != null && !realtimeAnalysis.diagnostics().isEmpty()) {
+            return realtimeAnalysis.diagnostics().stream().map(this::from).toList();
+        }
         List<UiDiagnosticDto> diagnostics = globalData != null && !globalData.diagnostics().isEmpty()
                 ? globalData.diagnostics()
                 : stageData == null ? List.of() : stageData.diagnostics();

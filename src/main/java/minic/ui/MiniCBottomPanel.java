@@ -54,6 +54,7 @@ public final class MiniCBottomPanel extends VBox {
         refresh();
         viewModel.currentStageDataProperty().addListener((observable, oldValue, newValue) -> refresh());
         viewModel.globalDataProperty().addListener((observable, oldValue, newValue) -> refresh());
+        viewModel.realtimeAnalysisProperty().addListener((observable, oldValue, newValue) -> refresh());
     }
 
     /**
@@ -62,11 +63,13 @@ public final class MiniCBottomPanel extends VBox {
     public void refresh() {
         MiniCBottomPanelModel model = modelFactory.create(
                 viewModel.currentStageDataProperty().get(),
-                viewModel.globalDataProperty().get()
+                viewModel.globalDataProperty().get(),
+                viewModel.realtimeAnalysisProperty().get()
         );
         List<MiniCDiagnosticItem> diagnosticItems = diagnosticListFactory.create(
                 viewModel.currentStageDataProperty().get(),
-                viewModel.globalDataProperty().get()
+                viewModel.globalDataProperty().get(),
+                viewModel.realtimeAnalysisProperty().get()
         );
         problems.setText(diagnosticItems.isEmpty()
                 ? String.join("\n", model.problems())

@@ -10,6 +10,7 @@ import minic.uiapi.MiniCObservationApi;
 import minic.uiapi.UiControlResultDto;
 import minic.uiapi.UiCurrentStateDto;
 import minic.uiapi.UiGlobalDataDto;
+import minic.uiapi.UiRealtimeAnalysisDto;
 import minic.uiapi.UiStageDataDto;
 import minic.uiapi.UiStageVisualDto;
 
@@ -22,6 +23,7 @@ import java.util.Objects;
  */
 public final class MiniCWorkbenchViewModel {
     private final MiniCObservationApi api;
+    private final MiniCRealtimeAnalyzer realtimeAnalyzer;
     private final ReadOnlyStringWrapper sourceName = new ReadOnlyStringWrapper("");
     private final ReadOnlyStringWrapper sourceText = new ReadOnlyStringWrapper("");
     private final ReadOnlyStringWrapper lastOutcome = new ReadOnlyStringWrapper("");
@@ -33,6 +35,7 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiStageVisualDto> astVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageVisualDto> semanticVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiGlobalDataDto> globalData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiRealtimeAnalysisDto> realtimeAnalysis = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiControlResultDto> lastControlResult = new ReadOnlyObjectWrapper<>();
 
     /**
@@ -49,6 +52,7 @@ public final class MiniCWorkbenchViewModel {
      */
     MiniCWorkbenchViewModel(MiniCObservationApi api) {
         this.api = Objects.requireNonNull(api, "api");
+        realtimeAnalyzer = new MiniCRealtimeAnalyzer(this::applyRealtimeAnalysis);
     }
 
     /**
@@ -69,8 +73,22 @@ public final class MiniCWorkbenchViewModel {
         astVisualData.set(null);
         semanticVisualData.set(null);
         globalData.set(null);
+        realtimeAnalysis.set(null);
         lastControlResult.set(null);
         lastOutcome.set("");
+        submitRealtimeSource(name, source);
+    }
+
+    /**
+     * 提交实时编辑分析输入。
+     *
+     * @param name 源码名称
+     * @param source 源码文本
+     */
+    public void submitRealtimeSource(String name, String source) {
+        sourceName.set(name);
+        sourceText.set(source);
+        realtimeAnalyzer.submit(name, source);
     }
 
     /**
@@ -283,6 +301,15 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
+     * 实时分析结果属性。
+     *
+     * @return 实时分析结果属性
+     */
+    public ReadOnlyObjectProperty<UiRealtimeAnalysisDto> realtimeAnalysisProperty() {
+        return realtimeAnalysis.getReadOnlyProperty();
+    }
+
+    /**
      * 最近控制结果 DTO 属性。
      *
      * @return 最近控制结果 DTO 属性
@@ -294,5 +321,12 @@ public final class MiniCWorkbenchViewModel {
     private void applyControlResult(UiControlResultDto result) {
         lastControlResult.set(result);
         lastOutcome.set(result.outcome());
+    }
+
+    private void applyRealtimeAnalysis(UiRealtimeAnalysisDto result) {
+        if (Objects.equals(sourceName.get(), result.sourceName())
+                && Objects.equals(sourceText.get(), result.sourceText())) {
+            realtimeAnalysis.set(result);
+        }
     }
 }

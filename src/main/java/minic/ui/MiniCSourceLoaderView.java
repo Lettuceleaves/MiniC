@@ -36,9 +36,12 @@ public final class MiniCSourceLoaderView extends VBox {
         startButton.getStyleClass().add("control-primary");
         sampleSelector.setOnAction(event -> applySelectedSample());
         startButton.setOnAction(event -> startSession());
+        sourceEditor.textProperty().addListener((observable, oldValue, newValue) -> submitRealtimeSource());
+        viewModel.realtimeAnalysisProperty().addListener((observable, oldValue, newValue) -> highlightFirstDiagnostic());
         controls.getChildren().addAll(sampleSelector, startButton);
         getChildren().addAll(controls, sourceEditor);
         VBox.setVgrow(sourceEditor, Priority.ALWAYS);
+        submitRealtimeSource();
     }
 
     /**
@@ -58,5 +61,24 @@ public final class MiniCSourceLoaderView extends VBox {
                 .filter(sample -> sample.name().equals(selected))
                 .findFirst()
                 .ifPresent(sample -> sourceEditor.setText(sample.source()));
+    }
+
+    private void submitRealtimeSource() {
+        String name = sampleSelector.getValue() == null || sampleSelector.getValue().isBlank()
+                ? "main.mc"
+                : sampleSelector.getValue();
+        viewModel.submitRealtimeSource(name, sourceEditor.getText());
+    }
+
+    private void highlightFirstDiagnostic() {
+        if (viewModel.realtimeAnalysisProperty().get() == null
+                || viewModel.realtimeAnalysisProperty().get().diagnostics().isEmpty()
+                || !Objects.equals(viewModel.realtimeAnalysisProperty().get().sourceText(), sourceEditor.getText())) {
+            return;
+        }
+        var diagnostic = viewModel.realtimeAnalysisProperty().get().diagnostics().getFirst();
+        int start = Math.max(0, Math.min(diagnostic.startOffset(), sourceEditor.getLength()));
+        int end = Math.max(start, Math.min(diagnostic.endOffset(), sourceEditor.getLength()));
+        sourceEditor.selectRange(start, end);
     }
 }
