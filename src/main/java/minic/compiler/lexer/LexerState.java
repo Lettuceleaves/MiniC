@@ -97,7 +97,7 @@ public final class LexerState implements CompilerStageState<LexerState.Input, Le
                 case ' ', '\r', '\t', '\n' -> {
                     // 空白由 lexer 跳过，不产出 token。
                 }
-                case '+' -> addToken(TokenKind.PLUS, startOffset);
+                case '+' -> addToken(match('+') ? TokenKind.PLUS_PLUS : match('=') ? TokenKind.PLUS_EQUAL : TokenKind.PLUS, startOffset);
                 case '-' -> addToken(match('>') ? TokenKind.ARROW : TokenKind.MINUS, startOffset);
                 case '*' -> addToken(TokenKind.STAR, startOffset);
                 case '&' -> addToken(TokenKind.AMPERSAND, startOffset);

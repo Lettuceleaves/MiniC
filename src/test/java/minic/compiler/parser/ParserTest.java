@@ -111,10 +111,10 @@ class ParserTest {
                 """
                         int main() {
                           int total = 0;
-                          for (int i = 0; i < 5; i = i + 1) {
+                          for (int i = 0; i < 5; i++) {
                             if (i == 3) break;
                             else if (i == 1) continue;
-                            total = total + i;
+                            total += i;
                           }
                           while (total < 10) total = total + 1;
                           for (;;) return total;
@@ -135,13 +135,17 @@ class ParserTest {
                 assertThat(condition).isInstanceOf(BinaryExpr.class));
         assertThat(countedFor.stepOptional()).hasValueSatisfying(step ->
                 assertThat(step).isInstanceOf(AssignmentExpr.class));
+        AssignmentExpr increment = (AssignmentExpr) countedFor.stepOptional().orElseThrow();
+        assertThat(increment.value()).isInstanceOf(BinaryExpr.class);
 
         BlockStmt forBody = (BlockStmt) countedFor.body();
         IfStmt ifStmt = (IfStmt) forBody.statements().getFirst();
         IfStmt elseIf = (IfStmt) ifStmt.elseBranchOptional().orElseThrow();
         assertThat(ifStmt.thenBranch()).isInstanceOf(BreakStmt.class);
         assertThat(elseIf.thenBranch()).isInstanceOf(ContinueStmt.class);
-        assertThat(forBody.statements().get(1)).isInstanceOf(ExprStmt.class);
+        ExprStmt compoundAssignment = (ExprStmt) forBody.statements().get(1);
+        assertThat(compoundAssignment.expression()).isInstanceOf(AssignmentExpr.class);
+        assertThat(((AssignmentExpr) compoundAssignment.expression()).value()).isInstanceOf(BinaryExpr.class);
 
         WhileStmt whileStmt = (WhileStmt) body.statements().get(2);
         assertThat(whileStmt.condition()).isInstanceOf(BinaryExpr.class);

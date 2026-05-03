@@ -120,6 +120,25 @@ class LexerTest {
     }
 
     @Test
+    void lexesIncrementAndCompoundAssignmentOperators() {
+        SourceFile sourceFile = new SourceFile("operators.mc", "i++ a += i");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(
+                        TokenKind.IDENTIFIER,
+                        TokenKind.PLUS_PLUS,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.PLUS_EQUAL,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.EOF
+                );
+    }
+
+    @Test
     void reportsNumericLiteralOverflowInsteadOfThrowing() {
         SourceFile sourceFile = new SourceFile(
                 "overflow.mc",

@@ -135,6 +135,16 @@ public enum TokenKind {
     PLUS,
 
     /**
+     * {@code ++}。
+     */
+    PLUS_PLUS,
+
+    /**
+     * {@code +=}。
+     */
+    PLUS_EQUAL,
+
+    /**
      * {@code -}。
      */
     MINUS,

@@ -51,6 +51,29 @@ class MiniCompilerTest {
     }
 
     @Test
+    void compilesIncrementAndCompoundAssignmentSyntax() {
+        SourceFile sourceFile = new SourceFile("loop.mc", """
+                extern int printf(char *format, int value);
+
+                int main() {
+                    int a = 0;
+                    for (int i = 0; i < 100; i++) {
+                        a += i;
+                    }
+                    printf("value = %d\\n", a);
+                    return 42;
+                }
+                """);
+
+        CompileResult result = new MiniCompiler().compile(sourceFile);
+
+        assertThat(result.succeeded()).isTrue();
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.assemblySourceOptional()).hasValueSatisfying(assemblySource ->
+                assertThat(assemblySource.text()).contains("call printf", "main PROC"));
+    }
+
+    @Test
     void stopsBeforeIrAndAssemblyWhenSemanticDiagnosticsExist() {
         SourceFile sourceFile = new SourceFile("bad.mc", "int main() { return missing; }");
 

@@ -41,28 +41,38 @@ final class ExpressionParser {
 
     private Expression parseAssignment() {
         Expression expression = parseEquality();
-        if (!state.match(TokenKind.EQUAL)) {
-            return expression;
+        if (state.match(TokenKind.PLUS_EQUAL)) {
+            Token operatorToken = state.previous();
+            Expression value = parseAssignment();
+            if (isAssignmentTarget(expression) && value != null) {
+                BinaryExpr sum = new BinaryExpr(
+                        expression,
+                        TokenKind.PLUS,
+                        value,
+                        new SourceRange(
+                                expression.range().sourceFile(),
+                                expression.range().startOffset(),
+                                value.range().endOffset()
+                        )
+                );
+                state.build(sum, "BinaryExpr " + sum.operator(), sum.range());
+                return buildAssignment(expression, sum);
+            }
+            state.report(operatorToken, "复合赋值左侧必须是可赋值表达式");
+            return value;
+        }
+        if (state.match(TokenKind.EQUAL)) {
+            Token equalsToken = state.previous();
+            Expression value = parseAssignment();
+            if (isAssignmentTarget(expression) && value != null) {
+                return buildAssignment(expression, value);
+            }
+
+            state.report(equalsToken, "赋值左侧必须是标识符");
+            return value;
         }
 
-        Token equalsToken = state.previous();
-        Expression value = parseAssignment();
-        if (isAssignmentTarget(expression) && value != null) {
-            AssignmentExpr assignmentExpr = new AssignmentExpr(
-                    expression,
-                    value,
-                    new SourceRange(
-                            expression.range().sourceFile(),
-                            expression.range().startOffset(),
-                            value.range().endOffset()
-                    )
-            );
-            state.build(assignmentExpr, "AssignmentExpr", assignmentExpr.range());
-            return assignmentExpr;
-        }
-
-        state.report(equalsToken, "赋值左侧必须是标识符");
-        return value;
+        return expression;
     }
 
     private boolean isAssignmentTarget(Expression expression) {
@@ -171,6 +181,27 @@ final class ExpressionParser {
             }
             if (state.match(TokenKind.LEFT_PAREN)) {
                 expression = finishCall(expression);
+                continue;
+            }
+            if (state.match(TokenKind.PLUS_PLUS)) {
+                Token operatorToken = state.previous();
+                if (!isAssignmentTarget(expression)) {
+                    state.report(operatorToken, "自增操作数必须是可赋值表达式");
+                    continue;
+                }
+                IntegerLiteralExpr one = new IntegerLiteralExpr(1, "1", operatorToken.range());
+                BinaryExpr sum = new BinaryExpr(
+                        expression,
+                        TokenKind.PLUS,
+                        one,
+                        new SourceRange(
+                                expression.range().sourceFile(),
+                                expression.range().startOffset(),
+                                operatorToken.range().endOffset()
+                        )
+                );
+                state.build(sum, "BinaryExpr " + sum.operator(), sum.range());
+                expression = buildAssignment(expression, sum);
                 continue;
             }
             break;
@@ -353,5 +384,19 @@ final class ExpressionParser {
     private Expression traceBinary(BinaryExpr binaryExpr) {
         state.build(binaryExpr, "BinaryExpr " + binaryExpr.operator(), binaryExpr.range());
         return binaryExpr;
+    }
+
+    private AssignmentExpr buildAssignment(Expression target, Expression value) {
+        AssignmentExpr assignmentExpr = new AssignmentExpr(
+                target,
+                value,
+                new SourceRange(
+                        target.range().sourceFile(),
+                        target.range().startOffset(),
+                        value.range().endOffset()
+                )
+        );
+        state.build(assignmentExpr, "AssignmentExpr", assignmentExpr.range());
+        return assignmentExpr;
     }
 }
