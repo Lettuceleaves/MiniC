@@ -15,6 +15,7 @@ import java.util.Objects;
  */
 public final class MiniCWorkbenchShell {
     private final MiniCWorkbenchViewModel viewModel;
+    private final MiniCDiagnosticSelection diagnosticSelection = new MiniCDiagnosticSelection();
 
     /**
      * 创建工作台外壳。
@@ -120,7 +121,7 @@ public final class MiniCWorkbenchShell {
         HBox.setHgrow(visualPane, Priority.ALWAYS);
         split.getChildren().addAll(codePane, visualPane);
 
-        editor.getChildren().addAll(tabs, split, new MiniCBottomPanel(viewModel));
+        editor.getChildren().addAll(tabs, split, new MiniCBottomPanel(viewModel, diagnosticSelection));
         return editor;
     }
 
@@ -128,7 +129,7 @@ public final class MiniCWorkbenchShell {
         VBox sourceArea = new VBox();
         sourceArea.getStyleClass().add("source-area");
         MiniCSourceLoaderView loader = new MiniCSourceLoaderView(viewModel);
-        MiniCSourceView sourceView = new MiniCSourceView(viewModel);
+        MiniCSourceView sourceView = new MiniCSourceView(viewModel, diagnosticSelection);
         sourceArea.getChildren().addAll(loader, sourceView);
         VBox.setVgrow(sourceView, Priority.ALWAYS);
         return sourceArea;

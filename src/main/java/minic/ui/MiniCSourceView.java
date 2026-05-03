@@ -16,6 +16,7 @@ import java.util.Objects;
 public final class MiniCSourceView extends VBox {
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCSourceLineFactory lineFactory = new MiniCSourceLineFactory();
+    private final MiniCDiagnosticSelection diagnosticSelection;
     private final Label header = new Label("Source");
     private final GridPane lines = new GridPane();
 
@@ -25,7 +26,18 @@ public final class MiniCSourceView extends VBox {
      * @param viewModel UI 状态模型
      */
     public MiniCSourceView(MiniCWorkbenchViewModel viewModel) {
+        this(viewModel, null);
+    }
+
+    /**
+     * 创建源码视图。
+     *
+     * @param viewModel UI 状态模型
+     * @param diagnosticSelection diagnostic 选择状态；可为 {@code null}
+     */
+    public MiniCSourceView(MiniCWorkbenchViewModel viewModel, MiniCDiagnosticSelection diagnosticSelection) {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
+        this.diagnosticSelection = diagnosticSelection;
         getStyleClass().add("pane");
         header.getStyleClass().add("pane-head");
         lines.getStyleClass().add("code-lines");
@@ -34,6 +46,9 @@ public final class MiniCSourceView extends VBox {
         refresh();
         viewModel.sourceTextProperty().addListener((observable, oldValue, newValue) -> refresh());
         viewModel.currentStateProperty().addListener((observable, oldValue, newValue) -> refresh());
+        if (diagnosticSelection != null) {
+            diagnosticSelection.selectedRangeProperty().addListener((observable, oldValue, newValue) -> refresh());
+        }
     }
 
     /**
@@ -41,7 +56,8 @@ public final class MiniCSourceView extends VBox {
      */
     public void refresh() {
         UiCurrentStateDto state = viewModel.currentStateProperty().get();
-        UiSourceRangeDto range = state == null ? null : state.sourceRange();
+        UiSourceRangeDto selectedRange = diagnosticSelection == null ? null : diagnosticSelection.selectedRangeProperty().get();
+        UiSourceRangeDto range = selectedRange != null ? selectedRange : state == null ? null : state.sourceRange();
         header.setText(headerText(range));
         List<MiniCSourceLine> sourceLines = lineFactory.create(viewModel.sourceTextProperty().get(), range);
         lines.getChildren().clear();
