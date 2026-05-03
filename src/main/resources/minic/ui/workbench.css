@@ -35,6 +35,8 @@
 
 .activity-bar {
     -fx-pref-width: 48px;
+    -fx-min-width: 48px;
+    -fx-max-width: 48px;
     -fx-padding: 9px 0 0 0;
     -fx-background-color: #333333;
 }
@@ -58,14 +60,18 @@
 }
 
 .sidebar {
+    -fx-min-width: 260px;
     -fx-pref-width: 260px;
+    -fx-max-width: 260px;
     -fx-background-color: #252526;
     -fx-border-color: #1b1b1b;
     -fx-border-width: 0 1px 0 0;
 }
 
 .inspector {
+    -fx-min-width: 360px;
     -fx-pref-width: 360px;
+    -fx-max-width: 360px;
     -fx-background-color: #252526;
     -fx-border-color: #1b1b1b;
     -fx-border-width: 0 0 0 1px;
@@ -136,6 +142,11 @@
 .split,
 .pane {
     -fx-background-color: #1e1e1e;
+}
+
+.split .split-pane-divider {
+    -fx-padding: 0 2px;
+    -fx-background-color: #333333;
 }
 
 .tabs {
@@ -241,7 +252,122 @@
     -fx-fit-to-width: true;
 }
 
+.stage-flow {
+    -fx-min-width: 0;
+    -fx-background-color: #1e1e1e;
+}
+
+.stage-flow-column {
+    -fx-min-width: 0;
+    -fx-background-color: #1b1b1b;
+    -fx-border-color: #333333;
+    -fx-border-width: 1px;
+}
+
+.stage-flow .split-pane-divider {
+    -fx-padding: 0 2px;
+    -fx-background-color: #333333;
+}
+
+.stage-flow-title {
+    -fx-min-height: 28px;
+    -fx-padding: 0 10px;
+    -fx-alignment: center-left;
+    -fx-text-fill: #cccccc;
+    -fx-background-color: #252526;
+    -fx-border-color: #333333;
+    -fx-border-width: 0 0 1px 0;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.stage-flow-body {
+    -fx-padding: 10px;
+    -fx-background-color: #1e1e1e;
+}
+
+.stage-flow-scroll {
+    -fx-background-color: #1e1e1e;
+    -fx-background: #1e1e1e;
+    -fx-fit-to-width: false;
+}
+
+.asm-input-stack {
+    -fx-background-color: #1e1e1e;
+}
+
+.ast-zoom-box {
+    -fx-background-color: #1e1e1e;
+}
+
+.ast-zoom-controls {
+    -fx-min-height: 30px;
+    -fx-alignment: center-left;
+    -fx-padding: 0 4px 6px 4px;
+}
+
+.ast-zoom-label,
+.ast-zoom-value {
+    -fx-text-fill: #9d9d9d;
+    -fx-font-size: 11px;
+}
+
+.ast-zoom-slider {
+    -fx-pref-width: 150px;
+}
+
+.source-flow-line {
+    -fx-min-height: 21px;
+    -fx-padding: 0 8px 0 0;
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.token-row {
+    -fx-min-height: 24px;
+    -fx-alignment: center-left;
+}
+
+.token-kind {
+    -fx-min-width: 132px;
+    -fx-padding: 2px 7px;
+    -fx-text-fill: #9cdcfe;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-background-color: #252526;
+    -fx-border-color: #333333;
+    -fx-border-width: 1px;
+}
+
+.token-text {
+    -fx-min-width: 132px;
+    -fx-padding: 2px 7px;
+    -fx-text-fill: #ce9178;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.token-range {
+    -fx-min-width: 54px;
+    -fx-padding: 2px 0;
+    -fx-text-fill: #858585;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.token-kind.active,
+.token-text.active,
+.token-range.active {
+    -fx-background-color: #25364a;
+    -fx-text-fill: #ffffff;
+}
+
 .ast-graph {
+    -fx-background-color: #1e1e1e;
+}
+
+.ast-graph-viewport {
     -fx-background-color: #1e1e1e;
 }
 

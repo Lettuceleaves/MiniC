@@ -163,6 +163,82 @@ public final class MiniCObservationApi {
     }
 
     /**
+     * 查询 Lexer 阶段 token 可视化数据。未进入或未完成 Lexer 时返回当前 Lexer 状态。
+     *
+     * @return token 可视化数据
+     */
+    public UiStageVisualDto lexerVisualData() {
+        CompileObservationSession currentSession = requireSession();
+        minic.compiler.lexer.LexResult cachedLexResult = currentSession.lexResult().orElse(null);
+        if (cachedLexResult != null) {
+            return UiStageVisualDto.fromLexerTokens(
+                    currentSession.currentStageData(),
+                    cachedLexResult.tokens(),
+                    null
+            );
+        }
+        if (currentSession.currentStepper() instanceof minic.runtime.step.LexerStageStepper lexerStepper) {
+            return UiStageVisualDto.fromLexerTokens(
+                    currentSession.currentStageData(),
+                    lexerStepper.lexerState().tokens(),
+                    lexerStepper.lexerState().currentToken().orElse(null)
+            );
+        }
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+    }
+
+    /**
+     * 查询完整 AST 可视化数据。Parser 尚未准备时返回当前阶段 fallback。
+     *
+     * @return AST 可视化数据
+     */
+    public UiStageVisualDto astVisualData() {
+        CompileObservationSession currentSession = requireSession();
+        minic.compiler.parser.ParseResult cachedParseResult = currentSession.parseResult().orElse(null);
+        if (cachedParseResult != null) {
+            return UiStageVisualDto.fromAst(
+                    currentSession.currentStageData(),
+                    cachedParseResult.program(),
+                    null
+            );
+        }
+        if (currentSession.currentStepper() instanceof minic.runtime.step.ParserStageStepper parserStepper) {
+            return UiStageVisualDto.fromAst(
+                    currentSession.currentStageData(),
+                    parserStepper.previewProgram(),
+                    parserStepper.currentObservationNode().orElse(null),
+                    parserStepper.revealedAstNodes()
+            );
+        }
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+    }
+
+    /**
+     * 查询当前可用的作用域树可视化数据。Semantic 尚未准备时返回当前阶段 fallback。
+     *
+     * @return 作用域可视化数据
+     */
+    public UiStageVisualDto semanticVisualData() {
+        CompileObservationSession currentSession = requireSession();
+        minic.compiler.semantic.SemanticResult cachedSemanticResult = currentSession.semanticResult().orElse(null);
+        if (cachedSemanticResult != null) {
+            return UiStageVisualDto.fromSemanticScope(
+                    currentSession.currentStageData(),
+                    cachedSemanticResult.globalScope(),
+                    null
+            );
+        }
+        if (currentSession.currentStepper() instanceof minic.runtime.step.SemanticStageStepper semanticStepper) {
+            return UiStageVisualDto.fromSemanticScope(
+                    currentSession.currentStageData(),
+                    semanticStepper.semanticState().work().globalScope(),
+                    semanticStepper.semanticState().currentAction().orElse(null)
+            );
+        }
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+    }
+
+    /**
      * 查询全局数据。
      *
      * @return 全局数据

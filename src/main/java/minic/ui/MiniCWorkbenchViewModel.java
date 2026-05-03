@@ -29,6 +29,9 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiCurrentStateDto> currentState = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageDataDto> currentStageData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageVisualDto> currentStageVisualData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> lexerVisualData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> astVisualData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> semanticVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiGlobalDataDto> globalData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiControlResultDto> lastControlResult = new ReadOnlyObjectWrapper<>();
 
@@ -62,6 +65,9 @@ public final class MiniCWorkbenchViewModel {
         currentState.set(null);
         currentStageData.set(null);
         currentStageVisualData.set(null);
+        lexerVisualData.set(null);
+        astVisualData.set(null);
+        semanticVisualData.set(null);
         globalData.set(null);
         lastControlResult.set(null);
         lastOutcome.set("");
@@ -146,6 +152,9 @@ public final class MiniCWorkbenchViewModel {
         currentState.set(api.currentState());
         currentStageData.set(api.currentStageData());
         currentStageVisualData.set(api.currentStageVisualData());
+        lexerVisualData.set(api.lexerVisualData());
+        astVisualData.set(api.astVisualData());
+        semanticVisualData.set(api.semanticVisualData());
         globalData.set(api.globalData());
     }
 
@@ -210,6 +219,33 @@ public final class MiniCWorkbenchViewModel {
      */
     public ReadOnlyObjectProperty<UiStageVisualDto> currentStageVisualDataProperty() {
         return currentStageVisualData.getReadOnlyProperty();
+    }
+
+    /**
+     * Lexer token 图形化 DTO 属性。
+     *
+     * @return token 图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> lexerVisualDataProperty() {
+        return lexerVisualData.getReadOnlyProperty();
+    }
+
+    /**
+     * AST 图形化 DTO 属性。
+     *
+     * @return AST 图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> astVisualDataProperty() {
+        return astVisualData.getReadOnlyProperty();
+    }
+
+    /**
+     * Semantic scope 图形化 DTO 属性。
+     *
+     * @return semantic scope 图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> semanticVisualDataProperty() {
+        return semanticVisualData.getReadOnlyProperty();
     }
 
     /**

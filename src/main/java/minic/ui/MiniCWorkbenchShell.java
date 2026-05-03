@@ -2,6 +2,8 @@ package minic.ui;
 
 import javafx.scene.Parent;
 import javafx.scene.control.Label;
+import javafx.scene.control.SplitPane;
+import javafx.geometry.Orientation;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -14,6 +16,9 @@ import java.util.Objects;
  * MiniC Visual Workbench 的 VS Code 风格外壳。
  */
 public final class MiniCWorkbenchShell {
+    private static final double ACTIVITY_BAR_WIDTH = 48;
+    private static final double SIDEBAR_WIDTH = 260;
+    private static final double INSPECTOR_WIDTH = 360;
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCDiagnosticSelection diagnosticSelection = new MiniCDiagnosticSelection();
 
@@ -65,6 +70,7 @@ public final class MiniCWorkbenchShell {
     private VBox activityBar() {
         VBox activityBar = new VBox(6);
         activityBar.getStyleClass().add("activity-bar");
+        lockWidth(activityBar, ACTIVITY_BAR_WIDTH);
         activityBar.getChildren().addAll(
                 activityItem("▣", true),
                 activityItem("⌕", false),
@@ -90,6 +96,10 @@ public final class MiniCWorkbenchShell {
         VBox sidebar = sidebar();
         VBox editor = editorArea();
         VBox inspector = new MiniCInspectorView(viewModel);
+        lockWidth(sidebar, SIDEBAR_WIDTH);
+        lockWidth(inspector, INSPECTOR_WIDTH);
+        editor.setMinWidth(0);
+        editor.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(editor, Priority.ALWAYS);
         body.getChildren().addAll(sidebar, editor, inspector);
         return body;
@@ -102,6 +112,8 @@ public final class MiniCWorkbenchShell {
     private VBox editorArea() {
         VBox editor = new VBox();
         editor.getStyleClass().add("editor-area");
+        editor.setMinWidth(0);
+        editor.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(editor, Priority.ALWAYS);
 
         HBox tabs = new HBox();
@@ -112,14 +124,18 @@ public final class MiniCWorkbenchShell {
         visualTab.getStyleClass().add("tab");
         tabs.getChildren().addAll(sourceTab, visualTab);
 
-        HBox split = new HBox();
+        SplitPane split = new SplitPane();
+        split.setOrientation(Orientation.HORIZONTAL);
         split.getStyleClass().add("split");
+        split.setMinWidth(0);
+        split.setMaxWidth(Double.MAX_VALUE);
         VBox.setVgrow(split, Priority.ALWAYS);
         VBox codePane = sourceArea();
         VBox visualPane = new MiniCVisualPane(viewModel);
-        HBox.setHgrow(codePane, Priority.ALWAYS);
-        HBox.setHgrow(visualPane, Priority.ALWAYS);
-        split.getChildren().addAll(codePane, visualPane);
+        codePane.setMinWidth(0);
+        visualPane.setMinWidth(0);
+        split.getItems().addAll(codePane, visualPane);
+        split.setDividerPositions(0.48);
 
         editor.getChildren().addAll(tabs, split, new MiniCBottomPanel(viewModel, diagnosticSelection));
         return editor;
@@ -144,6 +160,12 @@ public final class MiniCWorkbenchShell {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         status.getChildren().addAll(left, spacer, right);
         return status;
+    }
+
+    private void lockWidth(Region region, double width) {
+        region.setMinWidth(width);
+        region.setPrefWidth(width);
+        region.setMaxWidth(width);
     }
 
 }

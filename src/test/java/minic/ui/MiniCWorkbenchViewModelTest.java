@@ -22,6 +22,9 @@ class MiniCWorkbenchViewModelTest {
         assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("lexer");
         assertThat(viewModel.currentStageDataProperty().get().stage()).isEqualTo("lexer");
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.lexerVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.astVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.semanticVisualDataProperty().get().visualType()).isEqualTo("lexer");
         assertThat(viewModel.globalDataProperty().get().source()).contains("return 0");
     }
 
@@ -87,16 +90,19 @@ class MiniCWorkbenchViewModelTest {
         advanceToStage(viewModel, "parser");
         viewModel.next();
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("ast");
+        assertThat(viewModel.lexerVisualDataProperty().get().lexerTokens()).isNotEmpty();
         assertThat(new MiniCAstTreeModelFactory().create(viewModel.currentStageVisualDataProperty().get())).isNotEmpty();
 
         advanceToStage(viewModel, "semantic");
         viewModel.next();
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("semantic-scope");
+        assertThat(viewModel.astVisualDataProperty().get().astRoot()).isNotNull();
         assertThat(new MiniCSemanticScopeTreeModelFactory().create(viewModel.currentStageVisualDataProperty().get())).isNotEmpty();
 
         advanceToStage(viewModel, "codegen");
         viewModel.next();
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("assembly");
+        assertThat(viewModel.semanticVisualDataProperty().get().semanticRoot()).isNotNull();
         assertThat(new MiniCAssemblyTextModelFactory().create(viewModel.currentStageVisualDataProperty().get())).isNotEmpty();
     }
 
