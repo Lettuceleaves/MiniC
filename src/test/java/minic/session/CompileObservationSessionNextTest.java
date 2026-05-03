@@ -68,7 +68,7 @@ class CompileObservationSessionNextTest {
 
         assertThat(semanticJump.outcome()).isEqualTo(StepOutcome.FAILED);
         assertThat(session.currentStage()).isEqualTo(CompileStage.SEMANTIC);
-        assertThat(session.semanticResult()).isPresent();
+        assertThat(session.semanticResult()).isEmpty();
         assertThat(session.irModule()).isEmpty();
         assertThat(session.globalData().diagnostics())
                 .extracting(diagnostic -> diagnostic.message())

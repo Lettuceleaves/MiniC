@@ -35,6 +35,16 @@ public enum SemanticActionKind {
     ANALYZE_FUNCTION_BODY,
 
     /**
+     * 分析函数体语句。
+     */
+    ANALYZE_STATEMENT,
+
+    /**
+     * 校验函数返回路径。
+     */
+    VALIDATE_FUNCTION_RETURN,
+
+    /**
      * 报告 diagnostic。
      */
     REPORT_DIAGNOSTIC

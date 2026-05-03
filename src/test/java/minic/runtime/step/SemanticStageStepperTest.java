@@ -29,7 +29,7 @@ class SemanticStageStepperTest {
         assertThat(stepper.snapshot().sourceRangeOptional()).isPresent();
         assertThat(stepper.snapshot().canPrevious()).isFalse();
         assertThat(stepper.data().inputSummary()).contains("structs=1", "functions=2", "bodyFunctions=2");
-        assertThat(stepper.data().currentItem()).contains("ANALYZE_FUNCTION_BODY main");
+        assertThat(stepper.data().currentItem()).contains("VALIDATE_FUNCTION_RETURN main");
         assertThat(stepper.data().accumulatedOutput()).contains(
                 "symbol Point STRUCT",
                 "symbol add FUNCTION",
@@ -48,15 +48,17 @@ class SemanticStageStepperTest {
                 }
                 """));
 
-        StepResult last = null;
+        StepResult diagnosticResult = null;
         while (stepper.canNext()) {
-            last = stepper.next();
+            StepResult result = stepper.next();
+            if (result.outcome() == StepOutcome.FAILED) {
+                diagnosticResult = result;
+            }
         }
 
-        assertThat(last).isNotNull();
-        assertThat(last.outcome()).isEqualTo(StepOutcome.FAILED);
-        assertThat(last.description()).contains("REPORT_DIAGNOSTIC");
-        assertThat(last.diagnostics()).hasSize(1);
+        assertThat(diagnosticResult).isNotNull();
+        assertThat(diagnosticResult.description()).contains("REPORT_DIAGNOSTIC");
+        assertThat(diagnosticResult.diagnostics()).hasSize(1);
         assertThat(stepper.snapshot().sourceRangeOptional()).isPresent();
         assertThat(stepper.data().diagnostics())
                 .extracting(diagnostic -> diagnostic.code())

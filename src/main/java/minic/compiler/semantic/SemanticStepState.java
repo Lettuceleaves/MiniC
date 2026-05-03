@@ -3,6 +3,7 @@ package minic.compiler.semantic;
 import minic.compiler.ast.decl.FunctionDecl;
 import minic.compiler.ast.decl.Program;
 import minic.compiler.ast.expr.Expression;
+import minic.compiler.ast.stmt.Statement;
 import minic.compiler.stage.CompilerStageInput;
 import minic.compiler.stage.CompilerStageOutput;
 import minic.compiler.stage.CompilerStageResult;
@@ -28,6 +29,7 @@ import java.util.Optional;
 public final class SemanticStepState implements CompilerStageState<SemanticStepState.Input, SemanticStepState.Work, SemanticStepState.Output> {
     private final Input input;
     private final Work work;
+    private final List<PlannedAction> plannedActions;
     private SemanticAction currentAction;
     private int nextActionIndex;
 
@@ -51,6 +53,7 @@ public final class SemanticStepState implements CompilerStageState<SemanticStepS
                 expressionTypes
         );
         work = new Work(reporter, globalScope, expressionTypes, structRegistry, functionRegistry, statementAnalyzer);
+        plannedActions = planActions(program);
     }
 
     @Override
@@ -153,7 +156,8 @@ public final class SemanticStepState implements CompilerStageState<SemanticStepS
     }
 
     private SemanticAction executeAction(int actionIndex) {
-        return switch (actionIndex) {
+        if (actionIndex < 5) {
+            return switch (actionIndex) {
             case 0 -> {
                 work.structRegistry.defineStructs(input.program);
                 yield SemanticAction.of(SemanticActionKind.REGISTER_STRUCTS, "structs=" + input.program.structs().size());
@@ -176,27 +180,52 @@ public final class SemanticStepState implements CompilerStageState<SemanticStepS
                 work.functionRegistry.validateMain(input.program);
                 yield SemanticAction.of(SemanticActionKind.VALIDATE_MAIN, "main");
             }
-            default -> analyzeFunctionAction(actionIndex - 5);
+            default -> throw new IllegalArgumentException("unsupported semantic action: " + actionIndex);
+            };
+        }
+        return executePlannedAction(plannedActions.get(actionIndex - 5));
+    }
+
+    private SemanticAction executePlannedAction(PlannedAction action) {
+        return switch (action.kind()) {
+            case ANALYZE_FUNCTION_BODY -> {
+                work.statementAnalyzer.beginFunction(action.functionDecl());
+                yield SemanticAction.of(SemanticActionKind.ANALYZE_FUNCTION_BODY, action.functionDecl().name());
+            }
+            case ANALYZE_STATEMENT -> {
+                work.statementAnalyzer.analyzeCurrentFunctionTopLevelStatement(action.statement());
+                yield SemanticAction.of(SemanticActionKind.ANALYZE_STATEMENT, statementSubject(action));
+            }
+            case VALIDATE_FUNCTION_RETURN -> {
+                try {
+                    work.statementAnalyzer.validateCurrentFunctionReturn();
+                    yield SemanticAction.of(SemanticActionKind.VALIDATE_FUNCTION_RETURN, action.functionDecl().name());
+                } finally {
+                    work.statementAnalyzer.endFunction();
+                }
+            }
+            default -> throw new IllegalArgumentException("unsupported planned action: " + action.kind());
         };
     }
 
-    private SemanticAction analyzeFunctionAction(int bodyIndex) {
-        FunctionDecl functionDecl = bodyFunctions().get(bodyIndex);
-        work.statementAnalyzer.analyzeFunction(functionDecl);
-        return SemanticAction.of(SemanticActionKind.ANALYZE_FUNCTION_BODY, functionDecl.name());
-    }
-
     private int plannedActionCount() {
-        return 5 + bodyFunctions().size();
+        return 5 + plannedActions.size();
     }
 
-    private List<FunctionDecl> bodyFunctions() {
-        if (work.bodyFunctions == null) {
-            work.bodyFunctions = input.program.functions().stream()
-                    .filter(FunctionDecl::hasBody)
-                    .toList();
+    private List<PlannedAction> planActions(Program program) {
+        ArrayList<PlannedAction> actions = new ArrayList<>();
+        for (FunctionDecl functionDecl : program.functions().stream().filter(FunctionDecl::hasBody).toList()) {
+            actions.add(PlannedAction.function(functionDecl));
+            functionDecl.bodyOptional().orElseThrow().statements().stream()
+                    .map(statement -> PlannedAction.statement(functionDecl, statement))
+                    .forEach(actions::add);
+            actions.add(PlannedAction.returnCheck(functionDecl));
         }
-        return work.bodyFunctions;
+        return List.copyOf(actions);
+    }
+
+    private String statementSubject(PlannedAction action) {
+        return action.functionDecl().name() + " " + action.statement().getClass().getSimpleName();
     }
 
     /**
@@ -226,7 +255,6 @@ public final class SemanticStepState implements CompilerStageState<SemanticStepS
         private final FunctionRegistry functionRegistry;
         private final StatementSemanticAnalyzer statementAnalyzer;
         private Map<String, StructLayout> structLayouts = Map.of();
-        private List<FunctionDecl> bodyFunctions;
 
         private Work(
                 SemanticReporter reporter,
@@ -260,6 +288,29 @@ public final class SemanticStepState implements CompilerStageState<SemanticStepS
          */
         public int expressionTypeCount() {
             return expressionTypes.size();
+        }
+    }
+
+    private record PlannedAction(SemanticActionKind kind, FunctionDecl functionDecl, Statement statement) {
+        private PlannedAction {
+            Objects.requireNonNull(kind, "kind");
+            Objects.requireNonNull(functionDecl, "functionDecl");
+        }
+
+        static PlannedAction function(FunctionDecl functionDecl) {
+            return new PlannedAction(SemanticActionKind.ANALYZE_FUNCTION_BODY, functionDecl, null);
+        }
+
+        static PlannedAction statement(FunctionDecl functionDecl, Statement statement) {
+            return new PlannedAction(
+                    SemanticActionKind.ANALYZE_STATEMENT,
+                    functionDecl,
+                    Objects.requireNonNull(statement, "statement")
+            );
+        }
+
+        static PlannedAction returnCheck(FunctionDecl functionDecl) {
+            return new PlannedAction(SemanticActionKind.VALIDATE_FUNCTION_RETURN, functionDecl, null);
         }
     }
 
