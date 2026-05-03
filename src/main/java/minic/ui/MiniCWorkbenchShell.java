@@ -145,9 +145,8 @@ public final class MiniCWorkbenchShell {
         VBox sourceArea = new VBox();
         sourceArea.getStyleClass().add("source-area");
         MiniCSourceLoaderView loader = new MiniCSourceLoaderView(viewModel);
-        MiniCSourceView sourceView = new MiniCSourceView(viewModel, diagnosticSelection);
-        sourceArea.getChildren().addAll(loader, sourceView);
-        VBox.setVgrow(sourceView, Priority.ALWAYS);
+        sourceArea.getChildren().add(loader);
+        VBox.setVgrow(loader, Priority.ALWAYS);
         return sourceArea;
     }
 

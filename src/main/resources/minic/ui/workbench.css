@@ -212,7 +212,7 @@
 }
 
 .source-editor {
-    -fx-pref-height: 120px;
+    -fx-pref-height: 10000px;
     -fx-font-family: Consolas, "Courier New", monospace;
     -fx-font-size: 12px;
 }
