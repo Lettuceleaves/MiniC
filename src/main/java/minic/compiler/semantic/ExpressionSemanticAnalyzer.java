@@ -22,13 +22,16 @@ import minic.compiler.lexer.TokenKind;
 import minic.source.SourceRange;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Map;
+import java.util.Set;
 
 final class ExpressionSemanticAnalyzer {
     private final FunctionRegistry functionRegistry;
     private final StructRegistry structRegistry;
     private final SemanticReporter reporter;
     private final Map<Expression, MiniType> expressionTypes;
+    private Set<String> currentParameterNames = Set.of();
 
     ExpressionSemanticAnalyzer(
             FunctionRegistry functionRegistry,
@@ -40,6 +43,10 @@ final class ExpressionSemanticAnalyzer {
         this.structRegistry = structRegistry;
         this.reporter = reporter;
         this.expressionTypes = expressionTypes;
+    }
+
+    void setCurrentParameterNames(Collection<String> parameterNames) {
+        currentParameterNames = Set.copyOf(parameterNames);
     }
 
     MiniType analyzeExpression(Expression expression, Scope scope) {
@@ -54,8 +61,21 @@ final class ExpressionSemanticAnalyzer {
             case StringLiteralExpr ignored -> MiniType.INT.pointerTo();
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case AssignmentExpr assignmentExpr -> {
+                if (assignmentExpr.target() instanceof NameExpr nameExpr) {
+                    scope.resolve(nameExpr.name()).ifPresent(symbol -> {
+                        if (symbol.kind() == SymbolKind.FUNCTION) {
+                            reporter.report(assignmentExpr.range(), "赋值左侧不能是函数名");
+                        }
+                        if (symbol.type().isArray()) {
+                            reporter.report(assignmentExpr.range(), "数组不能整体赋值");
+                        }
+                    });
+                }
                 MiniType targetType = analyzeAssignmentTarget(assignmentExpr.target(), scope, assignmentExpr.range());
                 MiniType valueType = analyzeExpression(assignmentExpr.value(), scope);
+                if (targetType.isArray()) {
+                    reporter.report(assignmentExpr.range(), "数组不能整体赋值");
+                }
                 if (targetType.isStruct() || valueType.isStruct()) {
                     reporter.report(assignmentExpr.range(), "暂不支持结构体整体赋值");
                 }
@@ -96,7 +116,11 @@ final class ExpressionSemanticAnalyzer {
     private MiniType analyzeUnary(UnaryExpr unaryExpr, Scope scope) {
         MiniType operandType = analyzeExpression(unaryExpr.operand(), scope);
         if (unaryExpr.operator() == TokenKind.AMPERSAND) {
-            if (!(unaryExpr.operand() instanceof NameExpr)) {
+            if (unaryExpr.operand() instanceof NameExpr nameExpr) {
+                if (currentParameterNames.contains(nameExpr.name())) {
+                    reporter.report(unaryExpr.range(), "暂不支持对参数取址：" + nameExpr.name());
+                }
+            } else {
                 reporter.report(unaryExpr.range(), "取址操作数必须是变量");
             }
             return operandType.pointerTo();
@@ -127,7 +151,10 @@ final class ExpressionSemanticAnalyzer {
 
     private MiniType analyzeIndex(IndexExpr indexExpr, Scope scope) {
         MiniType targetType = analyzeExpression(indexExpr.target(), scope);
-        analyzeExpression(indexExpr.index(), scope);
+        MiniType indexType = analyzeExpression(indexExpr.index(), scope);
+        if (!TypeCompatibility.isIndexCompatible(indexType)) {
+            reporter.report(indexExpr.index().range(), "数组下标必须是整数类型");
+        }
         if (targetType.isArray()) {
             return targetType.elementType();
         }

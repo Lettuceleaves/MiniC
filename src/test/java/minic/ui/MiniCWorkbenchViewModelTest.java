@@ -62,6 +62,38 @@ class MiniCWorkbenchViewModelTest {
     }
 
     @Test
+    void nextStageControlMovesToFollowingPipelineStage() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("next-stage-view.mc", "int main() { return 0; }");
+        viewModel.startSession();
+
+        UiControlResultDto result = viewModel.nextStage();
+
+        assertThat(result.outcome()).isEqualTo("ADVANCED");
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("parser");
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("ast");
+        assertThat(viewModel.lexerVisualDataProperty().get().lexerTokens()).isNotEmpty();
+    }
+
+    @Test
+    void repeatedNextStageControlMovesAcrossAllPreparedStages() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("next-stage-repeat-view.mc", "int main() { return 0; }");
+        viewModel.startSession();
+
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("parser");
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("semantic");
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("ir");
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("codegen");
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("toolchain");
+    }
+
+    @Test
     void publicApiExposesOnlyUiLayerAndJavaFxTypes() {
         assertThat(MiniCWorkbenchViewModel.class.getMethods())
                 .filteredOn(method -> method.getDeclaringClass() == MiniCWorkbenchViewModel.class)

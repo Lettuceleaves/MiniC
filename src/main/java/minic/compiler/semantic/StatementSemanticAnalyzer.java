@@ -42,14 +42,24 @@ final class StatementSemanticAnalyzer {
     void analyzeFunction(FunctionDecl functionDecl) {
         FunctionDecl previousFunction = currentFunction;
         currentFunction = functionDecl;
+        expressionAnalyzer.setCurrentParameterNames(functionDecl.parameters().stream()
+                .map(Parameter::name)
+                .toList());
         Scope functionScope = new Scope(globalScope);
         try {
             for (Parameter parameter : functionDecl.parameters()) {
                 defineVariable(functionScope, parameter.name(), parameter.range(), parameter.type());
             }
-            analyzeBlock(functionDecl.bodyOptional().orElseThrow(), functionScope, false);
+            BlockStmt body = functionDecl.bodyOptional().orElseThrow();
+            analyzeBlock(body, functionScope, false);
+            if (!alwaysReturns(body)) {
+                reporter.report(functionDecl.range(), "函数必须在所有路径返回值：" + functionDecl.name());
+            }
         } finally {
             currentFunction = previousFunction;
+            expressionAnalyzer.setCurrentParameterNames(previousFunction == null
+                    ? java.util.List.of()
+                    : previousFunction.parameters().stream().map(Parameter::name).toList());
         }
     }
 
@@ -108,12 +118,12 @@ final class StatementSemanticAnalyzer {
                 }
             }
             case IfStmt ifStmt -> {
-                expressionAnalyzer.analyzeExpression(ifStmt.condition(), scope);
+                analyzeCondition(ifStmt.condition(), scope);
                 analyzeBranch(ifStmt.thenBranch(), scope);
                 ifStmt.elseBranchOptional().ifPresent(elseBranch -> analyzeBranch(elseBranch, scope));
             }
             case WhileStmt whileStmt -> {
-                expressionAnalyzer.analyzeExpression(whileStmt.condition(), scope);
+                analyzeCondition(whileStmt.condition(), scope);
                 analyzeLoopBranch(whileStmt.body(), scope);
             }
             case ForStmt forStmt -> analyzeFor(forStmt, scope);
@@ -125,9 +135,16 @@ final class StatementSemanticAnalyzer {
     private void analyzeFor(ForStmt forStmt, Scope parentScope) {
         Scope scope = new Scope(parentScope);
         forStmt.initializerOptional().ifPresent(initializer -> analyzeStatement(initializer, scope));
-        forStmt.conditionOptional().ifPresent(condition -> expressionAnalyzer.analyzeExpression(condition, scope));
+        forStmt.conditionOptional().ifPresent(condition -> analyzeCondition(condition, scope));
         forStmt.stepOptional().ifPresent(step -> expressionAnalyzer.analyzeExpression(step, scope));
         analyzeLoopBranch(forStmt.body(), scope);
+    }
+
+    private void analyzeCondition(Expression condition, Scope scope) {
+        MiniType conditionType = expressionAnalyzer.analyzeExpression(condition, scope);
+        if (!TypeCompatibility.isConditionCompatible(conditionType)) {
+            reporter.report(condition.range(), "条件表达式必须是标量或指针类型");
+        }
     }
 
     private void analyzeLoopBranch(Statement statement, Scope parentScope) {
@@ -156,5 +173,20 @@ final class StatementSemanticAnalyzer {
 
     private boolean isInitializerCompatible(MiniType targetType, MiniType initializerType) {
         return TypeCompatibility.isAssignmentCompatible(targetType, initializerType);
+    }
+
+    private boolean alwaysReturns(Statement statement) {
+        if (statement instanceof ReturnStmt) {
+            return true;
+        }
+        if (statement instanceof BlockStmt blockStmt) {
+            return blockStmt.statements().stream().anyMatch(this::alwaysReturns);
+        }
+        if (statement instanceof IfStmt ifStmt) {
+            return ifStmt.elseBranchOptional()
+                    .map(elseBranch -> alwaysReturns(ifStmt.thenBranch()) && alwaysReturns(elseBranch))
+                    .orElse(false);
+        }
+        return false;
     }
 }

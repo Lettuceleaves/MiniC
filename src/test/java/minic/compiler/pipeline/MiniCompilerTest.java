@@ -83,6 +83,52 @@ class MiniCompilerTest {
     }
 
     @Test
+    void reportsUntrustedInputDiagnosticsWithoutReachingIr() {
+        SourceFile sourceFile = new SourceFile(
+                "untrusted.mc",
+                "int main() { return 2147483648; }"
+        );
+
+        CompileResult result = new MiniCompiler().compile(sourceFile);
+
+        assertThat(result.succeeded()).isFalse();
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("整数字面量超出范围");
+        assertThat(result.parseResultOptional()).isEmpty();
+        assertThat(result.semanticResultOptional()).isEmpty();
+        assertThat(result.irModuleOptional()).isEmpty();
+        assertThat(result.assemblySourceOptional()).isEmpty();
+    }
+
+    @Test
+    void stopsBeforeIrWhenInputExceedsCurrentLoweringLimits() {
+        SourceFile sourceFile = new SourceFile(
+                "lowering-limit.mc",
+                """
+                        int addressParameter(int value) {
+                            int *pointer = &value;
+                            return value;
+                        }
+
+                        int main() {
+                            return addressParameter(1);
+                        }
+                        """
+        );
+
+        CompileResult result = new MiniCompiler().compile(sourceFile);
+
+        assertThat(result.succeeded()).isFalse();
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("暂不支持对参数取址：value");
+        assertThat(result.semanticResultOptional()).isPresent();
+        assertThat(result.irModuleOptional()).isEmpty();
+        assertThat(result.assemblySourceOptional()).isEmpty();
+    }
+
+    @Test
     void canRunConfiguredToolchainAndKeepExecutableArtifact() {
         SourceFile sourceFile = new SourceFile("main.mc", "int main() { return 1; }");
         Toolchain toolchain = (source, assembly, outputDirectory, artifactName) -> new ToolchainResult(

@@ -11,8 +11,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 基于 MSVC {@code ml64.exe} 和 {@code link.exe} 的 Windows x64 工具链。
@@ -26,12 +28,13 @@ public final class WindowsMsvcToolchain implements Toolchain {
     private final String assemblerCommand;
     private final String linkerCommand;
     private final List<String> libraries;
+    private final List<Path> libraryPaths;
 
     /**
      * 使用 PATH 中的 {@code ml64} 和 {@code link} 创建工具链。
      */
     public WindowsMsvcToolchain() {
-        this("ml64", "link");
+        this(MsvcTools.discover());
     }
 
     /**
@@ -41,7 +44,7 @@ public final class WindowsMsvcToolchain implements Toolchain {
      * @param linkerCommand 链接器命令或路径
      */
     public WindowsMsvcToolchain(String assemblerCommand, String linkerCommand) {
-        this(assemblerCommand, linkerCommand, DEFAULT_LIBRARIES);
+        this(assemblerCommand, linkerCommand, DEFAULT_LIBRARIES, List.of());
     }
 
     /**
@@ -52,13 +55,36 @@ public final class WindowsMsvcToolchain implements Toolchain {
      * @param libraries 额外链接库
      */
     public WindowsMsvcToolchain(String assemblerCommand, String linkerCommand, List<String> libraries) {
+        this(assemblerCommand, linkerCommand, libraries, List.of());
+    }
+
+    /**
+     * 使用指定命令、链接库和库搜索路径创建工具链。
+     *
+     * @param assemblerCommand 汇编器命令或路径
+     * @param linkerCommand 链接器命令或路径
+     * @param libraries 额外链接库
+     * @param libraryPaths 额外库搜索路径
+     */
+    public WindowsMsvcToolchain(String assemblerCommand, String linkerCommand, List<String> libraries, List<Path> libraryPaths) {
         this.assemblerCommand = requireCommand(assemblerCommand, "assemblerCommand");
         this.linkerCommand = requireCommand(linkerCommand, "linkerCommand");
         Objects.requireNonNull(libraries, "libraries");
+        Objects.requireNonNull(libraryPaths, "libraryPaths");
         for (String library : libraries) {
             requireCommand(library, "library");
         }
         this.libraries = List.copyOf(libraries);
+        this.libraryPaths = List.copyOf(libraryPaths);
+    }
+
+    private WindowsMsvcToolchain(MsvcTools tools) {
+        this(
+                tools.assemblerCommand(),
+                tools.linkerCommand(),
+                DEFAULT_LIBRARIES,
+                tools.libraryPaths()
+        );
     }
 
     @Override
@@ -81,9 +107,14 @@ public final class WindowsMsvcToolchain implements Toolchain {
         Path executablePath = outputDirectory.resolve(artifactName + ".exe");
         try {
             Files.createDirectories(outputDirectory);
+        } catch (IOException exception) {
+            diagnostics.add(toolDiagnostic(sourceFile, "TOOL001", "创建输出目录失败：" + outputDirectory + "：" + exception.getMessage()));
+            return new ToolchainResult(assemblyPath, null, null, diagnostics);
+        }
+        try {
             Files.writeString(assemblyPath, assemblySource.text(), StandardCharsets.US_ASCII);
         } catch (IOException exception) {
-            diagnostics.add(toolDiagnostic(sourceFile, "TOOL001", "写出汇编文件失败：" + exception.getMessage()));
+            diagnostics.add(toolDiagnostic(sourceFile, "TOOL001", "写出汇编文件失败：" + assemblyPath + "：" + exception.getMessage()));
             return new ToolchainResult(assemblyPath, null, null, diagnostics);
         }
 
@@ -110,6 +141,9 @@ public final class WindowsMsvcToolchain implements Toolchain {
                 "/OUT:" + executablePath.toAbsolutePath(),
                 objectPath.toAbsolutePath().toString()
         ));
+        for (Path libraryPath : libraryPaths) {
+            linkCommand.add("/LIBPATH:" + libraryPath.toAbsolutePath());
+        }
         linkCommand.addAll(libraries);
 
         if (!runCommand(
@@ -178,5 +212,83 @@ public final class WindowsMsvcToolchain implements Toolchain {
             throw new IllegalArgumentException(name + " must not be blank");
         }
         return command;
+    }
+
+    private record MsvcTools(String assemblerCommand, String linkerCommand, List<Path> libraryPaths) {
+        private static MsvcTools discover() {
+            Optional<Path> ml64 = firstExisting(msvcToolCandidates("ml64.exe"));
+            Optional<Path> link = firstExisting(msvcToolCandidates("link.exe"));
+            if (ml64.isEmpty() || link.isEmpty()) {
+                return new MsvcTools("ml64", "link", List.of());
+            }
+            return new MsvcTools(
+                    ml64.orElseThrow().toString(),
+                    link.orElseThrow().toString(),
+                    discoverLibraryPaths(ml64.orElseThrow())
+            );
+        }
+
+        private static List<Path> msvcToolCandidates(String fileName) {
+            ArrayList<Path> candidates = new ArrayList<>();
+            for (String edition : List.of("BuildTools", "Community", "Professional", "Enterprise")) {
+                Path toolsRoot = Path.of(
+                        "C:",
+                        "Program Files (x86)",
+                        "Microsoft Visual Studio",
+                        "2022",
+                        edition,
+                        "VC",
+                        "Tools",
+                        "MSVC"
+                );
+                if (!Files.isDirectory(toolsRoot)) {
+                    continue;
+                }
+                latestDirectory(toolsRoot)
+                        .map(version -> version.resolve(Path.of("bin", "Hostx64", "x64", fileName)))
+                        .ifPresent(candidates::add);
+            }
+            return candidates;
+        }
+
+        private static Optional<Path> firstExisting(List<Path> candidates) {
+            return candidates.stream()
+                    .filter(Files::isRegularFile)
+                    .findFirst();
+        }
+
+        private static List<Path> discoverLibraryPaths(Path ml64Path) {
+            ArrayList<Path> paths = new ArrayList<>();
+            Path msvcRoot = ml64Path.getParent().getParent().getParent().getParent();
+            Path vcLib = msvcRoot.resolve(Path.of("lib", "x64"));
+            if (Files.isDirectory(vcLib)) {
+                paths.add(vcLib);
+            }
+            Path windowsKitsLib = Path.of("C:", "Program Files (x86)", "Windows Kits", "10", "Lib");
+            latestDirectory(windowsKitsLib).ifPresent(version -> {
+                Path um = version.resolve(Path.of("um", "x64"));
+                Path ucrt = version.resolve(Path.of("ucrt", "x64"));
+                if (Files.isDirectory(um)) {
+                    paths.add(um);
+                }
+                if (Files.isDirectory(ucrt)) {
+                    paths.add(ucrt);
+                }
+            });
+            return List.copyOf(paths);
+        }
+
+        private static Optional<Path> latestDirectory(Path root) {
+            if (!Files.isDirectory(root)) {
+                return Optional.empty();
+            }
+            try (var stream = Files.list(root)) {
+                return stream
+                        .filter(Files::isDirectory)
+                        .max(Comparator.comparing(path -> path.getFileName().toString()));
+            } catch (IOException exception) {
+                return Optional.empty();
+            }
+        }
     }
 }

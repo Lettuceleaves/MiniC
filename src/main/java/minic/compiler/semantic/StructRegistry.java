@@ -43,6 +43,7 @@ final class StructRegistry {
 
     void validateProgramTypes(Program program) {
         program.structs().forEach(this::validateStructFieldTypes);
+        validateRecursiveStructValues();
         program.functions().forEach(functionDecl -> {
             validateDeclaredType(functionDecl.returnType(), functionDecl.range());
             functionDecl.parameters().forEach(parameter -> validateDeclaredType(parameter.type(), parameter.range()));
@@ -106,6 +107,48 @@ final class StructRegistry {
             return directStructName(type.elementType());
         }
         return java.util.Optional.empty();
+    }
+
+    private void validateRecursiveStructValues() {
+        Set<String> reportedStructs = new HashSet<>();
+        for (StructDecl structDecl : structDecls.values()) {
+            detectRecursiveStructValue(structDecl.name(), structDecl.name(), new HashSet<>(), reportedStructs);
+        }
+    }
+
+    private boolean detectRecursiveStructValue(
+            String rootName,
+            String currentName,
+            Set<String> visiting,
+            Set<String> reportedStructs
+    ) {
+        if (!visiting.add(currentName)) {
+            return currentName.equals(rootName);
+        }
+        StructDecl currentDecl = structDecls.get(currentName);
+        if (currentDecl == null) {
+            visiting.remove(currentName);
+            return false;
+        }
+        for (StructField field : currentDecl.fields()) {
+            java.util.Optional<String> nestedStructName = directStructName(field.type());
+            if (nestedStructName.isEmpty()) {
+                continue;
+            }
+            String nestedName = nestedStructName.orElseThrow();
+            if (nestedName.equals(currentName)) {
+                continue;
+            }
+            if (nestedName.equals(rootName) || detectRecursiveStructValue(rootName, nestedName, visiting, reportedStructs)) {
+                if (reportedStructs.add(rootName)) {
+                    reporter.report(field.range(), "结构体字段形成递归值包含：" + rootName);
+                }
+                visiting.remove(currentName);
+                return true;
+            }
+        }
+        visiting.remove(currentName);
+        return false;
     }
 
     private MiniType unwrap(MiniType type) {

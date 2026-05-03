@@ -24,9 +24,23 @@ final class TypeCompatibility {
         return isAssignmentCompatible(parameterType, argumentType);
     }
 
+    static boolean isConditionCompatible(MiniType type) {
+        return type.isScalar() || type.isPointer() || type.isNullPointer();
+    }
+
+    static boolean isIndexCompatible(MiniType type) {
+        return type.isIntegerScalar();
+    }
+
     static MiniType binaryResultType(MiniType leftType, MiniType rightType, TokenKind operator) {
         if (isComparison(operator)) {
             return MiniType.INT;
+        }
+        if (isPointerArithmetic(leftType, rightType, operator)) {
+            return leftType.isPointer() ? leftType : rightType;
+        }
+        if (isPointerDifference(leftType, rightType, operator)) {
+            return MiniType.LONG;
         }
         if (leftType.isScalar() && rightType.isScalar()) {
             return usualArithmeticType(leftType, rightType);
@@ -35,6 +49,9 @@ final class TypeCompatibility {
     }
 
     static boolean isBinaryCompatible(MiniType leftType, MiniType rightType, TokenKind operator) {
+        if (isPointerArithmetic(leftType, rightType, operator) || isPointerDifference(leftType, rightType, operator)) {
+            return true;
+        }
         if (leftType.isScalar() && rightType.isScalar()) {
             return true;
         }
@@ -44,6 +61,21 @@ final class TypeCompatibility {
             return true;
         }
         return false;
+    }
+
+    private static boolean isPointerArithmetic(MiniType leftType, MiniType rightType, TokenKind operator) {
+        if (operator == TokenKind.PLUS) {
+            return (leftType.isPointer() && rightType.isIntegerScalar())
+                    || (rightType.isPointer() && leftType.isIntegerScalar());
+        }
+        if (operator == TokenKind.MINUS) {
+            return leftType.isPointer() && rightType.isIntegerScalar();
+        }
+        return false;
+    }
+
+    private static boolean isPointerDifference(MiniType leftType, MiniType rightType, TokenKind operator) {
+        return operator == TokenKind.MINUS && leftType.isPointer() && rightType.isPointer();
     }
 
     private static MiniType usualArithmeticType(MiniType leftType, MiniType rightType) {

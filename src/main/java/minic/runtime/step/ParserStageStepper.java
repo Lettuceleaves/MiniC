@@ -69,10 +69,13 @@ public final class ParserStageStepper implements StageStepper {
             return lastResult;
         }
         currentBuiltNode = pendingRevealNodes.removeFirst();
-        revealedNodeSet.add(currentBuiltNode);
-        revealedNodeList.add(currentBuiltNode);
+        if (revealedNodeSet.add(currentBuiltNode)) {
+            revealedNodeList.add(currentBuiltNode);
+        }
         currentRevealLabel = "build " + nodeSummary(currentBuiltNode);
-        revealedNodeLabels.add(currentRevealLabel);
+        if (revealedNodeLabels.isEmpty() || !revealedNodeLabels.getLast().equals(currentRevealLabel)) {
+            revealedNodeLabels.add(currentRevealLabel);
+        }
         globalStepIndex++;
         lastResult = !canNext()
                 ? StepResult.stageCompleted(CompileStage.PARSER, "递归下降过程完成", currentRevealLabel)
@@ -289,11 +292,20 @@ public final class ParserStageStepper implements StageStepper {
             return;
         }
         for (Object node : path) {
-            if (node instanceof Program || revealedNodeSet.contains(node) || pendingRevealNodes.contains(node)) {
+            if (node instanceof Program || revealedNodeSet.contains(node) || pendingRevealContains(node)) {
                 continue;
             }
             pendingRevealNodes.addLast(node);
         }
+    }
+
+    private boolean pendingRevealContains(Object node) {
+        for (Object pendingNode : pendingRevealNodes) {
+            if (pendingNode == node) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static List<Object> pathTo(Object current, Object target) {
@@ -316,13 +328,17 @@ public final class ParserStageStepper implements StageStepper {
         Set<Object> nodes = Collections.newSetFromMap(new IdentityHashMap<>());
         for (ParserTraceEvent event : buildEvents) {
             List<Object> path = pathTo(previewProgram, event.node());
-            for (Object node : path) {
-                if (!(node instanceof Program)) {
-                    nodes.add(node);
+            if (path.isEmpty()) {
+                nodes.add(event.node());
+            } else {
+                for (Object node : path) {
+                    if (!(node instanceof Program)) {
+                        nodes.add(node);
+                    }
                 }
             }
         }
-        return nodes.size();
+        return Math.max(nodes.size(), revealedNodeList.size());
     }
 
     private static Object componentValue(Object node, String name) {

@@ -36,4 +36,13 @@ public final class MiniCWorkbenchController {
     public UiControlResultDto next() {
         return viewModel.next();
     }
+
+    /**
+     * 跳转到下一编译环节。
+     *
+     * @return 控制结果
+     */
+    public UiControlResultDto nextStage() {
+        return viewModel.nextStage();
+    }
 }

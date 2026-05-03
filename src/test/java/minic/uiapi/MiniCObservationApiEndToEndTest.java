@@ -57,10 +57,8 @@ class MiniCObservationApiEndToEndTest {
             api.next();
         }
 
-        assertThat(api.currentState().currentStage()).isEqualTo("codegen");
+        assertThat(api.currentState().currentStage()).isEqualTo("toolchain");
         assertThat(api.currentState().canNext()).isFalse();
-        assertThat(api.currentStageVisualData().visualType()).isEqualTo("assembly");
-        assertThat(api.currentStageVisualData().assemblyLines()).isNotEmpty();
         assertThat(api.globalData().tokenSummary()).isNotEmpty();
         assertThat(api.globalData().astSummary()).isNotEmpty();
         assertThat(api.globalData().semanticSummary()).isNotEmpty();

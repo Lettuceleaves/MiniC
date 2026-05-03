@@ -95,6 +95,18 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
+     * 跳转到下一编译环节并刷新全部 UI 数据。
+     *
+     * @return 控制结果
+     */
+    public UiControlResultDto nextStage() {
+        UiControlResultDto result = api.nextStage();
+        applyControlResult(result);
+        refreshAll();
+        return result;
+    }
+
+    /**
      * 开启自动播放状态并刷新当前状态。
      *
      * @return 控制结果

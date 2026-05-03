@@ -17,6 +17,13 @@ class WindowsMsvcToolchainTest {
     Path tempDir;
 
     @Test
+    void defaultConstructorCanBeCreatedOutsideDeveloperPrompt() {
+        WindowsMsvcToolchain toolchain = new WindowsMsvcToolchain();
+
+        assertThat(toolchain).isNotNull();
+    }
+
+    @Test
     void writesAssemblyAndReportsDiagnosticWhenAssemblerIsUnavailable() throws Exception {
         SourceFile sourceFile = new SourceFile("main.mc", "int main() { return 1; }");
         AssemblySource assemblySource = new AssemblySource(

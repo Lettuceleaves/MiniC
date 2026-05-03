@@ -52,6 +52,15 @@ public final class MiniCObservationApi {
     }
 
     /**
+     * 跳转到下一编译环节。
+     *
+     * @return 控制结果
+     */
+    public UiControlResultDto nextStage() {
+        return UiControlResultDto.from(requireSession().nextStage());
+    }
+
+    /**
      * 开启自动播放。
      *
      * @return 控制结果

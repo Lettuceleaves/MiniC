@@ -120,6 +120,26 @@ class LexerTest {
     }
 
     @Test
+    void reportsNumericLiteralOverflowInsteadOfThrowing() {
+        SourceFile sourceFile = new SourceFile(
+                "overflow.mc",
+                "2147483648 9223372036854775808L"
+        );
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(TokenKind.EOF);
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.code())
+                .containsExactly("LEX005", "LEX005");
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("整数字面量超出范围", "long 字面量超出范围");
+    }
+
+    @Test
     void lexesStringLiteralsWithEscapes() {
         SourceFile sourceFile = new SourceFile("strings.mc", "\"hello\\n\\\"MiniC\\\"\"");
 

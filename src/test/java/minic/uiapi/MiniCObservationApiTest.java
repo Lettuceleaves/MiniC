@@ -36,6 +36,41 @@ class MiniCObservationApiTest {
     }
 
     @Test
+    void nextStageCompletesCurrentStageAndRefreshesVisualData() {
+        MiniCObservationApi api = new MiniCObservationApi();
+        api.loadSource("next-stage-ui.mc", "int main() { return 0; }");
+        api.startSession();
+
+        UiControlResultDto result = api.nextStage();
+
+        assertThat(result.outcome()).isEqualTo("ADVANCED");
+        assertThat(result.title()).contains("跳转到下一环节");
+        assertThat(api.currentState().currentStage()).isEqualTo("parser");
+        assertThat(api.lexerVisualData().lexerTokens()).isNotEmpty();
+        assertThat(api.currentStageVisualData().visualType()).isEqualTo("ast");
+    }
+
+    @Test
+    void nextStageCanBeInvokedRepeatedlyAcrossPreparedStages() {
+        MiniCObservationApi api = new MiniCObservationApi();
+        api.loadSource("next-stage-repeat-ui.mc", "int main() { return 0; }");
+        api.startSession();
+
+        api.nextStage();
+        assertThat(api.currentState().currentStage()).isEqualTo("parser");
+        api.nextStage();
+        assertThat(api.currentState().currentStage()).isEqualTo("semantic");
+        api.nextStage();
+        assertThat(api.currentState().currentStage()).isEqualTo("ir");
+        api.nextStage();
+        assertThat(api.currentState().currentStage()).isEqualTo("codegen");
+        api.nextStage();
+        assertThat(api.currentState().currentStage()).isEqualTo("toolchain");
+        api.nextStage();
+        assertThat(api.currentState().currentStage()).isEqualTo("toolchain");
+    }
+
+    @Test
     void loadsSourceFileAndRequiresSessionBeforeControls() {
         MiniCObservationApi api = new MiniCObservationApi();
 
