@@ -121,7 +121,7 @@ public final class MiniCWorkbenchShell {
         HBox.setHgrow(visualPane, Priority.ALWAYS);
         split.getChildren().addAll(codePane, visualPane);
 
-        editor.getChildren().addAll(tabs, split, bottomPanel());
+        editor.getChildren().addAll(tabs, split, new MiniCBottomPanel(viewModel));
         return editor;
     }
 
@@ -136,18 +136,6 @@ public final class MiniCWorkbenchShell {
         VBox.setVgrow(body, Priority.ALWAYS);
         pane.getChildren().addAll(head, body);
         return pane;
-    }
-
-    private VBox bottomPanel() {
-        VBox bottom = new VBox();
-        bottom.getStyleClass().add("bottom-panel");
-        Label tabs = new Label("Problems    Output    Debug Console    Terminal");
-        tabs.getStyleClass().add("bottom-tabs");
-        Label body = new Label("No diagnostics.");
-        body.getStyleClass().add("mono-body");
-        body.setPadding(new Insets(10, 12, 10, 12));
-        bottom.getChildren().addAll(tabs, body);
-        return bottom;
     }
 
     private VBox inspector() {

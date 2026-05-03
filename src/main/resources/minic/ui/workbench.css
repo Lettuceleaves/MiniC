@@ -253,6 +253,25 @@
     -fx-font-size: 11px;
 }
 
+.bottom-body {
+    -fx-background-color: #1e1e1e;
+}
+
+.problem-list,
+.bottom-output,
+.terminal {
+    -fx-padding: 10px 12px;
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-border-color: #333333;
+    -fx-border-width: 0 1px 0 0;
+}
+
+.terminal {
+    -fx-border-width: 0;
+}
+
 .controls {
     -fx-padding: 10px 14px;
     -fx-border-color: #333333;
