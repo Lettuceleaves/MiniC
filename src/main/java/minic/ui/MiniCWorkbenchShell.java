@@ -116,7 +116,7 @@ public final class MiniCWorkbenchShell {
         split.getStyleClass().add("split");
         VBox.setVgrow(split, Priority.ALWAYS);
         VBox codePane = new MiniCSourceView(viewModel);
-        VBox visualPane = pane("Graph View", "C033 will render current stage visual summaries here.");
+        VBox visualPane = new MiniCVisualPane(viewModel);
         HBox.setHgrow(codePane, Priority.ALWAYS);
         HBox.setHgrow(visualPane, Priority.ALWAYS);
         split.getChildren().addAll(codePane, visualPane);

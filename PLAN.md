@@ -2,7 +2,7 @@
 
 当前开发阶段：`0.3.0-SNAPSHOT`。
 
-下一步任务：`C033：实现 Visual Pane`。
+下一步任务：`C034：实现 Bottom Panel`。
 
 `0.1.0` 编译闭环总结见 [version/0.1.0.md](version/0.1.0.md)。
 `0.2.0` 结构化观测阶段记录见 [version/0.2.0.md](version/0.2.0.md)。

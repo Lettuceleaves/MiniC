@@ -210,6 +210,31 @@
     -fx-border-width: 1px 0;
 }
 
+.visual-canvas {
+    -fx-padding: 16px;
+    -fx-background-color: #1e1e1e;
+    -fx-hgap: 10px;
+    -fx-vgap: 10px;
+}
+
+.visual-node {
+    -fx-padding: 8px 10px;
+    -fx-background-color: #252526;
+    -fx-border-color: #569cd6;
+    -fx-border-width: 1px;
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 11px;
+    -fx-max-width: 260px;
+    -fx-wrap-text: true;
+}
+
+.visual-node.hot {
+    -fx-background-color: #4b2f1e;
+    -fx-border-color: #d7ba7d;
+    -fx-text-fill: #ffffff;
+}
+
 .bottom-panel {
     -fx-min-height: 212px;
     -fx-pref-height: 212px;
