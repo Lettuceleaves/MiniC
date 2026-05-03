@@ -1,0 +1,221 @@
+.workbench-root {
+    -fx-background-color: #1e1e1e;
+    -fx-font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    -fx-font-size: 13px;
+}
+
+.titlebar {
+    -fx-min-height: 30px;
+    -fx-pref-height: 30px;
+    -fx-padding: 0 10px;
+    -fx-alignment: center;
+    -fx-background-color: #3c3c3c;
+}
+
+.traffic {
+    -fx-alignment: center-left;
+}
+
+.traffic-dot {
+    -fx-min-width: 12px;
+    -fx-min-height: 12px;
+    -fx-max-width: 12px;
+    -fx-max-height: 12px;
+    -fx-background-radius: 999px;
+    -fx-background-color: #5f5f5f;
+}
+
+.command {
+    -fx-padding: 4px 14px;
+    -fx-border-color: #555555;
+    -fx-border-radius: 5px;
+    -fx-background-color: #2d2d2d;
+    -fx-text-fill: #c8c8c8;
+}
+
+.activity-bar {
+    -fx-pref-width: 48px;
+    -fx-padding: 9px 0 0 0;
+    -fx-background-color: #333333;
+}
+
+.activity-item {
+    -fx-min-width: 48px;
+    -fx-min-height: 43px;
+    -fx-alignment: center;
+    -fx-text-fill: #bdbdbd;
+    -fx-font-size: 20px;
+}
+
+.activity-item.active {
+    -fx-text-fill: #ffffff;
+    -fx-border-color: #ffffff;
+    -fx-border-width: 0 0 0 2px;
+}
+
+.workbench-body {
+    -fx-background-color: #1e1e1e;
+}
+
+.sidebar {
+    -fx-pref-width: 260px;
+    -fx-background-color: #252526;
+    -fx-border-color: #1b1b1b;
+    -fx-border-width: 0 1px 0 0;
+}
+
+.inspector {
+    -fx-pref-width: 360px;
+    -fx-background-color: #252526;
+    -fx-border-color: #1b1b1b;
+    -fx-border-width: 0 0 0 1px;
+}
+
+.panel-title {
+    -fx-min-height: 36px;
+    -fx-padding: 0 14px;
+    -fx-alignment: center-left;
+    -fx-text-fill: #bbbbbb;
+    -fx-font-size: 11px;
+}
+
+.section-label {
+    -fx-min-height: 28px;
+    -fx-padding: 0 14px;
+    -fx-alignment: center-left;
+    -fx-background-color: #2d2d2d;
+    -fx-text-fill: #cccccc;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.body-text {
+    -fx-padding: 10px 14px;
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-line-spacing: 4px;
+}
+
+.stage-card {
+    -fx-padding: 8px;
+    -fx-background-color: #1e1e1e;
+    -fx-border-color: #333333;
+    -fx-border-width: 1px;
+}
+
+.stage-top {
+    -fx-text-fill: #e5e5e5;
+    -fx-font-weight: bold;
+}
+
+.stage-meta {
+    -fx-text-fill: #969696;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 11px;
+}
+
+.editor-area,
+.split,
+.pane {
+    -fx-background-color: #1e1e1e;
+}
+
+.tabs {
+    -fx-min-height: 35px;
+    -fx-background-color: #252526;
+    -fx-border-color: #1b1b1b;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.tab {
+    -fx-min-width: 190px;
+    -fx-min-height: 35px;
+    -fx-padding: 0 12px;
+    -fx-alignment: center-left;
+    -fx-text-fill: #969696;
+    -fx-border-color: #1b1b1b;
+    -fx-border-width: 0 1px 0 0;
+}
+
+.tab.active {
+    -fx-background-color: #1e1e1e;
+    -fx-text-fill: #ffffff;
+}
+
+.pane {
+    -fx-border-color: #252526;
+    -fx-border-width: 0 1px 0 0;
+}
+
+.pane-head {
+    -fx-min-height: 31px;
+    -fx-padding: 0 12px;
+    -fx-alignment: center-left;
+    -fx-text-fill: #9d9d9d;
+    -fx-border-color: #252526;
+    -fx-border-width: 0 0 1px 0;
+    -fx-font-size: 12px;
+}
+
+.mono-body {
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.bottom-panel {
+    -fx-min-height: 212px;
+    -fx-pref-height: 212px;
+    -fx-background-color: #1e1e1e;
+    -fx-border-color: #1b1b1b;
+    -fx-border-width: 1px 0 0 0;
+}
+
+.bottom-tabs {
+    -fx-min-height: 34px;
+    -fx-padding: 0 14px;
+    -fx-alignment: center-left;
+    -fx-text-fill: #969696;
+    -fx-border-color: #333333;
+    -fx-border-width: 0 0 1px 0;
+    -fx-font-size: 11px;
+}
+
+.controls {
+    -fx-padding: 10px 14px;
+    -fx-border-color: #333333;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.control-primary,
+.control-secondary {
+    -fx-min-height: 28px;
+    -fx-padding: 0 10px;
+    -fx-alignment: center;
+    -fx-border-color: #3c3c3c;
+    -fx-border-width: 1px;
+}
+
+.control-primary {
+    -fx-background-color: #0e639c;
+    -fx-text-fill: #ffffff;
+}
+
+.control-secondary {
+    -fx-background-color: #333333;
+    -fx-text-fill: #cccccc;
+}
+
+.status-bar {
+    -fx-min-height: 22px;
+    -fx-pref-height: 22px;
+    -fx-padding: 0 10px;
+    -fx-alignment: center-left;
+    -fx-background-color: #007acc;
+}
+
+.status-bar .label {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 12px;
+}
