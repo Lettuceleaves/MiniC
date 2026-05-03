@@ -21,7 +21,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 - `minic.session` 全局观测会话、下一步、播放、两倍速播放、暂停和手动 tick。
 - `minic.uiapi` UI 门面和不可变 DTO，供后续界面层绑定。
 
-下一步直接执行：`C010：接入 JavaFX 构建依赖和 UI 入口`。
+下一步直接执行：`C020：实现 UI 状态模型适配层`。
 
 `0.3.0` 将进入 JavaFX UI 阶段，目标是实现 VS Code 风格的 MiniC Visual Workbench。UI 风格参考：
 

@@ -1,10 +1,11 @@
 plugins {
     id 'java'
     id 'application'
+    id 'org.openjfx.javafxplugin' version '0.1.0'
 }
 
 group = 'minic'
-version = '0.2.0-SNAPSHOT'
+version = '0.3.0-SNAPSHOT'
 
 java {
     toolchain {
@@ -17,10 +18,22 @@ dependencies {
     testImplementation 'org.assertj:assertj-core:3.25.3'
 }
 
+javafx {
+    version = '21.0.2'
+    modules = ['javafx.controls']
+}
+
 test {
     useJUnitPlatform()
 }
 
 application {
     mainClass = 'minic.Main'
+}
+
+tasks.register('runUi', JavaExec) {
+    group = 'application'
+    description = '启动 MiniC Visual Workbench JavaFX UI'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'minic.ui.MiniCWorkbenchApp'
 }
