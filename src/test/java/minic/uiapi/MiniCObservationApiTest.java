@@ -67,7 +67,9 @@ class MiniCObservationApiTest {
         api.nextStage();
         assertThat(api.currentState().currentStage()).isEqualTo("toolchain");
         api.nextStage();
-        assertThat(api.currentState().currentStage()).isEqualTo("toolchain");
+        assertThat(api.currentState().currentStage()).isEqualTo("execution");
+        assertThat(api.currentState().canNext()).isFalse();
+        assertThat(api.next().title()).isEqualTo("等待运行输入");
     }
 
     @Test

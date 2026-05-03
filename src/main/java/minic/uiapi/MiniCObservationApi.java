@@ -97,6 +97,16 @@ public final class MiniCObservationApi {
     }
 
     /**
+     * 确认运行阶段标准输入。
+     *
+     * @param standardInput 标准输入文本
+     * @return 控制结果
+     */
+    public UiControlResultDto confirmExecutionInput(String standardInput) {
+        return UiControlResultDto.from(requireSession().confirmExecutionInput(standardInput));
+    }
+
+    /**
      * 上一步预留接口，当前返回 unsupported。
      *
      * @return unsupported 结果

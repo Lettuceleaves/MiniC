@@ -16,7 +16,7 @@ import java.util.concurrent.ExecutionException;
 /**
  * 运行可执行产物并捕获输出。
  */
-public final class ExecutableRunner {
+public final class ExecutableRunner implements ExecutableRunService {
     /**
      * 运行可执行产物。
      *
@@ -25,12 +25,27 @@ public final class ExecutableRunner {
      * @return 运行结果
      */
     public ExecutionResult run(SourceFile sourceFile, ExecutableArtifact artifact) {
+        return run(sourceFile, artifact, "");
+    }
+
+    /**
+     * 运行可执行产物，并写入标准输入。
+     *
+     * @param sourceFile 源码文件，用于诊断 range
+     * @param artifact 可执行产物
+     * @param standardInput 标准输入文本
+     * @return 运行结果
+     */
+    public ExecutionResult run(SourceFile sourceFile, ExecutableArtifact artifact, String standardInput) {
         Objects.requireNonNull(sourceFile, "sourceFile");
         Objects.requireNonNull(artifact, "artifact");
+        Objects.requireNonNull(standardInput, "standardInput");
         ProcessBuilder processBuilder = new ProcessBuilder(artifact.path().toAbsolutePath().toString());
         processBuilder.directory(artifact.path().toAbsolutePath().getParent().toFile());
         try {
             Process process = processBuilder.start();
+            process.getOutputStream().write(standardInput.getBytes(StandardCharsets.UTF_8));
+            process.getOutputStream().close();
             CompletableFuture<String> stdoutFuture = readUtf8(process.getInputStream());
             CompletableFuture<String> stderrFuture = readUtf8(process.getErrorStream());
             int exitCode = process.waitFor();

@@ -217,6 +217,41 @@
     -fx-font-size: 12px;
 }
 
+.execution-pane {
+    -fx-background-color: #1e1e1e;
+}
+
+.execution-actions {
+    -fx-min-height: 36px;
+    -fx-padding: 6px 10px;
+    -fx-alignment: center-left;
+    -fx-background-color: #1e1e1e;
+    -fx-border-color: #333333;
+    -fx-border-width: 0 0 1px 0;
+}
+
+.execution-actions .check-box {
+    -fx-text-fill: #cccccc;
+}
+
+.execution-actions .button {
+    -fx-min-height: 26px;
+    -fx-padding: 0 10px;
+    -fx-background-color: #0e639c;
+    -fx-text-fill: #ffffff;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.execution-stdin,
+.execution-output {
+    -fx-control-inner-background: #1e1e1e;
+    -fx-background-color: #1e1e1e;
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
 .line-number {
     -fx-min-width: 48px;
     -fx-padding: 0 14px 0 0;

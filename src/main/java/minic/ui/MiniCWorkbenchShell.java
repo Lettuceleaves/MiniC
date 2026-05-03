@@ -122,7 +122,9 @@ public final class MiniCWorkbenchShell {
         sourceTab.getStyleClass().addAll("tab", "active");
         Label visualTab = new Label("workbench.visual");
         visualTab.getStyleClass().add("tab");
-        tabs.getChildren().addAll(sourceTab, visualTab);
+        Label executionTab = new Label("runtime.execution");
+        executionTab.getStyleClass().add("tab");
+        tabs.getChildren().addAll(sourceTab, visualTab, executionTab);
 
         SplitPane split = new SplitPane();
         split.setOrientation(Orientation.HORIZONTAL);
@@ -132,10 +134,12 @@ public final class MiniCWorkbenchShell {
         VBox.setVgrow(split, Priority.ALWAYS);
         VBox codePane = sourceArea();
         VBox visualPane = new MiniCVisualPane(viewModel);
+        VBox executionPane = new MiniCExecutionPane(viewModel);
         codePane.setMinWidth(0);
         visualPane.setMinWidth(0);
-        split.getItems().addAll(codePane, visualPane);
-        split.setDividerPositions(0.48);
+        executionPane.setMinWidth(0);
+        split.getItems().addAll(codePane, visualPane, executionPane);
+        split.setDividerPositions(0.34, 0.68);
 
         editor.getChildren().addAll(tabs, split, new MiniCBottomPanel(viewModel, diagnosticSelection));
         return editor;

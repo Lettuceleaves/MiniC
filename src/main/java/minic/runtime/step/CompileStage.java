@@ -39,7 +39,12 @@ public enum CompileStage {
     /**
      * 工具链阶段。
      */
-    TOOLCHAIN("toolchain");
+    TOOLCHAIN("toolchain"),
+
+    /**
+     * 可执行文件运行阶段。
+     */
+    EXECUTION("execution");
 
     private final String id;
 

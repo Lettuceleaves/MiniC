@@ -155,6 +155,19 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
+     * 确认运行阶段标准输入并刷新全部 UI 数据。
+     *
+     * @param standardInput 标准输入文本
+     * @return 控制结果
+     */
+    public UiControlResultDto confirmExecutionInput(String standardInput) {
+        UiControlResultDto result = api.confirmExecutionInput(standardInput);
+        applyControlResult(result);
+        refreshAll();
+        return result;
+    }
+
+    /**
      * 手动刷新全部 UI 数据。
      */
     public void refreshAll() {

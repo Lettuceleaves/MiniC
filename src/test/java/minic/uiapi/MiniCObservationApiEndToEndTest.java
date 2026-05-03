@@ -57,8 +57,9 @@ class MiniCObservationApiEndToEndTest {
             api.next();
         }
 
-        assertThat(api.currentState().currentStage()).isEqualTo("toolchain");
+        assertThat(api.currentState().currentStage()).isEqualTo("execution");
         assertThat(api.currentState().canNext()).isFalse();
+        assertThat(api.globalData().executionInputSummary()).contains("stdin pending");
         assertThat(api.globalData().tokenSummary()).isNotEmpty();
         assertThat(api.globalData().astSummary()).isNotEmpty();
         assertThat(api.globalData().semanticSummary()).isNotEmpty();

@@ -130,9 +130,9 @@ class CompileObservationSessionNextTest {
         }
 
         assertThat(last).isNotNull();
-        assertThat(session.currentStage()).isEqualTo(CompileStage.TOOLCHAIN);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.EXECUTION);
         assertThat(session.currentState().canNext()).isFalse();
-        assertThat(session.currentStageData().stage()).isEqualTo(CompileStage.TOOLCHAIN);
+        assertThat(session.currentStageData().stage()).isEqualTo(CompileStage.EXECUTION);
         assertThat(session.globalData().tokenSummary()).isNotEmpty();
         assertThat(session.globalData().astSummary()).isNotEmpty();
         assertThat(session.globalData().semanticSummary()).isNotEmpty();
@@ -143,9 +143,12 @@ class CompileObservationSessionNextTest {
         assertThat(session.semanticResult()).isPresent();
         assertThat(session.irModule()).isPresent();
         assertThat(session.assemblySource()).isPresent();
+        assertThat(session.globalData().artifactSummary()).isNotEmpty();
+        assertThat(session.globalData().executionInputSummary()).contains("stdin pending");
 
         StepResult afterCompletion = session.next();
 
         assertThat(afterCompletion.outcome()).isEqualTo(StepOutcome.CANNOT_ADVANCE);
+        assertThat(afterCompletion.title()).isEqualTo("等待运行输入");
     }
 }

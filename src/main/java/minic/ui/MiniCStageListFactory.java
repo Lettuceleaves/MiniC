@@ -18,7 +18,8 @@ public final class MiniCStageListFactory {
             new StageInfo("semantic", "Semantic"),
             new StageInfo("ir", "IR"),
             new StageInfo("codegen", "Codegen"),
-            new StageInfo("toolchain", "Toolchain")
+            new StageInfo("toolchain", "Toolchain"),
+            new StageInfo("execution", "Execution")
     );
 
     /**
@@ -108,6 +109,7 @@ public final class MiniCStageListFactory {
             case "ir" -> globalData.irSummary().size() + " IR items";
             case "codegen" -> globalData.assemblySummary().size() + " assembly lines";
             case "toolchain" -> globalData.artifactSummary().isEmpty() ? "not implemented" : "artifact ready";
+            case "execution" -> globalData.executionOutputSummary().isEmpty() ? "waiting for input" : "run completed";
             default -> "queued";
         };
     }

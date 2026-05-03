@@ -17,6 +17,8 @@ import java.util.Objects;
  * @param irSummary IR 摘要
  * @param assemblySummary assembly 摘要
  * @param artifactSummary artifact 摘要
+ * @param executionInputSummary 运行输入摘要
+ * @param executionOutputSummary 运行输出摘要
  */
 public record UiGlobalDataDto(
         String source,
@@ -27,7 +29,9 @@ public record UiGlobalDataDto(
         List<String> semanticSummary,
         List<String> irSummary,
         List<String> assemblySummary,
-        List<String> artifactSummary
+        List<String> artifactSummary,
+        List<String> executionInputSummary,
+        List<String> executionOutputSummary
 ) {
     public UiGlobalDataDto {
         Objects.requireNonNull(source, "source");
@@ -39,6 +43,8 @@ public record UiGlobalDataDto(
         Objects.requireNonNull(irSummary, "irSummary");
         Objects.requireNonNull(assemblySummary, "assemblySummary");
         Objects.requireNonNull(artifactSummary, "artifactSummary");
+        Objects.requireNonNull(executionInputSummary, "executionInputSummary");
+        Objects.requireNonNull(executionOutputSummary, "executionOutputSummary");
         stageSummaries = List.copyOf(stageSummaries);
         diagnostics = List.copyOf(diagnostics);
         tokenSummary = List.copyOf(tokenSummary);
@@ -47,6 +53,8 @@ public record UiGlobalDataDto(
         irSummary = List.copyOf(irSummary);
         assemblySummary = List.copyOf(assemblySummary);
         artifactSummary = List.copyOf(artifactSummary);
+        executionInputSummary = List.copyOf(executionInputSummary);
+        executionOutputSummary = List.copyOf(executionOutputSummary);
     }
 
     static UiGlobalDataDto from(GlobalStepData data) {
@@ -59,7 +67,9 @@ public record UiGlobalDataDto(
                 data.semanticSummary(),
                 data.irSummary(),
                 data.assemblySummary(),
-                data.artifactSummary()
+                data.artifactSummary(),
+                data.executionInputSummary(),
+                data.executionOutputSummary()
         );
     }
 }
