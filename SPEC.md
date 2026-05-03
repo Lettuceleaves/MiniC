@@ -261,6 +261,15 @@ minic.cli
 - 全局数据描述跨阶段概览：源码文本、阶段摘要、全量 diagnostics、token/AST/semantic/IR/assembly/artifact 摘要。
 - UI DTO 必须不可变，并使用字符串、数字、布尔值和只读列表等易绑定字段，避免把 AST、IR、Scope、Stepper 等内部对象暴露给 UI。
 
+`0.3.1` 阶段图形化数据约束：
+
+- UI API 提供 `currentStageVisualData()`，返回 `UiStageVisualDto` 聚合模型。
+- Lexer visual data 使用 token range 生成 UI 可对齐字段：token kind、token text、start/end offset、1-based 起止行列和 active 标记。
+- Parser visual data 使用 UI 专用 AST 树 DTO：节点 id、label、kind、source range、active 标记和 children，不暴露真实 AST 对象。
+- Semantic visual data 使用 UI 专用作用域树 DTO：根节点为 `global scope`，节点包含符号摘要、children、active 标记，并用布尔字段表达 child -> parent 的反向箭头语义，不暴露真实 Scope 或 Symbol 对象。
+- Codegen visual data 使用 UI 专用 assembly 行 DTO：稳定行号、文本、kind、section、label 和 active 标记，不暴露 emitter、frame layout 或 codegen work 对象。
+- JavaFX Visual Pane 根据 visual type 自动切换 Lexer、AST、Semantic、Assembly 和 generic fallback 视图；UI 层仍只依赖 `minic.uiapi` DTO。
+
 核心流水线：
 
 ```text

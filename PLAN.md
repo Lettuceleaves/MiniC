@@ -1,12 +1,13 @@
 # MiniC Agent 执行计划
 
-当前开发阶段：`0.3.1-SNAPSHOT`。
+当前开发阶段：`0.3.1`。
 
-下一步任务：`C101：在 UI API 中暴露当前阶段 visual data`。
+下一步任务：待规划 `0.3.2-SNAPSHOT`。
 
 `0.1.0` 编译闭环总结见 [version/0.1.0.md](version/0.1.0.md)。
 `0.2.0` 结构化观测阶段记录见 [version/0.2.0.md](version/0.2.0.md)。
 `0.3.0` JavaFX UI 首版记录见 [version/0.3.0.md](version/0.3.0.md)。
+`0.3.1` 阶段专属图形化增强记录见 [version/0.3.1.md](version/0.3.1.md)。
 
 ## 执行规则
 
@@ -43,7 +44,7 @@
 
 ## Phase C 0.3.1：阶段图形化增强
 
-### C100：定义阶段图形化数据契约
+### C100：定义阶段图形化数据契约（已完成）
 
 依赖：`0.3.0` 已完成。
 
@@ -67,7 +68,7 @@
 
 验证：`./gradlew test`
 
-### C101：在 UI API 中暴露当前阶段 visual data
+### C101：在 UI API 中暴露当前阶段 visual data（已完成）
 
 依赖：`C100`。
 
@@ -90,7 +91,7 @@
 
 验证：`./gradlew test`
 
-### C110：实现 Lexer Token 遮罩数据生成
+### C110：实现 Lexer Token 遮罩数据生成（已完成）
 
 依赖：`C101`。
 
@@ -113,7 +114,7 @@
 
 验证：`./gradlew test`
 
-### C111：实现 Lexer 源码对齐遮罩视图
+### C111：实现 Lexer 源码对齐遮罩视图（已完成）
 
 依赖：`C110`。
 
@@ -135,7 +136,7 @@
 
 验证：`./gradlew test`，并手工启动 UI 检查。
 
-### C120：实现 AST 树 visual data
+### C120：实现 AST 树 visual data（已完成）
 
 依赖：`C101`。
 
@@ -158,7 +159,7 @@
 
 验证：`./gradlew test`
 
-### C121：实现 AST 树视图
+### C121：实现 AST 树视图（已完成）
 
 依赖：`C120`。
 
@@ -180,7 +181,7 @@
 
 验证：`./gradlew test`，并手工启动 UI 检查。
 
-### C130：实现 Semantic 作用域树 visual data
+### C130：实现 Semantic 作用域树 visual data（已完成）
 
 依赖：`C101`。
 
@@ -204,7 +205,7 @@
 
 验证：`./gradlew test`
 
-### C131：实现 Semantic 反向箭头作用域树视图
+### C131：实现 Semantic 反向箭头作用域树视图（已完成）
 
 依赖：`C130`。
 
@@ -228,7 +229,7 @@
 
 验证：`./gradlew test`，并手工启动 UI 检查。
 
-### C140：实现 Assembly 行增量 visual data
+### C140：实现 Assembly 行增量 visual data（已完成）
 
 依赖：`C101`。
 
@@ -251,7 +252,7 @@
 
 验证：`./gradlew test`
 
-### C141：实现 Assembly 行文本视图
+### C141：实现 Assembly 行文本视图（已完成）
 
 依赖：`C140`。
 
@@ -273,7 +274,7 @@
 
 验证：`./gradlew test`，并手工启动 UI 检查。
 
-### C150：整合阶段 Visual Pane 自动切换
+### C150：整合阶段 Visual Pane 自动切换（已完成）
 
 依赖：`C111`、`C121`、`C131`、`C141`。
 
@@ -296,7 +297,7 @@
 
 验证：`./gradlew test`，并手工启动 UI 检查。
 
-### C160：0.3.1 文档与验收
+### C160：0.3.1 文档与验收（已完成）
 
 依赖：`C150`。
 

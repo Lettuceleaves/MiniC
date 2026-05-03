@@ -2,7 +2,7 @@
 
 MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。当前已经完成从源码到 Windows x64 可执行文件的基础编译闭环，并完成 `0.2.0` 结构化编译观测阶段。
 
-当前版本：`0.3.1-SNAPSHOT`。
+当前版本：`0.3.1`。
 
 ## 文档入口
 
@@ -11,21 +11,22 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 - [version/0.1.0.md](version/0.1.0.md)：`0.1.0` 编译闭环阶段总结。
 - [version/0.2.0.md](version/0.2.0.md)：`0.2.0` 结构化观测阶段记录。
 - [version/0.3.0.md](version/0.3.0.md)：`0.3.0` JavaFX UI 首版阶段记录。
+- [version/0.3.1.md](version/0.3.1.md)：`0.3.1` 阶段专属图形化增强记录。
 
 ## 当前状态
 
-`0.3.0` 已完成。项目已经具备：
+`0.3.1` 已完成。项目已经具备：
 
 - MiniC 源码到 Windows x64 可执行文件的编译运行闭环。
 - Lexer、Parser、Semantic、IR lowering 和 Windows x64 codegen 的正向可步进状态。
 - `minic.runtime.step` 统一阶段 Stepper 和数据模型。
 - `minic.session` 全局观测会话、下一步、播放、两倍速播放、暂停和手动 tick。
 - `minic.uiapi` UI 门面和不可变 DTO，供后续界面层绑定。
-- JavaFX 版 MiniC Visual Workbench 首版 UI。
+- JavaFX 版 MiniC Visual Workbench。
+- 阶段专属 Visual Pane：Lexer token 半透明遮罩、Parser AST 树、Semantic 顶部 `global scope` 且反向箭头作用域树、Codegen Assembly 增量行文本视图。
+- `MiniCObservationApi.currentStageVisualData()` UI 专用 visual DTO，不向 UI 暴露 AST、Scope、IR、Stepper 等内部对象。
 
-下一步直接执行：`C101：在 UI API 中暴露当前阶段 visual data`。
-
-`0.3.1` 将进入阶段专属图形化增强：Lexer token 半透明遮罩、AST 树、Semantic 顶部 global scope 且反向箭头作用域树、Assembly 增量行文本视图。
+下一步计划尚未展开。后续应在 `0.3.2-SNAPSHOT` 中继续细化 UI 交互，例如 AST/Scope 节点点击定位源码、真实手工 UI 截图验收和更完整的滚动定位体验。
 
 UI 风格继续参考：
 
@@ -56,6 +57,7 @@ api.startSession();
 UiControlResultDto result = api.next();
 UiCurrentStateDto state = api.currentState();
 UiStageDataDto stageData = api.currentStageData();
+UiStageVisualDto visualData = api.currentStageVisualData();
 UiGlobalDataDto globalData = api.globalData();
 
 api.play();
