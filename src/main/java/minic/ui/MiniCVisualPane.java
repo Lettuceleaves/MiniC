@@ -5,10 +5,13 @@ import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Group;
+import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Slider;
 import javafx.scene.control.SplitPane;
+import javafx.scene.control.TextArea;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
@@ -39,6 +42,9 @@ public final class MiniCVisualPane extends VBox {
     private final StageColumn leftColumn = new StageColumn(false);
     private final StageColumn rightColumn = new StageColumn(true);
     private final Slider astZoom = new Slider(0.55, 1.85, DEFAULT_AST_ZOOM);
+    private final TextArea executionStdin = new TextArea();
+    private final CheckBox executionNoInput = new CheckBox("无输入");
+    private final Button executionConfirm = new Button("确认输入");
     private double dividerPosition = 0.5;
 
     /**
@@ -62,6 +68,7 @@ public final class MiniCVisualPane extends VBox {
         astZoom.setBlockIncrement(0.1);
         astZoom.setMajorTickUnit(0.25);
         astZoom.setShowTickMarks(true);
+        configureExecutionInputControls();
         getChildren().addAll(header, splitPane);
         VBox.setVgrow(splitPane, Priority.ALWAYS);
         refresh();
@@ -105,6 +112,10 @@ public final class MiniCVisualPane extends VBox {
                 leftColumn.setContent("AST + Scope", List.of(astScopeInput()));
                 rightColumn.setContent("Assembly", assemblyRows(visual));
             }
+            case "execution" -> {
+                leftColumn.setContent("STDIN", List.of(executionInputPane()));
+                rightColumn.setContent("OUTPUT", executionOutputRows());
+            }
             default -> {
                 leftColumn.setContent(stage, fallbackRows());
                 rightColumn.setContent("Output", List.of());
@@ -123,6 +134,48 @@ public final class MiniCVisualPane extends VBox {
         box.getChildren().add(section("AST", List.of(zoomableAstGraph(viewModel.astVisualDataProperty().get()))));
         box.getChildren().add(section("Scope", semanticRows(viewModel.semanticVisualDataProperty().get())));
         return box;
+    }
+
+    private void configureExecutionInputControls() {
+        executionStdin.getStyleClass().add("execution-stdin");
+        executionStdin.setWrapText(false);
+        executionNoInput.selectedProperty().addListener((observable, oldValue, selected) -> executionStdin.setDisable(selected));
+        executionConfirm.setOnAction(event -> viewModel.confirmExecutionInput(
+                executionNoInput.isSelected() ? "" : executionStdin.getText()
+        ));
+    }
+
+    private VBox executionInputPane() {
+        VBox box = new VBox(8);
+        HBox actions = new HBox(8, executionNoInput, executionConfirm);
+        actions.getStyleClass().add("execution-actions");
+        boolean completed = viewModel.currentStageDataProperty().get() != null
+                && viewModel.currentStageDataProperty().get().completed();
+        boolean confirmed = viewModel.globalDataProperty().get() != null
+                && viewModel.globalDataProperty().get().executionInputSummary().stream()
+                .anyMatch(line -> line.equals("stdin confirmed"));
+        executionStdin.setDisable(executionNoInput.isSelected() || completed || confirmed);
+        executionNoInput.setDisable(completed || confirmed);
+        executionConfirm.setDisable(completed || confirmed);
+        box.getChildren().addAll(actions, executionStdin);
+        VBox.setVgrow(executionStdin, Priority.ALWAYS);
+        return box;
+    }
+
+    private List<Label> executionOutputRows() {
+        if (viewModel.globalDataProperty().get() == null
+                || viewModel.globalDataProperty().get().executionOutputSummary().isEmpty()) {
+            return List.of(monoLabel("Execution output will appear here."));
+        }
+        return viewModel.globalDataProperty().get().executionOutputSummary().stream()
+                .map(this::monoLabel)
+                .toList();
+    }
+
+    private Label monoLabel(String text) {
+        Label label = new Label(text.isEmpty() ? " " : text);
+        label.getStyleClass().add("assembly-text");
+        return label;
     }
 
     private VBox section(String title, List<? extends Node> rows) {
