@@ -12,5 +12,6 @@ class MiniCWorkbenchAppTest {
         assertThat(MiniCWorkbenchApp.TITLE).isEqualTo("MiniC Visual Workbench");
         assertThat(MiniCWorkbenchApp.DEFAULT_WIDTH).isGreaterThanOrEqualTo(960);
         assertThat(MiniCWorkbenchApp.DEFAULT_HEIGHT).isGreaterThanOrEqualTo(600);
+        assertThat(MiniCWorkbenchLauncher.class.getDeclaredConstructors()).hasSize(1);
     }
 }

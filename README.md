@@ -2,7 +2,7 @@
 
 MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。当前已经完成从源码到 Windows x64 可执行文件的基础编译闭环，并完成 `0.2.0` 结构化编译观测阶段。
 
-当前版本：`0.3.0-SNAPSHOT`。
+当前版本：`0.3.0`。
 
 ## 文档入口
 
@@ -10,6 +10,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 - [PLAN.md](PLAN.md)：当前 agent 小步执行计划。
 - [version/0.1.0.md](version/0.1.0.md)：`0.1.0` 编译闭环阶段总结。
 - [version/0.2.0.md](version/0.2.0.md)：`0.2.0` 结构化观测阶段记录。
+- [version/0.3.0.md](version/0.3.0.md)：`0.3.0` JavaFX UI 首版阶段记录。
 
 ## 当前状态
 
@@ -21,7 +22,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 - `minic.session` 全局观测会话、下一步、播放、两倍速播放、暂停和手动 tick。
 - `minic.uiapi` UI 门面和不可变 DTO，供后续界面层绑定。
 
-下一步直接执行：`C080：UI 阶段验收和文档`。
+`0.3.0` JavaFX UI 首版已完成。当前计划已执行到 `C080`。
 
 `0.3.0` 将进入 JavaFX UI 阶段，目标是实现 VS Code 风格的 MiniC Visual Workbench。UI 风格参考：
 
@@ -30,6 +31,15 @@ C:\Users\Administrator\Desktop\styleOfMiniC\index.html
 ```
 
 首版 UI 只依赖 `minic.uiapi.*`，不直接访问 compiler、runtime stepper 或 session 内部对象。
+
+## 启动 JavaFX UI
+
+```powershell
+$env:JAVA_HOME='E:\projects\MiniC\.local\tools\jdk-21.0.10+7'
+$env:PATH='E:\projects\MiniC\.local\tools\jdk-21.0.10+7\bin;' + $env:PATH
+$env:GRADLE_USER_HOME='E:\projects\MiniC\.gradle-home'
+.\gradlew.bat runUi
+```
 
 ## UI API 最小示例
 
