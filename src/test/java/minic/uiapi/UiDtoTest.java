@@ -59,6 +59,33 @@ class UiDtoTest {
     }
 
     @Test
+    void stageVisualDtosDefensivelyCopyCollections() {
+        ArrayList<UiLexerTokenVisualDto> tokens = new ArrayList<>(List.of(
+                new UiLexerTokenVisualDto("INT", "int", null, true)
+        ));
+        ArrayList<String> genericItems = new ArrayList<>(List.of("item"));
+        UiStageVisualDto visual = new UiStageVisualDto(
+                "lexer",
+                "lexer",
+                genericItems,
+                tokens,
+                null,
+                null,
+                false,
+                List.of()
+        );
+        tokens.add(new UiLexerTokenVisualDto("IDENTIFIER", "main", null, false));
+        genericItems.add("changed");
+
+        assertThat(visual.lexerTokens()).containsExactly(new UiLexerTokenVisualDto("INT", "int", null, true));
+        assertThat(visual.genericItems()).containsExactly("item");
+        assertThatThrownBy(() -> visual.lexerTokens().add(new UiLexerTokenVisualDto("EOF", "", null, false)))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> visual.genericItems().add("x"))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
     void apiDoesNotExposeCompilerOrRuntimeDataModels() {
         assertThat(MiniCObservationApi.class.getMethods())
                 .filteredOn(method -> method.getDeclaringClass() == MiniCObservationApi.class)

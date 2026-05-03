@@ -211,6 +211,7 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
     private WindowsX64AssemblyLine emit(WindowsX64AssemblyLineKind kind, String subject, String text) {
         currentLine = new WindowsX64AssemblyLine(kind, subject, text);
         work.assemblyLines.add(text);
+        work.assemblyLineData.add(currentLine);
         work.currentSection = switch (kind) {
             case HEADER -> "header";
             case CONST_SECTION, STRING_DATA -> "const";
@@ -461,6 +462,7 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
      */
     public static final class Work implements CompilerStageWork {
         private final ArrayList<String> assemblyLines = new ArrayList<>();
+        private final ArrayList<WindowsX64AssemblyLine> assemblyLineData = new ArrayList<>();
         private String currentSection = "header";
         private String currentFunctionName = "";
         private WindowsX64FrameLayout currentFrameLayout;
@@ -508,6 +510,15 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
          */
         public List<String> assemblyLineSummaries() {
             return List.copyOf(assemblyLines);
+        }
+
+        /**
+         * 返回已产出汇编行数据。
+         *
+         * @return 汇编行数据
+         */
+        public List<WindowsX64AssemblyLine> assemblyLineData() {
+            return List.copyOf(assemblyLineData);
         }
 
         private String assemblyText() {

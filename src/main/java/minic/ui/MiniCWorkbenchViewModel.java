@@ -11,6 +11,7 @@ import minic.uiapi.UiControlResultDto;
 import minic.uiapi.UiCurrentStateDto;
 import minic.uiapi.UiGlobalDataDto;
 import minic.uiapi.UiStageDataDto;
+import minic.uiapi.UiStageVisualDto;
 
 import java.util.Objects;
 
@@ -27,6 +28,7 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyBooleanWrapper sessionStarted = new ReadOnlyBooleanWrapper(false);
     private final ReadOnlyObjectWrapper<UiCurrentStateDto> currentState = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageDataDto> currentStageData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> currentStageVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiGlobalDataDto> globalData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiControlResultDto> lastControlResult = new ReadOnlyObjectWrapper<>();
 
@@ -59,6 +61,7 @@ public final class MiniCWorkbenchViewModel {
         sessionStarted.set(false);
         currentState.set(null);
         currentStageData.set(null);
+        currentStageVisualData.set(null);
         globalData.set(null);
         lastControlResult.set(null);
         lastOutcome.set("");
@@ -142,6 +145,7 @@ public final class MiniCWorkbenchViewModel {
         }
         currentState.set(api.currentState());
         currentStageData.set(api.currentStageData());
+        currentStageVisualData.set(api.currentStageVisualData());
         globalData.set(api.globalData());
     }
 
@@ -197,6 +201,15 @@ public final class MiniCWorkbenchViewModel {
      */
     public ReadOnlyObjectProperty<UiStageDataDto> currentStageDataProperty() {
         return currentStageData.getReadOnlyProperty();
+    }
+
+    /**
+     * 当前阶段图形化 DTO 属性。
+     *
+     * @return 当前阶段图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> currentStageVisualDataProperty() {
+        return currentStageVisualData.getReadOnlyProperty();
     }
 
     /**

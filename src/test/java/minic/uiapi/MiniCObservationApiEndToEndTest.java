@@ -59,10 +59,86 @@ class MiniCObservationApiEndToEndTest {
 
         assertThat(api.currentState().currentStage()).isEqualTo("codegen");
         assertThat(api.currentState().canNext()).isFalse();
+        assertThat(api.currentStageVisualData().visualType()).isEqualTo("assembly");
+        assertThat(api.currentStageVisualData().assemblyLines()).isNotEmpty();
         assertThat(api.globalData().tokenSummary()).isNotEmpty();
         assertThat(api.globalData().astSummary()).isNotEmpty();
         assertThat(api.globalData().semanticSummary()).isNotEmpty();
         assertThat(api.globalData().irSummary()).isNotEmpty();
         assertThat(api.globalData().assemblySummary()).contains("END");
+    }
+
+    @Test
+    void exposesStageSpecificVisualDataAcrossPreparedStages() {
+        MiniCObservationApi api = new MiniCObservationApi();
+        api.loadSource("visual-e2e.mc", "int main() { return 0; }");
+        api.startSession();
+
+        assertThat(api.currentStageVisualData().visualType()).isEqualTo("lexer");
+
+        advanceToStage(api, "parser");
+        while (api.currentState().currentStage().equals("parser") && api.currentStageData().completedSteps() < api.currentStageData().totalSteps()) {
+            api.next();
+        }
+        UiStageVisualDto parserVisual = api.currentStageVisualData();
+        assertThat(parserVisual.visualType()).isEqualTo("ast");
+        assertThat(parserVisual.astRoot()).isNotNull();
+        assertThat(flatAstLabels(parserVisual.astRoot()))
+                .contains("Program")
+                .anySatisfy(label -> assertThat(label).contains("FunctionDecl main"))
+                .anySatisfy(label -> assertThat(label).contains("BlockStmt"))
+                .anySatisfy(label -> assertThat(label).contains("ReturnStmt"))
+                .anySatisfy(label -> assertThat(label).contains("IntegerLiteralExpr"));
+        assertThat(parserVisual.astRoot().children().getFirst().range().startOffset()).isZero();
+        assertThat(flatAstNodes(parserVisual.astRoot())).anySatisfy(node ->
+                assertThat(node.label()).contains("FunctionDecl main"));
+
+        advanceToStage(api, "semantic");
+        api.next();
+        api.next();
+        api.next();
+        api.next();
+        UiStageVisualDto semanticVisual = api.currentStageVisualData();
+        assertThat(semanticVisual.visualType()).isEqualTo("semantic-scope");
+        assertThat(semanticVisual.semanticRoot().label()).isEqualTo("global scope");
+        assertThat(semanticVisual.semanticEdgesPointChildToParent()).isTrue();
+        assertThat(semanticVisual.semanticRoot().symbols())
+                .anySatisfy(symbol -> assertThat(symbol).contains("FUNCTION main"));
+
+        advanceToStage(api, "codegen");
+        api.next();
+        UiStageVisualDto codegenVisual = api.currentStageVisualData();
+        assertThat(codegenVisual.visualType()).isEqualTo("assembly");
+        assertThat(codegenVisual.assemblyLines())
+                .hasSize(1)
+                .anySatisfy(line -> {
+                    assertThat(line.lineNumber()).isEqualTo(1);
+                    assertThat(line.kind()).isEqualTo("HEADER");
+                    assertThat(line.section()).isEqualTo("header");
+                    assertThat(line.label()).isEqualTo("target");
+                    assertThat(line.active()).isTrue();
+                });
+    }
+
+    private static void advanceToStage(MiniCObservationApi api, String stage) {
+        int guard = 0;
+        while (!api.currentState().currentStage().equals(stage) && guard++ < 1000) {
+            api.next();
+        }
+        assertThat(api.currentState().currentStage()).isEqualTo(stage);
+    }
+
+    private static java.util.List<String> flatAstLabels(UiAstNodeVisualDto node) {
+        java.util.ArrayList<String> labels = new java.util.ArrayList<>();
+        labels.add(node.label());
+        node.children().forEach(child -> labels.addAll(flatAstLabels(child)));
+        return labels;
+    }
+
+    private static java.util.List<UiAstNodeVisualDto> flatAstNodes(UiAstNodeVisualDto node) {
+        java.util.ArrayList<UiAstNodeVisualDto> nodes = new java.util.ArrayList<>();
+        nodes.add(node);
+        node.children().forEach(child -> nodes.addAll(flatAstNodes(child)));
+        return nodes;
     }
 }

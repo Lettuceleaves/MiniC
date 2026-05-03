@@ -30,6 +30,7 @@ final class StatementParser {
     }
 
     BlockStmt parseBlock() {
+        state.enter("block");
         Token startToken = state.consume(TokenKind.LEFT_BRACE, "期望 '{'");
         if (startToken == null) {
             return null;
@@ -49,7 +50,7 @@ final class StatementParser {
         if (endToken == null) {
             return null;
         }
-        return new BlockStmt(
+        BlockStmt blockStmt = new BlockStmt(
                 statements,
                 new SourceRange(
                         startToken.range().sourceFile(),
@@ -57,6 +58,9 @@ final class StatementParser {
                         endToken.range().endOffset()
                 )
         );
+        state.build(blockStmt, "BlockStmt", blockStmt.range());
+        state.exit("block", blockStmt.range());
+        return blockStmt;
     }
 
     private Statement parseStatement() {
@@ -88,6 +92,7 @@ final class StatementParser {
     }
 
     private IfStmt parseIfStmt() {
+        state.enter("ifStmt");
         Token startToken = state.consume(TokenKind.IF, "期望 if");
         state.consume(TokenKind.LEFT_PAREN, "期望 '('");
         Expression condition = expressionParser.parseExpression();
@@ -102,7 +107,7 @@ final class StatementParser {
             return null;
         }
         Statement endBranch = elseBranch != null ? elseBranch : thenBranch;
-        return new IfStmt(
+        IfStmt ifStmt = new IfStmt(
                 condition,
                 thenBranch,
                 elseBranch,
@@ -112,6 +117,9 @@ final class StatementParser {
                         endBranch.range().endOffset()
                 )
         );
+        state.build(ifStmt, "IfStmt", ifStmt.range());
+        state.exit("ifStmt", ifStmt.range());
+        return ifStmt;
     }
 
     private BreakStmt parseBreakStmt() {
@@ -120,11 +128,13 @@ final class StatementParser {
         if (startToken == null || semicolonToken == null) {
             return null;
         }
-        return new BreakStmt(new SourceRange(
+        BreakStmt breakStmt = new BreakStmt(new SourceRange(
                 startToken.range().sourceFile(),
                 startToken.range().startOffset(),
                 semicolonToken.range().endOffset()
         ));
+        state.build(breakStmt, "BreakStmt", breakStmt.range());
+        return breakStmt;
     }
 
     private ContinueStmt parseContinueStmt() {
@@ -133,11 +143,13 @@ final class StatementParser {
         if (startToken == null || semicolonToken == null) {
             return null;
         }
-        return new ContinueStmt(new SourceRange(
+        ContinueStmt continueStmt = new ContinueStmt(new SourceRange(
                 startToken.range().sourceFile(),
                 startToken.range().startOffset(),
                 semicolonToken.range().endOffset()
         ));
+        state.build(continueStmt, "ContinueStmt", continueStmt.range());
+        return continueStmt;
     }
 
     private WhileStmt parseWhileStmt() {
@@ -150,7 +162,7 @@ final class StatementParser {
         if (startToken == null || condition == null || body == null) {
             return null;
         }
-        return new WhileStmt(
+        WhileStmt whileStmt = new WhileStmt(
                 condition,
                 body,
                 new SourceRange(
@@ -159,6 +171,8 @@ final class StatementParser {
                         body.range().endOffset()
                 )
         );
+        state.build(whileStmt, "WhileStmt", whileStmt.range());
+        return whileStmt;
     }
 
     private ForStmt parseForStmt() {
@@ -180,7 +194,7 @@ final class StatementParser {
         if (startToken == null || body == null) {
             return null;
         }
-        return new ForStmt(
+        ForStmt forStmt = new ForStmt(
                 initializer,
                 condition,
                 step,
@@ -191,6 +205,8 @@ final class StatementParser {
                         body.range().endOffset()
                 )
         );
+        state.build(forStmt, "ForStmt", forStmt.range());
+        return forStmt;
     }
 
     private Statement parseForInitializer() {
@@ -240,12 +256,14 @@ final class StatementParser {
                         type.range().startOffset(),
                         semicolonToken.range().endOffset()
                 );
-        return new VarDeclStmt(
+        VarDeclStmt varDeclStmt = new VarDeclStmt(
                 name,
                 declaredType,
                 initializer,
                 range
         );
+        state.build(varDeclStmt, "VarDeclStmt " + varDeclStmt.name(), varDeclStmt.range());
+        return varDeclStmt;
     }
 
     private MiniType parseArraySuffix(MiniType baseType) {
@@ -266,6 +284,7 @@ final class StatementParser {
     }
 
     private ReturnStmt parseReturnStmt() {
+        state.enter("returnStmt");
         Token startToken = state.consume(TokenKind.RETURN, "期望 return");
         Expression expression = null;
         if (!state.check(TokenKind.SEMICOLON)) {
@@ -276,7 +295,7 @@ final class StatementParser {
         if (startToken == null || semicolonToken == null) {
             return null;
         }
-        return new ReturnStmt(
+        ReturnStmt returnStmt = new ReturnStmt(
                 expression,
                 new SourceRange(
                         startToken.range().sourceFile(),
@@ -284,6 +303,9 @@ final class StatementParser {
                         semicolonToken.range().endOffset()
                 )
         );
+        state.build(returnStmt, "ReturnStmt", returnStmt.range());
+        state.exit("returnStmt", returnStmt.range());
+        return returnStmt;
     }
 
     private ExprStmt parseExprStmt() {
@@ -293,7 +315,7 @@ final class StatementParser {
         if (expression == null || semicolonToken == null) {
             return null;
         }
-        return new ExprStmt(
+        ExprStmt exprStmt = new ExprStmt(
                 expression,
                 new SourceRange(
                         startToken.range().sourceFile(),
@@ -301,6 +323,8 @@ final class StatementParser {
                         semicolonToken.range().endOffset()
                 )
         );
+        state.build(exprStmt, "ExprStmt", exprStmt.range());
+        return exprStmt;
     }
 
     private boolean isTypeStart() {

@@ -124,6 +124,45 @@ public final class MiniCObservationApi {
     }
 
     /**
+     * 查询当前阶段图形化数据。
+     *
+     * @return 当前阶段图形化数据
+     */
+    public UiStageVisualDto currentStageVisualData() {
+        CompileObservationSession currentSession = requireSession();
+        if (currentSession.currentStepper() instanceof minic.runtime.step.LexerStageStepper lexerStepper) {
+            return UiStageVisualDto.fromLexerTokens(
+                    currentSession.currentStageData(),
+                    lexerStepper.lexerState().tokens(),
+                    lexerStepper.lexerState().currentToken().orElse(null)
+            );
+        }
+        if (currentSession.currentStepper() instanceof minic.runtime.step.ParserStageStepper parserStepper) {
+            return UiStageVisualDto.fromAst(
+                    currentSession.currentStageData(),
+                    parserStepper.previewProgram(),
+                    parserStepper.currentObservationNode().orElse(null),
+                    parserStepper.revealedAstNodes()
+            );
+        }
+        if (currentSession.currentStepper() instanceof minic.runtime.step.SemanticStageStepper semanticStepper) {
+            return UiStageVisualDto.fromSemanticScope(
+                    currentSession.currentStageData(),
+                    semanticStepper.semanticState().work().globalScope(),
+                    semanticStepper.semanticState().currentAction().orElse(null)
+            );
+        }
+        if (currentSession.currentStepper() instanceof minic.runtime.step.CodegenStageStepper codegenStepper) {
+            return UiStageVisualDto.fromAssemblyLines(
+                    currentSession.currentStageData(),
+                    codegenStepper.codegenState().work().assemblyLineData(),
+                    codegenStepper.codegenState().work().currentSection()
+            );
+        }
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+    }
+
+    /**
      * 查询全局数据。
      *
      * @return 全局数据

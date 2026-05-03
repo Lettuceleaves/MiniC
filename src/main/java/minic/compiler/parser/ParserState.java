@@ -11,13 +11,19 @@ import java.util.List;
 final class ParserState {
     private final List<Token> tokens;
     private final List<Diagnostic> diagnostics = new ArrayList<>();
+    private final ParserTrace trace;
     private int currentIndex;
 
     ParserState(List<Token> tokens) {
+        this(tokens, null);
+    }
+
+    ParserState(List<Token> tokens, ParserTrace trace) {
         if (tokens.isEmpty()) {
             throw new IllegalArgumentException("tokens must contain EOF");
         }
         this.tokens = tokens;
+        this.trace = trace;
     }
 
     List<Diagnostic> diagnostics() {
@@ -56,7 +62,11 @@ final class ParserState {
         if (!isAtEnd()) {
             currentIndex++;
         }
-        return previous();
+        Token token = previous();
+        if (trace != null) {
+            trace.consume(token);
+        }
+        return token;
     }
 
     boolean isAtEnd() {
@@ -73,6 +83,24 @@ final class ParserState {
 
     void report(Token token, String message) {
         diagnostics.add(new Diagnostic("PAR001", DiagnosticSeverity.ERROR, message, token.range()));
+    }
+
+    void enter(String rule) {
+        if (trace != null) {
+            trace.enter(rule, peek().range());
+        }
+    }
+
+    void exit(String rule, minic.source.SourceRange range) {
+        if (trace != null) {
+            trace.exit(rule, range);
+        }
+    }
+
+    void build(Object node, String label, minic.source.SourceRange range) {
+        if (trace != null) {
+            trace.build(node, label, range);
+        }
     }
 
     void synchronizeFunction() {

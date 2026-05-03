@@ -233,8 +233,58 @@
 .visual-canvas {
     -fx-padding: 16px;
     -fx-background-color: #1e1e1e;
-    -fx-hgap: 10px;
-    -fx-vgap: 10px;
+}
+
+.visual-scroll {
+    -fx-background-color: #1e1e1e;
+    -fx-background: #1e1e1e;
+    -fx-fit-to-width: true;
+}
+
+.ast-graph {
+    -fx-background-color: #1e1e1e;
+}
+
+.ast-edge {
+    -fx-stroke: #3f6fa3;
+    -fx-stroke-width: 1.15px;
+    -fx-opacity: 0.72;
+}
+
+.ast-edge.hot {
+    -fx-stroke: #d7ba7d;
+    -fx-stroke-width: 2.1px;
+    -fx-opacity: 1;
+}
+
+.ast-graph-node {
+    -fx-fill: #252526;
+    -fx-stroke: #569cd6;
+    -fx-stroke-width: 1.35px;
+}
+
+.ast-graph-node.root {
+    -fx-fill: #094771;
+    -fx-stroke: #8ab4f8;
+    -fx-stroke-width: 1.8px;
+}
+
+.ast-graph-node.hot {
+    -fx-fill: #4b2f1e;
+    -fx-stroke: #d7ba7d;
+    -fx-stroke-width: 1.8px;
+}
+
+.ast-graph-node.leaf {
+    -fx-fill: #1f2d22;
+    -fx-stroke: #6a9955;
+}
+
+.ast-graph-label {
+    -fx-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 10px;
+    -fx-text-alignment: center;
 }
 
 .visual-node {
@@ -252,6 +302,101 @@
 .visual-node.hot {
     -fx-background-color: #4b2f1e;
     -fx-border-color: #d7ba7d;
+    -fx-text-fill: #ffffff;
+}
+
+.lexer-row {
+    -fx-min-height: 21px;
+}
+
+.lexer-line-number {
+    -fx-min-width: 48px;
+    -fx-padding: 0 12px 0 0;
+    -fx-alignment: center-right;
+    -fx-text-fill: #858585;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.lexer-segment {
+    -fx-min-height: 21px;
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+    -fx-background-color: transparent;
+}
+
+.lexer-segment.active {
+    -fx-background-color: rgba(86, 156, 214, 0.36);
+    -fx-text-fill: #ffffff;
+}
+
+.ast-row {
+    -fx-min-height: 24px;
+}
+
+.ast-node-line {
+    -fx-padding: 3px 8px;
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 1px;
+}
+
+.ast-node-line.active {
+    -fx-background-color: #25364a;
+    -fx-border-color: #007acc;
+    -fx-text-fill: #ffffff;
+}
+
+.semantic-row {
+    -fx-min-height: 26px;
+}
+
+.semantic-scope-line {
+    -fx-padding: 4px 8px;
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 1px;
+}
+
+.semantic-scope-line.path {
+    -fx-border-color: #007acc;
+}
+
+.semantic-scope-line.active {
+    -fx-background-color: #25364a;
+    -fx-text-fill: #ffffff;
+}
+
+.assembly-row {
+    -fx-min-height: 21px;
+}
+
+.assembly-line-number {
+    -fx-min-width: 54px;
+    -fx-padding: 0 12px 0 0;
+    -fx-alignment: center-right;
+    -fx-text-fill: #858585;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.assembly-text {
+    -fx-padding: 1px 8px;
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.assembly-line-number.active,
+.assembly-text.active {
+    -fx-background-color: #25364a;
     -fx-text-fill: #ffffff;
 }
 

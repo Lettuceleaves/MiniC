@@ -13,6 +13,7 @@ import java.util.Optional;
 public final class Scope {
     private final Scope parent;
     private final Map<String, Symbol> symbols = new LinkedHashMap<>();
+    private final java.util.List<Scope> children = new java.util.ArrayList<>();
 
     /**
      * 创建根作用域。
@@ -28,6 +29,9 @@ public final class Scope {
      */
     public Scope(Scope parent) {
         this.parent = parent;
+        if (parent != null) {
+            parent.children.add(this);
+        }
     }
 
     /**
@@ -83,5 +87,23 @@ public final class Scope {
     public Optional<Symbol> resolveLocal(String name) {
         Objects.requireNonNull(name, "name");
         return Optional.ofNullable(symbols.get(name));
+    }
+
+    /**
+     * 返回当前作用域直接声明的符号快照。
+     *
+     * @return 当前作用域符号
+     */
+    public java.util.List<Symbol> symbols() {
+        return java.util.List.copyOf(symbols.values());
+    }
+
+    /**
+     * 返回直接子作用域快照。
+     *
+     * @return 子作用域
+     */
+    public java.util.List<Scope> children() {
+        return java.util.List.copyOf(children);
     }
 }

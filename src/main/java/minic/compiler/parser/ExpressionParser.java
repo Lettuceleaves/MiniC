@@ -31,7 +31,12 @@ final class ExpressionParser {
     }
 
     Expression parseExpression() {
-        return parseAssignment();
+        state.enter("expression");
+        Expression expression = parseAssignment();
+        if (expression != null) {
+            state.exit("expression", expression.range());
+        }
+        return expression;
     }
 
     private Expression parseAssignment() {
@@ -43,7 +48,7 @@ final class ExpressionParser {
         Token equalsToken = state.previous();
         Expression value = parseAssignment();
         if (isAssignmentTarget(expression) && value != null) {
-            return new AssignmentExpr(
+            AssignmentExpr assignmentExpr = new AssignmentExpr(
                     expression,
                     value,
                     new SourceRange(
@@ -52,6 +57,8 @@ final class ExpressionParser {
                             value.range().endOffset()
                     )
             );
+            state.build(assignmentExpr, "AssignmentExpr", assignmentExpr.range());
+            return assignmentExpr;
         }
 
         state.report(equalsToken, "赋值左侧必须是标识符");
@@ -118,7 +125,7 @@ final class ExpressionParser {
             if (operand == null) {
                 return null;
             }
-            return new UnaryExpr(
+            UnaryExpr unaryExpr = new UnaryExpr(
                     operator.kind(),
                     operand,
                     new SourceRange(
@@ -127,6 +134,8 @@ final class ExpressionParser {
                             operand.range().endOffset()
                     )
             );
+            state.build(unaryExpr, "UnaryExpr " + unaryExpr.operator(), unaryExpr.range());
+            return unaryExpr;
         }
         return parsePostfix();
     }
@@ -149,6 +158,7 @@ final class ExpressionParser {
                                 endToken.range().endOffset()
                         )
                 );
+                state.build(expression, "IndexExpr", expression.range());
                 continue;
             }
             if (state.match(TokenKind.DOT)) {
@@ -173,7 +183,7 @@ final class ExpressionParser {
         if (fieldToken == null) {
             return target;
         }
-        return new FieldAccessExpr(
+        FieldAccessExpr fieldAccessExpr = new FieldAccessExpr(
                 target,
                 fieldToken.lexeme(),
                 viaPointer,
@@ -183,72 +193,92 @@ final class ExpressionParser {
                         fieldToken.range().endOffset()
                 )
         );
+        state.build(fieldAccessExpr, "FieldAccessExpr " + fieldAccessExpr.fieldName(), fieldAccessExpr.range());
+        return fieldAccessExpr;
     }
 
     private Expression parsePrimary() {
         if (state.match(TokenKind.INTEGER_LITERAL)) {
             Token integerToken = state.previous();
-            return new IntegerLiteralExpr(
+            IntegerLiteralExpr expr = new IntegerLiteralExpr(
                     (Integer) integerToken.literalValue(),
                     integerToken.lexeme(),
                     integerToken.range()
             );
+            state.build(expr, "IntegerLiteralExpr " + expr.value(), expr.range());
+            return expr;
         }
         if (state.match(TokenKind.LONG_LITERAL)) {
             Token longToken = state.previous();
-            return new LongLiteralExpr(
+            LongLiteralExpr expr = new LongLiteralExpr(
                     (Long) longToken.literalValue(),
                     longToken.lexeme(),
                     longToken.range()
             );
+            state.build(expr, "LongLiteralExpr " + expr.value(), expr.range());
+            return expr;
         }
         if (state.match(TokenKind.FLOAT_LITERAL)) {
             Token floatToken = state.previous();
-            return new FloatLiteralExpr(
+            FloatLiteralExpr expr = new FloatLiteralExpr(
                     (Float) floatToken.literalValue(),
                     floatToken.lexeme(),
                     floatToken.range()
             );
+            state.build(expr, "FloatLiteralExpr " + expr.value(), expr.range());
+            return expr;
         }
         if (state.match(TokenKind.DOUBLE_LITERAL)) {
             Token doubleToken = state.previous();
-            return new DoubleLiteralExpr(
+            DoubleLiteralExpr expr = new DoubleLiteralExpr(
                     (Double) doubleToken.literalValue(),
                     doubleToken.lexeme(),
                     doubleToken.range()
             );
+            state.build(expr, "DoubleLiteralExpr " + expr.value(), expr.range());
+            return expr;
         }
         if (state.match(TokenKind.CHAR_LITERAL)) {
             Token charToken = state.previous();
-            return new CharLiteralExpr(
+            CharLiteralExpr expr = new CharLiteralExpr(
                     (Character) charToken.literalValue(),
                     charToken.lexeme(),
                     charToken.range()
             );
+            state.build(expr, "CharLiteralExpr " + expr.value(), expr.range());
+            return expr;
         }
         if (state.match(TokenKind.BOOL_LITERAL)) {
             Token boolToken = state.previous();
-            return new BoolLiteralExpr(
+            BoolLiteralExpr expr = new BoolLiteralExpr(
                     (Boolean) boolToken.literalValue(),
                     boolToken.lexeme(),
                     boolToken.range()
             );
+            state.build(expr, "BoolLiteralExpr " + expr.value(), expr.range());
+            return expr;
         }
         if (state.match(TokenKind.NULL_LITERAL)) {
             Token nullToken = state.previous();
-            return new NullLiteralExpr(nullToken.lexeme(), nullToken.range());
+            NullLiteralExpr expr = new NullLiteralExpr(nullToken.lexeme(), nullToken.range());
+            state.build(expr, "NullLiteralExpr " + expr.lexeme(), expr.range());
+            return expr;
         }
         if (state.match(TokenKind.STRING_LITERAL)) {
             Token stringToken = state.previous();
-            return new StringLiteralExpr(
+            StringLiteralExpr expr = new StringLiteralExpr(
                     (String) stringToken.literalValue(),
                     stringToken.lexeme(),
                     stringToken.range()
             );
+            state.build(expr, "StringLiteralExpr " + expr.value(), expr.range());
+            return expr;
         }
         if (state.match(TokenKind.IDENTIFIER)) {
             Token nameToken = state.previous();
-            return new NameExpr(nameToken.lexeme(), nameToken.range());
+            NameExpr expr = new NameExpr(nameToken.lexeme(), nameToken.range());
+            state.build(expr, "NameExpr " + expr.name(), expr.range());
+            return expr;
         }
         if (state.match(TokenKind.LEFT_PAREN)) {
             Token startToken = state.previous();
@@ -257,7 +287,7 @@ final class ExpressionParser {
             if (expression == null || endToken == null) {
                 return expression;
             }
-            return new GroupingExpr(
+            GroupingExpr groupingExpr = new GroupingExpr(
                     expression,
                     new SourceRange(
                             startToken.range().sourceFile(),
@@ -265,6 +295,8 @@ final class ExpressionParser {
                             endToken.range().endOffset()
                     )
             );
+            state.build(groupingExpr, "GroupingExpr", groupingExpr.range());
+            return groupingExpr;
         }
 
         state.report(state.peek(), "期望表达式");
@@ -289,7 +321,7 @@ final class ExpressionParser {
         if (endToken == null) {
             return null;
         }
-        return new CallExpr(
+        CallExpr callExpr = new CallExpr(
                 callee,
                 arguments,
                 new SourceRange(
@@ -298,13 +330,15 @@ final class ExpressionParser {
                         endToken.range().endOffset()
                 )
         );
+        state.build(callExpr, "CallExpr", callExpr.range());
+        return callExpr;
     }
 
     private Expression combineBinary(Expression left, Token operator, Expression right) {
         if (left == null || right == null) {
             return left != null ? left : right;
         }
-        return new BinaryExpr(
+        return traceBinary(new BinaryExpr(
                 left,
                 operator.kind(),
                 right,
@@ -313,6 +347,11 @@ final class ExpressionParser {
                         left.range().startOffset(),
                         right.range().endOffset()
                 )
-        );
+        ));
+    }
+
+    private Expression traceBinary(BinaryExpr binaryExpr) {
+        state.build(binaryExpr, "BinaryExpr " + binaryExpr.operator(), binaryExpr.range());
+        return binaryExpr;
     }
 }
