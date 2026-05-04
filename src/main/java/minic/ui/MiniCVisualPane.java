@@ -12,6 +12,8 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Slider;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
@@ -33,6 +35,11 @@ public final class MiniCVisualPane extends VBox {
     private static final double DEFAULT_AST_ZOOM = 1.0;
     private static final double MIN_AST_ZOOM = 0.001;
     private static final double MAX_AST_ZOOM = 1.0;
+    private static final double AST_ZOOM_STEP = 0.025;
+    private static final String AST_DRAG_START_X_KEY = "astDragStartX";
+    private static final String AST_DRAG_START_Y_KEY = "astDragStartY";
+    private static final String AST_DRAG_START_H_KEY = "astDragStartH";
+    private static final String AST_DRAG_START_V_KEY = "astDragStartV";
 
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCVisualModelFactory modelFactory = new MiniCVisualModelFactory();
@@ -67,7 +74,7 @@ public final class MiniCVisualPane extends VBox {
         splitPane.getDividers().getFirst().positionProperty().addListener((observable, oldValue, newValue) ->
                 dividerPosition = newValue.doubleValue());
         astZoom.getStyleClass().add("ast-zoom-slider");
-        astZoom.setBlockIncrement(0.1);
+        astZoom.setBlockIncrement(AST_ZOOM_STEP);
         astZoom.setMajorTickUnit(0.25);
         astZoom.setShowTickMarks(true);
         configureExecutionInputControls();
@@ -124,6 +131,24 @@ public final class MiniCVisualPane extends VBox {
             }
         }
         restoreDivider();
+    }
+
+    /**
+     * 放大 AST 图。
+     */
+    public void zoomAstIn() {
+        setAstZoom(astZoom.getValue() + AST_ZOOM_STEP);
+    }
+
+    /**
+     * 缩小 AST 图。
+     */
+    public void zoomAstOut() {
+        setAstZoom(astZoom.getValue() - AST_ZOOM_STEP);
+    }
+
+    private void setAstZoom(double value) {
+        astZoom.setValue(Math.max(MIN_AST_ZOOM, Math.min(MAX_AST_ZOOM, value)));
     }
 
     private void restoreDivider() {
@@ -294,12 +319,75 @@ public final class MiniCVisualPane extends VBox {
         graphViewport.prefHeightProperty().bind(astZoom.valueProperty().multiply(baseHeight));
         graphViewport.minWidthProperty().bind(graphViewport.prefWidthProperty());
         graphViewport.minHeightProperty().bind(graphViewport.prefHeightProperty());
+        configureAstGraphDrag(graphViewport);
         updateZoomedActiveMarker(box, graph, astZoom.getValue());
         astZoom.valueProperty().addListener((observable, oldValue, newValue) ->
                 updateZoomedActiveMarker(box, graph, newValue.doubleValue()));
         box.getChildren().addAll(controls, graphViewport);
         box.setMinWidth(0);
         return box;
+    }
+
+    private void configureAstGraphDrag(Pane graphViewport) {
+        graphViewport.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> {
+            if (event.getButton() != MouseButton.SECONDARY) {
+                return;
+            }
+            ScrollPane scrollPane = nearestScrollPane(graphViewport);
+            if (scrollPane == null) {
+                return;
+            }
+            graphViewport.getProperties().put(AST_DRAG_START_X_KEY, event.getScreenX());
+            graphViewport.getProperties().put(AST_DRAG_START_Y_KEY, event.getScreenY());
+            graphViewport.getProperties().put(AST_DRAG_START_H_KEY, scrollPane.getHvalue());
+            graphViewport.getProperties().put(AST_DRAG_START_V_KEY, scrollPane.getVvalue());
+            event.consume();
+        });
+        graphViewport.addEventFilter(MouseEvent.MOUSE_DRAGGED, event -> {
+            if (!event.isSecondaryButtonDown()) {
+                return;
+            }
+            ScrollPane scrollPane = nearestScrollPane(graphViewport);
+            if (scrollPane == null) {
+                return;
+            }
+            Object startX = graphViewport.getProperties().get(AST_DRAG_START_X_KEY);
+            Object startY = graphViewport.getProperties().get(AST_DRAG_START_Y_KEY);
+            Object startH = graphViewport.getProperties().get(AST_DRAG_START_H_KEY);
+            Object startV = graphViewport.getProperties().get(AST_DRAG_START_V_KEY);
+            if (!(startX instanceof Number x)
+                    || !(startY instanceof Number y)
+                    || !(startH instanceof Number h)
+                    || !(startV instanceof Number v)) {
+                return;
+            }
+            double contentWidth = scrollPane.getContent().getBoundsInLocal().getWidth();
+            double contentHeight = scrollPane.getContent().getBoundsInLocal().getHeight();
+            double viewportWidth = scrollPane.getViewportBounds().getWidth();
+            double viewportHeight = scrollPane.getViewportBounds().getHeight();
+            double maxX = Math.max(1, contentWidth - viewportWidth);
+            double maxY = Math.max(1, contentHeight - viewportHeight);
+            double deltaX = x.doubleValue() - event.getScreenX();
+            double deltaY = y.doubleValue() - event.getScreenY();
+            scrollPane.setHvalue(clamp(h.doubleValue() + deltaX / maxX));
+            scrollPane.setVvalue(clamp(v.doubleValue() + deltaY / maxY));
+            event.consume();
+        });
+    }
+
+    private ScrollPane nearestScrollPane(Node node) {
+        Parent parent = node.getParent();
+        while (parent != null) {
+            if (parent instanceof ScrollPane scrollPane) {
+                return scrollPane;
+            }
+            parent = parent.getParent();
+        }
+        return null;
+    }
+
+    private double clamp(double value) {
+        return Math.max(0, Math.min(1, value));
     }
 
     private void updateZoomedActiveMarker(VBox box, Pane graph, double zoom) {

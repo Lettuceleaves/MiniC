@@ -4,6 +4,7 @@ import javafx.scene.Parent;
 import javafx.scene.control.Label;
 import javafx.scene.control.SplitPane;
 import javafx.geometry.Orientation;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -21,6 +22,8 @@ public final class MiniCWorkbenchShell {
     private static final double INSPECTOR_WIDTH = 360;
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCDiagnosticSelection diagnosticSelection = new MiniCDiagnosticSelection();
+    private final MiniCKeyBindingConfig keyBindings = MiniCKeyBindingConfig.loadDefault();
+    private MiniCVisualPane visualPane;
 
     /**
      * 创建工作台外壳。
@@ -43,6 +46,7 @@ public final class MiniCWorkbenchShell {
         root.setLeft(activityBar());
         root.setCenter(workbenchBody());
         root.setBottom(statusBar());
+        root.addEventFilter(KeyEvent.KEY_PRESSED, this::handleShortcut);
         return root;
     }
 
@@ -131,7 +135,7 @@ public final class MiniCWorkbenchShell {
         split.setMaxWidth(Double.MAX_VALUE);
         VBox.setVgrow(split, Priority.ALWAYS);
         VBox codePane = sourceArea();
-        VBox visualPane = new MiniCVisualPane(viewModel);
+        visualPane = new MiniCVisualPane(viewModel);
         codePane.setMinWidth(0);
         visualPane.setMinWidth(0);
         split.getItems().addAll(codePane, visualPane);
@@ -167,4 +171,16 @@ public final class MiniCWorkbenchShell {
         region.setMaxWidth(width);
     }
 
+    private void handleShortcut(KeyEvent event) {
+        if (visualPane == null) {
+            return;
+        }
+        if (keyBindings.matches("ast.zoom.in", event)) {
+            visualPane.zoomAstIn();
+            event.consume();
+        } else if (keyBindings.matches("ast.zoom.out", event)) {
+            visualPane.zoomAstOut();
+            event.consume();
+        }
+    }
 }

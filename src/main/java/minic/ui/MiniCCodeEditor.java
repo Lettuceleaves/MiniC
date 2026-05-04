@@ -1,8 +1,8 @@
 package minic.ui;
 
+import javafx.application.Platform;
 import javafx.beans.value.ObservableValue;
 import javafx.geometry.Bounds;
-import javafx.scene.Node;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Label;
@@ -22,7 +22,6 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -56,6 +55,11 @@ public final class MiniCCodeEditor extends StackPane {
         input.setWrapText(false);
         input.addEventFilter(KeyEvent.KEY_PRESSED, this::handleCompletionKeys);
         input.caretPositionProperty().addListener((observable, oldValue, newValue) -> updateCompletion(false));
+        input.caretBoundsProperty().addListener((observable, oldValue, newValue) -> {
+            if (completionMenu.isShowing()) {
+                scheduleCompletionMenuAtCaret();
+            }
+        });
         input.focusedProperty().addListener((observable, oldValue, focused) -> {
             if (!focused && !completionMenu.isShowing()) {
                 completionMenu.hide();
@@ -224,23 +228,20 @@ public final class MiniCCodeEditor extends StackPane {
                     return item;
                 })
                 .toList());
-        showCompletionMenu();
+        scheduleCompletionMenuAtCaret();
     }
 
-    private void showCompletionMenu() {
-        Optional<Bounds> caretBounds = input.getCaretBounds();
-        if (caretBounds.isPresent()) {
-            Bounds screenBounds = input.localToScreen(caretBounds.get());
-            if (screenBounds != null) {
-                showCompletionMenuAt(screenBounds.getMinX(), screenBounds.getMaxY() + 2);
-                return;
-            }
-        }
-        Node node = input;
-        Bounds screenBounds = node.localToScreen(node.getBoundsInLocal());
-        if (screenBounds != null) {
-            showCompletionMenuAt(screenBounds.getMinX() + 12, screenBounds.getMinY() + 24);
-        }
+    private void scheduleCompletionMenuAtCaret() {
+        Platform.runLater(this::showCompletionMenuAtCaret);
+    }
+
+    private void showCompletionMenuAtCaret() {
+        input.getCaretBounds()
+                .map(input::localToScreen)
+                .ifPresentOrElse(
+                        bounds -> showCompletionMenuAt(bounds.getMinX(), bounds.getMaxY() + 3),
+                        completionMenu::hide
+                );
     }
 
     private void showCompletionMenuAt(double screenX, double screenY) {
