@@ -1,22 +1,23 @@
 package minic.ui;
 
-import javafx.application.Platform;
+import javafx.beans.value.ObservableValue;
 import javafx.geometry.Bounds;
 import javafx.scene.Node;
-import javafx.scene.control.TextArea;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Label;
-import javafx.scene.layout.StackPane;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
-import javafx.scene.shape.Rectangle;
-import javafx.scene.text.Text;
-import javafx.scene.text.TextFlow;
+import javafx.scene.layout.StackPane;
 import minic.uiapi.UiDiagnosticDto;
 import minic.uiapi.UiLexerTokenVisualDto;
 import minic.uiapi.UiRealtimeAnalysisDto;
+import org.fxmisc.flowless.VirtualizedScrollPane;
+import org.fxmisc.richtext.CodeArea;
+import org.fxmisc.richtext.model.StyleSpans;
+import org.fxmisc.richtext.model.StyleSpansBuilder;
 
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -27,7 +28,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 叠层代码编辑器：TextFlow 负责语法高亮，TextArea 负责输入和光标。
+ * 基于 RichTextFX 的代码编辑器，负责语法高亮、真实光标/选择和补全提示。
  */
 public final class MiniCCodeEditor extends StackPane {
     private static final List<String> KEYWORDS = List.of(
@@ -41,9 +42,7 @@ public final class MiniCCodeEditor extends StackPane {
     private static final Pattern DECLARED_NAME_PATTERN = Pattern.compile(
             "\\b(?:extern\\s+)?(?:bool|char|int|long|float|double|struct\\s+[A-Za-z_][A-Za-z0-9_]*)(?:\\s*\\*)*\\s+([A-Za-z_][A-Za-z0-9_]*)"
     );
-    private final TextFlow highlightLayer = new TextFlow();
-    private final TextArea input = new TextArea();
-    private final Rectangle visibleCaret = new Rectangle(1.5, 16);
+    private final CodeArea input = new CodeArea();
     private final ContextMenu completionMenu = new ContextMenu();
     private UiRealtimeAnalysisDto latestAnalysis;
 
@@ -52,42 +51,25 @@ public final class MiniCCodeEditor extends StackPane {
      */
     public MiniCCodeEditor() {
         getStyleClass().add("code-editor");
-        highlightLayer.getStyleClass().add("code-highlight-layer");
-        highlightLayer.setMouseTransparent(true);
-        highlightLayer.setFocusTraversable(false);
-        visibleCaret.getStyleClass().add("code-visible-caret");
-        visibleCaret.setManaged(false);
-        visibleCaret.setMouseTransparent(true);
-        visibleCaret.setVisible(false);
         input.getStyleClass().add("source-editor");
         input.setWrapText(false);
         input.addEventFilter(KeyEvent.KEY_PRESSED, this::handleCompletionKeys);
-        input.caretPositionProperty().addListener((observable, oldValue, newValue) -> {
-            updateVisibleCaret();
-            updateCompletion(false);
-        });
-        input.scrollTopProperty().addListener((observable, oldValue, newValue) -> updateVisibleCaret());
-        input.scrollLeftProperty().addListener((observable, oldValue, newValue) -> updateVisibleCaret());
+        input.caretPositionProperty().addListener((observable, oldValue, newValue) -> updateCompletion(false));
         input.focusedProperty().addListener((observable, oldValue, focused) -> {
-            if (!focused) {
-                if (!completionMenu.isShowing()) {
-                    completionMenu.hide();
-                }
+            if (!focused && !completionMenu.isShowing()) {
+                completionMenu.hide();
             }
-            updateVisibleCaret();
         });
-        highlightLayer.prefWidthProperty().bind(widthProperty());
-        highlightLayer.prefHeightProperty().bind(heightProperty());
-        getChildren().addAll(highlightLayer, input, visibleCaret);
+        getChildren().add(new VirtualizedScrollPane<>(input));
     }
 
     /**
-     * 返回底层输入控件。
+     * 返回文本属性。
      *
-     * @return TextArea
+     * @return 文本属性
      */
-    public TextArea input() {
-        return input;
+    public ObservableValue<String> textProperty() {
+        return input.textProperty();
     }
 
     /**
@@ -96,9 +78,8 @@ public final class MiniCCodeEditor extends StackPane {
      * @param text 文本
      */
     public void setText(String text) {
-        input.setText(text);
+        input.replaceText(text);
         render(null);
-        updateVisibleCaret();
     }
 
     /**
@@ -140,12 +121,16 @@ public final class MiniCCodeEditor extends StackPane {
             analysis = null;
         }
         latestAnalysis = analysis;
-        highlightLayer.getChildren().clear();
+        input.setStyleSpans(0, styleSpans(source, analysis));
         if (source.isEmpty()) {
             completionMenu.hide();
-            updateVisibleCaret();
             return;
         }
+        updateCompletion(false);
+    }
+
+    private StyleSpans<Collection<String>> styleSpans(String source, UiRealtimeAnalysisDto analysis) {
+        StyleSpansBuilder<Collection<String>> builder = new StyleSpansBuilder<>();
         List<UiLexerTokenVisualDto> tokens = analysis == null
                 ? List.of()
                 : analysis.tokens().stream()
@@ -155,46 +140,34 @@ public final class MiniCCodeEditor extends StackPane {
         List<UiDiagnosticDto> diagnostics = analysis == null ? List.of() : analysis.diagnostics();
         int cursor = 0;
         for (UiLexerTokenVisualDto token : tokens) {
-            if (token.startOffset() > cursor) {
-                addSegment(source.substring(cursor, safeOffset(source, token.startOffset())), "plain", false);
-            }
             int start = safeOffset(source, token.startOffset());
             int end = safeOffset(source, token.endOffset());
-            addSegment(source.substring(start, end), tokenStyle(token.kind()), overlapsDiagnostic(start, end, diagnostics));
+            if (start > cursor) {
+                builder.add(List.of("token-plain"), start - cursor);
+            }
+            builder.add(tokenStyles(token.kind(), overlapsDiagnostic(start, end, diagnostics)), end - start);
             cursor = end;
         }
         if (cursor < source.length()) {
-            addSegment(source.substring(cursor), "plain", overlapsDiagnostic(cursor, source.length(), diagnostics));
+            builder.add(List.of("token-plain"), source.length() - cursor);
         }
-        updateCompletion(false);
-        updateVisibleCaret();
+        if (source.isEmpty()) {
+            builder.add(List.of("token-plain"), 0);
+        }
+        return builder.create();
     }
 
-    private void updateVisibleCaret() {
-        Platform.runLater(this::layoutVisibleCaret);
-    }
-
-    private void layoutVisibleCaret() {
-        if (!input.isFocused() && !completionMenu.isShowing()) {
-            visibleCaret.setVisible(false);
-            return;
-        }
-        Node caretNode = input.lookup(".caret");
-        if (caretNode == null) {
-            visibleCaret.setVisible(true);
-            visibleCaret.setLayoutX(9);
-            visibleCaret.setLayoutY(7);
-            return;
-        }
-        Bounds screenBounds = caretNode.localToScreen(caretNode.getBoundsInLocal());
-        if (screenBounds == null) {
-            return;
-        }
-        Bounds localBounds = screenToLocal(screenBounds);
-        visibleCaret.setHeight(Math.max(14, localBounds.getHeight()));
-        visibleCaret.setLayoutX(localBounds.getMinX());
-        visibleCaret.setLayoutY(localBounds.getMinY());
-        visibleCaret.setVisible(true);
+    private Collection<String> tokenStyles(String kind, boolean diagnostic) {
+        String tokenStyle = switch (kind) {
+            case "BOOL", "CHAR", "INT", "LONG", "FLOAT", "DOUBLE", "EXTERN", "STRUCT",
+                    "RETURN", "IF", "ELSE", "WHILE", "FOR", "BREAK", "CONTINUE" -> "token-keyword";
+            case "STRING_LITERAL", "CHAR_LITERAL" -> "token-string";
+            case "INTEGER_LITERAL", "LONG_LITERAL", "FLOAT_LITERAL", "DOUBLE_LITERAL",
+                    "BOOL_LITERAL", "NULL_LITERAL" -> "token-literal";
+            case "IDENTIFIER" -> "token-identifier";
+            default -> "token-operator";
+        };
+        return diagnostic ? List.of(tokenStyle, "diagnostic") : List.of(tokenStyle);
     }
 
     private void handleCompletionKeys(KeyEvent event) {
@@ -245,19 +218,18 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     private void showCompletionMenu() {
-        Optional<Node> caretNode = Optional.ofNullable(input.lookup(".caret"));
-        if (caretNode.isPresent()) {
-            Bounds screenBounds = caretNode.get().localToScreen(caretNode.get().getBoundsInLocal());
+        Optional<Bounds> caretBounds = input.getCaretBounds();
+        if (caretBounds.isPresent()) {
+            Bounds screenBounds = input.localToScreen(caretBounds.get());
             if (screenBounds != null) {
                 completionMenu.show(input, screenBounds.getMinX(), screenBounds.getMaxY() + 2);
                 return;
             }
         }
-        if (!completionMenu.isShowing()) {
-            Bounds screenBounds = input.localToScreen(input.getBoundsInLocal());
-            if (screenBounds != null) {
-                completionMenu.show(input, screenBounds.getMinX() + 12, screenBounds.getMinY() + 24);
-            }
+        Node node = input;
+        Bounds screenBounds = node.localToScreen(node.getBoundsInLocal());
+        if (screenBounds != null && !completionMenu.isShowing()) {
+            completionMenu.show(input, screenBounds.getMinX() + 12, screenBounds.getMinY() + 24);
         }
     }
 
@@ -300,7 +272,7 @@ public final class MiniCCodeEditor extends StackPane {
     private void applyCompletion(String suggestion) {
         Prefix prefix = prefixAtCaret();
         input.replaceText(prefix.startOffset(), prefix.endOffset(), suggestion);
-        input.positionCaret(prefix.startOffset() + suggestion.length());
+        input.moveTo(prefix.startOffset() + suggestion.length());
         completionMenu.hide();
     }
 
@@ -319,32 +291,6 @@ public final class MiniCCodeEditor extends StackPane {
 
     private boolean isIdentifierPart(char value) {
         return Character.isLetterOrDigit(value) || value == '_';
-    }
-
-    private void addSegment(String text, String tokenStyle, boolean diagnostic) {
-        if (text.isEmpty()) {
-            return;
-        }
-        Text node = new Text(text);
-        node.getStyleClass().add("code-token");
-        node.getStyleClass().add("token-" + tokenStyle);
-        if (diagnostic) {
-            node.getStyleClass().add("diagnostic");
-        }
-        highlightLayer.getChildren().add(node);
-    }
-
-    private String tokenStyle(String kind) {
-        return switch (kind) {
-            case "BOOL", "CHAR", "INT", "LONG", "FLOAT", "DOUBLE", "EXTERN", "STRUCT",
-                    "RETURN", "IF", "ELSE", "WHILE", "FOR", "BREAK", "CONTINUE" -> "keyword";
-            case "STRING_LITERAL", "CHAR_LITERAL" -> "string";
-            case "INTEGER_LITERAL", "LONG_LITERAL", "FLOAT_LITERAL", "DOUBLE_LITERAL",
-                    "BOOL_LITERAL", "NULL_LITERAL" -> "literal";
-            case "IDENTIFIER" -> "identifier";
-            case "EOF" -> "plain";
-            default -> "operator";
-        };
     }
 
     private boolean overlapsDiagnostic(int start, int end, List<UiDiagnosticDto> diagnostics) {

@@ -215,24 +215,11 @@
     -fx-pref-height: 10000px;
     -fx-font-family: Consolas, "Courier New", monospace;
     -fx-font-size: 12px;
+    -fx-background-color: #1e1e1e;
 }
 
 .code-editor {
     -fx-background-color: #1e1e1e;
-}
-
-.code-highlight-layer {
-    -fx-padding: 7px 9px;
-    -fx-background-color: #1e1e1e;
-    -fx-font-family: Consolas, "Courier New", monospace;
-    -fx-font-size: 12px;
-    -fx-line-spacing: 0;
-}
-
-.code-token {
-    -fx-font-family: Consolas, "Courier New", monospace;
-    -fx-font-size: 12px;
-    -fx-fill: #d4d4d4;
 }
 
 .token-keyword {
@@ -255,31 +242,34 @@
     -fx-fill: #d4d4d4;
 }
 
-.code-token.diagnostic {
+.diagnostic {
     -fx-underline: true;
     -fx-fill: #f48771;
 }
 
-.code-editor .text-area,
-.code-editor .text-area .viewport,
-.code-editor .text-area .content {
-    -fx-background-color: transparent;
+.code-editor .styled-text-area,
+.code-editor .styled-text-area .viewport,
+.code-editor .styled-text-area .content,
+.code-editor .paragraph-box {
+    -fx-background-color: #1e1e1e;
 }
 
-.code-editor .text-area {
-    -fx-text-fill: transparent;
-    -fx-caret-color: #ffffff;
-    -fx-highlight-fill: rgba(38, 79, 120, 0.65);
-    -fx-highlight-text-fill: transparent;
+.code-editor .styled-text-area {
+    -fx-padding: 7px 9px;
 }
 
-.code-editor .text-area .caret {
+.code-editor .paragraph-text {
+    -fx-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.code-editor .caret {
     -fx-stroke: #ffffff;
 }
 
-.code-visible-caret {
-    -fx-fill: #ffffff;
-    -fx-stroke: transparent;
+.code-editor .selection {
+    -fx-fill: rgba(38, 79, 120, 0.65);
 }
 
 .completion-item {

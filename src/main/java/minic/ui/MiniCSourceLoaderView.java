@@ -33,7 +33,7 @@ public final class MiniCSourceLoaderView extends VBox {
         startButton.getStyleClass().add("control-primary");
         sampleSelector.setOnAction(event -> applySelectedSample());
         startButton.setOnAction(event -> startSession());
-        sourceEditor.input().textProperty().addListener((observable, oldValue, newValue) -> {
+        sourceEditor.textProperty().addListener((observable, oldValue, newValue) -> {
             sourceEditor.render(viewModel.realtimeAnalysisProperty().get());
             submitRealtimeSource();
         });
