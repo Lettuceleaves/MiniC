@@ -31,6 +31,7 @@ import java.util.regex.Pattern;
  * 基于 RichTextFX 的代码编辑器，负责语法高亮、真实光标/选择和补全提示。
  */
 public final class MiniCCodeEditor extends StackPane {
+    private static final String TAB_TEXT = "    ";
     private static final List<String> KEYWORDS = List.of(
             "bool", "char", "int", "long", "float", "double", "extern", "struct",
             "return", "if", "else", "while", "for", "break", "continue", "true", "false", "null"
@@ -187,6 +188,11 @@ public final class MiniCCodeEditor extends StackPane {
         if (event.isControlDown() && event.getCode() == KeyCode.SPACE) {
             updateCompletion(true);
             event.consume();
+            return;
+        }
+        if (event.getCode() == KeyCode.TAB) {
+            input.replaceSelection(TAB_TEXT);
+            event.consume();
         }
     }
 
@@ -222,15 +228,22 @@ public final class MiniCCodeEditor extends StackPane {
         if (caretBounds.isPresent()) {
             Bounds screenBounds = input.localToScreen(caretBounds.get());
             if (screenBounds != null) {
-                completionMenu.show(input, screenBounds.getMinX(), screenBounds.getMaxY() + 2);
+                showCompletionMenuAt(screenBounds.getMinX(), screenBounds.getMaxY() + 2);
                 return;
             }
         }
         Node node = input;
         Bounds screenBounds = node.localToScreen(node.getBoundsInLocal());
-        if (screenBounds != null && !completionMenu.isShowing()) {
-            completionMenu.show(input, screenBounds.getMinX() + 12, screenBounds.getMinY() + 24);
+        if (screenBounds != null) {
+            showCompletionMenuAt(screenBounds.getMinX() + 12, screenBounds.getMinY() + 24);
         }
+    }
+
+    private void showCompletionMenuAt(double screenX, double screenY) {
+        if (completionMenu.isShowing()) {
+            completionMenu.hide();
+        }
+        completionMenu.show(input, screenX, screenY);
     }
 
     private List<String> completionSuggestions(String prefix) {
