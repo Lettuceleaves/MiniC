@@ -21,6 +21,8 @@ public final class MiniCAssemblyTextModelFactory {
                         line.text(),
                         line.section(),
                         line.label(),
+                        line.kind(),
+                        line.range(),
                         line.active()
                 ))
                 .toList();

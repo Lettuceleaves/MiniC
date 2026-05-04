@@ -2,6 +2,7 @@ package minic.ui;
 
 import minic.uiapi.UiDiagnosticDto;
 import minic.uiapi.UiGlobalDataDto;
+import minic.uiapi.UiRealtimeAnalysisDto;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -48,5 +49,20 @@ class MiniCDiagnosticListFactoryTest {
         selection.select(item);
 
         assertThat(selection.selectedRangeProperty().get().startOffset()).isEqualTo(1);
+    }
+
+    @Test
+    void realtimeDiagnosticsDisplayLineAndColumn() {
+        UiRealtimeAnalysisDto realtimeAnalysis = new UiRealtimeAnalysisDto(
+                "bad.mc",
+                "int main() {\n    return @;\n}",
+                List.of(new UiDiagnosticDto("LEX001", "ERROR", "非法字符", "bad.mc", 24, 25)),
+                List.of(),
+                1
+        );
+
+        List<MiniCDiagnosticItem> items = new MiniCDiagnosticListFactory().create(null, null, realtimeAnalysis);
+
+        assertThat(items.getFirst().displayText()).contains("bad.mc:2:12");
     }
 }

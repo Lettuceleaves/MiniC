@@ -4,6 +4,7 @@ import minic.compiler.lexer.Token;
 import minic.compiler.lexer.TokenKind;
 import minic.diagnostics.Diagnostic;
 import minic.diagnostics.DiagnosticSeverity;
+import minic.source.SourceRange;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -83,6 +84,10 @@ final class ParserState {
 
     void report(Token token, String message) {
         diagnostics.add(new Diagnostic("PAR001", DiagnosticSeverity.ERROR, message, token.range()));
+    }
+
+    void report(SourceRange range, String message) {
+        diagnostics.add(new Diagnostic("PAR001", DiagnosticSeverity.ERROR, message, range));
     }
 
     void enter(String rule) {

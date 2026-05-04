@@ -1,5 +1,7 @@
 package minic.compiler.semantic;
 
+import minic.source.SourceRange;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -12,6 +14,7 @@ import java.util.Optional;
  */
 public final class Scope {
     private final Scope parent;
+    private final SourceRange range;
     private final Map<String, Symbol> symbols = new LinkedHashMap<>();
     private final java.util.List<Scope> children = new java.util.ArrayList<>();
 
@@ -19,7 +22,7 @@ public final class Scope {
      * 创建根作用域。
      */
     public Scope() {
-        this(null);
+        this(null, null);
     }
 
     /**
@@ -28,7 +31,18 @@ public final class Scope {
      * @param parent 父作用域；根作用域为 {@code null}
      */
     public Scope(Scope parent) {
+        this(parent, null);
+    }
+
+    /**
+     * 创建带父作用域和源码范围的作用域。
+     *
+     * @param parent 父作用域；根作用域为 {@code null}
+     * @param range 作用域覆盖源码范围；未知时为 {@code null}
+     */
+    public Scope(Scope parent, SourceRange range) {
         this.parent = parent;
+        this.range = range;
         if (parent != null) {
             parent.children.add(this);
         }
@@ -41,6 +55,15 @@ public final class Scope {
      */
     public Optional<Scope> parent() {
         return Optional.ofNullable(parent);
+    }
+
+    /**
+     * 返回作用域覆盖源码范围。
+     *
+     * @return 作用域范围；未知时为空
+     */
+    public Optional<SourceRange> range() {
+        return Optional.ofNullable(range);
     }
 
     /**

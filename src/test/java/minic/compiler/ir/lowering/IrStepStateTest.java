@@ -36,14 +36,34 @@ class IrStepStateTest {
         assertThat(state.work().externalFunctionCount()).isEqualTo(1);
         assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.BEGIN_FUNCTION, "add"));
         assertThat(state.work().functionCount()).isZero();
-        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_STATEMENT, "add ReturnStmt"));
-        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_AST_NODE, "add BinaryExpr"));
-        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_AST_NODE, "add NameExpr"));
-        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_AST_NODE, "add NameExpr"));
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(IrLoweringActionKind.LOWER_STATEMENT);
+            assertThat(action.subject()).isEqualTo("add ReturnStmt");
+            assertThat(action.astNode()).isNotNull();
+        });
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(IrLoweringActionKind.LOWER_AST_NODE);
+            assertThat(action.subject()).isEqualTo("add BinaryExpr");
+            assertThat(action.astNode()).isNotNull();
+        });
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(IrLoweringActionKind.LOWER_AST_NODE);
+            assertThat(action.subject()).isEqualTo("add NameExpr");
+            assertThat(action.astNode()).isNotNull();
+        });
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(IrLoweringActionKind.LOWER_AST_NODE);
+            assertThat(action.subject()).isEqualTo("add NameExpr");
+            assertThat(action.astNode()).isNotNull();
+        });
         assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.COMPLETE_FUNCTION, "add"));
         assertThat(state.work().functionCount()).isEqualTo(1);
         assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.BEGIN_FUNCTION, "main"));
-        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_STATEMENT, "main ReturnStmt"));
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(IrLoweringActionKind.LOWER_STATEMENT);
+            assertThat(action.subject()).isEqualTo("main ReturnStmt");
+            assertThat(action.astNode()).isNotNull();
+        });
         while (state.canNext() && state.work().functionCount() < 2) {
             state.next();
         }

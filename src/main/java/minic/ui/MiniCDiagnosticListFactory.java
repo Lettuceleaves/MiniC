@@ -37,7 +37,9 @@ public final class MiniCDiagnosticListFactory {
             UiRealtimeAnalysisDto realtimeAnalysis
     ) {
         if (realtimeAnalysis != null && !realtimeAnalysis.diagnostics().isEmpty()) {
-            return realtimeAnalysis.diagnostics().stream().map(this::from).toList();
+            return realtimeAnalysis.diagnostics().stream()
+                    .map(diagnostic -> from(diagnostic, realtimeAnalysis))
+                    .toList();
         }
         List<UiDiagnosticDto> diagnostics = globalData != null && !globalData.diagnostics().isEmpty()
                 ? globalData.diagnostics()
@@ -46,11 +48,39 @@ public final class MiniCDiagnosticListFactory {
     }
 
     private MiniCDiagnosticItem from(UiDiagnosticDto diagnostic) {
+        return from(diagnostic, null);
+    }
+
+    private MiniCDiagnosticItem from(UiDiagnosticDto diagnostic, UiRealtimeAnalysisDto analysis) {
+        SourceLocation location = analysis == null
+                ? new SourceLocation(1, Math.max(1, diagnostic.startOffset() + 1))
+                : locationAt(analysis.sourceText(), diagnostic.startOffset());
         return new MiniCDiagnosticItem(
                 diagnostic.code(),
                 diagnostic.severity(),
                 diagnostic.message(),
-                new UiSourceRangeDto(diagnostic.sourceName(), diagnostic.startOffset(), diagnostic.endOffset())
+                new UiSourceRangeDto(diagnostic.sourceName(), diagnostic.startOffset(), diagnostic.endOffset()),
+                location.line(),
+                location.column()
         );
+    }
+
+    private SourceLocation locationAt(String source, int offset) {
+        int safeOffset = Math.max(0, Math.min(offset, source.length()));
+        int line = 1;
+        int column = 1;
+        for (int index = 0; index < safeOffset; index++) {
+            char value = source.charAt(index);
+            if (value == '\n') {
+                line++;
+                column = 1;
+            } else {
+                column++;
+            }
+        }
+        return new SourceLocation(line, column);
+    }
+
+    private record SourceLocation(int line, int column) {
     }
 }

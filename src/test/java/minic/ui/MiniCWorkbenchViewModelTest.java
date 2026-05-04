@@ -25,6 +25,7 @@ class MiniCWorkbenchViewModelTest {
         assertThat(viewModel.lexerVisualDataProperty().get().visualType()).isEqualTo("lexer");
         assertThat(viewModel.astVisualDataProperty().get().visualType()).isEqualTo("lexer");
         assertThat(viewModel.semanticVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.codegenVisualDataProperty().get().visualType()).isEqualTo("lexer");
         assertThat(viewModel.globalDataProperty().get().source()).contains("return 0");
     }
 
@@ -127,15 +128,34 @@ class MiniCWorkbenchViewModelTest {
 
         advanceToStage(viewModel, "semantic");
         viewModel.next();
-        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("semantic-scope");
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("semantic-ast-scope");
         assertThat(viewModel.astVisualDataProperty().get().astRoot()).isNotNull();
+        assertThat(viewModel.currentStageVisualDataProperty().get().astRoot()).isNotNull();
         assertThat(new MiniCSemanticScopeTreeModelFactory().create(viewModel.currentStageVisualDataProperty().get())).isNotEmpty();
 
         advanceToStage(viewModel, "codegen");
         viewModel.next();
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("assembly");
         assertThat(viewModel.semanticVisualDataProperty().get().semanticRoot()).isNotNull();
+        assertThat(viewModel.codegenVisualDataProperty().get().assemblyLines()).isNotEmpty();
         assertThat(new MiniCAssemblyTextModelFactory().create(viewModel.currentStageVisualDataProperty().get())).isNotEmpty();
+    }
+
+    @Test
+    void selectedVisualStageCanReviewCompletedPipelineOutputs() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("review.mc", "int main() { return 0; }");
+        viewModel.startSession();
+
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("parser");
+
+        viewModel.selectVisualStage("lexer");
+        assertThat(viewModel.selectedVisualStageProperty().get()).isEqualTo("lexer");
+        assertThat(viewModel.lexerVisualDataProperty().get().lexerTokens()).isNotEmpty();
+
+        viewModel.next();
+        assertThat(viewModel.selectedVisualStageProperty().get()).isEmpty();
     }
 
     private static void advanceToStage(MiniCWorkbenchViewModel viewModel, String stage) {

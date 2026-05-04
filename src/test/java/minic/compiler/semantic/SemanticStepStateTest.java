@@ -111,6 +111,10 @@ class SemanticStepStateTest {
         assertThat(state.work().expressionTypeCount()).isEqualTo(1);
         assertThat(state.work().globalScope().children().getFirst().resolveLocal("a")).isPresent();
 
+        SemanticAction initializerVisit = state.next();
+        assertThat(initializerVisit.kind()).isEqualTo(SemanticActionKind.VISIT_AST_NODE);
+        assertThat(initializerVisit.subject()).contains("IntegerLiteralExpr");
+
         SemanticAction secondStatement = state.next();
 
         assertThat(secondStatement.kind()).isEqualTo(SemanticActionKind.ANALYZE_STATEMENT);

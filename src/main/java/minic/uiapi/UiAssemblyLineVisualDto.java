@@ -10,6 +10,7 @@ import java.util.Objects;
  * @param kind 行类型
  * @param section section 元信息；未知时为空字符串
  * @param label label 元信息；未知时为空字符串
+ * @param range 对应源码范围；没有直接对应时为 {@code null}
  * @param active 是否为当前行
  */
 public record UiAssemblyLineVisualDto(
@@ -18,6 +19,7 @@ public record UiAssemblyLineVisualDto(
         String kind,
         String section,
         String label,
+        UiSourceSpanDto range,
         boolean active
 ) {
     public UiAssemblyLineVisualDto {
@@ -28,5 +30,16 @@ public record UiAssemblyLineVisualDto(
         if (lineNumber < 1) {
             throw new IllegalArgumentException("lineNumber must be 1-based");
         }
+    }
+
+    public UiAssemblyLineVisualDto(
+            int lineNumber,
+            String text,
+            String kind,
+            String section,
+            String label,
+            boolean active
+    ) {
+        this(lineNumber, text, kind, section, label, null, active);
     }
 }

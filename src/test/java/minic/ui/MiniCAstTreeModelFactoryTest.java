@@ -20,8 +20,10 @@ class MiniCAstTreeModelFactoryTest {
 
         var rows = new MiniCAstTreeModelFactory().create(visual);
 
-        assertThat(rows.getFirst())
-                .isEqualTo(new MiniCAstTreeLine("Program", 0, false, visual.astRoot().range()));
+        assertThat(rows.getFirst().label()).isEqualTo("Program");
+        assertThat(rows.getFirst().depth()).isZero();
+        assertThat(rows.getFirst().active()).isFalse();
+        assertThat(rows.getFirst().range()).isEqualTo(visual.astRoot().range());
         assertThat(rows)
                 .anySatisfy(row -> {
                     assertThat(row.label()).contains("FunctionDecl main");

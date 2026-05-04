@@ -58,7 +58,7 @@ final class StatementSemanticAnalyzer {
         expressionAnalyzer.setCurrentParameterNames(functionDecl.parameters().stream()
                 .map(Parameter::name)
                 .toList());
-        Scope functionScope = new Scope(globalScope);
+        Scope functionScope = new Scope(globalScope, functionDecl.bodyOptional().map(BlockStmt::range).orElse(functionDecl.range()));
         for (Parameter parameter : functionDecl.parameters()) {
             defineVariable(functionScope, parameter.name(), parameter.range(), parameter.type());
         }
@@ -68,6 +68,10 @@ final class StatementSemanticAnalyzer {
 
     void analyzeCurrentFunctionTopLevelStatement(Statement statement) {
         analyzeStatement(statement, currentFunctionContextScope());
+    }
+
+    Scope currentFunctionScope() {
+        return currentFunctionContextScope();
     }
 
     void validateCurrentFunctionReturn() {
@@ -99,7 +103,7 @@ final class StatementSemanticAnalyzer {
     }
 
     private void analyzeBlock(BlockStmt blockStmt, Scope parentScope, boolean createChildScope) {
-        Scope scope = createChildScope ? new Scope(parentScope) : parentScope;
+        Scope scope = createChildScope ? new Scope(parentScope, blockStmt.range()) : parentScope;
         for (Statement statement : blockStmt.statements()) {
             analyzeStatement(statement, scope);
         }
@@ -168,7 +172,7 @@ final class StatementSemanticAnalyzer {
     }
 
     private void analyzeFor(ForStmt forStmt, Scope parentScope) {
-        Scope scope = new Scope(parentScope);
+        Scope scope = new Scope(parentScope, forStmt.range());
         forStmt.initializerOptional().ifPresent(initializer -> analyzeStatement(initializer, scope));
         forStmt.conditionOptional().ifPresent(condition -> analyzeCondition(condition, scope));
         forStmt.stepOptional().ifPresent(step -> expressionAnalyzer.analyzeExpression(step, scope));
@@ -195,7 +199,7 @@ final class StatementSemanticAnalyzer {
         if (statement instanceof BlockStmt blockStmt) {
             analyzeBlock(blockStmt, parentScope, true);
         } else {
-            analyzeStatement(statement, new Scope(parentScope));
+            analyzeStatement(statement, new Scope(parentScope, statement.range()));
         }
     }
 

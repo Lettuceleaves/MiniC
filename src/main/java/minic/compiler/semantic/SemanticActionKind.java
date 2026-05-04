@@ -40,6 +40,11 @@ public enum SemanticActionKind {
     ANALYZE_STATEMENT,
 
     /**
+     * 访问语义分析递归触达的 AST 子节点。
+     */
+    VISIT_AST_NODE,
+
+    /**
      * 校验函数返回路径。
      */
     VALIDATE_FUNCTION_RETURN,

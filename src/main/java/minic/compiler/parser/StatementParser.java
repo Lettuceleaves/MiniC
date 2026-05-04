@@ -48,6 +48,7 @@ final class StatementParser {
 
         Token endToken = state.consume(TokenKind.RIGHT_BRACE, "期望 '}'");
         if (endToken == null) {
+            state.report(startToken.range(), "未闭合的 '{'，期望匹配的 '}'");
             return null;
         }
         BlockStmt blockStmt = new BlockStmt(

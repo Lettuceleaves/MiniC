@@ -165,15 +165,27 @@ public final class MiniCObservationApi {
             );
         }
         if (currentSession.currentStepper() instanceof minic.runtime.step.SemanticStageStepper semanticStepper) {
-            return UiStageVisualDto.fromSemanticScope(
+            return UiStageVisualDto.fromSemanticAstAndScope(
                     currentSession.currentStageData(),
+                    semanticStepper.program(),
                     semanticStepper.semanticState().work().globalScope(),
                     semanticStepper.semanticState().currentAction().orElse(null)
             );
         }
-        if (currentSession.currentStepper() instanceof minic.runtime.step.CodegenStageStepper codegenStepper) {
-            return UiStageVisualDto.fromAssemblyLines(
+        if (currentSession.currentStepper() instanceof minic.runtime.step.IrStageStepper irStepper) {
+            minic.compiler.semantic.SemanticResult semanticResult = currentSession.semanticResult().orElseThrow(() ->
+                    new IllegalStateException("semantic result is required for IR visual data"));
+            return UiStageVisualDto.fromIrAstAndScope(
                     currentSession.currentStageData(),
+                    irStepper.program(),
+                    semanticResult.globalScope(),
+                    irStepper.irState().currentAction().orElse(null)
+            );
+        }
+        if (currentSession.currentStepper() instanceof minic.runtime.step.CodegenStageStepper codegenStepper) {
+            return UiStageVisualDto.fromCodegen(
+                    currentSession.currentStageData(),
+                    codegenStepper.module(),
                     codegenStepper.codegenState().work().assemblyLineData(),
                     codegenStepper.codegenState().work().currentSection()
             );
@@ -241,17 +253,47 @@ public final class MiniCObservationApi {
         CompileObservationSession currentSession = requireSession();
         minic.compiler.semantic.SemanticResult cachedSemanticResult = currentSession.semanticResult().orElse(null);
         if (cachedSemanticResult != null) {
-            return UiStageVisualDto.fromSemanticScope(
+            minic.compiler.parser.ParseResult cachedParseResult = currentSession.parseResult().orElseThrow(() ->
+                    new IllegalStateException("parse result is required for completed semantic visual data"));
+            return UiStageVisualDto.fromSemanticAstAndScope(
                     currentSession.currentStageData(),
+                    cachedParseResult.program(),
                     cachedSemanticResult.globalScope(),
                     null
             );
         }
         if (currentSession.currentStepper() instanceof minic.runtime.step.SemanticStageStepper semanticStepper) {
-            return UiStageVisualDto.fromSemanticScope(
+            return UiStageVisualDto.fromSemanticAstAndScope(
                     currentSession.currentStageData(),
+                    semanticStepper.program(),
                     semanticStepper.semanticState().work().globalScope(),
                     semanticStepper.semanticState().currentAction().orElse(null)
+            );
+        }
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+    }
+
+    /**
+     * 查询当前可用的 Codegen 汇编可视化数据。Codegen 尚未准备时返回当前阶段 fallback。
+     *
+     * @return 汇编可视化数据
+     */
+    public UiStageVisualDto codegenVisualData() {
+        CompileObservationSession currentSession = requireSession();
+        minic.compiler.codegen.AssemblySource cachedAssemblySource = currentSession.assemblySource().orElse(null);
+        if (cachedAssemblySource != null) {
+            return UiStageVisualDto.fromAssemblySource(
+                    currentSession.currentStageData(),
+                    cachedAssemblySource,
+                    currentSession.irModule().orElse(null)
+            );
+        }
+        if (currentSession.currentStepper() instanceof minic.runtime.step.CodegenStageStepper codegenStepper) {
+            return UiStageVisualDto.fromCodegen(
+                    currentSession.currentStageData(),
+                    codegenStepper.module(),
+                    codegenStepper.codegenState().work().assemblyLineData(),
+                    codegenStepper.codegenState().work().currentSection()
             );
         }
         return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));

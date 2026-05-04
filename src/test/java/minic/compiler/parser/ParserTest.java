@@ -244,6 +244,26 @@ class ParserTest {
         assertThat(result.program().structs()).isEmpty();
     }
 
+    @Test
+    void reportsUnclosedBlockAtOpeningBrace() {
+        SourceFile sourceFile = new SourceFile(
+                "unclosed.mc",
+                """
+                        int main() {
+                            {
+                                return 0;
+                        """
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics())
+                .anySatisfy(diagnostic -> {
+                    assertThat(diagnostic.message()).contains("未闭合");
+                    assertThat(sourceFile.content().charAt(diagnostic.range().startOffset())).isEqualTo('{');
+                });
+    }
+
     private ParseResult parse(SourceFile sourceFile) {
         LexResult lexResult = new Lexer(sourceFile).lex();
         assertThat(lexResult.diagnostics()).isEmpty();

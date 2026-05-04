@@ -1,16 +1,24 @@
 package minic.ui;
 
 import javafx.scene.Parent;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
-import javafx.scene.control.SplitPane;
-import javafx.geometry.Orientation;
+import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
+import javafx.stage.Window;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Objects;
 
 /**
@@ -20,10 +28,18 @@ public final class MiniCWorkbenchShell {
     private static final double ACTIVITY_BAR_WIDTH = 48;
     private static final double SIDEBAR_WIDTH = 260;
     private static final double INSPECTOR_WIDTH = 360;
-    private final MiniCWorkbenchViewModel viewModel;
-    private final MiniCDiagnosticSelection diagnosticSelection = new MiniCDiagnosticSelection();
+    private final ArrayList<DocumentTab> documents = new ArrayList<>();
     private final MiniCKeyBindingConfig keyBindings = MiniCKeyBindingConfig.loadDefault();
+    private BorderPane root;
+    private HBox body;
+    private HBox tabs;
+    private VBox editor;
+    private MiniCWorkbenchViewModel viewModel;
     private MiniCVisualPane visualPane;
+    private VBox sourcePane;
+    private StackPane mainContent;
+    private MiniCHoverInspector hoverInspector;
+    private int activeDocumentIndex;
 
     /**
      * 创建工作台外壳。
@@ -31,7 +47,7 @@ public final class MiniCWorkbenchShell {
      * @param viewModel UI 状态模型
      */
     public MiniCWorkbenchShell(MiniCWorkbenchViewModel viewModel) {
-        this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
+        addDocument("untitled-1.mc", "", null, Objects.requireNonNull(viewModel, "viewModel"));
     }
 
     /**
@@ -40,35 +56,13 @@ public final class MiniCWorkbenchShell {
      * @return 工作台根节点
      */
     public Parent createRoot() {
-        BorderPane root = new BorderPane();
+        root = new BorderPane();
         root.getStyleClass().add("workbench-root");
-        root.setTop(titlebar());
         root.setLeft(activityBar());
         root.setCenter(workbenchBody());
         root.setBottom(statusBar());
         root.addEventFilter(KeyEvent.KEY_PRESSED, this::handleShortcut);
         return root;
-    }
-
-    private HBox titlebar() {
-        HBox titlebar = new HBox();
-        titlebar.getStyleClass().add("titlebar");
-        HBox traffic = new HBox(8, trafficDot(), trafficDot(), trafficDot());
-        traffic.getStyleClass().add("traffic");
-        Label command = new Label("MiniC Visual Workbench · JavaFX Shell");
-        command.getStyleClass().add("command");
-        Region leftSpacer = new Region();
-        Region rightSpacer = new Region();
-        HBox.setHgrow(leftSpacer, Priority.ALWAYS);
-        HBox.setHgrow(rightSpacer, Priority.ALWAYS);
-        titlebar.getChildren().addAll(traffic, leftSpacer, command, rightSpacer);
-        return titlebar;
-    }
-
-    private Region trafficDot() {
-        Region dot = new Region();
-        dot.getStyleClass().add("traffic-dot");
-        return dot;
     }
 
     private VBox activityBar() {
@@ -95,10 +89,21 @@ public final class MiniCWorkbenchShell {
     }
 
     private HBox workbenchBody() {
-        HBox body = new HBox();
+        body = new HBox();
         body.getStyleClass().add("workbench-body");
+        rebuildWorkbenchBody();
+        return body;
+    }
+
+    private void rebuildWorkbenchBody() {
+        if (body == null) {
+            return;
+        }
+        DocumentTab active = documents.get(activeDocumentIndex);
+        viewModel = active.viewModel();
+        hoverInspector = new MiniCHoverInspector();
         VBox sidebar = sidebar();
-        VBox editor = editorArea();
+        editor = editorArea();
         VBox inspector = new MiniCInspectorView(viewModel);
         lockWidth(sidebar, SIDEBAR_WIDTH);
         lockWidth(inspector, INSPECTOR_WIDTH);
@@ -106,7 +111,6 @@ public final class MiniCWorkbenchShell {
         editor.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(editor, Priority.ALWAYS);
         body.getChildren().addAll(sidebar, editor, inspector);
-        return body;
     }
 
     private VBox sidebar() {
@@ -120,35 +124,54 @@ public final class MiniCWorkbenchShell {
         editor.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(editor, Priority.ALWAYS);
 
-        HBox tabs = new HBox();
+        tabs = new HBox();
         tabs.getStyleClass().add("tabs");
-        Label sourceTab = new Label("C  main.mc");
-        sourceTab.getStyleClass().addAll("tab", "active");
-        Label visualTab = new Label("workbench.visual");
-        visualTab.getStyleClass().add("tab");
-        tabs.getChildren().addAll(sourceTab, visualTab);
+        refreshTabs();
 
-        SplitPane split = new SplitPane();
-        split.setOrientation(Orientation.HORIZONTAL);
-        split.getStyleClass().add("split");
-        split.setMinWidth(0);
-        split.setMaxWidth(Double.MAX_VALUE);
-        VBox.setVgrow(split, Priority.ALWAYS);
-        VBox codePane = sourceArea();
-        visualPane = new MiniCVisualPane(viewModel);
-        codePane.setMinWidth(0);
+        mainContent = new StackPane();
+        mainContent.getStyleClass().add("split");
+        mainContent.setMinWidth(0);
+        mainContent.setMaxWidth(Double.MAX_VALUE);
+        VBox.setVgrow(mainContent, Priority.ALWAYS);
+        sourcePane = sourceArea();
+        visualPane = new MiniCVisualPane(viewModel, hoverInspector);
+        sourcePane.setMinWidth(0);
         visualPane.setMinWidth(0);
-        split.getItems().addAll(codePane, visualPane);
-        split.setDividerPositions(0.48);
+        mainContent.getChildren().addAll(sourcePane, visualPane);
+        viewModel.sessionStartedProperty().addListener((observable, oldValue, newValue) -> updateMainContent());
+        viewModel.currentStateProperty().addListener((observable, oldValue, newValue) -> updateMainContent());
+        viewModel.selectedVisualStageProperty().addListener((observable, oldValue, newValue) -> updateMainContent());
+        updateMainContent();
 
-        editor.getChildren().addAll(tabs, split, new MiniCBottomPanel(viewModel, diagnosticSelection));
+        editor.getChildren().addAll(tabs, mainContent, new MiniCBottomPanel(hoverInspector));
         return editor;
+    }
+
+    private void updateMainContent() {
+        if (sourcePane == null || visualPane == null) {
+            return;
+        }
+        boolean sourceMode = sourceMode();
+        sourcePane.setVisible(sourceMode);
+        sourcePane.setManaged(sourceMode);
+        visualPane.setVisible(!sourceMode);
+        visualPane.setManaged(!sourceMode);
+    }
+
+    private boolean sourceMode() {
+        String selectedStage = viewModel.selectedVisualStageProperty().get();
+        if ("source".equals(selectedStage)) {
+            return true;
+        }
+        return !viewModel.sessionStartedProperty().get()
+                || viewModel.currentStateProperty().get() == null
+                || "source".equals(viewModel.currentStateProperty().get().currentStage());
     }
 
     private VBox sourceArea() {
         VBox sourceArea = new VBox();
         sourceArea.getStyleClass().add("source-area");
-        MiniCSourceLoaderView loader = new MiniCSourceLoaderView(viewModel);
+        MiniCSourceLoaderView loader = new MiniCSourceLoaderView(viewModel, this::openDocument, this::saveDocument);
         sourceArea.getChildren().add(loader);
         VBox.setVgrow(loader, Priority.ALWAYS);
         return sourceArea;
@@ -158,11 +181,105 @@ public final class MiniCWorkbenchShell {
         HBox status = new HBox();
         status.getStyleClass().add("status-bar");
         Label left = new Label("MiniC Visual Workbench · VS Code style");
-        Label right = new Label("C030 · Shell · " + viewModel.sourceNameProperty().get());
+        Label right = new Label("C030 · Shell");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         status.getChildren().addAll(left, spacer, right);
         return status;
+    }
+
+    private void refreshTabs() {
+        if (tabs == null) {
+            return;
+        }
+        tabs.getChildren().clear();
+        for (int index = 0; index < documents.size(); index++) {
+            DocumentTab document = documents.get(index);
+            Label tab = new Label("C  " + document.displayName());
+            tab.getStyleClass().add("tab");
+            if (index == activeDocumentIndex) {
+                tab.getStyleClass().add("active");
+            }
+            int tabIndex = index;
+            tab.setOnMouseClicked(event -> switchDocument(tabIndex));
+            tabs.getChildren().add(tab);
+        }
+        tabs.getChildren().add(toolbarButton("+", "New file", this::newDocument));
+    }
+
+    private Button toolbarButton(String text, String tooltip, Runnable action) {
+        Button button = new Button(text);
+        button.getStyleClass().add("tab-action");
+        button.setTooltip(new Tooltip(tooltip));
+        button.setOnAction(event -> action.run());
+        return button;
+    }
+
+    private void switchDocument(int index) {
+        if (index < 0 || index >= documents.size() || index == activeDocumentIndex) {
+            return;
+        }
+        activeDocumentIndex = index;
+        body.getChildren().clear();
+        rebuildWorkbenchBody();
+        refreshTabs();
+    }
+
+    private void newDocument() {
+        int nextIndex = documents.size() + 1;
+        addDocument("untitled-" + nextIndex + ".mc", "", null, new MiniCWorkbenchViewModel());
+        switchDocument(documents.size() - 1);
+    }
+
+    private void openDocument() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Open MiniC source");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("MiniC source (*.mc)", "*.mc"));
+        java.io.File file = chooser.showOpenDialog(window());
+        if (file == null) {
+            return;
+        }
+        try {
+            Path path = file.toPath();
+            addDocument(path.getFileName().toString(), Files.readString(path, StandardCharsets.UTF_8), path, new MiniCWorkbenchViewModel());
+            switchDocument(documents.size() - 1);
+        } catch (IOException exception) {
+            throw new IllegalStateException("cannot open source file: " + file, exception);
+        }
+    }
+
+    private void saveDocument() {
+        DocumentTab document = documents.get(activeDocumentIndex);
+        Path path = document.path();
+        if (path == null) {
+            FileChooser chooser = new FileChooser();
+            chooser.setTitle("Save MiniC source");
+            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("MiniC source (*.mc)", "*.mc"));
+            chooser.setInitialFileName(document.name());
+            java.io.File file = chooser.showSaveDialog(window());
+            if (file == null) {
+                return;
+            }
+            path = file.toPath();
+            document = document.withPath(path);
+            documents.set(activeDocumentIndex, document);
+            refreshTabs();
+        }
+        try {
+            Files.writeString(path, document.viewModel().sourceTextProperty().get(), StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new IllegalStateException("cannot save source file: " + path, exception);
+        }
+    }
+
+    private Window window() {
+        return root == null || root.getScene() == null ? null : root.getScene().getWindow();
+    }
+
+    private void addDocument(String name, String source, Path path, MiniCWorkbenchViewModel model) {
+        model.loadSource(name, source);
+        model.sourceNameProperty().addListener((observable, oldValue, newValue) -> refreshTabs());
+        documents.add(new DocumentTab(name, path, model));
     }
 
     private void lockWidth(Region region, double width) {
@@ -181,6 +298,17 @@ public final class MiniCWorkbenchShell {
         } else if (keyBindings.matches("ast.zoom.out", event)) {
             visualPane.zoomAstOut();
             event.consume();
+        }
+    }
+
+    private record DocumentTab(String name, Path path, MiniCWorkbenchViewModel viewModel) {
+        private String displayName() {
+            String sourceName = viewModel.sourceNameProperty().get();
+            return sourceName == null || sourceName.isBlank() ? name : sourceName;
+        }
+
+        private DocumentTab withPath(Path path) {
+            return new DocumentTab(path.getFileName().toString(), path, viewModel);
         }
     }
 }

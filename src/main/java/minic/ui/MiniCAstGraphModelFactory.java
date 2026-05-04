@@ -4,9 +4,7 @@ import minic.uiapi.UiAstNodeVisualDto;
 import minic.uiapi.UiStageVisualDto;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * 根据 AST visual DTO 生成 Graph View 风格布局模型。
@@ -30,8 +28,6 @@ public final class MiniCAstGraphModelFactory {
         }
         ArrayList<PositionedNode> positioned = new ArrayList<>();
         int leafCount = assignPositions(visual.astRoot(), 0, new int[]{0}, positioned);
-        Set<String> hotPath = new HashSet<>();
-        collectHotPath(visual.astRoot(), hotPath);
 
         ArrayList<MiniCAstGraphNode> nodes = new ArrayList<>();
         ArrayList<MiniCAstGraphEdge> edges = new ArrayList<>();
@@ -59,7 +55,7 @@ public final class MiniCAstGraphModelFactory {
                         positionedNode.y + NODE_RADIUS,
                         childPosition.x,
                         childPosition.y - NODE_RADIUS,
-                        hotPath.contains(node.id()) && hotPath.contains(child.id())
+                        false
                 ));
             }
         }
@@ -95,17 +91,6 @@ public final class MiniCAstGraphModelFactory {
         double y = TOP_PAD + depth * Y_GAP;
         positioned.add(new PositionedNode(node, depth, x, y));
         return leaves;
-    }
-
-    private boolean collectHotPath(UiAstNodeVisualDto node, Set<String> hotPath) {
-        boolean hot = node.active();
-        for (UiAstNodeVisualDto child : node.children()) {
-            hot |= collectHotPath(child, hotPath);
-        }
-        if (hot) {
-            hotPath.add(node.id());
-        }
-        return hot;
     }
 
     private record PositionedNode(UiAstNodeVisualDto node, int depth, double x, double y) {

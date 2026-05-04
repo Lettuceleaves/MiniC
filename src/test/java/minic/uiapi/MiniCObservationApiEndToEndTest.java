@@ -98,11 +98,19 @@ class MiniCObservationApiEndToEndTest {
         api.next();
         api.next();
         UiStageVisualDto semanticVisual = api.currentStageVisualData();
-        assertThat(semanticVisual.visualType()).isEqualTo("semantic-scope");
+        assertThat(semanticVisual.visualType()).isEqualTo("semantic-ast-scope");
+        assertThat(semanticVisual.astRoot()).isNotNull();
         assertThat(semanticVisual.semanticRoot().label()).isEqualTo("global scope");
         assertThat(semanticVisual.semanticEdgesPointChildToParent()).isTrue();
         assertThat(semanticVisual.semanticRoot().symbols())
                 .anySatisfy(symbol -> assertThat(symbol).contains("FUNCTION main"));
+
+        advanceToStage(api, "ir");
+        api.next();
+        UiStageVisualDto irVisual = api.currentStageVisualData();
+        assertThat(irVisual.visualType()).isEqualTo("ir-ast-scope");
+        assertThat(irVisual.astRoot()).isNotNull();
+        assertThat(irVisual.semanticRoot()).isNotNull();
 
         advanceToStage(api, "codegen");
         api.next();

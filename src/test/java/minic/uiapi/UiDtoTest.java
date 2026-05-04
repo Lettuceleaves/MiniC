@@ -74,6 +74,7 @@ class UiDtoTest {
                 null,
                 null,
                 false,
+                List.of(),
                 List.of()
         );
         tokens.add(new UiLexerTokenVisualDto("IDENTIFIER", "main", null, false));

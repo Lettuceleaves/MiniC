@@ -86,7 +86,8 @@ final class IncrementalIrFunctionLowerer {
         }
         return new IrLoweringAction(
                 step.emitsIr() ? IrLoweringActionKind.LOWER_STATEMENT : IrLoweringActionKind.LOWER_AST_NODE,
-                function.name() + " " + node.getClass().getSimpleName()
+                function.name() + " " + node.getClass().getSimpleName(),
+                node
         );
     }
 

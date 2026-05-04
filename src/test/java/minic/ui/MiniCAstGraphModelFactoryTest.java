@@ -34,6 +34,14 @@ class MiniCAstGraphModelFactoryTest {
 
         assertThat(firstStepGraph.nodes()).hasSize(2);
         assertThat(firstStepGraph.edges()).hasSize(1);
+        assertThat(firstStepGraph.edges()).allSatisfy(edge -> assertThat(edge.hot()).isFalse());
+        assertThat(firstStepGraph.nodes())
+                .filteredOn(MiniCAstGraphNode::active)
+                .singleElement()
+                .satisfies(node -> {
+                    assertThat(node.root()).isFalse();
+                    assertThat(node.label()).contains("FunctionDecl");
+                });
 
         while (api.currentState().currentStage().equals("parser") && api.currentStageData().completedSteps() < api.currentStageData().totalSteps()) {
             api.next();
@@ -51,6 +59,7 @@ class MiniCAstGraphModelFactoryTest {
                 .anySatisfy(node -> assertThat(node.label()).contains("IfStmt"))
                 .anySatisfy(node -> assertThat(node.label()).contains("IntegerLiteralExpr 7"))
                 .anySatisfy(node -> assertThat(node.label()).contains("IntegerLiteralExpr 9"));
+        assertThat(graph.edges()).allSatisfy(edge -> assertThat(edge.hot()).isFalse());
         assertThat(graph.width()).isGreaterThan(520);
         assertThat(graph.height()).isGreaterThan(300);
     }

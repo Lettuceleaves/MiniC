@@ -34,9 +34,11 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiStageVisualDto> lexerVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageVisualDto> astVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageVisualDto> semanticVisualData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> codegenVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiGlobalDataDto> globalData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiRealtimeAnalysisDto> realtimeAnalysis = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiControlResultDto> lastControlResult = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyStringWrapper selectedVisualStage = new ReadOnlyStringWrapper("");
 
     /**
      * 使用默认 UI API 创建状态模型。
@@ -72,9 +74,11 @@ public final class MiniCWorkbenchViewModel {
         lexerVisualData.set(null);
         astVisualData.set(null);
         semanticVisualData.set(null);
+        codegenVisualData.set(null);
         globalData.set(null);
         realtimeAnalysis.set(null);
         lastControlResult.set(null);
+        selectedVisualStage.set("");
         lastOutcome.set("");
     }
 
@@ -96,6 +100,7 @@ public final class MiniCWorkbenchViewModel {
     public void startSession() {
         api.startSession();
         sessionStarted.set(true);
+        selectedVisualStage.set("");
         refreshAll();
     }
 
@@ -105,6 +110,7 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto next() {
+        selectedVisualStage.set("");
         UiControlResultDto result = api.next();
         applyControlResult(result);
         refreshAll();
@@ -117,6 +123,7 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto nextStage() {
+        selectedVisualStage.set("");
         UiControlResultDto result = api.nextStage();
         applyControlResult(result);
         refreshAll();
@@ -129,6 +136,7 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto play() {
+        selectedVisualStage.set("");
         UiControlResultDto result = api.play();
         applyControlResult(result);
         refreshAll();
@@ -141,6 +149,7 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto playFast() {
+        selectedVisualStage.set("");
         UiControlResultDto result = api.playFast();
         applyControlResult(result);
         refreshAll();
@@ -153,6 +162,7 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto tick() {
+        selectedVisualStage.set("");
         UiControlResultDto result = api.tick();
         applyControlResult(result);
         refreshAll();
@@ -178,10 +188,20 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto confirmExecutionInput(String standardInput) {
+        selectedVisualStage.set("");
         UiControlResultDto result = api.confirmExecutionInput(standardInput);
         applyControlResult(result);
         refreshAll();
         return result;
+    }
+
+    /**
+     * 选择要在中间可视化区域展示的 pipeline 阶段。
+     *
+     * @param stage 阶段 ID；空字符串表示跟随当前阶段
+     */
+    public void selectVisualStage(String stage) {
+        selectedVisualStage.set(stage == null ? "" : stage);
     }
 
     /**
@@ -197,6 +217,7 @@ public final class MiniCWorkbenchViewModel {
         lexerVisualData.set(api.lexerVisualData());
         astVisualData.set(api.astVisualData());
         semanticVisualData.set(api.semanticVisualData());
+        codegenVisualData.set(api.codegenVisualData());
         globalData.set(api.globalData());
     }
 
@@ -291,6 +312,15 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
+     * Codegen 汇编图形化 DTO 属性。
+     *
+     * @return 汇编图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> codegenVisualDataProperty() {
+        return codegenVisualData.getReadOnlyProperty();
+    }
+
+    /**
      * 全局数据 DTO 属性。
      *
      * @return 全局数据 DTO 属性
@@ -315,6 +345,15 @@ public final class MiniCWorkbenchViewModel {
      */
     public ReadOnlyObjectProperty<UiControlResultDto> lastControlResultProperty() {
         return lastControlResult.getReadOnlyProperty();
+    }
+
+    /**
+     * 当前手动选择展示的 pipeline 阶段。
+     *
+     * @return 阶段 ID 属性
+     */
+    public ReadOnlyStringProperty selectedVisualStageProperty() {
+        return selectedVisualStage.getReadOnlyProperty();
     }
 
     private void applyControlResult(UiControlResultDto result) {

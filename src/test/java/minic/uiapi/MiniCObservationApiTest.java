@@ -144,11 +144,34 @@ class MiniCObservationApiTest {
 
         UiStageVisualDto visual = api.currentStageVisualData();
 
-        assertThat(visual.visualType()).isEqualTo("semantic-scope");
+        assertThat(visual.visualType()).isEqualTo("semantic-ast-scope");
+        assertThat(visual.astRoot()).isNotNull();
         assertThat(visual.semanticEdgesPointChildToParent()).isTrue();
         assertThat(visual.semanticRoot().label()).isEqualTo("global scope");
         assertThat(visual.semanticRoot().symbols())
                 .anySatisfy(symbol -> assertThat(symbol).contains("FUNCTION main"));
+        assertThat(flatScopes(visual.semanticRoot()))
+                .anySatisfy(scope -> assertThat(scope.symbols())
+                        .anySatisfy(symbol -> assertThat(symbol).contains("VARIABLE value")));
+    }
+
+    @Test
+    void completedSemanticVisualKeepsAstAndScopeData() {
+        MiniCObservationApi api = new MiniCObservationApi();
+        api.loadSource("semantic-complete-visual.mc", "int main() { int value = 1; return value; }");
+        api.startSession();
+        advanceToStage(api, "semantic");
+        while (api.currentState().currentStage().equals("semantic")
+                && api.currentStageData().completedSteps() < api.currentStageData().totalSteps()) {
+            api.next();
+        }
+        api.next();
+
+        UiStageVisualDto visual = api.semanticVisualData();
+
+        assertThat(visual.visualType()).isEqualTo("semantic-ast-scope");
+        assertThat(visual.astRoot()).isNotNull();
+        assertThat(visual.semanticRoot()).isNotNull();
         assertThat(flatScopes(visual.semanticRoot()))
                 .anySatisfy(scope -> assertThat(scope.symbols())
                         .anySatisfy(symbol -> assertThat(symbol).contains("VARIABLE value")));
@@ -180,6 +203,42 @@ class MiniCObservationApiTest {
         assertThat(lines.getFirst().active()).isFalse();
         assertThat(lines.get(1).lineNumber()).isEqualTo(2);
         assertThat(lines.get(1).active()).isTrue();
+
+        while (api.currentState().currentStage().equals("codegen")
+                && api.currentStageVisualData().assemblyLines().stream().noneMatch(line -> line.range() != null)) {
+            api.next();
+        }
+        UiStageVisualDto instructionVisual = api.currentStageVisualData();
+        assertThat(instructionVisual.irLines()).isNotEmpty();
+        assertThat(instructionVisual.irLines())
+                .anySatisfy(line -> assertThat(line.active()).isTrue());
+        assertThat(instructionVisual.irLines())
+                .extracting(UiIrLineVisualDto::text)
+                .allSatisfy(text -> assertThat(text)
+                        .doesNotContain("SourceRange")
+                        .doesNotContain("startOffset")
+                        .doesNotContain("range="));
+        assertThat(instructionVisual.irLines())
+                .extracting(UiIrLineVisualDto::text)
+                .anySatisfy(text -> assertThat(text).contains("return 0"));
+    }
+
+    @Test
+    void completedCodegenVisualKeepsIrLinesForReview() {
+        MiniCObservationApi api = new MiniCObservationApi();
+        api.loadSource("codegen-review.mc", "int main() { return 0; }");
+        api.startSession();
+        advanceToStage(api, "codegen");
+        while (api.currentState().currentStage().equals("codegen")
+                && api.currentStageData().completedSteps() < api.currentStageData().totalSteps()) {
+            api.next();
+        }
+        api.next();
+
+        UiStageVisualDto visual = api.codegenVisualData();
+
+        assertThat(visual.assemblyLines()).isNotEmpty();
+        assertThat(visual.irLines()).isNotEmpty();
     }
 
     @Test

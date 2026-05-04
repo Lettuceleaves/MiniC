@@ -14,14 +14,15 @@ final class UiSemanticScopeVisualBuilder {
     private int nextId;
 
     UiSemanticScopeVisualDto build(Scope globalScope, SemanticAction currentAction) {
-        return buildScope(globalScope, "global scope", currentAction == null || currentAction.subject().contains("main"), currentAction);
+        Scope activeScope = currentAction == null ? null : currentAction.scope();
+        return buildScope(globalScope, "global scope", globalScope == activeScope, activeScope);
     }
 
     private UiSemanticScopeVisualDto buildScope(
             Scope scope,
             String fallbackLabel,
             boolean active,
-            SemanticAction currentAction
+            Scope activeScope
     ) {
         String id = nextId == 0 ? "scope-global" : "scope-" + nextId;
         nextId++;
@@ -31,17 +32,10 @@ final class UiSemanticScopeVisualBuilder {
         ArrayList<UiSemanticScopeVisualDto> children = new ArrayList<>();
         int childIndex = 0;
         for (Scope child : scope.children()) {
-            children.add(buildScope(child, "scope " + childIndex, childActive(child, currentAction), currentAction));
+            children.add(buildScope(child, "scope " + childIndex, child == activeScope, activeScope));
             childIndex++;
         }
         return new UiSemanticScopeVisualDto(id, fallbackLabel, symbols, scopeRange(scope), active, children);
-    }
-
-    private boolean childActive(Scope scope, SemanticAction currentAction) {
-        if (currentAction == null) {
-            return false;
-        }
-        return scope.symbols().stream().anyMatch(symbol -> symbol.name().equals(currentAction.subject()));
     }
 
     private String symbolSummary(Symbol symbol) {
@@ -50,10 +44,12 @@ final class UiSemanticScopeVisualBuilder {
     }
 
     private UiSourceSpanDto scopeRange(Scope scope) {
-        return scope.symbols().stream()
+        return scope.range()
+                .map(UiSourceSpanDto::from)
+                .or(() -> scope.symbols().stream()
                 .findFirst()
                 .map(Symbol::declarationRange)
-                .map(UiSourceSpanDto::from)
+                .map(UiSourceSpanDto::from))
                 .orElse(null);
     }
 }

@@ -197,7 +197,7 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
             }
             WindowsX64AssemblyLine line = functionState.nextLine();
             if (line != null) {
-                return emit(line.kind(), line.subject(), line.text());
+                return emit(line.kind(), line.subject(), line.text(), line.sourceRange());
             }
             functionState = null;
             functionIndex++;
@@ -209,7 +209,11 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
     }
 
     private WindowsX64AssemblyLine emit(WindowsX64AssemblyLineKind kind, String subject, String text) {
-        currentLine = new WindowsX64AssemblyLine(kind, subject, text);
+        return emit(kind, subject, text, null);
+    }
+
+    private WindowsX64AssemblyLine emit(WindowsX64AssemblyLineKind kind, String subject, String text, minic.source.SourceRange sourceRange) {
+        currentLine = new WindowsX64AssemblyLine(kind, subject, text, sourceRange);
         work.assemblyLines.add(text);
         work.assemblyLineData.add(currentLine);
         work.currentSection = switch (kind) {
@@ -278,7 +282,7 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
         private final String functionSymbol;
         private final String epilogueLabel;
         private final WindowsX64InstructionEmitter instructionEmitter;
-        private final ArrayDeque<String> pendingInstructionLines = new ArrayDeque<>();
+        private final ArrayDeque<PendingInstructionLine> pendingInstructionLines = new ArrayDeque<>();
         private FunctionSection section = FunctionSection.PROC;
         private int blockIndex;
         private int instructionIndex;
@@ -295,10 +299,12 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
         private WindowsX64AssemblyLine nextLine() {
             while (true) {
                 if (!pendingInstructionLines.isEmpty()) {
+                    PendingInstructionLine pendingLine = pendingInstructionLines.removeFirst();
                     return new WindowsX64AssemblyLine(
                             WindowsX64AssemblyLineKind.INSTRUCTION,
                             function.name(),
-                            pendingInstructionLines.removeFirst()
+                            pendingLine.text(),
+                            pendingLine.sourceRange()
                     );
                 }
                 switch (section) {
@@ -377,10 +383,12 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
                     IrInstruction instruction = block.instructions().get(instructionIndex++);
                     enqueueInstruction(instruction);
                     if (!pendingInstructionLines.isEmpty()) {
+                        PendingInstructionLine pendingLine = pendingInstructionLines.removeFirst();
                         return new WindowsX64AssemblyLine(
                                 WindowsX64AssemblyLineKind.INSTRUCTION,
                                 function.name(),
-                                pendingInstructionLines.removeFirst()
+                                pendingLine.text(),
+                                pendingLine.sourceRange()
                         );
                     }
                     continue;
@@ -398,13 +406,17 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
         private void enqueueParameterStores() {
             StringBuilder builder = new StringBuilder();
             instructionEmitter.emitParameterStores(builder, function);
-            pendingInstructionLines.addAll(splitLines(builder.toString()));
+            splitLines(builder.toString()).stream()
+                    .map(line -> new PendingInstructionLine(line, function.range()))
+                    .forEach(pendingInstructionLines::add);
         }
 
         private void enqueueInstruction(IrInstruction instruction) {
             StringBuilder builder = new StringBuilder();
             instructionEmitter.emitInstruction(builder, functionSymbol, epilogueLabel, instruction);
-            pendingInstructionLines.addAll(splitLines(builder.toString()));
+            splitLines(builder.toString()).stream()
+                    .map(line -> new PendingInstructionLine(line, instruction.range()))
+                    .forEach(pendingInstructionLines::add);
         }
 
         private void enqueueTrap(int index) {
@@ -414,7 +426,12 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
             } else {
                 instructionEmitter.emitFunctionTrap(builder, functionSymbol, "divide_by_zero", 102, epilogueLabel);
             }
-            pendingInstructionLines.addAll(splitLines(builder.toString()));
+            splitLines(builder.toString()).stream()
+                    .map(line -> new PendingInstructionLine(line, function.range()))
+                    .forEach(pendingInstructionLines::add);
+        }
+
+        private record PendingInstructionLine(String text, minic.source.SourceRange sourceRange) {
         }
     }
 

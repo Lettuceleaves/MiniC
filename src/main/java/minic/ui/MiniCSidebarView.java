@@ -35,6 +35,7 @@ public final class MiniCSidebarView extends VBox {
         viewModel.currentStateProperty().addListener((observable, oldValue, newValue) -> refresh());
         viewModel.currentStageDataProperty().addListener((observable, oldValue, newValue) -> refresh());
         viewModel.globalDataProperty().addListener((observable, oldValue, newValue) -> refresh());
+        viewModel.selectedVisualStageProperty().addListener((observable, oldValue, newValue) -> refresh());
     }
 
     /**
@@ -53,6 +54,12 @@ public final class MiniCSidebarView extends VBox {
         VBox card = new VBox(4);
         card.getStyleClass().add("stage-card");
         card.getStyleClass().add(stage.state());
+        if (stage.id().equals(viewModel.selectedVisualStageProperty().get())) {
+            card.getStyleClass().add("selected");
+        }
+        if (stage.id().equals("source") || !stage.state().equals("queued")) {
+            card.setOnMouseClicked(event -> viewModel.selectVisualStage(stage.id()));
+        }
         Label top = label(stage.title() + "    " + stage.state(), "stage-top");
         Label meta = label(stage.progressPercent() + "% · " + stage.detail(), "stage-meta");
         card.getChildren().addAll(top, meta);

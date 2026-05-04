@@ -3,17 +3,19 @@ package minic.ui;
 import javafx.application.Platform;
 import javafx.beans.value.ObservableValue;
 import javafx.geometry.Bounds;
-import javafx.scene.control.ContextMenu;
-import javafx.scene.control.CustomMenuItem;
-import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
+import javafx.scene.control.ListView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.layout.Pane;
 import javafx.scene.layout.StackPane;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Polyline;
 import minic.uiapi.UiDiagnosticDto;
 import minic.uiapi.UiLexerTokenVisualDto;
 import minic.uiapi.UiRealtimeAnalysisDto;
 import org.fxmisc.flowless.VirtualizedScrollPane;
-import org.fxmisc.richtext.CodeArea;
+import org.fxmisc.richtext.StyleClassedTextArea;
 import org.fxmisc.richtext.model.StyleSpans;
 import org.fxmisc.richtext.model.StyleSpansBuilder;
 
@@ -22,6 +24,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.ArrayList;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,9 +45,11 @@ public final class MiniCCodeEditor extends StackPane {
     private static final Pattern DECLARED_NAME_PATTERN = Pattern.compile(
             "\\b(?:extern\\s+)?(?:bool|char|int|long|float|double|struct\\s+[A-Za-z_][A-Za-z0-9_]*)(?:\\s*\\*)*\\s+([A-Za-z_][A-Za-z0-9_]*)"
     );
-    private final CodeArea input = new CodeArea();
-    private final ContextMenu completionMenu = new ContextMenu();
+    private final StyleClassedTextArea input = new StyleClassedTextArea();
+    private final Pane diagnosticLayer = new Pane();
+    private final ListView<String> completionList = new ListView<>();
     private UiRealtimeAnalysisDto latestAnalysis;
+    private List<UiDiagnosticDto> latestDiagnostics = List.of();
 
     /**
      * 创建代码编辑器。
@@ -53,19 +58,22 @@ public final class MiniCCodeEditor extends StackPane {
         getStyleClass().add("code-editor");
         input.getStyleClass().add("source-editor");
         input.setWrapText(false);
+        input.setTextInsertionStyle(List.of("token-plain"));
         input.addEventFilter(KeyEvent.KEY_PRESSED, this::handleCompletionKeys);
+        input.addEventFilter(KeyEvent.KEY_TYPED, this::handleTypedText);
         input.caretPositionProperty().addListener((observable, oldValue, newValue) -> updateCompletion(false));
-        input.caretBoundsProperty().addListener((observable, oldValue, newValue) -> {
-            if (completionMenu.isShowing()) {
-                scheduleCompletionMenuAtCaret();
-            }
-        });
+        input.viewportDirtyEvents().subscribe(event -> Platform.runLater(this::drawDiagnostics));
         input.focusedProperty().addListener((observable, oldValue, focused) -> {
-            if (!focused && !completionMenu.isShowing()) {
-                completionMenu.hide();
+            if (!focused && !completionList.isFocused()) {
+                hideCompletion();
             }
         });
-        getChildren().add(new VirtualizedScrollPane<>(input));
+        diagnosticLayer.getStyleClass().add("diagnostic-layer");
+        diagnosticLayer.setMouseTransparent(true);
+        diagnosticLayer.prefWidthProperty().bind(widthProperty());
+        diagnosticLayer.prefHeightProperty().bind(heightProperty());
+        configureCompletionList();
+        getChildren().addAll(new VirtualizedScrollPane<>(input), diagnosticLayer, completionList);
     }
 
     /**
@@ -123,12 +131,16 @@ public final class MiniCCodeEditor extends StackPane {
     public void render(UiRealtimeAnalysisDto analysis) {
         String source = input.getText();
         if (analysis != null && !source.equals(analysis.sourceText())) {
-            analysis = null;
+            analysis = latestAnalysis != null && source.equals(latestAnalysis.sourceText()) ? latestAnalysis : null;
         }
-        latestAnalysis = analysis;
+        if (analysis != null) {
+            latestAnalysis = analysis;
+        }
+        latestDiagnostics = analysis == null ? List.of() : analysis.diagnostics();
         input.setStyleSpans(0, styleSpans(source, analysis));
+        Platform.runLater(this::drawDiagnostics);
         if (source.isEmpty()) {
-            completionMenu.hide();
+            hideCompletion();
             return;
         }
         updateCompletion(false);
@@ -180,15 +192,24 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     private void handleCompletionKeys(KeyEvent event) {
-        if (completionMenu.isShowing()) {
+        if (isCompletionShowing()) {
             if (event.getCode() == KeyCode.ENTER || event.getCode() == KeyCode.TAB) {
-                CustomMenuItem firstItem = (CustomMenuItem) completionMenu.getItems().getFirst();
-                applyCompletion(((Label) firstItem.getContent()).getText());
+                applySelectedCompletion();
+                event.consume();
+                return;
+            }
+            if (event.getCode() == KeyCode.DOWN) {
+                selectCompletionOffset(1);
+                event.consume();
+                return;
+            }
+            if (event.getCode() == KeyCode.UP) {
+                selectCompletionOffset(-1);
                 event.consume();
                 return;
             }
             if (event.getCode() == KeyCode.ESCAPE) {
-                completionMenu.hide();
+                hideCompletion();
                 event.consume();
                 return;
             }
@@ -201,54 +222,291 @@ public final class MiniCCodeEditor extends StackPane {
         if (event.getCode() == KeyCode.TAB) {
             input.replaceSelection(TAB_TEXT);
             event.consume();
+            return;
         }
+        if (event.getCode() == KeyCode.BACK_SPACE) {
+            applyEdit(MiniCEditorTyping.backspace(
+                    input.getText(),
+                    input.getSelection().getStart(),
+                    input.getSelection().getEnd()
+            ));
+            event.consume();
+            return;
+        }
+        if (event.getCode() == KeyCode.ENTER) {
+            insertNewlineWithIndent();
+            event.consume();
+            return;
+        }
+    }
+
+    private void handleTypedText(KeyEvent event) {
+        String text = event.getCharacter();
+        if (text == null || text.isEmpty() || text.charAt(0) < 32 || event.isControlDown() || event.isAltDown()) {
+            return;
+        }
+        MiniCEditorTyping.EditResult result = MiniCEditorTyping.type(
+                input.getText(),
+                input.getSelection().getStart(),
+                input.getSelection().getEnd(),
+                text
+        );
+        applyEdit(result);
+        event.consume();
+    }
+
+    private void applyEdit(MiniCEditorTyping.EditResult result) {
+        if (!result.replacement().isEmpty() || result.replaceStart() != result.replaceEnd()) {
+            input.replaceText(result.replaceStart(), result.replaceEnd(), result.replacement());
+        }
+        input.selectRange(result.selectionStart(), result.selectionEnd());
+    }
+
+    private void insertNewlineWithIndent() {
+        int caret = input.getCaretPosition();
+        formatCurrentLineBefore(caret);
+        caret = input.getCaretPosition();
+        String source = input.getText();
+        String currentIndent = currentLineIndent(caret);
+        boolean afterOpeningBrace = caret > 0 && source.charAt(caret - 1) == '{';
+        boolean beforeClosingBrace = caret < source.length() && source.charAt(caret) == '}';
+        if (afterOpeningBrace && !beforeClosingBrace) {
+            input.insertText(caret, "}");
+            source = input.getText();
+            beforeClosingBrace = caret < source.length() && source.charAt(caret) == '}';
+        }
+        if (afterOpeningBrace && beforeClosingBrace) {
+            String innerIndent = currentIndent + TAB_TEXT;
+            input.insertText(caret, "\n" + innerIndent + "\n" + currentIndent);
+            input.moveTo(caret + 1 + innerIndent.length());
+            return;
+        }
+        String nextIndent = currentIndent + (afterOpeningBrace ? TAB_TEXT : "");
+        input.insertText(caret, "\n" + nextIndent);
+    }
+
+    private void formatCurrentLineBefore(int caret) {
+        String source = input.getText();
+        int lineStart = source.lastIndexOf('\n', Math.max(0, caret - 1)) + 1;
+        int lineEnd = caret;
+        String line = source.substring(lineStart, lineEnd);
+        String formatted = formatLine(line);
+        if (!line.equals(formatted)) {
+            input.replaceText(lineStart, lineEnd, formatted);
+            input.moveTo(lineStart + formatted.length());
+        }
+    }
+
+    private String formatLine(String line) {
+        String indent = leadingWhitespace(line);
+        String content = line.substring(indent.length()).stripTrailing();
+        if (content.isEmpty()) {
+            return indent;
+        }
+        return indent + formatOutsideLiterals(content);
+    }
+
+    private String formatOutsideLiterals(String text) {
+        StringBuilder result = new StringBuilder();
+        StringBuilder segment = new StringBuilder();
+        char quote = 0;
+        boolean escaping = false;
+        for (int index = 0; index < text.length(); index++) {
+            char value = text.charAt(index);
+            if (quote != 0) {
+                result.append(value);
+                if (escaping) {
+                    escaping = false;
+                } else if (value == '\\') {
+                    escaping = true;
+                } else if (value == quote) {
+                    quote = 0;
+                }
+                continue;
+            }
+            if (value == '"' || value == '\'') {
+                result.append(formatCodeSegment(segment.toString()));
+                segment.setLength(0);
+                result.append(value);
+                quote = value;
+            } else {
+                segment.append(value);
+            }
+        }
+        result.append(formatCodeSegment(segment.toString()));
+        return result.toString().replaceAll("\\s+", " ").trim();
+    }
+
+    private String formatCodeSegment(String content) {
+        return content
+                .replaceAll("\\s+([,;\\)\\]\\}])", "$1")
+                .replaceAll("([\\(\\[\\{])\\s+", "$1")
+                .replaceAll("\\s*([+\\-*/%<>=!&|]=?|==|!=|<=|>=|&&|\\|\\|)\\s*", " $1 ")
+                .replaceAll("\\s*,\\s*", ", ")
+                .replaceAll("\\)\\s*\\{", ") {")
+                .replaceAll("\\b(if|for|while)\\s*\\(", "$1 (")
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private String currentLineIndent(int caret) {
+        String source = input.getText();
+        int lineStart = source.lastIndexOf('\n', Math.max(0, caret - 1)) + 1;
+        return leadingWhitespace(source.substring(lineStart, caret));
+    }
+
+    private String leadingWhitespace(String text) {
+        int index = 0;
+        while (index < text.length()) {
+            char value = text.charAt(index);
+            if (value != ' ' && value != '\t') {
+                break;
+            }
+            index++;
+        }
+        return text.substring(0, index);
     }
 
     private void updateCompletion(boolean force) {
         if (!input.isFocused()) {
-            completionMenu.hide();
+            hideCompletion();
             return;
         }
         Prefix prefix = prefixAtCaret();
         if (!force && prefix.text().isEmpty()) {
-            completionMenu.hide();
+            hideCompletion();
             return;
         }
         List<String> suggestions = completionSuggestions(prefix.text());
         if (suggestions.isEmpty()) {
-            completionMenu.hide();
+            hideCompletion();
             return;
         }
-        completionMenu.getItems().setAll(suggestions.stream()
-                .map(suggestion -> {
-                    Label label = new Label(suggestion);
-                    label.getStyleClass().add("completion-item");
-                    CustomMenuItem item = new CustomMenuItem(label, true);
-                    item.setOnAction(event -> applyCompletion(suggestion));
-                    return item;
-                })
-                .toList());
-        scheduleCompletionMenuAtCaret();
+        completionList.getItems().setAll(suggestions);
+        completionList.getSelectionModel().selectFirst();
+        showCompletion();
     }
 
-    private void scheduleCompletionMenuAtCaret() {
-        Platform.runLater(this::showCompletionMenuAtCaret);
+    private void configureCompletionList() {
+        completionList.getStyleClass().add("completion-list");
+        completionList.setManaged(false);
+        completionList.setVisible(false);
+        completionList.setFocusTraversable(false);
+        completionList.maxHeightProperty().bind(heightProperty().multiply(0.25));
+        completionList.prefHeightProperty().bind(completionList.maxHeightProperty());
+        completionList.prefWidthProperty().bind(widthProperty());
+        completionList.setCellFactory(view -> {
+            ListCell<String> cell = new ListCell<>() {
+                @Override
+                protected void updateItem(String item, boolean empty) {
+                    super.updateItem(item, empty);
+                    setText(empty || item == null ? null : item);
+                }
+            };
+            cell.getStyleClass().add("completion-item");
+            cell.setOnMouseClicked(event -> {
+                if (!cell.isEmpty()) {
+                    applyCompletion(cell.getItem());
+                }
+            });
+            return cell;
+        });
     }
 
-    private void showCompletionMenuAtCaret() {
-        input.getCaretBounds()
-                .map(input::localToScreen)
-                .ifPresentOrElse(
-                        bounds -> showCompletionMenuAt(bounds.getMinX(), bounds.getMaxY() + 3),
-                        completionMenu::hide
-                );
+    private void showCompletion() {
+        completionList.setVisible(true);
+        completionList.toFront();
+        Platform.runLater(this::layoutCompletionList);
     }
 
-    private void showCompletionMenuAt(double screenX, double screenY) {
-        if (completionMenu.isShowing()) {
-            completionMenu.hide();
+    private void hideCompletion() {
+        completionList.setVisible(false);
+    }
+
+    private void drawDiagnostics() {
+        diagnosticLayer.getChildren().clear();
+        String source = input.getText();
+        if (source.isEmpty() || latestDiagnostics.isEmpty()) {
+            return;
         }
-        completionMenu.show(input, screenX, screenY);
+        for (UiDiagnosticDto diagnostic : latestDiagnostics) {
+            int start = safeOffset(source, diagnostic.startOffset());
+            int end = safeOffset(source, diagnostic.endOffset());
+            if (end <= start) {
+                end = Math.min(source.length(), start + 1);
+                if (end <= start && start > 0) {
+                    start--;
+                }
+            }
+            boundsForRange(source, start, end)
+                    .map(diagnosticLayer::screenToLocal)
+                    .ifPresent(this::addDiagnosticWave);
+        }
+    }
+
+    private java.util.Optional<Bounds> boundsForRange(String source, int start, int end) {
+        java.util.Optional<Bounds> bounds = input.getCharacterBoundsOnScreen(start, end);
+        if (bounds.isPresent() || source.isEmpty()) {
+            return bounds;
+        }
+        int fallbackStart = Math.max(0, Math.min(start, source.length() - 1));
+        int fallbackEnd = Math.min(source.length(), fallbackStart + 1);
+        return input.getCharacterBoundsOnScreen(fallbackStart, fallbackEnd);
+    }
+
+    private void addDiagnosticWave(Bounds bounds) {
+        double startX = Math.max(0, bounds.getMinX());
+        double endX = Math.min(getWidth(), Math.max(startX + 8, bounds.getMaxX()));
+        double baseY = Math.max(0, Math.min(getHeight(), bounds.getMaxY() - 2));
+        double amplitude = 2;
+        double step = 4;
+        ArrayList<Double> points = new ArrayList<>();
+        boolean up = true;
+        for (double x = startX; x <= endX; x += step) {
+            points.add(x);
+            points.add(baseY + (up ? -amplitude : amplitude));
+            up = !up;
+        }
+        points.add(endX);
+        points.add(baseY);
+        Polyline wave = new Polyline();
+        wave.getStyleClass().add("diagnostic-wave");
+        wave.getPoints().setAll(points);
+        wave.setStroke(Color.web("#f48771"));
+        wave.setStrokeWidth(1.4);
+        diagnosticLayer.getChildren().add(wave);
+    }
+
+    private boolean isCompletionShowing() {
+        return completionList.isVisible() && !completionList.getItems().isEmpty();
+    }
+
+    private void layoutCompletionList() {
+        double maxHeight = Math.max(0, getHeight() * 0.25);
+        double rowHeight = 26;
+        double preferredHeight = Math.min(maxHeight, Math.max(rowHeight, completionList.getItems().size() * rowHeight + 2));
+        completionList.resizeRelocate(0, Math.max(0, getHeight() - preferredHeight), getWidth(), preferredHeight);
+    }
+
+    private void selectCompletionOffset(int offset) {
+        int size = completionList.getItems().size();
+        if (size == 0) {
+            return;
+        }
+        int selected = completionList.getSelectionModel().getSelectedIndex();
+        int next = Math.max(0, Math.min(size - 1, selected + offset));
+        completionList.getSelectionModel().select(next);
+        completionList.scrollTo(next);
+    }
+
+    private void applySelectedCompletion() {
+        String selected = completionList.getSelectionModel().getSelectedItem();
+        if (selected == null && !completionList.getItems().isEmpty()) {
+            selected = completionList.getItems().getFirst();
+        }
+        if (selected != null) {
+            applyCompletion(selected);
+        }
     }
 
     private List<String> completionSuggestions(String prefix) {
@@ -291,7 +549,7 @@ public final class MiniCCodeEditor extends StackPane {
         Prefix prefix = prefixAtCaret();
         input.replaceText(prefix.startOffset(), prefix.endOffset(), suggestion);
         input.moveTo(prefix.startOffset() + suggestion.length());
-        completionMenu.hide();
+        hideCompletion();
     }
 
     private Prefix prefixAtCaret() {

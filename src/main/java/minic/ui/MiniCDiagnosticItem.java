@@ -16,12 +16,18 @@ public record MiniCDiagnosticItem(
         String code,
         String severity,
         String message,
-        UiSourceRangeDto range
+        UiSourceRangeDto range,
+        int line,
+        int column
 ) {
     public MiniCDiagnosticItem {
         Objects.requireNonNull(code, "code");
         Objects.requireNonNull(severity, "severity");
         Objects.requireNonNull(message, "message");
+    }
+
+    public MiniCDiagnosticItem(String code, String severity, String message, UiSourceRangeDto range) {
+        this(code, severity, message, range, 1, range == null ? 1 : Math.max(1, range.startOffset() + 1));
     }
 
     /**
@@ -30,6 +36,13 @@ public record MiniCDiagnosticItem(
      * @return 展示文本
      */
     public String displayText() {
-        return severity + "  " + code + "  " + message;
+        return severity + "  " + code + "  " + locationText() + "  " + message;
+    }
+
+    private String locationText() {
+        if (range == null) {
+            return "<unknown>";
+        }
+        return range.sourceName() + ":" + line + ":" + column;
     }
 }

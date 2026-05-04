@@ -102,6 +102,15 @@ public final class IrStageStepper implements StageStepper {
         return irState;
     }
 
+    /**
+     * 返回 IR lowering 输入 AST。
+     *
+     * @return Program AST
+     */
+    public Program program() {
+        return program;
+    }
+
     private SourceRange currentRange() {
         return irState.currentAction()
                 .map(IrLoweringAction::subject)
