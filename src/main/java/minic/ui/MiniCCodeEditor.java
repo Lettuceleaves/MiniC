@@ -24,6 +24,8 @@ public final class MiniCCodeEditor extends StackPane {
     public MiniCCodeEditor() {
         getStyleClass().add("code-editor");
         highlightLayer.getStyleClass().add("code-highlight-layer");
+        highlightLayer.setMouseTransparent(true);
+        highlightLayer.setFocusTraversable(false);
         input.getStyleClass().add("source-editor");
         input.setWrapText(false);
         highlightLayer.prefWidthProperty().bind(widthProperty());
@@ -85,6 +87,9 @@ public final class MiniCCodeEditor extends StackPane {
      */
     public void render(UiRealtimeAnalysisDto analysis) {
         String source = input.getText();
+        if (analysis != null && !source.equals(analysis.sourceText())) {
+            analysis = null;
+        }
         highlightLayer.getChildren().clear();
         if (source.isEmpty()) {
             return;

@@ -44,7 +44,6 @@ public final class MiniCSourceLoaderView extends VBox {
         controls.getChildren().addAll(sampleSelector, startButton);
         getChildren().addAll(controls, sourceEditor);
         VBox.setVgrow(sourceEditor, Priority.ALWAYS);
-        submitRealtimeSource();
     }
 
     /**
@@ -55,6 +54,7 @@ public final class MiniCSourceLoaderView extends VBox {
                 ? "main.mc"
                 : sampleSelector.getValue();
         viewModel.loadSource(name, sourceEditor.getText());
+        submitRealtimeSource();
         viewModel.startSession();
     }
 

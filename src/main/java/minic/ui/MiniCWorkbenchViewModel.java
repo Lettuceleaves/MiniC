@@ -76,7 +76,6 @@ public final class MiniCWorkbenchViewModel {
         realtimeAnalysis.set(null);
         lastControlResult.set(null);
         lastOutcome.set("");
-        submitRealtimeSource(name, source);
     }
 
     /**

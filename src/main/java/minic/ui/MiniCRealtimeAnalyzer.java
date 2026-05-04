@@ -26,8 +26,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 public final class MiniCRealtimeAnalyzer implements AutoCloseable {
     private final BlockingQueue<Request> queue = new LinkedBlockingQueue<>();
     private final ResultSink resultSink;
-    private final Thread worker;
     private volatile boolean running = true;
+    private Thread worker;
     private long nextVersion;
 
     /**
@@ -37,9 +37,6 @@ public final class MiniCRealtimeAnalyzer implements AutoCloseable {
      */
     public MiniCRealtimeAnalyzer(ResultSink resultSink) {
         this.resultSink = Objects.requireNonNull(resultSink, "resultSink");
-        worker = new Thread(this::runLoop, "minic-realtime-analyzer");
-        worker.setDaemon(true);
-        worker.start();
     }
 
     /**
@@ -49,13 +46,25 @@ public final class MiniCRealtimeAnalyzer implements AutoCloseable {
      * @param sourceText 源码文本
      */
     public void submit(String sourceName, String sourceText) {
+        ensureStarted();
         queue.offer(new Request(sourceName, sourceText, ++nextVersion));
     }
 
     @Override
     public void close() {
         running = false;
-        worker.interrupt();
+        if (worker != null) {
+            worker.interrupt();
+        }
+    }
+
+    private synchronized void ensureStarted() {
+        if (worker != null) {
+            return;
+        }
+        worker = new Thread(this::runLoop, "minic-realtime-analyzer");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private void runLoop() {
