@@ -1,14 +1,16 @@
 package minic.ui;
 
+import javafx.application.Platform;
 import javafx.geometry.Bounds;
+import javafx.scene.Node;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Label;
-import javafx.scene.Node;
 import javafx.scene.layout.StackPane;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextFlow;
 import minic.uiapi.UiDiagnosticDto;
@@ -41,6 +43,7 @@ public final class MiniCCodeEditor extends StackPane {
     );
     private final TextFlow highlightLayer = new TextFlow();
     private final TextArea input = new TextArea();
+    private final Rectangle visibleCaret = new Rectangle(1.5, 16);
     private final ContextMenu completionMenu = new ContextMenu();
     private UiRealtimeAnalysisDto latestAnalysis;
 
@@ -52,18 +55,30 @@ public final class MiniCCodeEditor extends StackPane {
         highlightLayer.getStyleClass().add("code-highlight-layer");
         highlightLayer.setMouseTransparent(true);
         highlightLayer.setFocusTraversable(false);
+        visibleCaret.getStyleClass().add("code-visible-caret");
+        visibleCaret.setManaged(false);
+        visibleCaret.setMouseTransparent(true);
+        visibleCaret.setVisible(false);
         input.getStyleClass().add("source-editor");
         input.setWrapText(false);
         input.addEventFilter(KeyEvent.KEY_PRESSED, this::handleCompletionKeys);
-        input.caretPositionProperty().addListener((observable, oldValue, newValue) -> updateCompletion(false));
+        input.caretPositionProperty().addListener((observable, oldValue, newValue) -> {
+            updateVisibleCaret();
+            updateCompletion(false);
+        });
+        input.scrollTopProperty().addListener((observable, oldValue, newValue) -> updateVisibleCaret());
+        input.scrollLeftProperty().addListener((observable, oldValue, newValue) -> updateVisibleCaret());
         input.focusedProperty().addListener((observable, oldValue, focused) -> {
             if (!focused) {
-                completionMenu.hide();
+                if (!completionMenu.isShowing()) {
+                    completionMenu.hide();
+                }
             }
+            updateVisibleCaret();
         });
         highlightLayer.prefWidthProperty().bind(widthProperty());
         highlightLayer.prefHeightProperty().bind(heightProperty());
-        getChildren().addAll(highlightLayer, input);
+        getChildren().addAll(highlightLayer, input, visibleCaret);
     }
 
     /**
@@ -83,6 +98,7 @@ public final class MiniCCodeEditor extends StackPane {
     public void setText(String text) {
         input.setText(text);
         render(null);
+        updateVisibleCaret();
     }
 
     /**
@@ -127,6 +143,7 @@ public final class MiniCCodeEditor extends StackPane {
         highlightLayer.getChildren().clear();
         if (source.isEmpty()) {
             completionMenu.hide();
+            updateVisibleCaret();
             return;
         }
         List<UiLexerTokenVisualDto> tokens = analysis == null
@@ -150,6 +167,34 @@ public final class MiniCCodeEditor extends StackPane {
             addSegment(source.substring(cursor), "plain", overlapsDiagnostic(cursor, source.length(), diagnostics));
         }
         updateCompletion(false);
+        updateVisibleCaret();
+    }
+
+    private void updateVisibleCaret() {
+        Platform.runLater(this::layoutVisibleCaret);
+    }
+
+    private void layoutVisibleCaret() {
+        if (!input.isFocused() && !completionMenu.isShowing()) {
+            visibleCaret.setVisible(false);
+            return;
+        }
+        Node caretNode = input.lookup(".caret");
+        if (caretNode == null) {
+            visibleCaret.setVisible(true);
+            visibleCaret.setLayoutX(9);
+            visibleCaret.setLayoutY(7);
+            return;
+        }
+        Bounds screenBounds = caretNode.localToScreen(caretNode.getBoundsInLocal());
+        if (screenBounds == null) {
+            return;
+        }
+        Bounds localBounds = screenToLocal(screenBounds);
+        visibleCaret.setHeight(Math.max(14, localBounds.getHeight()));
+        visibleCaret.setLayoutX(localBounds.getMinX());
+        visibleCaret.setLayoutY(localBounds.getMinY());
+        visibleCaret.setVisible(true);
     }
 
     private void handleCompletionKeys(KeyEvent event) {

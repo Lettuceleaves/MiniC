@@ -277,6 +277,11 @@
     -fx-stroke: #ffffff;
 }
 
+.code-visible-caret {
+    -fx-fill: #ffffff;
+    -fx-stroke: transparent;
+}
+
 .completion-item {
     -fx-min-width: 180px;
     -fx-padding: 4px 10px;
