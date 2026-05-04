@@ -273,6 +273,28 @@
     -fx-highlight-text-fill: transparent;
 }
 
+.code-editor .text-area .caret {
+    -fx-stroke: #ffffff;
+}
+
+.completion-item {
+    -fx-min-width: 180px;
+    -fx-padding: 4px 10px;
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.context-menu {
+    -fx-background-color: #252526;
+    -fx-border-color: #3c3c3c;
+    -fx-border-width: 1px;
+}
+
+.context-menu .menu-item:focused {
+    -fx-background-color: #264f78;
+}
+
 .execution-pane {
     -fx-background-color: #1e1e1e;
 }
