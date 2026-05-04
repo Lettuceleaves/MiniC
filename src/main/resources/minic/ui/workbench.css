@@ -222,6 +222,10 @@
     -fx-background-color: #1e1e1e;
 }
 
+.token-plain {
+    -fx-fill: #d4d4d4;
+}
+
 .token-keyword {
     -fx-fill: #569cd6;
 }
@@ -258,7 +262,8 @@
     -fx-padding: 7px 9px;
 }
 
-.code-editor .paragraph-text {
+.code-editor .paragraph-text,
+.code-editor .text {
     -fx-fill: #d4d4d4;
     -fx-font-family: Consolas, "Courier New", monospace;
     -fx-font-size: 12px;

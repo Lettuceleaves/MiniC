@@ -139,6 +139,10 @@ public final class MiniCCodeEditor extends StackPane {
                 .sorted(Comparator.comparingInt(UiLexerTokenVisualDto::startOffset))
                 .toList();
         List<UiDiagnosticDto> diagnostics = analysis == null ? List.of() : analysis.diagnostics();
+        if (tokens.isEmpty()) {
+            builder.add(List.of("token-plain"), source.length());
+            return builder.create();
+        }
         int cursor = 0;
         for (UiLexerTokenVisualDto token : tokens) {
             int start = safeOffset(source, token.startOffset());
