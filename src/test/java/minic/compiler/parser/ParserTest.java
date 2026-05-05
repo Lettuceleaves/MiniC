@@ -19,6 +19,7 @@ import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.BreakStmt;
 import minic.compiler.ast.stmt.ContinueStmt;
+import minic.compiler.ast.stmt.DoWhileStmt;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
@@ -190,6 +191,25 @@ class ParserTest {
         assertThat(infiniteFor.conditionOptional()).isEmpty();
         assertThat(infiniteFor.stepOptional()).isEmpty();
         assertThat(infiniteFor.body()).isInstanceOf(ReturnStmt.class);
+    }
+
+    @Test
+    void parsesDoWhileStatement() {
+        ParseResult result = parse(new SourceFile("do.mc", """
+                int main() {
+                  do {
+                    continue;
+                  } while (value < 3);
+                  return 0;
+                }
+                """));
+
+        assertThat(result.diagnostics()).isEmpty();
+        BlockStmt body = result.program().functions().getFirst().body();
+        assertThat(body.statements().getFirst()).isInstanceOf(DoWhileStmt.class);
+        DoWhileStmt doWhileStmt = (DoWhileStmt) body.statements().getFirst();
+        assertThat(doWhileStmt.body()).isInstanceOf(BlockStmt.class);
+        assertThat(doWhileStmt.condition()).isInstanceOf(BinaryExpr.class);
     }
 
     @Test

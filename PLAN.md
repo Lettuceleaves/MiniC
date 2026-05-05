@@ -2,7 +2,7 @@
 
 当前开发阶段：`0.4.0-SNAPSHOT`。
 
-下一步任务：`D140：补全 do while parser/semantic/IR`。
+下一步任务：`D141：补全 switch case parser/semantic`。
 
 `0.1.0` 编译闭环总结见 [version/0.1.0.md](version/0.1.0.md)。
 `0.2.0` 结构化观测阶段记录见 [version/0.2.0.md](version/0.2.0.md)。
@@ -309,7 +309,7 @@
 
 验证：`./gradlew test`
 
-### D140：补全 do while parser/semantic/IR
+### D140：补全 do while parser/semantic/IR（已完成）
 
 依赖：`D111`、`D132`。
 

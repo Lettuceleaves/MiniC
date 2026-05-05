@@ -188,6 +188,36 @@ class IrLowererTest {
     }
 
     @Test
+    void lowersDoWhileToBodyConditionAndExitBlocks() {
+        Program program = parse("""
+                int main() {
+                    int value = 0;
+                    do {
+                        value = value + 1;
+                        if (value == 2) continue;
+                        if (value == 3) break;
+                    } while (value < 5);
+                    return value;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .anyMatch(label -> label.startsWith("do_body_"))
+                .anyMatch(label -> label.startsWith("do_condition_"))
+                .anyMatch(label -> label.startsWith("do_exit_"));
+        assertThat(jumpTargets(main))
+                .anyMatch(target -> target.startsWith("do_condition_"))
+                .anyMatch(target -> target.startsWith("do_exit_"));
+        assertThat(branches(main))
+                .anySatisfy(branch -> {
+                    assertThat(branch.thenLabel()).startsWith("do_body_");
+                    assertThat(branch.elseLabel()).startsWith("do_exit_");
+                });
+    }
+
+    @Test
     void lowersPointersArraysStructsAndFunctionPointers() {
         Program program = parse("""
                 struct Point {

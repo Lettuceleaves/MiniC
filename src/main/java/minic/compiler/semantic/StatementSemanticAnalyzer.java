@@ -6,6 +6,7 @@ import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.BreakStmt;
 import minic.compiler.ast.stmt.ContinueStmt;
+import minic.compiler.ast.stmt.DoWhileStmt;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
@@ -164,6 +165,10 @@ final class StatementSemanticAnalyzer {
             case WhileStmt whileStmt -> {
                 analyzeCondition(whileStmt.condition(), scope);
                 analyzeLoopBranch(whileStmt.body(), scope);
+            }
+            case DoWhileStmt doWhileStmt -> {
+                analyzeLoopBranch(doWhileStmt.body(), scope);
+                analyzeCondition(doWhileStmt.condition(), scope);
             }
             case ForStmt forStmt -> analyzeFor(forStmt, scope);
             default -> throw new IllegalArgumentException("unsupported statement: "

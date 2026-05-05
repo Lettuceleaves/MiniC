@@ -4,6 +4,7 @@ import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.BreakStmt;
 import minic.compiler.ast.stmt.ContinueStmt;
+import minic.compiler.ast.stmt.DoWhileStmt;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
@@ -85,6 +86,9 @@ final class StatementParser {
         }
         if (state.check(TokenKind.WHILE)) {
             return parseWhileStmt();
+        }
+        if (state.check(TokenKind.DO)) {
+            return parseDoWhileStmt();
         }
         if (state.check(TokenKind.FOR)) {
             return parseForStmt();
@@ -174,6 +178,31 @@ final class StatementParser {
         );
         state.build(whileStmt, "WhileStmt", whileStmt.range());
         return whileStmt;
+    }
+
+    private DoWhileStmt parseDoWhileStmt() {
+        Token startToken = state.consume(TokenKind.DO, "期望 do");
+        Statement body = parseStatement();
+        state.consume(TokenKind.WHILE, "期望 while");
+        state.consume(TokenKind.LEFT_PAREN, "期望 '('");
+        Expression condition = expressionParser.parseExpression();
+        state.consume(TokenKind.RIGHT_PAREN, "期望 ')'");
+        Token semicolonToken = state.consume(TokenKind.SEMICOLON, "期望 ';'");
+
+        if (startToken == null || body == null || condition == null || semicolonToken == null) {
+            return null;
+        }
+        DoWhileStmt doWhileStmt = new DoWhileStmt(
+                body,
+                condition,
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        semicolonToken.range().endOffset()
+                )
+        );
+        state.build(doWhileStmt, "DoWhileStmt", doWhileStmt.range());
+        return doWhileStmt;
     }
 
     private ForStmt parseForStmt() {

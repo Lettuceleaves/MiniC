@@ -4,6 +4,7 @@ import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.BreakStmt;
 import minic.compiler.ast.stmt.ContinueStmt;
+import minic.compiler.ast.stmt.DoWhileStmt;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
@@ -105,6 +106,10 @@ final class StatementLowerer {
             lowerWhile(whileStmt);
             return;
         }
+        if (statement instanceof DoWhileStmt doWhileStmt) {
+            lowerDoWhile(doWhileStmt);
+            return;
+        }
         if (statement instanceof ForStmt forStmt) {
             lowerFor(forStmt);
             return;
@@ -183,6 +188,24 @@ final class StatementLowerer {
 
         builder.switchToBlock(exitLabel);
         builder.popLocalScope();
+    }
+
+    private void lowerDoWhile(DoWhileStmt doWhileStmt) {
+        String bodyLabel = builder.newBlockLabel("do_body");
+        String conditionLabel = builder.newBlockLabel("do_condition");
+        String exitLabel = builder.newBlockLabel("do_exit");
+
+        builder.addJumpIfOpen(bodyLabel, doWhileStmt.range());
+
+        builder.switchToBlock(bodyLabel);
+        lowerLoopBranch(doWhileStmt.body(), exitLabel, conditionLabel);
+        builder.addJumpIfOpen(conditionLabel, doWhileStmt.body().range());
+
+        builder.switchToBlock(conditionLabel);
+        IrValue condition = expressionLowerer.lowerExpression(doWhileStmt.condition());
+        builder.addInstruction(new IrBranchInstruction(condition, bodyLabel, exitLabel, doWhileStmt.condition().range()));
+
+        builder.switchToBlock(exitLabel);
     }
 
     private void lowerLoopBranch(Statement statement, String breakLabel, String continueLabel) {

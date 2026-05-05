@@ -471,6 +471,36 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void acceptsDoWhileBreakContinueAndReportsBadCondition() {
+        SemanticResult accepted = analyze("""
+                int main() {
+                    int value = 0;
+                    do {
+                        value += 1;
+                        if (value == 2) continue;
+                        if (value == 3) break;
+                    } while (value < 5);
+                    return value;
+                }
+                """);
+        SemanticResult rejected = analyze("""
+                struct Flag { int value; };
+                int main() {
+                    struct Flag flag;
+                    do {
+                        break;
+                    } while (flag);
+                    return 0;
+                }
+                """);
+
+        assertThat(accepted.diagnostics()).isEmpty();
+        assertThat(rejected.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("条件表达式必须是标量或指针类型");
+    }
+
+    @Test
     void computesRepresentativeStructLayouts() {
         SemanticResult result = analyze("""
                 struct Point {
