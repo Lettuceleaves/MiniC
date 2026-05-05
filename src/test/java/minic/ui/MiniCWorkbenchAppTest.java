@@ -9,7 +9,7 @@ class MiniCWorkbenchAppTest {
     @Test
     void definesJavaFxApplicationEntryPoint() {
         assertThat(Application.class).isAssignableFrom(MiniCWorkbenchApp.class);
-        assertThat(MiniCWorkbenchApp.TITLE).isEqualTo("MiniC Visual Workbench");
+        assertThat(MiniCWorkbenchApp.TITLE).isEqualTo("MiniC 可视化工作台");
         assertThat(MiniCWorkbenchApp.DEFAULT_WIDTH).isGreaterThanOrEqualTo(960);
         assertThat(MiniCWorkbenchApp.DEFAULT_HEIGHT).isGreaterThanOrEqualTo(600);
         assertThat(MiniCWorkbenchLauncher.class.getDeclaredConstructors()).hasSize(1);

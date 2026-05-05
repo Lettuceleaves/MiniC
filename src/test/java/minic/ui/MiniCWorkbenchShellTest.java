@@ -53,8 +53,8 @@ class MiniCWorkbenchShellTest {
                 .doesNotContain("workbench.visual")
                 .doesNotContain("Problems    Output    Debug Console    Terminal")
                 .doesNotContain("Problems / Output / Terminal");
-        assertThat(button(root, "Open")).isNotNull();
-        assertThat(button(root, "Save")).isNotNull();
+        assertThat(button(root, "打开")).isNotNull();
+        assertThat(button(root, "保存")).isNotNull();
         assertThat(button(root, "+")).isNotNull();
 
         assertThat(visibleChildren(mainContent)).singleElement()

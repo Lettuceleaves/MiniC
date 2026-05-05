@@ -36,7 +36,7 @@ class MiniCStageListFactoryTest {
                 .findFirst()
                 .orElseThrow();
         assertThat(lexer.state()).isEqualTo("running");
-        assertThat(lexer.detail()).contains("current stage");
+        assertThat(lexer.detail()).contains("当前阶段");
         assertThat(lexer.progressPercent()).isGreaterThanOrEqualTo(0);
     }
 }

@@ -55,7 +55,7 @@ public final class MiniCVisualPane extends VBox {
     private final MiniCAstGraphModelFactory astGraphModelFactory = new MiniCAstGraphModelFactory();
     private final MiniCSemanticScopeTreeModelFactory semanticScopeTreeModelFactory = new MiniCSemanticScopeTreeModelFactory();
     private final MiniCAssemblyTextModelFactory assemblyTextModelFactory = new MiniCAssemblyTextModelFactory();
-    private final Label header = new Label("Graph View");
+    private final Label header = new Label("图形视图");
     private final SplitPane splitPane = new SplitPane();
     private final StageColumn leftColumn = new StageColumn(false);
     private final StageColumn rightColumn = new StageColumn(true);
@@ -138,53 +138,53 @@ public final class MiniCVisualPane extends VBox {
         if (!"semantic".equals(stage)) {
             selectedSemanticScopeId = "";
         }
-        header.setText("Graph View · " + stage + (stage.equals(currentStage) ? "" : " · snapshot"));
+        header.setText("图形视图 · " + stageName(stage) + (stage.equals(currentStage) ? "" : " · 快照"));
         UiStageVisualDto visual = visualForStage(stage);
         if (visual == null) {
             leftColumn.setContent(stage, fallbackRows());
-            rightColumn.setContent("Output", List.of());
+            rightColumn.setContent("输出", List.of());
             return;
         }
         switch (stage) {
             case "lexer" -> {
-                leftColumn.setContent("Source", sourceRows(visual));
-                rightColumn.setContent("Tokens", tokenRows(visual));
+                leftColumn.setContent("源码", sourceRows(visual));
+                rightColumn.setContent("Token", tokenRows(visual));
             }
             case "parser" -> {
-                leftColumn.setContent("Tokens", tokenRows(viewModel.lexerVisualDataProperty().get()));
+                leftColumn.setContent("Token", tokenRows(viewModel.lexerVisualDataProperty().get()));
                 rightColumn.setContent("AST", List.of(zoomableAstGraph(visual)));
             }
             case "semantic" -> {
                 leftColumn.setContent("AST", List.of(zoomableSemanticAstGraph(visual)));
-                rightColumn.setContent("Scope", activeScopeRows(visual));
+                rightColumn.setContent("作用域", activeScopeRows(visual));
             }
             case "codegen" -> {
                 leftColumn.setContent("IR", codegenIrRows(visual));
-                rightColumn.setContent("Assembly", assemblyRows(visual));
+                rightColumn.setContent("汇编", assemblyRows(visual));
             }
             case "source" -> {
-                leftColumn.setContent("Source", sourceRows(null));
-                rightColumn.setContent("Output", List.of(monoLabel("Source loaded.")));
+                leftColumn.setContent("源码", sourceRows(null));
+                rightColumn.setContent("输出", List.of(monoLabel("源码已加载。")));
             }
             case "ir" -> {
                 leftColumn.setContent("AST", List.of(zoomableSemanticAstGraph(visual)));
                 if (selectedSemanticScopeId == null || selectedSemanticScopeId.isBlank()) {
                     rightColumn.setContent("IR", globalRows(stage));
                 } else {
-                    rightColumn.setContent("Scope", activeScopeRows(visual));
+                    rightColumn.setContent("作用域", activeScopeRows(visual));
                 }
             }
             case "toolchain" -> {
-                leftColumn.setContent("Assembly", assemblyRows(visualForStage("codegen")));
-                rightColumn.setContent("Toolchain", globalRows(stage));
+                leftColumn.setContent("汇编", assemblyRows(visualForStage("codegen")));
+                rightColumn.setContent("工具链", globalRows(stage));
             }
             case "execution" -> {
                 leftColumn.setContent("STDIN", List.of(executionInputPane()));
-                rightColumn.setContent("OUTPUT", executionOutputRows());
+                rightColumn.setContent("输出", executionOutputRows());
             }
             default -> {
                 leftColumn.setContent(stage, fallbackRows());
-                rightColumn.setContent("Output", List.of());
+                rightColumn.setContent("输出", List.of());
             }
         }
     }
@@ -196,6 +196,21 @@ public final class MiniCVisualPane extends VBox {
             case "semantic" -> viewModel.semanticVisualDataProperty().get();
             case "codegen" -> viewModel.codegenVisualDataProperty().get();
             default -> viewModel.currentStageVisualDataProperty().get();
+        };
+    }
+
+    private String stageName(String stage) {
+        return switch (stage) {
+            case "source" -> "源码";
+            case "lexer" -> "词法分析";
+            case "parser" -> "语法分析";
+            case "semantic" -> "语义分析";
+            case "ir" -> "IR 降级";
+            case "codegen" -> "代码生成";
+            case "toolchain" -> "工具链";
+            case "execution" -> "执行";
+            case "pending" -> "等待中";
+            default -> stage;
         };
     }
 
@@ -221,7 +236,7 @@ public final class MiniCVisualPane extends VBox {
         VBox box = new VBox(10);
         box.getStyleClass().add("asm-input-stack");
         box.getChildren().add(section("AST", List.of(zoomableAstGraph(viewModel.astVisualDataProperty().get()))));
-        box.getChildren().add(section("Scope", semanticRows(viewModel.semanticVisualDataProperty().get())));
+        box.getChildren().add(section("作用域", semanticRows(viewModel.semanticVisualDataProperty().get())));
         return box;
     }
 
@@ -254,7 +269,7 @@ public final class MiniCVisualPane extends VBox {
     private List<Label> executionOutputRows() {
         if (viewModel.globalDataProperty().get() == null
                 || viewModel.globalDataProperty().get().executionOutputSummary().isEmpty()) {
-            return List.of(monoLabel("Execution output will appear here."));
+            return List.of(monoLabel("执行输出会显示在这里。"));
         }
         return viewModel.globalDataProperty().get().executionOutputSummary().stream()
                 .map(this::monoLabel)
@@ -263,7 +278,7 @@ public final class MiniCVisualPane extends VBox {
 
     private List<Label> globalRows(String stage) {
         if (viewModel.globalDataProperty().get() == null) {
-            return List.of(monoLabel("No data."));
+            return List.of(monoLabel("暂无数据。"));
         }
         List<String> rows = switch (stage) {
             case "ir" -> viewModel.globalDataProperty().get().irSummary();
@@ -271,14 +286,14 @@ public final class MiniCVisualPane extends VBox {
             default -> List.of();
         };
         if (rows.isEmpty()) {
-            return List.of(monoLabel("No " + stage + " output yet."));
+            return List.of(monoLabel(stageName(stage) + " 暂无输出。"));
         }
         return rows.stream().map(this::monoLabel).toList();
     }
 
     private List<HBox> codegenIrRows(UiStageVisualDto codegenVisual) {
         if (codegenVisual == null || codegenVisual.irLines().isEmpty()) {
-            return List.of(textRow("No ir output yet.", "assembly-row", "assembly-text"));
+            return List.of(textRow("IR 暂无输出。", "assembly-row", "assembly-text"));
         }
         return codegenVisual.irLines().stream()
                 .map(this::irRow)
@@ -299,15 +314,15 @@ public final class MiniCVisualPane extends VBox {
         }
         row.getChildren().addAll(number, text);
         attachInspectorClick(row, inspectorContent(
-                "IR line " + line.lineNumber(),
+                "IR 行 " + line.lineNumber(),
                 List.of(
-                        "kind: ir",
-                        "line: " + line.lineNumber(),
-                        "text: " + line.text(),
+                        "类型: IR",
+                        "行号: " + line.lineNumber(),
+                        "文本: " + line.text(),
                         rangeLine(line.range())
                 ),
                 line.range(),
-                "This IR row is the intermediate representation produced before backend code generation."
+                "这是进入后端代码生成前的中间表示行。"
         ));
         return row;
     }
@@ -420,7 +435,7 @@ public final class MiniCVisualPane extends VBox {
 
     private Pane astGraph(UiStageVisualDto visual) {
         if (visual == null || visual.astRoot() == null) {
-            return emptyPane("AST not ready");
+            return emptyPane("AST 尚未就绪");
         }
         MiniCAstGraphModel graph = astGraphModelFactory.create(visual);
         Pane pane = new Pane();
@@ -465,7 +480,7 @@ public final class MiniCVisualPane extends VBox {
 
     private Pane semanticAstGraph(UiStageVisualDto visual) {
         if (visual == null || visual.astRoot() == null) {
-            return emptyPane("AST not ready");
+            return emptyPane("AST 尚未就绪");
         }
         MiniCAstGraphModel graph = astGraphModelFactory.create(visual);
         Pane pane = new Pane();
@@ -570,7 +585,7 @@ public final class MiniCVisualPane extends VBox {
         box.getStyleClass().add("ast-zoom-box");
         HBox controls = new HBox(8);
         controls.getStyleClass().add("ast-zoom-controls");
-        Label title = new Label("Zoom");
+        Label title = new Label("缩放");
         title.getStyleClass().add("ast-zoom-label");
         Label value = new Label();
         value.getStyleClass().add("ast-zoom-value");
@@ -608,7 +623,7 @@ public final class MiniCVisualPane extends VBox {
         box.getStyleClass().add("ast-zoom-box");
         HBox controls = new HBox(8);
         controls.getStyleClass().add("ast-zoom-controls");
-        Label title = new Label("Zoom");
+        Label title = new Label("缩放");
         title.getStyleClass().add("ast-zoom-label");
         Label value = new Label();
         value.getStyleClass().add("ast-zoom-value");
@@ -744,7 +759,7 @@ public final class MiniCVisualPane extends VBox {
 
     private List<HBox> assemblyRows(UiStageVisualDto visual) {
         if (visual == null || visual.assemblyLines().isEmpty()) {
-            return List.of(textRow("Assembly not ready", "assembly-row", "assembly-text"));
+            return List.of(textRow("汇编尚未就绪", "assembly-row", "assembly-text"));
         }
         return assemblyTextModelFactory.create(visual).stream()
                 .map(this::assemblyRow)
@@ -765,24 +780,24 @@ public final class MiniCVisualPane extends VBox {
         }
         row.getChildren().addAll(number, text);
         attachInspectorClick(row, inspectorContent(
-                "Assembly line " + line.lineNumber(),
+                "汇编行 " + line.lineNumber(),
                 List.of(
-                        "kind: " + line.kind(),
-                        "line: " + line.lineNumber(),
-                        "section: " + blankValue(line.section()),
-                        "label: " + blankValue(line.label()),
-                        "text: " + line.text(),
+                        "类型: " + line.kind(),
+                        "行号: " + line.lineNumber(),
+                        "段: " + blankValue(line.section()),
+                        "标签: " + blankValue(line.label()),
+                        "文本: " + line.text(),
                         rangeLine(line.range())
                 ),
                 line.range(),
-                "This assembly row is emitted by the Windows x64 backend from the current IR/codegen state."
+                "这是 Windows x64 后端根据当前 IR/代码生成状态输出的汇编行。"
         ));
         return row;
     }
 
     private List<HBox> semanticRows(UiStageVisualDto visual) {
         if (visual == null || visual.semanticRoot() == null) {
-            return List.of(textRow("Scope not ready", "semantic-row", "semantic-scope-line"));
+            return List.of(textRow("作用域尚未就绪", "semantic-row", "semantic-scope-line"));
         }
         return semanticScopeTreeModelFactory.create(visual).stream()
                 .map(this::semanticRow)
@@ -792,10 +807,10 @@ public final class MiniCVisualPane extends VBox {
     private List<Label> activeScopeRows(UiStageVisualDto visual) {
         UiSemanticScopeVisualDto activeScope = selectedScope(visual == null ? null : visual.semanticRoot());
         if (activeScope == null) {
-            return List.of(monoLabel("No active scope."));
+            return List.of(monoLabel("暂无活动作用域。"));
         }
         if (activeScope.symbols().isEmpty()) {
-            return List.of(monoLabel(activeScope.label() + " has no symbols yet."));
+            return List.of(monoLabel(activeScope.label() + " 暂无符号。"));
         }
         return activeScope.symbols().stream()
                 .map(this::monoLabel)
@@ -886,17 +901,17 @@ public final class MiniCVisualPane extends VBox {
             return MiniCHoverInspectorContent.empty();
         }
         return inspectorContent(
-                "AST node " + node.kind(),
+                "AST 节点 " + node.kind(),
                 List.of(
                         "id: " + node.id(),
-                        "kind: " + node.kind(),
-                        "label: " + node.label(),
-                        "children: " + node.children().size(),
-                        "active: " + node.active(),
+                        "类型: " + node.kind(),
+                        "标签: " + node.label(),
+                        "子节点数: " + node.children().size(),
+                        "当前节点: " + yesNo(node.active()),
                         rangeLine(node.range())
                 ),
                 node.range(),
-                "This AST node is the parsed syntax structure for the highlighted source span."
+                "这是语法分析后得到的 AST 节点，对应左侧源码中被遮罩标出的源码范围。"
         );
     }
 
@@ -905,16 +920,16 @@ public final class MiniCVisualPane extends VBox {
             return MiniCHoverInspectorContent.empty();
         }
         return inspectorContent(
-                "Semantic scope " + scope.label(),
+                "语义作用域 " + scope.label(),
                 List.of(
                         "id: " + scope.id(),
-                        "depth: " + depth,
-                        "active: " + scope.active(),
-                        "symbols: " + scope.symbols().size(),
+                        "深度: " + depth,
+                        "当前作用域: " + yesNo(scope.active()),
+                        "符号数: " + scope.symbols().size(),
                         rangeLine(scope.range())
                 ),
                 scope.range(),
-                "Semantic scope details are shown in the right side of the stage view; this panel only shows scope metadata and source position."
+                "语义阶段右侧已经展示该作用域内的变量和符号，这里只显示作用域元数据与源码位置。"
         );
     }
 
@@ -936,20 +951,24 @@ public final class MiniCVisualPane extends VBox {
 
     private String rangeLine(UiSourceSpanDto range) {
         if (range == null) {
-            return "source range: unavailable";
+            return "源码范围: 不可用";
         }
-        return "source range: " + range.sourceName()
+        return "源码范围: " + range.sourceName()
                 + " " + range.startLine() + ":" + range.startColumn()
                 + " - " + range.endLine() + ":" + range.endColumn()
-                + " offsets " + range.startOffset() + ".." + range.endOffset();
+                + " offset " + range.startOffset() + ".." + range.endOffset();
     }
 
     private String blankValue(String value) {
-        return value == null || value.isBlank() ? "<none>" : value;
+        return value == null || value.isBlank() ? "<无>" : value;
     }
 
     private String displayTokenText(UiLexerTokenVisualDto token) {
         return token.text().isEmpty() ? "<EOF>" : token.text();
+    }
+
+    private String yesNo(boolean value) {
+        return value ? "是" : "否";
     }
 
     private record ScopeEntry(UiSemanticScopeVisualDto scope, int depth) {
@@ -976,7 +995,7 @@ public final class MiniCVisualPane extends VBox {
 
     private List<HBox> tokenRows(UiStageVisualDto visual) {
         if (visual == null || visual.lexerTokens().isEmpty()) {
-            return List.of(textRow("Tokens not ready", "token-row", "token-text"));
+            return List.of(textRow("Token 尚未就绪", "token-row", "token-text"));
         }
         return visual.lexerTokens().stream()
                 .map(token -> {
@@ -998,14 +1017,14 @@ public final class MiniCVisualPane extends VBox {
                     attachInspectorClick(row, inspectorContent(
                             "Token " + token.kind(),
                             List.of(
-                                    "kind: " + token.kind(),
-                                    "text: " + displayTokenText(token),
+                                    "类型: " + token.kind(),
+                                    "文本: " + displayTokenText(token),
                                     "offset: " + token.startOffset() + ".." + token.endOffset(),
-                                    "position: " + token.startLine() + ":" + token.startColumn()
+                                    "位置: " + token.startLine() + ":" + token.startColumn()
                                             + " - " + token.endLine() + ":" + token.endColumn()
                             ),
                             token.range(),
-                            "Lexer token details. The lexer view already shows the token's source mapping, so this panel only repeats compact metadata."
+                            "这是词法分析产出的 token。词法视图已经展示源码对应关系，这里保留紧凑的元数据。"
                     ));
                     return row;
                 })

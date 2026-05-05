@@ -117,9 +117,9 @@ public final class MiniCBottomPanel extends VBox {
     private VBox rightContent(MiniCHoverInspectorContent content) {
         VBox box = new VBox(8);
         box.getStyleClass().add("hover-inspector-right");
-        Label title = new Label("Explanation");
+        Label title = new Label("说明");
         title.getStyleClass().add("hover-inspector-title");
-        Label explanation = new Label(content.explanation().isBlank() ? "No explanation." : content.explanation());
+        Label explanation = new Label(content.explanation().isBlank() ? "暂无说明。" : content.explanation());
         explanation.getStyleClass().add("hover-inspector-explanation");
         explanation.setWrapText(true);
         ScrollPane explanationScroll = new ScrollPane(explanation);

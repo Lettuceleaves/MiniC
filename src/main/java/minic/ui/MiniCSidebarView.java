@@ -24,10 +24,10 @@ public final class MiniCSidebarView extends VBox {
         stageListFactory = new MiniCStageListFactory();
         getStyleClass().add("sidebar");
         getChildren().addAll(
-                label("Explorer", "panel-title"),
-                label("MINIC WORKSPACE", "section-label"),
-                body("samples\n  main.mc\n  printf.mc\noutputs\n  tokens.json\n  semantic.log"),
-                label("PIPELINE", "section-label"),
+                label("资源管理器", "panel-title"),
+                label("MINIC 工作区", "section-label"),
+                body("示例\n  main.mc\n  printf.mc\n输出\n  tokens.json\n  semantic.log"),
+                label("编译管线", "section-label"),
                 stageList
         );
         stageList.getStyleClass().add("stage-list");

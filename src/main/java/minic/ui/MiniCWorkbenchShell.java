@@ -180,8 +180,8 @@ public final class MiniCWorkbenchShell {
     private HBox statusBar() {
         HBox status = new HBox();
         status.getStyleClass().add("status-bar");
-        Label left = new Label("MiniC Visual Workbench · VS Code style");
-        Label right = new Label("C030 · Shell");
+        Label left = new Label("MiniC 可视化工作台");
+        Label right = new Label("C030 · 工作台");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         status.getChildren().addAll(left, spacer, right);
@@ -204,7 +204,7 @@ public final class MiniCWorkbenchShell {
             tab.setOnMouseClicked(event -> switchDocument(tabIndex));
             tabs.getChildren().add(tab);
         }
-        tabs.getChildren().add(toolbarButton("+", "New file", this::newDocument));
+        tabs.getChildren().add(toolbarButton("+", "新建文件", this::newDocument));
     }
 
     private Button toolbarButton(String text, String tooltip, Runnable action) {
@@ -233,8 +233,8 @@ public final class MiniCWorkbenchShell {
 
     private void openDocument() {
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Open MiniC source");
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("MiniC source (*.mc)", "*.mc"));
+        chooser.setTitle("打开 MiniC 源文件");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("MiniC 源文件 (*.mc)", "*.mc"));
         java.io.File file = chooser.showOpenDialog(window());
         if (file == null) {
             return;
@@ -244,7 +244,7 @@ public final class MiniCWorkbenchShell {
             addDocument(path.getFileName().toString(), Files.readString(path, StandardCharsets.UTF_8), path, new MiniCWorkbenchViewModel());
             switchDocument(documents.size() - 1);
         } catch (IOException exception) {
-            throw new IllegalStateException("cannot open source file: " + file, exception);
+            throw new IllegalStateException("无法打开源文件: " + file, exception);
         }
     }
 
@@ -253,8 +253,8 @@ public final class MiniCWorkbenchShell {
         Path path = document.path();
         if (path == null) {
             FileChooser chooser = new FileChooser();
-            chooser.setTitle("Save MiniC source");
-            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("MiniC source (*.mc)", "*.mc"));
+            chooser.setTitle("保存 MiniC 源文件");
+            chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("MiniC 源文件 (*.mc)", "*.mc"));
             chooser.setInitialFileName(document.name());
             java.io.File file = chooser.showSaveDialog(window());
             if (file == null) {
@@ -268,7 +268,7 @@ public final class MiniCWorkbenchShell {
         try {
             Files.writeString(path, document.viewModel().sourceTextProperty().get(), StandardCharsets.UTF_8);
         } catch (IOException exception) {
-            throw new IllegalStateException("cannot save source file: " + path, exception);
+            throw new IllegalStateException("无法保存源文件: " + path, exception);
         }
     }
 

@@ -14,9 +14,9 @@ import java.util.Objects;
 public final class MiniCSourceLoaderView extends VBox {
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCCodeEditor sourceEditor = new MiniCCodeEditor();
-    private final Button startButton = new Button("Start");
-    private final Button openButton = new Button("Open");
-    private final Button saveButton = new Button("Save");
+    private final Button startButton = new Button("开始");
+    private final Button openButton = new Button("打开");
+    private final Button saveButton = new Button("保存");
     private final Runnable openAction;
     private final Runnable saveAction;
 
