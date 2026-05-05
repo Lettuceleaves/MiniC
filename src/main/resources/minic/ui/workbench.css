@@ -316,6 +316,20 @@
     -fx-fill: transparent;
 }
 
+.editor-diagnostic-details {
+    -fx-background-color: rgba(37, 37, 38, 0.96);
+    -fx-border-color: #5a2d2d;
+    -fx-border-width: 1px 0 0 0;
+    -fx-padding: 8px 12px;
+}
+
+.editor-diagnostic-detail {
+    -fx-text-fill: #f4c7c3;
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 12px;
+    -fx-line-spacing: 2px;
+}
+
 .code-editor .styled-text-area,
 .code-editor .styled-text-area .viewport,
 .code-editor .styled-text-area .content,

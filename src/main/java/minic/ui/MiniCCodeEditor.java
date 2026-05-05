@@ -5,10 +5,12 @@ import javafx.beans.value.ObservableValue;
 import javafx.geometry.Bounds;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.Label;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Polyline;
 import minic.uiapi.UiDiagnosticDto;
@@ -47,6 +49,7 @@ public final class MiniCCodeEditor extends StackPane {
     );
     private final StyleClassedTextArea input = new StyleClassedTextArea();
     private final Pane diagnosticLayer = new Pane();
+    private final VBox diagnosticDetails = new VBox(4);
     private final ListView<String> completionList = new ListView<>();
     private UiRealtimeAnalysisDto latestAnalysis;
     private List<UiDiagnosticDto> latestDiagnostics = List.of();
@@ -72,8 +75,12 @@ public final class MiniCCodeEditor extends StackPane {
         diagnosticLayer.setMouseTransparent(true);
         diagnosticLayer.prefWidthProperty().bind(widthProperty());
         diagnosticLayer.prefHeightProperty().bind(heightProperty());
+        diagnosticDetails.getStyleClass().add("editor-diagnostic-details");
+        diagnosticDetails.setManaged(false);
+        diagnosticDetails.setVisible(false);
+        diagnosticDetails.maxWidthProperty().bind(widthProperty());
         configureCompletionList();
-        getChildren().addAll(new VirtualizedScrollPane<>(input), diagnosticLayer, completionList);
+        getChildren().addAll(new VirtualizedScrollPane<>(input), diagnosticLayer, diagnosticDetails, completionList);
     }
 
     /**
@@ -139,6 +146,7 @@ public final class MiniCCodeEditor extends StackPane {
         latestDiagnostics = analysis == null ? List.of() : analysis.diagnostics();
         input.setStyleSpans(0, styleSpans(source, analysis));
         Platform.runLater(this::drawDiagnostics);
+        updateDiagnosticDetails();
         if (source.isEmpty()) {
             hideCompletion();
             return;
@@ -427,6 +435,7 @@ public final class MiniCCodeEditor extends StackPane {
         diagnosticLayer.getChildren().clear();
         String source = input.getText();
         if (source.isEmpty() || latestDiagnostics.isEmpty()) {
+            updateDiagnosticDetails();
             return;
         }
         for (UiDiagnosticDto diagnostic : latestDiagnostics) {
@@ -442,6 +451,7 @@ public final class MiniCCodeEditor extends StackPane {
                     .map(diagnosticLayer::screenToLocal)
                     .ifPresent(this::addDiagnosticWave);
         }
+        updateDiagnosticDetails();
     }
 
     private java.util.Optional<Bounds> boundsForRange(String source, int start, int end) {
@@ -486,6 +496,50 @@ public final class MiniCCodeEditor extends StackPane {
         double rowHeight = 26;
         double preferredHeight = Math.min(maxHeight, Math.max(rowHeight, completionList.getItems().size() * rowHeight + 2));
         completionList.resizeRelocate(0, Math.max(0, getHeight() - preferredHeight), getWidth(), preferredHeight);
+    }
+
+    private void updateDiagnosticDetails() {
+        diagnosticDetails.getChildren().clear();
+        String source = input.getText();
+        if (source.isEmpty() || latestDiagnostics.isEmpty()) {
+            diagnosticDetails.setVisible(false);
+            return;
+        }
+        latestDiagnostics.stream()
+                .sorted(Comparator.comparingInt(UiDiagnosticDto::startOffset))
+                .limit(4)
+                .map(diagnostic -> diagnosticDetail(source, diagnostic))
+                .forEach(diagnosticDetails.getChildren()::add);
+        diagnosticDetails.setVisible(true);
+        Platform.runLater(this::layoutDiagnosticDetails);
+    }
+
+    private Label diagnosticDetail(String source, UiDiagnosticDto diagnostic) {
+        SourcePosition position = sourcePosition(source, diagnostic.startOffset());
+        int start = safeOffset(source, diagnostic.startOffset());
+        int end = safeOffset(source, diagnostic.endOffset());
+        String message = diagnostic.message() == null || diagnostic.message().isBlank()
+                ? "编译器没有返回更具体的错误原因。"
+                : diagnostic.message();
+        String text = "错误位置: 第 " + position.line()
+                + " 行，第 " + position.byteOffsetInLine()
+                + " 个字节，offset " + start + ".." + end
+                + "。原因: " + message
+                + "。请检查该位置附近的关键字、标识符、括号、分号、表达式或宏展开结果是否符合 MiniC 当前语法。";
+        Label label = new Label(text);
+        label.getStyleClass().add("editor-diagnostic-detail");
+        label.setWrapText(true);
+        return label;
+    }
+
+    private void layoutDiagnosticDetails() {
+        if (!diagnosticDetails.isVisible()) {
+            return;
+        }
+        double width = Math.max(0, getWidth());
+        diagnosticDetails.applyCss();
+        double preferredHeight = Math.min(140, diagnosticDetails.prefHeight(width));
+        diagnosticDetails.resizeRelocate(0, Math.max(0, getHeight() - preferredHeight), width, preferredHeight);
     }
 
     private void selectCompletionOffset(int offset) {
@@ -578,6 +632,25 @@ public final class MiniCCodeEditor extends StackPane {
         return Math.max(0, Math.min(offset, source.length()));
     }
 
+    private SourcePosition sourcePosition(String source, int offset) {
+        int safeOffset = safeOffset(source, offset);
+        int line = 1;
+        int lineStart = 0;
+        for (int index = 0; index < safeOffset; index++) {
+            if (source.charAt(index) == '\n') {
+                line++;
+                lineStart = index + 1;
+            }
+        }
+        int byteOffsetInLine = source.substring(lineStart, safeOffset)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                .length + 1;
+        return new SourcePosition(line, byteOffsetInLine);
+    }
+
     private record Prefix(String text, int startOffset, int endOffset) {
+    }
+
+    private record SourcePosition(int line, int byteOffsetInLine) {
     }
 }
