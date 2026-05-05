@@ -18,7 +18,7 @@ class UiDtoTest {
         UiCurrentStateDto state = api.currentState();
 
         assertThat(state.sourceName()).isEqualTo("dto.mc");
-        assertThat(state.currentStage()).isEqualTo("lexer");
+        assertThat(state.currentStage()).isEqualTo("preprocess");
         assertThat(state.playbackMode()).isEqualTo("PAUSED");
         assertThat(state.frameIntervalMillis()).isEqualTo(1000);
         assertThat(state.canPrevious()).isFalse();
@@ -43,6 +43,7 @@ class UiDtoTest {
         UiGlobalDataDto globalData = new UiGlobalDataDto(
                 "source",
                 input,
+                List.of(),
                 List.of(),
                 output,
                 List.of(),
@@ -69,6 +70,7 @@ class UiDtoTest {
         UiStageVisualDto visual = new UiStageVisualDto(
                 "lexer",
                 "lexer",
+                "",
                 genericItems,
                 tokens,
                 null,

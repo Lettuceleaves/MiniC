@@ -28,6 +28,6 @@ class MiniCVisualModelFactoryTest {
 
         assertThat(items).isNotEmpty();
         assertThat(items.getFirst().hot()).isTrue();
-        assertThat(items).anySatisfy(item -> assertThat(item.label()).contains("INT"));
+        assertThat(items).anySatisfy(item -> assertThat(item.label()).contains("out int main()"));
     }
 }

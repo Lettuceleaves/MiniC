@@ -11,6 +11,7 @@ import java.util.Objects;
  * @param source 源码文本
  * @param stageSummaries 阶段摘要
  * @param diagnostics 全局诊断
+ * @param preprocessSummary 预编译摘要
  * @param tokenSummary token 摘要
  * @param astSummary AST 摘要
  * @param semanticSummary semantic 摘要
@@ -24,6 +25,7 @@ public record UiGlobalDataDto(
         String source,
         List<String> stageSummaries,
         List<UiDiagnosticDto> diagnostics,
+        List<String> preprocessSummary,
         List<String> tokenSummary,
         List<String> astSummary,
         List<String> semanticSummary,
@@ -37,6 +39,7 @@ public record UiGlobalDataDto(
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(stageSummaries, "stageSummaries");
         Objects.requireNonNull(diagnostics, "diagnostics");
+        Objects.requireNonNull(preprocessSummary, "preprocessSummary");
         Objects.requireNonNull(tokenSummary, "tokenSummary");
         Objects.requireNonNull(astSummary, "astSummary");
         Objects.requireNonNull(semanticSummary, "semanticSummary");
@@ -47,6 +50,7 @@ public record UiGlobalDataDto(
         Objects.requireNonNull(executionOutputSummary, "executionOutputSummary");
         stageSummaries = List.copyOf(stageSummaries);
         diagnostics = List.copyOf(diagnostics);
+        preprocessSummary = List.copyOf(preprocessSummary);
         tokenSummary = List.copyOf(tokenSummary);
         astSummary = List.copyOf(astSummary);
         semanticSummary = List.copyOf(semanticSummary);
@@ -62,6 +66,7 @@ public record UiGlobalDataDto(
                 data.source(),
                 data.stageSummaries(),
                 data.diagnostics().stream().map(UiDiagnosticDto::from).toList(),
+                data.preprocessSummary(),
                 data.tokenSummary(),
                 data.astSummary(),
                 data.semanticSummary(),

@@ -12,6 +12,11 @@ public enum CompileStage {
     SOURCE("source"),
 
     /**
+     * 预编译阶段。
+     */
+    PREPROCESS("preprocess"),
+
+    /**
      * 词法分析阶段。
      */
     LEXER("lexer"),

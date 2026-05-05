@@ -45,9 +45,10 @@ public final class MiniCInspectorModelFactory {
 
     private String accumulatedOutput(UiGlobalDataDto globalData) {
         if (globalData == null) {
-            return "token: 0\nAST: 0\n语义: 0\nIR: 0\n汇编: 0\n产物: 0";
+            return "预编译: 0\ntoken: 0\nAST: 0\n语义: 0\nIR: 0\n汇编: 0\n产物: 0";
         }
-        return "token: " + globalData.tokenSummary().size()
+        return "预编译: " + globalData.preprocessSummary().size()
+                + "\ntoken: " + globalData.tokenSummary().size()
                 + "\nAST: " + globalData.astSummary().size()
                 + "\n语义: " + globalData.semanticSummary().size()
                 + "\nIR: " + globalData.irSummary().size()
@@ -58,6 +59,7 @@ public final class MiniCInspectorModelFactory {
     private String stageName(String stage) {
         return switch (stage) {
             case "source" -> "源码";
+            case "preprocess" -> "预编译";
             case "lexer" -> "词法分析";
             case "parser" -> "语法分析";
             case "semantic" -> "语义分析";

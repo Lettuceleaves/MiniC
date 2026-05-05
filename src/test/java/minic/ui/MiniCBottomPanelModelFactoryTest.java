@@ -28,6 +28,6 @@ class MiniCBottomPanelModelFactoryTest {
 
         assertThat(model.problems()).containsExactly("OK  暂无 diagnostics");
         assertThat(model.output()).isNotEmpty();
-        assertThat(model.terminal()).first().asString().contains("lexer");
+        assertThat(model.terminal()).first().asString().contains("preprocess");
     }
 }

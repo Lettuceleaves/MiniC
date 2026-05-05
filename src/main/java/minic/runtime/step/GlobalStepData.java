@@ -11,6 +11,7 @@ import java.util.Objects;
  * @param source 源码文本
  * @param stageSummaries 所有阶段摘要
  * @param diagnostics 全量 diagnostics
+ * @param preprocessSummary 预编译摘要
  * @param tokenSummary token 摘要
  * @param astSummary AST 摘要
  * @param semanticSummary semantic 摘要
@@ -24,6 +25,7 @@ public record GlobalStepData(
         String source,
         List<String> stageSummaries,
         List<Diagnostic> diagnostics,
+        List<String> preprocessSummary,
         List<String> tokenSummary,
         List<String> astSummary,
         List<String> semanticSummary,
@@ -39,6 +41,7 @@ public record GlobalStepData(
      * @param source 源码文本
      * @param stageSummaries 所有阶段摘要
      * @param diagnostics 全量 diagnostics
+     * @param preprocessSummary 预编译摘要
      * @param tokenSummary token 摘要
      * @param astSummary AST 摘要
      * @param semanticSummary semantic 摘要
@@ -52,6 +55,7 @@ public record GlobalStepData(
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(stageSummaries, "stageSummaries");
         Objects.requireNonNull(diagnostics, "diagnostics");
+        Objects.requireNonNull(preprocessSummary, "preprocessSummary");
         Objects.requireNonNull(tokenSummary, "tokenSummary");
         Objects.requireNonNull(astSummary, "astSummary");
         Objects.requireNonNull(semanticSummary, "semanticSummary");
@@ -62,6 +66,7 @@ public record GlobalStepData(
         Objects.requireNonNull(executionOutputSummary, "executionOutputSummary");
         stageSummaries = List.copyOf(stageSummaries);
         diagnostics = List.copyOf(diagnostics);
+        preprocessSummary = List.copyOf(preprocessSummary);
         tokenSummary = List.copyOf(tokenSummary);
         astSummary = List.copyOf(astSummary);
         semanticSummary = List.copyOf(semanticSummary);

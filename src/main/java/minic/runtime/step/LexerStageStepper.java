@@ -121,6 +121,15 @@ public final class LexerStageStepper implements StageStepper {
         return lexerState;
     }
 
+    /**
+     * 返回 Lexer 正在处理的源码。
+     *
+     * @return 源码文件
+     */
+    public SourceFile sourceFile() {
+        return sourceFile;
+    }
+
     private String currentItem() {
         return lexerState.currentToken().map(LexerStageStepper::tokenSummary)
                 .or(() -> lexerState.currentDiagnostic().map(diagnostic -> diagnostic.code() + " " + diagnostic.message()))

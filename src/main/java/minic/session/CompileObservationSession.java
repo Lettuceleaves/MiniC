@@ -5,6 +5,7 @@ import minic.compiler.codegen.AssemblySource;
 import minic.compiler.ir.model.IrModule;
 import minic.compiler.lexer.LexResult;
 import minic.compiler.parser.ParseResult;
+import minic.compiler.preprocess.PreprocessResult;
 import minic.compiler.semantic.SemanticResult;
 import minic.runtime.step.CodegenStageStepper;
 import minic.runtime.step.CompileStage;
@@ -15,6 +16,7 @@ import minic.runtime.step.IrStageStepper;
 import minic.runtime.step.LexerStageStepper;
 import minic.runtime.step.ParserStageStepper;
 import minic.runtime.step.PlaybackMode;
+import minic.runtime.step.PreprocessStageStepper;
 import minic.runtime.step.SemanticStageStepper;
 import minic.runtime.step.StageStepData;
 import minic.runtime.step.StageStepper;
@@ -37,6 +39,7 @@ import java.util.Optional;
  */
 public final class CompileObservationSession {
     private static final List<CompileStage> STAGE_ORDER = List.of(
+            CompileStage.PREPROCESS,
             CompileStage.LEXER,
             CompileStage.PARSER,
             CompileStage.SEMANTIC,
@@ -53,6 +56,7 @@ public final class CompileObservationSession {
     private PlaybackMode playbackMode = PlaybackMode.PAUSED;
 
     private LexResult lexResult;
+    private PreprocessResult preprocessResult;
     private ParseResult parseResult;
     private SemanticResult semanticResult;
     private IrModule irModule;
@@ -60,7 +64,7 @@ public final class CompileObservationSession {
 
     private CompileObservationSession(SourceFile sourceFile) {
         this.sourceFile = Objects.requireNonNull(sourceFile, "sourceFile");
-        steppers.put(CompileStage.LEXER, new LexerStageStepper(sourceFile));
+        steppers.put(CompileStage.PREPROCESS, new PreprocessStageStepper(sourceFile));
     }
 
     /**
@@ -297,6 +301,7 @@ public final class CompileObservationSession {
                 sourceFile.content(),
                 stageSummaries(),
                 diagnostics(),
+                summaryFor(CompileStage.PREPROCESS),
                 summaryFor(CompileStage.LEXER),
                 summaryFor(CompileStage.PARSER),
                 summaryFor(CompileStage.SEMANTIC),
@@ -315,6 +320,15 @@ public final class CompileObservationSession {
      */
     public Optional<LexResult> lexResult() {
         return Optional.ofNullable(lexResult);
+    }
+
+    /**
+     * 返回已缓存的预编译结果。
+     *
+     * @return 预编译结果
+     */
+    public Optional<PreprocessResult> preprocessResult() {
+        return Optional.ofNullable(preprocessResult);
     }
 
     /**
@@ -380,6 +394,10 @@ public final class CompileObservationSession {
         this.lexResult = Objects.requireNonNull(lexResult, "lexResult");
     }
 
+    void cachePreprocessResult(PreprocessResult preprocessResult) {
+        this.preprocessResult = Objects.requireNonNull(preprocessResult, "preprocessResult");
+    }
+
     void cacheParseResult(ParseResult parseResult) {
         this.parseResult = Objects.requireNonNull(parseResult, "parseResult");
     }
@@ -420,6 +438,7 @@ public final class CompileObservationSession {
 
     private void cacheCurrentStageOutput() {
         switch (currentStage()) {
+            case PREPROCESS -> cachePreprocessResult(((PreprocessStageStepper) currentStepper()).preprocessResult());
             case LEXER -> cacheLexResult(((LexerStageStepper) currentStepper()).lexerState().toLexResult());
             case PARSER -> cacheParseResult(((ParserStageStepper) currentStepper()).parserState().toParseResult());
             case SEMANTIC -> cacheSemanticResult(((SemanticStageStepper) currentStepper()).semanticState().toSemanticResult());
@@ -440,6 +459,14 @@ public final class CompileObservationSession {
     private void prepareNextStage() {
         CompileStage nextStage = STAGE_ORDER.get(currentStageIndex + 1);
         switch (nextStage) {
+            case LEXER -> {
+                PreprocessResult readyPreprocessResult = preprocessResult().orElseGet(() -> {
+                    PreprocessResult result = ((PreprocessStageStepper) currentStepper()).preprocessResult();
+                    cachePreprocessResult(result);
+                    return result;
+                });
+                putStepper(CompileStage.LEXER, new LexerStageStepper(readyPreprocessResult.sourceFile()));
+            }
             case PARSER -> {
                 LexResult readyLexResult = lexResult().orElseGet(() -> {
                     LexResult result = ((LexerStageStepper) currentStepper()).lexerState().toLexResult();

@@ -19,24 +19,25 @@ class MiniCObservationApiEndToEndTest {
         );
         api.startSession();
 
-        assertThat(api.currentState().currentStage()).isEqualTo("lexer");
+        assertThat(api.currentState().currentStage()).isEqualTo("preprocess");
         assertThat(api.currentStageData().accumulatedOutput()).isEmpty();
 
         UiControlResultDto first = api.next();
         UiStageDataDto afterFirst = api.currentStageData();
 
-        assertThat(first.outcome()).isEqualTo("ADVANCED");
-        assertThat(afterFirst.stage()).isEqualTo("lexer");
-        assertThat(afterFirst.accumulatedOutput()).contains("EXTERN extern");
+        assertThat(first.outcome()).isEqualTo("STAGE_COMPLETED");
+        assertThat(afterFirst.stage()).isEqualTo("preprocess");
+        assertThat(afterFirst.accumulatedOutput()).contains("out extern int puts(char *text);");
         assertThat(api.currentState().globalStepIndex()).isEqualTo(1);
 
         api.play();
         UiControlResultDto playTick = api.tick();
 
         assertThat(playTick.outcome()).isEqualTo("ADVANCED");
+        assertThat(api.currentState().currentStage()).isEqualTo("lexer");
         assertThat(api.currentState().playbackMode()).isEqualTo("PLAYING");
         assertThat(api.currentState().frameIntervalMillis()).isEqualTo(1000);
-        assertThat(api.currentState().globalStepIndex()).isEqualTo(2);
+        assertThat(api.currentState().globalStepIndex()).isEqualTo(1);
 
         api.playFast();
         UiControlResultDto fastTick = api.tick();
@@ -44,7 +45,7 @@ class MiniCObservationApiEndToEndTest {
         assertThat(fastTick.outcome()).isEqualTo("ADVANCED");
         assertThat(api.currentState().playbackMode()).isEqualTo("FAST_PLAYING");
         assertThat(api.currentState().frameIntervalMillis()).isEqualTo(500);
-        assertThat(api.currentState().globalStepIndex()).isEqualTo(3);
+        assertThat(api.currentState().globalStepIndex()).isEqualTo(2);
 
         assertThat(api.pause().outcome()).isEqualTo("ADVANCED");
         assertThat(api.currentState().playbackMode()).isEqualTo("PAUSED");
@@ -73,6 +74,10 @@ class MiniCObservationApiEndToEndTest {
         api.loadSource("visual-e2e.mc", "int main() { return 0; }");
         api.startSession();
 
+        assertThat(api.currentStageVisualData().visualType()).isEqualTo("generic");
+        assertThat(api.currentState().currentStage()).isEqualTo("preprocess");
+
+        advanceToStage(api, "lexer");
         assertThat(api.currentStageVisualData().visualType()).isEqualTo("lexer");
 
         advanceToStage(api, "parser");
@@ -125,6 +130,25 @@ class MiniCObservationApiEndToEndTest {
                     assertThat(line.label()).isEqualTo("target");
                     assertThat(line.active()).isTrue();
                 });
+    }
+
+    @Test
+    void lexerVisualDataUsesPreprocessedSourceText() {
+        MiniCObservationApi api = new MiniCObservationApi();
+        api.loadSource(
+                "macro-visual.mc",
+                """
+                        #define VALUE 4
+                        int main() { return VALUE; }
+                        """
+        );
+        api.startSession();
+
+        advanceToStage(api, "lexer");
+        UiStageVisualDto lexerVisual = api.currentStageVisualData();
+
+        assertThat(lexerVisual.sourceText()).contains("return 4;");
+        assertThat(lexerVisual.sourceText()).doesNotContain("#define", "VALUE");
     }
 
     private static void advanceToStage(MiniCObservationApi api, String stage) {

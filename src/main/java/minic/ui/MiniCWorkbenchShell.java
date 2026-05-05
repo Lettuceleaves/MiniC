@@ -455,6 +455,7 @@ public final class MiniCWorkbenchShell {
             path = file.toPath();
             document = document.withPath(path);
             documents.set(activeDocumentIndex, document);
+            document.viewModel().renameSource(path.toString());
             refreshTabs();
         }
         try {
@@ -469,7 +470,7 @@ public final class MiniCWorkbenchShell {
     }
 
     private void addDocument(String name, String source, Path path, MiniCWorkbenchViewModel model) {
-        model.loadSource(name, source);
+        model.loadSource(path == null ? name : path.toString(), source);
         model.sourceNameProperty().addListener((observable, oldValue, newValue) -> refreshTabs());
         documents.add(new DocumentTab(name, path, model));
     }
@@ -495,6 +496,9 @@ public final class MiniCWorkbenchShell {
 
     private record DocumentTab(String name, Path path, MiniCWorkbenchViewModel viewModel) {
         private String displayName() {
+            if (path != null) {
+                return path.getFileName().toString();
+            }
             String sourceName = viewModel.sourceNameProperty().get();
             return sourceName == null || sourceName.isBlank() ? name : sourceName;
         }

@@ -5,6 +5,8 @@ import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParseResult;
 import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.MiniCPreprocessor;
+import minic.compiler.preprocess.PreprocessResult;
 import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.semantic.SemanticResult;
 import minic.diagnostics.Diagnostic;
@@ -96,7 +98,6 @@ public final class MiniCRealtimeAnalyzer implements AutoCloseable {
         SourceFile sourceFile = new SourceFile(sourceName, sourceText);
         ArrayList<Diagnostic> diagnostics = new ArrayList<>();
         LexResult lexResult = new Lexer(sourceFile).lex();
-        diagnostics.addAll(lexResult.diagnostics());
         List<UiLexerTokenVisualDto> tokens = lexResult.tokens().stream()
                 .map(token -> new UiLexerTokenVisualDto(
                         token.kind().name(),
@@ -105,14 +106,31 @@ public final class MiniCRealtimeAnalyzer implements AutoCloseable {
                         false
                 ))
                 .toList();
+        PreprocessResult preprocessResult = new MiniCPreprocessor().preprocess(sourceFile);
+        diagnostics.addAll(preprocessResult.diagnostics());
         if (diagnostics.isEmpty()) {
-            ParseResult parseResult = new Parser(lexResult.tokens()).parse();
+            LexResult preprocessedLexResult = new Lexer(preprocessResult.sourceFile()).lex();
+            diagnostics.addAll(preprocessedLexResult.diagnostics());
+            if (!diagnostics.isEmpty()) {
+                return realtimeResult(sourceName, sourceText, diagnostics, tokens, version);
+            }
+            ParseResult parseResult = new Parser(preprocessedLexResult.tokens()).parse();
             diagnostics.addAll(parseResult.diagnostics());
             if (diagnostics.isEmpty()) {
                 SemanticResult semanticResult = new SemanticAnalyzer().analyze(parseResult.program());
                 diagnostics.addAll(semanticResult.diagnostics());
             }
         }
+        return realtimeResult(sourceName, sourceText, diagnostics, tokens, version);
+    }
+
+    private static UiRealtimeAnalysisDto realtimeResult(
+            String sourceName,
+            String sourceText,
+            List<Diagnostic> diagnostics,
+            List<UiLexerTokenVisualDto> tokens,
+            long version
+    ) {
         return new UiRealtimeAnalysisDto(
                 sourceName,
                 sourceText,

@@ -13,6 +13,7 @@ import java.util.List;
 public final class MiniCStageListFactory {
     private static final List<StageInfo> STAGES = List.of(
             new StageInfo("source", "源码"),
+            new StageInfo("preprocess", "预编译"),
             new StageInfo("lexer", "词法分析"),
             new StageInfo("parser", "语法分析"),
             new StageInfo("semantic", "语义分析"),
@@ -103,6 +104,7 @@ public final class MiniCStageListFactory {
         }
         return switch (stage) {
             case "source" -> "源码已加载";
+            case "preprocess" -> globalData.preprocessSummary().isEmpty() ? "等待预编译" : "预处理产物已生成";
             case "lexer" -> globalData.tokenSummary().size() + " 个 token";
             case "parser" -> globalData.astSummary().size() + " 个 AST 项";
             case "semantic" -> globalData.semanticSummary().size() + " 个语义项";

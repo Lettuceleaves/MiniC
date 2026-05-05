@@ -149,11 +149,15 @@ public final class MiniCObservationApi {
      */
     public UiStageVisualDto currentStageVisualData() {
         CompileObservationSession currentSession = requireSession();
+        if (currentSession.currentStepper() instanceof minic.runtime.step.PreprocessStageStepper) {
+            return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+        }
         if (currentSession.currentStepper() instanceof minic.runtime.step.LexerStageStepper lexerStepper) {
             return UiStageVisualDto.fromLexerTokens(
                     currentSession.currentStageData(),
                     lexerStepper.lexerState().tokens(),
-                    lexerStepper.lexerState().currentToken().orElse(null)
+                    lexerStepper.lexerState().currentToken().orElse(null),
+                    lexerStepper.sourceFile().content()
             );
         }
         if (currentSession.currentStepper() instanceof minic.runtime.step.ParserStageStepper parserStepper) {
@@ -212,7 +216,8 @@ public final class MiniCObservationApi {
             return UiStageVisualDto.fromLexerTokens(
                     currentSession.currentStageData(),
                     lexerStepper.lexerState().tokens(),
-                    lexerStepper.lexerState().currentToken().orElse(null)
+                    lexerStepper.lexerState().currentToken().orElse(null),
+                    lexerStepper.sourceFile().content()
             );
         }
         return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));

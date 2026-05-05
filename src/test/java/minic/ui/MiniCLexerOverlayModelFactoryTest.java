@@ -14,6 +14,8 @@ class MiniCLexerOverlayModelFactoryTest {
         api.loadSource("overlay-pane.mc", source);
         api.startSession();
         api.next();
+        api.next();
+        api.next();
         UiStageVisualDto visual = api.currentStageVisualData();
 
         var rows = new MiniCLexerOverlayModelFactory().create(source, visual);

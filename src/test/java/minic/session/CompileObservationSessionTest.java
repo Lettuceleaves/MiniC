@@ -1,8 +1,8 @@
 package minic.session;
 
 import minic.runtime.step.CompileStage;
-import minic.runtime.step.LexerStageStepper;
 import minic.runtime.step.PlaybackMode;
+import minic.runtime.step.PreprocessStageStepper;
 import minic.source.SourceFile;
 import org.junit.jupiter.api.Test;
 
@@ -16,6 +16,7 @@ class CompileObservationSessionTest {
         );
 
         assertThat(session.stageOrder()).containsExactly(
+                CompileStage.PREPROCESS,
                 CompileStage.LEXER,
                 CompileStage.PARSER,
                 CompileStage.SEMANTIC,
@@ -24,15 +25,15 @@ class CompileObservationSessionTest {
                 CompileStage.TOOLCHAIN,
                 CompileStage.EXECUTION
         );
-        assertThat(session.currentStage()).isEqualTo(CompileStage.LEXER);
-        assertThat(session.currentStepper()).isInstanceOf(LexerStageStepper.class);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PREPROCESS);
+        assertThat(session.currentStepper()).isInstanceOf(PreprocessStageStepper.class);
         assertThat(session.globalStepCount()).isZero();
         assertThat(session.playbackMode()).isEqualTo(PlaybackMode.PAUSED);
         assertThat(session.currentState().sourceName()).isEqualTo("session.mc");
-        assertThat(session.currentState().currentStage()).isEqualTo(CompileStage.LEXER);
-        assertThat(session.currentStageData().stage()).isEqualTo(CompileStage.LEXER);
+        assertThat(session.currentState().currentStage()).isEqualTo(CompileStage.PREPROCESS);
+        assertThat(session.currentStageData().stage()).isEqualTo(CompileStage.PREPROCESS);
         assertThat(session.globalData().source()).isEqualTo("int main() { return 0; }");
-        assertThat(session.globalData().stageSummaries()).contains("lexer prepared", "parser pending");
+        assertThat(session.globalData().stageSummaries()).contains("preprocess prepared", "lexer pending");
     }
 
     @Test
@@ -40,6 +41,7 @@ class CompileObservationSessionTest {
         CompileObservationSession session = CompileObservationSession.fromSource("inline.mc", "int main() { return 0; }");
 
         assertThat(session.currentState().sourceName()).isEqualTo("inline.mc");
+        assertThat(session.preprocessResult()).isEmpty();
         assertThat(session.lexResult()).isEmpty();
         assertThat(session.parseResult()).isEmpty();
         assertThat(session.semanticResult()).isEmpty();

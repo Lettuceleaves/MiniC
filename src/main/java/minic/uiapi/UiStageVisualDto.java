@@ -48,6 +48,7 @@ import java.util.stream.Collectors;
  *
  * @param stage 阶段 ID
  * @param visualType 图形类型
+ * @param sourceText 当前可视化关联的源码文本
  * @param genericItems 通用 fallback 项
  * @param lexerTokens Lexer token 数据
  * @param astRoot AST 根节点；非 AST 阶段为 {@code null}
@@ -59,6 +60,7 @@ import java.util.stream.Collectors;
 public record UiStageVisualDto(
         String stage,
         String visualType,
+        String sourceText,
         List<String> genericItems,
         List<UiLexerTokenVisualDto> lexerTokens,
         UiAstNodeVisualDto astRoot,
@@ -70,6 +72,7 @@ public record UiStageVisualDto(
     public UiStageVisualDto {
         Objects.requireNonNull(stage, "stage");
         Objects.requireNonNull(visualType, "visualType");
+        Objects.requireNonNull(sourceText, "sourceText");
         Objects.requireNonNull(genericItems, "genericItems");
         Objects.requireNonNull(lexerTokens, "lexerTokens");
         Objects.requireNonNull(irLines, "irLines");
@@ -91,6 +94,15 @@ public record UiStageVisualDto(
     }
 
     static UiStageVisualDto fromLexerTokens(StageStepData data, List<Token> sourceTokens, Token currentToken) {
+        return fromLexerTokens(data, sourceTokens, currentToken, "");
+    }
+
+    static UiStageVisualDto fromLexerTokens(
+            StageStepData data,
+            List<Token> sourceTokens,
+            Token currentToken,
+            String fallbackSourceText
+    ) {
         List<UiLexerTokenVisualDto> tokens = sourceTokens.stream()
                 .map(token -> new UiLexerTokenVisualDto(
                         token.kind().name(),
@@ -99,12 +111,13 @@ public record UiStageVisualDto(
                         token.equals(currentToken)
                 ))
                 .toList();
-        return new UiStageVisualDto(data.stage().id(), "lexer", List.of(), tokens, null, null, false, List.of(), List.of());
+        String sourceText = sourceTokens.isEmpty() ? fallbackSourceText : sourceTokens.getFirst().range().sourceFile().content();
+        return new UiStageVisualDto(data.stage().id(), "lexer", sourceText, List.of(), tokens, null, null, false, List.of(), List.of());
     }
 
     static UiStageVisualDto fromAst(StageStepData data, Program program, Object activeNode) {
         UiAstNodeVisualDto root = new UiAstVisualBuilder().buildProgram(program, activeNode);
-        return new UiStageVisualDto(data.stage().id(), "ast", List.of(), List.of(), root, null, false, List.of(), List.of());
+        return new UiStageVisualDto(data.stage().id(), "ast", sourceText(program), List.of(), List.of(), root, null, false, List.of(), List.of());
     }
 
     static UiStageVisualDto fromAst(
@@ -114,12 +127,12 @@ public record UiStageVisualDto(
             List<Object> visibleNodes
     ) {
         UiAstNodeVisualDto root = new UiAstVisualBuilder().buildProgram(program, activeNode, visibleNodes);
-        return new UiStageVisualDto(data.stage().id(), "ast", List.of(), List.of(), root, null, false, List.of(), List.of());
+        return new UiStageVisualDto(data.stage().id(), "ast", sourceText(program), List.of(), List.of(), root, null, false, List.of(), List.of());
     }
 
     static UiStageVisualDto fromSemanticScope(StageStepData data, Scope globalScope, SemanticAction currentAction) {
         UiSemanticScopeVisualDto root = new UiSemanticScopeVisualBuilder().build(globalScope, currentAction);
-        return new UiStageVisualDto(data.stage().id(), "semantic-scope", List.of(), List.of(), null, root, true, List.of(), List.of());
+        return new UiStageVisualDto(data.stage().id(), "semantic-scope", "", List.of(), List.of(), null, root, true, List.of(), List.of());
     }
 
     static UiStageVisualDto fromSemanticAstAndScope(
@@ -131,7 +144,7 @@ public record UiStageVisualDto(
         Object activeAstNode = currentAction == null ? null : currentAction.astNode();
         UiAstNodeVisualDto astRoot = new UiAstVisualBuilder().buildProgram(program, activeAstNode);
         UiSemanticScopeVisualDto semanticRoot = new UiSemanticScopeVisualBuilder().build(globalScope, currentAction);
-        return new UiStageVisualDto(data.stage().id(), "semantic-ast-scope", List.of(), List.of(), astRoot, semanticRoot, true, List.of(), List.of());
+        return new UiStageVisualDto(data.stage().id(), "semantic-ast-scope", sourceText(program), List.of(), List.of(), astRoot, semanticRoot, true, List.of(), List.of());
     }
 
     static UiStageVisualDto fromIrAstAndScope(
@@ -143,7 +156,7 @@ public record UiStageVisualDto(
         Object activeAstNode = currentAction == null ? null : currentAction.astNode();
         UiAstNodeVisualDto astRoot = new UiAstVisualBuilder().buildProgram(program, activeAstNode);
         UiSemanticScopeVisualDto semanticRoot = new UiSemanticScopeVisualBuilder().build(globalScope, null);
-        return new UiStageVisualDto(data.stage().id(), "ir-ast-scope", List.of(), List.of(), astRoot, semanticRoot, true, List.of(), List.of());
+        return new UiStageVisualDto(data.stage().id(), "ir-ast-scope", sourceText(program), List.of(), List.of(), astRoot, semanticRoot, true, List.of(), List.of());
     }
 
     static UiStageVisualDto fromAssemblyLines(
@@ -165,7 +178,7 @@ public record UiStageVisualDto(
             ));
             lineNumber++;
         }
-        return new UiStageVisualDto(data.stage().id(), "assembly", List.of(), List.of(), null, null, false, List.of(), lines);
+        return new UiStageVisualDto(data.stage().id(), "assembly", "", List.of(), List.of(), null, null, false, List.of(), lines);
     }
 
     static UiStageVisualDto fromCodegen(
@@ -184,6 +197,7 @@ public record UiStageVisualDto(
         return new UiStageVisualDto(
                 assembly.stage(),
                 assembly.visualType(),
+                assembly.sourceText(),
                 assembly.genericItems(),
                 assembly.lexerTokens(),
                 assembly.astRoot(),
@@ -349,7 +363,7 @@ public record UiStageVisualDto(
             }
         }
         List<UiIrLineVisualDto> irLines = module == null ? List.of() : irLines(module, null);
-        return new UiStageVisualDto("codegen", "assembly", List.of(), List.of(), null, null, false, irLines, lines);
+        return new UiStageVisualDto("codegen", "assembly", "", List.of(), List.of(), null, null, false, irLines, lines);
     }
 
     private static UiStageVisualDto lexerVisual(StageStepData data, UiCurrentStateDto state) {
@@ -361,7 +375,7 @@ public record UiStageVisualDto(
         if (tokens.stream().noneMatch(UiLexerTokenVisualDto::active) && !data.currentItem().isBlank()) {
             tokens.add(tokenVisual(data.currentItem(), true, null));
         }
-        return new UiStageVisualDto(data.stage().id(), "lexer", List.of(), tokens, null, null, false, List.of(), List.of());
+        return new UiStageVisualDto(data.stage().id(), "lexer", "", List.of(), tokens, null, null, false, List.of(), List.of());
     }
 
     private static UiLexerTokenVisualDto tokenVisual(String summary, boolean active, UiSourceSpanDto range) {
@@ -369,6 +383,10 @@ public record UiStageVisualDto(
         String kind = split < 0 ? summary : summary.substring(0, split);
         String text = split < 0 ? "" : summary.substring(split + 1);
         return new UiLexerTokenVisualDto(kind, text, range, active);
+    }
+
+    private static String sourceText(Program program) {
+        return program.range().sourceFile().content();
     }
 
     private static UiStageVisualDto parserVisual(StageStepData data, UiCurrentStateDto state) {
@@ -381,7 +399,7 @@ public record UiStageVisualDto(
         }
         boolean rootActive = data.currentItem().isBlank() || children.stream().noneMatch(UiAstNodeVisualDto::active);
         UiAstNodeVisualDto root = new UiAstNodeVisualDto("ast-root", "Program", "Program", null, rootActive, children);
-        return new UiStageVisualDto(data.stage().id(), "ast", List.of(), List.of(), root, null, false, List.of(), List.of());
+        return new UiStageVisualDto(data.stage().id(), "ast", "", List.of(), List.of(), root, null, false, List.of(), List.of());
     }
 
     private static UiStageVisualDto semanticVisual(StageStepData data, UiCurrentStateDto state) {
@@ -405,7 +423,7 @@ public record UiStageVisualDto(
                 !data.currentItem().isBlank(),
                 children
         );
-        return new UiStageVisualDto(data.stage().id(), "semantic-scope", List.of(), List.of(), null, root, true, List.of(), List.of());
+        return new UiStageVisualDto(data.stage().id(), "semantic-scope", "", List.of(), List.of(), null, root, true, List.of(), List.of());
     }
 
     private static UiStageVisualDto codegenVisual(StageStepData data) {
@@ -416,7 +434,7 @@ public record UiStageVisualDto(
             lines.add(new UiAssemblyLineVisualDto(lineNumber, item, firstWord(item), metadata(data.currentItem(), "section"), metadata(data.currentItem(), "label"), active));
             lineNumber++;
         }
-        return new UiStageVisualDto(data.stage().id(), "assembly", List.of(), List.of(), null, null, false, List.of(), lines);
+        return new UiStageVisualDto(data.stage().id(), "assembly", "", List.of(), List.of(), null, null, false, List.of(), lines);
     }
 
     private static UiStageVisualDto genericVisual(StageStepData data) {
@@ -425,7 +443,7 @@ public record UiStageVisualDto(
             items.add(data.currentItem());
         }
         items.addAll(data.accumulatedOutput());
-        return new UiStageVisualDto(data.stage().id(), "generic", items, List.of(), null, null, false, List.of(), List.of());
+        return new UiStageVisualDto(data.stage().id(), "generic", "", items, List.of(), null, null, false, List.of(), List.of());
     }
 
     private static String firstWord(String text) {

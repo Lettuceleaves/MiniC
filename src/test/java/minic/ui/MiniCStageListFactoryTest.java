@@ -13,9 +13,9 @@ class MiniCStageListFactoryTest {
 
         assertThat(stages)
                 .extracting(MiniCStageView::id)
-                .containsExactly("source", "lexer", "parser", "semantic", "ir", "codegen", "toolchain", "execution");
+                .containsExactly("source", "preprocess", "lexer", "parser", "semantic", "ir", "codegen", "toolchain", "execution");
         assertThat(stages).allSatisfy(stage -> assertThat(stage.progressPercent()).isBetween(0, 100));
-        assertThat(stages.get(1).state()).isEqualTo("running");
+        assertThat(stages.get(1).state()).isEqualTo("done");
     }
 
     @Test
@@ -31,12 +31,12 @@ class MiniCStageListFactoryTest {
                 viewModel.globalDataProperty().get()
         );
 
-        MiniCStageView lexer = stages.stream()
-                .filter(stage -> stage.id().equals("lexer"))
+        MiniCStageView preprocess = stages.stream()
+                .filter(stage -> stage.id().equals("preprocess"))
                 .findFirst()
                 .orElseThrow();
-        assertThat(lexer.state()).isEqualTo("running");
-        assertThat(lexer.detail()).contains("当前阶段");
-        assertThat(lexer.progressPercent()).isGreaterThanOrEqualTo(0);
+        assertThat(preprocess.state()).isEqualTo("running");
+        assertThat(preprocess.detail()).contains("当前阶段");
+        assertThat(preprocess.progressPercent()).isGreaterThanOrEqualTo(0);
     }
 }

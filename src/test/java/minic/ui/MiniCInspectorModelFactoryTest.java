@@ -27,7 +27,7 @@ class MiniCInspectorModelFactoryTest {
                 viewModel.globalDataProperty().get()
         );
 
-        assertThat(model.currentState()).contains("阶段: 词法分析", "全局步: 1");
+        assertThat(model.currentState()).contains("阶段: 预编译", "全局步: 1");
         assertThat(model.currentItem()).isNotBlank();
         assertThat(model.accumulatedOutput()).contains("token:");
     }

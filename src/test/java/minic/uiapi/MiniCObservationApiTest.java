@@ -15,11 +15,13 @@ class MiniCObservationApiTest {
         api.startSession();
 
         assertThat(api.currentState().sourceName()).isEqualTo("ui.mc");
-        assertThat(api.currentState().currentStage()).isEqualTo("lexer");
-        assertThat(api.currentStageData().stage()).isEqualTo("lexer");
-        assertThat(api.currentStageVisualData().stage()).isEqualTo("lexer");
-        assertThat(api.currentStageVisualData().visualType()).isEqualTo("lexer");
+        assertThat(api.currentState().currentStage()).isEqualTo("preprocess");
+        assertThat(api.currentStageData().stage()).isEqualTo("preprocess");
+        assertThat(api.currentStageVisualData().stage()).isEqualTo("preprocess");
+        assertThat(api.currentStageVisualData().visualType()).isEqualTo("generic");
         assertThat(api.globalData().source()).isEqualTo("int main() { return 0; }");
+        assertThat(api.next().outcome()).isEqualTo("STAGE_COMPLETED");
+        assertThat(api.next().outcome()).isEqualTo("ADVANCED");
         assertThat(api.next().outcome()).isEqualTo("ADVANCED");
         assertThat(api.currentStageVisualData().lexerTokens())
                 .anySatisfy(token -> {
@@ -45,9 +47,9 @@ class MiniCObservationApiTest {
 
         assertThat(result.outcome()).isEqualTo("ADVANCED");
         assertThat(result.title()).contains("跳转到下一环节");
-        assertThat(api.currentState().currentStage()).isEqualTo("parser");
-        assertThat(api.lexerVisualData().lexerTokens()).isNotEmpty();
-        assertThat(api.currentStageVisualData().visualType()).isEqualTo("ast");
+        assertThat(api.currentState().currentStage()).isEqualTo("lexer");
+        assertThat(api.globalData().preprocessSummary()).isNotEmpty();
+        assertThat(api.currentStageVisualData().visualType()).isEqualTo("lexer");
     }
 
     @Test
@@ -56,6 +58,8 @@ class MiniCObservationApiTest {
         api.loadSource("next-stage-repeat-ui.mc", "int main() { return 0; }");
         api.startSession();
 
+        api.nextStage();
+        assertThat(api.currentState().currentStage()).isEqualTo("lexer");
         api.nextStage();
         assertThat(api.currentState().currentStage()).isEqualTo("parser");
         api.nextStage();
@@ -94,6 +98,8 @@ class MiniCObservationApiTest {
         api.loadSource("overlay.mc", "int\tmain\n  value123 >= 10;");
         api.startSession();
 
+        api.next();
+        api.next();
         api.next();
         UiLexerTokenVisualDto intToken = activeLexerToken(api);
 

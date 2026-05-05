@@ -19,6 +19,7 @@ class GlobalStepDataTest {
         Diagnostic diagnostic = new Diagnostic("LEX001", DiagnosticSeverity.ERROR, "非法字符", range);
         ArrayList<String> stageSummaries = new ArrayList<>();
         ArrayList<Diagnostic> diagnostics = new ArrayList<>();
+        ArrayList<String> preprocessSummary = new ArrayList<>();
         ArrayList<String> tokenSummary = new ArrayList<>();
         ArrayList<String> astSummary = new ArrayList<>();
         ArrayList<String> semanticSummary = new ArrayList<>();
@@ -32,6 +33,7 @@ class GlobalStepDataTest {
                 sourceFile.content(),
                 stageSummaries,
                 diagnostics,
+                preprocessSummary,
                 tokenSummary,
                 astSummary,
                 semanticSummary,
@@ -43,6 +45,7 @@ class GlobalStepDataTest {
         );
         stageSummaries.add("lexer 1/3");
         diagnostics.add(diagnostic);
+        preprocessSummary.add("out @");
         tokenSummary.add("INVALID @");
         astSummary.add("Program");
         semanticSummary.add("main ok");
@@ -55,6 +58,7 @@ class GlobalStepDataTest {
         assertThat(data.source()).isEqualTo("@");
         assertThat(data.stageSummaries()).isEmpty();
         assertThat(data.diagnostics()).isEmpty();
+        assertThat(data.preprocessSummary()).isEmpty();
         assertThat(data.tokenSummary()).isEmpty();
         assertThat(data.astSummary()).isEmpty();
         assertThat(data.semanticSummary()).isEmpty();

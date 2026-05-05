@@ -3,6 +3,9 @@ package minic.ui;
 import minic.uiapi.UiControlResultDto;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class MiniCWorkbenchViewModelTest {
@@ -19,14 +22,38 @@ class MiniCWorkbenchViewModelTest {
         viewModel.startSession();
 
         assertThat(viewModel.sessionStartedProperty().get()).isTrue();
-        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("lexer");
-        assertThat(viewModel.currentStageDataProperty().get().stage()).isEqualTo("lexer");
-        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
-        assertThat(viewModel.lexerVisualDataProperty().get().visualType()).isEqualTo("lexer");
-        assertThat(viewModel.astVisualDataProperty().get().visualType()).isEqualTo("lexer");
-        assertThat(viewModel.semanticVisualDataProperty().get().visualType()).isEqualTo("lexer");
-        assertThat(viewModel.codegenVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("preprocess");
+        assertThat(viewModel.currentStageDataProperty().get().stage()).isEqualTo("preprocess");
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("generic");
+        assertThat(viewModel.lexerVisualDataProperty().get().visualType()).isEqualTo("generic");
+        assertThat(viewModel.astVisualDataProperty().get().visualType()).isEqualTo("generic");
+        assertThat(viewModel.semanticVisualDataProperty().get().visualType()).isEqualTo("generic");
+        assertThat(viewModel.codegenVisualDataProperty().get().visualType()).isEqualTo("generic");
         assertThat(viewModel.globalDataProperty().get().source()).contains("return 0");
+    }
+
+    @Test
+    void resolvesQuotedIncludesRelativeToLoadedFilePath() throws Exception {
+        Path directory = Files.createTempDirectory("minic-ui-include");
+        Path header = directory.resolve("all_syntax.mh");
+        Path source = directory.resolve("all_syntax.mc");
+        Files.writeString(header, "int helper();\n");
+
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource(
+                source.toString(),
+                """
+                        #include "all_syntax.mh"
+                        int helper() { return 4; }
+                        int main() { return helper(); }
+                        """
+        );
+        viewModel.startSession();
+        viewModel.next();
+
+        assertThat(viewModel.currentStageDataProperty().get().diagnostics()).isEmpty();
+        assertThat(viewModel.globalDataProperty().get().preprocessSummary())
+                .anySatisfy(line -> assertThat(line).contains("include all_syntax.mh expanded"));
     }
 
     @Test
@@ -37,10 +64,14 @@ class MiniCWorkbenchViewModelTest {
 
         UiControlResultDto next = viewModel.next();
 
-        assertThat(next.outcome()).isEqualTo("ADVANCED");
-        assertThat(viewModel.lastOutcomeProperty().get()).isEqualTo("ADVANCED");
+        assertThat(next.outcome()).isEqualTo("STAGE_COMPLETED");
+        assertThat(viewModel.lastOutcomeProperty().get()).isEqualTo("STAGE_COMPLETED");
         assertThat(viewModel.lastControlResultProperty().get()).isSameAs(next);
         assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isEqualTo(1);
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("generic");
+
+        viewModel.next();
+        viewModel.next();
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
         assertThat(viewModel.currentStageVisualDataProperty().get().lexerTokens())
                 .anyMatch(token -> token.active() && token.kind().equals("INT"));
@@ -50,7 +81,7 @@ class MiniCWorkbenchViewModelTest {
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
 
         viewModel.tick();
-        assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isEqualTo(2);
+        assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isEqualTo(3);
         assertThat(viewModel.currentStageVisualDataProperty().get().lexerTokens())
                 .anyMatch(token -> token.active() && token.text().equals("main"));
 
@@ -85,9 +116,9 @@ class MiniCWorkbenchViewModelTest {
         UiControlResultDto result = viewModel.nextStage();
 
         assertThat(result.outcome()).isEqualTo("ADVANCED");
-        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("parser");
-        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("ast");
-        assertThat(viewModel.lexerVisualDataProperty().get().lexerTokens()).isNotEmpty();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("lexer");
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.globalDataProperty().get().preprocessSummary()).isNotEmpty();
     }
 
     @Test
@@ -96,6 +127,8 @@ class MiniCWorkbenchViewModelTest {
         viewModel.loadSource("next-stage-repeat-view.mc", "int main() { return 0; }");
         viewModel.startSession();
 
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("lexer");
         viewModel.nextStage();
         assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("parser");
         viewModel.nextStage();
@@ -132,7 +165,7 @@ class MiniCWorkbenchViewModelTest {
         viewModel.loadSource("switch.mc", "int main() { return 0; }");
         viewModel.startSession();
 
-        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("generic");
 
         advanceToStage(viewModel, "parser");
         viewModel.next();
@@ -161,6 +194,8 @@ class MiniCWorkbenchViewModelTest {
         viewModel.loadSource("review.mc", "int main() { return 0; }");
         viewModel.startSession();
 
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("lexer");
         viewModel.nextStage();
         assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("parser");
 

@@ -17,7 +17,7 @@ class CompileObservationSessionPlaybackTickTest {
         long before = session.globalStepCount();
 
         assertThat(session.currentState().frameInterval()).isEqualTo(Duration.ofSeconds(1));
-        assertThat(session.tick().outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(session.tick().outcome()).isEqualTo(StepOutcome.STAGE_COMPLETED);
         assertThat(session.globalStepCount()).isEqualTo(before + 1);
         assertThat(session.playbackMode()).isEqualTo(PlaybackMode.PLAYING);
     }
@@ -30,7 +30,7 @@ class CompileObservationSessionPlaybackTickTest {
         long before = session.globalStepCount();
 
         assertThat(session.currentState().frameInterval()).isEqualTo(Duration.ofMillis(500));
-        assertThat(session.tick().outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(session.tick().outcome()).isEqualTo(StepOutcome.STAGE_COMPLETED);
         assertThat(session.globalStepCount()).isEqualTo(before + 1);
         assertThat(session.playbackMode()).isEqualTo(PlaybackMode.FAST_PLAYING);
     }

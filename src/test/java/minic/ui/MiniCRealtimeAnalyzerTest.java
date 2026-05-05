@@ -31,4 +31,24 @@ class MiniCRealtimeAnalyzerTest {
         assertThat(result.diagnostics())
                 .anySatisfy(diagnostic -> assertThat(diagnostic.message()).contains("期望"));
     }
+
+    @Test
+    void preprocessesMacrosBeforeRealtimeSemanticAnalysis() {
+        UiRealtimeAnalysisDto result = MiniCRealtimeAnalyzer.analyzeNow(
+                "live.mc",
+                """
+                        #define VALUE 4
+
+                        int main() {
+                            return VALUE;
+                        }
+                        """,
+                2
+        );
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(token -> token.text())
+                .contains("define", "VALUE");
+    }
 }

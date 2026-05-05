@@ -23,6 +23,7 @@ class MiniCDiagnosticListFactoryTest {
                 List.of(),
                 List.of(),
                 List.of(),
+                List.of(),
                 List.of()
         );
 

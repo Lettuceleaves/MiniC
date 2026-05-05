@@ -41,6 +41,7 @@ public final class MiniCVisualModelFactory {
             return stageData.accumulatedOutput();
         }
         return switch (stage) {
+            case "preprocess" -> globalData.preprocessSummary();
             case "lexer" -> globalData.tokenSummary();
             case "parser" -> globalData.astSummary();
             case "semantic" -> globalData.semanticSummary();

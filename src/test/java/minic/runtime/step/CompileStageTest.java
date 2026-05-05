@@ -10,7 +10,7 @@ class CompileStageTest {
     void definesStableCompileStageIds() {
         assertThat(CompileStage.values())
                 .extracting(CompileStage::id)
-                .containsExactly("source", "lexer", "parser", "semantic", "ir", "codegen", "toolchain", "execution");
+                .containsExactly("source", "preprocess", "lexer", "parser", "semantic", "ir", "codegen", "toolchain", "execution");
         assertThat(CompileStage.fromId("LEXER")).isEqualTo(CompileStage.LEXER);
     }
 

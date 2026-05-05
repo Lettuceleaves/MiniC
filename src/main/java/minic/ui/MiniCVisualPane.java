@@ -146,8 +146,12 @@ public final class MiniCVisualPane extends VBox {
             return;
         }
         switch (stage) {
+            case "preprocess" -> {
+                leftColumn.setContent("源码", sourceRows(null));
+                rightColumn.setContent("预处理后产物", preprocessRows());
+            }
             case "lexer" -> {
-                leftColumn.setContent("源码", sourceRows(visual));
+                leftColumn.setContent("预处理后产物", sourceRows(visual));
                 rightColumn.setContent("Token", tokenRows(visual));
             }
             case "parser" -> {
@@ -202,6 +206,7 @@ public final class MiniCVisualPane extends VBox {
     private String stageName(String stage) {
         return switch (stage) {
             case "source" -> "源码";
+            case "preprocess" -> "预编译";
             case "lexer" -> "词法分析";
             case "parser" -> "语法分析";
             case "semantic" -> "语义分析";
@@ -291,16 +296,26 @@ public final class MiniCVisualPane extends VBox {
         return rows.stream().map(this::monoLabel).toList();
     }
 
+    private List<Label> preprocessRows() {
+        UiStageVisualDto visual = visualForStage("preprocess");
+        if (visual == null || visual.genericItems().isEmpty()) {
+            return List.of(monoLabel("预处理产物会显示在这里。"));
+        }
+        return visual.genericItems().stream()
+                .map(this::monoLabel)
+                .toList();
+    }
+
     private List<HBox> codegenIrRows(UiStageVisualDto codegenVisual) {
         if (codegenVisual == null || codegenVisual.irLines().isEmpty()) {
             return List.of(textRow("IR 暂无输出。", "assembly-row", "assembly-text"));
         }
         return codegenVisual.irLines().stream()
-                .map(this::irRow)
+                .map(line -> irRow(line, codegenVisual))
                 .toList();
     }
 
-    private HBox irRow(UiIrLineVisualDto line) {
+    private HBox irRow(UiIrLineVisualDto line, UiStageVisualDto visual) {
         HBox row = new HBox();
         row.getStyleClass().add("assembly-row");
         Label number = new Label(Integer.toString(line.lineNumber()));
@@ -322,7 +337,8 @@ public final class MiniCVisualPane extends VBox {
                         rangeLine(line.range())
                 ),
                 line.range(),
-                explainIrLine(line)
+                explainIrLine(line),
+                visual
         ));
         return row;
     }
@@ -349,7 +365,9 @@ public final class MiniCVisualPane extends VBox {
     }
 
     private List<HBox> sourceRows(UiStageVisualDto visual) {
-        String source = viewModel.sourceTextProperty().get();
+        String source = visual == null || visual.sourceText().isBlank()
+                ? viewModel.sourceTextProperty().get()
+                : visual.sourceText();
         String[] lines = source.split("\\R", -1);
         UiLexerTokenVisualDto activeToken = activeSourceToken(visual);
         java.util.ArrayList<HBox> rows = new java.util.ArrayList<>();
@@ -470,7 +488,7 @@ public final class MiniCVisualPane extends VBox {
             text.setWrappingWidth(64);
             text.setFill(Color.web("#d4d4d4"));
             UiAstNodeVisualDto astNode = astNodeById(visual.astRoot(), node.id());
-            MiniCHoverInspectorContent content = astNodeContent(astNode);
+            MiniCHoverInspectorContent content = astNodeContent(astNode, visual);
             attachInspectorClick(circle, content);
             attachInspectorClick(text, content);
             pane.getChildren().addAll(circle, text);
@@ -516,7 +534,7 @@ public final class MiniCVisualPane extends VBox {
             text.setWrappingWidth(64);
             text.setFill(Color.web("#d4d4d4"));
             UiAstNodeVisualDto astNode = astNodeById(visual.astRoot(), node.id());
-            MiniCHoverInspectorContent content = astNodeContent(astNode);
+            MiniCHoverInspectorContent content = astNodeContent(astNode, visual);
             attachInspectorClick(circle, content);
             attachInspectorClick(text, content);
             pane.getChildren().addAll(circle, text);
@@ -541,7 +559,7 @@ public final class MiniCVisualPane extends VBox {
                 refresh();
                 event.consume();
             });
-            attachInspectorClick(mask, semanticScopeContent(entry.scope(), entry.depth()));
+            attachInspectorClick(mask, semanticScopeContent(entry.scope(), entry.depth(), visual));
             if (entry.scope().active()) {
                 mask.getStyleClass().add("active-scope-mask");
             }
@@ -758,11 +776,11 @@ public final class MiniCVisualPane extends VBox {
             return List.of(textRow("汇编尚未就绪", "assembly-row", "assembly-text"));
         }
         return assemblyTextModelFactory.create(visual).stream()
-                .map(this::assemblyRow)
+                .map(line -> assemblyRow(line, visual))
                 .toList();
     }
 
-    private HBox assemblyRow(MiniCAssemblyTextLine line) {
+    private HBox assemblyRow(MiniCAssemblyTextLine line, UiStageVisualDto visual) {
         HBox row = new HBox();
         row.getStyleClass().add("assembly-row");
         Label number = new Label(Integer.toString(line.lineNumber()));
@@ -786,7 +804,8 @@ public final class MiniCVisualPane extends VBox {
                         rangeLine(line.range())
                 ),
                 line.range(),
-                explainAssemblyLine(line)
+                explainAssemblyLine(line),
+                visual
         ));
         return row;
     }
@@ -892,7 +911,7 @@ public final class MiniCVisualPane extends VBox {
         return null;
     }
 
-    private MiniCHoverInspectorContent astNodeContent(UiAstNodeVisualDto node) {
+    private MiniCHoverInspectorContent astNodeContent(UiAstNodeVisualDto node, UiStageVisualDto visual) {
         if (node == null) {
             return MiniCHoverInspectorContent.empty();
         }
@@ -907,11 +926,12 @@ public final class MiniCVisualPane extends VBox {
                         rangeLine(node.range())
                 ),
                 node.range(),
-                explainAstNode(node)
+                explainAstNode(node),
+                visual
         );
     }
 
-    private MiniCHoverInspectorContent semanticScopeContent(UiSemanticScopeVisualDto scope, int depth) {
+    private MiniCHoverInspectorContent semanticScopeContent(UiSemanticScopeVisualDto scope, int depth, UiStageVisualDto visual) {
         if (scope == null) {
             return MiniCHoverInspectorContent.empty();
         }
@@ -925,7 +945,8 @@ public final class MiniCVisualPane extends VBox {
                         rangeLine(scope.range())
                 ),
                 scope.range(),
-                "语义阶段右侧已经展示该作用域内的变量和符号，这里只显示作用域元数据与源码位置。"
+                "语义阶段右侧已经展示该作用域内的变量和符号，这里只显示作用域元数据与源码位置。",
+                visual
         );
     }
 
@@ -935,7 +956,82 @@ public final class MiniCVisualPane extends VBox {
             UiSourceSpanDto range,
             String explanation
     ) {
-        return new MiniCHoverInspectorContent(title, metadata, viewModel.sourceTextProperty().get(), range, explanation);
+        return inspectorContent(title, metadata, range, explanation, null);
+    }
+
+    private MiniCHoverInspectorContent inspectorContent(
+            String title,
+            List<String> metadata,
+            UiSourceSpanDto range,
+            String explanation,
+            UiStageVisualDto visual
+    ) {
+        return new MiniCHoverInspectorContent(title, metadata, sourceTextForRange(range, visual), range, explanation);
+    }
+
+    private String sourceTextForRange(UiSourceSpanDto range, UiStageVisualDto preferredVisual) {
+        String preferredSource = sourceTextFromVisual(range, preferredVisual);
+        if (!preferredSource.isBlank()) {
+            return preferredSource;
+        }
+        for (UiStageVisualDto visual : new UiStageVisualDto[]{
+                viewModel.currentStageVisualDataProperty().get(),
+                viewModel.semanticVisualDataProperty().get(),
+                viewModel.astVisualDataProperty().get(),
+                viewModel.lexerVisualDataProperty().get(),
+                viewModel.codegenVisualDataProperty().get()
+        }) {
+            String source = sourceTextFromVisual(range, visual);
+            if (!source.isBlank()) {
+                return source;
+            }
+        }
+        return viewModel.sourceTextProperty().get();
+    }
+
+    private String sourceTextFromVisual(UiSourceSpanDto range, UiStageVisualDto visual) {
+        if (visual == null || visual.sourceText().isBlank()) {
+            return "";
+        }
+        if (range == null || visualContainsSourceName(visual, range.sourceName())) {
+            return visual.sourceText();
+        }
+        return "";
+    }
+
+    private boolean visualContainsSourceName(UiStageVisualDto visual, String sourceName) {
+        if (sourceName == null || sourceName.isBlank()) {
+            return true;
+        }
+        return visual.lexerTokens().stream().anyMatch(token -> sameSource(token.range(), sourceName))
+                || astContainsSourceName(visual.astRoot(), sourceName)
+                || scopeContainsSourceName(visual.semanticRoot(), sourceName)
+                || visual.irLines().stream().anyMatch(line -> sameSource(line.range(), sourceName))
+                || visual.assemblyLines().stream().anyMatch(line -> sameSource(line.range(), sourceName));
+    }
+
+    private boolean astContainsSourceName(UiAstNodeVisualDto node, String sourceName) {
+        if (node == null) {
+            return false;
+        }
+        if (sameSource(node.range(), sourceName)) {
+            return true;
+        }
+        return node.children().stream().anyMatch(child -> astContainsSourceName(child, sourceName));
+    }
+
+    private boolean scopeContainsSourceName(UiSemanticScopeVisualDto scope, String sourceName) {
+        if (scope == null) {
+            return false;
+        }
+        if (sameSource(scope.range(), sourceName)) {
+            return true;
+        }
+        return scope.children().stream().anyMatch(child -> scopeContainsSourceName(child, sourceName));
+    }
+
+    private boolean sameSource(UiSourceSpanDto range, String sourceName) {
+        return range != null && range.sourceName().equals(sourceName);
     }
 
     private void attachInspectorClick(Node node, MiniCHoverInspectorContent content) {
@@ -1020,7 +1116,8 @@ public final class MiniCVisualPane extends VBox {
                                             + " - " + token.endLine() + ":" + token.endColumn()
                             ),
                             token.range(),
-                            explainToken(token)
+                            explainToken(token),
+                            visual
                     ));
                     return row;
                 })
