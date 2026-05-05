@@ -30,11 +30,12 @@ import minic.compiler.ir.instruction.IrFieldAddressInstruction;
 import minic.compiler.ir.instruction.IrIndirectCallInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
+import minic.compiler.ir.instruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.instruction.IrStorePointerInstruction;
-import minic.compiler.ir.instruction.IrSelectInstruction;
 import minic.compiler.ir.instruction.IrUnaryInstruction;
 import minic.compiler.ir.instruction.IrUnaryOperator;
+import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
@@ -157,12 +158,7 @@ final class ExpressionLowerer {
             return result;
         }
         if (expression instanceof ConditionalExpr conditionalExpr) {
-            IrValue condition = lowerExpression(conditionalExpr.condition());
-            IrValue thenValue = lowerExpression(conditionalExpr.thenExpression());
-            IrValue elseValue = lowerExpression(conditionalExpr.elseExpression());
-            IrTemporary result = builder.newTemporary(irTypeOf(conditionalExpr));
-            builder.addInstruction(new IrSelectInstruction(result, condition, thenValue, elseValue, conditionalExpr.range()));
-            return result;
+            return lowerConditional(conditionalExpr);
         }
         if (expression instanceof SizeofExpr sizeofExpr) {
             MiniType queriedType = sizeofExpr.queriedTypeOptional()
@@ -213,17 +209,117 @@ final class ExpressionLowerer {
     }
 
     private IrValue lowerLogicalBinary(BinaryExpr binaryExpr) {
+        if (binaryExpr.operator() == TokenKind.AMPERSAND_AMPERSAND) {
+            return lowerLogicalAnd(binaryExpr);
+        }
+        return lowerLogicalOr(binaryExpr);
+    }
+
+    private IrValue lowerLogicalAnd(BinaryExpr binaryExpr) {
         IrValue left = lowerExpression(binaryExpr.left());
-        IrValue right = lowerExpression(binaryExpr.right());
         IrTemporary result = builder.newTemporary(IrType.INT);
+        String rightLabel = builder.newBlockLabel("logical_and_rhs");
+        String falseLabel = builder.newBlockLabel("logical_and_false");
+        String mergeLabel = builder.newBlockLabel("logical_and_merge");
+        builder.addInstruction(new IrBranchInstruction(left, rightLabel, falseLabel, binaryExpr.left().range()));
+
+        builder.switchToBlock(rightLabel);
+        IrValue right = lowerExpression(binaryExpr.right());
+        IrTemporary rightTruth = builder.newTemporary(IrType.INT);
         builder.addInstruction(new IrBinaryInstruction(
-                result,
-                IrOperatorLowerer.lower(binaryExpr.operator()),
-                left,
+                rightTruth,
+                minic.compiler.ir.instruction.IrBinaryOperator.NOT_EQUAL,
                 right,
+                zeroOf(right.type()),
                 binaryExpr.range()
         ));
+        builder.addInstruction(new IrMoveInstruction(result, rightTruth, binaryExpr.range()));
+        builder.addJumpIfOpen(mergeLabel, binaryExpr.range());
+
+        builder.switchToBlock(falseLabel);
+        builder.addInstruction(new IrMoveInstruction(result, new IrConstant(0), binaryExpr.range()));
+        builder.addJumpIfOpen(mergeLabel, binaryExpr.range());
+
+        builder.switchToBlock(mergeLabel);
         return result;
+    }
+
+    private IrValue lowerLogicalOr(BinaryExpr binaryExpr) {
+        IrValue left = lowerExpression(binaryExpr.left());
+        IrTemporary result = builder.newTemporary(IrType.INT);
+        String trueLabel = builder.newBlockLabel("logical_or_true");
+        String rightLabel = builder.newBlockLabel("logical_or_rhs");
+        String mergeLabel = builder.newBlockLabel("logical_or_merge");
+        builder.addInstruction(new IrBranchInstruction(left, trueLabel, rightLabel, binaryExpr.left().range()));
+
+        builder.switchToBlock(trueLabel);
+        builder.addInstruction(new IrMoveInstruction(result, new IrConstant(1), binaryExpr.range()));
+        builder.addJumpIfOpen(mergeLabel, binaryExpr.range());
+
+        builder.switchToBlock(rightLabel);
+        IrValue right = lowerExpression(binaryExpr.right());
+        IrTemporary rightTruth = builder.newTemporary(IrType.INT);
+        builder.addInstruction(new IrBinaryInstruction(
+                rightTruth,
+                minic.compiler.ir.instruction.IrBinaryOperator.NOT_EQUAL,
+                right,
+                zeroOf(right.type()),
+                binaryExpr.range()
+        ));
+        builder.addInstruction(new IrMoveInstruction(result, rightTruth, binaryExpr.range()));
+        builder.addJumpIfOpen(mergeLabel, binaryExpr.range());
+
+        builder.switchToBlock(mergeLabel);
+        return result;
+    }
+
+    private IrValue lowerConditional(ConditionalExpr conditionalExpr) {
+        IrValue condition = lowerExpression(conditionalExpr.condition());
+        IrTemporary result = builder.newTemporary(irTypeOf(conditionalExpr));
+        String thenLabel = builder.newBlockLabel("conditional_then");
+        String elseLabel = builder.newBlockLabel("conditional_else");
+        String mergeLabel = builder.newBlockLabel("conditional_merge");
+        builder.addInstruction(new IrBranchInstruction(condition, thenLabel, elseLabel, conditionalExpr.condition().range()));
+
+        builder.switchToBlock(thenLabel);
+        IrValue thenValue = castIfNeeded(
+                lowerExpression(conditionalExpr.thenExpression()),
+                result.type(),
+                conditionalExpr.thenExpression().range()
+        );
+        builder.addInstruction(new IrMoveInstruction(result, thenValue, conditionalExpr.thenExpression().range()));
+        builder.addJumpIfOpen(mergeLabel, conditionalExpr.thenExpression().range());
+
+        builder.switchToBlock(elseLabel);
+        IrValue elseValue = castIfNeeded(
+                lowerExpression(conditionalExpr.elseExpression()),
+                result.type(),
+                conditionalExpr.elseExpression().range()
+        );
+        builder.addInstruction(new IrMoveInstruction(result, elseValue, conditionalExpr.elseExpression().range()));
+        builder.addJumpIfOpen(mergeLabel, conditionalExpr.elseExpression().range());
+
+        builder.switchToBlock(mergeLabel);
+        return result;
+    }
+
+    private IrValue zeroOf(IrType type) {
+        if (type.isFloatingScalar()) {
+            return new IrFloatConstant(0.0, type);
+        }
+        if (type == IrType.POINTER) {
+            return new IrConstant(0, IrType.POINTER);
+        }
+        if (type == IrType.LONG) {
+            return new IrConstant(0, IrType.LONG);
+        }
+        if (type == IrType.BOOL) {
+            return new IrConstant(0, IrType.BOOL);
+        }
+        if (type == IrType.CHAR) {
+            return new IrConstant(0, IrType.CHAR);
+        }
+        return new IrConstant(0);
     }
 
     IrValue castForTarget(IrValue value, IrType targetType, minic.source.SourceRange range) {

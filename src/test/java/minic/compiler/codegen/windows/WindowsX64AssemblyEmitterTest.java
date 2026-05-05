@@ -293,8 +293,43 @@ class WindowsX64AssemblyEmitterTest {
                 "    sar eax, cl",
                 "    sete al",
                 "    not eax",
-                "    je minic$select_false_",
                 "    mov rcx, 4"
+        );
+        assertThat(assemblySource.text()).containsPattern("main\\$logical_or_true_\\d+:");
+        assertThat(assemblySource.text()).containsPattern("main\\$logical_or_rhs_\\d+:");
+        assertThat(assemblySource.text()).containsPattern("main\\$conditional_then_\\d+:");
+        assertThat(assemblySource.text()).containsPattern("main\\$conditional_else_\\d+:");
+        assertThat(assemblySource.text()).doesNotContain("minic$select_false_");
+    }
+
+    @Test
+    void emitsShortCircuitControlFlowForSideEffectExpressions() {
+        AssemblySource assemblySource = emit("""
+                int side() {
+                    return 1;
+                }
+
+                int main() {
+                    int value = 0;
+                    int result = value && (value = side());
+                    result = 1 || (value = side());
+                    result = value ? (value = 2) : (value = 3);
+                    return value + result;
+                }
+                """);
+
+        assertThat(assemblySource.text()).containsPattern("main\\$logical_and_rhs_\\d+:");
+        assertThat(assemblySource.text()).containsPattern("main\\$logical_and_false_\\d+:");
+        assertThat(assemblySource.text()).containsPattern("main\\$logical_or_true_\\d+:");
+        assertThat(assemblySource.text()).containsPattern("main\\$logical_or_rhs_\\d+:");
+        assertThat(assemblySource.text()).containsPattern("main\\$conditional_then_\\d+:");
+        assertThat(assemblySource.text()).containsPattern("main\\$conditional_else_\\d+:");
+        assertThat(assemblySource.text()).contains(
+                "    jne main$logical_and_rhs_",
+                "    jmp main$logical_and_false_",
+                "    jne main$logical_or_true_",
+                "    jmp main$logical_or_rhs_",
+                "    call minic$side"
         );
     }
 

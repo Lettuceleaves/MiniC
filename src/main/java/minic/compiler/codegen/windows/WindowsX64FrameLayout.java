@@ -12,6 +12,7 @@ import minic.compiler.ir.instruction.IrIndirectCallInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
+import minic.compiler.ir.instruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.instruction.IrStorePointerInstruction;
 import minic.compiler.ir.instruction.IrSelectInstruction;
@@ -149,6 +150,8 @@ record WindowsX64FrameLayout(
             nextOffset = ensureTemporary(unary.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrSelectInstruction select) {
             nextOffset = ensureTemporary(select.result(), temporaryOffsets, nextOffset);
+        } else if (instruction instanceof IrMoveInstruction move) {
+            nextOffset = ensureTemporary(move.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrCallInstruction call) {
             nextOffset = ensureTemporary(call.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrIndirectCallInstruction call) {

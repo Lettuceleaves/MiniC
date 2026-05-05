@@ -21,10 +21,10 @@ import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
+import minic.compiler.ir.instruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.instruction.IrStorePointerInstruction;
-import minic.compiler.ir.instruction.IrSelectInstruction;
 import minic.compiler.ir.instruction.IrUnaryInstruction;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
@@ -413,19 +413,65 @@ class IrLowererTest {
                         IrBinaryOperator.BITWISE_OR,
                         IrBinaryOperator.BITWISE_XOR,
                         IrBinaryOperator.SHIFT_LEFT,
-                        IrBinaryOperator.SHIFT_RIGHT,
-                        IrBinaryOperator.LOGICAL_OR
+                        IrBinaryOperator.SHIFT_RIGHT
                 );
         assertThat(mainInstructions).filteredOn(IrUnaryInstruction.class::isInstance).hasSizeGreaterThanOrEqualTo(2);
-        assertThat(mainInstructions).filteredOn(IrSelectInstruction.class::isInstance).hasSize(1);
-        assertThat(mainInstructions)
-                .filteredOn(IrSelectInstruction.class::isInstance)
-                .map(IrSelectInstruction.class::cast)
-                .singleElement()
-                .satisfies(select -> {
-                    assertThat(select.thenValue()).isEqualTo(new IrConstant(4, IrType.LONG));
-                    assertThat(select.elseValue()).isEqualTo(new IrConstant(4, IrType.LONG));
-                });
+        IrFunction main = new IrLowerer().lower(program, semanticResult).findFunction("main").orElseThrow();
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .anyMatch(label -> label.startsWith("logical_or_true_"))
+                .anyMatch(label -> label.startsWith("logical_or_rhs_"))
+                .anyMatch(label -> label.startsWith("conditional_then_"))
+                .anyMatch(label -> label.startsWith("conditional_else_"))
+                .anyMatch(label -> label.startsWith("conditional_merge_"));
+        assertThat(mainInstructions).filteredOn(IrMoveInstruction.class::isInstance).hasSizeGreaterThanOrEqualTo(4);
+    }
+
+    @Test
+    void preservesShortCircuitSideEffectsInLogicalAndConditionalExpressions() {
+        Program program = parse("""
+                int side() {
+                    return 1;
+                }
+
+                int main() {
+                    int value = 0;
+                    int result = value && (value = side());
+                    result = 1 || (value = side());
+                    result = value ? (value = 2) : (value = 3);
+                    return value + result;
+                }
+                """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+
+        IrFunction main = new IrLowerer().lower(program, semanticResult).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .anyMatch(label -> label.startsWith("logical_and_rhs_"))
+                .anyMatch(label -> label.startsWith("logical_and_false_"))
+                .anyMatch(label -> label.startsWith("logical_or_true_"))
+                .anyMatch(label -> label.startsWith("logical_or_rhs_"))
+                .anyMatch(label -> label.startsWith("conditional_then_"))
+                .anyMatch(label -> label.startsWith("conditional_else_"));
+        assertThat(block(main, "logical_and_rhs_").instructions())
+                .anyMatch(IrCallInstruction.class::isInstance)
+                .anyMatch(IrStoreLocalInstruction.class::isInstance);
+        assertThat(block(main, "logical_or_rhs_").instructions())
+                .anyMatch(IrCallInstruction.class::isInstance)
+                .anyMatch(IrStoreLocalInstruction.class::isInstance);
+        assertThat(block(main, "logical_or_true_").instructions())
+                .noneMatch(IrCallInstruction.class::isInstance)
+                .anyMatch(IrMoveInstruction.class::isInstance);
+        assertThat(block(main, "conditional_then_").instructions())
+                .filteredOn(IrStoreLocalInstruction.class::isInstance)
+                .map(IrStoreLocalInstruction.class::cast)
+                .extracting(IrStoreLocalInstruction::value)
+                .contains(new IrConstant(2));
+        assertThat(block(main, "conditional_else_").instructions())
+                .filteredOn(IrStoreLocalInstruction.class::isInstance)
+                .map(IrStoreLocalInstruction.class::cast)
+                .extracting(IrStoreLocalInstruction::value)
+                .contains(new IrConstant(3));
     }
 
     @Test
@@ -510,5 +556,12 @@ class IrLowererTest {
 
     private boolean hasBlock(IrFunction function, String label) {
         return function.blocks().stream().anyMatch(block -> block.label().equals(label));
+    }
+
+    private IrBlock block(IrFunction function, String labelPrefix) {
+        return function.blocks().stream()
+                .filter(block -> block.label().startsWith(labelPrefix))
+                .findFirst()
+                .orElseThrow();
     }
 }

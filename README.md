@@ -2,7 +2,7 @@
 
 MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。当前已经完成从源码到 Windows x64 可执行文件的基础编译闭环，并完成 `0.2.0` 结构化编译观测阶段。
 
-当前版本：`0.4.0-SNAPSHOT`。
+当前版本：`0.4.0`。
 
 ## 文档入口
 
@@ -12,12 +12,13 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 - [version/0.2.0.md](version/0.2.0.md)：`0.2.0` 结构化观测阶段记录。
 - [version/0.3.0.md](version/0.3.0.md)：`0.3.0` JavaFX UI 首版阶段记录。
 - [version/0.3.1.md](version/0.3.1.md)：`0.3.1` 阶段专属图形化增强记录。
+- [version/0.4.0.md](version/0.4.0.md)：`0.4.0` C 子集语法和预编译扩展阶段记录。
 
 ## 当前状态
 
-`0.3.1` 已完成，当前进入 `0.4.0-SNAPSHOT` C 子集语法和预编译扩展阶段。
+`0.4.0` 已完成，当前支持 C 子集语法和预编译扩展能力。
 
-下一步任务：`D160：端到端样例、SPEC 和阶段验收`。`D142` 已支持 `switch case default` 的 IR lowering 和 Windows x64 codegen。
+本阶段新增 `.mh` include、对象宏、条件编译、MiniC 头文件校验、`extern int printf(char *format, ...);` 可变参数外部函数声明、常用表达式运算符、`sizeof`、`do while` 和 `switch case default`。
 
 项目已经具备：
 
@@ -29,6 +30,8 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 - JavaFX 版 MiniC Visual Workbench。
 - 阶段专属 Visual Pane：Lexer token 半透明遮罩、Parser AST 树、Semantic 顶部 `global scope` 且反向箭头作用域树、Codegen Assembly 增量行文本视图。
 - `MiniCObservationApi.currentStageVisualData()` UI 专用 visual DTO，不向 UI 暴露 AST、Scope、IR、Stepper 等内部对象。
+- 轻量预编译器：`.mh` include、对象宏、条件编译和头文件声明约束。
+- Phase D 语法扩展：常用复合赋值/位运算/逻辑运算/移位/条件表达式/`sizeof`、`do while`、`switch case default`。
 
 UI 交互细化暂缓，后续可继续补充 AST/Scope 节点点击定位源码、真实手工 UI 截图验收和更完整的滚动定位体验。
 

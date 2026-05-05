@@ -15,6 +15,7 @@ import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
+import minic.compiler.ir.instruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.instruction.IrStorePointerInstruction;
@@ -114,6 +115,7 @@ final class WindowsX64InstructionEmitter {
             case IrCastInstruction cast -> emitCast(builder, cast);
             case IrBinaryInstruction binary -> emitBinary(builder, binary);
             case IrUnaryInstruction unary -> emitUnary(builder, unary);
+            case IrMoveInstruction move -> emitMove(builder, move);
             case IrSelectInstruction select -> emitSelect(builder, select);
             case IrAddressOfLocalInstruction addressOfLocal -> {
                 builder.append("    lea rax, ").append(frame.localAddress(addressOfLocal.local()))
@@ -297,6 +299,16 @@ final class WindowsX64InstructionEmitter {
         valueEmitter.emitLoadValue(builder, select.elseValue(), storeValueRegister(select.result().type()));
         emitStoreRegisterToMemory(builder, frame.temporarySlot(select.result()), select.result().type(), storeValueRegister(select.result().type()));
         builder.append(endLabel).append(":").append(System.lineSeparator());
+    }
+
+    private void emitMove(StringBuilder builder, IrMoveInstruction move) {
+        valueEmitter.emitLoadValue(builder, move.value(), storeValueRegister(move.result().type()));
+        emitStoreRegisterToMemory(
+                builder,
+                frame.temporarySlot(move.result()),
+                move.result().type(),
+                storeValueRegister(move.result().type())
+        );
     }
 
     private void emitLogicalBinary(StringBuilder builder, String operation, String leftRegister, String rightRegister) {
