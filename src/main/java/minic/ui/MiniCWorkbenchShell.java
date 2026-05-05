@@ -42,6 +42,8 @@ public final class MiniCWorkbenchShell {
     private MiniCHoverInspector hoverInspector;
     private ActivitySection activeSection = ActivitySection.CODE;
     private int activeDocumentIndex;
+    private int nextUntitledIndex = 1;
+    private int draggedTabIndex = -1;
 
     /**
      * 创建工作台外壳。
@@ -49,7 +51,7 @@ public final class MiniCWorkbenchShell {
      * @param viewModel UI 状态模型
      */
     public MiniCWorkbenchShell(MiniCWorkbenchViewModel viewModel) {
-        addDocument("untitled-1.mc", "", null, Objects.requireNonNull(viewModel, "viewModel"));
+        addDocument(nextUntitledName(), "", null, Objects.requireNonNull(viewModel, "viewModel"));
     }
 
     /**
@@ -254,6 +256,15 @@ public final class MiniCWorkbenchShell {
             }
             int tabIndex = index;
             tab.setOnMouseClicked(event -> switchDocument(tabIndex));
+            tab.setOnDragDetected(event -> {
+                draggedTabIndex = tabIndex;
+                tab.startFullDrag();
+                event.consume();
+            });
+            tab.setOnMouseDragEntered(event -> {
+                reorderDraggedTab(tabIndex);
+                event.consume();
+            });
             close.setOnMouseClicked(event -> {
                 closeDocument(tabIndex);
                 event.consume();
@@ -288,7 +299,7 @@ public final class MiniCWorkbenchShell {
         }
         documents.remove(index);
         if (documents.isEmpty()) {
-            addDocument("untitled-1.mc", "", null, new MiniCWorkbenchViewModel());
+            addDocument(nextUntitledName(), "", null, new MiniCWorkbenchViewModel());
             activeDocumentIndex = 0;
         } else if (activeDocumentIndex >= documents.size()) {
             activeDocumentIndex = documents.size() - 1;
@@ -303,9 +314,51 @@ public final class MiniCWorkbenchShell {
     }
 
     private void newDocument() {
-        int nextIndex = documents.size() + 1;
-        addDocument("untitled-" + nextIndex + ".mc", "", null, new MiniCWorkbenchViewModel());
+        addDocument(nextUntitledName(), "", null, new MiniCWorkbenchViewModel());
         switchDocument(documents.size() - 1);
+    }
+
+    private String nextUntitledName() {
+        return "untitled-" + nextUntitledIndex++ + ".mc";
+    }
+
+    void reorderDocumentTabsForTesting(int fromIndex, int toIndex) {
+        reorderDocumentTab(fromIndex, toIndex);
+    }
+
+    private void reorderDraggedTab(int targetIndex) {
+        if (draggedTabIndex < 0 || draggedTabIndex == targetIndex) {
+            return;
+        }
+        int previousIndex = draggedTabIndex;
+        if (reorderDocumentTab(previousIndex, targetIndex)) {
+            draggedTabIndex = targetIndex;
+        }
+    }
+
+    private boolean reorderDocumentTab(int fromIndex, int toIndex) {
+        if (fromIndex < 0
+                || toIndex < 0
+                || fromIndex >= documents.size()
+                || toIndex >= documents.size()
+                || fromIndex == toIndex) {
+            return false;
+        }
+        DocumentTab moved = documents.remove(fromIndex);
+        documents.add(toIndex, moved);
+        if (activeDocumentIndex == fromIndex) {
+            activeDocumentIndex = toIndex;
+        } else if (fromIndex < activeDocumentIndex && toIndex >= activeDocumentIndex) {
+            activeDocumentIndex--;
+        } else if (fromIndex > activeDocumentIndex && toIndex <= activeDocumentIndex) {
+            activeDocumentIndex++;
+        }
+        if (body != null) {
+            body.getChildren().clear();
+            rebuildWorkbenchBody();
+        }
+        refreshTabs();
+        return true;
     }
 
     private void openDocument() {

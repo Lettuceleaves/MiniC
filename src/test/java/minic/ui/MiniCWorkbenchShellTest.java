@@ -122,8 +122,27 @@ class MiniCWorkbenchShellTest {
                 false, false, null
         ));
         assertThat(labels(root).stream().map(Label::getText))
-                .contains("C  untitled-1.mc");
+                .contains("C  untitled-3.mc")
+                .doesNotContain("C  untitled-1.mc", "C  untitled-2.mc");
         assertThat(button(root, "打开")).isNotNull();
+    }
+
+    @Test
+    void reordersDocumentTabs() {
+        startJavafx();
+        MiniCWorkbenchShell shell = new MiniCWorkbenchShell(new MiniCWorkbenchViewModel());
+        Parent root = shell.createRoot();
+
+        button(root, "+").fire();
+        button(root, "+").fire();
+
+        assertThat(tabTitles(root))
+                .containsExactly("C  untitled-1.mc", "C  untitled-2.mc", "C  untitled-3.mc");
+
+        shell.reorderDocumentTabsForTesting(0, 2);
+
+        assertThat(tabTitles(root))
+                .containsExactly("C  untitled-2.mc", "C  untitled-3.mc", "C  untitled-1.mc");
     }
 
     @Test
@@ -257,6 +276,21 @@ class MiniCWorkbenchShellTest {
             }
         }
         return null;
+    }
+
+    private static java.util.List<String> tabTitles(javafx.scene.Node node) {
+        java.util.ArrayList<String> titles = new java.util.ArrayList<>();
+        collectTabTitles(node, titles);
+        return titles;
+    }
+
+    private static void collectTabTitles(javafx.scene.Node node, java.util.ArrayList<String> titles) {
+        if (node instanceof Label label && label.getStyleClass().contains("tab-title")) {
+            titles.add(label.getText());
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectTabTitles(child, titles));
+        }
     }
 
     private static void collectLabels(javafx.scene.Node node, java.util.ArrayList<Label> labels) {
