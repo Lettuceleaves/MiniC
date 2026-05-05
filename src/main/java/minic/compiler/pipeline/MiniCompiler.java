@@ -9,9 +9,10 @@ import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParseResult;
 import minic.compiler.parser.Parser;
-import minic.compiler.preprocess.PassthroughPreprocessor;
+import minic.compiler.preprocess.MiniCPreprocessor;
 import minic.compiler.preprocess.PreprocessResult;
 import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.preprocess.PreprocessOptions;
 import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.semantic.SemanticResult;
 import minic.compiler.toolchain.ToolchainResult;
@@ -32,7 +33,7 @@ public final class MiniCompiler {
      * 使用默认 Windows x86_64 汇编 emitter 创建编译器。
      */
     public MiniCompiler() {
-        this(new WindowsX64AssemblyEmitter(), new PassthroughPreprocessor());
+        this(new WindowsX64AssemblyEmitter(), new MiniCPreprocessor());
     }
 
     /**
@@ -41,7 +42,7 @@ public final class MiniCompiler {
      * @param assemblyEmitter 汇编 emitter
      */
     public MiniCompiler(AssemblyEmitter assemblyEmitter) {
-        this(assemblyEmitter, new PassthroughPreprocessor());
+        this(assemblyEmitter, new MiniCPreprocessor());
     }
 
     /**
@@ -78,7 +79,7 @@ public final class MiniCompiler {
     public CompileResult compile(SourceFile sourceFile, CompileOptions options) {
         Objects.requireNonNull(sourceFile, "sourceFile");
         Objects.requireNonNull(options, "options");
-        PreprocessResult preprocessResult = preprocessor.preprocess(sourceFile);
+        PreprocessResult preprocessResult = preprocessor.preprocess(sourceFile, new PreprocessOptions(options.includeRoots()));
         if (!preprocessResult.diagnostics().isEmpty()) {
             return new CompileResult(preprocessResult, null, null, null, null, null, ToolchainResult.notRun());
         }

@@ -39,7 +39,8 @@ class MiniCompilerTest {
 
         assertThat(result.succeeded()).isTrue();
         assertThat(result.diagnostics()).isEmpty();
-        assertThat(result.preprocessResult().sourceFile()).isSameAs(sourceFile);
+        assertThat(result.preprocessResult().sourceFile().path()).isEqualTo(sourceFile.path());
+        assertThat(result.preprocessResult().sourceFile().content()).isEqualTo(sourceFile.content());
         assertThat(result.preprocessResult().includes()).isEmpty();
         assertThat(result.preprocessResult().macros()).isEmpty();
         assertThat(result.lexResultOptional()).hasValueSatisfying(lexResult ->
@@ -137,6 +138,32 @@ class MiniCompilerTest {
         assertThat(result.semanticResultOptional()).isEmpty();
         assertThat(result.irModuleOptional()).isEmpty();
         assertThat(result.assemblySourceOptional()).isEmpty();
+    }
+
+    @Test
+    void compilesAfterExpandingMhIncludeFromIncludeRoots() throws Exception {
+        Path includeRoot = tempDir.resolve("include");
+        java.nio.file.Files.createDirectories(includeRoot);
+        java.nio.file.Files.writeString(includeRoot.resolve("decls.mh"), "extern int value();\n");
+        SourceFile sourceFile = new SourceFile("main.mc", """
+                #include "decls.mh"
+                int main() {
+                    return value();
+                }
+                """);
+        Toolchain toolchain = (source, assembly, outputDirectory, artifactName) -> ToolchainResult.notRun();
+
+        CompileResult result = new MiniCompiler().compile(
+                sourceFile,
+                new CompileOptions(tempDir, "main", false, toolchain, List.of(includeRoot))
+        );
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.preprocessResult().sourceFile().content()).contains("extern int value();");
+        assertThat(result.preprocessResult().includes()).hasSize(1);
+        assertThat(result.lexResultOptional()).isPresent();
+        assertThat(result.parseResultOptional()).isPresent();
+        assertThat(result.semanticResultOptional()).isPresent();
     }
 
     @Test
