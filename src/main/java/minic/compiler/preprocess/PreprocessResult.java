@@ -13,12 +13,14 @@ import java.util.Objects;
  * @param diagnostics 预编译诊断
  * @param includes include 摘要
  * @param macros 宏摘要
+ * @param sourceMap 预编译产物 offset 到原始源码 offset 的映射；与 {@code sourceFile.content()} 等长
  */
 public record PreprocessResult(
         SourceFile sourceFile,
         List<Diagnostic> diagnostics,
         List<IncludeSummary> includes,
-        List<MacroSummary> macros
+        List<MacroSummary> macros,
+        int[] sourceMap
 ) {
     /**
      * 创建预编译结果。
@@ -27,15 +29,35 @@ public record PreprocessResult(
      * @param diagnostics 预编译诊断
      * @param includes include 摘要
      * @param macros 宏摘要
+     * @param sourceMap 预编译产物 offset 到原始源码 offset 的映射
      */
     public PreprocessResult {
         Objects.requireNonNull(sourceFile, "sourceFile");
         Objects.requireNonNull(diagnostics, "diagnostics");
         Objects.requireNonNull(includes, "includes");
         Objects.requireNonNull(macros, "macros");
+        Objects.requireNonNull(sourceMap, "sourceMap");
+        if (sourceMap.length != sourceFile.content().length()) {
+            throw new IllegalArgumentException("sourceMap length must match preprocessed source length");
+        }
         diagnostics = List.copyOf(diagnostics);
         includes = List.copyOf(includes);
         macros = List.copyOf(macros);
+        sourceMap = sourceMap.clone();
+    }
+
+    public PreprocessResult(
+            SourceFile sourceFile,
+            List<Diagnostic> diagnostics,
+            List<IncludeSummary> includes,
+            List<MacroSummary> macros
+    ) {
+        this(sourceFile, diagnostics, includes, macros, identityMap(sourceFile.content().length()));
+    }
+
+    @Override
+    public int[] sourceMap() {
+        return sourceMap.clone();
     }
 
     /**
@@ -46,5 +68,13 @@ public record PreprocessResult(
      */
     public static PreprocessResult passthrough(SourceFile sourceFile) {
         return new PreprocessResult(sourceFile, List.of(), List.of(), List.of());
+    }
+
+    private static int[] identityMap(int length) {
+        int[] sourceMap = new int[length];
+        for (int index = 0; index < sourceMap.length; index++) {
+            sourceMap[index] = index;
+        }
+        return sourceMap;
     }
 }

@@ -33,6 +33,28 @@ class MiniCRealtimeAnalyzerTest {
     }
 
     @Test
+    void mapsPreprocessedParserDiagnosticsBackToEditorSourceOffsets() {
+        String source = """
+                #define BAD (
+
+                int main() {
+                    return BAD;
+                }
+                """;
+
+        UiRealtimeAnalysisDto result = MiniCRealtimeAnalyzer.analyzeNow("live.mc", source, 3);
+
+        int macroUseOffset = source.indexOf("BAD;");
+        int macroUseEndOffset = macroUseOffset + "BAD;".length();
+        assertThat(result.diagnostics())
+                .anySatisfy(diagnostic -> {
+                    assertThat(diagnostic.message()).contains("期望");
+                    assertThat(diagnostic.startOffset()).isBetween(macroUseOffset, macroUseEndOffset);
+                    assertThat(diagnostic.endOffset()).isBetween(diagnostic.startOffset(), macroUseEndOffset + 1);
+                });
+    }
+
+    @Test
     void preprocessesMacrosBeforeRealtimeSemanticAnalysis() {
         UiRealtimeAnalysisDto result = MiniCRealtimeAnalyzer.analyzeNow(
                 "live.mc",

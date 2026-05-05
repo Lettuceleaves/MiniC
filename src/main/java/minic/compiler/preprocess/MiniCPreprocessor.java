@@ -65,18 +65,27 @@ public final class MiniCPreprocessor implements Preprocessor {
         Objects.requireNonNull(sourceFile, "sourceFile");
         Objects.requireNonNull(options, "options");
         Work work = new Work(options);
-        String content = expandSource(sourceFile, sourceDirectory(sourceFile), new HashSet<>(), work);
+        StringBuilder output = new StringBuilder();
+        expandSource(sourceFile, sourceDirectory(sourceFile), new HashSet<>(), work, output, true);
+        String content = output.toString();
         SourceFile preprocessedSource = new SourceFile(sourceFile.path(), content);
         return new PreprocessResult(
                 preprocessedSource,
                 work.diagnostics,
                 work.includes,
-                work.macroSummaries
+                work.macroSummaries,
+                work.sourceMap()
         );
     }
 
-    private String expandSource(SourceFile sourceFile, Path currentDirectory, Set<Path> includeStack, Work work) {
-        StringBuilder output = new StringBuilder();
+    private void expandSource(
+            SourceFile sourceFile,
+            Path currentDirectory,
+            Set<Path> includeStack,
+            Work work,
+            StringBuilder output,
+            boolean mapToThisSource
+    ) {
         int initialConditionDepth = work.conditionStack.size();
         int lineStart = 0;
         String content = sourceFile.content();
@@ -121,7 +130,7 @@ public final class MiniCPreprocessor implements Preprocessor {
                                 "undef 指令必须使用对象宏名称"
                         ));
                     } else {
-                        output.append(replaceMacros(content.substring(lineStart, nextLineStart), work));
+                        appendExpandedLine(output, work, content.substring(lineStart, nextLineStart), lineStart, mapToThisSource);
                     }
                 }
             }
@@ -136,10 +145,6 @@ public final class MiniCPreprocessor implements Preprocessor {
                     "条件编译块缺少 #endif"
             ));
         }
-        if (content.isEmpty()) {
-            return "";
-        }
-        return output.toString();
     }
 
     private boolean handleConditionDirective(SourceFile sourceFile, Work work, int startOffset, int endOffset, String line) {
@@ -254,11 +259,14 @@ public final class MiniCPreprocessor implements Preprocessor {
 
         work.includes.add(new IncludeSummary(requestedPath, resolvedPath, directiveRange, true));
         includeStack.add(resolvedPath);
-        String includeContent = expandSource(includeFile, resolvedPath.getParent(), includeStack, work);
+        StringBuilder includeOutput = new StringBuilder();
+        expandSource(includeFile, resolvedPath.getParent(), includeStack, work, includeOutput, false);
+        String includeContent = includeOutput.toString();
         validateHeader(includeFile, includeContent, work);
         output.append(includeContent);
         if (output.length() > 0 && output.charAt(output.length() - 1) != '\n') {
             output.append('\n');
+            work.sourceMap.add(-1);
         }
         includeStack.remove(resolvedPath);
     }
@@ -310,16 +318,21 @@ public final class MiniCPreprocessor implements Preprocessor {
         work.macroSummaries.add(new MacroSummary(name, "", range, false));
     }
 
-    private String replaceMacros(String line, Work work) {
-        StringBuilder output = new StringBuilder();
+    private void appendExpandedLine(
+            StringBuilder output,
+            Work work,
+            String line,
+            int lineStartOffset,
+            boolean mapToThisSource
+    ) {
         int index = 0;
         while (index < line.length()) {
             char character = line.charAt(index);
             if (character == '"') {
-                int end = copyQuotedLiteral(line, index, output, '"');
+                int end = copyQuotedLiteral(line, index, output, work, lineStartOffset, '"', mapToThisSource);
                 index = end;
             } else if (character == '\'') {
-                int end = copyQuotedLiteral(line, index, output, '\'');
+                int end = copyQuotedLiteral(line, index, output, work, lineStartOffset, '\'', mapToThisSource);
                 index = end;
             } else if (isIdentifierStart(character)) {
                 int end = index + 1;
@@ -328,29 +341,56 @@ public final class MiniCPreprocessor implements Preprocessor {
                 }
                 String identifier = line.substring(index, end);
                 MacroDefinition macro = work.macros.get(identifier);
-                output.append(macro == null ? identifier : macro.replacement());
+                if (macro == null) {
+                    appendMapped(output, work, identifier, lineStartOffset + index, mapToThisSource);
+                } else {
+                    appendMapped(output, work, macro.replacement(), lineStartOffset + index, mapToThisSource);
+                }
                 index = end;
             } else {
-                output.append(character);
+                appendMapped(output, work, Character.toString(character), lineStartOffset + index, mapToThisSource);
                 index++;
             }
         }
-        return output.toString();
     }
 
-    private int copyQuotedLiteral(String line, int start, StringBuilder output, char quote) {
-        output.append(quote);
+    private int copyQuotedLiteral(
+            String line,
+            int start,
+            StringBuilder output,
+            Work work,
+            int lineStartOffset,
+            char quote,
+            boolean mapToThisSource
+    ) {
+        appendMapped(output, work, Character.toString(quote), lineStartOffset + start, mapToThisSource);
         int index = start + 1;
         while (index < line.length()) {
+            int characterOffset = index;
             char character = line.charAt(index++);
-            output.append(character);
+            appendMapped(output, work, Character.toString(character), lineStartOffset + characterOffset, mapToThisSource);
             if (character == '\\' && index < line.length()) {
-                output.append(line.charAt(index++));
+                int escapedOffset = index;
+                appendMapped(output, work, Character.toString(line.charAt(index++)), lineStartOffset + escapedOffset, mapToThisSource);
             } else if (character == quote) {
                 break;
             }
         }
         return index;
+    }
+
+    private void appendMapped(
+            StringBuilder output,
+            Work work,
+            String text,
+            int originalOffset,
+            boolean mapToThisSource
+    ) {
+        output.append(text);
+        int mappedOffset = mapToThisSource ? originalOffset : -1;
+        for (int index = 0; index < text.length(); index++) {
+            work.sourceMap.add(mappedOffset);
+        }
     }
 
     private boolean containsIdentifier(String text, String identifier) {
@@ -455,6 +495,7 @@ public final class MiniCPreprocessor implements Preprocessor {
         private final Map<String, MacroDefinition> macros = new LinkedHashMap<>();
         private final List<MacroSummary> macroSummaries = new ArrayList<>();
         private final ArrayList<ConditionFrame> conditionStack = new ArrayList<>();
+        private final ArrayList<Integer> sourceMap = new ArrayList<>();
 
         private Work(PreprocessOptions options) {
             this.options = options;
@@ -463,6 +504,14 @@ public final class MiniCPreprocessor implements Preprocessor {
         private boolean isActive() {
             return conditionStack.stream()
                     .allMatch(frame -> frame.parentActive() && frame.branchActive());
+        }
+
+        private int[] sourceMap() {
+            int[] result = new int[sourceMap.size()];
+            for (int index = 0; index < sourceMap.size(); index++) {
+                result[index] = sourceMap.get(index);
+            }
+            return result;
         }
     }
 }

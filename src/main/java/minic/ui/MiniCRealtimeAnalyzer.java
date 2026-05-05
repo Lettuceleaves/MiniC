@@ -11,6 +11,7 @@ import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.semantic.SemanticResult;
 import minic.diagnostics.Diagnostic;
 import minic.source.SourceFile;
+import minic.source.SourceRange;
 import minic.uiapi.UiDiagnosticDto;
 import minic.uiapi.UiLexerTokenVisualDto;
 import minic.uiapi.UiRealtimeAnalysisDto;
@@ -110,15 +111,15 @@ public final class MiniCRealtimeAnalyzer implements AutoCloseable {
         diagnostics.addAll(preprocessResult.diagnostics());
         if (diagnostics.isEmpty()) {
             LexResult preprocessedLexResult = new Lexer(preprocessResult.sourceFile()).lex();
-            diagnostics.addAll(preprocessedLexResult.diagnostics());
+            diagnostics.addAll(mapDiagnostics(preprocessedLexResult.diagnostics(), sourceFile, preprocessResult));
             if (!diagnostics.isEmpty()) {
                 return realtimeResult(sourceName, sourceText, diagnostics, tokens, version);
             }
             ParseResult parseResult = new Parser(preprocessedLexResult.tokens()).parse();
-            diagnostics.addAll(parseResult.diagnostics());
+            diagnostics.addAll(mapDiagnostics(parseResult.diagnostics(), sourceFile, preprocessResult));
             if (diagnostics.isEmpty()) {
                 SemanticResult semanticResult = new SemanticAnalyzer().analyze(parseResult.program());
-                diagnostics.addAll(semanticResult.diagnostics());
+                diagnostics.addAll(mapDiagnostics(semanticResult.diagnostics(), sourceFile, preprocessResult));
             }
         }
         return realtimeResult(sourceName, sourceText, diagnostics, tokens, version);
@@ -149,6 +150,59 @@ public final class MiniCRealtimeAnalyzer implements AutoCloseable {
                 diagnostic.range().startOffset(),
                 diagnostic.range().endOffset()
         );
+    }
+
+    private static List<Diagnostic> mapDiagnostics(
+            List<Diagnostic> diagnostics,
+            SourceFile originalSource,
+            PreprocessResult preprocessResult
+    ) {
+        if (diagnostics.isEmpty()) {
+            return diagnostics;
+        }
+        int[] sourceMap = preprocessResult.sourceMap();
+        return diagnostics.stream()
+                .map(diagnostic -> mapDiagnostic(diagnostic, originalSource, sourceMap))
+                .toList();
+    }
+
+    private static Diagnostic mapDiagnostic(Diagnostic diagnostic, SourceFile originalSource, int[] sourceMap) {
+        SourceRange mappedRange = mapRange(diagnostic.range(), originalSource, sourceMap);
+        return new Diagnostic(
+                diagnostic.code(),
+                diagnostic.severity(),
+                diagnostic.message(),
+                mappedRange
+        );
+    }
+
+    private static SourceRange mapRange(SourceRange range, SourceFile originalSource, int[] sourceMap) {
+        int sourceLength = originalSource.content().length();
+        if (sourceLength == 0) {
+            return new SourceRange(originalSource, 0, 0);
+        }
+        int start = mappedOffset(sourceMap, range.startOffset());
+        int end = mappedOffset(sourceMap, Math.max(range.startOffset(), range.endOffset() - 1));
+        if (start < 0 && end < 0) {
+            return new SourceRange(originalSource, 0, Math.min(sourceLength, 1));
+        }
+        if (start < 0) {
+            start = end;
+        }
+        if (end < 0) {
+            end = start;
+        }
+        start = Math.max(0, Math.min(start, sourceLength));
+        end = Math.max(start + 1, Math.min(Math.max(start, end) + 1, sourceLength));
+        return new SourceRange(originalSource, start, end);
+    }
+
+    private static int mappedOffset(int[] sourceMap, int offset) {
+        if (sourceMap.length == 0) {
+            return -1;
+        }
+        int index = Math.max(0, Math.min(offset, sourceMap.length - 1));
+        return sourceMap[index];
     }
 
     /**
