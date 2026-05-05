@@ -9,6 +9,7 @@ import minic.compiler.ast.expr.FieldAccessExpr;
 import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.NullLiteralExpr;
+import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ast.stmt.ExprStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
@@ -29,7 +30,7 @@ class SemanticAnalyzerTest {
     @Test
     void acceptsComprehensiveLegalProgramAndRecordsRepresentativeTypes() {
         Program program = parse("""
-                extern int printf(int *format, int value);
+                extern int printf(char *format, int value);
 
                 struct Node {
                     int value;
@@ -39,9 +40,9 @@ class SemanticAnalyzerTest {
 
                 int add(int left, int right) { return left + right; }
 
-                double mix(bool flag, char tag, long count, float ratio, double score) {
+                double mix(char tag, long count, float ratio, double score) {
                     long total = count + tag;
-                    float adjusted = ratio + flag;
+                    float adjusted = ratio + tag;
                     double combined = adjusted + score;
                     return combined;
                 }
@@ -71,7 +72,7 @@ class SemanticAnalyzerTest {
         assertThat(result.globalScope().resolve("printf")).hasValueSatisfying(symbol ->
                 assertThat(symbol.type()).isEqualTo(MiniType.function(
                         MiniType.INT,
-                        List.of(MiniType.INT.pointerTo(), MiniType.INT)
+                        List.of(MiniType.CHAR.pointerTo(), MiniType.INT)
                 )));
         assertThat(result.globalScope().resolve("Node")).hasValueSatisfying(symbol -> {
             assertThat(symbol.kind()).isEqualTo(SymbolKind.STRUCT);
@@ -88,6 +89,8 @@ class SemanticAnalyzerTest {
                 ((ExprStmt) mainStatements.get(4)).expression()).value();
         FieldAccessExpr nodeValue = (FieldAccessExpr) ((CallExpr)
                 ((ExprStmt) mainStatements.get(6)).expression()).arguments().get(1);
+        StringLiteralExpr formatLiteral = (StringLiteralExpr) ((CallExpr)
+                ((ExprStmt) mainStatements.get(6)).expression()).arguments().get(0);
         IndexExpr returned = (IndexExpr) ((ReturnStmt) mainStatements.get(7))
                 .expressionOptional().orElseThrow();
 
@@ -97,6 +100,7 @@ class SemanticAnalyzerTest {
                 List.of(MiniType.INT, MiniType.INT)
         ).pointerTo());
         assertThat(result.typeOf(arrayDecay)).contains(MiniType.INT.pointerTo());
+        assertThat(result.typeOf(formatLiteral)).contains(MiniType.CHAR.pointerTo());
         assertThat(result.typeOf(nodeValue)).contains(MiniType.INT);
         assertThat(result.typeOf(returned.target())).contains(MiniType.INT.pointerTo());
         assertThat(result.typeOf(returned)).contains(MiniType.INT);
@@ -145,6 +149,24 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void reportsLoweringLimitDiagnostics() {
+        SemanticResult result = analyze("""
+                int addressParameter(int value) {
+                    int *pointer = &value;
+                    return value;
+                }
+
+                int main() {
+                    return addressParameter(1);
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("暂不支持对参数取址：value");
+    }
+
+    @Test
     void reportsRepresentativeTypeDiagnostics() {
         SemanticResult result = analyze("""
                 int unary(int value) { return value; }
@@ -159,7 +181,7 @@ class SemanticAnalyzerTest {
                     int *pointer = 1;
                     int scalar = NULL;
                     int (*operation)(int, int) = unary;
-                    value = pointer + value;
+                    value = pointer * value;
                     return read(1);
                 }
                 """);
@@ -209,6 +231,114 @@ class SemanticAnalyzerTest {
                         "下标访问目标必须是数组或指针",
                         "未知结构体字段：y",
                         "指针字段访问目标必须是结构体指针"
+                );
+    }
+
+    @Test
+    void reportsConditionIndexAndAssignmentDiagnostics() {
+        SemanticResult result = analyze("""
+                struct Flag {
+                    int value;
+                };
+
+                int helper() { return 1; }
+
+                int main() {
+                    struct Flag flag;
+                    int values[3];
+                    int other[3];
+                    int *pointer = values;
+                    if (flag) {
+                        return values[1.5];
+                    }
+                    while (flag) {
+                        return values[pointer];
+                    }
+                    for (; flag; pointer = pointer + 1) {
+                        return pointer[0];
+                    }
+                    values = other;
+                    helper = 1;
+                    return pointer[0];
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly(
+                        "条件表达式必须是标量或指针类型",
+                        "数组下标必须是整数类型",
+                        "条件表达式必须是标量或指针类型",
+                        "数组下标必须是整数类型",
+                        "条件表达式必须是标量或指针类型",
+                        "数组不能整体赋值",
+                        "赋值左侧不能是函数名",
+                        "赋值类型不匹配"
+                );
+    }
+
+    @Test
+    void reportsMissingReturnOnNonReturningPaths() {
+        SemanticResult result = analyze("""
+                int maybe(int value) {
+                    if (value) {
+                        return 1;
+                    }
+                }
+
+                int main() {
+                    maybe(1);
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly(
+                        "函数必须在所有路径返回值：maybe",
+                        "函数必须在所有路径返回值：main"
+                );
+    }
+
+    @Test
+    void acceptsFunctionsThatReturnOnAllVisiblePaths() {
+        SemanticResult result = analyze("""
+                int choose(int value) {
+                    if (value) {
+                        return 1;
+                    } else {
+                        return 2;
+                    }
+                }
+
+                int main() {
+                    return choose(1);
+                }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+    }
+
+    @Test
+    void reportsIndirectRecursiveStructValueContainment() {
+        SemanticResult result = analyze("""
+                struct A {
+                    struct B b;
+                };
+
+                struct B {
+                    struct A a;
+                };
+
+                int main() {
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly(
+                        "结构体字段形成递归值包含：A",
+                        "结构体字段形成递归值包含：B"
                 );
     }
 

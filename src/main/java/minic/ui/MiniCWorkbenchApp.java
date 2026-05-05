@@ -13,7 +13,7 @@ public final class MiniCWorkbenchApp extends Application {
     /**
      * UI 窗口标题。
      */
-    public static final String TITLE = "MiniC Visual Workbench";
+    public static final String TITLE = "MiniC 可视化工作台";
 
     /**
      * 默认窗口宽度。

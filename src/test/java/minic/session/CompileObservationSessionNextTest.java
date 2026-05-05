@@ -35,11 +35,90 @@ class CompileObservationSessionNextTest {
     }
 
     @Test
+    void nextStageCompletesCurrentStageAndEntersFollowingStage() {
+        CompileObservationSession session = CompileObservationSession.fromSource("next-stage.mc", "int main() { return 0; }");
+
+        StepResult result = session.nextStage();
+
+        assertThat(result.outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(result.title()).contains("跳转到下一环节");
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PARSER);
+        assertThat(session.lexResult()).isPresent();
+        assertThat(session.currentStageData().stage()).isEqualTo(CompileStage.PARSER);
+    }
+
+    @Test
+    void nextStageStopsBeforeIrWhenSemanticDiagnosticsExist() {
+        CompileObservationSession session = CompileObservationSession.fromSource(
+                "diagnostic-stage.mc",
+                """
+                        int main() {
+                            missing = 1;
+                            return 0;
+                        }
+                        """
+        );
+
+        assertThat(session.nextStage().outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PARSER);
+        assertThat(session.nextStage().outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.SEMANTIC);
+
+        StepResult semanticJump = session.nextStage();
+
+        assertThat(semanticJump.outcome()).isEqualTo(StepOutcome.FAILED);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.SEMANTIC);
+        assertThat(session.semanticResult()).isEmpty();
+        assertThat(session.irModule()).isEmpty();
+        assertThat(session.globalData().diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("未解析变量：missing");
+    }
+
+    @Test
+    void nextStageStopsBeforeSemanticWhenParserDiagnosticsExist() {
+        CompileObservationSession session = CompileObservationSession.fromSource(
+                "unsupported-syntax.mc",
+                """
+                        int main() {
+                            int i = 0;
+                            i += ;
+                            return i;
+                        }
+                        """
+        );
+
+        assertThat(session.nextStage().outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PARSER);
+
+        StepResult parserJump = session.nextStage();
+
+        assertThat(parserJump.outcome()).isEqualTo(StepOutcome.FAILED);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PARSER);
+        assertThat(session.parseResult()).isPresent();
+        assertThat(session.semanticResult()).isEmpty();
+        assertThat(session.globalData().diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .contains("期望表达式");
+    }
+
+    @Test
+    void globalDataCanReadCompletedParserSummaryAfterStageJump() {
+        CompileObservationSession session = CompileObservationSession.fromSource("parser-summary.mc", "int main() { return 0; }");
+
+        session.nextStage();
+        session.nextStage();
+
+        assertThat(session.currentStage()).isEqualTo(CompileStage.SEMANTIC);
+        assertThat(session.globalData().astSummary()).isNotEmpty();
+    }
+
+    @Test
     void synchronizesStateStageDataAndGlobalDataAcrossAllStages() {
         CompileObservationSession session = CompileObservationSession.fromSource(
                 "full.mc",
                 """
-                        extern int puts(int *text);
+                        extern int puts(char *text);
                         int main() { return puts("ok"); }
                         """
         );
@@ -51,9 +130,9 @@ class CompileObservationSessionNextTest {
         }
 
         assertThat(last).isNotNull();
-        assertThat(session.currentStage()).isEqualTo(CompileStage.CODEGEN);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.EXECUTION);
         assertThat(session.currentState().canNext()).isFalse();
-        assertThat(session.currentStageData().stage()).isEqualTo(CompileStage.CODEGEN);
+        assertThat(session.currentStageData().stage()).isEqualTo(CompileStage.EXECUTION);
         assertThat(session.globalData().tokenSummary()).isNotEmpty();
         assertThat(session.globalData().astSummary()).isNotEmpty();
         assertThat(session.globalData().semanticSummary()).isNotEmpty();
@@ -64,9 +143,12 @@ class CompileObservationSessionNextTest {
         assertThat(session.semanticResult()).isPresent();
         assertThat(session.irModule()).isPresent();
         assertThat(session.assemblySource()).isPresent();
+        assertThat(session.globalData().artifactSummary()).isNotEmpty();
+        assertThat(session.globalData().executionInputSummary()).contains("stdin pending");
 
         StepResult afterCompletion = session.next();
 
         assertThat(afterCompletion.outcome()).isEqualTo(StepOutcome.CANNOT_ADVANCE);
+        assertThat(afterCompletion.title()).isEqualTo("等待运行输入");
     }
 }

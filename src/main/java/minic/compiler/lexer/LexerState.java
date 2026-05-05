@@ -97,7 +97,7 @@ public final class LexerState implements CompilerStageState<LexerState.Input, Le
                 case ' ', '\r', '\t', '\n' -> {
                     // 空白由 lexer 跳过，不产出 token。
                 }
-                case '+' -> addToken(TokenKind.PLUS, startOffset);
+                case '+' -> addToken(match('+') ? TokenKind.PLUS_PLUS : match('=') ? TokenKind.PLUS_EQUAL : TokenKind.PLUS, startOffset);
                 case '-' -> addToken(match('>') ? TokenKind.ARROW : TokenKind.MINUS, startOffset);
                 case '*' -> addToken(TokenKind.STAR, startOffset);
                 case '&' -> addToken(TokenKind.AMPERSAND, startOffset);
@@ -311,10 +311,23 @@ public final class LexerState implements CompilerStageState<LexerState.Input, Le
         if (floating) {
             String valueLexeme = floatLiteral ? lexeme.substring(0, lexeme.length() - 1) : lexeme;
             Object literalValue;
-            if (floatLiteral) {
-                literalValue = Float.parseFloat(valueLexeme);
-            } else {
-                literalValue = Double.parseDouble(valueLexeme);
+            try {
+                if (floatLiteral) {
+                    literalValue = Float.parseFloat(valueLexeme);
+                    if (!Float.isFinite((Float) literalValue)) {
+                        addNumericOverflowDiagnostic(startOffset, work.currentOffset, "浮点字面量超出范围");
+                        return;
+                    }
+                } else {
+                    literalValue = Double.parseDouble(valueLexeme);
+                    if (!Double.isFinite((Double) literalValue)) {
+                        addNumericOverflowDiagnostic(startOffset, work.currentOffset, "浮点字面量超出范围");
+                        return;
+                    }
+                }
+            } catch (NumberFormatException exception) {
+                addNumericOverflowDiagnostic(startOffset, work.currentOffset, "浮点字面量超出范围");
+                return;
             }
             tokens.add(new Token(
                     floatLiteral ? TokenKind.FLOAT_LITERAL : TokenKind.DOUBLE_LITERAL,
@@ -326,19 +339,33 @@ public final class LexerState implements CompilerStageState<LexerState.Input, Le
         }
         if (longLiteral) {
             String valueLexeme = lexeme.substring(0, lexeme.length() - 1);
+            long literalValue;
+            try {
+                literalValue = Long.parseLong(valueLexeme);
+            } catch (NumberFormatException exception) {
+                addNumericOverflowDiagnostic(startOffset, work.currentOffset, "long 字面量超出范围");
+                return;
+            }
             tokens.add(new Token(
                     TokenKind.LONG_LITERAL,
                     lexeme,
                     new SourceRange(input.sourceFile, startOffset, work.currentOffset),
-                    Long.parseLong(valueLexeme)
+                    literalValue
             ));
+            return;
+        }
+        int literalValue;
+        try {
+            literalValue = Integer.parseInt(lexeme);
+        } catch (NumberFormatException exception) {
+            addNumericOverflowDiagnostic(startOffset, work.currentOffset, "整数字面量超出范围");
             return;
         }
         tokens.add(new Token(
                 TokenKind.INTEGER_LITERAL,
                 lexeme,
                 new SourceRange(input.sourceFile, startOffset, work.currentOffset),
-                Integer.parseInt(lexeme)
+                literalValue
         ));
     }
 
@@ -493,6 +520,15 @@ public final class LexerState implements CompilerStageState<LexerState.Input, Le
                 DiagnosticSeverity.ERROR,
                 "非法字符：" + input.sourceFile.content().charAt(startOffset),
                 new SourceRange(input.sourceFile, startOffset, work.currentOffset)
+        ));
+    }
+
+    private void addNumericOverflowDiagnostic(int startOffset, int endOffset, String message) {
+        diagnostics.add(new Diagnostic(
+                "LEX005",
+                DiagnosticSeverity.ERROR,
+                message,
+                new SourceRange(input.sourceFile, startOffset, endOffset)
         ));
     }
 

@@ -21,6 +21,11 @@ class MiniCWorkbenchViewModelTest {
         assertThat(viewModel.sessionStartedProperty().get()).isTrue();
         assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("lexer");
         assertThat(viewModel.currentStageDataProperty().get().stage()).isEqualTo("lexer");
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.lexerVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.astVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.semanticVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.codegenVisualDataProperty().get().visualType()).isEqualTo("lexer");
         assertThat(viewModel.globalDataProperty().get().source()).contains("return 0");
     }
 
@@ -36,18 +41,71 @@ class MiniCWorkbenchViewModelTest {
         assertThat(viewModel.lastOutcomeProperty().get()).isEqualTo("ADVANCED");
         assertThat(viewModel.lastControlResultProperty().get()).isSameAs(next);
         assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isEqualTo(1);
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
+        assertThat(viewModel.currentStageVisualDataProperty().get().lexerTokens())
+                .anyMatch(token -> token.active() && token.kind().equals("INT"));
 
         viewModel.play();
         assertThat(viewModel.currentStateProperty().get().playbackMode()).isEqualTo("PLAYING");
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
 
         viewModel.tick();
         assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isEqualTo(2);
+        assertThat(viewModel.currentStageVisualDataProperty().get().lexerTokens())
+                .anyMatch(token -> token.active() && token.text().equals("main"));
 
         viewModel.playFast();
         assertThat(viewModel.currentStateProperty().get().playbackMode()).isEqualTo("FAST_PLAYING");
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
 
         viewModel.pause();
         assertThat(viewModel.currentStateProperty().get().playbackMode()).isEqualTo("PAUSED");
+    }
+
+    @Test
+    void renamesSourceAndClearsCurrentSession() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("before.mc", "int main() { return 0; }");
+        viewModel.startSession();
+
+        viewModel.renameSource("after.mc");
+
+        assertThat(viewModel.sourceNameProperty().get()).isEqualTo("after.mc");
+        assertThat(viewModel.sourceTextProperty().get()).contains("return 0");
+        assertThat(viewModel.sessionStartedProperty().get()).isFalse();
+        assertThat(viewModel.currentStateProperty().get()).isNull();
+    }
+
+    @Test
+    void nextStageControlMovesToFollowingPipelineStage() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("next-stage-view.mc", "int main() { return 0; }");
+        viewModel.startSession();
+
+        UiControlResultDto result = viewModel.nextStage();
+
+        assertThat(result.outcome()).isEqualTo("ADVANCED");
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("parser");
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("ast");
+        assertThat(viewModel.lexerVisualDataProperty().get().lexerTokens()).isNotEmpty();
+    }
+
+    @Test
+    void repeatedNextStageControlMovesAcrossAllPreparedStages() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("next-stage-repeat-view.mc", "int main() { return 0; }");
+        viewModel.startSession();
+
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("parser");
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("semantic");
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("ir");
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("codegen");
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("toolchain");
     }
 
     @Test
@@ -66,5 +124,59 @@ class MiniCWorkbenchViewModelTest {
                                 .doesNotStartWith("minic.session.");
                     }
                 });
+    }
+
+    @Test
+    void visualDataSwitchesAcrossMainPipelineStages() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("switch.mc", "int main() { return 0; }");
+        viewModel.startSession();
+
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
+
+        advanceToStage(viewModel, "parser");
+        viewModel.next();
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("ast");
+        assertThat(viewModel.lexerVisualDataProperty().get().lexerTokens()).isNotEmpty();
+        assertThat(new MiniCAstTreeModelFactory().create(viewModel.currentStageVisualDataProperty().get())).isNotEmpty();
+
+        advanceToStage(viewModel, "semantic");
+        viewModel.next();
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("semantic-ast-scope");
+        assertThat(viewModel.astVisualDataProperty().get().astRoot()).isNotNull();
+        assertThat(viewModel.currentStageVisualDataProperty().get().astRoot()).isNotNull();
+        assertThat(new MiniCSemanticScopeTreeModelFactory().create(viewModel.currentStageVisualDataProperty().get())).isNotEmpty();
+
+        advanceToStage(viewModel, "codegen");
+        viewModel.next();
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("assembly");
+        assertThat(viewModel.semanticVisualDataProperty().get().semanticRoot()).isNotNull();
+        assertThat(viewModel.codegenVisualDataProperty().get().assemblyLines()).isNotEmpty();
+        assertThat(new MiniCAssemblyTextModelFactory().create(viewModel.currentStageVisualDataProperty().get())).isNotEmpty();
+    }
+
+    @Test
+    void selectedVisualStageCanReviewCompletedPipelineOutputs() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("review.mc", "int main() { return 0; }");
+        viewModel.startSession();
+
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("parser");
+
+        viewModel.selectVisualStage("lexer");
+        assertThat(viewModel.selectedVisualStageProperty().get()).isEqualTo("lexer");
+        assertThat(viewModel.lexerVisualDataProperty().get().lexerTokens()).isNotEmpty();
+
+        viewModel.next();
+        assertThat(viewModel.selectedVisualStageProperty().get()).isEmpty();
+    }
+
+    private static void advanceToStage(MiniCWorkbenchViewModel viewModel, String stage) {
+        int guard = 0;
+        while (!viewModel.currentStateProperty().get().currentStage().equals(stage) && guard++ < 1000) {
+            viewModel.next();
+        }
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo(stage);
     }
 }

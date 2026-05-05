@@ -28,6 +28,7 @@ import java.util.Optional;
 public final class ParserStepState implements CompilerStageState<ParserStepState.Input, ParserStepState.Work, ParserStepState.Output> {
     private final Input input;
     private final Work work;
+    private final ParserTrace trace;
     private Object currentNode;
     private long stepCount;
 
@@ -37,8 +38,19 @@ public final class ParserStepState implements CompilerStageState<ParserStepState
      * @param tokens lexer 产出的 token 列表，必须包含 EOF token
      */
     public ParserStepState(List<Token> tokens) {
+        this(tokens, false);
+    }
+
+    /**
+     * 创建 parser 状态，并可选择记录递归下降 trace。
+     *
+     * @param tokens lexer 产出的 token 列表
+     * @param traceEnabled 是否记录 trace
+     */
+    public ParserStepState(List<Token> tokens, boolean traceEnabled) {
         input = new Input(tokens);
-        ParserState parserState = new ParserState(input.tokens);
+        trace = traceEnabled ? new ParserTrace() : null;
+        ParserState parserState = new ParserState(input.tokens, trace);
         ExpressionParser expressionParser = new ExpressionParser(parserState);
         StatementParser statementParser = new StatementParser(parserState, expressionParser);
         work = new Work(parserState, new DeclarationParser(parserState, statementParser));
@@ -147,6 +159,15 @@ public final class ParserStepState implements CompilerStageState<ParserStepState
      */
     public List<Diagnostic> diagnostics() {
         return List.copyOf(work.state.diagnostics());
+    }
+
+    /**
+     * 返回已记录的 parser trace 事件。
+     *
+     * @return trace 事件
+     */
+    public List<ParserTraceEvent> traceEvents() {
+        return trace == null ? List.of() : trace.events();
     }
 
     /**

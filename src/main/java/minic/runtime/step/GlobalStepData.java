@@ -17,6 +17,8 @@ import java.util.Objects;
  * @param irSummary IR 摘要
  * @param assemblySummary assembly 摘要
  * @param artifactSummary artifact 摘要
+ * @param executionInputSummary 运行输入摘要
+ * @param executionOutputSummary 运行输出摘要
  */
 public record GlobalStepData(
         String source,
@@ -27,7 +29,9 @@ public record GlobalStepData(
         List<String> semanticSummary,
         List<String> irSummary,
         List<String> assemblySummary,
-        List<String> artifactSummary
+        List<String> artifactSummary,
+        List<String> executionInputSummary,
+        List<String> executionOutputSummary
 ) {
     /**
      * 创建全局数据区，并防御性复制集合。
@@ -41,6 +45,8 @@ public record GlobalStepData(
      * @param irSummary IR 摘要
      * @param assemblySummary assembly 摘要
      * @param artifactSummary artifact 摘要
+     * @param executionInputSummary 运行输入摘要
+     * @param executionOutputSummary 运行输出摘要
      */
     public GlobalStepData {
         Objects.requireNonNull(source, "source");
@@ -52,6 +58,8 @@ public record GlobalStepData(
         Objects.requireNonNull(irSummary, "irSummary");
         Objects.requireNonNull(assemblySummary, "assemblySummary");
         Objects.requireNonNull(artifactSummary, "artifactSummary");
+        Objects.requireNonNull(executionInputSummary, "executionInputSummary");
+        Objects.requireNonNull(executionOutputSummary, "executionOutputSummary");
         stageSummaries = List.copyOf(stageSummaries);
         diagnostics = List.copyOf(diagnostics);
         tokenSummary = List.copyOf(tokenSummary);
@@ -60,5 +68,7 @@ public record GlobalStepData(
         irSummary = List.copyOf(irSummary);
         assemblySummary = List.copyOf(assemblySummary);
         artifactSummary = List.copyOf(artifactSummary);
+        executionInputSummary = List.copyOf(executionInputSummary);
+        executionOutputSummary = List.copyOf(executionOutputSummary);
     }
 }

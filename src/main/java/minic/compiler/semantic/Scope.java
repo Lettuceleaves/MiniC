@@ -1,5 +1,7 @@
 package minic.compiler.semantic;
 
+import minic.source.SourceRange;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -12,13 +14,15 @@ import java.util.Optional;
  */
 public final class Scope {
     private final Scope parent;
+    private final SourceRange range;
     private final Map<String, Symbol> symbols = new LinkedHashMap<>();
+    private final java.util.List<Scope> children = new java.util.ArrayList<>();
 
     /**
      * 创建根作用域。
      */
     public Scope() {
-        this(null);
+        this(null, null);
     }
 
     /**
@@ -27,7 +31,21 @@ public final class Scope {
      * @param parent 父作用域；根作用域为 {@code null}
      */
     public Scope(Scope parent) {
+        this(parent, null);
+    }
+
+    /**
+     * 创建带父作用域和源码范围的作用域。
+     *
+     * @param parent 父作用域；根作用域为 {@code null}
+     * @param range 作用域覆盖源码范围；未知时为 {@code null}
+     */
+    public Scope(Scope parent, SourceRange range) {
         this.parent = parent;
+        this.range = range;
+        if (parent != null) {
+            parent.children.add(this);
+        }
     }
 
     /**
@@ -37,6 +55,15 @@ public final class Scope {
      */
     public Optional<Scope> parent() {
         return Optional.ofNullable(parent);
+    }
+
+    /**
+     * 返回作用域覆盖源码范围。
+     *
+     * @return 作用域范围；未知时为空
+     */
+    public Optional<SourceRange> range() {
+        return Optional.ofNullable(range);
     }
 
     /**
@@ -83,5 +110,23 @@ public final class Scope {
     public Optional<Symbol> resolveLocal(String name) {
         Objects.requireNonNull(name, "name");
         return Optional.ofNullable(symbols.get(name));
+    }
+
+    /**
+     * 返回当前作用域直接声明的符号快照。
+     *
+     * @return 当前作用域符号
+     */
+    public java.util.List<Symbol> symbols() {
+        return java.util.List.copyOf(symbols.values());
+    }
+
+    /**
+     * 返回直接子作用域快照。
+     *
+     * @return 子作用域
+     */
+    public java.util.List<Scope> children() {
+        return java.util.List.copyOf(children);
     }
 }

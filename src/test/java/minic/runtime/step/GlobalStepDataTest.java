@@ -25,6 +25,8 @@ class GlobalStepDataTest {
         ArrayList<String> irSummary = new ArrayList<>();
         ArrayList<String> assemblySummary = new ArrayList<>();
         ArrayList<String> artifactSummary = new ArrayList<>();
+        ArrayList<String> executionInputSummary = new ArrayList<>();
+        ArrayList<String> executionOutputSummary = new ArrayList<>();
 
         GlobalStepData data = new GlobalStepData(
                 sourceFile.content(),
@@ -35,7 +37,9 @@ class GlobalStepDataTest {
                 semanticSummary,
                 irSummary,
                 assemblySummary,
-                artifactSummary
+                artifactSummary,
+                executionInputSummary,
+                executionOutputSummary
         );
         stageSummaries.add("lexer 1/3");
         diagnostics.add(diagnostic);
@@ -45,6 +49,8 @@ class GlobalStepDataTest {
         irSummary.add("return 0");
         assemblySummary.add("main PROC");
         artifactSummary.add("main.exe");
+        executionInputSummary.add("stdin <empty>");
+        executionOutputSummary.add("exitCode 0");
 
         assertThat(data.source()).isEqualTo("@");
         assertThat(data.stageSummaries()).isEmpty();
@@ -55,6 +61,8 @@ class GlobalStepDataTest {
         assertThat(data.irSummary()).isEmpty();
         assertThat(data.assemblySummary()).isEmpty();
         assertThat(data.artifactSummary()).isEmpty();
+        assertThat(data.executionInputSummary()).isEmpty();
+        assertThat(data.executionOutputSummary()).isEmpty();
         assertThatThrownBy(() -> data.stageSummaries().add("changed"))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> data.diagnostics().add(diagnostic))

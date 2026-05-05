@@ -10,7 +10,9 @@ import minic.uiapi.MiniCObservationApi;
 import minic.uiapi.UiControlResultDto;
 import minic.uiapi.UiCurrentStateDto;
 import minic.uiapi.UiGlobalDataDto;
+import minic.uiapi.UiRealtimeAnalysisDto;
 import minic.uiapi.UiStageDataDto;
+import minic.uiapi.UiStageVisualDto;
 
 import java.util.Objects;
 
@@ -21,14 +23,22 @@ import java.util.Objects;
  */
 public final class MiniCWorkbenchViewModel {
     private final MiniCObservationApi api;
+    private final MiniCRealtimeAnalyzer realtimeAnalyzer;
     private final ReadOnlyStringWrapper sourceName = new ReadOnlyStringWrapper("");
     private final ReadOnlyStringWrapper sourceText = new ReadOnlyStringWrapper("");
     private final ReadOnlyStringWrapper lastOutcome = new ReadOnlyStringWrapper("");
     private final ReadOnlyBooleanWrapper sessionStarted = new ReadOnlyBooleanWrapper(false);
     private final ReadOnlyObjectWrapper<UiCurrentStateDto> currentState = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageDataDto> currentStageData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> currentStageVisualData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> lexerVisualData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> astVisualData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> semanticVisualData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> codegenVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiGlobalDataDto> globalData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiRealtimeAnalysisDto> realtimeAnalysis = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiControlResultDto> lastControlResult = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyStringWrapper selectedVisualStage = new ReadOnlyStringWrapper("");
 
     /**
      * 使用默认 UI API 创建状态模型。
@@ -44,6 +54,7 @@ public final class MiniCWorkbenchViewModel {
      */
     MiniCWorkbenchViewModel(MiniCObservationApi api) {
         this.api = Objects.requireNonNull(api, "api");
+        realtimeAnalyzer = new MiniCRealtimeAnalyzer(this::applyRealtimeAnalysis);
     }
 
     /**
@@ -56,12 +67,46 @@ public final class MiniCWorkbenchViewModel {
         api.loadSource(name, source);
         sourceName.set(name);
         sourceText.set(source);
+        clearSessionState();
+    }
+
+    /**
+     * 重命名当前源码。源码名属于编译输入，因此会清空当前观测会话。
+     *
+     * @param name 新源码名称
+     */
+    public void renameSource(String name) {
+        api.loadSource(name, sourceText.get());
+        sourceName.set(name);
+        clearSessionState();
+    }
+
+    private void clearSessionState() {
         sessionStarted.set(false);
         currentState.set(null);
         currentStageData.set(null);
+        currentStageVisualData.set(null);
+        lexerVisualData.set(null);
+        astVisualData.set(null);
+        semanticVisualData.set(null);
+        codegenVisualData.set(null);
         globalData.set(null);
+        realtimeAnalysis.set(null);
         lastControlResult.set(null);
+        selectedVisualStage.set("");
         lastOutcome.set("");
+    }
+
+    /**
+     * 提交实时编辑分析输入。
+     *
+     * @param name 源码名称
+     * @param source 源码文本
+     */
+    public void submitRealtimeSource(String name, String source) {
+        sourceName.set(name);
+        sourceText.set(source);
+        realtimeAnalyzer.submit(name, source);
     }
 
     /**
@@ -70,6 +115,7 @@ public final class MiniCWorkbenchViewModel {
     public void startSession() {
         api.startSession();
         sessionStarted.set(true);
+        selectedVisualStage.set("");
         refreshAll();
     }
 
@@ -79,7 +125,21 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto next() {
+        selectedVisualStage.set("");
         UiControlResultDto result = api.next();
+        applyControlResult(result);
+        refreshAll();
+        return result;
+    }
+
+    /**
+     * 跳转到下一编译环节并刷新全部 UI 数据。
+     *
+     * @return 控制结果
+     */
+    public UiControlResultDto nextStage() {
+        selectedVisualStage.set("");
+        UiControlResultDto result = api.nextStage();
         applyControlResult(result);
         refreshAll();
         return result;
@@ -91,6 +151,7 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto play() {
+        selectedVisualStage.set("");
         UiControlResultDto result = api.play();
         applyControlResult(result);
         refreshAll();
@@ -103,6 +164,7 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto playFast() {
+        selectedVisualStage.set("");
         UiControlResultDto result = api.playFast();
         applyControlResult(result);
         refreshAll();
@@ -115,6 +177,7 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto tick() {
+        selectedVisualStage.set("");
         UiControlResultDto result = api.tick();
         applyControlResult(result);
         refreshAll();
@@ -134,6 +197,29 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
+     * 确认运行阶段标准输入并刷新全部 UI 数据。
+     *
+     * @param standardInput 标准输入文本
+     * @return 控制结果
+     */
+    public UiControlResultDto confirmExecutionInput(String standardInput) {
+        selectedVisualStage.set("");
+        UiControlResultDto result = api.confirmExecutionInput(standardInput);
+        applyControlResult(result);
+        refreshAll();
+        return result;
+    }
+
+    /**
+     * 选择要在中间可视化区域展示的 pipeline 阶段。
+     *
+     * @param stage 阶段 ID；空字符串表示跟随当前阶段
+     */
+    public void selectVisualStage(String stage) {
+        selectedVisualStage.set(stage == null ? "" : stage);
+    }
+
+    /**
      * 手动刷新全部 UI 数据。
      */
     public void refreshAll() {
@@ -142,6 +228,11 @@ public final class MiniCWorkbenchViewModel {
         }
         currentState.set(api.currentState());
         currentStageData.set(api.currentStageData());
+        currentStageVisualData.set(api.currentStageVisualData());
+        lexerVisualData.set(api.lexerVisualData());
+        astVisualData.set(api.astVisualData());
+        semanticVisualData.set(api.semanticVisualData());
+        codegenVisualData.set(api.codegenVisualData());
         globalData.set(api.globalData());
     }
 
@@ -200,12 +291,66 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
+     * 当前阶段图形化 DTO 属性。
+     *
+     * @return 当前阶段图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> currentStageVisualDataProperty() {
+        return currentStageVisualData.getReadOnlyProperty();
+    }
+
+    /**
+     * Lexer token 图形化 DTO 属性。
+     *
+     * @return token 图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> lexerVisualDataProperty() {
+        return lexerVisualData.getReadOnlyProperty();
+    }
+
+    /**
+     * AST 图形化 DTO 属性。
+     *
+     * @return AST 图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> astVisualDataProperty() {
+        return astVisualData.getReadOnlyProperty();
+    }
+
+    /**
+     * Semantic scope 图形化 DTO 属性。
+     *
+     * @return semantic scope 图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> semanticVisualDataProperty() {
+        return semanticVisualData.getReadOnlyProperty();
+    }
+
+    /**
+     * Codegen 汇编图形化 DTO 属性。
+     *
+     * @return 汇编图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> codegenVisualDataProperty() {
+        return codegenVisualData.getReadOnlyProperty();
+    }
+
+    /**
      * 全局数据 DTO 属性。
      *
      * @return 全局数据 DTO 属性
      */
     public ReadOnlyObjectProperty<UiGlobalDataDto> globalDataProperty() {
         return globalData.getReadOnlyProperty();
+    }
+
+    /**
+     * 实时分析结果属性。
+     *
+     * @return 实时分析结果属性
+     */
+    public ReadOnlyObjectProperty<UiRealtimeAnalysisDto> realtimeAnalysisProperty() {
+        return realtimeAnalysis.getReadOnlyProperty();
     }
 
     /**
@@ -217,8 +362,24 @@ public final class MiniCWorkbenchViewModel {
         return lastControlResult.getReadOnlyProperty();
     }
 
+    /**
+     * 当前手动选择展示的 pipeline 阶段。
+     *
+     * @return 阶段 ID 属性
+     */
+    public ReadOnlyStringProperty selectedVisualStageProperty() {
+        return selectedVisualStage.getReadOnlyProperty();
+    }
+
     private void applyControlResult(UiControlResultDto result) {
         lastControlResult.set(result);
         lastOutcome.set(result.outcome());
+    }
+
+    private void applyRealtimeAnalysis(UiRealtimeAnalysisDto result) {
+        if (Objects.equals(sourceName.get(), result.sourceName())
+                && Objects.equals(sourceText.get(), result.sourceText())) {
+            realtimeAnalysis.set(result);
+        }
     }
 }

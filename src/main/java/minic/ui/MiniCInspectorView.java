@@ -17,10 +17,11 @@ public final class MiniCInspectorView extends VBox {
     private final Label currentState = body("");
     private final Label currentItem = body("");
     private final Label accumulatedOutput = body("");
-    private final Button nextButton = control("Next", true);
-    private final Button playButton = control("Play", false);
+    private final Button nextButton = control("下一步", true);
+    private final Button nextStageButton = control("下一阶段", false);
+    private final Button playButton = control("播放", false);
     private final Button playFastButton = control("2x", false);
-    private final Button pauseButton = control("Pause", false);
+    private final Button pauseButton = control("暂停", false);
 
     /**
      * 创建 Inspector。
@@ -32,17 +33,18 @@ public final class MiniCInspectorView extends VBox {
         playbackController = new MiniCPlaybackController(viewModel);
         getStyleClass().add("inspector");
         nextButton.setOnAction(event -> viewModel.next());
+        nextStageButton.setOnAction(event -> playbackController.nextStage());
         playButton.setOnAction(event -> playbackController.play());
         playFastButton.setOnAction(event -> playbackController.playFast());
         pauseButton.setOnAction(event -> playbackController.pause());
         getChildren().addAll(
-                label("MiniC Observation", "panel-title"),
+                label("MiniC 观测", "panel-title"),
                 controls(),
-                label("CURRENT STATE", "section-label"),
+                label("当前状态", "section-label"),
                 currentState,
-                label("CURRENT ITEM", "section-label"),
+                label("当前项", "section-label"),
                 currentItem,
-                label("ACCUMULATED OUTPUT", "section-label"),
+                label("累计输出", "section-label"),
                 accumulatedOutput
         );
         refresh();
@@ -67,6 +69,7 @@ public final class MiniCInspectorView extends VBox {
         boolean started = viewModel.sessionStartedProperty().get();
         boolean hasState = viewModel.currentStateProperty().get() != null;
         nextButton.setDisable(!started || !hasState || !viewModel.currentStateProperty().get().canNext());
+        nextStageButton.setDisable(!started || !hasState || !viewModel.currentStateProperty().get().canNext());
         playButton.setDisable(!started || !hasState || !viewModel.currentStateProperty().get().canPlay());
         playFastButton.setDisable(!started || !hasState || !viewModel.currentStateProperty().get().canPlayFast());
         pauseButton.setDisable(!started || !hasState || !viewModel.currentStateProperty().get().canPause());
@@ -75,7 +78,7 @@ public final class MiniCInspectorView extends VBox {
     private HBox controls() {
         HBox controls = new HBox(6);
         controls.getStyleClass().add("controls");
-        controls.getChildren().addAll(nextButton, playButton, playFastButton, pauseButton);
+        controls.getChildren().addAll(nextButton, nextStageButton, playButton, playFastButton, pauseButton);
         return controls;
     }
 

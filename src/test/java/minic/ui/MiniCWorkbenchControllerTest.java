@@ -20,4 +20,16 @@ class MiniCWorkbenchControllerTest {
         assertThat(viewModel.currentStageDataProperty().get().accumulatedOutput()).isNotEmpty();
         assertThat(viewModel.globalDataProperty().get().tokenSummary()).isNotEmpty();
     }
+
+    @Test
+    void nextStageJumpsToFollowingStage() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        MiniCWorkbenchController controller = new MiniCWorkbenchController(viewModel);
+        controller.startDefaultSession();
+
+        UiControlResultDto result = controller.nextStage();
+
+        assertThat(result.outcome()).isEqualTo("ADVANCED");
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("parser");
+    }
 }

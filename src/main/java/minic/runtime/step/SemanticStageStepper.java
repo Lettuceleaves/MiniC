@@ -111,6 +111,15 @@ public final class SemanticStageStepper implements StageStepper {
         return semanticState;
     }
 
+    /**
+     * 返回 semantic 阶段输入 AST。
+     *
+     * @return Program AST
+     */
+    public Program program() {
+        return program;
+    }
+
     private SourceRange currentRange() {
         return semanticState.currentAction()
                 .flatMap(SemanticAction::diagnosticOptional)

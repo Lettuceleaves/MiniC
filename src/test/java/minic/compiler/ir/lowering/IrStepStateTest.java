@@ -21,7 +21,7 @@ class IrStepStateTest {
     @Test
     void advancesIrStructureActionsAndBuildsEquivalentModule() {
         Program program = parse("""
-                extern int puts(int *text);
+                extern int puts(char *text);
                 int add(int left, int right) { return left + right; }
                 int main() { return puts("hello") + add(1, 2); }
                 """);
@@ -34,10 +34,43 @@ class IrStepStateTest {
 
         assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.REGISTER_EXTERNAL, "puts"));
         assertThat(state.work().externalFunctionCount()).isEqualTo(1);
-        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_FUNCTION, "add"));
+        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.BEGIN_FUNCTION, "add"));
+        assertThat(state.work().functionCount()).isZero();
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(IrLoweringActionKind.LOWER_STATEMENT);
+            assertThat(action.subject()).isEqualTo("add ReturnStmt");
+            assertThat(action.astNode()).isNotNull();
+        });
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(IrLoweringActionKind.LOWER_AST_NODE);
+            assertThat(action.subject()).isEqualTo("add BinaryExpr");
+            assertThat(action.astNode()).isNotNull();
+        });
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(IrLoweringActionKind.LOWER_AST_NODE);
+            assertThat(action.subject()).isEqualTo("add NameExpr");
+            assertThat(action.astNode()).isNotNull();
+        });
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(IrLoweringActionKind.LOWER_AST_NODE);
+            assertThat(action.subject()).isEqualTo("add NameExpr");
+            assertThat(action.astNode()).isNotNull();
+        });
+        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.COMPLETE_FUNCTION, "add"));
         assertThat(state.work().functionCount()).isEqualTo(1);
-        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.LOWER_FUNCTION, "main"));
+        assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.BEGIN_FUNCTION, "main"));
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(IrLoweringActionKind.LOWER_STATEMENT);
+            assertThat(action.subject()).isEqualTo("main ReturnStmt");
+            assertThat(action.astNode()).isNotNull();
+        });
+        while (state.canNext() && state.work().functionCount() < 2) {
+            state.next();
+        }
+        assertThat(state.currentAction()).contains(new IrLoweringAction(IrLoweringActionKind.COMPLETE_FUNCTION, "main"));
         assertThat(state.next()).isEqualTo(new IrLoweringAction(IrLoweringActionKind.COMPLETE_MODULE, "module"));
+        assertThat(state.work().loweringLog())
+                .contains("LOWER_AST_NODE add BinaryExpr", "LOWER_AST_NODE main CallExpr");
 
         IrModule stepped = state.toIrModule();
         IrModule direct = new IrLowerer().lower(program, semanticResult);

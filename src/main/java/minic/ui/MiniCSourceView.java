@@ -17,7 +17,7 @@ public final class MiniCSourceView extends VBox {
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCSourceLineFactory lineFactory = new MiniCSourceLineFactory();
     private final MiniCDiagnosticSelection diagnosticSelection;
-    private final Label header = new Label("Source");
+    private final Label header = new Label("源码");
     private final GridPane lines = new GridPane();
 
     /**
@@ -78,8 +78,8 @@ public final class MiniCSourceView extends VBox {
 
     private String headerText(UiSourceRangeDto range) {
         if (range == null) {
-            return "Source";
+            return "源码";
         }
-        return "Source · current range " + range.startOffset() + "-" + range.endOffset();
+        return "源码 · 当前范围 " + range.startOffset() + "-" + range.endOffset();
     }
 }

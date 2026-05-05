@@ -51,6 +51,29 @@ class MiniCompilerTest {
     }
 
     @Test
+    void compilesIncrementAndCompoundAssignmentSyntax() {
+        SourceFile sourceFile = new SourceFile("loop.mc", """
+                extern int printf(char *format, int value);
+
+                int main() {
+                    int a = 0;
+                    for (int i = 0; i < 100; i++) {
+                        a += i;
+                    }
+                    printf("value = %d\\n", a);
+                    return 42;
+                }
+                """);
+
+        CompileResult result = new MiniCompiler().compile(sourceFile);
+
+        assertThat(result.succeeded()).isTrue();
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.assemblySourceOptional()).hasValueSatisfying(assemblySource ->
+                assertThat(assemblySource.text()).contains("call printf", "main PROC"));
+    }
+
+    @Test
     void stopsBeforeIrAndAssemblyWhenSemanticDiagnosticsExist() {
         SourceFile sourceFile = new SourceFile("bad.mc", "int main() { return missing; }");
 
@@ -78,6 +101,52 @@ class MiniCompilerTest {
                 .containsExactly("LEX001");
         assertThat(result.parseResultOptional()).isEmpty();
         assertThat(result.semanticResultOptional()).isEmpty();
+        assertThat(result.irModuleOptional()).isEmpty();
+        assertThat(result.assemblySourceOptional()).isEmpty();
+    }
+
+    @Test
+    void reportsUntrustedInputDiagnosticsWithoutReachingIr() {
+        SourceFile sourceFile = new SourceFile(
+                "untrusted.mc",
+                "int main() { return 2147483648; }"
+        );
+
+        CompileResult result = new MiniCompiler().compile(sourceFile);
+
+        assertThat(result.succeeded()).isFalse();
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("整数字面量超出范围");
+        assertThat(result.parseResultOptional()).isEmpty();
+        assertThat(result.semanticResultOptional()).isEmpty();
+        assertThat(result.irModuleOptional()).isEmpty();
+        assertThat(result.assemblySourceOptional()).isEmpty();
+    }
+
+    @Test
+    void stopsBeforeIrWhenInputExceedsCurrentLoweringLimits() {
+        SourceFile sourceFile = new SourceFile(
+                "lowering-limit.mc",
+                """
+                        int addressParameter(int value) {
+                            int *pointer = &value;
+                            return value;
+                        }
+
+                        int main() {
+                            return addressParameter(1);
+                        }
+                        """
+        );
+
+        CompileResult result = new MiniCompiler().compile(sourceFile);
+
+        assertThat(result.succeeded()).isFalse();
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("暂不支持对参数取址：value");
+        assertThat(result.semanticResultOptional()).isPresent();
         assertThat(result.irModuleOptional()).isEmpty();
         assertThat(result.assemblySourceOptional()).isEmpty();
     }

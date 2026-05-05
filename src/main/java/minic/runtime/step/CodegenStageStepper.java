@@ -99,6 +99,15 @@ public final class CodegenStageStepper implements StageStepper {
         return codegenState;
     }
 
+    /**
+     * 返回 codegen 输入 IR 模块。
+     *
+     * @return IR 模块
+     */
+    public IrModule module() {
+        return module;
+    }
+
     private String currentItem() {
         return codegenState.currentLine()
                 .map(line -> lineSummary(line)

@@ -35,6 +35,21 @@ public enum SemanticActionKind {
     ANALYZE_FUNCTION_BODY,
 
     /**
+     * 分析函数体语句。
+     */
+    ANALYZE_STATEMENT,
+
+    /**
+     * 访问语义分析递归触达的 AST 子节点。
+     */
+    VISIT_AST_NODE,
+
+    /**
+     * 校验函数返回路径。
+     */
+    VALIDATE_FUNCTION_RETURN,
+
+    /**
      * 报告 diagnostic。
      */
     REPORT_DIAGNOSTIC

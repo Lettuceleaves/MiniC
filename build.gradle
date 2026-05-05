@@ -14,6 +14,7 @@ java {
 }
 
 dependencies {
+    implementation 'org.fxmisc.richtext:richtextfx:0.11.7'
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
     testImplementation 'org.assertj:assertj-core:3.25.3'
 }
@@ -27,6 +28,10 @@ test {
     useJUnitPlatform()
 }
 
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
 application {
     mainClass = 'minic.Main'
 }
@@ -36,4 +41,13 @@ tasks.register('runUi', JavaExec) {
     description = '启动 MiniC Visual Workbench JavaFX UI'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'minic.ui.MiniCWorkbenchLauncher'
+    jvmArgs = [
+            '--module-path', configurations.runtimeClasspath.asPath,
+            '--add-modules', javafx.modules.join(','),
+            '-Dfile.encoding=UTF-8',
+            '-Dsun.stdout.encoding=UTF-8',
+            '-Dsun.stderr.encoding=UTF-8',
+            '-Duser.language=en',
+            '-Duser.country=US'
+    ]
 }

@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class ParserStageStepperTest {
     @Test
-    void advancesOneAstNodeThroughUnifiedStageApi() {
+    void advancesThroughAstObservationNodesAfterParsingTopLevelDeclarations() {
         ParserStageStepper stepper = new ParserStageStepper(lex(new SourceFile(
                 "parser.mc",
                 """
@@ -22,22 +22,29 @@ class ParserStageStepperTest {
         )));
 
         StepResult first = stepper.next();
-        StepResult second = stepper.next();
 
         assertThat(first.outcome()).isEqualTo(StepOutcome.ADVANCED);
-        assertThat(first.description()).contains("StructDecl Point");
-        assertThat(second.outcome()).isEqualTo(StepOutcome.STAGE_COMPLETED);
-        assertThat(second.description()).contains("FunctionDecl add");
-        assertThat(stepper.canNext()).isFalse();
+        assertThat(first.description()).contains("build StructDecl Point");
+        assertThat(stepper.canNext()).isTrue();
+        assertThat(stepper.data().currentItem()).contains("build StructDecl Point");
         assertThat(stepper.snapshot().sourceRangeOptional()).isPresent();
+
+        int guard = 0;
+        while (stepper.canNext() && guard++ < 100) {
+            stepper.next();
+        }
+
+        assertThat(stepper.canNext()).isFalse();
         assertThat(stepper.snapshot().sourceName()).isEqualTo("parser.mc");
         assertThat(stepper.data().inputSummary()).anyMatch(summary -> summary.startsWith("tokens="));
         assertThat(stepper.data().inputSummary()).contains("first=STRUCT struct", "last=EOF <empty>");
-        assertThat(stepper.data().currentItem()).contains("FunctionDecl add");
-        assertThat(stepper.data().accumulatedOutput()).contains(
-                "StructDecl Point fields=1",
-                "FunctionDecl add function params=2"
-        );
+        assertThat(stepper.data().currentItem()).isNotBlank();
+        assertThat(stepper.data().accumulatedOutput())
+                .anySatisfy(item -> assertThat(item).contains("build StructDecl Point"))
+                .anySatisfy(item -> assertThat(item).contains("build FunctionDecl add"))
+                .anySatisfy(item -> assertThat(item).contains("build BlockStmt"))
+                .anySatisfy(item -> assertThat(item).contains("build ReturnStmt"))
+                .anySatisfy(item -> assertThat(item).contains("build BinaryExpr PLUS"));
         assertThat(stepper.parserState().toParseResult().program().functions()).hasSize(1);
     }
 
@@ -48,17 +55,23 @@ class ParserStageStepperTest {
                 "main() {} int main() { return 0; }"
         )));
 
-        StepResult invalid = stepper.next();
-        StepResult valid = stepper.next();
+        StepResult first = stepper.next();
+        int guard = 0;
+        while (stepper.canNext() && stepper.data().diagnostics().isEmpty() && guard++ < 100) {
+            stepper.next();
+        }
 
-        assertThat(invalid.outcome()).isEqualTo(StepOutcome.FAILED);
-        assertThat(invalid.diagnostics()).hasSize(1);
+        assertThat(first.outcome()).isIn(StepOutcome.ADVANCED, StepOutcome.FAILED);
         assertThat(stepper.snapshot().sourceRangeOptional()).isPresent();
-        assertThat(valid.outcome()).isEqualTo(StepOutcome.STAGE_COMPLETED);
         assertThat(stepper.data().diagnostics())
                 .extracting(diagnostic -> diagnostic.code())
                 .containsExactly("PAR001");
-        assertThat(stepper.data().accumulatedOutput()).contains("FunctionDecl main function params=0");
+        while (stepper.canNext() && guard++ < 100) {
+            stepper.next();
+        }
+        assertThat(stepper.canNext()).isFalse();
+        assertThat(stepper.data().accumulatedOutput())
+                .anySatisfy(item -> assertThat(item).contains("FunctionDecl main"));
     }
 
     @Test

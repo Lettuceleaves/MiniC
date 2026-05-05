@@ -16,7 +16,7 @@ class IrStageStepperTest {
     @Test
     void advancesIrStructureActionsThroughUnifiedStageApi() {
         Parsed parsed = parseAndAnalyze("""
-                extern int puts(int *text);
+                extern int puts(char *text);
                 int add(int left, int right) { return left + right; }
                 int main() { return puts("ok") + add(1, 2); }
                 """);
@@ -30,7 +30,7 @@ class IrStageStepperTest {
 
         assertThat(first.outcome()).isEqualTo(StepOutcome.ADVANCED);
         assertThat(first.description()).contains("REGISTER_EXTERNAL puts");
-        assertThat(second.description()).contains("LOWER_FUNCTION add");
+        assertThat(second.description()).contains("BEGIN_FUNCTION add");
         assertThat(stepper.snapshot().sourceRangeOptional()).isPresent();
         assertThat(stepper.data().inputSummary()).contains("functions=3");
         assertThat(stepper.data().currentItem()).contains("COMPLETE_MODULE module");

@@ -9,9 +9,9 @@ class MiniCInspectorModelFactoryTest {
     void createsPendingInspectorModel() {
         MiniCInspectorModel model = new MiniCInspectorModelFactory().create(null, null, null);
 
-        assertThat(model.currentState()).contains("stage: pending");
+        assertThat(model.currentState()).contains("阶段: 等待中");
         assertThat(model.currentItem()).contains("等待开始观测会话");
-        assertThat(model.accumulatedOutput()).contains("tokens: 0");
+        assertThat(model.accumulatedOutput()).contains("token: 0");
     }
 
     @Test
@@ -27,8 +27,8 @@ class MiniCInspectorModelFactoryTest {
                 viewModel.globalDataProperty().get()
         );
 
-        assertThat(model.currentState()).contains("stage: lexer", "globalStep: 1");
+        assertThat(model.currentState()).contains("阶段: 词法分析", "全局步: 1");
         assertThat(model.currentItem()).isNotBlank();
-        assertThat(model.accumulatedOutput()).contains("tokens:");
+        assertThat(model.accumulatedOutput()).contains("token:");
     }
 }

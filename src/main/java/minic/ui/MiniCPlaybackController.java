@@ -54,6 +54,16 @@ public final class MiniCPlaybackController {
     }
 
     /**
+     * 跳转到下一编译环节。
+     *
+     * @return 控制结果
+     */
+    public UiControlResultDto nextStage() {
+        stopTimeline();
+        return viewModel.nextStage();
+    }
+
+    /**
      * 手动执行一次 tick。
      *
      * @return tick 结果

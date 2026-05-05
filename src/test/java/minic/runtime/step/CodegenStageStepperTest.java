@@ -20,7 +20,7 @@ class CodegenStageStepperTest {
     @Test
     void advancesAssemblyLinesThroughUnifiedStageApi() {
         IrModule module = lower("""
-                extern int puts(int *text);
+                extern int puts(char *text);
                 int main() {
                     return puts("ok");
                 }

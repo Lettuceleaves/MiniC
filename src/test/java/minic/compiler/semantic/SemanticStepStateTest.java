@@ -37,6 +37,10 @@ class SemanticStepStateTest {
             assertThat(action.kind()).isEqualTo(SemanticActionKind.ANALYZE_FUNCTION_BODY);
             assertThat(action.subject()).isEqualTo("add");
         });
+        assertThat(state.next()).satisfies(action -> {
+            assertThat(action.kind()).isEqualTo(SemanticActionKind.ANALYZE_STATEMENT);
+            assertThat(action.subject()).contains("add", "ReturnStmt");
+        });
 
         while (state.canNext()) {
             state.next();
@@ -64,16 +68,58 @@ class SemanticStepStateTest {
                 """);
         SemanticStepState state = new SemanticStepState(program);
 
-        SemanticAction lastAction = null;
+        SemanticAction diagnosticAction = null;
         while (state.canNext()) {
-            lastAction = state.next();
+            SemanticAction action = state.next();
+            if (action.kind() == SemanticActionKind.REPORT_DIAGNOSTIC) {
+                diagnosticAction = action;
+            }
         }
 
-        assertThat(lastAction).isNotNull();
-        assertThat(lastAction.kind()).isEqualTo(SemanticActionKind.REPORT_DIAGNOSTIC);
-        assertThat(lastAction.diagnosticOptional()).hasValueSatisfying(diagnostic ->
+        assertThat(diagnosticAction).isNotNull();
+        assertThat(diagnosticAction.diagnosticOptional()).hasValueSatisfying(diagnostic ->
                 assertThat(diagnostic.message()).isEqualTo("未解析变量：missing"));
         assertThat(state.diagnostics()).hasSize(1);
+    }
+
+    @Test
+    void exposesFunctionBodySemanticEffectsStatementByStatement() {
+        Program program = parse("""
+                int main() {
+                    int a = 1;
+                    int b = a + 2;
+                    return b;
+                }
+                """);
+        SemanticStepState state = new SemanticStepState(program);
+
+        advanceUntil(state, SemanticActionKind.REGISTER_FUNCTIONS);
+        assertThat(state.work().globalScope().resolve("main")).isPresent();
+        assertThat(state.work().expressionTypeCount()).isZero();
+
+        SemanticAction enterFunction = state.next();
+
+        assertThat(enterFunction.kind()).isEqualTo(SemanticActionKind.VALIDATE_MAIN);
+        SemanticAction functionBody = state.next();
+        assertThat(functionBody.kind()).isEqualTo(SemanticActionKind.ANALYZE_FUNCTION_BODY);
+        assertThat(state.work().globalScope().children()).hasSize(1);
+        assertThat(state.work().expressionTypeCount()).isZero();
+
+        SemanticAction firstStatement = state.next();
+
+        assertThat(firstStatement.kind()).isEqualTo(SemanticActionKind.ANALYZE_STATEMENT);
+        assertThat(state.work().expressionTypeCount()).isEqualTo(1);
+        assertThat(state.work().globalScope().children().getFirst().resolveLocal("a")).isPresent();
+
+        SemanticAction initializerVisit = state.next();
+        assertThat(initializerVisit.kind()).isEqualTo(SemanticActionKind.VISIT_AST_NODE);
+        assertThat(initializerVisit.subject()).contains("IntegerLiteralExpr");
+
+        SemanticAction secondStatement = state.next();
+
+        assertThat(secondStatement.kind()).isEqualTo(SemanticActionKind.ANALYZE_STATEMENT);
+        assertThat(state.work().expressionTypeCount()).isGreaterThan(1);
+        assertThat(state.work().globalScope().children().getFirst().resolveLocal("b")).isPresent();
     }
 
     @Test
@@ -95,5 +141,13 @@ class SemanticStepStateTest {
         ParseResult parseResult = new Parser(lexResult.tokens()).parse();
         assertThat(parseResult.diagnostics()).isEmpty();
         return parseResult.program();
+    }
+
+    private void advanceUntil(SemanticStepState state, SemanticActionKind kind) {
+        SemanticAction action;
+        do {
+            action = state.next();
+        } while (state.canNext() && action.kind() != kind);
+        assertThat(action.kind()).isEqualTo(kind);
     }
 }

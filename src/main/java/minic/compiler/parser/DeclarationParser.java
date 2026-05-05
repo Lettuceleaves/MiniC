@@ -25,6 +25,7 @@ final class DeclarationParser {
     }
 
     FunctionDecl parseFunctionDecl() {
+        state.enter("functionDecl");
         Token startToken = state.peek();
         boolean external = state.match(TokenKind.EXTERN);
         if (external) {
@@ -55,7 +56,7 @@ final class DeclarationParser {
             return null;
         }
         int endOffset = body != null ? body.range().endOffset() : semicolonToken.range().endOffset();
-        return new FunctionDecl(
+            FunctionDecl functionDecl = new FunctionDecl(
                 nameToken.lexeme(),
                 returnType.type(),
                 parameters,
@@ -67,9 +68,13 @@ final class DeclarationParser {
                         endOffset
                 )
         );
+        state.build(functionDecl, "FunctionDecl " + functionDecl.name(), functionDecl.range());
+        state.exit("functionDecl", functionDecl.range());
+        return functionDecl;
     }
 
     StructDecl parseStructDecl() {
+        state.enter("structDecl");
         Token startToken = state.consume(TokenKind.STRUCT, "期望 struct");
         Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望结构体名");
         state.consume(TokenKind.LEFT_BRACE, "期望 '{'");
@@ -87,7 +92,7 @@ final class DeclarationParser {
         if (startToken == null || nameToken == null || semicolonToken == null) {
             return null;
         }
-        return new StructDecl(
+        StructDecl structDecl = new StructDecl(
                 nameToken.lexeme(),
                 fields,
                 new SourceRange(
@@ -96,6 +101,9 @@ final class DeclarationParser {
                         semicolonToken.range().endOffset()
                 )
         );
+        state.build(structDecl, "StructDecl " + structDecl.name(), structDecl.range());
+        state.exit("structDecl", structDecl.range());
+        return structDecl;
     }
 
     private StructField parseStructField() {

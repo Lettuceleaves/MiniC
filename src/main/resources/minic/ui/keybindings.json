@@ -1,0 +1,12 @@
+{
+  "bindings": [
+    {
+      "action": "ast.zoom.in",
+      "keys": ["Ctrl+=", "Ctrl++", "Ctrl+Shift+="]
+    },
+    {
+      "action": "ast.zoom.out",
+      "keys": ["Ctrl+-"]
+    }
+  ]
+}

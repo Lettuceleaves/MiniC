@@ -20,7 +20,9 @@ class CompileObservationSessionTest {
                 CompileStage.PARSER,
                 CompileStage.SEMANTIC,
                 CompileStage.IR,
-                CompileStage.CODEGEN
+                CompileStage.CODEGEN,
+                CompileStage.TOOLCHAIN,
+                CompileStage.EXECUTION
         );
         assertThat(session.currentStage()).isEqualTo(CompileStage.LEXER);
         assertThat(session.currentStepper()).isInstanceOf(LexerStageStepper.class);

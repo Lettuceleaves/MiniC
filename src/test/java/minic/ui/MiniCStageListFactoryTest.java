@@ -13,7 +13,7 @@ class MiniCStageListFactoryTest {
 
         assertThat(stages)
                 .extracting(MiniCStageView::id)
-                .containsExactly("source", "lexer", "parser", "semantic", "ir", "codegen", "toolchain");
+                .containsExactly("source", "lexer", "parser", "semantic", "ir", "codegen", "toolchain", "execution");
         assertThat(stages).allSatisfy(stage -> assertThat(stage.progressPercent()).isBetween(0, 100));
         assertThat(stages.get(1).state()).isEqualTo("running");
     }
@@ -36,7 +36,7 @@ class MiniCStageListFactoryTest {
                 .findFirst()
                 .orElseThrow();
         assertThat(lexer.state()).isEqualTo("running");
-        assertThat(lexer.detail()).contains("current stage");
+        assertThat(lexer.detail()).contains("当前阶段");
         assertThat(lexer.progressPercent()).isGreaterThanOrEqualTo(0);
     }
 }

@@ -9,6 +9,7 @@ import minic.compiler.semantic.SemanticResult;
 import minic.runtime.step.CodegenStageStepper;
 import minic.runtime.step.CompileStage;
 import minic.runtime.step.CurrentStepState;
+import minic.runtime.step.ExecutionStageStepper;
 import minic.runtime.step.GlobalStepData;
 import minic.runtime.step.IrStageStepper;
 import minic.runtime.step.LexerStageStepper;
@@ -19,9 +20,12 @@ import minic.runtime.step.StageStepData;
 import minic.runtime.step.StageStepper;
 import minic.runtime.step.StepCapabilities;
 import minic.runtime.step.StepResult;
+import minic.runtime.step.ToolchainStageStepper;
+import minic.diagnostics.Diagnostic;
 import minic.source.SourceFile;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -37,7 +41,9 @@ public final class CompileObservationSession {
             CompileStage.PARSER,
             CompileStage.SEMANTIC,
             CompileStage.IR,
-            CompileStage.CODEGEN
+            CompileStage.CODEGEN,
+            CompileStage.TOOLCHAIN,
+            CompileStage.EXECUTION
     );
 
     private final SourceFile sourceFile;
@@ -202,12 +208,52 @@ public final class CompileObservationSession {
             }
             return result;
         }
+        if (currentStage() == CompileStage.EXECUTION && stepper instanceof ExecutionStageStepper executionStepper
+                && !executionStepper.inputConfirmed()) {
+            return StepResult.cannotAdvance(currentStage(), "等待运行输入", "请先确认标准输入，或勾选无输入。");
+        }
         if (atLastStage()) {
             return StepResult.cannotAdvance(currentStage(), "编译观测已完成", "没有更多编译步骤。");
+        }
+        if (hasBlockingDiagnostics()) {
+            return StepResult.failed(
+                    currentStage(),
+                    "编译阶段失败",
+                    "当前阶段存在诊断，已停止后续编译阶段。",
+                    currentStageDiagnostics()
+            );
         }
         prepareNextStage();
         advanceStageIndex();
         return StepResult.advanced(currentStage(), "进入阶段", "已准备 " + currentStage().id() + " 阶段。");
+    }
+
+    /**
+     * 跳转到下一编译阶段。该方法会完成当前阶段剩余步骤，并在可用时进入下一阶段。
+     *
+     * @return 跳转结果
+     */
+    public StepResult nextStage() {
+        CompileStage startStage = currentStage();
+        if (atLastStage() && !currentStepper().canNext()) {
+            return StepResult.cannotAdvance(currentStage(), "已经是最后阶段", "当前已无后续编译阶段。");
+        }
+        StepResult last = null;
+        int guard = 0;
+        while (currentStage() == startStage && currentStepper().canNext() && guard++ < 10000) {
+            last = next();
+            if (last.outcome() == minic.runtime.step.StepOutcome.FAILED) {
+                return last;
+            }
+        }
+        if (currentStage() != startStage) {
+            return StepResult.advanced(currentStage(), "跳转到下一环节", "已进入 " + currentStage().id() + " 阶段。");
+        }
+        StepResult enterNextStage = next();
+        if (enterNextStage.outcome() == minic.runtime.step.StepOutcome.ADVANCED && currentStage() != startStage) {
+            return StepResult.advanced(currentStage(), "跳转到下一环节", "已进入 " + currentStage().id() + " 阶段。");
+        }
+        return enterNextStage;
     }
 
     /**
@@ -250,13 +296,15 @@ public final class CompileObservationSession {
         return new GlobalStepData(
                 sourceFile.content(),
                 stageSummaries(),
-                List.of(),
+                diagnostics(),
                 summaryFor(CompileStage.LEXER),
                 summaryFor(CompileStage.PARSER),
                 summaryFor(CompileStage.SEMANTIC),
                 summaryFor(CompileStage.IR),
                 summaryFor(CompileStage.CODEGEN),
-                List.of()
+                summaryFor(CompileStage.TOOLCHAIN),
+                executionInputSummary(),
+                summaryFor(CompileStage.EXECUTION)
         );
     }
 
@@ -303,6 +351,21 @@ public final class CompileObservationSession {
      */
     public Optional<AssemblySource> assemblySource() {
         return Optional.ofNullable(assemblySource);
+    }
+
+    /**
+     * 确认运行阶段标准输入。
+     *
+     * @param standardInput 标准输入文本
+     * @return 控制结果
+     */
+    public StepResult confirmExecutionInput(String standardInput) {
+        StageStepper stepper = stepperFor(CompileStage.EXECUTION);
+        if (!(stepper instanceof ExecutionStageStepper executionStepper)) {
+            throw new IllegalStateException("execution stage is not prepared");
+        }
+        executionStepper.confirmInput(standardInput);
+        return StepResult.advanced(CompileStage.EXECUTION, "运行输入已确认", "可执行文件已准备运行。");
     }
 
     StageStepper stepperFor(CompileStage stage) {
@@ -362,7 +425,13 @@ public final class CompileObservationSession {
             case SEMANTIC -> cacheSemanticResult(((SemanticStageStepper) currentStepper()).semanticState().toSemanticResult());
             case IR -> cacheIrModule(((IrStageStepper) currentStepper()).irState().toIrModule());
             case CODEGEN -> cacheAssemblySource(((CodegenStageStepper) currentStepper()).codegenState().toAssemblySource());
-            case SOURCE, TOOLCHAIN -> {
+            case TOOLCHAIN -> {
+                // Toolchain stepper owns its result; globalData reads it directly.
+            }
+            case EXECUTION -> {
+                // Execution stepper owns its result; globalData reads it directly.
+            }
+            case SOURCE -> {
                 // 本阶段不调度 source/toolchain。
             }
         }
@@ -405,6 +474,22 @@ public final class CompileObservationSession {
                 });
                 putStepper(CompileStage.CODEGEN, new CodegenStageStepper(readyIrModule));
             }
+            case TOOLCHAIN -> {
+                AssemblySource readyAssemblySource = assemblySource().orElseGet(() -> {
+                    AssemblySource result = ((CodegenStageStepper) currentStepper()).codegenState().toAssemblySource();
+                    cacheAssemblySource(result);
+                    return result;
+                });
+                putStepper(CompileStage.TOOLCHAIN, new ToolchainStageStepper(sourceFile, readyAssemblySource));
+            }
+            case EXECUTION -> {
+                ToolchainStageStepper toolchainStepper = (ToolchainStageStepper) stepperFor(CompileStage.TOOLCHAIN);
+                putStepper(CompileStage.EXECUTION, new ExecutionStageStepper(
+                        sourceFile,
+                        toolchainStepper.result().executableArtifactOptional().orElseThrow(() ->
+                                new IllegalStateException("executable artifact is required before execution stage"))
+                ));
+            }
             default -> throw new IllegalStateException("unsupported next stage: " + nextStage);
         }
     }
@@ -433,5 +518,29 @@ public final class CompileObservationSession {
             return List.of();
         }
         return stepper.data().accumulatedOutput();
+    }
+
+    private List<String> executionInputSummary() {
+        StageStepper stepper = steppers.get(CompileStage.EXECUTION);
+        if (stepper == null) {
+            return List.of();
+        }
+        return stepper.data().inputSummary();
+    }
+
+    private boolean hasBlockingDiagnostics() {
+        return !currentStageDiagnostics().isEmpty();
+    }
+
+    private List<Diagnostic> currentStageDiagnostics() {
+        return currentStepper().data().diagnostics();
+    }
+
+    private List<Diagnostic> diagnostics() {
+        ArrayList<Diagnostic> diagnostics = new ArrayList<>();
+        steppers.values().stream()
+                .flatMap(stepper -> stepper.data().diagnostics().stream())
+                .forEach(diagnostics::add);
+        return List.copyOf(diagnostics);
     }
 }

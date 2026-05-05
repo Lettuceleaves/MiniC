@@ -12,13 +12,14 @@ import java.util.List;
  */
 public final class MiniCStageListFactory {
     private static final List<StageInfo> STAGES = List.of(
-            new StageInfo("source", "Source"),
-            new StageInfo("lexer", "Lexer"),
-            new StageInfo("parser", "Parser"),
-            new StageInfo("semantic", "Semantic"),
-            new StageInfo("ir", "IR"),
-            new StageInfo("codegen", "Codegen"),
-            new StageInfo("toolchain", "Toolchain")
+            new StageInfo("source", "源码"),
+            new StageInfo("lexer", "词法分析"),
+            new StageInfo("parser", "语法分析"),
+            new StageInfo("semantic", "语义分析"),
+            new StageInfo("ir", "IR 降级"),
+            new StageInfo("codegen", "代码生成"),
+            new StageInfo("toolchain", "工具链"),
+            new StageInfo("execution", "执行")
     );
 
     /**
@@ -95,20 +96,21 @@ public final class MiniCStageListFactory {
             UiGlobalDataDto globalData
     ) {
         if (active && currentStageData != null) {
-            return currentStageData.completedSteps() + " / " + currentStageData.totalSteps() + " · current stage";
+            return currentStageData.completedSteps() + " / " + currentStageData.totalSteps() + " · 当前阶段";
         }
         if (globalData == null) {
-            return "waiting for session";
+            return "等待会话启动";
         }
         return switch (stage) {
-            case "source" -> "source loaded";
-            case "lexer" -> globalData.tokenSummary().size() + " tokens";
-            case "parser" -> globalData.astSummary().size() + " AST items";
-            case "semantic" -> globalData.semanticSummary().size() + " semantic items";
-            case "ir" -> globalData.irSummary().size() + " IR items";
-            case "codegen" -> globalData.assemblySummary().size() + " assembly lines";
-            case "toolchain" -> globalData.artifactSummary().isEmpty() ? "not implemented" : "artifact ready";
-            default -> "queued";
+            case "source" -> "源码已加载";
+            case "lexer" -> globalData.tokenSummary().size() + " 个 token";
+            case "parser" -> globalData.astSummary().size() + " 个 AST 项";
+            case "semantic" -> globalData.semanticSummary().size() + " 个语义项";
+            case "ir" -> globalData.irSummary().size() + " 个 IR 项";
+            case "codegen" -> globalData.assemblySummary().size() + " 行汇编";
+            case "toolchain" -> globalData.artifactSummary().isEmpty() ? "尚未生成产物" : "产物已就绪";
+            case "execution" -> globalData.executionOutputSummary().isEmpty() ? "等待输入" : "运行完成";
+            default -> "排队中";
         };
     }
 
