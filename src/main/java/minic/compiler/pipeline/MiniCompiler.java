@@ -9,6 +9,9 @@ import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParseResult;
 import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.PassthroughPreprocessor;
+import minic.compiler.preprocess.PreprocessResult;
+import minic.compiler.preprocess.Preprocessor;
 import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.semantic.SemanticResult;
 import minic.compiler.toolchain.ToolchainResult;
@@ -23,12 +26,13 @@ import java.util.Objects;
  */
 public final class MiniCompiler {
     private final AssemblyEmitter assemblyEmitter;
+    private final Preprocessor preprocessor;
 
     /**
      * 使用默认 Windows x86_64 汇编 emitter 创建编译器。
      */
     public MiniCompiler() {
-        this(new WindowsX64AssemblyEmitter());
+        this(new WindowsX64AssemblyEmitter(), new PassthroughPreprocessor());
     }
 
     /**
@@ -37,7 +41,18 @@ public final class MiniCompiler {
      * @param assemblyEmitter 汇编 emitter
      */
     public MiniCompiler(AssemblyEmitter assemblyEmitter) {
+        this(assemblyEmitter, new PassthroughPreprocessor());
+    }
+
+    /**
+     * 使用指定汇编 emitter 和预编译器创建编译器。
+     *
+     * @param assemblyEmitter 汇编 emitter
+     * @param preprocessor 预编译器
+     */
+    public MiniCompiler(AssemblyEmitter assemblyEmitter, Preprocessor preprocessor) {
         this.assemblyEmitter = Objects.requireNonNull(assemblyEmitter, "assemblyEmitter");
+        this.preprocessor = Objects.requireNonNull(preprocessor, "preprocessor");
     }
 
     /**
@@ -63,19 +78,24 @@ public final class MiniCompiler {
     public CompileResult compile(SourceFile sourceFile, CompileOptions options) {
         Objects.requireNonNull(sourceFile, "sourceFile");
         Objects.requireNonNull(options, "options");
-        LexResult lexResult = new Lexer(sourceFile).lex();
+        PreprocessResult preprocessResult = preprocessor.preprocess(sourceFile);
+        if (!preprocessResult.diagnostics().isEmpty()) {
+            return new CompileResult(preprocessResult, null, null, null, null, null, ToolchainResult.notRun());
+        }
+
+        LexResult lexResult = new Lexer(preprocessResult.sourceFile()).lex();
         if (!lexResult.diagnostics().isEmpty()) {
-            return new CompileResult(lexResult, null, null, null, null, ToolchainResult.notRun());
+            return new CompileResult(preprocessResult, lexResult, null, null, null, null, ToolchainResult.notRun());
         }
 
         ParseResult parseResult = new Parser(lexResult.tokens()).parse();
         if (!parseResult.diagnostics().isEmpty()) {
-            return new CompileResult(lexResult, parseResult, null, null, null, ToolchainResult.notRun());
+            return new CompileResult(preprocessResult, lexResult, parseResult, null, null, null, ToolchainResult.notRun());
         }
 
         SemanticResult semanticResult = new SemanticAnalyzer().analyze(parseResult.program());
         if (!semanticResult.diagnostics().isEmpty()) {
-            return new CompileResult(lexResult, parseResult, semanticResult, null, null, ToolchainResult.notRun());
+            return new CompileResult(preprocessResult, lexResult, parseResult, semanticResult, null, null, ToolchainResult.notRun());
         }
 
         IrModule irModule = new IrLowerer().lower(parseResult.program(), semanticResult);
@@ -95,6 +115,7 @@ public final class MiniCompiler {
                     .orElse(ExecutionResult.notRun());
         }
         return new CompileResult(
+                preprocessResult,
                 lexResult,
                 parseResult,
                 semanticResult,

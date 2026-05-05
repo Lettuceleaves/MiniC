@@ -17,7 +17,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 
 `0.3.1` 已完成，当前进入 `0.4.0-SNAPSHOT` C 子集语法和预编译扩展阶段。
 
-下一步任务：`D110：建立预编译阶段数据模型和 pipeline 插槽`，先在正式 lexer/parser 前接入 preprocess 阶段，再逐步实现 `.mh` include、宏、条件编译和新增 C 子集语法。
+下一步任务：`D111：补全 Phase D lexer token`。`D110` 已在正式 lexer/parser 前接入 preprocess 阶段直通插槽，后续逐步实现新增 token、`.mh` include、宏、条件编译和新增 C 子集语法。
 
 项目已经具备：
 

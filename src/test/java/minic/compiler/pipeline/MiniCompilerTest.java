@@ -5,7 +5,10 @@ import minic.compiler.codegen.AssemblySource;
 import minic.compiler.toolchain.ExecutableArtifact;
 import minic.compiler.toolchain.Toolchain;
 import minic.compiler.toolchain.ToolchainResult;
+import minic.diagnostics.Diagnostic;
+import minic.diagnostics.DiagnosticSeverity;
 import minic.source.SourceFile;
+import minic.source.SourceRange;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -36,7 +39,11 @@ class MiniCompilerTest {
 
         assertThat(result.succeeded()).isTrue();
         assertThat(result.diagnostics()).isEmpty();
-        assertThat(result.lexResult().tokens()).isNotEmpty();
+        assertThat(result.preprocessResult().sourceFile()).isSameAs(sourceFile);
+        assertThat(result.preprocessResult().includes()).isEmpty();
+        assertThat(result.preprocessResult().macros()).isEmpty();
+        assertThat(result.lexResultOptional()).hasValueSatisfying(lexResult ->
+                assertThat(lexResult.tokens()).isNotEmpty());
         assertThat(result.parseResultOptional()).isPresent();
         assertThat(result.programOptional()).isPresent();
         assertThat(result.semanticResultOptional()).isPresent();
@@ -99,6 +106,33 @@ class MiniCompilerTest {
         assertThat(result.diagnostics())
                 .extracting(diagnostic -> diagnostic.code())
                 .containsExactly("LEX001");
+        assertThat(result.lexResultOptional()).isPresent();
+        assertThat(result.parseResultOptional()).isEmpty();
+        assertThat(result.semanticResultOptional()).isEmpty();
+        assertThat(result.irModuleOptional()).isEmpty();
+        assertThat(result.assemblySourceOptional()).isEmpty();
+    }
+
+    @Test
+    void stopsBeforeLexerWhenPreprocessDiagnosticsExist() {
+        SourceFile sourceFile = new SourceFile("bad.mc", "#include \"bad.h\"\nint main() { return 0; }");
+        SourceRange range = new SourceRange(sourceFile, 0, 16);
+        Diagnostic diagnostic = new Diagnostic(
+                "PRE001",
+                DiagnosticSeverity.ERROR,
+                "预编译失败",
+                range
+        );
+        MiniCompiler compiler = new MiniCompiler(
+                new minic.compiler.codegen.windows.WindowsX64AssemblyEmitter(),
+                source -> new minic.compiler.preprocess.PreprocessResult(source, List.of(diagnostic), List.of(), List.of())
+        );
+
+        CompileResult result = compiler.compile(sourceFile);
+
+        assertThat(result.succeeded()).isFalse();
+        assertThat(result.diagnostics()).containsExactly(diagnostic);
+        assertThat(result.lexResultOptional()).isEmpty();
         assertThat(result.parseResultOptional()).isEmpty();
         assertThat(result.semanticResultOptional()).isEmpty();
         assertThat(result.irModuleOptional()).isEmpty();
