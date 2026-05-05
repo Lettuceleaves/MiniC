@@ -6,6 +6,7 @@ import javafx.application.Platform;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.Parent;
+import javafx.scene.control.TextField;
 import javafx.scene.layout.StackPane;
 
 import java.util.concurrent.CountDownLatch;
@@ -146,6 +147,32 @@ class MiniCWorkbenchShellTest {
     }
 
     @Test
+    void renamesDocumentTabOnDoubleClick() {
+        startJavafx();
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        MiniCWorkbenchShell shell = new MiniCWorkbenchShell(viewModel);
+        Parent root = shell.createRoot();
+
+        tabForTitle(root, "C  untitled-1.mc").fireEvent(new javafx.scene.input.MouseEvent(
+                javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                0, 0, 0, 0,
+                javafx.scene.input.MouseButton.PRIMARY,
+                2,
+                false, false, false, false,
+                true, false, false, true,
+                false, false, null
+        ));
+
+        TextField rename = lookup(root, TextField.class, "tab-rename");
+        assertThat(rename).isNotNull();
+        rename.setText("renamed.mc");
+        rename.fireEvent(new javafx.event.ActionEvent());
+
+        assertThat(tabTitles(root)).containsExactly("C  renamed.mc");
+        assertThat(viewModel.sourceNameProperty().get()).isEqualTo("renamed.mc");
+    }
+
+    @Test
     void switchesActivitySectionsFromLeftMenu() {
         startJavafx();
         MiniCWorkbenchShell shell = new MiniCWorkbenchShell(new MiniCWorkbenchViewModel());
@@ -270,6 +297,24 @@ class MiniCWorkbenchShellTest {
         if (node instanceof Parent parent) {
             for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
                 Label found = closeButtonForTab(child, title);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static javafx.scene.Node tabForTitle(javafx.scene.Node node, String title) {
+        if (node instanceof Parent parent && node.getStyleClass().contains("tab")) {
+            boolean titleMatches = labels(parent).stream().anyMatch(label -> title.equals(label.getText()));
+            if (titleMatches) {
+                return node;
+            }
+        }
+        if (node instanceof Parent parent) {
+            for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+                javafx.scene.Node found = tabForTitle(child, title);
                 if (found != null) {
                     return found;
                 }

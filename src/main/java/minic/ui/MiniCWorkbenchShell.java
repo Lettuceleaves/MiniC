@@ -3,7 +3,9 @@ package minic.ui;
 import javafx.scene.Parent;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -41,6 +43,7 @@ public final class MiniCWorkbenchShell {
     private StackPane mainContent;
     private MiniCHoverInspector hoverInspector;
     private ActivitySection activeSection = ActivitySection.CODE;
+    private TextField editingTabField;
     private int activeDocumentIndex;
     private int nextUntitledIndex = 1;
     private int draggedTabIndex = -1;
@@ -255,7 +258,14 @@ public final class MiniCWorkbenchShell {
                 tab.getStyleClass().add("active");
             }
             int tabIndex = index;
-            tab.setOnMouseClicked(event -> switchDocument(tabIndex));
+            tab.setOnMouseClicked(event -> {
+                if (event.getClickCount() == 2) {
+                    beginRenameDocument(tabIndex, tab, title);
+                    event.consume();
+                    return;
+                }
+                switchDocument(tabIndex);
+            });
             tab.setOnDragDetected(event -> {
                 draggedTabIndex = tabIndex;
                 tab.startFullDrag();
@@ -316,6 +326,58 @@ public final class MiniCWorkbenchShell {
     private void newDocument() {
         addDocument(nextUntitledName(), "", null, new MiniCWorkbenchViewModel());
         switchDocument(documents.size() - 1);
+    }
+
+    private void beginRenameDocument(int index, HBox tab, Label title) {
+        if (index < 0 || index >= documents.size() || editingTabField != null) {
+            return;
+        }
+        String oldName = documents.get(index).displayName();
+        TextField editor = new TextField(oldName);
+        editingTabField = editor;
+        editor.getStyleClass().add("tab-rename");
+        editor.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(editor, Priority.ALWAYS);
+        editor.setOnAction(event -> commitRenameDocument(index, editor.getText()));
+        editor.focusedProperty().addListener((observable, oldValue, focused) -> {
+            if (!focused && editingTabField == editor) {
+                commitRenameDocument(index, editor.getText());
+            }
+        });
+        editor.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            if (event.getCode() == KeyCode.ESCAPE) {
+                editingTabField = null;
+                refreshTabs();
+                event.consume();
+            }
+        });
+        int titleIndex = tab.getChildren().indexOf(title);
+        tab.getChildren().set(titleIndex, editor);
+        editor.requestFocus();
+        editor.selectAll();
+    }
+
+    private void commitRenameDocument(int index, String rawName) {
+        if (index < 0 || index >= documents.size()) {
+            editingTabField = null;
+            refreshTabs();
+            return;
+        }
+        String name = rawName == null ? "" : rawName.trim();
+        if (name.isBlank()) {
+            editingTabField = null;
+            refreshTabs();
+            return;
+        }
+        DocumentTab document = documents.get(index).withName(name);
+        document.viewModel().renameSource(name);
+        documents.set(index, document);
+        editingTabField = null;
+        if (index == activeDocumentIndex && body != null) {
+            body.getChildren().clear();
+            rebuildWorkbenchBody();
+        }
+        refreshTabs();
     }
 
     private String nextUntitledName() {
@@ -439,6 +501,10 @@ public final class MiniCWorkbenchShell {
 
         private DocumentTab withPath(Path path) {
             return new DocumentTab(path.getFileName().toString(), path, viewModel);
+        }
+
+        private DocumentTab withName(String name) {
+            return new DocumentTab(name, path, viewModel);
         }
     }
 

@@ -67,6 +67,21 @@ public final class MiniCWorkbenchViewModel {
         api.loadSource(name, source);
         sourceName.set(name);
         sourceText.set(source);
+        clearSessionState();
+    }
+
+    /**
+     * 重命名当前源码。源码名属于编译输入，因此会清空当前观测会话。
+     *
+     * @param name 新源码名称
+     */
+    public void renameSource(String name) {
+        api.loadSource(name, sourceText.get());
+        sourceName.set(name);
+        clearSessionState();
+    }
+
+    private void clearSessionState() {
         sessionStarted.set(false);
         currentState.set(null);
         currentStageData.set(null);

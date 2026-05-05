@@ -23,13 +23,7 @@ public final class MiniCSidebarView extends VBox {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
         stageListFactory = new MiniCStageListFactory();
         getStyleClass().add("sidebar");
-        getChildren().addAll(
-                label("资源管理器", "panel-title"),
-                label("MINIC 工作区", "section-label"),
-                body("示例\n  main.mc\n  printf.mc\n输出\n  tokens.json\n  semantic.log"),
-                label("编译管线", "section-label"),
-                stageList
-        );
+        getChildren().add(stageList);
         stageList.getStyleClass().add("stage-list");
         refresh();
         viewModel.currentStateProperty().addListener((observable, oldValue, newValue) -> refresh());
@@ -64,10 +58,6 @@ public final class MiniCSidebarView extends VBox {
         Label meta = label(stage.progressPercent() + "% · " + stage.detail(), "stage-meta");
         card.getChildren().addAll(top, meta);
         return card;
-    }
-
-    private Label body(String text) {
-        return label(text, "body-text");
     }
 
     private Label label(String text, String styleClass) {

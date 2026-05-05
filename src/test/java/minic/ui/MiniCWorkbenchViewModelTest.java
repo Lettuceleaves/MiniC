@@ -63,6 +63,20 @@ class MiniCWorkbenchViewModelTest {
     }
 
     @Test
+    void renamesSourceAndClearsCurrentSession() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("before.mc", "int main() { return 0; }");
+        viewModel.startSession();
+
+        viewModel.renameSource("after.mc");
+
+        assertThat(viewModel.sourceNameProperty().get()).isEqualTo("after.mc");
+        assertThat(viewModel.sourceTextProperty().get()).contains("return 0");
+        assertThat(viewModel.sessionStartedProperty().get()).isFalse();
+        assertThat(viewModel.currentStateProperty().get()).isNull();
+    }
+
+    @Test
     void nextStageControlMovesToFollowingPipelineStage() {
         MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
         viewModel.loadSource("next-stage-view.mc", "int main() { return 0; }");
