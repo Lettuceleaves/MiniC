@@ -85,7 +85,9 @@ public final class MiniCli {
                 artifactName,
                 true,
                 "compile-run".equals(options.command()),
-                new WindowsMsvcToolchain(options.assemblerCommand(), options.linkerCommand())
+                options.hasExplicitToolchainCommands()
+                        ? new WindowsMsvcToolchain(options.assemblerCommand(), options.linkerCommand())
+                        : new WindowsMsvcToolchain()
         );
         CompileResult result = compiler.apply(sourceFile, compileOptions);
         printRequestedStages(result, options.showStages());
@@ -162,11 +164,17 @@ public final class MiniCli {
             boolean help,
             String assemblerCommand,
             String linkerCommand,
+            boolean explicitAssemblerCommand,
+            boolean explicitLinkerCommand,
             Set<String> showStages
     ) {
+        private boolean hasExplicitToolchainCommands() {
+            return explicitAssemblerCommand || explicitLinkerCommand;
+        }
+
         private static CliOptions parse(String[] args) {
             if (args.length == 0 || contains(args, "--help") || contains(args, "-h")) {
-                return new CliOptions("help", null, Path.of("build", "minic"), false, true, "ml64", "link", Set.of());
+                return new CliOptions("help", null, Path.of("build", "minic"), false, true, "ml64", "link", false, false, Set.of());
             }
             String command = args[0];
             Path sourcePath = null;
@@ -174,6 +182,8 @@ public final class MiniCli {
             boolean emitAssembly = false;
             String assemblerCommand = "ml64";
             String linkerCommand = "link";
+            boolean explicitAssemblerCommand = false;
+            boolean explicitLinkerCommand = false;
             LinkedHashSet<String> showStages = new LinkedHashSet<>();
             int index = 1;
             while (index < args.length) {
@@ -193,6 +203,7 @@ public final class MiniCli {
                             throw new IllegalArgumentException("--ml64 需要命令或路径参数");
                         }
                         assemblerCommand = args[index];
+                        explicitAssemblerCommand = true;
                     }
                     case "--link" -> {
                         index++;
@@ -200,6 +211,7 @@ public final class MiniCli {
                             throw new IllegalArgumentException("--link 需要命令或路径参数");
                         }
                         linkerCommand = args[index];
+                        explicitLinkerCommand = true;
                     }
                     case "--show" -> {
                         index++;
@@ -229,6 +241,8 @@ public final class MiniCli {
                     false,
                     assemblerCommand,
                     linkerCommand,
+                    explicitAssemblerCommand,
+                    explicitLinkerCommand,
                     Set.copyOf(showStages)
             );
         }

@@ -35,6 +35,9 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
     private Section section = Section.HEADER_TARGET;
     private int externalIndex;
     private int stringDataIndex;
+    private List<String> pendingStringDataLines = List.of();
+    private int pendingStringDataLineIndex;
+    private String pendingStringDataLabel = "";
     private int entryLineIndex;
     private int functionIndex;
     private FunctionState functionState;
@@ -122,9 +125,23 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
                     }
                 }
                 case STRING_DATA -> {
+                    if (pendingStringDataLineIndex < pendingStringDataLines.size()) {
+                        return emit(
+                                WindowsX64AssemblyLineKind.STRING_DATA,
+                                pendingStringDataLabel,
+                                pendingStringDataLines.get(pendingStringDataLineIndex++)
+                        );
+                    }
                     if (stringDataIndex < input.module.stringData().size()) {
                         IrStringData stringData = input.module.stringData().get(stringDataIndex++);
-                        return emit(WindowsX64AssemblyLineKind.STRING_DATA, stringData.label(), formatStringData(stringData));
+                        pendingStringDataLines = formatStringDataLines(stringData);
+                        pendingStringDataLineIndex = 0;
+                        pendingStringDataLabel = stringData.label();
+                        return emit(
+                                WindowsX64AssemblyLineKind.STRING_DATA,
+                                pendingStringDataLabel,
+                                pendingStringDataLines.get(pendingStringDataLineIndex++)
+                        );
                     }
                     section = Section.CODE_SECTION;
                 }
@@ -236,20 +253,26 @@ public final class WindowsX64CodegenStepState implements CompilerStageState<
         );
     }
 
-    private static String formatStringData(IrStringData stringData) {
-        StringBuilder builder = new StringBuilder();
-        builder.append(stringData.label()).append(" BYTE ");
+    private static List<String> formatStringDataLines(IrStringData stringData) {
+        ArrayList<Integer> bytes = new ArrayList<>();
         for (int index = 0; index < stringData.value().length(); index++) {
-            if (index > 0) {
-                builder.append(", ");
-            }
-            builder.append((int) stringData.value().charAt(index));
+            bytes.add((int) stringData.value().charAt(index));
         }
-        if (!stringData.value().isEmpty()) {
-            builder.append(", ");
+        bytes.add(0);
+
+        ArrayList<String> lines = new ArrayList<>();
+        int index = 0;
+        boolean firstLine = true;
+        while (index < bytes.size()) {
+            int end = Math.min(index + 16, bytes.size());
+            String prefix = firstLine ? stringData.label() + " BYTE " : "    BYTE ";
+            lines.add(prefix + bytes.subList(index, end).stream()
+                    .map(String::valueOf)
+                    .collect(java.util.stream.Collectors.joining(", ")));
+            index = end;
+            firstLine = false;
         }
-        builder.append("0");
-        return builder.toString();
+        return List.copyOf(lines);
     }
 
     private static List<String> splitLines(String text) {
