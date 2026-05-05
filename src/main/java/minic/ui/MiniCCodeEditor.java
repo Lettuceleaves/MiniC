@@ -497,7 +497,9 @@ public final class MiniCCodeEditor extends StackPane {
         double maxHeight = Math.max(0, getHeight() * 0.25);
         double rowHeight = 26;
         double preferredHeight = Math.min(maxHeight, Math.max(rowHeight, completionList.getItems().size() * rowHeight + 2));
-        completionList.resizeRelocate(0, Math.max(0, getHeight() - preferredHeight), getWidth(), preferredHeight);
+        double reservedBottom = diagnosticDetails.isVisible() ? diagnosticDetailsHeight() : 0;
+        double y = Math.max(0, getHeight() - reservedBottom - preferredHeight);
+        completionList.resizeRelocate(0, y, getWidth(), preferredHeight);
     }
 
     private void updateDiagnosticDetails() {
@@ -505,6 +507,7 @@ public final class MiniCCodeEditor extends StackPane {
         String source = input.getText();
         if (source.isEmpty() || latestDiagnostics.isEmpty()) {
             diagnosticDetails.setVisible(false);
+            Platform.runLater(this::layoutCompletionList);
             return;
         }
         latestDiagnostics.stream()
@@ -539,9 +542,15 @@ public final class MiniCCodeEditor extends StackPane {
             return;
         }
         double width = Math.max(0, getWidth());
-        diagnosticDetails.applyCss();
-        double preferredHeight = Math.min(140, diagnosticDetails.prefHeight(width));
+        double preferredHeight = diagnosticDetailsHeight();
         diagnosticDetails.resizeRelocate(0, Math.max(0, getHeight() - preferredHeight), width, preferredHeight);
+        layoutCompletionList();
+    }
+
+    private double diagnosticDetailsHeight() {
+        double width = Math.max(0, getWidth());
+        diagnosticDetails.applyCss();
+        return Math.min(140, diagnosticDetails.prefHeight(width));
     }
 
     private void selectCompletionOffset(int offset) {

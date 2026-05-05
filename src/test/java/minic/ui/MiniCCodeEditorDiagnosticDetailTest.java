@@ -2,10 +2,14 @@ package minic.ui;
 
 import javafx.application.Platform;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListView;
+import javafx.scene.layout.VBox;
 import minic.uiapi.UiDiagnosticDto;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -57,5 +61,37 @@ class MiniCCodeEditorDiagnosticDetailTest {
                 .contains("offset 20..21")
                 .contains("原因: 期望表达式")
                 .contains("请检查该位置附近");
+    }
+
+    @Test
+    void completionListIsPlacedAboveDiagnosticDetailsWhenBothAreVisible() throws Exception {
+        startJavafx();
+        MiniCCodeEditor editor = new MiniCCodeEditor();
+        editor.resize(600, 400);
+
+        @SuppressWarnings("unchecked")
+        ListView<String> completionList = (ListView<String>) field(editor, "completionList");
+        VBox diagnosticDetails = (VBox) field(editor, "diagnosticDetails");
+        diagnosticDetails.getChildren().setAll(new Label("错误位置: 第 1 行，第 1 个字节。原因: 期望表达式。"));
+        diagnosticDetails.setVisible(true);
+        completionList.getItems().setAll(List.of("return", "runtime", "result"));
+        completionList.setVisible(true);
+
+        invoke(editor, "layoutDiagnosticDetails");
+
+        assertThat(completionList.getLayoutY() + completionList.getHeight())
+                .isLessThanOrEqualTo(diagnosticDetails.getLayoutY());
+    }
+
+    private static Object field(Object target, String name) throws Exception {
+        Field field = MiniCCodeEditor.class.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
+    }
+
+    private static void invoke(Object target, String name) throws Exception {
+        Method method = MiniCCodeEditor.class.getDeclaredMethod(name);
+        method.setAccessible(true);
+        method.invoke(target);
     }
 }
