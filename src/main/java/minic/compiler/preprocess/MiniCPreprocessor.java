@@ -26,8 +26,16 @@ public final class MiniCPreprocessor implements Preprocessor {
     private static final Pattern INCLUDE_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*include\\b.*$");
     private static final Pattern DEFINE_PATTERN = Pattern.compile("^\\s*#\\s*define\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s+(.*))?\\s*$");
     private static final Pattern UNDEF_PATTERN = Pattern.compile("^\\s*#\\s*undef\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*$");
+    private static final Pattern IFDEF_PATTERN = Pattern.compile("^\\s*#\\s*ifdef\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*$");
+    private static final Pattern IFNDEF_PATTERN = Pattern.compile("^\\s*#\\s*ifndef\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*$");
+    private static final Pattern ELSE_PATTERN = Pattern.compile("^\\s*#\\s*else\\s*$");
+    private static final Pattern ENDIF_PATTERN = Pattern.compile("^\\s*#\\s*endif\\s*$");
     private static final Pattern DEFINE_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*define\\b.*$");
     private static final Pattern UNDEF_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*undef\\b.*$");
+    private static final Pattern IFDEF_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*ifdef\\b.*$");
+    private static final Pattern IFNDEF_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*ifndef\\b.*$");
+    private static final Pattern ELSE_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*else\\b.*$");
+    private static final Pattern ENDIF_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*endif\\b.*$");
 
     /**
      * 对源码执行默认预编译。
@@ -64,6 +72,7 @@ public final class MiniCPreprocessor implements Preprocessor {
 
     private String expandSource(SourceFile sourceFile, Path currentDirectory, Set<Path> includeStack, Work work) {
         StringBuilder output = new StringBuilder();
+        int initialConditionDepth = work.conditionStack.size();
         int lineStart = 0;
         String content = sourceFile.content();
         while (lineStart < content.length()) {
@@ -71,7 +80,11 @@ public final class MiniCPreprocessor implements Preprocessor {
             int nextLineStart = lineEnd < 0 ? content.length() : lineEnd + 1;
             String line = content.substring(lineStart, lineEnd < 0 ? content.length() : lineEnd);
             Matcher matcher = INCLUDE_PATTERN.matcher(line);
-            if (matcher.matches()) {
+            if (handleConditionDirective(sourceFile, work, lineStart, nextLineStart, line)) {
+                // 条件编译指令本身不进入输出源码。
+            } else if (!work.isActive()) {
+                // 被排除分支不输出，也不触发普通源码诊断。
+            } else if (matcher.matches()) {
                 expandInclude(sourceFile, currentDirectory, includeStack, work, output, lineStart, nextLineStart, matcher.group(1));
             } else {
                 Matcher defineMatcher = DEFINE_PATTERN.matcher(line);
@@ -109,10 +122,91 @@ public final class MiniCPreprocessor implements Preprocessor {
             }
             lineStart = nextLineStart;
         }
+        while (work.conditionStack.size() > initialConditionDepth) {
+            ConditionFrame frame = work.conditionStack.removeLast();
+            work.diagnostics.add(diagnostic(
+                    frame.sourceFile(),
+                    frame.startOffset(),
+                    frame.endOffset(),
+                    "条件编译块缺少 #endif"
+            ));
+        }
         if (content.isEmpty()) {
             return "";
         }
         return output.toString();
+    }
+
+    private boolean handleConditionDirective(SourceFile sourceFile, Work work, int startOffset, int endOffset, String line) {
+        Matcher ifdefMatcher = IFDEF_PATTERN.matcher(line);
+        Matcher ifndefMatcher = IFNDEF_PATTERN.matcher(line);
+        if (ifdefMatcher.matches()) {
+            pushCondition(sourceFile, work, startOffset, endOffset, work.macros.containsKey(ifdefMatcher.group(1)));
+            return true;
+        }
+        if (ifndefMatcher.matches()) {
+            pushCondition(sourceFile, work, startOffset, endOffset, !work.macros.containsKey(ifndefMatcher.group(1)));
+            return true;
+        }
+        if (ELSE_PATTERN.matcher(line).matches()) {
+            switchConditionElse(sourceFile, work, startOffset, endOffset);
+            return true;
+        }
+        if (ENDIF_PATTERN.matcher(line).matches()) {
+            popCondition(sourceFile, work, startOffset, endOffset);
+            return true;
+        }
+        if (IFDEF_DIRECTIVE_PATTERN.matcher(line).matches()) {
+            work.diagnostics.add(diagnostic(sourceFile, startOffset, endOffset, "ifdef 指令必须使用宏名称"));
+            return true;
+        }
+        if (IFNDEF_DIRECTIVE_PATTERN.matcher(line).matches()) {
+            work.diagnostics.add(diagnostic(sourceFile, startOffset, endOffset, "ifndef 指令必须使用宏名称"));
+            return true;
+        }
+        if (ELSE_DIRECTIVE_PATTERN.matcher(line).matches()) {
+            work.diagnostics.add(diagnostic(sourceFile, startOffset, endOffset, "else 指令不能带参数"));
+            return true;
+        }
+        if (ENDIF_DIRECTIVE_PATTERN.matcher(line).matches()) {
+            work.diagnostics.add(diagnostic(sourceFile, startOffset, endOffset, "endif 指令不能带参数"));
+            return true;
+        }
+        return false;
+    }
+
+    private void pushCondition(SourceFile sourceFile, Work work, int startOffset, int endOffset, boolean conditionActive) {
+        boolean parentActive = work.isActive();
+        work.conditionStack.add(new ConditionFrame(sourceFile, startOffset, endOffset, parentActive, conditionActive, false));
+    }
+
+    private void switchConditionElse(SourceFile sourceFile, Work work, int startOffset, int endOffset) {
+        if (work.conditionStack.isEmpty()) {
+            work.diagnostics.add(diagnostic(sourceFile, startOffset, endOffset, "孤立的 #else"));
+            return;
+        }
+        ConditionFrame frame = work.conditionStack.removeLast();
+        if (frame.elseSeen()) {
+            work.diagnostics.add(diagnostic(sourceFile, startOffset, endOffset, "同一条件编译块不能出现多个 #else"));
+            work.conditionStack.add(frame);
+            return;
+        }
+        work.conditionStack.add(new ConditionFrame(
+                frame.sourceFile(),
+                frame.startOffset(),
+                frame.endOffset(),
+                frame.parentActive(),
+                !frame.branchActive(),
+                true
+        ));
+    }
+
+    private void popCondition(SourceFile sourceFile, Work work, int startOffset, int endOffset) {
+        if (work.conditionStack.isEmpty()) {
+            work.diagnostics.add(diagnostic(sourceFile, startOffset, endOffset, "多余的 #endif"));
+            return;
+        }
+        work.conditionStack.removeLast();
     }
 
     private void expandInclude(
@@ -314,15 +408,31 @@ public final class MiniCPreprocessor implements Preprocessor {
         }
     }
 
+    private record ConditionFrame(
+            SourceFile sourceFile,
+            int startOffset,
+            int endOffset,
+            boolean parentActive,
+            boolean branchActive,
+            boolean elseSeen
+    ) {
+    }
+
     private static final class Work {
         private final PreprocessOptions options;
         private final List<Diagnostic> diagnostics = new ArrayList<>();
         private final List<IncludeSummary> includes = new ArrayList<>();
         private final Map<String, MacroDefinition> macros = new LinkedHashMap<>();
         private final List<MacroSummary> macroSummaries = new ArrayList<>();
+        private final ArrayList<ConditionFrame> conditionStack = new ArrayList<>();
 
         private Work(PreprocessOptions options) {
             this.options = options;
+        }
+
+        private boolean isActive() {
+            return conditionStack.stream()
+                    .allMatch(frame -> frame.parentActive() && frame.branchActive());
         }
     }
 }

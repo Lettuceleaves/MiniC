@@ -181,4 +181,74 @@ class MiniCPreprocessorTest {
         assertThat(result.diagnostics()).isEmpty();
         assertThat(result.sourceFile().content()).isEqualTo("int main() { return 9; }\n");
     }
+
+    @Test
+    void supportsIfdefIfndefElseAndNestedConditions() {
+        SourceFile sourceFile = new SourceFile("main.mc", """
+                #define ENABLED
+                #ifdef ENABLED
+                int enabled() { return 1; }
+                #ifndef MISSING
+                int nested() { return 2; }
+                #else
+                int hiddenNested() { return @; }
+                #endif
+                #else
+                int hidden() { return @; }
+                #endif
+                """);
+
+        PreprocessResult result = new MiniCPreprocessor().preprocess(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.sourceFile().content()).isEqualTo("""
+                int enabled() { return 1; }
+                int nested() { return 2; }
+                """);
+    }
+
+    @Test
+    void reportsConditionStructureDiagnostics() {
+        SourceFile sourceFile = new SourceFile("main.mc", """
+                #else
+                #endif
+                #ifdef FLAG
+                int hidden() { return @; }
+                #else
+                int shown() { return 1; }
+                #else
+                #ifndef OTHER
+                int missingEndif() { return 2; }
+                """);
+
+        PreprocessResult result = new MiniCPreprocessor().preprocess(sourceFile);
+
+        assertThat(result.sourceFile().content()).contains("int shown() { return 1; }", "int missingEndif() { return 2; }");
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly(
+                        "孤立的 #else",
+                        "多余的 #endif",
+                        "同一条件编译块不能出现多个 #else",
+                        "条件编译块缺少 #endif",
+                        "条件编译块缺少 #endif"
+                );
+    }
+
+    @Test
+    void excludedBranchesDoNotTriggerDirectiveDiagnostics() {
+        SourceFile sourceFile = new SourceFile("main.mc", """
+                #ifdef MISSING
+                #include <bad.h>
+                int hidden() { return @; }
+                #else
+                int main() { return 0; }
+                #endif
+                """);
+
+        PreprocessResult result = new MiniCPreprocessor().preprocess(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.sourceFile().content()).isEqualTo("int main() { return 0; }\n");
+    }
 }
