@@ -42,6 +42,16 @@ final class TypeParser {
         );
     }
 
+    boolean canStartType() {
+        return state.check(TokenKind.BOOL)
+                || state.check(TokenKind.CHAR)
+                || state.check(TokenKind.INT)
+                || state.check(TokenKind.LONG)
+                || state.check(TokenKind.FLOAT)
+                || state.check(TokenKind.DOUBLE)
+                || state.check(TokenKind.STRUCT);
+    }
+
     ParsedNamedType parseFunctionPointerDeclarator(ParsedType returnType, String expectedNameMessage) {
         Token startToken = returnType.startToken();
         state.consume(TokenKind.LEFT_PAREN, "期望 '('");

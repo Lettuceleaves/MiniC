@@ -5,6 +5,7 @@ import minic.compiler.ast.expr.AssignmentExpr;
 import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.BoolLiteralExpr;
 import minic.compiler.ast.expr.CallExpr;
+import minic.compiler.ast.expr.ConditionalExpr;
 import minic.compiler.ast.expr.FieldAccessExpr;
 import minic.compiler.ast.expr.FloatLiteralExpr;
 import minic.compiler.ast.expr.GroupingExpr;
@@ -12,6 +13,7 @@ import minic.compiler.ast.expr.IndexExpr;
 import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.NullLiteralExpr;
+import minic.compiler.ast.expr.SizeofExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ast.stmt.BlockStmt;
@@ -177,7 +179,7 @@ class ParserTest {
         assertThat(elseIf.thenBranch()).isInstanceOf(ContinueStmt.class);
         ExprStmt compoundAssignment = (ExprStmt) forBody.statements().get(1);
         assertThat(compoundAssignment.expression()).isInstanceOf(AssignmentExpr.class);
-        assertThat(((AssignmentExpr) compoundAssignment.expression()).value()).isInstanceOf(BinaryExpr.class);
+        assertThat(((AssignmentExpr) compoundAssignment.expression()).operator()).isEqualTo(TokenKind.PLUS_EQUAL);
 
         WhileStmt whileStmt = (WhileStmt) body.statements().get(2);
         assertThat(whileStmt.condition()).isInstanceOf(BinaryExpr.class);
@@ -240,6 +242,51 @@ class ParserTest {
         assertThat(indirectCall.arguments()).hasSize(2);
         assertThat(indirectCall.arguments().get(0)).isInstanceOf(IndexExpr.class);
         assertThat(indirectCall.arguments().get(1)).isInstanceOf(UnaryExpr.class);
+    }
+
+    @Test
+    void parsesPhaseDExpressionPrecedenceAndRightAssociativity() {
+        SourceFile sourceFile = new SourceFile(
+                "phase-d-expr.mc",
+                """
+                        int main() {
+                          value = a | b ^ c & d == e < f << g + h * i;
+                          value = cond ? left : other ? middle : right;
+                          target += value -= 1;
+                          value++;
+                          --value;
+                          return sizeof value + sizeof(int);
+                        }
+                        """
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        BlockStmt body = result.program().functions().getFirst().body();
+
+        AssignmentExpr firstAssignment = (AssignmentExpr) ((ExprStmt) body.statements().get(0)).expression();
+        BinaryExpr bitwiseOr = (BinaryExpr) firstAssignment.value();
+        assertThat(bitwiseOr.operator()).isEqualTo(TokenKind.PIPE);
+        assertThat(((BinaryExpr) bitwiseOr.right()).operator()).isEqualTo(TokenKind.CARET);
+
+        AssignmentExpr conditionalAssignment = (AssignmentExpr) ((ExprStmt) body.statements().get(1)).expression();
+        ConditionalExpr conditional = (ConditionalExpr) conditionalAssignment.value();
+        assertThat(conditional.elseExpression()).isInstanceOf(ConditionalExpr.class);
+
+        AssignmentExpr compound = (AssignmentExpr) ((ExprStmt) body.statements().get(2)).expression();
+        assertThat(compound.operator()).isEqualTo(TokenKind.PLUS_EQUAL);
+        assertThat(compound.value()).isInstanceOf(AssignmentExpr.class);
+        assertThat(((AssignmentExpr) compound.value()).operator()).isEqualTo(TokenKind.MINUS_EQUAL);
+
+        assertThat(((ExprStmt) body.statements().get(3)).expression()).isInstanceOf(AssignmentExpr.class);
+        assertThat(((ExprStmt) body.statements().get(4)).expression()).isInstanceOf(UnaryExpr.class);
+
+        BinaryExpr sizeofSum = (BinaryExpr) ((ReturnStmt) body.statements().get(5)).expressionOptional().orElseThrow();
+        assertThat(sizeofSum.left()).isInstanceOf(SizeofExpr.class);
+        assertThat(sizeofSum.right()).isInstanceOf(SizeofExpr.class);
+        assertThat(((SizeofExpr) sizeofSum.left()).expressionOptional()).isPresent();
+        assertThat(((SizeofExpr) sizeofSum.right()).queriedTypeOptional()).contains(MiniType.INT);
     }
 
     @Test
