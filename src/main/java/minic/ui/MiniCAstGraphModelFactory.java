@@ -4,7 +4,9 @@ import minic.uiapi.UiAstNodeVisualDto;
 import minic.uiapi.UiStageVisualDto;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 根据 AST visual DTO 生成 Graph View 风格布局模型。
@@ -28,6 +30,10 @@ public final class MiniCAstGraphModelFactory {
         }
         ArrayList<PositionedNode> positioned = new ArrayList<>();
         int leafCount = assignPositions(visual.astRoot(), 0, new int[]{0}, positioned);
+        Map<String, PositionedNode> positionedById = new HashMap<>();
+        for (PositionedNode positionedNode : positioned) {
+            positionedById.put(positionedNode.node.id(), positionedNode);
+        }
 
         ArrayList<MiniCAstGraphNode> nodes = new ArrayList<>();
         ArrayList<MiniCAstGraphEdge> edges = new ArrayList<>();
@@ -44,10 +50,10 @@ public final class MiniCAstGraphModelFactory {
                     node.id().equals("ast-root")
             ));
             for (UiAstNodeVisualDto child : node.children()) {
-                PositionedNode childPosition = positioned.stream()
-                        .filter(candidate -> candidate.node.id().equals(child.id()))
-                        .findFirst()
-                        .orElseThrow();
+                PositionedNode childPosition = positionedById.get(child.id());
+                if (childPosition == null) {
+                    throw new IllegalStateException("missing AST graph position for node " + child.id());
+                }
                 edges.add(new MiniCAstGraphEdge(
                         node.id(),
                         child.id(),

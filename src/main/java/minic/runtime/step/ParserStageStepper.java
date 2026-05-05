@@ -12,7 +12,6 @@ import minic.source.SourceRange;
 
 import java.lang.reflect.RecordComponent;
 import java.time.Duration;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -29,11 +28,12 @@ public final class ParserStageStepper implements StageStepper {
     private Program previewProgram;
     private List<ParserTraceEvent> traceEvents = List.of();
     private List<ParserTraceEvent> buildEvents = List.of();
-    private int traceIndex = -1;
+    private List<Object> revealPlan = List.of();
+    private List<ParserTraceEvent> revealEventPlan = List.of();
+    private int revealIndex = -1;
     private ParserTraceEvent currentTraceEvent;
     private Object currentBuiltNode;
     private String currentRevealLabel = "";
-    private final ArrayDeque<Object> pendingRevealNodes = new ArrayDeque<>();
     private final Set<Object> revealedNodeSet = Collections.newSetFromMap(new IdentityHashMap<>());
     private final ArrayList<Object> revealedNodeList = new ArrayList<>();
     private final ArrayList<String> revealedNodeLabels = new ArrayList<>();
@@ -58,7 +58,7 @@ public final class ParserStageStepper implements StageStepper {
     @Override
     public boolean canNext() {
         ensurePreview();
-        return !pendingRevealNodes.isEmpty() || traceIndex < buildEvents.size() - 1;
+        return revealIndex < revealPlan.size() - 1;
     }
 
     @Override
@@ -68,7 +68,7 @@ public final class ParserStageStepper implements StageStepper {
             lastResult = StepResult.cannotAdvance(CompileStage.PARSER, "递归下降过程已完成", "没有更多 parser trace 事件。");
             return lastResult;
         }
-        currentBuiltNode = pendingRevealNodes.removeFirst();
+        currentBuiltNode = revealPlan.get(revealIndex);
         if (revealedNodeSet.add(currentBuiltNode)) {
             revealedNodeList.add(currentBuiltNode);
         }
@@ -196,6 +196,7 @@ public final class ParserStageStepper implements StageStepper {
         buildEvents = traceEvents.stream()
                 .filter(event -> event.node() != null)
                 .toList();
+        buildRevealPlan();
     }
 
     private void parseNextTopLevelNode() {
@@ -224,7 +225,7 @@ public final class ParserStageStepper implements StageStepper {
 
     private long totalSteps() {
         ensurePreview();
-        return countRevealableNodes();
+        return revealPlan.size();
     }
 
     private List<String> accumulatedOutput() {
@@ -272,73 +273,76 @@ public final class ParserStageStepper implements StageStepper {
     }
 
     private boolean prepareNextReveal() {
-        while (pendingRevealNodes.isEmpty() && traceIndex < buildEvents.size() - 1) {
-            traceIndex++;
-            currentTraceEvent = buildEvents.get(traceIndex);
-            Object node = currentTraceEvent.node();
-            if (node != null) {
-                enqueueRevealPath(node);
-            }
+        if (revealIndex >= revealPlan.size() - 1) {
+            return false;
         }
-        return !pendingRevealNodes.isEmpty();
+        revealIndex++;
+        currentTraceEvent = revealEventPlan.get(revealIndex);
+        return true;
     }
 
-    private void enqueueRevealPath(Object targetNode) {
-        List<Object> path = pathTo(previewProgram, targetNode);
-        if (path.isEmpty()) {
-            if (!revealedNodeSet.contains(targetNode)) {
-                pendingRevealNodes.add(targetNode);
-            }
-            return;
-        }
-        for (Object node : path) {
-            if (node instanceof Program || revealedNodeSet.contains(node) || pendingRevealContains(node)) {
-                continue;
-            }
-            pendingRevealNodes.addLast(node);
-        }
-    }
-
-    private boolean pendingRevealContains(Object node) {
-        for (Object pendingNode : pendingRevealNodes) {
-            if (pendingNode == node) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static List<Object> pathTo(Object current, Object target) {
-        if (current == target) {
-            return List.of(current);
-        }
-        for (Object child : astChildren(current)) {
-            List<Object> childPath = pathTo(child, target);
-            if (!childPath.isEmpty()) {
-                ArrayList<Object> path = new ArrayList<>();
-                path.add(current);
-                path.addAll(childPath);
-                return path;
-            }
-        }
-        return List.of();
-    }
-
-    private long countRevealableNodes() {
-        Set<Object> nodes = Collections.newSetFromMap(new IdentityHashMap<>());
+    private void buildRevealPlan() {
+        ArrayList<Object> nodes = new ArrayList<>();
+        ArrayList<ParserTraceEvent> events = new ArrayList<>();
+        Set<Object> plannedNodes = Collections.newSetFromMap(new IdentityHashMap<>());
+        IdentityHashMap<Object, Object> parents = parentIndex(previewProgram);
         for (ParserTraceEvent event : buildEvents) {
-            List<Object> path = pathTo(previewProgram, event.node());
+            List<Object> path = pathTo(event.node(), parents);
             if (path.isEmpty()) {
-                nodes.add(event.node());
+                addPlannedNode(nodes, events, plannedNodes, event.node(), event);
             } else {
                 for (Object node : path) {
                     if (!(node instanceof Program)) {
-                        nodes.add(node);
+                        addPlannedNode(nodes, events, plannedNodes, node, event);
                     }
                 }
             }
         }
-        return Math.max(nodes.size(), revealedNodeList.size());
+        revealPlan = List.copyOf(nodes);
+        revealEventPlan = List.copyOf(events);
+    }
+
+    private static IdentityHashMap<Object, Object> parentIndex(Object root) {
+        IdentityHashMap<Object, Object> parents = new IdentityHashMap<>();
+        indexParents(root, null, parents);
+        return parents;
+    }
+
+    private static void indexParents(Object node, Object parent, IdentityHashMap<Object, Object> parents) {
+        if (node == null || parents.containsKey(node)) {
+            return;
+        }
+        parents.put(node, parent);
+        for (Object child : astChildren(node)) {
+            indexParents(child, node, parents);
+        }
+    }
+
+    private static List<Object> pathTo(Object target, IdentityHashMap<Object, Object> parents) {
+        if (!parents.containsKey(target)) {
+            return List.of();
+        }
+        ArrayList<Object> reversed = new ArrayList<>();
+        Object current = target;
+        while (current != null) {
+            reversed.add(current);
+            current = parents.get(current);
+        }
+        Collections.reverse(reversed);
+        return reversed;
+    }
+
+    private static void addPlannedNode(
+            ArrayList<Object> nodes,
+            ArrayList<ParserTraceEvent> events,
+            Set<Object> plannedNodes,
+            Object node,
+            ParserTraceEvent event
+    ) {
+        if (plannedNodes.add(node)) {
+            nodes.add(node);
+            events.add(event);
+        }
     }
 
     private static Object componentValue(Object node, String name) {

@@ -75,6 +75,26 @@ class ParserStageStepperTest {
     }
 
     @Test
+    void advancesLargeAstRevealWithoutRepeatedWholeTreeScans() {
+        ParserStageStepper stepper = new ParserStageStepper(lex(new SourceFile(
+                "large-parser.mc",
+                generatedProgram(80)
+        )));
+
+        long started = System.nanoTime();
+        int steps = 0;
+        while (stepper.canNext()) {
+            stepper.next();
+            stepper.data();
+            steps++;
+        }
+        long elapsedMillis = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+
+        assertThat(steps).isGreaterThan(500);
+        assertThat(elapsedMillis).isLessThan(2_000);
+    }
+
+    @Test
     void previousRemainsUnsupported() {
         ParserStageStepper stepper = new ParserStageStepper(lex(new SourceFile("parser.mc", "")));
 
@@ -88,5 +108,18 @@ class ParserStageStepperTest {
         LexResult lexResult = new Lexer(sourceFile).lex();
         assertThat(lexResult.diagnostics()).isEmpty();
         return lexResult.tokens();
+    }
+
+    private static String generatedProgram(int functions) {
+        StringBuilder source = new StringBuilder();
+        for (int index = 0; index < functions; index++) {
+            source.append("int f").append(index).append("(int x) {\n")
+                    .append("    int a = x + ").append(index).append(";\n")
+                    .append("    int b = a * 2;\n")
+                    .append("    if (b > 10) { return b; }\n")
+                    .append("    return b + 1;\n")
+                    .append("}\n");
+        }
+        return source.toString();
     }
 }
