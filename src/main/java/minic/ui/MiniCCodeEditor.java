@@ -17,6 +17,7 @@ import minic.uiapi.UiDiagnosticDto;
 import minic.uiapi.UiLexerTokenVisualDto;
 import minic.uiapi.UiRealtimeAnalysisDto;
 import org.fxmisc.flowless.VirtualizedScrollPane;
+import org.fxmisc.richtext.LineNumberFactory;
 import org.fxmisc.richtext.StyleClassedTextArea;
 import org.fxmisc.richtext.model.StyleSpans;
 import org.fxmisc.richtext.model.StyleSpansBuilder;
@@ -61,6 +62,7 @@ public final class MiniCCodeEditor extends StackPane {
         getStyleClass().add("code-editor");
         input.getStyleClass().add("source-editor");
         input.setWrapText(false);
+        input.setParagraphGraphicFactory(LineNumberFactory.get(input));
         input.setTextInsertionStyle(List.of("token-plain"));
         input.addEventFilter(KeyEvent.KEY_PRESSED, this::handleCompletionKeys);
         input.addEventFilter(KeyEvent.KEY_TYPED, this::handleTypedText);
