@@ -17,13 +17,49 @@
     -fx-min-height: 43px;
     -fx-alignment: center;
     -fx-text-fill: #bdbdbd;
-    -fx-font-size: 20px;
+}
+
+.activity-icon {
+    -fx-fill: transparent;
+    -fx-stroke: #858585;
+    -fx-stroke-width: 1.7px;
+    -fx-stroke-line-cap: round;
+    -fx-stroke-line-join: round;
+}
+
+.activity-item:hover {
+    -fx-background-color: #3c3c3c;
+    -fx-text-fill: #ffffff;
+}
+
+.activity-item:hover .activity-icon {
+    -fx-stroke: #cccccc;
 }
 
 .activity-item.active {
     -fx-text-fill: #ffffff;
     -fx-border-color: #ffffff;
     -fx-border-width: 0 0 0 2px;
+}
+
+.activity-item.active .activity-icon {
+    -fx-stroke: #ffffff;
+}
+
+.activity-placeholder {
+    -fx-padding: 24px 28px;
+    -fx-background-color: #1e1e1e;
+}
+
+.activity-placeholder-title {
+    -fx-text-fill: #ffffff;
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+}
+
+.activity-placeholder-text {
+    -fx-text-fill: #bdbdbd;
+    -fx-font-size: 13px;
 }
 
 .workbench-body {

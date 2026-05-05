@@ -89,6 +89,67 @@ class MiniCWorkbenchShellTest {
         assertThat(first.sessionStartedProperty().get()).isTrue();
     }
 
+    @Test
+    void switchesActivitySectionsFromLeftMenu() {
+        startJavafx();
+        MiniCWorkbenchShell shell = new MiniCWorkbenchShell(new MiniCWorkbenchViewModel());
+        Parent root = shell.createRoot();
+
+        assertThat(activityItems(root).stream().map(Label::getAccessibleText))
+                .containsExactly("代码区", "调试", "设置", "信息");
+        assertThat(button(root, "打开")).isNotNull();
+
+        activityItem(root, "调试").fireEvent(new javafx.scene.input.MouseEvent(
+                javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                0, 0, 0, 0,
+                javafx.scene.input.MouseButton.PRIMARY,
+                1,
+                false, false, false, false,
+                true, false, false, true,
+                false, false, null
+        ));
+        assertThat(labels(root).stream().map(Label::getText))
+                .contains("调试", "调试视图将在后续实现。");
+        assertThat(button(root, "打开")).isNull();
+
+        activityItem(root, "设置").fireEvent(new javafx.scene.input.MouseEvent(
+                javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                0, 0, 0, 0,
+                javafx.scene.input.MouseButton.PRIMARY,
+                1,
+                false, false, false, false,
+                true, false, false, true,
+                false, false, null
+        ));
+        assertThat(labels(root).stream().map(Label::getText))
+                .contains("设置", "设置视图将在后续实现。");
+
+        activityItem(root, "信息").fireEvent(new javafx.scene.input.MouseEvent(
+                javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                0, 0, 0, 0,
+                javafx.scene.input.MouseButton.PRIMARY,
+                1,
+                false, false, false, false,
+                true, false, false, true,
+                false, false, null
+        ));
+        assertThat(labels(root).stream().map(Label::getText))
+                .contains("信息", "信息视图将在后续实现。");
+
+        activityItem(root, "代码区").fireEvent(new javafx.scene.input.MouseEvent(
+                javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                0, 0, 0, 0,
+                javafx.scene.input.MouseButton.PRIMARY,
+                1,
+                false, false, false, false,
+                true, false, false, true,
+                false, false, null
+        ));
+        assertThat(button(root, "打开")).isNotNull();
+        assertThat(labels(root).stream().map(Label::getText))
+                .contains("C  untitled-1.mc");
+    }
+
     private static java.util.List<javafx.scene.Node> visibleChildren(StackPane pane) {
         return pane.getChildren().stream()
                 .filter(child -> child.isVisible() && child.isManaged())
@@ -124,6 +185,19 @@ class MiniCWorkbenchShellTest {
         java.util.ArrayList<Label> labels = new java.util.ArrayList<>();
         collectLabels(node, labels);
         return labels;
+    }
+
+    private static java.util.List<Label> activityItems(javafx.scene.Node node) {
+        return labels(node).stream()
+                .filter(label -> label.getStyleClass().contains("activity-item"))
+                .toList();
+    }
+
+    private static Label activityItem(javafx.scene.Node node, String accessibleText) {
+        return activityItems(node).stream()
+                .filter(label -> accessibleText.equals(label.getAccessibleText()))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static void collectLabels(javafx.scene.Node node, java.util.ArrayList<Label> labels) {
