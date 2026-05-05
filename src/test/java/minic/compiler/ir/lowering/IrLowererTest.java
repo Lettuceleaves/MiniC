@@ -218,6 +218,40 @@ class IrLowererTest {
     }
 
     @Test
+    void lowersSwitchCaseDefaultToComparisonsAndFallthroughBlocks() {
+        Program program = parse("""
+                int main() {
+                    int value = 1;
+                    switch (value) {
+                        case 1:
+                            value = 2;
+                        case 2:
+                            value = value + 1;
+                            break;
+                        default:
+                            value = 0;
+                    }
+                    return value;
+                }
+                """);
+
+        IrFunction main = new IrLowerer().lower(program).findFunction("main").orElseThrow();
+
+        assertThat(main.blocks()).extracting(IrBlock::label)
+                .anyMatch(label -> label.startsWith("switch_case_"))
+                .anyMatch(label -> label.startsWith("switch_default_"))
+                .anyMatch(label -> label.startsWith("switch_exit_"));
+        assertThat(instructions(main))
+                .filteredOn(IrBinaryInstruction.class::isInstance)
+                .map(IrBinaryInstruction.class::cast)
+                .extracting(IrBinaryInstruction::operator)
+                .contains(IrBinaryOperator.EQUAL);
+        assertThat(jumpTargets(main))
+                .anyMatch(target -> target.startsWith("switch_case_"))
+                .anyMatch(target -> target.startsWith("switch_exit_"));
+    }
+
+    @Test
     void lowersPointersArraysStructsAndFunctionPointers() {
         Program program = parse("""
                 struct Point {

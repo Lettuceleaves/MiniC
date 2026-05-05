@@ -298,6 +298,34 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsSwitchCaseControlFlow() {
+        AssemblySource assemblySource = emit("""
+                int main() {
+                    int value = 1;
+                    switch (value) {
+                        case 1:
+                            value = 2;
+                        case 2:
+                            value = value + 1;
+                            break;
+                        default:
+                            value = 0;
+                    }
+                    return value;
+                }
+                """);
+
+        assertThat(assemblySource.text()).contains(
+                "    cmp eax, ecx",
+                "    sete al",
+                "    jne main$switch_case_"
+        );
+        assertThat(assemblySource.text()).containsPattern("main\\$switch_case_\\d+:");
+        assertThat(assemblySource.text()).containsPattern("main\\$switch_default_\\d+:");
+        assertThat(assemblySource.text()).containsPattern("main\\$switch_exit_\\d+:");
+    }
+
     private AssemblySource emit(String source) {
         return new WindowsX64AssemblyEmitter().emit(lowerWithSemantic(source));
     }

@@ -10,6 +10,15 @@ import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
+import minic.compiler.ast.stmt.SwitchCase;
+import minic.compiler.ast.stmt.SwitchStmt;
+import minic.compiler.ast.expr.Expression;
+import minic.compiler.ast.expr.IntegerLiteralExpr;
+import minic.compiler.ast.expr.LongLiteralExpr;
+import minic.compiler.ast.expr.CharLiteralExpr;
+import minic.compiler.ast.expr.BoolLiteralExpr;
+import minic.compiler.ir.instruction.IrBinaryInstruction;
+import minic.compiler.ir.instruction.IrBinaryOperator;
 import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.ir.instruction.IrBranchInstruction;
@@ -20,6 +29,7 @@ import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrValue;
+import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.type.MiniType;
 
 import java.util.ArrayDeque;
@@ -31,6 +41,7 @@ final class StatementLowerer {
     private final ExpressionLowerer expressionLowerer;
     private final IrType returnType;
     private final Deque<LoopTarget> loopTargets = new ArrayDeque<>();
+    private final Deque<String> switchBreakTargets = new ArrayDeque<>();
 
     StatementLowerer(
             IrFunctionBuilder builder,
@@ -91,7 +102,8 @@ final class StatementLowerer {
             return;
         }
         if (statement instanceof BreakStmt breakStmt) {
-            builder.addInstruction(new IrJumpInstruction(loopTargets.peek().breakLabel(), breakStmt.range()));
+            String breakLabel = !loopTargets.isEmpty() ? loopTargets.peek().breakLabel() : switchBreakTargets.peek();
+            builder.addInstruction(new IrJumpInstruction(breakLabel, breakStmt.range()));
             return;
         }
         if (statement instanceof ContinueStmt continueStmt) {
@@ -112,6 +124,10 @@ final class StatementLowerer {
         }
         if (statement instanceof ForStmt forStmt) {
             lowerFor(forStmt);
+            return;
+        }
+        if (statement instanceof SwitchStmt switchStmt) {
+            lowerSwitch(switchStmt);
             return;
         }
         throw new IllegalArgumentException("unsupported statement: " + statement.getClass().getSimpleName());
@@ -206,6 +222,85 @@ final class StatementLowerer {
         builder.addInstruction(new IrBranchInstruction(condition, bodyLabel, exitLabel, doWhileStmt.condition().range()));
 
         builder.switchToBlock(exitLabel);
+    }
+
+    private void lowerSwitch(SwitchStmt switchStmt) {
+        IrValue selector = expressionLowerer.lowerExpression(switchStmt.selector());
+        String exitLabel = builder.newBlockLabel("switch_exit");
+        java.util.List<String> caseLabels = new java.util.ArrayList<>();
+        for (int index = 0; index < switchStmt.cases().size(); index++) {
+            caseLabels.add(builder.newBlockLabel(switchStmt.cases().get(index).defaultCase() ? "switch_default" : "switch_case"));
+        }
+        String defaultLabel = exitLabel;
+        for (int index = 0; index < switchStmt.cases().size(); index++) {
+            if (switchStmt.cases().get(index).defaultCase()) {
+                defaultLabel = caseLabels.get(index);
+                break;
+            }
+        }
+        for (int index = 0; index < switchStmt.cases().size(); index++) {
+            SwitchCase switchCase = switchStmt.cases().get(index);
+            if (switchCase.defaultCase()) {
+                continue;
+            }
+            IrValue caseValue = lowerCaseConstant(switchCase.valueOptional().orElseThrow());
+            IrTemporary comparison = builder.newTemporary(IrType.INT);
+            builder.addInstruction(new IrBinaryInstruction(
+                    comparison,
+                    IrBinaryOperator.EQUAL,
+                    selector,
+                    caseValue,
+                    switchCase.range()
+            ));
+            String nextCheckLabel = builder.newBlockLabel("switch_check");
+            String elseLabel = hasLaterNonDefaultCase(switchStmt, index) ? nextCheckLabel : defaultLabel;
+            builder.addInstruction(new IrBranchInstruction(comparison, caseLabels.get(index), elseLabel, switchCase.range()));
+            if (hasLaterNonDefaultCase(switchStmt, index)) {
+                builder.switchToBlock(nextCheckLabel);
+            }
+        }
+        builder.addJumpIfOpen(defaultLabel, switchStmt.range());
+
+        switchBreakTargets.push(exitLabel);
+        try {
+            for (int index = 0; index < switchStmt.cases().size(); index++) {
+                SwitchCase switchCase = switchStmt.cases().get(index);
+                builder.switchToBlock(caseLabels.get(index));
+                for (Statement statement : switchCase.statements()) {
+                    lowerStatement(statement);
+                }
+                String fallthrough = index + 1 < switchStmt.cases().size() ? caseLabels.get(index + 1) : exitLabel;
+                builder.addJumpIfOpen(fallthrough, switchCase.range());
+            }
+        } finally {
+            switchBreakTargets.pop();
+        }
+        builder.switchToBlock(exitLabel);
+    }
+
+    private boolean hasLaterNonDefaultCase(SwitchStmt switchStmt, int currentIndex) {
+        for (int index = currentIndex + 1; index < switchStmt.cases().size(); index++) {
+            if (!switchStmt.cases().get(index).defaultCase()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private IrValue lowerCaseConstant(Expression expression) {
+        if (expression instanceof IntegerLiteralExpr integerLiteralExpr) {
+            return new minic.compiler.ir.value.IrConstant(integerLiteralExpr.value());
+        }
+        if (expression instanceof LongLiteralExpr longLiteralExpr) {
+            return new minic.compiler.ir.value.IrConstant(longLiteralExpr.value(), IrType.LONG);
+        }
+        if (expression instanceof CharLiteralExpr charLiteralExpr) {
+            return new minic.compiler.ir.value.IrConstant(charLiteralExpr.value(), IrType.CHAR);
+        }
+        if (expression instanceof BoolLiteralExpr boolLiteralExpr) {
+            return new minic.compiler.ir.value.IrConstant(boolLiteralExpr.value() ? 1 : 0, IrType.BOOL);
+        }
+        throw new IllegalArgumentException("unsupported case constant: " + expression.getClass().getSimpleName());
     }
 
     private void lowerLoopBranch(Statement statement, String breakLabel, String continueLabel) {
