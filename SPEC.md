@@ -270,6 +270,10 @@ minic.cli
 - Codegen visual data 使用 UI 专用 assembly 行 DTO：稳定行号、文本、kind、section、label 和 active 标记，不暴露 emitter、frame layout 或 codegen work 对象。
 - JavaFX Visual Pane 根据 visual type 自动切换 Lexer、AST、Semantic、Assembly 和 generic fallback 视图；UI 层仍只依赖 `minic.uiapi` DTO。
 
+`0.4.0-SNAPSHOT` 表达式 lowering 限制：
+
+- `&&`、`||` 和 `?:` 当前已生成正确结果值，但 lowering 采用非短路求值；如果分支或右操作数包含副作用，当前版本不保证 C 标准短路语义。后续如需完整 C 行为，应单独实现短路控制流 lowering。
+
 核心流水线：
 
 ```text

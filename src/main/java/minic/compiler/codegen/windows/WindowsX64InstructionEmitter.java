@@ -18,6 +18,8 @@ import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.instruction.IrStorePointerInstruction;
+import minic.compiler.ir.instruction.IrSelectInstruction;
+import minic.compiler.ir.instruction.IrUnaryInstruction;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
@@ -111,6 +113,8 @@ final class WindowsX64InstructionEmitter {
             }
             case IrCastInstruction cast -> emitCast(builder, cast);
             case IrBinaryInstruction binary -> emitBinary(builder, binary);
+            case IrUnaryInstruction unary -> emitUnary(builder, unary);
+            case IrSelectInstruction select -> emitSelect(builder, select);
             case IrAddressOfLocalInstruction addressOfLocal -> {
                 builder.append("    lea rax, ").append(frame.localAddress(addressOfLocal.local()))
                         .append(System.lineSeparator());
@@ -221,6 +225,29 @@ final class WindowsX64InstructionEmitter {
                     builder.append("    idiv ").append(rightRegister).append(System.lineSeparator());
                 }
             }
+            case MODULO -> {
+                builder.append(operationType == IrType.LONG ? "    cqo" : "    cdq").append(System.lineSeparator());
+                builder.append("    idiv ").append(rightRegister).append(System.lineSeparator());
+                builder.append("    mov ").append(leftRegister).append(", ")
+                        .append(operationType == IrType.LONG ? "rdx" : "edx").append(System.lineSeparator());
+            }
+            case BITWISE_AND -> builder.append("    and ").append(leftRegister).append(", ").append(rightRegister).append(System.lineSeparator());
+            case BITWISE_OR -> builder.append("    or ").append(leftRegister).append(", ").append(rightRegister).append(System.lineSeparator());
+            case BITWISE_XOR -> builder.append("    xor ").append(leftRegister).append(", ").append(rightRegister).append(System.lineSeparator());
+            case SHIFT_LEFT -> {
+                if (!"rcx".equals(rightRegister) && !"ecx".equals(rightRegister)) {
+                    builder.append("    mov ecx, ").append(rightRegister).append(System.lineSeparator());
+                }
+                builder.append("    shl ").append(leftRegister).append(", cl").append(System.lineSeparator());
+            }
+            case SHIFT_RIGHT -> {
+                if (!"rcx".equals(rightRegister) && !"ecx".equals(rightRegister)) {
+                    builder.append("    mov ecx, ").append(rightRegister).append(System.lineSeparator());
+                }
+                builder.append("    sar ").append(leftRegister).append(", cl").append(System.lineSeparator());
+            }
+            case LOGICAL_AND -> emitLogicalBinary(builder, "and", leftRegister, rightRegister);
+            case LOGICAL_OR -> emitLogicalBinary(builder, "or", leftRegister, rightRegister);
             case EQUAL -> emitComparison(builder, operationType, "sete", leftRegister, rightRegister);
             case NOT_EQUAL -> emitComparison(builder, operationType, "setne", leftRegister, rightRegister);
             case LESS_THAN -> emitComparison(builder, operationType, operationType.isFloatingScalar() ? "setb" : "setl", leftRegister, rightRegister);
@@ -234,6 +261,52 @@ final class WindowsX64InstructionEmitter {
                 binary.result().type(),
                 valueEmitter.storeRegister("rax", binary.result().type())
         );
+    }
+
+    private void emitUnary(StringBuilder builder, IrUnaryInstruction unary) {
+        valueEmitter.emitLoadValue(builder, unary.operand(), "rax");
+        switch (unary.operator()) {
+            case LOGICAL_NOT -> {
+                builder.append("    cmp ").append(valueEmitter.storeRegister("rax", unary.operand().type()))
+                        .append(", 0").append(System.lineSeparator());
+                builder.append("    sete al").append(System.lineSeparator());
+                builder.append("    movzx eax, al").append(System.lineSeparator());
+            }
+            case BITWISE_NOT -> builder.append("    not ")
+                    .append(valueEmitter.storeRegister("rax", unary.result().type()))
+                    .append(System.lineSeparator());
+        }
+        emitStoreRegisterToMemory(
+                builder,
+                frame.temporarySlot(unary.result()),
+                unary.result().type(),
+                valueEmitter.storeRegister("rax", unary.result().type())
+        );
+    }
+
+    private void emitSelect(StringBuilder builder, IrSelectInstruction select) {
+        String falseLabel = "minic$select_false_" + Math.abs(select.hashCode());
+        String endLabel = "minic$select_end_" + Math.abs(select.hashCode());
+        valueEmitter.emitLoadValue(builder, select.condition(), "eax");
+        builder.append("    cmp eax, 0").append(System.lineSeparator());
+        builder.append("    je ").append(falseLabel).append(System.lineSeparator());
+        valueEmitter.emitLoadValue(builder, select.thenValue(), storeValueRegister(select.result().type()));
+        emitStoreRegisterToMemory(builder, frame.temporarySlot(select.result()), select.result().type(), storeValueRegister(select.result().type()));
+        builder.append("    jmp ").append(endLabel).append(System.lineSeparator());
+        builder.append(falseLabel).append(":").append(System.lineSeparator());
+        valueEmitter.emitLoadValue(builder, select.elseValue(), storeValueRegister(select.result().type()));
+        emitStoreRegisterToMemory(builder, frame.temporarySlot(select.result()), select.result().type(), storeValueRegister(select.result().type()));
+        builder.append(endLabel).append(":").append(System.lineSeparator());
+    }
+
+    private void emitLogicalBinary(StringBuilder builder, String operation, String leftRegister, String rightRegister) {
+        builder.append("    cmp ").append(leftRegister).append(", 0").append(System.lineSeparator());
+        builder.append("    setne al").append(System.lineSeparator());
+        builder.append("    movzx eax, al").append(System.lineSeparator());
+        builder.append("    cmp ").append(rightRegister).append(", 0").append(System.lineSeparator());
+        builder.append("    setne cl").append(System.lineSeparator());
+        builder.append("    movzx ecx, cl").append(System.lineSeparator());
+        builder.append("    ").append(operation).append(" eax, ecx").append(System.lineSeparator());
     }
 
     private void emitCast(StringBuilder builder, IrCastInstruction cast) {

@@ -13,6 +13,14 @@ final class IrOperatorLowerer {
             case MINUS -> IrBinaryOperator.SUBTRACT;
             case STAR -> IrBinaryOperator.MULTIPLY;
             case SLASH -> IrBinaryOperator.DIVIDE;
+            case PERCENT -> IrBinaryOperator.MODULO;
+            case AMPERSAND -> IrBinaryOperator.BITWISE_AND;
+            case PIPE -> IrBinaryOperator.BITWISE_OR;
+            case CARET -> IrBinaryOperator.BITWISE_XOR;
+            case LESS_LESS -> IrBinaryOperator.SHIFT_LEFT;
+            case GREATER_GREATER -> IrBinaryOperator.SHIFT_RIGHT;
+            case AMPERSAND_AMPERSAND -> IrBinaryOperator.LOGICAL_AND;
+            case PIPE_PIPE -> IrBinaryOperator.LOGICAL_OR;
             case EQUAL_EQUAL -> IrBinaryOperator.EQUAL;
             case BANG_EQUAL -> IrBinaryOperator.NOT_EQUAL;
             case LESS -> IrBinaryOperator.LESS_THAN;

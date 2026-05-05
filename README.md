@@ -17,7 +17,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 
 `0.3.1` 已完成，当前进入 `0.4.0-SNAPSHOT` C 子集语法和预编译扩展阶段。
 
-下一步任务：`D133：补全表达式 IR lowering 和 codegen`。`D132` 已为新增表达式补充类型规则、左值规则和 diagnostics。
+下一步任务：`D140：补全 do while parser/semantic/IR`。`D133` 已为新增表达式补充 IR lowering 和 Windows x64 codegen。
 
 项目已经具备：
 

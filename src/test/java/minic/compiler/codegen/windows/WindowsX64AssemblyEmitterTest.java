@@ -268,6 +268,36 @@ class WindowsX64AssemblyEmitterTest {
         );
     }
 
+    @Test
+    void emitsPhaseDExpressionInstructions() {
+        AssemblySource assemblySource = emit("""
+                int main() {
+                    int value = 7;
+                    value %= 3;
+                    value = (value & 3) | 4 ^ 1;
+                    value = value << 1;
+                    value = value >> 1;
+                    value = !value || ~value;
+                    value = value ? sizeof value : sizeof(int);
+                    return value;
+                }
+                """);
+
+        assertThat(assemblySource.text()).contains(
+                "    idiv ecx",
+                "    mov eax, edx",
+                "    and eax, ecx",
+                "    or eax, ecx",
+                "    xor eax, ecx",
+                "    shl eax, cl",
+                "    sar eax, cl",
+                "    sete al",
+                "    not eax",
+                "    je minic$select_false_",
+                "    mov rcx, 4"
+        );
+    }
+
     private AssemblySource emit(String source) {
         return new WindowsX64AssemblyEmitter().emit(lowerWithSemantic(source));
     }

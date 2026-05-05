@@ -5,6 +5,7 @@ import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.BoolLiteralExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.CharLiteralExpr;
+import minic.compiler.ast.expr.ConditionalExpr;
 import minic.compiler.ast.expr.DoubleLiteralExpr;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.FieldAccessExpr;
@@ -15,6 +16,7 @@ import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.LongLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.NullLiteralExpr;
+import minic.compiler.ast.expr.SizeofExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
@@ -30,6 +32,9 @@ import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.instruction.IrStorePointerInstruction;
+import minic.compiler.ir.instruction.IrSelectInstruction;
+import minic.compiler.ir.instruction.IrUnaryInstruction;
+import minic.compiler.ir.instruction.IrUnaryOperator;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
@@ -110,7 +115,7 @@ final class ExpressionLowerer {
             return lowerExpression(groupingExpr.expression());
         }
         if (expression instanceof AssignmentExpr assignmentExpr) {
-            IrValue value = lowerExpression(assignmentExpr.value());
+            IrValue value = lowerAssignmentValue(assignmentExpr);
             lowerStore(assignmentExpr.target(), value, assignmentExpr.range());
             return value;
         }
@@ -130,13 +135,16 @@ final class ExpressionLowerer {
             return result;
         }
         if (expression instanceof BinaryExpr binaryExpr) {
+            if (binaryExpr.operator() == TokenKind.AMPERSAND_AMPERSAND || binaryExpr.operator() == TokenKind.PIPE_PIPE) {
+                return lowerLogicalBinary(binaryExpr);
+            }
             IrValue left = lowerExpression(binaryExpr.left());
             IrValue right = lowerExpression(binaryExpr.right());
             IrTemporary result = builder.newTemporary(irTypeOf(binaryExpr));
             IrType operandType = arithmeticOperandType(left.type(), right.type(), result.type());
             left = castIfNeeded(left, operandType, binaryExpr.left().range());
             right = castIfNeeded(right, operandType, binaryExpr.right().range());
-            if (binaryExpr.operator() == TokenKind.SLASH) {
+            if (binaryExpr.operator() == TokenKind.SLASH || binaryExpr.operator() == TokenKind.PERCENT) {
                 builder.addInstruction(new IrCheckNonZeroInstruction(right, binaryExpr.range()));
             }
             builder.addInstruction(new IrBinaryInstruction(
@@ -147,6 +155,19 @@ final class ExpressionLowerer {
                     binaryExpr.range()
             ));
             return result;
+        }
+        if (expression instanceof ConditionalExpr conditionalExpr) {
+            IrValue condition = lowerExpression(conditionalExpr.condition());
+            IrValue thenValue = lowerExpression(conditionalExpr.thenExpression());
+            IrValue elseValue = lowerExpression(conditionalExpr.elseExpression());
+            IrTemporary result = builder.newTemporary(irTypeOf(conditionalExpr));
+            builder.addInstruction(new IrSelectInstruction(result, condition, thenValue, elseValue, conditionalExpr.range()));
+            return result;
+        }
+        if (expression instanceof SizeofExpr sizeofExpr) {
+            MiniType queriedType = sizeofExpr.queriedTypeOptional()
+                    .orElseGet(() -> expressionTypes.get(sizeofExpr.expressionOptional().orElseThrow()));
+            return new IrConstant(minic.compiler.type.TypeLayout.sizeOf(queriedType), IrType.LONG);
         }
         if (expression instanceof CallExpr callExpr) {
             ArrayList<IrValue> arguments = new ArrayList<>();
@@ -165,6 +186,44 @@ final class ExpressionLowerer {
             return result;
         }
         throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
+    }
+
+    private IrValue lowerAssignmentValue(AssignmentExpr assignmentExpr) {
+        IrValue value = lowerExpression(assignmentExpr.value());
+        if (assignmentExpr.compoundBinaryOperator().isEmpty()) {
+            return value;
+        }
+        IrValue currentValue = lowerExpression(assignmentExpr.target());
+        IrTemporary result = builder.newTemporary(irTypeOf(assignmentExpr));
+        IrType operandType = arithmeticOperandType(currentValue.type(), value.type(), result.type());
+        currentValue = castIfNeeded(currentValue, operandType, assignmentExpr.target().range());
+        value = castIfNeeded(value, operandType, assignmentExpr.value().range());
+        TokenKind binaryOperator = assignmentExpr.compoundBinaryOperator().orElseThrow();
+        if (binaryOperator == TokenKind.SLASH || binaryOperator == TokenKind.PERCENT) {
+            builder.addInstruction(new IrCheckNonZeroInstruction(value, assignmentExpr.range()));
+        }
+        builder.addInstruction(new IrBinaryInstruction(
+                result,
+                IrOperatorLowerer.lower(binaryOperator),
+                currentValue,
+                value,
+                assignmentExpr.range()
+        ));
+        return result;
+    }
+
+    private IrValue lowerLogicalBinary(BinaryExpr binaryExpr) {
+        IrValue left = lowerExpression(binaryExpr.left());
+        IrValue right = lowerExpression(binaryExpr.right());
+        IrTemporary result = builder.newTemporary(IrType.INT);
+        builder.addInstruction(new IrBinaryInstruction(
+                result,
+                IrOperatorLowerer.lower(binaryExpr.operator()),
+                left,
+                right,
+                binaryExpr.range()
+        ));
+        return result;
     }
 
     IrValue castForTarget(IrValue value, IrType targetType, minic.source.SourceRange range) {
@@ -186,6 +245,33 @@ final class ExpressionLowerer {
             IrTemporary result = builder.newTemporary(irTypeOf(unaryExpr));
             builder.addInstruction(new IrLoadPointerInstruction(result, address, unaryExpr.range()));
             return result;
+        }
+        if (unaryExpr.operator() == TokenKind.BANG || unaryExpr.operator() == TokenKind.TILDE) {
+            IrValue operand = lowerExpression(unaryExpr.operand());
+            IrTemporary result = builder.newTemporary(irTypeOf(unaryExpr));
+            builder.addInstruction(new IrUnaryInstruction(
+                    result,
+                    unaryExpr.operator() == TokenKind.BANG ? IrUnaryOperator.LOGICAL_NOT : IrUnaryOperator.BITWISE_NOT,
+                    operand,
+                    unaryExpr.range()
+            ));
+            return result;
+        }
+        if (unaryExpr.operator() == TokenKind.PLUS_PLUS || unaryExpr.operator() == TokenKind.MINUS_MINUS) {
+            IrValue currentValue = lowerExpression(unaryExpr.operand());
+            IrConstant one = new IrConstant(1, currentValue.type());
+            IrTemporary updated = builder.newTemporary(currentValue.type());
+            builder.addInstruction(new IrBinaryInstruction(
+                    updated,
+                    unaryExpr.operator() == TokenKind.PLUS_PLUS
+                            ? minic.compiler.ir.instruction.IrBinaryOperator.ADD
+                            : minic.compiler.ir.instruction.IrBinaryOperator.SUBTRACT,
+                    currentValue,
+                    one,
+                    unaryExpr.range()
+            ));
+            lowerStore(unaryExpr.operand(), updated, unaryExpr.range());
+            return updated;
         }
         throw new IllegalArgumentException("unsupported unary expression: " + unaryExpr.operator());
     }

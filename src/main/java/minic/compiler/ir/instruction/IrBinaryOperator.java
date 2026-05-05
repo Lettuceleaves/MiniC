@@ -25,6 +25,46 @@ public enum IrBinaryOperator {
     DIVIDE,
 
     /**
+     * 整数取余。
+     */
+    MODULO,
+
+    /**
+     * 按位与。
+     */
+    BITWISE_AND,
+
+    /**
+     * 按位或。
+     */
+    BITWISE_OR,
+
+    /**
+     * 按位异或。
+     */
+    BITWISE_XOR,
+
+    /**
+     * 左移。
+     */
+    SHIFT_LEFT,
+
+    /**
+     * 右移。
+     */
+    SHIFT_RIGHT,
+
+    /**
+     * 逻辑与。
+     */
+    LOGICAL_AND,
+
+    /**
+     * 逻辑或。
+     */
+    LOGICAL_OR,
+
+    /**
      * 相等比较。
      */
     EQUAL,

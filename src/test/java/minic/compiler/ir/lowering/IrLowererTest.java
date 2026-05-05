@@ -24,6 +24,8 @@ import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.instruction.IrStorePointerInstruction;
+import minic.compiler.ir.instruction.IrSelectInstruction;
+import minic.compiler.ir.instruction.IrUnaryInstruction;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrModule;
@@ -315,6 +317,51 @@ class IrLowererTest {
                 .map(IrCallInstruction.class::cast)
                 .singleElement()
                 .satisfies(call -> assertThat(call.result().type()).isEqualTo(IrType.LONG));
+    }
+
+    @Test
+    void lowersPhaseDExpressionsToIrInstructions() {
+        Program program = parse("""
+                int main() {
+                    int value = 7;
+                    value %= 3;
+                    value = (value & 3) | 4 ^ 1;
+                    value = value << 1;
+                    value = value >> 1;
+                    value = !value || ~value;
+                    value = value ? sizeof value : sizeof(int);
+                    return value;
+                }
+                """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+
+        List<IrInstruction> mainInstructions = instructions(new IrLowerer().lower(program, semanticResult)
+                .findFunction("main").orElseThrow());
+
+        assertThat(mainInstructions)
+                .filteredOn(IrBinaryInstruction.class::isInstance)
+                .map(IrBinaryInstruction.class::cast)
+                .extracting(IrBinaryInstruction::operator)
+                .contains(
+                        IrBinaryOperator.MODULO,
+                        IrBinaryOperator.BITWISE_AND,
+                        IrBinaryOperator.BITWISE_OR,
+                        IrBinaryOperator.BITWISE_XOR,
+                        IrBinaryOperator.SHIFT_LEFT,
+                        IrBinaryOperator.SHIFT_RIGHT,
+                        IrBinaryOperator.LOGICAL_OR
+                );
+        assertThat(mainInstructions).filteredOn(IrUnaryInstruction.class::isInstance).hasSizeGreaterThanOrEqualTo(2);
+        assertThat(mainInstructions).filteredOn(IrSelectInstruction.class::isInstance).hasSize(1);
+        assertThat(mainInstructions)
+                .filteredOn(IrSelectInstruction.class::isInstance)
+                .map(IrSelectInstruction.class::cast)
+                .singleElement()
+                .satisfies(select -> {
+                    assertThat(select.thenValue()).isEqualTo(new IrConstant(4, IrType.LONG));
+                    assertThat(select.elseValue()).isEqualTo(new IrConstant(4, IrType.LONG));
+                });
     }
 
     @Test
