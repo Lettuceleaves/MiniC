@@ -241,13 +241,24 @@ public final class MiniCWorkbenchShell {
         tabs.getChildren().clear();
         for (int index = 0; index < documents.size(); index++) {
             DocumentTab document = documents.get(index);
-            Label tab = new Label("C  " + document.displayName());
+            HBox tab = new HBox();
             tab.getStyleClass().add("tab");
+            Label title = new Label("C  " + document.displayName());
+            title.getStyleClass().add("tab-title");
+            title.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(title, Priority.ALWAYS);
+            Label close = new Label("×");
+            close.getStyleClass().add("tab-close");
             if (index == activeDocumentIndex) {
                 tab.getStyleClass().add("active");
             }
             int tabIndex = index;
             tab.setOnMouseClicked(event -> switchDocument(tabIndex));
+            close.setOnMouseClicked(event -> {
+                closeDocument(tabIndex);
+                event.consume();
+            });
+            tab.getChildren().addAll(title, close);
             tabs.getChildren().add(tab);
         }
         tabs.getChildren().add(toolbarButton("+", "新建文件", this::newDocument));
@@ -268,6 +279,26 @@ public final class MiniCWorkbenchShell {
         activeDocumentIndex = index;
         body.getChildren().clear();
         rebuildWorkbenchBody();
+        refreshTabs();
+    }
+
+    private void closeDocument(int index) {
+        if (index < 0 || index >= documents.size()) {
+            return;
+        }
+        documents.remove(index);
+        if (documents.isEmpty()) {
+            addDocument("untitled-1.mc", "", null, new MiniCWorkbenchViewModel());
+            activeDocumentIndex = 0;
+        } else if (activeDocumentIndex >= documents.size()) {
+            activeDocumentIndex = documents.size() - 1;
+        } else if (index < activeDocumentIndex) {
+            activeDocumentIndex--;
+        }
+        if (body != null) {
+            body.getChildren().clear();
+            rebuildWorkbenchBody();
+        }
         refreshTabs();
     }
 

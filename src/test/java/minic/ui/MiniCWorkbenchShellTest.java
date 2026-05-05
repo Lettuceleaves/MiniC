@@ -90,6 +90,43 @@ class MiniCWorkbenchShellTest {
     }
 
     @Test
+    void closesDocumentTabsAndKeepsOneUntitledTab() {
+        startJavafx();
+        MiniCWorkbenchShell shell = new MiniCWorkbenchShell(new MiniCWorkbenchViewModel());
+        Parent root = shell.createRoot();
+
+        button(root, "+").fire();
+        assertThat(labels(root).stream().map(Label::getText))
+                .contains("C  untitled-1.mc", "C  untitled-2.mc");
+
+        closeButtonForTab(root, "C  untitled-2.mc").fireEvent(new javafx.scene.input.MouseEvent(
+                javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                0, 0, 0, 0,
+                javafx.scene.input.MouseButton.PRIMARY,
+                1,
+                false, false, false, false,
+                true, false, false, true,
+                false, false, null
+        ));
+        assertThat(labels(root).stream().map(Label::getText))
+                .contains("C  untitled-1.mc")
+                .doesNotContain("C  untitled-2.mc");
+
+        closeButtonForTab(root, "C  untitled-1.mc").fireEvent(new javafx.scene.input.MouseEvent(
+                javafx.scene.input.MouseEvent.MOUSE_CLICKED,
+                0, 0, 0, 0,
+                javafx.scene.input.MouseButton.PRIMARY,
+                1,
+                false, false, false, false,
+                true, false, false, true,
+                false, false, null
+        ));
+        assertThat(labels(root).stream().map(Label::getText))
+                .contains("C  untitled-1.mc");
+        assertThat(button(root, "打开")).isNotNull();
+    }
+
+    @Test
     void switchesActivitySectionsFromLeftMenu() {
         startJavafx();
         MiniCWorkbenchShell shell = new MiniCWorkbenchShell(new MiniCWorkbenchViewModel());
@@ -198,6 +235,28 @@ class MiniCWorkbenchShellTest {
                 .filter(label -> accessibleText.equals(label.getAccessibleText()))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private static Label closeButtonForTab(javafx.scene.Node node, String title) {
+        if (node instanceof Parent parent && node.getStyleClass().contains("tab")) {
+            java.util.List<Label> childLabels = labels(parent);
+            boolean titleMatches = childLabels.stream().anyMatch(label -> title.equals(label.getText()));
+            if (titleMatches) {
+                return childLabels.stream()
+                        .filter(label -> label.getStyleClass().contains("tab-close"))
+                        .findFirst()
+                        .orElseThrow();
+            }
+        }
+        if (node instanceof Parent parent) {
+            for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+                Label found = closeButtonForTab(child, title);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 
     private static void collectLabels(javafx.scene.Node node, java.util.ArrayList<Label> labels) {

@@ -600,10 +600,8 @@ public final class MiniCVisualPane extends VBox {
         graph.setManaged(false);
         Pane graphViewport = new Pane(graphGroup);
         graphViewport.getStyleClass().add("ast-graph-viewport");
-        graphViewport.prefWidthProperty().bind(astZoom.valueProperty().multiply(baseWidth));
-        graphViewport.prefHeightProperty().bind(astZoom.valueProperty().multiply(baseHeight));
-        graphViewport.minWidthProperty().bind(graphViewport.prefWidthProperty());
-        graphViewport.minHeightProperty().bind(graphViewport.prefHeightProperty());
+        graphViewport.setMinSize(baseWidth, baseHeight);
+        graphViewport.setPrefSize(baseWidth, baseHeight);
         configureAstGraphWheelZoom(graphViewport);
         configureAstGraphDrag(graphViewport);
         updateZoomedActiveMarker(box, graph, astZoom.getValue());
@@ -638,10 +636,8 @@ public final class MiniCVisualPane extends VBox {
         graph.setManaged(false);
         Pane graphViewport = new Pane(graphGroup);
         graphViewport.getStyleClass().add("ast-graph-viewport");
-        graphViewport.prefWidthProperty().bind(astZoom.valueProperty().multiply(baseWidth));
-        graphViewport.prefHeightProperty().bind(astZoom.valueProperty().multiply(baseHeight));
-        graphViewport.minWidthProperty().bind(graphViewport.prefWidthProperty());
-        graphViewport.minHeightProperty().bind(graphViewport.prefHeightProperty());
+        graphViewport.setMinSize(baseWidth, baseHeight);
+        graphViewport.setPrefSize(baseWidth, baseHeight);
         configureAstGraphWheelZoom(graphViewport);
         configureAstGraphDrag(graphViewport);
         updateZoomedActiveMarker(box, graph, astZoom.getValue());
