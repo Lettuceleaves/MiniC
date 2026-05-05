@@ -2,7 +2,7 @@
 
 当前开发阶段：`0.4.0-SNAPSHOT`。
 
-下一步任务：`D111：补全 Phase D lexer token`。
+下一步任务：`D120：实现 .mh include 解析和文件加载`。
 
 `0.1.0` 编译闭环总结见 [version/0.1.0.md](version/0.1.0.md)。
 `0.2.0` 结构化观测阶段记录见 [version/0.2.0.md](version/0.2.0.md)。
@@ -96,7 +96,7 @@
 
 验证：`./gradlew test`
 
-### D111：补全 Phase D lexer token
+### D111：补全 Phase D lexer token（已完成）
 
 依赖：`D110`。
 

@@ -115,6 +115,11 @@ public enum TokenKind {
     WHILE,
 
     /**
+     * {@code do} 关键字。
+     */
+    DO,
+
+    /**
      * {@code for} 关键字。
      */
     FOR,
@@ -128,6 +133,26 @@ public enum TokenKind {
      * {@code continue} 关键字。
      */
     CONTINUE,
+
+    /**
+     * {@code switch} 关键字。
+     */
+    SWITCH,
+
+    /**
+     * {@code case} 关键字。
+     */
+    CASE,
+
+    /**
+     * {@code default} 关键字。
+     */
+    DEFAULT,
+
+    /**
+     * {@code sizeof} 关键字。
+     */
+    SIZEOF,
 
     /**
      * {@code +}。
@@ -150,6 +175,16 @@ public enum TokenKind {
     MINUS,
 
     /**
+     * {@code --}。
+     */
+    MINUS_MINUS,
+
+    /**
+     * {@code -=}。
+     */
+    MINUS_EQUAL,
+
+    /**
      * {@code ->}。
      */
     ARROW,
@@ -160,14 +195,79 @@ public enum TokenKind {
     STAR,
 
     /**
+     * {@code *=}。
+     */
+    STAR_EQUAL,
+
+    /**
      * {@code &}。
      */
     AMPERSAND,
 
     /**
+     * {@code &&}。
+     */
+    AMPERSAND_AMPERSAND,
+
+    /**
+     * {@code &=}。
+     */
+    AMPERSAND_EQUAL,
+
+    /**
      * {@code /}。
      */
     SLASH,
+
+    /**
+     * {@code /=}。
+     */
+    SLASH_EQUAL,
+
+    /**
+     * {@code %}。
+     */
+    PERCENT,
+
+    /**
+     * {@code %=}。
+     */
+    PERCENT_EQUAL,
+
+    /**
+     * {@code |}。
+     */
+    PIPE,
+
+    /**
+     * {@code ||}。
+     */
+    PIPE_PIPE,
+
+    /**
+     * {@code |=}。
+     */
+    PIPE_EQUAL,
+
+    /**
+     * {@code ^}。
+     */
+    CARET,
+
+    /**
+     * {@code ^=}。
+     */
+    CARET_EQUAL,
+
+    /**
+     * {@code ~}。
+     */
+    TILDE,
+
+    /**
+     * {@code !}。
+     */
+    BANG,
 
     /**
      * {@code =}。
@@ -190,6 +290,16 @@ public enum TokenKind {
     LESS,
 
     /**
+     * {@code <<}。
+     */
+    LESS_LESS,
+
+    /**
+     * {@code <<=}。
+     */
+    LESS_LESS_EQUAL,
+
+    /**
      * {@code <=}。
      */
     LESS_EQUAL,
@@ -198,6 +308,16 @@ public enum TokenKind {
      * {@code >}。
      */
     GREATER,
+
+    /**
+     * {@code >>}。
+     */
+    GREATER_GREATER,
+
+    /**
+     * {@code >>=}。
+     */
+    GREATER_GREATER_EQUAL,
 
     /**
      * {@code >=}。
@@ -247,5 +367,20 @@ public enum TokenKind {
     /**
      * {@code .}。
      */
-    DOT
+    DOT,
+
+    /**
+     * {@code ...}。
+     */
+    ELLIPSIS,
+
+    /**
+     * {@code ?}。
+     */
+    QUESTION,
+
+    /**
+     * {@code :}。
+     */
+    COLON
 }

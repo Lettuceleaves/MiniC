@@ -51,8 +51,9 @@ class LexerTest {
     void distinguishesKeywordsFromIdentifierBoundaries() {
         SourceFile sourceFile = new SourceFile(
                 "keywords.mc",
-                "bool char int long float double struct return if else while for break continue extern "
-                        + "_main integer structValue returnValue ifValue elseValue whileValue forValue breakValue continueValue external"
+                "bool char int long float double struct return if else while do for break continue switch case default sizeof extern "
+                        + "_main integer structValue returnValue ifValue elseValue whileValue doValue forValue breakValue continueValue "
+                        + "switchValue caseValue defaultValue sizeofValue external"
         );
 
         LexResult result = new Lexer(sourceFile).lex();
@@ -72,10 +73,20 @@ class LexerTest {
                         TokenKind.IF,
                         TokenKind.ELSE,
                         TokenKind.WHILE,
+                        TokenKind.DO,
                         TokenKind.FOR,
                         TokenKind.BREAK,
                         TokenKind.CONTINUE,
+                        TokenKind.SWITCH,
+                        TokenKind.CASE,
+                        TokenKind.DEFAULT,
+                        TokenKind.SIZEOF,
                         TokenKind.EXTERN,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.IDENTIFIER,
                         TokenKind.IDENTIFIER,
                         TokenKind.IDENTIFIER,
                         TokenKind.IDENTIFIER,
@@ -91,7 +102,7 @@ class LexerTest {
                 );
         assertThat(result.tokens())
                 .extracting(Token::lexeme)
-                .contains("_main", "integer", "structValue", "breakValue", "external");
+                .contains("_main", "integer", "structValue", "breakValue", "switchValue", "sizeofValue", "external");
     }
 
     @Test
@@ -121,7 +132,10 @@ class LexerTest {
 
     @Test
     void lexesIncrementAndCompoundAssignmentOperators() {
-        SourceFile sourceFile = new SourceFile("operators.mc", "i++ a += i");
+        SourceFile sourceFile = new SourceFile(
+                "operators.mc",
+                "i++ j-- a += b -= c *= d /= e %= f &= g |= h ^= i <<= j >>= k"
+        );
 
         LexResult result = new Lexer(sourceFile).lex();
 
@@ -132,10 +146,75 @@ class LexerTest {
                         TokenKind.IDENTIFIER,
                         TokenKind.PLUS_PLUS,
                         TokenKind.IDENTIFIER,
+                        TokenKind.MINUS_MINUS,
+                        TokenKind.IDENTIFIER,
                         TokenKind.PLUS_EQUAL,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.MINUS_EQUAL,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.STAR_EQUAL,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.SLASH_EQUAL,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.PERCENT_EQUAL,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.AMPERSAND_EQUAL,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.PIPE_EQUAL,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.CARET_EQUAL,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.LESS_LESS_EQUAL,
+                        TokenKind.IDENTIFIER,
+                        TokenKind.GREATER_GREATER_EQUAL,
                         TokenKind.IDENTIFIER,
                         TokenKind.EOF
                 );
+    }
+
+    @Test
+    void lexesPhaseDOperatorsAndEllipsis() {
+        SourceFile sourceFile = new SourceFile(
+                "operators.mc",
+                "% & | ^ ~ ! && || << >> ? : . ..."
+        );
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(
+                        TokenKind.PERCENT,
+                        TokenKind.AMPERSAND,
+                        TokenKind.PIPE,
+                        TokenKind.CARET,
+                        TokenKind.TILDE,
+                        TokenKind.BANG,
+                        TokenKind.AMPERSAND_AMPERSAND,
+                        TokenKind.PIPE_PIPE,
+                        TokenKind.LESS_LESS,
+                        TokenKind.GREATER_GREATER,
+                        TokenKind.QUESTION,
+                        TokenKind.COLON,
+                        TokenKind.DOT,
+                        TokenKind.ELLIPSIS,
+                        TokenKind.EOF
+                );
+    }
+
+    @Test
+    void reportsIncompleteEllipsisWithoutTreatingItAsTwoDots() {
+        SourceFile sourceFile = new SourceFile("ellipsis.mc", ".. .");
+
+        LexResult result = new Lexer(sourceFile).lex();
+
+        assertThat(result.tokens())
+                .extracting(Token::kind)
+                .containsExactly(TokenKind.DOT, TokenKind.EOF);
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("不完整的省略号：..");
     }
 
     @Test

@@ -98,26 +98,35 @@ public final class LexerState implements CompilerStageState<LexerState.Input, Le
                     // 空白由 lexer 跳过，不产出 token。
                 }
                 case '+' -> addToken(match('+') ? TokenKind.PLUS_PLUS : match('=') ? TokenKind.PLUS_EQUAL : TokenKind.PLUS, startOffset);
-                case '-' -> addToken(match('>') ? TokenKind.ARROW : TokenKind.MINUS, startOffset);
-                case '*' -> addToken(TokenKind.STAR, startOffset);
-                case '&' -> addToken(TokenKind.AMPERSAND, startOffset);
+                case '-' -> addToken(match('>') ? TokenKind.ARROW
+                        : match('-') ? TokenKind.MINUS_MINUS
+                        : match('=') ? TokenKind.MINUS_EQUAL
+                        : TokenKind.MINUS, startOffset);
+                case '*' -> addToken(match('=') ? TokenKind.STAR_EQUAL : TokenKind.STAR, startOffset);
+                case '&' -> addToken(match('&') ? TokenKind.AMPERSAND_AMPERSAND
+                        : match('=') ? TokenKind.AMPERSAND_EQUAL
+                        : TokenKind.AMPERSAND, startOffset);
                 case '/' -> {
                     if (match('/')) {
                         skipLineComment();
                     } else {
-                        addToken(TokenKind.SLASH, startOffset);
+                        addToken(match('=') ? TokenKind.SLASH_EQUAL : TokenKind.SLASH, startOffset);
                     }
                 }
+                case '%' -> addToken(match('=') ? TokenKind.PERCENT_EQUAL : TokenKind.PERCENT, startOffset);
+                case '|' -> addToken(match('|') ? TokenKind.PIPE_PIPE
+                        : match('=') ? TokenKind.PIPE_EQUAL
+                        : TokenKind.PIPE, startOffset);
+                case '^' -> addToken(match('=') ? TokenKind.CARET_EQUAL : TokenKind.CARET, startOffset);
+                case '~' -> addToken(TokenKind.TILDE, startOffset);
                 case '=' -> addToken(match('=') ? TokenKind.EQUAL_EQUAL : TokenKind.EQUAL, startOffset);
-                case '!' -> {
-                    if (match('=')) {
-                        addToken(TokenKind.BANG_EQUAL, startOffset);
-                    } else {
-                        addInvalidCharacterDiagnostic(startOffset);
-                    }
-                }
-                case '<' -> addToken(match('=') ? TokenKind.LESS_EQUAL : TokenKind.LESS, startOffset);
-                case '>' -> addToken(match('=') ? TokenKind.GREATER_EQUAL : TokenKind.GREATER, startOffset);
+                case '!' -> addToken(match('=') ? TokenKind.BANG_EQUAL : TokenKind.BANG, startOffset);
+                case '<' -> addToken(match('<')
+                        ? match('=') ? TokenKind.LESS_LESS_EQUAL : TokenKind.LESS_LESS
+                        : match('=') ? TokenKind.LESS_EQUAL : TokenKind.LESS, startOffset);
+                case '>' -> addToken(match('>')
+                        ? match('=') ? TokenKind.GREATER_GREATER_EQUAL : TokenKind.GREATER_GREATER
+                        : match('=') ? TokenKind.GREATER_EQUAL : TokenKind.GREATER, startOffset);
                 case '(' -> addToken(TokenKind.LEFT_PAREN, startOffset);
                 case ')' -> addToken(TokenKind.RIGHT_PAREN, startOffset);
                 case '{' -> addToken(TokenKind.LEFT_BRACE, startOffset);
@@ -126,7 +135,9 @@ public final class LexerState implements CompilerStageState<LexerState.Input, Le
                 case ']' -> addToken(TokenKind.RIGHT_BRACKET, startOffset);
                 case ';' -> addToken(TokenKind.SEMICOLON, startOffset);
                 case ',' -> addToken(TokenKind.COMMA, startOffset);
-                case '.' -> addToken(TokenKind.DOT, startOffset);
+                case '.' -> lexDotOrEllipsis(startOffset);
+                case '?' -> addToken(TokenKind.QUESTION, startOffset);
+                case ':' -> addToken(TokenKind.COLON, startOffset);
                 case '"' -> lexStringLiteral(startOffset);
                 case '\'' -> lexCharLiteral(startOffset);
                 default -> {
@@ -266,9 +277,14 @@ public final class LexerState implements CompilerStageState<LexerState.Input, Le
             case "if" -> TokenKind.IF;
             case "else" -> TokenKind.ELSE;
             case "while" -> TokenKind.WHILE;
+            case "do" -> TokenKind.DO;
             case "for" -> TokenKind.FOR;
             case "break" -> TokenKind.BREAK;
             case "continue" -> TokenKind.CONTINUE;
+            case "switch" -> TokenKind.SWITCH;
+            case "case" -> TokenKind.CASE;
+            case "default" -> TokenKind.DEFAULT;
+            case "sizeof" -> TokenKind.SIZEOF;
             case "true", "false" -> TokenKind.BOOL_LITERAL;
             case "NULL" -> TokenKind.NULL_LITERAL;
             default -> TokenKind.IDENTIFIER;
@@ -367,6 +383,23 @@ public final class LexerState implements CompilerStageState<LexerState.Input, Le
                 new SourceRange(input.sourceFile, startOffset, work.currentOffset),
                 literalValue
         ));
+    }
+
+    private void lexDotOrEllipsis(int startOffset) {
+        if (match('.')) {
+            if (match('.')) {
+                addToken(TokenKind.ELLIPSIS, startOffset);
+            } else {
+                diagnostics.add(new Diagnostic(
+                        "LEX001",
+                        DiagnosticSeverity.ERROR,
+                        "不完整的省略号：..",
+                        new SourceRange(input.sourceFile, startOffset, work.currentOffset)
+                ));
+            }
+            return;
+        }
+        addToken(TokenKind.DOT, startOffset);
     }
 
     private boolean hasNextAsciiDigit() {
