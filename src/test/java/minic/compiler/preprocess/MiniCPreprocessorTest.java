@@ -251,4 +251,44 @@ class MiniCPreprocessorTest {
         assertThat(result.diagnostics()).isEmpty();
         assertThat(result.sourceFile().content()).isEqualTo("int main() { return 0; }\n");
     }
+
+    @Test
+    void acceptsHeaderDeclarationsAndRejectsHeaderFunctionDefinitions() throws Exception {
+        Path goodHeader = tempDir.resolve("good.mh");
+        Path badHeader = tempDir.resolve("bad.mh");
+        Files.writeString(goodHeader, """
+                struct Point { int x; int y; };
+                extern int runtime(char *format, ...);
+                int declared(int value);
+                """);
+        Files.writeString(badHeader, "int defined() { return 1; }\n");
+        SourceFile goodSource = new SourceFile(tempDir.resolve("good-main.mc").toString(), "#include \"good.mh\"\nint main() { return declared(1); }\n");
+        SourceFile badSource = new SourceFile(tempDir.resolve("bad-main.mc").toString(), "#include \"bad.mh\"\nint main() { return 0; }\n");
+
+        PreprocessResult goodResult = new MiniCPreprocessor().preprocess(goodSource);
+        PreprocessResult badResult = new MiniCPreprocessor().preprocess(badSource);
+
+        assertThat(goodResult.diagnostics()).isEmpty();
+        assertThat(goodResult.sourceFile().content()).contains(
+                "struct Point",
+                "extern int runtime(char *format, ...);",
+                "int declared(int value);"
+        );
+        assertThat(badResult.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("头文件不能包含函数定义：defined");
+    }
+
+    @Test
+    void rejectsHeaderExecutableStatementsAndInvalidContent() throws Exception {
+        Path header = tempDir.resolve("bad.mh");
+        Files.writeString(header, "return 1;\n");
+        SourceFile sourceFile = new SourceFile(tempDir.resolve("main.mc").toString(), "#include \"bad.mh\"\nint main() { return 0; }\n");
+
+        PreprocessResult result = new MiniCPreprocessor().preprocess(sourceFile);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("头文件只能包含函数声明、外部函数声明和结构体声明");
+    }
 }

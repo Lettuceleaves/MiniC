@@ -42,7 +42,7 @@ final class DeclarationParser {
 
         Token nameToken = state.consume(TokenKind.IDENTIFIER, "期望函数名");
         state.consume(TokenKind.LEFT_PAREN, "期望 '('");
-        List<Parameter> parameters = parseParameters();
+        ParameterList parameters = parseParameters();
         state.consume(TokenKind.RIGHT_PAREN, "期望 ')'");
         Token semicolonToken = null;
         BlockStmt body = null;
@@ -59,7 +59,8 @@ final class DeclarationParser {
             FunctionDecl functionDecl = new FunctionDecl(
                 nameToken.lexeme(),
                 returnType.type(),
-                parameters,
+                parameters.parameters(),
+                parameters.variadic(),
                 body,
                 external,
                 new SourceRange(
@@ -162,13 +163,21 @@ final class DeclarationParser {
         return baseType.arrayOf(length);
     }
 
-    private List<Parameter> parseParameters() {
+    private ParameterList parseParameters() {
         ArrayList<Parameter> parameters = new ArrayList<>();
         if (state.check(TokenKind.RIGHT_PAREN)) {
-            return parameters;
+            return new ParameterList(parameters, false);
         }
 
+        boolean variadic = false;
         do {
+            if (state.match(TokenKind.ELLIPSIS)) {
+                variadic = true;
+                if (!state.check(TokenKind.RIGHT_PAREN)) {
+                    state.report(state.peek(), "可变参数标记必须位于参数列表末尾");
+                }
+                break;
+            }
             ParsedType type = typeParser.parseType("期望参数类型 int");
             if (type != null && state.check(TokenKind.LEFT_PAREN)) {
                 ParsedNamedType functionPointer = typeParser.parseFunctionPointerDeclarator(type, "期望参数名");
@@ -191,7 +200,7 @@ final class DeclarationParser {
             }
         } while (state.match(TokenKind.COMMA));
 
-        return parameters;
+        return new ParameterList(parameters, variadic);
     }
 
     private void rejectFunctionPointerReturnType() {
@@ -207,6 +216,12 @@ final class DeclarationParser {
                 break;
             }
             state.advance();
+        }
+    }
+
+    private record ParameterList(List<Parameter> parameters, boolean variadic) {
+        private ParameterList {
+            parameters = List.copyOf(parameters);
         }
     }
 }

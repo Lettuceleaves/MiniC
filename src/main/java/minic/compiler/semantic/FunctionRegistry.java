@@ -37,6 +37,7 @@ final class FunctionRegistry {
                 functionStates.put(name, new FunctionState(
                         functionDecl.returnType(),
                         parameterTypes,
+                        functionDecl.variadic(),
                         functionDecl.hasBody(),
                         functionDecl.external()
                 ));
@@ -47,6 +48,10 @@ final class FunctionRegistry {
             }
             if (!existingState.returnType().equals(functionDecl.returnType())
                     || !existingState.parameterTypes().equals(parameterTypes)) {
+                reporter.report(functionDecl.range(), "函数声明签名不一致：" + name);
+                continue;
+            }
+            if (existingState.variadic() != functionDecl.variadic()) {
                 reporter.report(functionDecl.range(), "函数声明签名不一致：" + name);
                 continue;
             }
@@ -90,11 +95,13 @@ final class FunctionRegistry {
             reporter.report(callExpr.range(), "未定义函数调用：" + callExpr.calleeName());
         }
         Integer arity = functionSymbol.orElseThrow().arity();
-        if (arity != null && arity != callExpr.arguments().size()) {
+        boolean variadic = functionState != null && functionState.variadic();
+        if (arity != null && ((!variadic && arity != callExpr.arguments().size())
+                || (variadic && callExpr.arguments().size() < arity))) {
             reporter.report(callExpr.range(), "函数调用实参数量不匹配：" + callExpr.calleeName());
         }
-        if (functionState != null && functionState.parameterTypes().size() == argumentTypes.size()) {
-            for (int index = 0; index < argumentTypes.size(); index++) {
+        if (functionState != null && functionState.parameterTypes().size() <= argumentTypes.size()) {
+            for (int index = 0; index < functionState.parameterTypes().size(); index++) {
                 MiniType parameterType = functionState.parameterTypes().get(index);
                 MiniType argumentType = argumentTypes.get(index);
                 if (!isArgumentCompatible(parameterType, argumentType)) {
@@ -173,18 +180,24 @@ final class FunctionRegistry {
                 .toList();
     }
 
-    private record FunctionState(MiniType returnType, List<MiniType> parameterTypes, boolean defined, boolean external) {
+    private record FunctionState(
+            MiniType returnType,
+            List<MiniType> parameterTypes,
+            boolean variadic,
+            boolean defined,
+            boolean external
+    ) {
         private FunctionState {
             java.util.Objects.requireNonNull(returnType, "returnType");
             parameterTypes = List.copyOf(parameterTypes);
         }
 
         private FunctionState asDefined() {
-            return new FunctionState(returnType, parameterTypes, true, external);
+            return new FunctionState(returnType, parameterTypes, variadic, true, external);
         }
 
         private FunctionState asExternal() {
-            return new FunctionState(returnType, parameterTypes, defined, true);
+            return new FunctionState(returnType, parameterTypes, variadic, defined, true);
         }
     }
 }

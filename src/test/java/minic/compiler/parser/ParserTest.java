@@ -105,6 +105,38 @@ class ParserTest {
     }
 
     @Test
+    void parsesVariadicFunctionDeclarationAtParameterListEnd() {
+        SourceFile sourceFile = new SourceFile(
+                "variadic.mc",
+                "extern int printf(char *format, ...);"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        FunctionDecl printf = result.program().functions().getFirst();
+        assertThat(printf.name()).isEqualTo("printf");
+        assertThat(printf.external()).isTrue();
+        assertThat(printf.variadic()).isTrue();
+        assertThat(printf.parameters()).singleElement().satisfies(parameter ->
+                assertThat(parameter.type()).isEqualTo(MiniType.CHAR.pointerTo()));
+    }
+
+    @Test
+    void reportsVariadicMarkerBeforeTrailingParameters() {
+        SourceFile sourceFile = new SourceFile(
+                "bad-variadic.mc",
+                "extern int bad(int first, ..., int after);"
+        );
+
+        ParseResult result = parse(sourceFile);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .contains("可变参数标记必须位于参数列表末尾");
+    }
+
+    @Test
     void parsesControlFlowAndLoopStatementsInOneProgram() {
         SourceFile sourceFile = new SourceFile(
                 "control-flow.mc",

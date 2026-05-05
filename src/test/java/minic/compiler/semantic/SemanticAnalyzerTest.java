@@ -149,6 +149,40 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void acceptsVariadicFunctionCallsWithExtraArgumentsAndChecksFixedArguments() {
+        SemanticResult result = analyze("""
+                extern int printf(char *format, ...);
+
+                int main() {
+                    printf("value=%d\\n", 42, 1 + 2);
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+    }
+
+    @Test
+    void reportsVariadicFunctionCallsWithMissingOrBadFixedArguments() {
+        SemanticResult result = analyze("""
+                extern int printf(char *format, ...);
+
+                int main() {
+                    printf();
+                    printf(1, 2);
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly(
+                        "函数调用实参数量不匹配：printf",
+                        "函数调用实参类型不匹配：printf"
+                );
+    }
+
+    @Test
     void reportsLoweringLimitDiagnostics() {
         SemanticResult result = analyze("""
                 int addressParameter(int value) {

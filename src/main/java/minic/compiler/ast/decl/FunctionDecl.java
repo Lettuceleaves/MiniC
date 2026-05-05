@@ -13,6 +13,7 @@ import java.util.Optional;
  * @param name 函数名
  * @param returnType 返回类型
  * @param parameters 形参列表
+ * @param variadic 是否为可变参数函数
  * @param body 函数体 block；声明节点为 {@code null}
  * @param external 是否为外部函数声明
  * @param range 函数声明覆盖的源码范围
@@ -21,6 +22,7 @@ public record FunctionDecl(
         String name,
         minic.compiler.type.MiniType returnType,
         List<Parameter> parameters,
+        boolean variadic,
         BlockStmt body,
         boolean external,
         SourceRange range
@@ -31,6 +33,7 @@ public record FunctionDecl(
      * @param name 函数名
      * @param returnType 返回类型
      * @param parameters 形参列表
+     * @param variadic 是否为可变参数函数
      * @param body 函数体 block；声明节点为 {@code null}
      * @param external 是否为外部函数声明
      * @param range 函数声明覆盖的源码范围
@@ -54,7 +57,7 @@ public record FunctionDecl(
      * @param range 函数声明覆盖的源码范围
      */
     public FunctionDecl(String name, List<Parameter> parameters, SourceRange range) {
-        this(name, minic.compiler.type.MiniType.INT, parameters, null, false, range);
+        this(name, minic.compiler.type.MiniType.INT, parameters, false, null, false, range);
     }
 
     /**
@@ -71,7 +74,7 @@ public record FunctionDecl(
             List<Parameter> parameters,
             SourceRange range
     ) {
-        this(name, returnType, parameters, null, false, range);
+        this(name, returnType, parameters, false, null, false, range);
     }
 
     /**
@@ -83,7 +86,7 @@ public record FunctionDecl(
      * @param range 函数声明覆盖的源码范围
      */
     public FunctionDecl(String name, List<Parameter> parameters, boolean external, SourceRange range) {
-        this(name, minic.compiler.type.MiniType.INT, parameters, null, external, range);
+        this(name, minic.compiler.type.MiniType.INT, parameters, false, null, external, range);
     }
 
     /**
@@ -102,7 +105,7 @@ public record FunctionDecl(
             boolean external,
             SourceRange range
     ) {
-        this(name, returnType, parameters, null, external, range);
+        this(name, returnType, parameters, false, null, external, range);
     }
 
     /**
@@ -121,7 +124,49 @@ public record FunctionDecl(
             boolean external,
             SourceRange range
     ) {
-        this(name, minic.compiler.type.MiniType.INT, parameters, body, external, range);
+        this(name, minic.compiler.type.MiniType.INT, parameters, false, body, external, range);
+    }
+
+    /**
+     * 创建函数声明或定义节点。
+     *
+     * @param name 函数名
+     * @param returnType 返回类型
+     * @param parameters 形参列表
+     * @param body 函数体 block；声明节点为 {@code null}
+     * @param external 是否为外部函数声明
+     * @param range 函数声明覆盖的源码范围
+     */
+    public FunctionDecl(
+            String name,
+            minic.compiler.type.MiniType returnType,
+            List<Parameter> parameters,
+            BlockStmt body,
+            boolean external,
+            SourceRange range
+    ) {
+        this(name, returnType, parameters, false, body, external, range);
+    }
+
+    /**
+     * 创建可变参数函数声明节点。
+     *
+     * @param name 函数名
+     * @param returnType 返回类型
+     * @param parameters 固定形参列表
+     * @param variadic 是否为可变参数函数
+     * @param external 是否为外部函数声明
+     * @param range 函数声明覆盖的源码范围
+     */
+    public FunctionDecl(
+            String name,
+            minic.compiler.type.MiniType returnType,
+            List<Parameter> parameters,
+            boolean variadic,
+            boolean external,
+            SourceRange range
+    ) {
+        this(name, returnType, parameters, variadic, null, external, range);
     }
 
     /**

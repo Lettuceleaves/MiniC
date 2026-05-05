@@ -2,6 +2,11 @@ package minic.compiler.preprocess;
 
 import minic.diagnostics.Diagnostic;
 import minic.diagnostics.DiagnosticSeverity;
+import minic.compiler.ast.decl.FunctionDecl;
+import minic.compiler.lexer.LexResult;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.parser.ParseResult;
+import minic.compiler.parser.Parser;
 import minic.source.SourceFile;
 import minic.source.SourceRange;
 
@@ -249,11 +254,36 @@ public final class MiniCPreprocessor implements Preprocessor {
 
         work.includes.add(new IncludeSummary(requestedPath, resolvedPath, directiveRange, true));
         includeStack.add(resolvedPath);
-        output.append(expandSource(includeFile, resolvedPath.getParent(), includeStack, work));
+        String includeContent = expandSource(includeFile, resolvedPath.getParent(), includeStack, work);
+        validateHeader(includeFile, includeContent, work);
+        output.append(includeContent);
         if (output.length() > 0 && output.charAt(output.length() - 1) != '\n') {
             output.append('\n');
         }
         includeStack.remove(resolvedPath);
+    }
+
+    private void validateHeader(SourceFile originalHeader, String content, Work work) {
+        SourceFile headerSource = new SourceFile(originalHeader.path(), content);
+        LexResult lexResult = new Lexer(headerSource).lex();
+        if (!lexResult.diagnostics().isEmpty()) {
+            work.diagnostics.add(diagnostic(originalHeader, 0, originalHeader.content().length(), "头文件包含非法词法内容"));
+            return;
+        }
+        ParseResult parseResult = new Parser(lexResult.tokens()).parse();
+        if (!parseResult.diagnostics().isEmpty()) {
+            work.diagnostics.add(diagnostic(originalHeader, 0, originalHeader.content().length(), "头文件只能包含函数声明、外部函数声明和结构体声明"));
+            return;
+        }
+        parseResult.program().functions().stream()
+                .filter(FunctionDecl::hasBody)
+                .findFirst()
+                .ifPresent(function -> work.diagnostics.add(diagnostic(
+                        originalHeader,
+                        0,
+                        originalHeader.content().length(),
+                        "头文件不能包含函数定义：" + function.name()
+                )));
     }
 
     private void defineMacro(

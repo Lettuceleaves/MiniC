@@ -17,7 +17,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 
 `0.3.1` 已完成，当前进入 `0.4.0-SNAPSHOT` C 子集语法和预编译扩展阶段。
 
-下一步任务：`D125：校验 MiniC 头文件语法`。`D122` 已支持 `#ifdef/#ifndef/#else/#endif` 条件编译块，后续逐步实现 MiniC 头文件约束和新增 C 子集语法。
+下一步任务：`D131：补全表达式 parser 和 AST`。`D125/D130` 已支持 MiniC 头文件语法校验、`samples/minic_std.mh` 和 `extern int printf(char *format, ...);` 可变参数原型。
 
 项目已经具备：
 
