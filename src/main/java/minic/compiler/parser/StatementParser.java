@@ -10,6 +10,8 @@ import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
+import minic.compiler.ast.stmt.SwitchCase;
+import minic.compiler.ast.stmt.SwitchStmt;
 import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.lexer.Token;
@@ -92,6 +94,9 @@ final class StatementParser {
         }
         if (state.check(TokenKind.FOR)) {
             return parseForStmt();
+        }
+        if (state.check(TokenKind.SWITCH)) {
+            return parseSwitchStmt();
         }
         return parseExprStmt();
     }
@@ -237,6 +242,74 @@ final class StatementParser {
         );
         state.build(forStmt, "ForStmt", forStmt.range());
         return forStmt;
+    }
+
+    private SwitchStmt parseSwitchStmt() {
+        Token startToken = state.consume(TokenKind.SWITCH, "期望 switch");
+        state.consume(TokenKind.LEFT_PAREN, "期望 '('");
+        Expression selector = expressionParser.parseExpression();
+        state.consume(TokenKind.RIGHT_PAREN, "期望 ')'");
+        state.consume(TokenKind.LEFT_BRACE, "期望 '{'");
+        ArrayList<SwitchCase> cases = new ArrayList<>();
+        while (!state.check(TokenKind.RIGHT_BRACE) && !state.isAtEnd()) {
+            SwitchCase switchCase = parseSwitchCase();
+            if (switchCase != null) {
+                cases.add(switchCase);
+            } else {
+                state.synchronizeStatement();
+            }
+        }
+        Token endToken = state.consume(TokenKind.RIGHT_BRACE, "期望 '}'");
+        if (startToken == null || selector == null || endToken == null) {
+            return null;
+        }
+        SwitchStmt switchStmt = new SwitchStmt(
+                selector,
+                cases,
+                new SourceRange(
+                        startToken.range().sourceFile(),
+                        startToken.range().startOffset(),
+                        endToken.range().endOffset()
+                )
+        );
+        state.build(switchStmt, "SwitchStmt", switchStmt.range());
+        return switchStmt;
+    }
+
+    private SwitchCase parseSwitchCase() {
+        Token startToken;
+        Expression value = null;
+        if (state.match(TokenKind.CASE)) {
+            startToken = state.previous();
+            value = expressionParser.parseExpression();
+            state.consume(TokenKind.COLON, "期望 ':'");
+        } else if (state.match(TokenKind.DEFAULT)) {
+            startToken = state.previous();
+            state.consume(TokenKind.COLON, "期望 ':'");
+        } else {
+            state.report(state.peek(), "期望 case 或 default");
+            return null;
+        }
+        ArrayList<Statement> statements = new ArrayList<>();
+        while (!state.check(TokenKind.CASE)
+                && !state.check(TokenKind.DEFAULT)
+                && !state.check(TokenKind.RIGHT_BRACE)
+                && !state.isAtEnd()) {
+            Statement statement = parseStatement();
+            if (statement != null) {
+                statements.add(statement);
+            } else {
+                state.synchronizeStatement();
+            }
+        }
+        int endOffset = statements.isEmpty()
+                ? startToken.range().endOffset()
+                : statements.getLast().range().endOffset();
+        return new SwitchCase(
+                value,
+                statements,
+                new SourceRange(startToken.range().sourceFile(), startToken.range().startOffset(), endOffset)
+        );
     }
 
     private Statement parseForInitializer() {

@@ -25,6 +25,8 @@ import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.VarDeclStmt;
+import minic.compiler.ast.stmt.SwitchCase;
+import minic.compiler.ast.stmt.SwitchStmt;
 import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
@@ -210,6 +212,32 @@ class ParserTest {
         DoWhileStmt doWhileStmt = (DoWhileStmt) body.statements().getFirst();
         assertThat(doWhileStmt.body()).isInstanceOf(BlockStmt.class);
         assertThat(doWhileStmt.condition()).isInstanceOf(BinaryExpr.class);
+    }
+
+    @Test
+    void parsesSwitchCaseDefaultStatement() {
+        ParseResult result = parse(new SourceFile("switch.mc", """
+                int main() {
+                  switch (value) {
+                    case 1:
+                      value = 2;
+                    case 2:
+                      break;
+                    default:
+                      value = 0;
+                  }
+                  return value;
+                }
+                """));
+
+        assertThat(result.diagnostics()).isEmpty();
+        BlockStmt body = result.program().functions().getFirst().body();
+        assertThat(body.statements().getFirst()).isInstanceOf(SwitchStmt.class);
+        SwitchStmt switchStmt = (SwitchStmt) body.statements().getFirst();
+        assertThat(switchStmt.selector()).isInstanceOf(NameExpr.class);
+        assertThat(switchStmt.cases()).hasSize(3);
+        assertThat(switchStmt.cases()).extracting(SwitchCase::defaultCase)
+                .containsExactly(false, false, true);
     }
 
     @Test

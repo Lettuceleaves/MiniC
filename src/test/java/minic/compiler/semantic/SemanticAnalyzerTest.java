@@ -461,7 +461,7 @@ class SemanticAnalyzerTest {
                         "未解析变量：missing",
                         "未解析变量：missingLoop",
                         "未解析变量：missingLimit",
-                        "break 只能在循环内使用",
+                        "break 只能在循环或 switch 内使用",
                         "continue 只能在循环内使用",
                         "未解析变量：branchValue",
                         "未解析变量：loopValue",
@@ -498,6 +498,51 @@ class SemanticAnalyzerTest {
         assertThat(rejected.diagnostics())
                 .extracting(diagnostic -> diagnostic.message())
                 .containsExactly("条件表达式必须是标量或指针类型");
+    }
+
+    @Test
+    void validatesSwitchCaseRulesAndAllowsBreakOnlyInSwitch() {
+        SemanticResult accepted = analyze("""
+                int main() {
+                    int value = 1;
+                    switch (value) {
+                        case 1:
+                            value = 2;
+                        case 2:
+                            break;
+                        default:
+                            value = 0;
+                    }
+                    return value;
+                }
+                """);
+        SemanticResult rejected = analyze("""
+                struct Flag { int value; };
+                int main() {
+                    struct Flag flag;
+                    int value = 0;
+                    switch (flag) {
+                        case 1.5:
+                            continue;
+                        default:
+                            value = 1;
+                        default:
+                            value = 2;
+                    }
+                    return value;
+                }
+                """);
+
+        assertThat(accepted.diagnostics()).isEmpty();
+        assertThat(rejected.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly(
+                        "switch selector 必须是整数类型",
+                        "case 表达式必须是整数常量",
+                        "case 表达式必须是整数常量",
+                        "continue 只能在循环内使用",
+                        "switch 只能包含一个 default"
+                );
     }
 
     @Test

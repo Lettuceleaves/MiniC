@@ -17,7 +17,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 
 `0.3.1` 已完成，当前进入 `0.4.0-SNAPSHOT` C 子集语法和预编译扩展阶段。
 
-下一步任务：`D141：补全 switch case parser/semantic`。`D140` 已支持 `do while` 的 parser、semantic 和 IR lowering。
+下一步任务：`D142：补全 switch case IR lowering 和 codegen`。`D141` 已支持 `switch case default` 的 parser 和 semantic 规则。
 
 项目已经具备：
 

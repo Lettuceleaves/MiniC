@@ -12,6 +12,8 @@ import minic.compiler.ast.stmt.ForStmt;
 import minic.compiler.ast.stmt.IfStmt;
 import minic.compiler.ast.stmt.ReturnStmt;
 import minic.compiler.ast.stmt.Statement;
+import minic.compiler.ast.stmt.SwitchCase;
+import minic.compiler.ast.stmt.SwitchStmt;
 import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.type.MiniType;
@@ -27,6 +29,7 @@ final class StatementSemanticAnalyzer {
     private final ExpressionSemanticAnalyzer expressionAnalyzer;
     private FunctionDecl currentFunction;
     private int loopDepth;
+    private int switchDepth;
 
     StatementSemanticAnalyzer(
             Scope globalScope,
@@ -148,8 +151,8 @@ final class StatementSemanticAnalyzer {
             }
             case ExprStmt exprStmt -> expressionAnalyzer.analyzeExpression(exprStmt.expression(), scope);
             case BreakStmt breakStmt -> {
-                if (loopDepth == 0) {
-                    reporter.report(breakStmt.range(), "break 只能在循环内使用");
+                if (loopDepth == 0 && switchDepth == 0) {
+                    reporter.report(breakStmt.range(), "break 只能在循环或 switch 内使用");
                 }
             }
             case ContinueStmt continueStmt -> {
@@ -171,9 +174,55 @@ final class StatementSemanticAnalyzer {
                 analyzeCondition(doWhileStmt.condition(), scope);
             }
             case ForStmt forStmt -> analyzeFor(forStmt, scope);
+            case SwitchStmt switchStmt -> analyzeSwitch(switchStmt, scope);
             default -> throw new IllegalArgumentException("unsupported statement: "
                     + statement.getClass().getSimpleName());
         }
+    }
+
+    private void analyzeSwitch(SwitchStmt switchStmt, Scope scope) {
+        MiniType selectorType = expressionAnalyzer.analyzeExpression(switchStmt.selector(), scope);
+        if (!selectorType.isIntegerScalar()) {
+            reporter.report(switchStmt.selector().range(), "switch selector 必须是整数类型");
+        }
+        boolean defaultSeen = false;
+        switchDepth++;
+        try {
+            for (SwitchCase switchCase : switchStmt.cases()) {
+                if (switchCase.defaultCase()) {
+                    if (defaultSeen) {
+                        reporter.report(switchCase.range(), "switch 只能包含一个 default");
+                    }
+                    defaultSeen = true;
+                } else {
+                    Expression value = switchCase.valueOptional().orElseThrow();
+                    MiniType caseType = expressionAnalyzer.analyzeExpression(value, scope);
+                    if (!caseType.isIntegerScalar()) {
+                        reporter.report(value.range(), "case 表达式必须是整数常量");
+                    }
+                    if (!isSupportedCaseConstant(value)) {
+                        reporter.report(value.range(), "case 表达式必须是整数常量");
+                    }
+                }
+                analyzeSwitchCaseStatements(switchCase, scope);
+            }
+        } finally {
+            switchDepth--;
+        }
+    }
+
+    private void analyzeSwitchCaseStatements(SwitchCase switchCase, Scope parentScope) {
+        Scope scope = new Scope(parentScope, switchCase.range());
+        for (Statement statement : switchCase.statements()) {
+            analyzeStatement(statement, scope);
+        }
+    }
+
+    private boolean isSupportedCaseConstant(Expression expression) {
+        return expression instanceof minic.compiler.ast.expr.IntegerLiteralExpr
+                || expression instanceof minic.compiler.ast.expr.LongLiteralExpr
+                || expression instanceof minic.compiler.ast.expr.CharLiteralExpr
+                || expression instanceof minic.compiler.ast.expr.BoolLiteralExpr;
     }
 
     private void analyzeFor(ForStmt forStmt, Scope parentScope) {
