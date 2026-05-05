@@ -1,8 +1,8 @@
 # MiniC Agent 执行计划
 
-当前开发阶段：`0.3.1`。
+当前开发阶段：`0.4.0-SNAPSHOT`。
 
-下一步任务：待规划 `0.3.2-SNAPSHOT`。
+下一步任务：`D110：建立预编译阶段数据模型和 pipeline 插槽`。
 
 `0.1.0` 编译闭环总结见 [version/0.1.0.md](version/0.1.0.md)。
 `0.2.0` 结构化观测阶段记录见 [version/0.2.0.md](version/0.2.0.md)。
@@ -22,300 +22,388 @@
 - 修改已有文件前应先查看当前内容，避免覆盖用户或其他 agent 的未提交改动。
 - 不提交构建产物、IDE 私有配置、临时文件、日志文件和本地环境文件。
 
-## 0.3.1 目标边界
+## 0.4.0-SNAPSHOT 目标边界
 
-`0.3.1` 目标是增强 JavaFX UI 的阶段专属图形化表达，把 `0.3.0` 的摘要型 Visual Pane 升级为更贴近编译过程的图形视图。
+本阶段准备从现有 v0.1 C 子集继续扩展语法能力，并同步更新旧语法规范。扩展前必须先确认范围，避免一次性纳入过多 C 标准特性导致 parser、semantic、IR 和 codegen 的任务边界失控。
 
-本阶段仍沿用 `C` 任务编号，从 `C100` 开始。
+本阶段确认纳入：
 
-核心需求：
+- 常用运算符和表达式优先级：`-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`, `%`, `&`, `|`, `^`, `~`, `!`, `&&`, `||`, `<<`, `>>`, `?:`, `++`, `--`。
+- pipeline 前置预编译步骤：正式 lexer/parser 前先处理 include、宏定义、条件编译，并把预编译诊断并入编译诊断链路。
+- 轻量预处理宏语法：`#include "xxx.mh"`、`#define NAME value`、`#define NAME`、`#ifdef NAME`、`#ifndef NAME`、`#else`、`#endif`、`#undef NAME`。
+- MiniC 头文件语法：include 进来的文件只能使用 `.mh` 后缀，允许放置类似 `.h` 的函数声明、结构体声明、宏定义和条件编译块，但不得包含函数定义或可执行语句。
+- C 风格 `printf` 所需声明语法：字符串字面量作为 `char *`，函数声明支持 `...` 可变参数，样例中的旧写法 `extern int printf(int format, int value);` 应移除，改为 `extern int printf(char *format, ...);`。
+- 控制流和类型查询语法：`do while`、`switch case default`、`sizeof`。
 
-- Lexer 阶段：源码文本上使用半透明彩色遮罩覆盖当前 token，遮罩位置必须和源码字符位置对齐，并保留换行、tab、空格。
-- Parser/AST 阶段：显示 AST 树图形。
-- Semantic 阶段：显示作用域树，`global scope` 在顶部，树向下展开，但箭头方向反向，即从子作用域指向父作用域。
-- Codegen/Assembly 阶段：以文本行显示汇编，每生成一行就追加一行，并高亮当前行。
+本阶段暂不纳入：
 
-架构约束：
+- 函数式宏、`#if/#elif` 表达式、系统头文件搜索路径、`.h` 文件 include 和完整 C 预处理器。
+- 完整标准库头文件建模；`printf` 先作为外部符号声明和 Windows x64 调用约定样例处理。
+- `const`、`restrict`、`unsigned`、`void` 全量语义，除非实现 `printf` 原型时确需最小支持再单独拆任务确认。
 
-- UI 仍只依赖 `minic.uiapi` 门面和 DTO，不直接访问 compiler、runtime stepper 或 session 内部对象。
-- 如需更丰富图形数据，应扩展 UI 专用 visual DTO，不暴露 AST、Scope、IR、Stepper 等内部对象。
-- JavaFX 代码不得进入 compiler、runtime、session 或 uiapi 以外的职责边界。
-- `previous` 和 `reversePlay` 继续保持预留，不在本阶段实现。
+## Phase D 0.4.0-SNAPSHOT：C 子集语法和预编译扩展
 
-## Phase C 0.3.1：阶段图形化增强
+执行顺序原则：
 
-### C100：定义阶段图形化数据契约（已完成）
+- 先改规范和样例方向，再实现 pipeline 结构。
+- 预编译阶段先做“直通可观测”，再分别实现 include、对象宏、条件编译和 `.mh` 头文件约束。
+- 语法能力按 lexer -> parser/AST -> semantic -> IR/codegen 分层推进，避免一次任务横跨过多层。
+- `printf` 修复不作为临时绕过：必须通过 `char *`、字符串字面量、`...` 可变参数声明和 Windows x64 调用约定形成可解释闭环。
 
-依赖：`0.3.0` 已完成。
+### D100：更新语法扩展规范和 printf 原型方向（已完成）
 
-目标：为 Lexer、AST、Semantic 和 Codegen 定义 UI 专用 visual DTO。
+依赖：`0.3.1` 已完成。
 
-允许修改：
-
-- `src/main/java/minic/uiapi/**`
-- `src/test/java/minic/uiapi/**`
-- 可选 `src/main/java/minic/ui/**`
-- 可选 `src/test/java/minic/ui/**`
-
-验收：
-
-- 定义统一的 `UiStageVisualDto` 或等价聚合模型。
-- Lexer visual DTO 能表达 token 文本、kind、source range、起止行列、当前 token。
-- AST visual DTO 能表达树节点 label、kind、children、source range、当前节点。
-- Semantic visual DTO 能表达作用域节点、符号摘要、父子关系、当前作用域和反向箭头语义。
-- Assembly visual DTO 能表达已生成汇编行、当前行、行号、section/label 元信息。
-- DTO 只包含字符串、数字、布尔、range、只读列表等 UI 友好字段，不暴露 compiler/runtime/session 内部对象。
-
-验证：`./gradlew test`
-
-### C101：在 UI API 中暴露当前阶段 visual data（已完成）
-
-依赖：`C100`。
-
-目标：让 UI 能从 `MiniCObservationApi` 查询当前阶段图形化数据。
-
-允许修改：
-
-- `src/main/java/minic/uiapi/**`
-- `src/test/java/minic/uiapi/**`
-- 必要时 `src/main/java/minic/runtime/step/**`
-- 必要时 `src/test/java/minic/runtime/step/**`
-
-验收：
-
-- `MiniCObservationApi` 提供 `currentStageVisualData()` 或等价方法。
-- Lexer、Parser、Semantic、Codegen 阶段返回对应 visual 数据。
-- 其他阶段返回空 visual 或 generic visual。
-- 现有 UI API 方法保持兼容。
-- 新增 API 不暴露 compiler/runtime/session 内部类型。
-
-验证：`./gradlew test`
-
-### C110：实现 Lexer Token 遮罩数据生成（已完成）
-
-依赖：`C101`。
-
-目标：基于 token range 和源码文本生成可对齐的 token overlay 数据。
-
-允许修改：
-
-- `src/main/java/minic/uiapi/**`
-- `src/main/java/minic/runtime/step/**`
-- `src/test/java/minic/uiapi/**`
-- `src/test/java/minic/runtime/step/**`
-
-验收：
-
-- 当前 token 标记为 active。
-- token visual 包含 `startOffset`、`endOffset`、起止行列、token kind、token text。
-- UI 能根据 range 生成覆盖整个 token 的半透明彩色遮罩。
-- 空格、tab、换行不被压缩。
-- 测试覆盖空格、tab、换行、多字符 token、同一行多个 token。
-
-验证：`./gradlew test`
-
-### C111：实现 Lexer 源码对齐遮罩视图（已完成）
-
-依赖：`C110`。
-
-目标：在 JavaFX UI 中显示源码文本，并使用半透明彩色遮罩覆盖当前 token。
-
-允许修改：
-
-- `src/main/java/minic/ui/**`
-- `src/main/resources/**`
-- `src/test/java/minic/ui/**`
-
-验收：
-
-- 源码视图使用等宽布局。
-- 保留空格、tab、换行。
-- 当前 token 使用半透明彩色遮罩覆盖完整 token 文本区域。
-- 遮罩随 `next`、`play`、`tick` 推进。
-- 不压缩空白字符，不因 token 长度变化导致布局跳动。
-
-验证：`./gradlew test`，并手工启动 UI 检查。
-
-### C120：实现 AST 树 visual data（已完成）
-
-依赖：`C101`。
-
-目标：Parser 阶段生成 AST 树 DTO。
-
-允许修改：
-
-- `src/main/java/minic/uiapi/**`
-- `src/main/java/minic/runtime/step/**`
-- `src/test/java/minic/uiapi/**`
-- `src/test/java/minic/runtime/step/**`
-
-验收：
-
-- 程序根节点、函数、block、statement、expression 能形成树。
-- 当前 parser 节点可标记 active。
-- 节点保留 source range。
-- 节点 label 简洁可读。
-- 不暴露真实 AST 对象。
-
-验证：`./gradlew test`
-
-### C121：实现 AST 树视图（已完成）
-
-依赖：`C120`。
-
-目标：Parser 阶段显示 AST 树图形。
-
-允许修改：
-
-- `src/main/java/minic/ui/**`
-- `src/main/resources/**`
-- `src/test/java/minic/ui/**`
-
-验收：
-
-- AST 节点以树形布局展示。
-- active 节点高亮。
-- 树区域可滚动或自适应。
-- 点击节点可定位源码 range，若该 range 存在。
-- 大程序不会导致 UI 元素重叠。
-
-验证：`./gradlew test`，并手工启动 UI 检查。
-
-### C130：实现 Semantic 作用域树 visual data（已完成）
-
-依赖：`C101`。
-
-目标：Semantic 阶段生成作用域树 DTO，根节点为 `global scope`。
-
-允许修改：
-
-- `src/main/java/minic/uiapi/**`
-- `src/main/java/minic/runtime/step/**`
-- `src/test/java/minic/uiapi/**`
-- `src/test/java/minic/runtime/step/**`
-
-验收：
-
-- 根节点是 `global scope`。
-- 数据结构表达父子作用域关系。
-- 每条边带方向语义：child -> parent。
-- 每个作用域节点包含符号摘要。
-- 当前语义动作关联的作用域高亮。
-- 不暴露真实 Scope 或 Symbol 内部对象。
-
-验证：`./gradlew test`
-
-### C131：实现 Semantic 反向箭头作用域树视图（已完成）
-
-依赖：`C130`。
-
-目标：Semantic 阶段显示作用域树，布局向下展开但箭头反向。
-
-允许修改：
-
-- `src/main/java/minic/ui/**`
-- `src/main/resources/**`
-- `src/test/java/minic/ui/**`
-
-验收：
-
-- `global scope` 显示在顶部。
-- 子作用域向下展开。
-- 箭头方向从子节点指向父节点，视觉上箭头朝上。
-- 当前作用域节点高亮。
-- 当前路径可用强调色显示。
-- 节点显示变量、函数、结构体等符号摘要。
-- 可定位源码 range 时联动源码视图。
-
-验证：`./gradlew test`，并手工启动 UI 检查。
-
-### C140：实现 Assembly 行增量 visual data（已完成）
-
-依赖：`C101`。
-
-目标：Codegen 阶段提供已生成汇编行和当前行。
-
-允许修改：
-
-- `src/main/java/minic/uiapi/**`
-- `src/main/java/minic/runtime/step/**`
-- `src/test/java/minic/uiapi/**`
-- `src/test/java/minic/runtime/step/**`
-
-验收：
-
-- 每次 codegen step 后 assembly 行数递增或当前结构行变化。
-- 当前行标记 active。
-- 行号稳定。
-- section、label 可作为行 metadata。
-- 不暴露 codegen 内部 emitter 或 frame layout 对象。
-
-验证：`./gradlew test`
-
-### C141：实现 Assembly 行文本视图（已完成）
-
-依赖：`C140`。
-
-目标：Codegen 阶段以文本方式显示汇编生成过程。
-
-允许修改：
-
-- `src/main/java/minic/ui/**`
-- `src/main/resources/**`
-- `src/test/java/minic/ui/**`
-
-验收：
-
-- 汇编按行显示。
-- 每生成一行追加一行。
-- 当前行高亮。
-- 使用 `Consolas` 等宽字体。
-- 支持滚动到最新行。
-
-验证：`./gradlew test`，并手工启动 UI 检查。
-
-### C150：整合阶段 Visual Pane 自动切换（已完成）
-
-依赖：`C111`、`C121`、`C131`、`C141`。
-
-目标：根据当前阶段自动切换 Visual Pane 类型。
-
-允许修改：
-
-- `src/main/java/minic/ui/**`
-- `src/main/resources/**`
-- `src/test/java/minic/ui/**`
-
-验收：
-
-- Lexer 显示 token 半透明遮罩视图。
-- Parser 显示 AST 树。
-- Semantic 显示 global scope 在顶部、箭头反向的作用域树。
-- Codegen 显示 Assembly 行视图。
-- 其他阶段显示摘要 fallback。
-- `next`、`play`、`playFast`、`tick` 都能驱动 Visual Pane 刷新。
-
-验证：`./gradlew test`，并手工启动 UI 检查。
-
-### C160：0.3.1 文档与验收（已完成）
-
-依赖：`C150`。
-
-目标：收口 `0.3.1` 阶段。
+目标：更新 `SPEC.md` 和样例规划，明确本阶段语法扩展范围，并把旧 `printf` 声明方向修正为更符合 C 的可变参数外部函数原型。
 
 允许修改：
 
 - `README.md`
 - `PLAN.md`
 - `SPEC.md`
-- `version/0.3.1.md`
+- `samples/printf.mc`
 
 验收：
 
-- README 记录 `0.3.1` 图形化能力。
-- PLAN 标记 `C100-C150` 完成。
-- 新增 `version/0.3.1.md`。
-- `./gradlew test` 通过。
-- 手工 UI 验收记录包含 Lexer、AST、Semantic、Assembly 四个阶段结果。
+- PLAN 清除旧阶段任务，并记录 Phase D 任务拆分。
+- README 当前状态指向 `D100`。
+- SPEC 记录本阶段要支持的 pipeline 预编译步骤、`.mh` include 限制、宏语法、MiniC 头文件语法、运算符、`do while`、`switch case`、`sizeof`。
+- SPEC 明确 `extern int printf(int format, int value);` 虽是合法 C 函数声明，但不是标准 `printf` 签名；MiniC 样例应改用 `extern int printf(char *format, ...);`。
+- `samples/printf.mc` 不再使用 `int format` 伪签名。
 
-验证：`./gradlew test`，并手工启动 UI 检查。
+验证：文档任务，无需运行测试。
+
+### D110：建立预编译阶段数据模型和 pipeline 插槽
+
+依赖：`D100`。
+
+目标：在正式 lexer/parser 前建立 preprocess 阶段的最小数据模型，并把 `MiniCompiler` pipeline 改为 preprocess -> lexer -> parser。
+
+允许修改：
+
+- `src/main/java/minic/compiler/preprocess/**`
+- `src/main/java/minic/compiler/pipeline/**`
+- `src/test/java/minic/compiler/preprocess/**`
+- `src/test/java/minic/compiler/pipeline/**`
+
+验收：
+
+- 新增 `PreprocessResult` 或等价模型，包含预编译后的 `SourceFile`、diagnostics、include 摘要和宏摘要。
+- 新增 `Preprocessor` 或等价入口，初始实现可直通源码。
+- `MiniCompiler` 必须先调用预编译入口，再把预编译后的源码交给 lexer。
+- 预编译 diagnostics 非空时 pipeline 停止在 lexer 之前，并返回结构化 diagnostics。
+- 现有无宏源码行为保持兼容。
+
+验证：`./gradlew test`
+
+### D111：补全 Phase D lexer token
+
+依赖：`D110`。
+
+目标：让 lexer 能识别新增运算符、控制流关键字、`sizeof` 和 `...`。
+
+允许修改：
+
+- `src/main/java/minic/compiler/lexer/**`
+- `src/test/java/minic/compiler/lexer/**`
+
+验收：
+
+- 识别复合赋值：`-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`。
+- 识别新增运算符：`%`, `&`, `|`, `^`, `~`, `!`, `&&`, `||`, `<<`, `>>`, `?`, `:`, `++`, `--`。
+- 识别关键字：`do`、`switch`、`case`、`default`、`sizeof`。
+- 识别 `...`，并能区分 `.`、`..` 非法或不完整省略号。
+- 新增 token 测试覆盖相似标识符边界，例如 `switchValue` 仍是 identifier。
+
+验证：`./gradlew test`
+
+### D120：实现 .mh include 解析和文件加载
+
+依赖：`D110`。
+
+目标：在预编译阶段支持 `#include "xxx.mh"`，并拒绝非 `.mh` 后缀。
+
+允许修改：
+
+- `src/main/java/minic/compiler/preprocess/**`
+- `src/main/java/minic/compiler/pipeline/**`
+- `src/test/java/minic/compiler/preprocess/**`
+- 必要时 `src/main/java/minic/runtime/step/**`
+
+验收：
+
+- 支持 `#include "xxx.mh"`，include 目标必须是 `.mh` 后缀；`.h`、`.inc` 或其他后缀一律报 diagnostic。
+- `.mh` 查找限定为源文件相邻路径或编译选项显式 include 根目录。
+- 支持嵌套 include，并检测 include 循环。
+- include 展开顺序稳定，重复 include 暂不自动去重；后续可由 include guard 宏控制。
+- include 文件读取失败必须转为 diagnostic。
+- 预编译结果记录 include 列表，包含路径、来源行和展开状态。
+- 预编译后的源码保留主文件与 `.mh` 内容的可诊断来源信息。
+
+验证：`./gradlew test`
+
+### D121：实现对象宏定义、取消定义和替换
+
+依赖：`D120`。
+
+目标：支持 `#define NAME value`、`#define NAME`、`#undef NAME` 的对象宏。
+
+允许修改：
+
+- `src/main/java/minic/compiler/preprocess/**`
+- `src/test/java/minic/compiler/preprocess/**`
+
+验收：
+
+- 支持 `#define NAME value`、`#define NAME`、`#undef NAME`。
+- `#define NAME` 作为空宏或 presence 宏，可用于 `#ifdef/#ifndef`。
+- 宏名必须符合 MiniC identifier 规则。
+- 宏替换限定为对象宏 token 序列替换，不支持函数宏。
+- 替换只发生在普通源码 token 中，不替换字符串字面量内部内容。
+- 递归宏、直接自引用宏必须受限并给出 diagnostic 或保持不展开，避免无限循环。
+
+验证：`./gradlew test`
+
+### D122：实现条件编译块
+
+依赖：`D121`。
+
+目标：支持 `#ifdef/#ifndef/#else/#endif` 条件包含。
+
+允许修改：
+
+- `src/main/java/minic/compiler/preprocess/**`
+- `src/test/java/minic/compiler/preprocess/**`
+
+验收：
+
+- 支持 `#ifdef/#ifndef/#else/#endif` 条件包含，并对未闭合条件块给出 diagnostic。
+- 嵌套条件编译正确工作。
+- 同一条件块多个 `#else` 报 diagnostic。
+- 多余 `#endif` 或孤立 `#else` 报 diagnostic。
+- 被排除分支不参与普通源码输出，也不触发 lexer/parser 诊断。
+- 预编译后的源码必须保留足够的来源信息或 diagnostics range，后续 UI/CLI 能解释错误来自主文件还是 `.mh` 文件。
+
+验证：`./gradlew test`
+
+### D125：校验 MiniC 头文件语法
+
+依赖：`D122`。
+
+目标：允许 `.mh` 文件承载类似 C `.h` 的声明内容，并禁止头文件中出现实现体或可执行语句。
+
+允许修改：
+
+- `src/main/java/minic/compiler/preprocess/**`
+- `src/main/java/minic/compiler/parser/**`
+- `src/main/java/minic/compiler/semantic/**`
+- `src/test/java/minic/compiler/preprocess/**`
+- `src/test/java/minic/compiler/parser/**`
+- `samples/**`
+
+验收：
+
+- `.mh` 文件允许函数声明、外部函数声明、结构体声明、宏定义、条件编译块。
+- `.mh` 文件禁止函数定义、顶层可执行语句和非声明内容，并给出 diagnostic。
+- 主 `.mc` 文件 include `.mh` 后可使用其中的声明。
+- `.mh` 中声明参与 parser/semantic，但不得生成函数体 IR。
+- `printf` 等运行库声明可放入 `.mh` 文件，例如 `extern int printf(char *format, ...);`。
+- 新增 `samples/minic_std.mh` 或等价样例头文件，集中放置 `printf` 这类运行库声明。
+
+验证：`./gradlew test`
+
+### D130：支持可变参数函数声明和 printf 原型
+
+依赖：`D111`、`D125`。
+
+目标：支持 `extern int printf(char *format, ...);` 这类 C 风格可变参数外部函数声明，并更新旧 `printf` 样例。
+
+允许修改：
+
+- `src/main/java/minic/compiler/parser/**`
+- `src/main/java/minic/compiler/ast/**`
+- `src/main/java/minic/compiler/semantic/**`
+- `src/main/java/minic/compiler/ir/**`
+- `src/test/java/minic/compiler/parser/**`
+- `src/test/java/minic/compiler/ast/**`
+- `src/test/java/minic/compiler/semantic/**`
+- `samples/**`
+
+验收：
+
+- lexer/parser 支持 `...` 出现在函数参数列表末尾。
+- 函数声明 AST/符号表能表达 variadic 标记。
+- variadic 函数调用允许实参数量大于等于固定参数数量。
+- 固定参数继续做类型检查，额外参数按普通表达式分析并交给调用约定。
+- `samples/printf.mc` 或等价样例不再使用 `extern int printf(int format, int value);`。
+- 明确记录：`extern int printf(int format, int value);` 是合法 C 声明，但不是标准库 `printf` 原型，因此不能作为 MiniC 标准样例。
+
+验证：`./gradlew test`
+
+### D131：补全表达式 parser 和 AST
+
+依赖：`D111`。
+
+目标：按 C 优先级补全新增运算符、条件表达式和 `sizeof` 的 parser/AST。
+
+允许修改：
+
+- `src/main/java/minic/compiler/parser/**`
+- `src/main/java/minic/compiler/ast/**`
+- `src/test/java/minic/compiler/parser/**`
+- `src/test/java/minic/compiler/ast/**`
+
+验收：
+
+- 按 C 优先级解析：后缀、自增自减、一元、乘除余、加减、移位、关系、相等、按位与/异或/或、逻辑与/或、条件、赋值。
+- 支持复合赋值并在 AST 中保留可解释结构。
+- 支持 `sizeof expression` 和 `sizeof(type)`。
+- `?:` 右结合，赋值右结合。
+- parser 测试覆盖优先级组合而不是只测单个 token。
+
+验证：`./gradlew test`
+
+### D132：补全表达式语义规则
+
+依赖：`D131`。
+
+目标：为新增表达式补充类型规则、左值规则和 diagnostics。
+
+允许修改：
+
+- `src/main/java/minic/compiler/semantic/**`
+- `src/test/java/minic/compiler/semantic/**`
+
+验收：
+
+- 逻辑运算接受标量或指针，结果为 `int` 或后续规范确认的 bool/int。
+- 按位运算和移位只接受整数类型。
+- `!` 接受标量或指针，`~` 只接受整数类型。
+- 自增自减和复合赋值要求左侧为可赋值表达式。
+- `sizeof` 只接受固定布局类型，结果类型暂定为 `long`。
+- 条件表达式分支类型按 MiniC 类型兼容规则合并，不兼容时报 diagnostic。
+
+验证：`./gradlew test`
+
+### D133：补全表达式 IR lowering 和 codegen
+
+依赖：`D132`。
+
+目标：让新增表达式能生成可运行 IR/汇编。
+
+允许修改：
+
+- `src/main/java/minic/compiler/ir/**`
+- `src/main/java/minic/compiler/codegen/**`
+- `src/test/java/minic/compiler/ir/**`
+- `src/test/java/minic/compiler/codegen/**`
+- `samples/**`
+
+验收：
+
+- 新增二元/一元运算生成正确 IR 和关键汇编片段。
+- `sizeof` 对固定布局类型生成常量结果。
+- `&&` 和 `||` 至少语义正确；如先不做短路，必须在 SPEC 和任务汇报中明确限制，后续单独补短路。
+- `?:` 生成正确控制流或等价选择逻辑。
+- 复合赋值和自增自减生成正确 store。
+
+验证：`./gradlew test`
+
+### D140：补全 do while parser/semantic/IR
+
+依赖：`D111`、`D132`。
+
+目标：支持 `do while` 的 AST、语义和 IR lowering。
+
+允许修改：
+
+- `src/main/java/minic/compiler/parser/**`
+- `src/main/java/minic/compiler/ast/**`
+- `src/main/java/minic/compiler/semantic/**`
+- `src/main/java/minic/compiler/ir/**`
+- `src/test/java/minic/compiler/parser/**`
+- `src/test/java/minic/compiler/semantic/**`
+- `src/test/java/minic/compiler/ir/**`
+
+验收：
+
+- `do while` 至少执行一次循环体。
+- 条件表达式类型规则与 `while` 一致。
+- `break` 和 `continue` 在 `do while` 内合法。
+- `continue` 跳转到条件检查。
+- IR 控制流包含 body -> condition -> body/exit 的边。
+
+验证：`./gradlew test`
+
+### D141：补全 switch case parser/semantic
+
+依赖：`D111`、`D132`。
+
+目标：支持 `switch case default` 的 AST 和语义规则。
+
+允许修改：
+
+- `src/main/java/minic/compiler/parser/**`
+- `src/main/java/minic/compiler/ast/**`
+- `src/main/java/minic/compiler/semantic/**`
+- `src/test/java/minic/compiler/parser/**`
+- `src/test/java/minic/compiler/semantic/**`
+
+验收：
+
+- `switch` selector 必须是整数类型。
+- `case` 表达式必须是整数常量表达式；若暂不实现完整常量折叠，至少支持整数字面量和可安全求值的简单常量。
+- `default` 最多一个。
+- `break` 在循环和 `switch` 内合法，`continue` 仍只在循环内合法。
+- case 之间允许 C 风格 fallthrough。
+
+验证：`./gradlew test`
+
+### D142：补全 switch case IR lowering 和 codegen
+
+依赖：`D141`。
+
+目标：让 `switch case default` 生成正确控制流。
+
+允许修改：
+
+- `src/main/java/minic/compiler/ir/**`
+- `src/main/java/minic/compiler/codegen/**`
+- `src/test/java/minic/compiler/ir/**`
+- `src/test/java/minic/compiler/codegen/**`
+- `samples/**`
+
+验收：
+
+- selector 只求值一次。
+- 每个 case 生成比较和跳转。
+- 无匹配 case 时跳转到 default；没有 default 时跳转到 switch exit。
+- case fallthrough 按源码顺序执行。
+- `break` 跳转到 switch exit。
+
+验证：`./gradlew test`
+
+### D160：端到端样例、SPEC 和阶段验收
+
+依赖：`D122`、`D125`、`D130`、`D133`、`D140`、`D142`。
+
+目标：收口 Phase D 的文档、样例和端到端验证。
+
+允许修改：
+
+- `README.md`
+- `PLAN.md`
+- `SPEC.md`
+- `samples/**`
+- `version/0.4.0.md`
+- 必要时测试文件
+
+验收：
+
+- README 当前状态记录 `0.4.0` 语法扩展能力。
+- SPEC 更新完整语法片段、预编译阶段、`.mh` 头文件约束和 `printf` 声明说明。
+- 新增 `version/0.4.0.md` 阶段记录。
+- 样例覆盖 `.mh` include、宏、条件编译、`printf`、新增运算符、`do while`、`switch`、`sizeof`。
+- `./gradlew test` 通过。
+
+验证：`./gradlew test`

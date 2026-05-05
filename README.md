@@ -2,7 +2,7 @@
 
 MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。当前已经完成从源码到 Windows x64 可执行文件的基础编译闭环，并完成 `0.2.0` 结构化编译观测阶段。
 
-当前版本：`0.3.1`。
+当前版本：`0.4.0-SNAPSHOT`。
 
 ## 文档入口
 
@@ -15,7 +15,11 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 
 ## 当前状态
 
-`0.3.1` 已完成。项目已经具备：
+`0.3.1` 已完成，当前进入 `0.4.0-SNAPSHOT` C 子集语法和预编译扩展阶段。
+
+下一步任务：`D110：建立预编译阶段数据模型和 pipeline 插槽`，先在正式 lexer/parser 前接入 preprocess 阶段，再逐步实现 `.mh` include、宏、条件编译和新增 C 子集语法。
+
+项目已经具备：
 
 - MiniC 源码到 Windows x64 可执行文件的编译运行闭环。
 - Lexer、Parser、Semantic、IR lowering 和 Windows x64 codegen 的正向可步进状态。
@@ -26,7 +30,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 - 阶段专属 Visual Pane：Lexer token 半透明遮罩、Parser AST 树、Semantic 顶部 `global scope` 且反向箭头作用域树、Codegen Assembly 增量行文本视图。
 - `MiniCObservationApi.currentStageVisualData()` UI 专用 visual DTO，不向 UI 暴露 AST、Scope、IR、Stepper 等内部对象。
 
-下一步计划尚未展开。后续应在 `0.3.2-SNAPSHOT` 中继续细化 UI 交互，例如 AST/Scope 节点点击定位源码、真实手工 UI 截图验收和更完整的滚动定位体验。
+UI 交互细化暂缓，后续可继续补充 AST/Scope 节点点击定位源码、真实手工 UI 截图验收和更完整的滚动定位体验。
 
 UI 风格继续参考：
 
