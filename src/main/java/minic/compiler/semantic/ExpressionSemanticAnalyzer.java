@@ -5,6 +5,7 @@ import minic.compiler.ast.expr.BinaryExpr;
 import minic.compiler.ast.expr.BoolLiteralExpr;
 import minic.compiler.ast.expr.CallExpr;
 import minic.compiler.ast.expr.CharLiteralExpr;
+import minic.compiler.ast.expr.ConditionalExpr;
 import minic.compiler.ast.expr.DoubleLiteralExpr;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ast.expr.FieldAccessExpr;
@@ -15,9 +16,11 @@ import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.LongLiteralExpr;
 import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.NullLiteralExpr;
+import minic.compiler.ast.expr.SizeofExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.type.MiniType;
+import minic.compiler.type.TypeLayout;
 import minic.compiler.lexer.TokenKind;
 import minic.source.SourceRange;
 
@@ -60,30 +63,7 @@ final class ExpressionSemanticAnalyzer {
             case NullLiteralExpr ignored -> MiniType.NULL;
             case StringLiteralExpr ignored -> MiniType.CHAR.pointerTo();
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
-            case AssignmentExpr assignmentExpr -> {
-                if (assignmentExpr.target() instanceof NameExpr nameExpr) {
-                    scope.resolve(nameExpr.name()).ifPresent(symbol -> {
-                        if (symbol.kind() == SymbolKind.FUNCTION) {
-                            reporter.report(assignmentExpr.range(), "赋值左侧不能是函数名");
-                        }
-                        if (symbol.type().isArray()) {
-                            reporter.report(assignmentExpr.range(), "数组不能整体赋值");
-                        }
-                    });
-                }
-                MiniType targetType = analyzeAssignmentTarget(assignmentExpr.target(), scope, assignmentExpr.range());
-                MiniType valueType = analyzeExpression(assignmentExpr.value(), scope);
-                if (targetType.isArray()) {
-                    reporter.report(assignmentExpr.range(), "数组不能整体赋值");
-                }
-                if (targetType.isStruct() || valueType.isStruct()) {
-                    reporter.report(assignmentExpr.range(), "暂不支持结构体整体赋值");
-                }
-                if (!TypeCompatibility.isAssignmentCompatible(targetType, valueType)) {
-                    reporter.report(assignmentExpr.range(), "赋值类型不匹配");
-                }
-                yield targetType;
-            }
+            case AssignmentExpr assignmentExpr -> analyzeAssignment(assignmentExpr, scope);
             case BinaryExpr binaryExpr -> {
                 MiniType leftType = analyzeExpression(binaryExpr.left(), scope);
                 MiniType rightType = analyzeExpression(binaryExpr.right(), scope);
@@ -96,6 +76,8 @@ final class ExpressionSemanticAnalyzer {
             case IndexExpr indexExpr -> analyzeIndex(indexExpr, scope);
             case FieldAccessExpr fieldAccessExpr -> analyzeFieldAccess(fieldAccessExpr, scope);
             case UnaryExpr unaryExpr -> analyzeUnary(unaryExpr, scope);
+            case ConditionalExpr conditionalExpr -> analyzeConditional(conditionalExpr, scope);
+            case SizeofExpr sizeofExpr -> analyzeSizeof(sizeofExpr, scope);
             case CallExpr callExpr -> {
                 ArrayList<MiniType> argumentTypes = new ArrayList<>();
                 for (Expression argument : callExpr.arguments()) {
@@ -132,7 +114,84 @@ final class ExpressionSemanticAnalyzer {
             }
             return operandType.pointee();
         }
+        if (unaryExpr.operator() == TokenKind.BANG) {
+            if (!TypeCompatibility.isConditionCompatible(operandType)) {
+                reporter.report(unaryExpr.range(), "! 操作数必须是标量或指针");
+            }
+            return MiniType.INT;
+        }
+        if (unaryExpr.operator() == TokenKind.TILDE) {
+            if (!operandType.isIntegerScalar()) {
+                reporter.report(unaryExpr.range(), "~ 操作数必须是整数类型");
+            }
+            return operandType.isIntegerScalar() ? operandType : MiniType.INT;
+        }
+        if (unaryExpr.operator() == TokenKind.PLUS_PLUS || unaryExpr.operator() == TokenKind.MINUS_MINUS) {
+            MiniType targetType = analyzeAssignmentTarget(unaryExpr.operand(), scope, unaryExpr.range());
+            if (!targetType.isScalar() && !targetType.isPointer()) {
+                reporter.report(unaryExpr.range(), "自增自减操作数必须是标量或指针");
+            }
+            return targetType;
+        }
         throw new IllegalArgumentException("unsupported unary operator: " + unaryExpr.operator());
+    }
+
+    private MiniType analyzeAssignment(AssignmentExpr assignmentExpr, Scope scope) {
+        if (assignmentExpr.target() instanceof NameExpr nameExpr) {
+            scope.resolve(nameExpr.name()).ifPresent(symbol -> {
+                if (symbol.kind() == SymbolKind.FUNCTION) {
+                    reporter.report(assignmentExpr.range(), "赋值左侧不能是函数名");
+                }
+                if (symbol.type().isArray()) {
+                    reporter.report(assignmentExpr.range(), "数组不能整体赋值");
+                }
+            });
+        }
+        MiniType targetType = analyzeAssignmentTarget(assignmentExpr.target(), scope, assignmentExpr.range());
+        MiniType valueType = analyzeExpression(assignmentExpr.value(), scope);
+        if (targetType.isArray()) {
+            reporter.report(assignmentExpr.range(), "数组不能整体赋值");
+        }
+        if (targetType.isStruct() || valueType.isStruct()) {
+            reporter.report(assignmentExpr.range(), "暂不支持结构体整体赋值");
+        }
+        if (assignmentExpr.compoundBinaryOperator().isPresent()) {
+            TokenKind binaryOperator = assignmentExpr.compoundBinaryOperator().orElseThrow();
+            if (!TypeCompatibility.isBinaryCompatible(targetType, valueType, binaryOperator)) {
+                reporter.report(assignmentExpr.range(), "复合赋值操作数类型不匹配");
+            }
+            MiniType resultType = TypeCompatibility.binaryResultType(targetType, valueType, binaryOperator);
+            if (!TypeCompatibility.isAssignmentCompatible(targetType, resultType)) {
+                reporter.report(assignmentExpr.range(), "复合赋值结果类型不匹配");
+            }
+        } else if (!TypeCompatibility.isAssignmentCompatible(targetType, valueType)) {
+            reporter.report(assignmentExpr.range(), "赋值类型不匹配");
+        }
+        return targetType;
+    }
+
+    private MiniType analyzeConditional(ConditionalExpr conditionalExpr, Scope scope) {
+        MiniType conditionType = analyzeExpression(conditionalExpr.condition(), scope);
+        MiniType thenType = analyzeExpression(conditionalExpr.thenExpression(), scope);
+        MiniType elseType = analyzeExpression(conditionalExpr.elseExpression(), scope);
+        if (!TypeCompatibility.isConditionCompatible(conditionType)) {
+            reporter.report(conditionalExpr.condition().range(), "条件表达式必须是标量或指针类型");
+        }
+        if (!TypeCompatibility.isConditionalBranchCompatible(thenType, elseType)) {
+            reporter.report(conditionalExpr.range(), "条件表达式分支类型不匹配");
+        }
+        return TypeCompatibility.conditionalResultType(thenType, elseType);
+    }
+
+    private MiniType analyzeSizeof(SizeofExpr sizeofExpr, Scope scope) {
+        MiniType queriedType = sizeofExpr.queriedTypeOptional().orElse(null);
+        if (queriedType == null) {
+            queriedType = analyzeExpression(sizeofExpr.expressionOptional().orElseThrow(), scope);
+        }
+        if (!TypeLayout.hasFixedLayout(queriedType)) {
+            reporter.report(sizeofExpr.range(), "sizeof 只支持固定布局类型");
+        }
+        return MiniType.LONG;
     }
 
     private MiniType analyzeAssignmentTarget(Expression target, Scope scope, SourceRange range) {

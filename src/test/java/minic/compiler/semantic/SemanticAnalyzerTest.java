@@ -233,6 +233,64 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void acceptsPhaseDExpressionSemanticRules() {
+        Program program = parse("""
+                int main() {
+                    int value = 1;
+                    long size = sizeof value + sizeof(int);
+                    value += 2;
+                    value = value % 2;
+                    value = (value & 3) | 4 ^ 1;
+                    value = value << 1;
+                    value = !value || value && ~value;
+                    value = value ? 1 : 2;
+                    return value;
+                }
+                """);
+
+        SemanticResult result = new SemanticAnalyzer().analyze(program);
+
+        assertThat(result.diagnostics()).isEmpty();
+        VarDeclStmt sizeDecl = (VarDeclStmt) program.functions().getFirst().body().statements().get(1);
+        assertThat(result.typeOf(sizeDecl.initializerOptional().orElseThrow())).contains(MiniType.LONG);
+    }
+
+    @Test
+    void reportsPhaseDExpressionSemanticDiagnostics() {
+        SemanticResult result = analyze("""
+                struct Point { int x; };
+
+                int main() {
+                    struct Point point;
+                    double floating = 1.5;
+                    int value = 1;
+                    value = point ? 1 : 2;
+                    value = value & floating;
+                    value = value << floating;
+                    value = !point;
+                    value = ~floating;
+                    value += point;
+                    value = value ? point : value;
+                    return sizeof(point);
+                }
+                """);
+
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly(
+                        "条件表达式必须是标量或指针类型",
+                        "二元表达式操作数类型不匹配",
+                        "二元表达式操作数类型不匹配",
+                        "! 操作数必须是标量或指针",
+                        "~ 操作数必须是整数类型",
+                        "暂不支持结构体整体赋值",
+                        "复合赋值操作数类型不匹配",
+                        "条件表达式分支类型不匹配",
+                        "sizeof 只支持固定布局类型"
+                );
+    }
+
+    @Test
     void reportsRepresentativePointerArrayAndStructDiagnostics() {
         SemanticResult result = analyze("""
                 struct Point {

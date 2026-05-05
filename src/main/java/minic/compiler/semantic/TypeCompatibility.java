@@ -33,8 +33,14 @@ final class TypeCompatibility {
     }
 
     static MiniType binaryResultType(MiniType leftType, MiniType rightType, TokenKind operator) {
+        if (isLogical(operator)) {
+            return MiniType.INT;
+        }
         if (isComparison(operator)) {
             return MiniType.INT;
+        }
+        if (isBitwise(operator) || isShift(operator)) {
+            return usualArithmeticType(leftType, rightType);
         }
         if (isPointerArithmetic(leftType, rightType, operator)) {
             return leftType.isPointer() ? leftType : rightType;
@@ -49,6 +55,12 @@ final class TypeCompatibility {
     }
 
     static boolean isBinaryCompatible(MiniType leftType, MiniType rightType, TokenKind operator) {
+        if (isLogical(operator)) {
+            return isConditionCompatible(leftType) && isConditionCompatible(rightType);
+        }
+        if (isBitwise(operator) || isShift(operator)) {
+            return leftType.isIntegerScalar() && rightType.isIntegerScalar();
+        }
         if (isPointerArithmetic(leftType, rightType, operator) || isPointerDifference(leftType, rightType, operator)) {
             return true;
         }
@@ -61,6 +73,20 @@ final class TypeCompatibility {
             return true;
         }
         return false;
+    }
+
+    static boolean isConditionalBranchCompatible(MiniType thenType, MiniType elseType) {
+        return isAssignmentCompatible(thenType, elseType) || isAssignmentCompatible(elseType, thenType);
+    }
+
+    static MiniType conditionalResultType(MiniType thenType, MiniType elseType) {
+        if (thenType.equals(elseType) || isAssignmentCompatible(thenType, elseType)) {
+            return thenType;
+        }
+        if (isAssignmentCompatible(elseType, thenType)) {
+            return elseType;
+        }
+        return MiniType.INT;
     }
 
     private static boolean isPointerArithmetic(MiniType leftType, MiniType rightType, TokenKind operator) {
@@ -98,5 +124,19 @@ final class TypeCompatibility {
                 || operator == TokenKind.LESS_EQUAL
                 || operator == TokenKind.GREATER
                 || operator == TokenKind.GREATER_EQUAL;
+    }
+
+    private static boolean isLogical(TokenKind operator) {
+        return operator == TokenKind.AMPERSAND_AMPERSAND || operator == TokenKind.PIPE_PIPE;
+    }
+
+    private static boolean isBitwise(TokenKind operator) {
+        return operator == TokenKind.AMPERSAND
+                || operator == TokenKind.PIPE
+                || operator == TokenKind.CARET;
+    }
+
+    private static boolean isShift(TokenKind operator) {
+        return operator == TokenKind.LESS_LESS || operator == TokenKind.GREATER_GREATER;
     }
 }
