@@ -103,4 +103,82 @@ class MiniCPreprocessorTest {
                 .extracting(diagnostic -> diagnostic.message())
                 .containsExactly("检测到 include 循环：a.mh");
     }
+
+    @Test
+    void definesAndUndefinesObjectMacros() {
+        SourceFile sourceFile = new SourceFile("main.mc", """
+                #define VALUE 42
+                #define PRESENT
+                int main() { return VALUE; }
+                #undef VALUE
+                int other() { return VALUE; }
+                """);
+
+        PreprocessResult result = new MiniCPreprocessor().preprocess(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.sourceFile().content()).isEqualTo("""
+                int main() { return 42; }
+                int other() { return VALUE; }
+                """);
+        assertThat(result.macros())
+                .extracting(MacroSummary::name)
+                .containsExactly("VALUE", "PRESENT", "VALUE");
+        assertThat(result.macros())
+                .extracting(MacroSummary::defined)
+                .containsExactly(true, true, false);
+        assertThat(result.macros())
+                .extracting(MacroSummary::replacement)
+                .containsExactly("42", "", "");
+    }
+
+    @Test
+    void replacesMacrosOnlyAtIdentifierBoundariesAndOutsideStrings() {
+        SourceFile sourceFile = new SourceFile("main.mc", """
+                #define VALUE 7
+                int VALUE2 = VALUE;
+                char *text = "VALUE";
+                char c = 'V';
+                """);
+
+        PreprocessResult result = new MiniCPreprocessor().preprocess(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.sourceFile().content()).isEqualTo("""
+                int VALUE2 = 7;
+                char *text = "VALUE";
+                char c = 'V';
+                """);
+    }
+
+    @Test
+    void reportsInvalidAndDirectSelfReferentialMacros() {
+        SourceFile sourceFile = new SourceFile("main.mc", """
+                #define 1BAD 1
+                #define LOOP LOOP
+                int main() { return 0; }
+                """);
+
+        PreprocessResult result = new MiniCPreprocessor().preprocess(sourceFile);
+
+        assertThat(result.sourceFile().content()).isEqualTo("int main() { return 0; }\n");
+        assertThat(result.diagnostics())
+                .extracting(diagnostic -> diagnostic.message())
+                .containsExactly("define 指令必须使用对象宏名称", "宏不能直接自引用：LOOP");
+    }
+
+    @Test
+    void macrosCanBeSharedAcrossIncludedSources() throws Exception {
+        Path headerPath = tempDir.resolve("defs.mh");
+        Files.writeString(headerPath, "#define VALUE 9\n");
+        SourceFile sourceFile = new SourceFile(
+                tempDir.resolve("main.mc").toString(),
+                "#include \"defs.mh\"\nint main() { return VALUE; }\n"
+        );
+
+        PreprocessResult result = new MiniCPreprocessor().preprocess(sourceFile);
+
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.sourceFile().content()).isEqualTo("int main() { return 9; }\n");
+    }
 }

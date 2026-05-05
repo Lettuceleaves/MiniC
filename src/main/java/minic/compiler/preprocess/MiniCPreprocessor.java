@@ -10,7 +10,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -22,6 +24,10 @@ import java.util.regex.Pattern;
 public final class MiniCPreprocessor implements Preprocessor {
     private static final Pattern INCLUDE_PATTERN = Pattern.compile("^\\s*#\\s*include\\s+\"([^\"]+)\"\\s*$");
     private static final Pattern INCLUDE_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*include\\b.*$");
+    private static final Pattern DEFINE_PATTERN = Pattern.compile("^\\s*#\\s*define\\s+([A-Za-z_][A-Za-z0-9_]*)(?:\\s+(.*))?\\s*$");
+    private static final Pattern UNDEF_PATTERN = Pattern.compile("^\\s*#\\s*undef\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*$");
+    private static final Pattern DEFINE_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*define\\b.*$");
+    private static final Pattern UNDEF_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*undef\\b.*$");
 
     /**
      * 对源码执行默认预编译。
@@ -52,7 +58,7 @@ public final class MiniCPreprocessor implements Preprocessor {
                 preprocessedSource,
                 work.diagnostics,
                 work.includes,
-                List.of()
+                work.macroSummaries
         );
     }
 
@@ -68,15 +74,38 @@ public final class MiniCPreprocessor implements Preprocessor {
             if (matcher.matches()) {
                 expandInclude(sourceFile, currentDirectory, includeStack, work, output, lineStart, nextLineStart, matcher.group(1));
             } else {
-                if (INCLUDE_DIRECTIVE_PATTERN.matcher(line).matches()) {
-                    work.diagnostics.add(diagnostic(
-                            sourceFile,
-                            lineStart,
-                            nextLineStart,
-                            "include 指令必须使用双引号路径，例如 #include \"name.mh\""
-                    ));
+                Matcher defineMatcher = DEFINE_PATTERN.matcher(line);
+                Matcher undefMatcher = UNDEF_PATTERN.matcher(line);
+                if (defineMatcher.matches()) {
+                    defineMacro(sourceFile, work, lineStart, nextLineStart, defineMatcher.group(1), defineMatcher.group(2));
+                } else if (undefMatcher.matches()) {
+                    undefineMacro(sourceFile, work, lineStart, nextLineStart, undefMatcher.group(1));
+                } else {
+                    if (INCLUDE_DIRECTIVE_PATTERN.matcher(line).matches()) {
+                        work.diagnostics.add(diagnostic(
+                                sourceFile,
+                                lineStart,
+                                nextLineStart,
+                                "include 指令必须使用双引号路径，例如 #include \"name.mh\""
+                        ));
+                    } else if (DEFINE_DIRECTIVE_PATTERN.matcher(line).matches()) {
+                        work.diagnostics.add(diagnostic(
+                                sourceFile,
+                                lineStart,
+                                nextLineStart,
+                                "define 指令必须使用对象宏名称"
+                        ));
+                    } else if (UNDEF_DIRECTIVE_PATTERN.matcher(line).matches()) {
+                        work.diagnostics.add(diagnostic(
+                                sourceFile,
+                                lineStart,
+                                nextLineStart,
+                                "undef 指令必须使用对象宏名称"
+                        ));
+                    } else {
+                        output.append(replaceMacros(content.substring(lineStart, nextLineStart), work));
+                    }
                 }
-                output.append(content, lineStart, nextLineStart);
             }
             lineStart = nextLineStart;
         }
@@ -133,6 +162,108 @@ public final class MiniCPreprocessor implements Preprocessor {
         includeStack.remove(resolvedPath);
     }
 
+    private void defineMacro(
+            SourceFile sourceFile,
+            Work work,
+            int startOffset,
+            int endOffset,
+            String name,
+            String replacement
+    ) {
+        String normalizedReplacement = replacement == null ? "" : replacement.stripTrailing();
+        SourceRange range = new SourceRange(sourceFile, startOffset, endOffset);
+        if (containsIdentifier(normalizedReplacement, name)) {
+            work.diagnostics.add(diagnostic(sourceFile, startOffset, endOffset, "宏不能直接自引用：" + name));
+            return;
+        }
+        work.macros.put(name, new MacroDefinition(name, normalizedReplacement, range));
+        work.macroSummaries.add(new MacroSummary(name, normalizedReplacement, range, true));
+    }
+
+    private void undefineMacro(SourceFile sourceFile, Work work, int startOffset, int endOffset, String name) {
+        SourceRange range = new SourceRange(sourceFile, startOffset, endOffset);
+        work.macros.remove(name);
+        work.macroSummaries.add(new MacroSummary(name, "", range, false));
+    }
+
+    private String replaceMacros(String line, Work work) {
+        StringBuilder output = new StringBuilder();
+        int index = 0;
+        while (index < line.length()) {
+            char character = line.charAt(index);
+            if (character == '"') {
+                int end = copyQuotedLiteral(line, index, output, '"');
+                index = end;
+            } else if (character == '\'') {
+                int end = copyQuotedLiteral(line, index, output, '\'');
+                index = end;
+            } else if (isIdentifierStart(character)) {
+                int end = index + 1;
+                while (end < line.length() && isIdentifierPart(line.charAt(end))) {
+                    end++;
+                }
+                String identifier = line.substring(index, end);
+                MacroDefinition macro = work.macros.get(identifier);
+                output.append(macro == null ? identifier : macro.replacement());
+                index = end;
+            } else {
+                output.append(character);
+                index++;
+            }
+        }
+        return output.toString();
+    }
+
+    private int copyQuotedLiteral(String line, int start, StringBuilder output, char quote) {
+        output.append(quote);
+        int index = start + 1;
+        while (index < line.length()) {
+            char character = line.charAt(index++);
+            output.append(character);
+            if (character == '\\' && index < line.length()) {
+                output.append(line.charAt(index++));
+            } else if (character == quote) {
+                break;
+            }
+        }
+        return index;
+    }
+
+    private boolean containsIdentifier(String text, String identifier) {
+        int index = 0;
+        while (index < text.length()) {
+            char character = text.charAt(index);
+            if (character == '"' || character == '\'') {
+                index = skipQuotedLiteral(text, index, character);
+            } else if (isIdentifierStart(character)) {
+                int end = index + 1;
+                while (end < text.length() && isIdentifierPart(text.charAt(end))) {
+                    end++;
+                }
+                if (text.substring(index, end).equals(identifier)) {
+                    return true;
+                }
+                index = end;
+            } else {
+                index++;
+            }
+        }
+        return false;
+    }
+
+    private int skipQuotedLiteral(String text, int start, char quote) {
+        int index = start + 1;
+        while (index < text.length()) {
+            char character = text.charAt(index++);
+            if (character == '\\' && index < text.length()) {
+                index++;
+            } else if (character == quote) {
+                break;
+            }
+        }
+        return index;
+    }
+
     private Path resolveInclude(Path currentDirectory, String requestedPath, List<Path> includeRoots) {
         ArrayList<Path> candidates = new ArrayList<>();
         if (currentDirectory != null) {
@@ -167,10 +298,28 @@ public final class MiniCPreprocessor implements Preprocessor {
         );
     }
 
+    private boolean isIdentifierStart(char character) {
+        return character == '_' || (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z');
+    }
+
+    private boolean isIdentifierPart(char character) {
+        return isIdentifierStart(character) || (character >= '0' && character <= '9');
+    }
+
+    private record MacroDefinition(String name, String replacement, SourceRange sourceRange) {
+        private MacroDefinition {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(replacement, "replacement");
+            Objects.requireNonNull(sourceRange, "sourceRange");
+        }
+    }
+
     private static final class Work {
         private final PreprocessOptions options;
         private final List<Diagnostic> diagnostics = new ArrayList<>();
         private final List<IncludeSummary> includes = new ArrayList<>();
+        private final Map<String, MacroDefinition> macros = new LinkedHashMap<>();
+        private final List<MacroSummary> macroSummaries = new ArrayList<>();
 
         private Work(PreprocessOptions options) {
             this.options = options;
