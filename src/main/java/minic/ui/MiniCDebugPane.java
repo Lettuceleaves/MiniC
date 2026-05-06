@@ -6,6 +6,7 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
+import javafx.scene.control.TextField;
 import javafx.geometry.Orientation;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -13,9 +14,15 @@ import javafx.scene.layout.VBox;
 import minic.uiapi.UiAssemblyLineVisualDto;
 import minic.uiapi.UiDebugAsmViewDto;
 import minic.uiapi.UiDebugAstViewDto;
+import minic.uiapi.UiDebugBreakpointDto;
 import minic.uiapi.UiDebugDataStructureViewDto;
+import minic.uiapi.UiDebugEventDto;
+import minic.uiapi.UiDebugFrameDto;
 import minic.uiapi.UiDebugIrViewDto;
 import minic.uiapi.UiDebugMetadataViewDto;
+import minic.uiapi.UiDebugTimelineItemDto;
+import minic.uiapi.UiDebugVariableDto;
+import minic.uiapi.UiDebugVisualElementDto;
 import minic.uiapi.UiIrLineVisualDto;
 
 import java.util.Objects;
@@ -31,6 +38,7 @@ public final class MiniCDebugPane extends VBox {
     private final TabPane tabs = new TabPane();
     private final TabPane splitTabs = new TabPane();
     private final Label status = label("", "body-text");
+    private final TextField breakpointLine = new TextField("1");
     private boolean splitVisible;
 
     /**
@@ -75,24 +83,52 @@ public final class MiniCDebugPane extends VBox {
             sourceView.startSession();
             viewModel.startDebug();
         });
-        Button breakpoint = button("断点", () -> {
-            if (!viewModel.debugStartedProperty().get()) {
-                sourceView.startSession();
-                viewModel.startDebug();
-            }
-            int line = viewModel.debugStateProperty().get() == null
-                    ? 1
-                    : Math.max(1, viewModel.debugStateProperty().get().currentSnapshot().sourceRange() == null
-                    ? 1
-                    : viewModel.debugStateProperty().get().currentSnapshot().sourceRange().startLine());
-            viewModel.setDebugBreakpoint(line);
-        });
+        Button breakpoint = button("设断点", () -> viewModel.setDebugBreakpoint(breakpointLine()));
+        Button clearBreakpoint = button("清断点", () -> viewModel.clearDebugBreakpoint(breakpointLine()));
+        Button fast = button("快进", viewModel::debugFastForward);
         Button run = button("运行到断点", viewModel::debugRunToBreakpoint);
+        Button step = button("单步", viewModel::debugStepOver);
+        Button into = button("步入", viewModel::debugStepInto);
+        Button out = button("步返", viewModel::debugStepOut);
+        Button pause = button("暂停", viewModel::debugPause);
+        Button restart = button("重启", viewModel::debugRestart);
+        Button close = button("关闭", viewModel::debugClose);
         Button back = button("单退", viewModel::debugStepBack);
+        Button backBreakpoint = button("步退", viewModel::debugBackToBreakpoint);
+        Button backCall = button("返回调用处", viewModel::debugBackToCallSite);
         Button split = button("拆分", this::toggleSplit);
-        HBox controls = new HBox(6, start, breakpoint, run, back, split);
+        breakpointLine.getStyleClass().add("debug-breakpoint-line");
+        breakpointLine.setPrefWidth(58);
+        HBox controls = new HBox(
+                6,
+                start,
+                label("行", "body-text"),
+                breakpointLine,
+                breakpoint,
+                clearBreakpoint,
+                fast,
+                run,
+                step,
+                into,
+                out,
+                pause,
+                restart,
+                close,
+                back,
+                backBreakpoint,
+                backCall,
+                split
+        );
         controls.getStyleClass().add("controls");
         return controls;
+    }
+
+    private int breakpointLine() {
+        try {
+            return Math.max(1, Integer.parseInt(breakpointLine.getText().trim()));
+        } catch (NumberFormatException exception) {
+            return 1;
+        }
     }
 
     private Button button(String text, Runnable action) {
@@ -129,7 +165,9 @@ public final class MiniCDebugPane extends VBox {
             return;
         }
         status.setText("Debug " + viewModel.debugStateProperty().get().executionState()
-                + " · " + viewModel.debugStateProperty().get().currentSnapshot().stopReason());
+                + " · " + viewModel.debugStateProperty().get().currentSnapshot().stopReason()
+                + " · step " + viewModel.debugStateProperty().get().currentSnapshot().visibleStepIndex()
+                + " · " + viewModel.debugStateProperty().get().currentSnapshot().functionName());
         setTabText(0, metadataText(viewModel.debugMetadataViewProperty().get()));
         setTabText(1, dataText(viewModel.debugDataStructureViewProperty().get()));
         setTabText(2, astText(viewModel.debugAstViewProperty().get()));
@@ -176,10 +214,24 @@ public final class MiniCDebugPane extends VBox {
         return "状态: " + view.executionState()
                 + "\n停止原因: " + view.stopReason()
                 + "\n函数: " + view.currentFunction()
-                + "\n变量:\n" + view.variables().stream()
-                .map(variable -> "  " + variable.name() + " = " + variable.valueSummary())
+                + "\n源码: " + rangeText(view.currentSourceRange())
+                + "\n\n调用栈:\n" + view.callStack().stream()
+                .map(this::frameText)
                 .collect(Collectors.joining("\n"))
-                + "\nstdout:\n" + view.stdout();
+                + "\n变量:\n" + view.variables().stream()
+                .map(this::variableText)
+                .collect(Collectors.joining("\n"))
+                + "\n\n断点:\n" + view.breakpoints().stream()
+                .map(this::breakpointText)
+                .collect(Collectors.joining("\n"))
+                + "\n\n事件:\n" + view.events().stream()
+                .map(this::eventText)
+                .collect(Collectors.joining("\n"))
+                + "\n\n时间线:\n" + view.timeline().stream()
+                .map(this::timelineText)
+                .collect(Collectors.joining("\n"))
+                + "\n\nstdout:\n" + view.stdout()
+                + "\n\nstderr:\n" + view.stderr();
     }
 
     private String dataText(UiDebugDataStructureViewDto view) {
@@ -187,9 +239,16 @@ public final class MiniCDebugPane extends VBox {
             return "";
         }
         return "stack frames: " + view.processSpace().stackFrames().size()
+                + "\nfunctions: " + view.processSpace().functions()
+                + "\ncurrent: " + view.processSpace().currentFunctionName()
+                + " / " + view.processSpace().currentInstructionId()
                 + "\nvisuals:\n" + view.visuals().stream()
-                .map(visual -> "  " + visual.type() + " " + visual.name() + " · " + visual.summary())
-                .collect(Collectors.joining("\n"));
+                .map(visual -> "  " + visual.type() + " " + visual.name() + " · " + visual.summary()
+                        + "\n" + visual.elements().stream()
+                        .map(this::visualElementText)
+                        .collect(Collectors.joining("\n")))
+                .collect(Collectors.joining("\n"))
+                + "\nwarnings:\n" + String.join("\n", view.warnings());
     }
 
     private String astText(UiDebugAstViewDto view) {
@@ -197,6 +256,7 @@ public final class MiniCDebugPane extends VBox {
             return "";
         }
         return view.activeNode().kind() + " " + view.activeNode().label()
+                + "\nrange: " + rangeText(view.activeNode().sourceRange())
                 + "\n" + view.activeNode().explanation()
                 + "\nIR: " + view.relatedIrIds()
                 + "\nASM: " + view.relatedAsmIds();
@@ -208,9 +268,14 @@ public final class MiniCDebugPane extends VBox {
         }
         return view.explanation()
                 + "\ncurrent: " + view.currentInstructionId()
-                + "\n" + view.lines().stream()
+                + "\nrange: " + rangeText(view.currentSourceRange())
+                + "\n\nactive:\n" + view.lines().stream()
                 .filter(UiIrLineVisualDto::active)
                 .map(UiIrLineVisualDto::text)
+                .collect(Collectors.joining("\n"))
+                + "\n\noperands:\n" + view.operands().stream()
+                .map(operand -> "  " + operand.name() + " " + operand.typeName()
+                        + " = " + operand.valueSummary() + " @ " + operand.valueRef())
                 .collect(Collectors.joining("\n"));
     }
 
@@ -219,10 +284,60 @@ public final class MiniCDebugPane extends VBox {
             return "";
         }
         return view.explanation()
-                + "\n" + view.lines().stream()
+                + "\nIR: " + view.relatedIrIds()
+                + "\n\nactive asm:\n" + view.lines().stream()
                 .filter(UiAssemblyLineVisualDto::active)
-                .map(UiAssemblyLineVisualDto::text)
+                .map(line -> "  " + line.lineNumber() + ": " + line.text())
                 .collect(Collectors.joining("\n"));
+    }
+
+    private String frameText(UiDebugFrameDto frame) {
+        return "  " + frame.functionName()
+                + " return=" + (frame.returnTarget() == null ? "" : frame.returnTarget())
+                + " active=" + rangeText(frame.activeRange());
+    }
+
+    private String variableText(UiDebugVariableDto variable) {
+        return "  " + variable.name()
+                + " " + variable.typeName()
+                + " " + variable.valueKind()
+                + " = " + variable.valueSummary()
+                + " @ " + variable.address();
+    }
+
+    private String breakpointText(UiDebugBreakpointDto breakpoint) {
+        return "  line " + breakpoint.line() + " enabled=" + breakpoint.enabled();
+    }
+
+    private String eventText(UiDebugEventDto event) {
+        return "  #" + event.eventId()
+                + " [" + event.type() + "] " + event.title()
+                + " · " + event.description();
+    }
+
+    private String timelineText(UiDebugTimelineItemDto item) {
+        return "  snapshot " + item.snapshotId()
+                + " step=" + item.visibleStepIndex()
+                + " reason=" + item.stopReason()
+                + " breakpoint=" + item.breakpointHit()
+                + " range=" + rangeText(item.sourceRange());
+    }
+
+    private String visualElementText(UiDebugVisualElementDto element) {
+        return "    " + element.kind() + " " + element.id()
+                + " " + element.label()
+                + " " + element.metadata();
+    }
+
+    private String rangeText(minic.uiapi.UiSourceSpanDto range) {
+        if (range == null) {
+            return "";
+        }
+        return range.sourceName()
+                + ":" + range.startLine()
+                + ":" + range.startColumn()
+                + "-" + range.endLine()
+                + ":" + range.endColumn();
     }
 
     private static Label label(String text, String styleClass) {

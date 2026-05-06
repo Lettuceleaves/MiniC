@@ -88,12 +88,102 @@ public final class MiniCDebugApi {
     }
 
     /**
+     * 快进到结束、断点、错误或暂停请求。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto fastForward() {
+        requireSession().control(DebugCommand.FAST_FORWARD);
+        return currentState();
+    }
+
+    /**
+     * 单步。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto stepOver() {
+        requireSession().control(DebugCommand.STEP_OVER);
+        return currentState();
+    }
+
+    /**
+     * 步入。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto stepInto() {
+        requireSession().control(DebugCommand.STEP_INTO);
+        return currentState();
+    }
+
+    /**
+     * 步返。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto stepOut() {
+        requireSession().control(DebugCommand.STEP_OUT);
+        return currentState();
+    }
+
+    /**
+     * 暂停连续运行。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto pause() {
+        requireSession().control(DebugCommand.PAUSE);
+        return currentState();
+    }
+
+    /**
+     * 重启 Debug 会话。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto restart() {
+        requireSession().control(DebugCommand.RESTART);
+        return currentState();
+    }
+
+    /**
+     * 关闭 Debug 会话。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto close() {
+        requireSession().control(DebugCommand.CLOSE);
+        return currentState();
+    }
+
+    /**
      * 单退。
      *
      * @return Debug 状态
      */
     public UiDebugStateDto stepBack() {
         requireSession().control(DebugCommand.STEP_BACK);
+        return currentState();
+    }
+
+    /**
+     * 步退到上一个断点。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto backToBreakpoint() {
+        requireSession().control(DebugCommand.BACK_TO_BREAKPOINT);
+        return currentState();
+    }
+
+    /**
+     * 返回进入当前调用前的调用处。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto backToCallSite() {
+        requireSession().control(DebugCommand.BACK_TO_CALL_SITE);
         return currentState();
     }
 

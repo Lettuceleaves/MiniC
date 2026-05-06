@@ -39,6 +39,19 @@ class MiniCDebugPaneTest {
         MiniCDebugPane pane = new MiniCDebugPane(viewModel);
 
         assertThat(button(pane, "拆分")).isNotNull();
+        assertThat(button(pane, "设断点")).isNotNull();
+        assertThat(button(pane, "清断点")).isNotNull();
+        assertThat(button(pane, "快进")).isNotNull();
+        assertThat(button(pane, "运行到断点")).isNotNull();
+        assertThat(button(pane, "单步")).isNotNull();
+        assertThat(button(pane, "步入")).isNotNull();
+        assertThat(button(pane, "步返")).isNotNull();
+        assertThat(button(pane, "暂停")).isNotNull();
+        assertThat(button(pane, "重启")).isNotNull();
+        assertThat(button(pane, "关闭")).isNotNull();
+        assertThat(button(pane, "单退")).isNotNull();
+        assertThat(button(pane, "步退")).isNotNull();
+        assertThat(button(pane, "返回调用处")).isNotNull();
         assertThat(viewModel.debugStartedProperty().get()).isFalse();
 
         button(pane, "拆分").fire();

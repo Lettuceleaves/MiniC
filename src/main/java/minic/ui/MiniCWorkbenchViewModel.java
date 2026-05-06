@@ -270,6 +270,17 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
+     * 清除 Debug 断点。
+     *
+     * @param line 源码行
+     */
+    public void clearDebugBreakpoint(int line) {
+        ensureDebugStarted();
+        debugApi.clearBreakpoint(line);
+        refreshDebug();
+    }
+
+    /**
      * 运行到断点。
      */
     public void debugRunToBreakpoint() {
@@ -279,11 +290,92 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
+     * Debug 快进。
+     */
+    public void debugFastForward() {
+        ensureDebugStarted();
+        debugApi.fastForward();
+        refreshDebug();
+    }
+
+    /**
+     * Debug 单步。
+     */
+    public void debugStepOver() {
+        ensureDebugStarted();
+        debugApi.stepOver();
+        refreshDebug();
+    }
+
+    /**
+     * Debug 步入。
+     */
+    public void debugStepInto() {
+        ensureDebugStarted();
+        debugApi.stepInto();
+        refreshDebug();
+    }
+
+    /**
+     * Debug 步返。
+     */
+    public void debugStepOut() {
+        ensureDebugStarted();
+        debugApi.stepOut();
+        refreshDebug();
+    }
+
+    /**
+     * Debug 暂停。
+     */
+    public void debugPause() {
+        ensureDebugStarted();
+        debugApi.pause();
+        refreshDebug();
+    }
+
+    /**
+     * Debug 重启。
+     */
+    public void debugRestart() {
+        ensureDebugStarted();
+        debugApi.restart();
+        refreshDebug();
+    }
+
+    /**
+     * Debug 关闭。
+     */
+    public void debugClose() {
+        ensureDebugStarted();
+        debugApi.close();
+        refreshDebug();
+    }
+
+    /**
      * 单退。
      */
     public void debugStepBack() {
         ensureDebugStarted();
         debugApi.stepBack();
+        refreshDebug();
+    }
+
+    /**
+     * Debug 步退到上一个断点。
+     */
+    public void debugBackToBreakpoint() {
+        ensureDebugStarted();
+        debugApi.backToBreakpoint();
+        refreshDebug();
+    }
+
+    /**
+     * Debug 返回调用处。
+     */
+    public void debugBackToCallSite() {
+        ensureDebugStarted();
+        debugApi.backToCallSite();
         refreshDebug();
     }
 
