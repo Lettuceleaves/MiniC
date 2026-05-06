@@ -9,9 +9,10 @@ internal static class MiniCLauncher
     {
         string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         string exeName = Path.GetFileNameWithoutExtension(Process.GetCurrentProcess().MainModule.FileName);
-        bool isWorkbench = exeName.IndexOf("Workbench", StringComparison.OrdinalIgnoreCase) >= 0;
+        bool isWorkbench = exeName.IndexOf("Workbench", StringComparison.OrdinalIgnoreCase) >= 0 || args.Length == 0;
         string java = Path.Combine(root, "runtime", "java", "bin", "java.exe");
         string classpath = Path.Combine(root, "app", "MiniC", "lib", "*");
+        string javafxCache = Path.Combine(root, "cache", "javafx");
         string ml64 = Path.Combine(root, "toolchain", "msvc", "bin", "Hostx64", "x64", "ml64.exe");
         string link = Path.Combine(root, "toolchain", "msvc", "bin", "Hostx64", "x64", "link.exe");
         string libPaths = string.Join(Path.PathSeparator.ToString(), new[]
@@ -28,7 +29,7 @@ internal static class MiniCLauncher
         {
             UseShellExecute = false,
             WorkingDirectory = root,
-            Arguments = BuildJavaArguments(classpath, isWorkbench ? "minic.ui.MiniCWorkbenchLauncher" : "minic.Main", args, !isWorkbench && (!hasMl64 || !hasLink), ml64, link)
+            Arguments = BuildJavaArguments(classpath, isWorkbench ? "minic.ui.MiniCWorkbenchLauncher" : "minic.Main", args, !isWorkbench && (!hasMl64 || !hasLink), ml64, link, javafxCache)
         };
         start.Environment["MINIC_MSVC_LIB_PATHS"] = libPaths;
 
@@ -53,10 +54,11 @@ internal static class MiniCLauncher
         return false;
     }
 
-    private static string BuildJavaArguments(string classpath, string mainClass, string[] args, bool appendToolchain, string ml64, string link)
+    private static string BuildJavaArguments(string classpath, string mainClass, string[] args, bool appendToolchain, string ml64, string link, string javafxCache)
     {
         StringBuilder builder = new StringBuilder();
         AppendArg(builder, "-Dfile.encoding=UTF-8");
+        AppendArg(builder, "-Djavafx.cachedir=" + javafxCache);
         AppendArg(builder, "-cp");
         AppendArg(builder, classpath);
         AppendArg(builder, mainClass);
