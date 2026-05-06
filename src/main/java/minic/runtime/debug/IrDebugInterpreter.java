@@ -1,12 +1,20 @@
 package minic.runtime.debug;
 
-import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.IrBinaryInstruction;
+import minic.compiler.ir.instruction.IrBinaryOperator;
+import minic.compiler.ir.instruction.IrBranchInstruction;
+import minic.compiler.ir.instruction.IrCastInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
+import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
+import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
+import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
+import minic.compiler.ir.instruction.IrUnaryInstruction;
+import minic.compiler.ir.instruction.IrUnaryOperator;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrLocal;
@@ -48,15 +56,17 @@ public final class IrDebugInterpreter {
         if (state.function.blocks().isEmpty()) {
             throw new IllegalArgumentException("main function does not contain blocks");
         }
-        for (int blockIndex = 0; blockIndex < state.function.blocks().size() && !state.completed; blockIndex++) {
-            IrBlock block = state.function.blocks().get(blockIndex);
-            for (int instructionIndex = 0; instructionIndex < block.instructions().size() && !state.completed; instructionIndex++) {
-                IrInstruction instruction = block.instructions().get(instructionIndex);
-                executeInstruction(state, block, instructionIndex, instruction);
+        while (!state.completed) {
+            IrBlock block = state.currentBlock();
+            if (state.instructionIndex >= block.instructions().size()) {
+                state.completed = true;
+                state.session.setState(DebugExecutionState.COMPLETED);
+                return;
             }
-        }
-        if (!state.completed) {
-            state.session.setState(DebugExecutionState.COMPLETED);
+            int currentInstructionIndex = state.instructionIndex;
+            IrInstruction instruction = block.instructions().get(currentInstructionIndex);
+            state.instructionIndex++;
+            executeInstruction(state, block, currentInstructionIndex, instruction);
         }
     }
 
@@ -92,6 +102,43 @@ public final class IrDebugInterpreter {
             recordStep(state, block, instructionIndex, instruction, "CHECK_INITIALIZED", check.local().sourceName());
             return;
         }
+        if (instruction instanceof IrCheckNonZeroInstruction check) {
+            DebugValue value = resolveValue(state, check.value());
+            if (numericValue(value) == 0) {
+                state.completed = true;
+                recordStep(state, block, instructionIndex, instruction, "CHECK_NON_ZERO", value.summary(), DebugStopReason.ERROR, false);
+                state.session.setState(DebugExecutionState.FAILED);
+                return;
+            }
+            recordStep(state, block, instructionIndex, instruction, "CHECK_NON_ZERO", value.summary());
+            return;
+        }
+        if (instruction instanceof IrBinaryInstruction binary) {
+            state.temps.put(binary.result().name(), binaryValue(state, binary));
+            recordStep(state, block, instructionIndex, instruction, "BINARY", binary.operator().name());
+            return;
+        }
+        if (instruction instanceof IrUnaryInstruction unary) {
+            state.temps.put(unary.result().name(), unaryValue(state, unary));
+            recordStep(state, block, instructionIndex, instruction, "UNARY", unary.operator().name());
+            return;
+        }
+        if (instruction instanceof IrCastInstruction cast) {
+            state.temps.put(cast.result().name(), castValue(resolveValue(state, cast.value()), cast.result().type()));
+            recordStep(state, block, instructionIndex, instruction, "CAST", cast.result().type().name());
+            return;
+        }
+        if (instruction instanceof IrBranchInstruction branch) {
+            DebugValue condition = resolveValue(state, branch.condition());
+            state.jumpTo(numericValue(condition) != 0 ? branch.thenLabel() : branch.elseLabel());
+            recordStep(state, block, instructionIndex, instruction, "BRANCH", condition.summary());
+            return;
+        }
+        if (instruction instanceof IrJumpInstruction jump) {
+            state.jumpTo(jump.targetLabel());
+            recordStep(state, block, instructionIndex, instruction, "JUMP", jump.targetLabel());
+            return;
+        }
         if (instruction instanceof IrReturnInstruction ret) {
             state.returnValue = resolveValue(state, ret.value());
             state.completed = true;
@@ -99,7 +146,7 @@ public final class IrDebugInterpreter {
             state.session.setState(DebugExecutionState.COMPLETED);
             return;
         }
-        throw new UnsupportedOperationException("unsupported E150 IR instruction: " + instruction.getClass().getSimpleName());
+        throw new UnsupportedOperationException("unsupported E160 IR instruction: " + instruction.getClass().getSimpleName());
     }
 
     private DebugValue resolveValue(InterpreterState state, IrValue value) {
@@ -123,7 +170,83 @@ public final class IrDebugInterpreter {
             }
             return debugValue;
         }
-        throw new UnsupportedOperationException("unsupported E150 IR value: " + value.getClass().getSimpleName());
+        throw new UnsupportedOperationException("unsupported E160 IR value: " + value.getClass().getSimpleName());
+    }
+
+    private DebugValue binaryValue(InterpreterState state, IrBinaryInstruction binary) {
+        DebugValue left = resolveValue(state, binary.left());
+        DebugValue right = resolveValue(state, binary.right());
+        long leftValue = numericValue(left);
+        long rightValue = numericValue(right);
+        IrType resultType = binary.result().type();
+        return switch (binary.operator()) {
+            case ADD -> integerResult(resultType, leftValue + rightValue);
+            case SUBTRACT -> integerResult(resultType, leftValue - rightValue);
+            case MULTIPLY -> integerResult(resultType, leftValue * rightValue);
+            case DIVIDE -> integerResult(resultType, leftValue / rightValue);
+            case MODULO -> integerResult(resultType, leftValue % rightValue);
+            case BITWISE_AND -> integerResult(resultType, leftValue & rightValue);
+            case BITWISE_OR -> integerResult(resultType, leftValue | rightValue);
+            case BITWISE_XOR -> integerResult(resultType, leftValue ^ rightValue);
+            case SHIFT_LEFT -> integerResult(resultType, leftValue << rightValue);
+            case SHIFT_RIGHT -> integerResult(resultType, leftValue >> rightValue);
+            case LOGICAL_AND -> DebugValue.intValue(leftValue != 0 && rightValue != 0 ? 1 : 0);
+            case LOGICAL_OR -> DebugValue.intValue(leftValue != 0 || rightValue != 0 ? 1 : 0);
+            case EQUAL -> DebugValue.intValue(leftValue == rightValue ? 1 : 0);
+            case NOT_EQUAL -> DebugValue.intValue(leftValue != rightValue ? 1 : 0);
+            case LESS_THAN -> DebugValue.intValue(leftValue < rightValue ? 1 : 0);
+            case LESS_EQUAL -> DebugValue.intValue(leftValue <= rightValue ? 1 : 0);
+            case GREATER_THAN -> DebugValue.intValue(leftValue > rightValue ? 1 : 0);
+            case GREATER_EQUAL -> DebugValue.intValue(leftValue >= rightValue ? 1 : 0);
+        };
+    }
+
+    private DebugValue unaryValue(InterpreterState state, IrUnaryInstruction unary) {
+        DebugValue operand = resolveValue(state, unary.operand());
+        long value = numericValue(operand);
+        return switch (unary.operator()) {
+            case LOGICAL_NOT -> DebugValue.intValue(value == 0 ? 1 : 0);
+            case BITWISE_NOT -> integerResult(unary.result().type(), ~value);
+        };
+    }
+
+    private DebugValue castValue(DebugValue value, IrType targetType) {
+        if (targetType == IrType.FLOAT || targetType == IrType.DOUBLE) {
+            return new DebugValue(
+                    targetType == IrType.FLOAT ? DebugValueKind.FLOAT : DebugValueKind.DOUBLE,
+                    typeName(targetType),
+                    Double.toString(numericValue(value)),
+                    null,
+                    List.of(),
+                    List.of()
+            );
+        }
+        return integerResult(targetType, numericValue(value));
+    }
+
+    private long numericValue(DebugValue value) {
+        return switch (value.kind()) {
+            case BOOL -> Boolean.parseBoolean(value.summary()) ? 1 : 0;
+            case CHAR -> value.summary().length() >= 3 ? value.summary().charAt(1) : 0;
+            case INT, LONG -> Long.parseLong(value.summary());
+            case NULL -> 0;
+            case POINTER -> value.pointerTargetOptional().map(DebugVirtualAddress::offset).orElse(0L);
+            case FLOAT, DOUBLE -> (long) Double.parseDouble(value.summary());
+            case ARRAY, STRUCT, UNINITIALIZED -> throw new IllegalStateException("value is not numeric: " + value.summary());
+        };
+    }
+
+    private DebugValue integerResult(IrType type, long value) {
+        return switch (type) {
+            case BOOL -> DebugValue.boolValue(value != 0);
+            case CHAR -> DebugValue.charValue((char) value);
+            case INT -> DebugValue.intValue((int) value);
+            case LONG -> DebugValue.longValue(value);
+            case POINTER -> value == 0
+                    ? DebugValue.nullValue("pointer")
+                    : DebugValue.pointerValue("pointer", new DebugVirtualAddress("heap", value));
+            case FLOAT, DOUBLE, INT_ARRAY, STRUCT -> throw new UnsupportedOperationException("unsupported integer result type: " + type);
+        };
     }
 
     private DebugValue localValue(InterpreterState state, IrLocal local) {
@@ -242,6 +365,12 @@ public final class IrDebugInterpreter {
             case "LOAD_LOCAL" -> "读取局部变量";
             case "MOVE" -> "移动临时值";
             case "CHECK_INITIALIZED" -> "检查局部变量初始化";
+            case "CHECK_NON_ZERO" -> "检查除数非零";
+            case "BINARY" -> "计算二元表达式";
+            case "UNARY" -> "计算一元表达式";
+            case "CAST" -> "转换值类型";
+            case "BRANCH" -> "条件跳转";
+            case "JUMP" -> "无条件跳转";
             case "RETURN" -> "函数返回";
             default -> eventType;
         };
@@ -255,12 +384,15 @@ public final class IrDebugInterpreter {
         private final IrModule module;
         private final IrFunction function;
         private final DebugSession session;
+        private final Map<String, Integer> blockIndexes = new LinkedHashMap<>();
         private final Map<String, DebugValue> locals = new LinkedHashMap<>();
         private final Map<String, String> localNames = new LinkedHashMap<>();
         private final Map<String, DebugValue> temps = new LinkedHashMap<>();
         private long nextSnapshotId = 1;
         private long nextVisibleStep = 1;
         private long nextEventId;
+        private int blockIndex;
+        private int instructionIndex;
         private boolean completed;
         private DebugValue returnValue;
 
@@ -268,13 +400,28 @@ public final class IrDebugInterpreter {
             this.module = module;
             this.function = function;
             this.session = DebugSession.fromSource(sourceFile);
-            for (IrBlock block : function.blocks()) {
+            for (int i = 0; i < function.blocks().size(); i++) {
+                IrBlock block = function.blocks().get(i);
+                blockIndexes.put(block.label(), i);
                 for (IrInstruction instruction : block.instructions()) {
                     if (instruction instanceof IrDeclareLocalInstruction declare) {
                         localNames.put(declare.local().name(), declare.local().sourceName());
                     }
                 }
             }
+        }
+
+        private IrBlock currentBlock() {
+            return function.blocks().get(blockIndex);
+        }
+
+        private void jumpTo(String label) {
+            Integer targetIndex = blockIndexes.get(label);
+            if (targetIndex == null) {
+                throw new IllegalStateException("unknown block label: " + label);
+            }
+            blockIndex = targetIndex;
+            instructionIndex = 0;
         }
     }
 }

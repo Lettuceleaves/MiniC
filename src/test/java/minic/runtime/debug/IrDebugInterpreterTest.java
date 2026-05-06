@@ -40,6 +40,54 @@ class IrDebugInterpreterTest {
                 }));
     }
 
+    @Test
+    void executesIntegerExpressionsBranchesLoopsAndSwitchLowering() {
+        SourceFile sourceFile = new SourceFile("debug-control.mc", """
+                int main() {
+                    int value = 0;
+                    if (value == 0) {
+                        value = 2;
+                    }
+                    while (value < 5) {
+                        value = value + 1;
+                    }
+                    switch (value) {
+                        case 5:
+                            value = value * 2;
+                            break;
+                        default:
+                            value = 1;
+                    }
+                    return value;
+                }
+                """);
+        IrModule module = lower(sourceFile);
+
+        DebugSession session = new IrDebugInterpreter().runMain(module, sourceFile);
+
+        assertThat(session.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(session.currentSnapshot().processSpace().io().stdout()).isEqualTo("return 10");
+        assertThat(session.events()).extracting(DebugEvent::type)
+                .contains("BINARY", "BRANCH", "JUMP", "CHECK_INITIALIZED", "RETURN");
+    }
+
+    @Test
+    void failsOnDivisionByZeroCheck() {
+        SourceFile sourceFile = new SourceFile("debug-div-zero.mc", """
+                int main() {
+                    int value = 0;
+                    return 1 / value;
+                }
+                """);
+        IrModule module = lower(sourceFile);
+
+        DebugSession session = new IrDebugInterpreter().runMain(module, sourceFile);
+
+        assertThat(session.state()).isEqualTo(DebugExecutionState.FAILED);
+        assertThat(session.currentSnapshot().stopReason()).isEqualTo(DebugStopReason.ERROR);
+        assertThat(session.events()).extracting(DebugEvent::type).contains("CHECK_NON_ZERO");
+    }
+
     private IrModule lower(SourceFile sourceFile) {
         LexResult lexResult = new Lexer(sourceFile).lex();
         assertThat(lexResult.diagnostics()).isEmpty();
