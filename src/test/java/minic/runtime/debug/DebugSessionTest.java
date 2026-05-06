@@ -58,4 +58,15 @@ class DebugSessionTest {
         assertThatThrownBy(() -> session.events().clear())
                 .isInstanceOf(UnsupportedOperationException.class);
     }
+
+    @Test
+    void rejectsNonBreakableLine() {
+        DebugSession session = DebugSession.fromSource(new SourceFile("main.mc", "int main() { return 0; }"));
+
+        DebugBreakpointResult result = session.setBreakpoint(99);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.message()).contains("不可断");
+        assertThat(session.breakpoints()).isEmpty();
+    }
 }

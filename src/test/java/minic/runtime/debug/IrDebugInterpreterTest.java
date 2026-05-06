@@ -148,6 +148,84 @@ class IrDebugInterpreterTest {
         });
     }
 
+    @Test
+    void supportsBreakpointsAndForwardControls() {
+        SourceFile sourceFile = new SourceFile("debug-breakpoint.mc", """
+                int main() {
+                    int value = 1;
+                    value = value + 1;
+                    return value;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+
+        DebugBreakpointResult breakpointResult = session.setBreakpoint(3);
+        DebugControlResult runResult = session.control(DebugCommand.RUN_TO_BREAKPOINT);
+
+        assertThat(breakpointResult.accepted()).isTrue();
+        assertThat(runResult.state()).isEqualTo(DebugExecutionState.PAUSED);
+        assertThat(runResult.snapshot().stopReason()).isEqualTo(DebugStopReason.BREAKPOINT);
+        assertThat(runResult.snapshot().breakpointHit()).isTrue();
+        assertThat(runResult.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(3);
+
+        DebugControlResult stepResult = session.control(DebugCommand.STEP_OVER);
+
+        assertThat(stepResult.snapshot().visibleStepIndex()).isGreaterThan(runResult.snapshot().visibleStepIndex());
+    }
+
+    @Test
+    void runsToCompletionWithoutBreakpointsAndCanRestartWithBreakpointsKept() {
+        SourceFile sourceFile = new SourceFile("debug-run.mc", """
+                int main() {
+                    int value = 1;
+                    return value;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+        session.setBreakpoint(3);
+        session.clearBreakpoint(3);
+
+        DebugControlResult runResult = session.control(DebugCommand.RUN_TO_BREAKPOINT);
+
+        assertThat(runResult.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(runResult.snapshot().processSpace().io().stdout()).isEqualTo("return 1");
+
+        session.setBreakpoint(3);
+        DebugControlResult restartResult = session.control(DebugCommand.RESTART);
+
+        assertThat(restartResult.state()).isEqualTo(DebugExecutionState.PAUSED);
+        assertThat(session.breakpoints()).extracting(DebugBreakpoint::line).containsExactly(3);
+        assertThat(session.currentSnapshot().stopReason()).isEqualTo(DebugStopReason.START);
+    }
+
+    @Test
+    void pauseRequestOnlyStopsContinuousRun() {
+        SourceFile sourceFile = new SourceFile("debug-pause.mc", """
+                int main() {
+                    int value = 1;
+                    value = value + 1;
+                    return value;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+
+        DebugControlResult pauseResult = session.control(DebugCommand.PAUSE);
+        DebugControlResult stepResult = session.control(DebugCommand.STEP_OVER);
+
+        assertThat(pauseResult.state()).isEqualTo(DebugExecutionState.PAUSED);
+        assertThat(stepResult.snapshot().stopReason()).isEqualTo(DebugStopReason.STEP);
+
+        session.control(DebugCommand.RESTART);
+        session.control(DebugCommand.PAUSE);
+        DebugControlResult runResult = session.control(DebugCommand.FAST_FORWARD);
+
+        assertThat(runResult.state()).isEqualTo(DebugExecutionState.PAUSED);
+        assertThat(runResult.snapshot().stopReason()).isEqualTo(DebugStopReason.PAUSE_REQUESTED);
+    }
+
     private IrModule lower(SourceFile sourceFile) {
         LexResult lexResult = new Lexer(sourceFile).lex();
         assertThat(lexResult.diagnostics()).isEmpty();

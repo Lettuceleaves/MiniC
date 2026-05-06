@@ -1,10 +1,14 @@
 package minic.runtime.debug;
 
 import minic.source.SourceFile;
+import minic.source.SourceRange;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Debugger 会话基础模型。
@@ -13,7 +17,10 @@ public final class DebugSession {
     private final SourceFile sourceFile;
     private final ArrayList<DebugSnapshot> snapshots = new ArrayList<>();
     private final ArrayList<DebugEvent> events = new ArrayList<>();
+    private final Map<Integer, DebugBreakpoint> breakpoints = new LinkedHashMap<>();
     private DebugExecutionState state = DebugExecutionState.PAUSED;
+    private int currentSnapshotIndex;
+    private boolean pauseRequested;
 
     private DebugSession(SourceFile sourceFile) {
         this.sourceFile = Objects.requireNonNull(sourceFile, "sourceFile");
@@ -63,7 +70,7 @@ public final class DebugSession {
      * @return 当前快照
      */
     public DebugSnapshot currentSnapshot() {
-        return snapshots.getLast();
+        return snapshots.get(currentSnapshotIndex);
     }
 
     /**
@@ -73,6 +80,7 @@ public final class DebugSession {
      */
     public void appendSnapshot(DebugSnapshot snapshot) {
         snapshots.add(Objects.requireNonNull(snapshot, "snapshot"));
+        currentSnapshotIndex = snapshots.size() - 1;
     }
 
     /**
@@ -100,5 +108,225 @@ public final class DebugSession {
      */
     public List<DebugEvent> events() {
         return List.copyOf(events);
+    }
+
+    /**
+     * 返回断点列表。
+     *
+     * @return 断点列表
+     */
+    public List<DebugBreakpoint> breakpoints() {
+        return List.copyOf(breakpoints.values());
+    }
+
+    /**
+     * 设置源码行断点。
+     *
+     * @param line 一基源码行号
+     * @return 设置结果
+     */
+    public DebugBreakpointResult setBreakpoint(int line) {
+        if (!isBreakableLine(line)) {
+            return DebugBreakpointResult.rejected(line);
+        }
+        DebugBreakpoint breakpoint = DebugBreakpoint.enabled(line);
+        breakpoints.put(line, breakpoint);
+        return DebugBreakpointResult.accepted(breakpoint);
+    }
+
+    /**
+     * 取消源码行断点。
+     *
+     * @param line 一基源码行号
+     * @return 是否移除
+     */
+    public boolean clearBreakpoint(int line) {
+        return breakpoints.remove(line) != null;
+    }
+
+    /**
+     * 执行正向控制命令。
+     *
+     * @param command 控制命令
+     * @return 控制结果
+     */
+    public DebugControlResult control(DebugCommand command) {
+        Objects.requireNonNull(command, "command");
+        return switch (command) {
+            case FAST_FORWARD -> fastForward(command);
+            case RUN_TO_BREAKPOINT -> runToBreakpoint(command);
+            case STEP_OVER, STEP_INTO, STEP_OUT -> moveToSnapshot(command, nextExecutableIndex(), "已前进一个可见调试步");
+            case PAUSE -> requestPause();
+            case CLOSE -> close();
+            case RESTART -> restart();
+            case STEP_BACK, BACK_TO_BREAKPOINT, BACK_TO_CALL_SITE -> throw new UnsupportedOperationException(
+                    "reverse controls are handled in E200: " + command);
+        };
+    }
+
+    /**
+     * 把当前快照移动到指定下标，供解释器标记断点命中后使用。
+     *
+     * @param snapshotIndex 快照下标
+     */
+    void selectSnapshot(int snapshotIndex) {
+        if (snapshotIndex < 0 || snapshotIndex >= snapshots.size()) {
+            throw new IllegalArgumentException("snapshotIndex out of bounds: " + snapshotIndex);
+        }
+        currentSnapshotIndex = snapshotIndex;
+        state = stateForCurrentSnapshot();
+    }
+
+    /**
+     * 标记当前快照命中断点。
+     */
+    void markCurrentBreakpointHit() {
+        DebugSnapshot current = currentSnapshot();
+        snapshots.set(currentSnapshotIndex, new DebugSnapshot(
+                current.snapshotId(),
+                current.visibleStepIndex(),
+                current.cursor(),
+                current.callStackSummary(),
+                current.processSpace(),
+                true,
+                DebugStopReason.BREAKPOINT
+        ));
+        state = DebugExecutionState.PAUSED;
+    }
+
+    private DebugControlResult fastForward(DebugCommand command) {
+        state = DebugExecutionState.RUNNING;
+        for (int i = currentSnapshotIndex + 1; i < snapshots.size(); i++) {
+            currentSnapshotIndex = i;
+            if (pauseRequested && currentSnapshot().visibleStepIndex() > 0) {
+                pauseRequested = false;
+                replaceCurrentStop(DebugStopReason.PAUSE_REQUESTED, false);
+                state = DebugExecutionState.PAUSED;
+                return result(command, "已按暂停请求停在下一条可见源码行之前");
+            }
+            if (isBreakpointSnapshot(currentSnapshot())) {
+                replaceCurrentStop(DebugStopReason.BREAKPOINT, true);
+                state = DebugExecutionState.PAUSED;
+                return result(command, "命中第 " + currentLine().orElse(-1) + " 行断点");
+            }
+            if (isTerminalSnapshot(currentSnapshot())) {
+                state = stateForCurrentSnapshot();
+                return result(command, "连续运行已停止");
+            }
+        }
+        state = stateForCurrentSnapshot();
+        return result(command, "连续运行已到达末尾");
+    }
+
+    private DebugControlResult runToBreakpoint(DebugCommand command) {
+        state = DebugExecutionState.RUNNING;
+        for (int i = currentSnapshotIndex + 1; i < snapshots.size(); i++) {
+            currentSnapshotIndex = i;
+            if (pauseRequested && currentSnapshot().visibleStepIndex() > 0) {
+                pauseRequested = false;
+                replaceCurrentStop(DebugStopReason.PAUSE_REQUESTED, false);
+                state = DebugExecutionState.PAUSED;
+                return result(command, "已按暂停请求停在下一条可见源码行之前");
+            }
+            if (isBreakpointSnapshot(currentSnapshot())) {
+                replaceCurrentStop(DebugStopReason.BREAKPOINT, true);
+                state = DebugExecutionState.PAUSED;
+                return result(command, "命中第 " + currentLine().orElse(-1) + " 行断点");
+            }
+            if (isTerminalSnapshot(currentSnapshot())) {
+                state = stateForCurrentSnapshot();
+                return result(command, "没有后续断点，已运行到结束或错误");
+            }
+        }
+        state = stateForCurrentSnapshot();
+        return result(command, "没有后续断点");
+    }
+
+    private DebugControlResult moveToSnapshot(DebugCommand command, int targetIndex, String message) {
+        currentSnapshotIndex = targetIndex;
+        state = stateForCurrentSnapshot();
+        return result(command, message);
+    }
+
+    private DebugControlResult requestPause() {
+        pauseRequested = true;
+        return result(DebugCommand.PAUSE, "已请求暂停，连续运行会在下一条可见源码行前停住");
+    }
+
+    private DebugControlResult close() {
+        state = DebugExecutionState.CLOSED;
+        replaceCurrentStop(DebugStopReason.CLOSED, false);
+        return result(DebugCommand.CLOSE, "Debug 会话已关闭");
+    }
+
+    private DebugControlResult restart() {
+        currentSnapshotIndex = 0;
+        pauseRequested = false;
+        state = DebugExecutionState.PAUSED;
+        return result(DebugCommand.RESTART, "Debug 会话已重启，断点已保留");
+    }
+
+    private int nextExecutableIndex() {
+        return Math.min(currentSnapshotIndex + 1, snapshots.size() - 1);
+    }
+
+    private boolean isBreakableLine(int line) {
+        if (line < 1) {
+            return false;
+        }
+        return snapshots.stream()
+                .map(DebugSnapshot::cursor)
+                .map(DebugCursor::sourceRangeOptional)
+                .flatMap(Optional::stream)
+                .map(range -> range.startPosition().line())
+                .anyMatch(snapshotLine -> snapshotLine == line);
+    }
+
+    private boolean isBreakpointSnapshot(DebugSnapshot snapshot) {
+        return line(snapshot.cursor().sourceRange()).stream()
+                .anyMatch(snapshotLine -> {
+                    DebugBreakpoint breakpoint = breakpoints.get(snapshotLine);
+                    return breakpoint != null && breakpoint.enabled();
+                });
+    }
+
+    private Optional<Integer> currentLine() {
+        return line(currentSnapshot().cursor().sourceRange());
+    }
+
+    private Optional<Integer> line(SourceRange range) {
+        return Optional.ofNullable(range).map(value -> value.startPosition().line());
+    }
+
+    private boolean isTerminalSnapshot(DebugSnapshot snapshot) {
+        return snapshot.stopReason() == DebugStopReason.COMPLETED
+                || snapshot.stopReason() == DebugStopReason.ERROR
+                || snapshot.stopReason() == DebugStopReason.CLOSED;
+    }
+
+    private DebugExecutionState stateForCurrentSnapshot() {
+        return switch (currentSnapshot().stopReason()) {
+            case COMPLETED -> DebugExecutionState.COMPLETED;
+            case ERROR -> DebugExecutionState.FAILED;
+            case CLOSED -> DebugExecutionState.CLOSED;
+            case START, STEP, BREAKPOINT, PAUSE_REQUESTED, RETURN -> DebugExecutionState.PAUSED;
+        };
+    }
+
+    private void replaceCurrentStop(DebugStopReason stopReason, boolean breakpointHit) {
+        DebugSnapshot current = currentSnapshot();
+        snapshots.set(currentSnapshotIndex, new DebugSnapshot(
+                current.snapshotId(),
+                current.visibleStepIndex(),
+                current.cursor(),
+                current.callStackSummary(),
+                current.processSpace(),
+                breakpointHit,
+                stopReason
+        ));
+    }
+
+    private DebugControlResult result(DebugCommand command, String message) {
+        return new DebugControlResult(command, state, currentSnapshot(), message);
     }
 }
