@@ -159,8 +159,9 @@ public final class DebugSession {
             case PAUSE -> requestPause();
             case CLOSE -> close();
             case RESTART -> restart();
-            case STEP_BACK, BACK_TO_BREAKPOINT, BACK_TO_CALL_SITE -> throw new UnsupportedOperationException(
-                    "reverse controls are handled in E200: " + command);
+            case STEP_BACK -> stepBack();
+            case BACK_TO_BREAKPOINT -> backToBreakpoint();
+            case BACK_TO_CALL_SITE -> backToCallSite();
         };
     }
 
@@ -264,6 +265,44 @@ public final class DebugSession {
         pauseRequested = false;
         state = DebugExecutionState.PAUSED;
         return result(DebugCommand.RESTART, "Debug 会话已重启，断点已保留");
+    }
+
+    private DebugControlResult stepBack() {
+        pauseRequested = false;
+        if (currentSnapshotIndex > 0) {
+            currentSnapshotIndex--;
+        }
+        state = stateForCurrentSnapshot();
+        return result(DebugCommand.STEP_BACK, "已回退到上一个可见调试步");
+    }
+
+    private DebugControlResult backToBreakpoint() {
+        pauseRequested = false;
+        for (int i = currentSnapshotIndex - 1; i >= 0; i--) {
+            if (snapshots.get(i).breakpointHit()) {
+                currentSnapshotIndex = i;
+                state = DebugExecutionState.PAUSED;
+                return result(DebugCommand.BACK_TO_BREAKPOINT, "已回退到上一个断点命中状态");
+            }
+        }
+        currentSnapshotIndex = 0;
+        state = DebugExecutionState.PAUSED;
+        return result(DebugCommand.BACK_TO_BREAKPOINT, "没有更早的断点命中状态，已回到初始状态");
+    }
+
+    private DebugControlResult backToCallSite() {
+        pauseRequested = false;
+        int currentDepth = currentSnapshot().callStackSummary().size();
+        for (int i = currentSnapshotIndex - 1; i >= 0; i--) {
+            if (snapshots.get(i).callStackSummary().size() < currentDepth) {
+                currentSnapshotIndex = i;
+                state = DebugExecutionState.PAUSED;
+                return result(DebugCommand.BACK_TO_CALL_SITE, "已返回进入当前函数调用之前的调用处");
+            }
+        }
+        currentSnapshotIndex = 0;
+        state = DebugExecutionState.PAUSED;
+        return result(DebugCommand.BACK_TO_CALL_SITE, "当前不在更深调用中，已回到初始状态");
     }
 
     private int nextExecutableIndex() {

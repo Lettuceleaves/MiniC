@@ -226,6 +226,69 @@ class IrDebugInterpreterTest {
         assertThat(runResult.snapshot().stopReason()).isEqualTo(DebugStopReason.PAUSE_REQUESTED);
     }
 
+    @Test
+    void supportsStepBackAndBackToBreakpointSnapshots() {
+        SourceFile sourceFile = new SourceFile("debug-back.mc", """
+                extern int printf(char *format, ...);
+
+                int main() {
+                    int value = 1;
+                    printf("value=%d\\n", value);
+                    value = value + 1;
+                    return value;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+        session.setBreakpoint(5);
+        DebugControlResult breakpointResult = session.control(DebugCommand.RUN_TO_BREAKPOINT);
+        session.clearBreakpoint(5);
+        DebugControlResult completedResult = session.control(DebugCommand.FAST_FORWARD);
+
+        assertThat(completedResult.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(completedResult.snapshot().processSpace().io().stdout()).isEqualTo("value=1\nreturn 2");
+
+        DebugControlResult stepBackResult = session.control(DebugCommand.STEP_BACK);
+        DebugControlResult backToBreakpointResult = session.control(DebugCommand.BACK_TO_BREAKPOINT);
+
+        assertThat(stepBackResult.snapshot().visibleStepIndex()).isLessThan(completedResult.snapshot().visibleStepIndex());
+        assertThat(backToBreakpointResult.snapshot()).isEqualTo(breakpointResult.snapshot());
+        assertThat(backToBreakpointResult.snapshot().processSpace().io().stdout())
+                .isEqualTo(breakpointResult.snapshot().processSpace().io().stdout());
+    }
+
+    @Test
+    void returnsBackToCallSiteSnapshot() {
+        SourceFile sourceFile = new SourceFile("debug-back-call.mc", """
+                int inc(int value) {
+                    int next = value + 1;
+                    return next;
+                }
+
+                int main() {
+                    int value = inc(1);
+                    return value;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+
+        DebugControlResult insideCall = null;
+        while (session.state() != DebugExecutionState.COMPLETED) {
+            DebugControlResult result = session.control(DebugCommand.STEP_INTO);
+            if (result.snapshot().callStackSummary().contains("inc")) {
+                insideCall = result;
+                break;
+            }
+        }
+
+        assertThat(insideCall).isNotNull();
+        DebugControlResult callSite = session.control(DebugCommand.BACK_TO_CALL_SITE);
+
+        assertThat(callSite.snapshot().callStackSummary()).containsExactly("main");
+        assertThat(callSite.snapshot().visibleStepIndex()).isLessThan(insideCall.snapshot().visibleStepIndex());
+    }
+
     private IrModule lower(SourceFile sourceFile) {
         LexResult lexResult = new Lexer(sourceFile).lex();
         assertThat(lexResult.diagnostics()).isEmpty();
