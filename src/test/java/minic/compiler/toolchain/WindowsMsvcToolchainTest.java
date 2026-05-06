@@ -83,4 +83,50 @@ class WindowsMsvcToolchainTest {
                 "legacy_stdio_definitions.lib"
         );
     }
+
+    @Test
+    void usesConfiguredLibraryPathsWithExplicitToolCommands() throws Exception {
+        SourceFile sourceFile = new SourceFile("main.mc", "int main() { return 1; }");
+        AssemblySource assemblySource = new AssemblySource(
+                TargetPlatform.WINDOWS_X86_64,
+                "minic$entry",
+                "PUBLIC minic$entry\n.code\nminic$entry PROC\n    ret\nminic$entry ENDP\nEND\n"
+        );
+        Path assemblerCommand = tempDir.resolve("fake-ml64.cmd");
+        Path linkerCommand = tempDir.resolve("fake-link.cmd");
+        Path linkArgsPath = tempDir.resolve("link-args-configured.txt");
+        Path vcLib = tempDir.resolve("vc-lib");
+        Path sdkLib = tempDir.resolve("sdk-lib");
+        Files.writeString(assemblerCommand, """
+                @echo off
+                exit /b 0
+                """);
+        Files.writeString(linkerCommand, """
+                @echo off
+                echo %%* > "%s"
+                exit /b 0
+                """.formatted(linkArgsPath.toString()));
+        String previous = System.getProperty("minic.msvc.lib.paths");
+        try {
+            System.setProperty("minic.msvc.lib.paths", vcLib + java.io.File.pathSeparator + sdkLib);
+            WindowsMsvcToolchain toolchain = new WindowsMsvcToolchain(
+                    assemblerCommand.toString(),
+                    linkerCommand.toString()
+            );
+
+            ToolchainResult result = toolchain.buildExecutable(sourceFile, assemblySource, tempDir, "main");
+
+            assertThat(result.diagnostics()).isEmpty();
+            assertThat(Files.readString(linkArgsPath)).contains(
+                    "/LIBPATH:" + vcLib.toAbsolutePath(),
+                    "/LIBPATH:" + sdkLib.toAbsolutePath()
+            );
+        } finally {
+            if (previous == null) {
+                System.clearProperty("minic.msvc.lib.paths");
+            } else {
+                System.setProperty("minic.msvc.lib.paths", previous);
+            }
+        }
+    }
 }

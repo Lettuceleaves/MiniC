@@ -44,7 +44,7 @@ public final class WindowsMsvcToolchain implements Toolchain {
      * @param linkerCommand 链接器命令或路径
      */
     public WindowsMsvcToolchain(String assemblerCommand, String linkerCommand) {
-        this(assemblerCommand, linkerCommand, DEFAULT_LIBRARIES, List.of());
+        this(assemblerCommand, linkerCommand, DEFAULT_LIBRARIES, configuredLibraryPaths());
     }
 
     /**
@@ -212,6 +212,24 @@ public final class WindowsMsvcToolchain implements Toolchain {
             throw new IllegalArgumentException(name + " must not be blank");
         }
         return command;
+    }
+
+    private static List<Path> configuredLibraryPaths() {
+        ArrayList<Path> paths = new ArrayList<>();
+        addConfiguredPaths(paths, System.getProperty("minic.msvc.lib.paths"));
+        addConfiguredPaths(paths, System.getenv("MINIC_MSVC_LIB_PATHS"));
+        return List.copyOf(paths);
+    }
+
+    private static void addConfiguredPaths(List<Path> paths, String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        for (String item : value.split(java.io.File.pathSeparator)) {
+            if (!item.isBlank()) {
+                paths.add(Path.of(item));
+            }
+        }
     }
 
     private record MsvcTools(String assemblerCommand, String linkerCommand, List<Path> libraryPaths) {

@@ -11,3 +11,8 @@ out/
 
 .local/
 .gradle-home/
+
+release/*
+!release/.gitkeep
+!release/launcher/
+!release/launcher/**
