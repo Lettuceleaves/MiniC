@@ -40,7 +40,18 @@ class VisualStructureTest {
                 "hash",
                 "hash_table",
                 "array-1",
-                List.of(array.id(), graph.id()),
+                List.of(
+                        new CompositePart("part-array", array.id(), "buckets", Map.of()),
+                        new CompositePart("part-graph", graph.id(), "chains", Map.of())
+                ),
+                List.of(new CompositeLink(
+                        "link-buckets-chains",
+                        "part-array",
+                        "part-graph",
+                        "bucket_to_chain",
+                        "bucket 指向对应链表 component",
+                        Map.of()
+                )),
                 List.of(),
                 List.of()
         );
@@ -50,7 +61,7 @@ class VisualStructureTest {
         assertThat(composite.type()).isEqualTo(VisualStructureType.COMPOSITE);
         assertThat(graph.summary()).contains("graph tree", "nodes=1", "hierarchical");
         assertThat(array.summary()).contains("dimensions=2", "cells=1");
-        assertThat(composite.summary()).contains("parts=2");
+        assertThat(composite.summary()).contains("parts=2", "links=1");
     }
 
     @Test
@@ -194,5 +205,67 @@ class VisualStructureTest {
         assertThat(ring.layoutHint()).isEqualTo("ring");
         assertThat(ring.shape().logicalLength()).isEqualTo(2);
         assertThat(buckets.layoutHint()).isEqualTo("bucket");
+    }
+
+    @Test
+    void compositeStructureKeepsPartsLinksAndPrimaryPart() {
+        CompositePart buckets = new CompositePart("part-buckets", "array-buckets", "hash buckets", Map.of("range", "static"));
+        CompositePart chains = new CompositePart("part-chains", "graph-chains", "bucket chains", Map.of("layout", "linear"));
+        CompositeLink link = new CompositeLink(
+                "link-bucket-chain",
+                buckets.id(),
+                chains.id(),
+                "bucket_to_linked_graph",
+                "每个 bucket cell 指向一个链式图 component",
+                Map.of("field", "next")
+        );
+
+        CompositeStructure hashTable = new CompositeStructure(
+                "composite-hash",
+                "hashTable",
+                "hash_table",
+                buckets.id(),
+                List.of(buckets, chains),
+                List.of(link),
+                List.of(),
+                List.of()
+        );
+
+        assertThat(hashTable.primaryPartId()).isEqualTo(buckets.id());
+        assertThat(hashTable.parts()).containsExactly(buckets, chains);
+        assertThat(hashTable.links()).singleElement().satisfies(value -> {
+            assertThat(value.relation()).isEqualTo("bucket_to_linked_graph");
+            assertThat(value.explanation()).contains("bucket cell");
+        });
+        assertThat(hashTable.summary()).contains("primary=part-buckets", "links=1");
+    }
+
+    @Test
+    void compositeStructureModelsHeapArrayAndTreeProjection() {
+        CompositePart heapArray = new CompositePart("part-array", "array-heap", "heap array", Map.of("layout", "linear"));
+        CompositePart heapTree = new CompositePart("part-tree", "graph-heap", "tree projection", Map.of("layout", "hierarchical"));
+        CompositeLink projection = new CompositeLink(
+                "link-array-tree",
+                heapArray.id(),
+                heapTree.id(),
+                "projection",
+                "同一堆数据同时以数组和树两种视角展示",
+                Map.of()
+        );
+
+        CompositeStructure heap = new CompositeStructure(
+                "composite-heap",
+                "heap",
+                "heap",
+                heapArray.id(),
+                List.of(heapArray, heapTree),
+                List.of(projection),
+                List.of(),
+                List.of()
+        );
+
+        assertThat(heap.parts()).extracting(CompositePart::role).containsExactly("heap array", "tree projection");
+        assertThat(heap.links()).extracting(CompositeLink::relation).containsExactly("projection");
+        assertThat(heap.links().getFirst().explanation()).contains("数组和树");
     }
 }
