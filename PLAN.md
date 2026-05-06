@@ -2,7 +2,7 @@
 
 当前开发阶段：`0.5.0`。
 
-下一步任务：`E240`：实现 GraphStructure。
+下一步任务：`E250`：实现 ArrayStructure。
 
 `0.1.0` 编译闭环总结见 [version/0.1.0.md](version/0.1.0.md)。
 `0.2.0` 结构化观测阶段记录见 [version/0.2.0.md](version/0.2.0.md)。

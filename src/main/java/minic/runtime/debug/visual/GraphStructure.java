@@ -11,6 +11,9 @@ public record GraphStructure(
         String name,
         String kind,
         String layoutHint,
+        List<GraphNode> nodes,
+        List<GraphEdge> edges,
+        List<GraphComponent> components,
         List<VisualDecorator> decorators,
         List<VisualValidator> validators
 ) implements VisualStructure {
@@ -19,11 +22,17 @@ public record GraphStructure(
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(layoutHint, "layoutHint");
+        Objects.requireNonNull(nodes, "nodes");
+        Objects.requireNonNull(edges, "edges");
+        Objects.requireNonNull(components, "components");
         Objects.requireNonNull(decorators, "decorators");
         Objects.requireNonNull(validators, "validators");
         if (id.isBlank() || name.isBlank() || kind.isBlank() || layoutHint.isBlank()) {
             throw new IllegalArgumentException("graph id, name, kind and layoutHint must not be blank");
         }
+        nodes = List.copyOf(nodes);
+        edges = List.copyOf(edges);
+        components = List.copyOf(components);
         decorators = List.copyOf(decorators);
         validators = List.copyOf(validators);
     }
@@ -35,6 +44,11 @@ public record GraphStructure(
 
     @Override
     public String summary() {
-        return "graph " + name + " kind=" + kind + " layout=" + layoutHint;
+        return "graph " + name
+                + " kind=" + kind
+                + " nodes=" + nodes.size()
+                + " edges=" + edges.size()
+                + " components=" + components.size()
+                + " layout=" + layoutHint;
     }
 }
