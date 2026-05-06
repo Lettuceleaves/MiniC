@@ -270,6 +270,82 @@ minic.cli
 - Codegen visual data 使用 UI 专用 assembly 行 DTO：稳定行号、文本、kind、section、label 和 active 标记，不暴露 emitter、frame layout 或 codegen work 对象。
 - JavaFX Visual Pane 根据 visual type 自动切换 Lexer、AST、Semantic、Assembly 和 generic fallback 视图；UI 层仍只依赖 `minic.uiapi` DTO。
 
+## MiniC v0.5 Debugger 范围
+
+`0.5.0` 目标是实现 MiniC 教学型可视化 Debugger。Debugger 是 Workbench 的独立模式，不进入普通编译观察流水线；侧边栏 Debug 按钮进入该模式，并复用现有源码编辑器、行号、断点 gutter、诊断高亮和当前执行行高亮。
+
+Debugger 第一版执行 IR Interpreter，不调试真实 exe，不接 Windows Debug API，不承诺寄存器级、机器码级或系统真实进程状态。Debug 模式流水线为：
+
+```text
+source -> preprocess -> lexer -> parser -> semantic -> ir -> debug interpreter
+```
+
+普通编译观察模式继续保持：
+
+```text
+source -> preprocess -> lexer -> parser -> semantic -> ir -> codegen -> toolchain -> execution
+```
+
+Debugger 使用状态快照和事件日志实现运行控制与反向能力。状态快照负责恢复 cursor、调用栈、虚拟进程空间、stdout/stderr、断点命中和停止原因；事件日志负责解释当前步骤发生了什么。外部调用副作用不纳入可回退承诺范围，第一版仅通过 debug stub 记录可控输出。
+
+控制语义：
+
+- `快进`：持续运行，直到程序结束、下一个断点、运行时错误、外部阻塞或用户请求暂停。
+- `运行到断点`：从当前位置运行到下一个断点；如果没有断点则运行到结束或错误。
+- `单步`：执行下一条源码级可见语句；函数调用整体跳过，类似 Step Over。
+- `步入`：如果当前语句包含函数调用，则进入被调函数第一条可见语句；否则等同单步。
+- `步返`：继续执行到当前函数返回到调用者后一条可见语句。
+- `暂停`：只在 `快进` 和 `运行到断点` 这类连续运行中生效；解释器在下一条可见源码行执行前停住。
+- `关闭`：销毁 DebugSession，保留编辑器源码和断点。
+- `重启`：重新从 `main` 创建 DebugSession，保留断点。
+- `单退`：恢复到上一个可见调试步的快照。
+- `步退`：恢复到上一个断点命中的快照。
+- `返回调用处`：恢复到进入当前函数调用之前的快照，也就是调用点状态。
+
+运行时数据必须按虚拟进程空间呈现，帮助用户理解程序执行时的数据位置和关系：
+
+- code：函数、当前 IR 指令和映射汇编行。
+- static/data：全局变量和字符串字面量。
+- stack：调用栈、参数、局部变量、返回目标和返回值。
+- heap：虚拟堆块、数组、结构体、指针目标和释放状态。
+- io：stdin、stdout、stderr。
+
+虚拟地址只用于教学展示，不等同于 Windows 真实进程地址。
+
+右侧 Debug 视图顶部使用标签栏呈现，后续支持向右拆分对比。首版视图包括：
+
+- 元数据视图：状态、停止原因、当前函数、源码位置、调用栈、变量、stdout/stderr、断点、事件日志和 snapshot 时间线。
+- 数据结构视图：虚拟进程空间，以及由进程空间投影出的图形化数据结构。
+- AST 视图：当前 debug 对应 AST 节点高亮，点击节点显示节点数据、解释和源码映射。
+- IR 视图：当前 IR 指令高亮，展示基本块、操作数、结果值和解释。
+- ASM 视图：展示当前 IR 对应的生成汇编并高亮相关行组；这是 Source/IR/ASM 映射展示，不代表真实 CPU 正在执行的机器指令。
+
+数据结构图形化不为每一种高级数据结构实现独立渲染器，而是把高级数据结构映射到三类通用可视化基元：
+
+```text
+高级数据结构 = 基元结构 + 布局 + 装饰器 + 校验器 + 解释器
+```
+
+- GraphStructure：节点和边，覆盖链表、树、Trie、并查集森林、普通图、DAG、状态机、跳表等。
+- ArrayStructure：连续空间、表格、矩阵和网格，覆盖数组、字符串、栈/队列底层数组、矩阵、邻接矩阵、DP 表、网格、hash bucket array、bitmap 等。
+- CompositeStructure：由多个图或数组组合出的结构，覆盖哈希表、邻接表、LRU、堆的数组+树双投影、复杂业务结构等。
+
+树不是独立底层模型，而是 `GraphStructure + hierarchical layout`。红黑树后续作为 `GraphStructure + hierarchical layout + color decorator + rb validators` 扩展；第一批 descriptor 不包含红黑树。
+
+第一版使用 `@visual` 注释协议，不修改 MiniC 语法。`root` 只允许变量名，允许多个 visual，支持命名。同名结构可把多个离散 component 归并到同一个逻辑数据结构。
+
+第一版纳入：
+
+```c
+// @visual graph name=tree kind=tree root=root node=Node left=left right=right label=value
+// @visual array name=arr kind=array root=a length=n label=value
+// @visual composite name=cache kind=hash_table
+// @visual-node graph=network id=i label=name
+// @visual-edge graph=network from=u to=v label=w directed=true
+```
+
+`@visual-node` 和 `@visual-edge` 第一版进入，但只支持简单变量名或字面值，不支持复杂表达式。若后续扩展复杂表达式，必须复用 Debugger 表达式求值能力，不能单独维护第二套表达式解释器。
+
 ## MiniC v0.4 语言和预编译范围
 
 `0.4.0` 在既有类型、数组、指针和结构体能力上补充以下能力：
