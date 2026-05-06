@@ -1,14 +1,15 @@
 # MiniC Agent 执行计划
 
-当前开发阶段：`0.5.0`。
+当前开发阶段：`0.5.0` 已完成。
 
-下一步任务：`E370`：样例、文档和阶段验收。
+下一步任务：规划 `0.5.1` Debugger UI 细化和运行时数据结构深度投影。
 
 `0.1.0` 编译闭环总结见 [version/0.1.0.md](version/0.1.0.md)。
 `0.2.0` 结构化观测阶段记录见 [version/0.2.0.md](version/0.2.0.md)。
 `0.3.0` JavaFX UI 首版记录见 [version/0.3.0.md](version/0.3.0.md)。
 `0.3.1` 阶段专属图形化增强记录见 [version/0.3.1.md](version/0.3.1.md)。
 `0.4.0` C 子集语法和预编译扩展记录见 [version/0.4.0.md](version/0.4.0.md)。
+`0.5.0` 教学型可视化 Debugger 记录见 [version/0.5.0.md](version/0.5.0.md)。
 
 ## 执行规则
 

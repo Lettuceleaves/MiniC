@@ -13,10 +13,11 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 - [version/0.3.0.md](version/0.3.0.md)：`0.3.0` JavaFX UI 首版阶段记录。
 - [version/0.3.1.md](version/0.3.1.md)：`0.3.1` 阶段专属图形化增强记录。
 - [version/0.4.0.md](version/0.4.0.md)：`0.4.0` C 子集语法和预编译扩展阶段记录。
+- [version/0.5.0.md](version/0.5.0.md)：`0.5.0` 教学型可视化 Debugger 阶段记录。
 
 ## 当前状态
 
-`0.4.0` 已完成，当前支持 C 子集语法和预编译扩展能力。`0.5.0` Debugger 已支持右侧拆分对比，下一步执行 `E370`：样例、文档和阶段验收。
+`0.5.0` 已完成，当前支持教学型可视化 Debugger 首版。下一步规划 `0.5.1` Debugger UI 细化和运行时数据结构深度投影。
 
 本阶段新增 `.mh` include、对象宏、条件编译、MiniC 头文件校验、`extern int printf(char *format, ...);` 可变参数外部函数声明、常用表达式运算符、`sizeof`、`do while` 和 `switch case default`。
 
@@ -35,7 +36,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 
 UI 交互细化暂缓，后续可继续补充 AST/Scope 节点点击定位源码、真实手工 UI 截图验收和更完整的滚动定位体验。
 
-下一阶段将实现 MiniC 教学型可视化 Debugger。Debugger 将作为 Workbench 独立模式进入，执行模型以 IR Interpreter 为核心，配合状态快照、事件日志、虚拟进程空间和 Graph/Array/Composite 三类数据结构图形化基元；真实 exe 调试、Windows Debug API 和寄存器级状态不属于第一版范围。
+当前 Debugger 作为 Workbench 独立模式进入，执行模型以 IR Interpreter 为核心，配合状态快照、事件日志、虚拟进程空间和 Graph/Array/Composite 三类数据结构图形化基元；真实 exe 调试、Windows Debug API 和寄存器级状态不属于第一版范围。
 
 UI 风格继续参考：
 
