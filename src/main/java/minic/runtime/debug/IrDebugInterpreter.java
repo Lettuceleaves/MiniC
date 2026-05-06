@@ -6,6 +6,7 @@ import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrCastInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
+import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
@@ -22,6 +23,7 @@ import minic.compiler.ir.model.IrModule;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
 import minic.compiler.ir.value.IrFloatConstant;
+import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
 import minic.source.SourceFile;
@@ -48,6 +50,7 @@ public final class IrDebugInterpreter {
         IrFunction main = module.findFunction("main").orElseThrow(() ->
                 new IllegalArgumentException("IR module does not contain main"));
         InterpreterState state = new InterpreterState(module, main, sourceFile);
+        state.pushFrame(main, List.of(), null);
         executeFunction(state);
         return state.session;
     }
@@ -57,37 +60,38 @@ public final class IrDebugInterpreter {
             throw new IllegalArgumentException("main function does not contain blocks");
         }
         while (!state.completed) {
-            IrBlock block = state.currentBlock();
-            if (state.instructionIndex >= block.instructions().size()) {
+            CallFrame frame = state.currentFrame();
+            IrBlock block = frame.currentBlock();
+            if (frame.instructionIndex >= block.instructions().size()) {
                 state.completed = true;
                 state.session.setState(DebugExecutionState.COMPLETED);
                 return;
             }
-            int currentInstructionIndex = state.instructionIndex;
+            int currentInstructionIndex = frame.instructionIndex;
             IrInstruction instruction = block.instructions().get(currentInstructionIndex);
-            state.instructionIndex++;
+            frame.instructionIndex++;
             executeInstruction(state, block, currentInstructionIndex, instruction);
         }
     }
 
     private void executeInstruction(InterpreterState state, IrBlock block, int instructionIndex, IrInstruction instruction) {
         if (instruction instanceof IrDeclareLocalInstruction declare) {
-            state.locals.put(declare.local().name(), DebugValue.uninitialized(typeName(declare.local().type())));
+            state.currentFrame().locals.put(declare.local().name(), DebugValue.uninitialized(typeName(declare.local().type())));
             recordStep(state, block, instructionIndex, instruction, "DECLARE_LOCAL", declare.local().sourceName());
             return;
         }
         if (instruction instanceof IrStoreLocalInstruction store) {
-            state.locals.put(store.local().name(), resolveValue(state, store.value()));
+            state.currentFrame().locals.put(store.local().name(), resolveValue(state, store.value()));
             recordStep(state, block, instructionIndex, instruction, "STORE_LOCAL", store.local().sourceName());
             return;
         }
         if (instruction instanceof IrLoadLocalInstruction load) {
-            state.temps.put(load.result().name(), localValue(state, load.local()));
+            state.currentFrame().temps.put(load.result().name(), localValue(state, load.local()));
             recordStep(state, block, instructionIndex, instruction, "LOAD_LOCAL", load.local().sourceName());
             return;
         }
         if (instruction instanceof IrMoveInstruction move) {
-            state.temps.put(move.result().name(), resolveValue(state, move.value()));
+            state.currentFrame().temps.put(move.result().name(), resolveValue(state, move.value()));
             recordStep(state, block, instructionIndex, instruction, "MOVE", move.result().name());
             return;
         }
@@ -114,17 +118,17 @@ public final class IrDebugInterpreter {
             return;
         }
         if (instruction instanceof IrBinaryInstruction binary) {
-            state.temps.put(binary.result().name(), binaryValue(state, binary));
+            state.currentFrame().temps.put(binary.result().name(), binaryValue(state, binary));
             recordStep(state, block, instructionIndex, instruction, "BINARY", binary.operator().name());
             return;
         }
         if (instruction instanceof IrUnaryInstruction unary) {
-            state.temps.put(unary.result().name(), unaryValue(state, unary));
+            state.currentFrame().temps.put(unary.result().name(), unaryValue(state, unary));
             recordStep(state, block, instructionIndex, instruction, "UNARY", unary.operator().name());
             return;
         }
         if (instruction instanceof IrCastInstruction cast) {
-            state.temps.put(cast.result().name(), castValue(resolveValue(state, cast.value()), cast.result().type()));
+            state.currentFrame().temps.put(cast.result().name(), castValue(resolveValue(state, cast.value()), cast.result().type()));
             recordStep(state, block, instructionIndex, instruction, "CAST", cast.result().type().name());
             return;
         }
@@ -139,11 +143,28 @@ public final class IrDebugInterpreter {
             recordStep(state, block, instructionIndex, instruction, "JUMP", jump.targetLabel());
             return;
         }
+        if (instruction instanceof IrCallInstruction call) {
+            IrFunction callee = state.module.findFunction(call.calleeName()).orElseThrow(() ->
+                    new UnsupportedOperationException("external calls are handled in E180: " + call.calleeName()));
+            List<DebugValue> arguments = call.arguments().stream()
+                    .map(argument -> resolveValue(state, argument))
+                    .toList();
+            recordStep(state, block, instructionIndex, instruction, "CALL", call.calleeName());
+            state.pushFrame(callee, arguments, call.result());
+            return;
+        }
         if (instruction instanceof IrReturnInstruction ret) {
             state.returnValue = resolveValue(state, ret.value());
-            state.completed = true;
-            recordStep(state, block, instructionIndex, instruction, "RETURN", state.returnValue.summary(), DebugStopReason.COMPLETED, false);
-            state.session.setState(DebugExecutionState.COMPLETED);
+            IrTemporary returnTarget = state.currentFrame().returnTarget;
+            state.popFrame();
+            if (returnTarget == null || !state.hasFrames()) {
+                state.completed = true;
+                recordStep(state, block, instructionIndex, instruction, "RETURN", state.returnValue.summary(), DebugStopReason.COMPLETED, false);
+                state.session.setState(DebugExecutionState.COMPLETED);
+            } else {
+                state.currentFrame().temps.put(returnTarget.name(), state.returnValue);
+                recordStep(state, block, instructionIndex, instruction, "RETURN", state.returnValue.summary(), DebugStopReason.RETURN, false);
+            }
             return;
         }
         throw new UnsupportedOperationException("unsupported E160 IR instruction: " + instruction.getClass().getSimpleName());
@@ -164,9 +185,16 @@ public final class IrDebugInterpreter {
             );
         }
         if (value instanceof IrTemporary temporary) {
-            DebugValue debugValue = state.temps.get(temporary.name());
+            DebugValue debugValue = state.currentFrame().temps.get(temporary.name());
             if (debugValue == null) {
                 throw new IllegalStateException("temporary is not available: " + temporary.name());
+            }
+            return debugValue;
+        }
+        if (value instanceof IrParameterRef parameterRef) {
+            DebugValue debugValue = state.currentFrame().parameters.get(parameterRef.name());
+            if (debugValue == null) {
+                throw new IllegalStateException("parameter is not available: " + parameterRef.name());
             }
             return debugValue;
         }
@@ -250,7 +278,7 @@ public final class IrDebugInterpreter {
     }
 
     private DebugValue localValue(InterpreterState state, IrLocal local) {
-        DebugValue debugValue = state.locals.get(local.name());
+        DebugValue debugValue = state.currentFrame().locals.get(local.name());
         if (debugValue == null) {
             throw new IllegalStateException("local is not declared: " + local.name());
         }
@@ -306,7 +334,7 @@ public final class IrDebugInterpreter {
                 nextSnapshotId,
                 nextStep,
                 cursor,
-                List.of(state.function.name()),
+                state.callStackSummary(),
                 processSpace(state, cursor),
                 breakpointHit,
                 stopReason
@@ -324,38 +352,59 @@ public final class IrDebugInterpreter {
     }
 
     private DebugProcessSpace processSpace(InterpreterState state, DebugCursor cursor) {
-        List<DebugMemoryEntry> locals = state.locals.entrySet().stream()
-                .map(entry -> new DebugMemoryEntry(
-                        sourceLocalName(state, entry.getKey()),
-                        new DebugVirtualAddress("stack", Math.abs(entry.getKey().hashCode())),
-                        entry.getValue().typeName(),
-                        entry.getValue()
-                ))
-                .toList();
-        DebugStackFrame frame = new DebugStackFrame(
-                "frame-main",
-                state.function.name(),
-                List.of(),
-                locals,
-                null,
-                cursor.sourceRange()
-        );
+        java.util.ArrayList<DebugStackFrame> frames = new java.util.ArrayList<>();
+        for (CallFrame frameState : state.frames) {
+            List<DebugMemoryEntry> frameLocals = frameState.locals.entrySet().stream()
+                    .map(entry -> memoryEntry(frameState, entry))
+                    .toList();
+            List<DebugMemoryEntry> frameParameters = frameState.parameters.entrySet().stream()
+                    .map(entry -> new DebugMemoryEntry(
+                            entry.getKey(),
+                            new DebugVirtualAddress("stack", Math.abs((frameState.function.name() + ":param:" + entry.getKey()).hashCode())),
+                            entry.getValue().typeName(),
+                            entry.getValue()
+                    ))
+                    .toList();
+            frames.add(new DebugStackFrame(
+                    "frame-" + frameState.function.name() + "-" + frames.size(),
+                    frameState.function.name(),
+                    frameParameters,
+                    frameLocals,
+                    frameState.returnTarget == null ? null : frameState.returnTarget.name(),
+                    frameState == state.currentFrame() ? cursor.sourceRange() : null
+            ));
+        }
+        if (frames.isEmpty()) {
+            frames.add(new DebugStackFrame(
+                    "frame-completed",
+                    state.lastFunctionName,
+                    List.of(),
+                    List.of(),
+                    null,
+                    cursor.sourceRange()
+            ));
+        }
         return new DebugProcessSpace(
                 new DebugCodeSegment(
                         state.module.functions().stream().map(IrFunction::name).toList(),
-                        state.function.name(),
+                        state.currentFunctionName(),
                         cursor.instructionId(),
                         List.of()
                 ),
                 DebugStaticSegment.empty(),
-                DebugStackSegment.empty().push(frame),
+                new DebugStackSegment(frames),
                 DebugHeapSegment.empty(),
                 new DebugIoSegment("", state.returnValue == null ? "" : "return " + state.returnValue.summary(), "")
         );
     }
 
-    private String sourceLocalName(InterpreterState state, String localName) {
-        return state.localNames.getOrDefault(localName, localName);
+    private DebugMemoryEntry memoryEntry(CallFrame frame, Map.Entry<String, DebugValue> entry) {
+        return new DebugMemoryEntry(
+                frame.localNames.getOrDefault(entry.getKey(), entry.getKey()),
+                new DebugVirtualAddress("stack", Math.abs((frame.function.name() + ":" + entry.getKey()).hashCode())),
+                entry.getValue().typeName(),
+                entry.getValue()
+        );
     }
 
     private String eventTitle(String eventType) {
@@ -384,22 +433,75 @@ public final class IrDebugInterpreter {
         private final IrModule module;
         private final IrFunction function;
         private final DebugSession session;
-        private final Map<String, Integer> blockIndexes = new LinkedHashMap<>();
-        private final Map<String, DebugValue> locals = new LinkedHashMap<>();
-        private final Map<String, String> localNames = new LinkedHashMap<>();
-        private final Map<String, DebugValue> temps = new LinkedHashMap<>();
+        private final java.util.ArrayList<CallFrame> frames = new java.util.ArrayList<>();
         private long nextSnapshotId = 1;
         private long nextVisibleStep = 1;
         private long nextEventId;
-        private int blockIndex;
-        private int instructionIndex;
         private boolean completed;
         private DebugValue returnValue;
+        private String lastFunctionName;
 
         private InterpreterState(IrModule module, IrFunction function, SourceFile sourceFile) {
             this.module = module;
             this.function = function;
             this.session = DebugSession.fromSource(sourceFile);
+            this.lastFunctionName = function.name();
+        }
+
+        private void pushFrame(IrFunction function, List<DebugValue> arguments, IrTemporary returnTarget) {
+            frames.add(new CallFrame(function, arguments, returnTarget));
+            lastFunctionName = function.name();
+        }
+
+        private void popFrame() {
+            if (frames.isEmpty()) {
+                throw new IllegalStateException("call stack is empty");
+            }
+            lastFunctionName = currentFrame().function.name();
+            frames.removeLast();
+        }
+
+        private boolean hasFrames() {
+            return !frames.isEmpty();
+        }
+
+        private CallFrame currentFrame() {
+            if (frames.isEmpty()) {
+                throw new IllegalStateException("call stack is empty");
+            }
+            return frames.getLast();
+        }
+
+        private void jumpTo(String label) {
+            currentFrame().jumpTo(label);
+        }
+
+        private List<String> callStackSummary() {
+            return frames.stream().map(frame -> frame.function.name()).toList();
+        }
+
+        private String currentFunctionName() {
+            return frames.isEmpty() ? lastFunctionName : currentFrame().function.name();
+        }
+    }
+
+    private static final class CallFrame {
+        private final IrFunction function;
+        private final IrTemporary returnTarget;
+        private final Map<String, Integer> blockIndexes = new LinkedHashMap<>();
+        private final Map<String, DebugValue> parameters = new LinkedHashMap<>();
+        private final Map<String, DebugValue> locals = new LinkedHashMap<>();
+        private final Map<String, String> localNames = new LinkedHashMap<>();
+        private final Map<String, DebugValue> temps = new LinkedHashMap<>();
+        private int blockIndex;
+        private int instructionIndex;
+
+        private CallFrame(IrFunction function, List<DebugValue> arguments, IrTemporary returnTarget) {
+            this.function = function;
+            this.returnTarget = returnTarget;
+            for (int i = 0; i < function.parameters().size(); i++) {
+                parameters.put(function.parameters().get(i).name(), arguments.get(i));
+            }
             for (int i = 0; i < function.blocks().size(); i++) {
                 IrBlock block = function.blocks().get(i);
                 blockIndexes.put(block.label(), i);

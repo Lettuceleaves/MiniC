@@ -33,11 +33,12 @@ class IrDebugInterpreterTest {
         assertThat(session.snapshots()).hasSizeGreaterThanOrEqualTo(5);
         assertThat(session.events()).extracting(DebugEvent::type)
                 .contains("DECLARE_LOCAL", "STORE_LOCAL", "LOAD_LOCAL", "RETURN");
-        assertThat(session.currentSnapshot().processSpace().stack().frames()).singleElement().satisfies(frame ->
-                assertThat(frame.locals()).anySatisfy(local -> {
-                    assertThat(local.name()).isEqualTo("x");
-                    assertThat(local.valueSummary()).isEqualTo("1");
-                }));
+        assertThat(session.snapshots()).anySatisfy(snapshot ->
+                assertThat(snapshot.processSpace().stack().frames()).anySatisfy(frame ->
+                        assertThat(frame.locals()).anySatisfy(local -> {
+                            assertThat(local.name()).isEqualTo("x");
+                            assertThat(local.valueSummary()).isEqualTo("1");
+                        })));
     }
 
     @Test
@@ -86,6 +87,37 @@ class IrDebugInterpreterTest {
         assertThat(session.state()).isEqualTo(DebugExecutionState.FAILED);
         assertThat(session.currentSnapshot().stopReason()).isEqualTo(DebugStopReason.ERROR);
         assertThat(session.events()).extracting(DebugEvent::type).contains("CHECK_NON_ZERO");
+    }
+
+    @Test
+    void executesNestedAndRecursiveFunctionCallsWithCallStackSnapshots() {
+        SourceFile sourceFile = new SourceFile("debug-call.mc", """
+                int inc(int value) {
+                    return value + 1;
+                }
+
+                int sumDown(int value) {
+                    if (value == 0) {
+                        return 0;
+                    }
+                    return value + sumDown(value - 1);
+                }
+
+                int main() {
+                    int x = inc(2);
+                    return sumDown(x);
+                }
+                """);
+        IrModule module = lower(sourceFile);
+
+        DebugSession session = new IrDebugInterpreter().runMain(module, sourceFile);
+
+        assertThat(session.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(session.currentSnapshot().processSpace().io().stdout()).isEqualTo("return 6");
+        assertThat(session.events()).extracting(DebugEvent::type).contains("CALL", "RETURN");
+        assertThat(session.snapshots())
+                .anySatisfy(snapshot -> assertThat(snapshot.callStackSummary()).contains("main", "inc"))
+                .anySatisfy(snapshot -> assertThat(snapshot.callStackSummary()).contains("sumDown"));
     }
 
     private IrModule lower(SourceFile sourceFile) {
