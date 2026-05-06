@@ -24,6 +24,7 @@ import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
 import minic.compiler.ir.value.IrFloatConstant;
 import minic.compiler.ir.value.IrParameterRef;
+import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
 import minic.source.SourceFile;
@@ -37,6 +38,24 @@ import java.util.Objects;
  * 最小 IR Debug 解释器。
  */
 public final class IrDebugInterpreter {
+    private final DebugExternalFunctionRegistry externalFunctions;
+
+    /**
+     * 使用默认外部函数 stub 创建解释器。
+     */
+    public IrDebugInterpreter() {
+        this(DebugExternalFunctionRegistry.defaults());
+    }
+
+    /**
+     * 使用指定外部函数 stub 注册表创建解释器。
+     *
+     * @param externalFunctions 外部函数 stub 注册表
+     */
+    public IrDebugInterpreter(DebugExternalFunctionRegistry externalFunctions) {
+        this.externalFunctions = Objects.requireNonNull(externalFunctions, "externalFunctions");
+    }
+
     /**
      * 执行模块中的 main 函数。
      *
@@ -144,13 +163,16 @@ public final class IrDebugInterpreter {
             return;
         }
         if (instruction instanceof IrCallInstruction call) {
-            IrFunction callee = state.module.findFunction(call.calleeName()).orElseThrow(() ->
-                    new UnsupportedOperationException("external calls are handled in E180: " + call.calleeName()));
             List<DebugValue> arguments = call.arguments().stream()
                     .map(argument -> resolveValue(state, argument))
                     .toList();
+            java.util.Optional<IrFunction> callee = state.module.findFunction(call.calleeName());
+            if (callee.isEmpty()) {
+                executeExternalCall(state, block, instructionIndex, call, arguments);
+                return;
+            }
             recordStep(state, block, instructionIndex, instruction, "CALL", call.calleeName());
-            state.pushFrame(callee, arguments, call.result());
+            state.pushFrame(callee.orElseThrow(), arguments, call.result());
             return;
         }
         if (instruction instanceof IrReturnInstruction ret) {
@@ -198,7 +220,33 @@ public final class IrDebugInterpreter {
             }
             return debugValue;
         }
+        if (value instanceof IrStringLiteral stringLiteral) {
+            return DebugValue.pointerValue("char *", stringAddress(stringLiteral.label()));
+        }
         throw new UnsupportedOperationException("unsupported E160 IR value: " + value.getClass().getSimpleName());
+    }
+
+    private void executeExternalCall(
+            InterpreterState state,
+            IrBlock block,
+            int instructionIndex,
+            IrCallInstruction call,
+            List<DebugValue> arguments
+    ) {
+        if (!state.module.externalFunctionNames().contains(call.calleeName())) {
+            throw new UnsupportedOperationException("function is not available: " + call.calleeName());
+        }
+        DebugExternalFunctionStub stub = externalFunctions.find(call.calleeName()).orElseThrow(() ->
+                new UnsupportedOperationException("debug external stub is not available: " + call.calleeName()));
+        DebugExternalCallResult result = stub.invoke(
+                call.calleeName(),
+                call.arguments(),
+                arguments,
+                new DebugExternalCallContext(state.module)
+        );
+        state.currentFrame().temps.put(call.result().name(), result.returnValue());
+        state.stdout.append(result.stdoutAppend());
+        recordStep(state, block, instructionIndex, call, "CALL_EXTERNAL", result.description());
     }
 
     private DebugValue binaryValue(InterpreterState state, IrBinaryInstruction binary) {
@@ -391,11 +439,39 @@ public final class IrDebugInterpreter {
                         cursor.instructionId(),
                         List.of()
                 ),
-                DebugStaticSegment.empty(),
+                staticSegment(state),
                 new DebugStackSegment(frames),
                 DebugHeapSegment.empty(),
-                new DebugIoSegment("", state.returnValue == null ? "" : "return " + state.returnValue.summary(), "")
+                new DebugIoSegment("", stdout(state), "")
         );
+    }
+
+    private DebugStaticSegment staticSegment(InterpreterState state) {
+        List<DebugMemoryEntry> stringLiterals = state.module.stringData().stream()
+                .map(stringData -> new DebugMemoryEntry(
+                        stringData.label(),
+                        stringAddress(stringData.label()),
+                        "char[]",
+                        DebugValue.arrayValue("char[]", stringElements(stringData.value()))
+                ))
+                .toList();
+        return new DebugStaticSegment(List.of(), stringLiterals);
+    }
+
+    private List<DebugValueElement> stringElements(String value) {
+        java.util.ArrayList<DebugValueElement> elements = new java.util.ArrayList<>();
+        for (int i = 0; i < value.length(); i++) {
+            elements.add(new DebugValueElement(i, DebugValue.charValue(value.charAt(i))));
+        }
+        return elements;
+    }
+
+    private String stdout(InterpreterState state) {
+        String stdout = state.stdout.toString();
+        if (state.returnValue == null) {
+            return stdout;
+        }
+        return stdout + "return " + state.returnValue.summary();
     }
 
     private DebugMemoryEntry memoryEntry(CallFrame frame, Map.Entry<String, DebugValue> entry) {
@@ -420,9 +496,14 @@ public final class IrDebugInterpreter {
             case "CAST" -> "转换值类型";
             case "BRANCH" -> "条件跳转";
             case "JUMP" -> "无条件跳转";
+            case "CALL_EXTERNAL" -> "调用外部函数";
             case "RETURN" -> "函数返回";
             default -> eventType;
         };
+    }
+
+    private DebugVirtualAddress stringAddress(String label) {
+        return new DebugVirtualAddress("static", Math.abs(label.hashCode()));
     }
 
     private String typeName(IrType type) {
@@ -440,6 +521,7 @@ public final class IrDebugInterpreter {
         private boolean completed;
         private DebugValue returnValue;
         private String lastFunctionName;
+        private final StringBuilder stdout = new StringBuilder();
 
         private InterpreterState(IrModule module, IrFunction function, SourceFile sourceFile) {
             this.module = module;

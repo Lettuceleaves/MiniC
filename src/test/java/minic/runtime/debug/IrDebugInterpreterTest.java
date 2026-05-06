@@ -120,6 +120,34 @@ class IrDebugInterpreterTest {
                 .anySatisfy(snapshot -> assertThat(snapshot.callStackSummary()).contains("sumDown"));
     }
 
+    @Test
+    void dispatchesExternalPrintfThroughDebugStub() {
+        SourceFile sourceFile = new SourceFile("debug-printf.mc", """
+                extern int printf(char *format, ...);
+
+                int main() {
+                    int count = printf("value=%d\\n", 7);
+                    return count;
+                }
+                """);
+        IrModule module = lower(sourceFile);
+
+        DebugSession session = new IrDebugInterpreter().runMain(module, sourceFile);
+
+        assertThat(session.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(session.currentSnapshot().processSpace().io().stdout()).isEqualTo("value=7\nreturn 8");
+        assertThat(session.currentSnapshot().processSpace().staticData().stringLiterals())
+                .anySatisfy(stringLiteral -> {
+                    assertThat(stringLiteral.name()).startsWith("__minic$str$");
+                    assertThat(stringLiteral.value().summary()).isEqualTo("array[9]");
+                });
+        assertThat(session.events()).anySatisfy(event -> {
+            assertThat(event.type()).isEqualTo("CALL_EXTERNAL");
+            assertThat(event.title()).isEqualTo("调用外部函数");
+            assertThat(event.description()).contains("printf 输出");
+        });
+    }
+
     private IrModule lower(SourceFile sourceFile) {
         LexResult lexResult = new Lexer(sourceFile).lex();
         assertThat(lexResult.diagnostics()).isEmpty();
