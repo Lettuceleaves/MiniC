@@ -115,6 +115,20 @@ public final class MiniCDebugApi {
         return new UiDebugMetadataViewBuilder().build(currentState());
     }
 
+    /**
+     * 查询 AST Debug 视图模型。
+     *
+     * @return AST Debug 视图模型
+     */
+    public UiDebugAstViewDto astDebugView() {
+        Lowered lowered = lowerWithProgram(requireSourceFile());
+        return new UiDebugAstViewBuilder().build(
+                lowered.program(),
+                lowered.module(),
+                requireSession().currentSnapshot().cursor().sourceRange()
+        );
+    }
+
     private void ensureSourceLoaded() {
         if (sourceFile == null) {
             throw new IllegalStateException("source must be loaded before starting debug");
@@ -129,6 +143,10 @@ public final class MiniCDebugApi {
     }
 
     private IrModule lower(SourceFile sourceFile) {
+        return lowerWithProgram(sourceFile).module();
+    }
+
+    private Lowered lowerWithProgram(SourceFile sourceFile) {
         LexResult lexResult = new Lexer(sourceFile).lex();
         if (!lexResult.diagnostics().isEmpty()) {
             throw new IllegalStateException("debug source has lexer diagnostics");
@@ -142,6 +160,14 @@ public final class MiniCDebugApi {
         if (!semanticResult.diagnostics().isEmpty()) {
             throw new IllegalStateException("debug source has semantic diagnostics");
         }
-        return new IrLowerer().lower(program, semanticResult);
+        return new Lowered(program, new IrLowerer().lower(program, semanticResult));
+    }
+
+    private SourceFile requireSourceFile() {
+        ensureSourceLoaded();
+        return sourceFile;
+    }
+
+    private record Lowered(Program program, IrModule module) {
     }
 }
