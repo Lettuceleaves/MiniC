@@ -149,6 +149,19 @@ public final class MiniCDebugApi {
         return new UiDebugAsmViewBuilder().build(lowered.module(), currentState());
     }
 
+    /**
+     * 查询数据结构 Debug 视图模型。
+     *
+     * @return 数据结构 Debug 视图模型
+     */
+    public UiDebugDataStructureViewDto dataStructureDebugView() {
+        return new UiDebugDataStructureViewBuilder().build(
+                requireSourceFile(),
+                currentState(),
+                requireSession().currentSnapshot().processSpace()
+        );
+    }
+
     private void ensureSourceLoaded() {
         if (sourceFile == null) {
             throw new IllegalStateException("source must be loaded before starting debug");
