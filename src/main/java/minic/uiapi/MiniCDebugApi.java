@@ -129,6 +129,16 @@ public final class MiniCDebugApi {
         );
     }
 
+    /**
+     * 查询 IR Debug 视图模型。
+     *
+     * @return IR Debug 视图模型
+     */
+    public UiDebugIrViewDto irDebugView() {
+        Lowered lowered = lowerWithProgram(requireSourceFile());
+        return new UiDebugIrViewBuilder().build(lowered.module(), currentState());
+    }
+
     private void ensureSourceLoaded() {
         if (sourceFile == null) {
             throw new IllegalStateException("source must be loaded before starting debug");
