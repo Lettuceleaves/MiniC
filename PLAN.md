@@ -2,7 +2,7 @@
 
 当前开发阶段：`0.5.0`。
 
-下一步任务：`E290`：实现首批 DataStructureDescriptor。
+下一步任务：`E300`：实现元数据视图 DTO/模型。
 
 `0.1.0` 编译闭环总结见 [version/0.1.0.md](version/0.1.0.md)。
 `0.2.0` 结构化观测阶段记录见 [version/0.2.0.md](version/0.2.0.md)。
