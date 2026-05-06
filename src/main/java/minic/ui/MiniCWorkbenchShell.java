@@ -120,6 +120,9 @@ public final class MiniCWorkbenchShell {
         if (activeSection == ActivitySection.CODE) {
             return workbenchBody();
         }
+        if (activeSection == ActivitySection.DEBUG) {
+            return new MiniCDebugPane(documents.get(activeDocumentIndex).viewModel());
+        }
         body = null;
         visualPane = null;
         sourcePane = null;
@@ -516,7 +519,7 @@ public final class MiniCWorkbenchShell {
         CODE("M6 2 L14 2 L20 8 L20 22 L6 22 Z M14 2 L14 8 L20 8 M9 13 L17 13 M9 17 L17 17",
                 "代码区", "在这里编辑 MiniC 源码并启动可视化管线。"),
         DEBUG("M8 9 A4 4 0 0 1 16 9 L16 17 A4 4 0 0 1 8 17 Z M9.2 5 L14.8 5 M10 5 L8 2 M14 5 L16 2 M4 11 L8 11 M16 11 L20 11 M4 15 L8 15 M16 15 L20 15 M6 20 L8.5 17.5 M15.5 17.5 L18 20",
-                "调试", "调试视图将在后续实现。"),
+                "调试", "调试视图"),
         SETTINGS("M9.7 3 L14.3 3 L14.9 4.8 L16.5 5.5 L18.2 4.7 L20.5 8.7 L19.1 9.9 L19.1 11.8 L20.5 13 L18.2 17 L16.5 16.5 L14.9 17.2 L14.3 19 L9.7 19 L9.1 17.2 L7.5 16.5 L5.8 17 L3.5 13 L4.9 11.8 L4.9 9.9 L3.5 8.7 L5.8 4.7 L7.5 5.5 L9.1 4.8 Z M12 7.6 A3.4 3.4 0 1 0 12 14.4 A3.4 3.4 0 1 0 12 7.6",
                 "设置", "设置视图将在后续实现。"),
         INFO("M12 2 A10 10 0 1 0 12 22 A10 10 0 1 0 12 2 M12 10 L12 17 M12 7 L12 7.1",

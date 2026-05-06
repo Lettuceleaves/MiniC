@@ -192,8 +192,11 @@ class MiniCWorkbenchShellTest {
                 false, false, null
         ));
         assertThat(labels(root).stream().map(Label::getText))
-                .contains("调试", "调试视图将在后续实现。");
-        assertThat(button(root, "打开")).isNull();
+                .doesNotContain("调试视图将在后续实现。");
+        assertThat(button(root, "启动")).isNotNull();
+        assertThat(button(root, "运行到断点")).isNotNull();
+        assertThat(button(root, "单退")).isNotNull();
+        assertThat(button(root, "打开")).isNotNull();
 
         activityItem(root, "设置").fireEvent(new javafx.scene.input.MouseEvent(
                 javafx.scene.input.MouseEvent.MOUSE_CLICKED,

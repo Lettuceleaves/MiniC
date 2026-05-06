@@ -7,8 +7,15 @@ import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.beans.property.ReadOnlyStringProperty;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import minic.uiapi.MiniCObservationApi;
+import minic.uiapi.MiniCDebugApi;
 import minic.uiapi.UiControlResultDto;
 import minic.uiapi.UiCurrentStateDto;
+import minic.uiapi.UiDebugAsmViewDto;
+import minic.uiapi.UiDebugAstViewDto;
+import minic.uiapi.UiDebugDataStructureViewDto;
+import minic.uiapi.UiDebugIrViewDto;
+import minic.uiapi.UiDebugMetadataViewDto;
+import minic.uiapi.UiDebugStateDto;
 import minic.uiapi.UiGlobalDataDto;
 import minic.uiapi.UiRealtimeAnalysisDto;
 import minic.uiapi.UiStageDataDto;
@@ -23,6 +30,7 @@ import java.util.Objects;
  */
 public final class MiniCWorkbenchViewModel {
     private final MiniCObservationApi api;
+    private final MiniCDebugApi debugApi = new MiniCDebugApi();
     private final MiniCRealtimeAnalyzer realtimeAnalyzer;
     private final ReadOnlyStringWrapper sourceName = new ReadOnlyStringWrapper("");
     private final ReadOnlyStringWrapper sourceText = new ReadOnlyStringWrapper("");
@@ -39,6 +47,13 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiRealtimeAnalysisDto> realtimeAnalysis = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiControlResultDto> lastControlResult = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyStringWrapper selectedVisualStage = new ReadOnlyStringWrapper("");
+    private final ReadOnlyBooleanWrapper debugStarted = new ReadOnlyBooleanWrapper(false);
+    private final ReadOnlyObjectWrapper<UiDebugStateDto> debugState = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiDebugMetadataViewDto> debugMetadataView = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiDebugDataStructureViewDto> debugDataStructureView = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiDebugAstViewDto> debugAstView = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiDebugIrViewDto> debugIrView = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiDebugAsmViewDto> debugAsmView = new ReadOnlyObjectWrapper<>();
 
     /**
      * 使用默认 UI API 创建状态模型。
@@ -65,6 +80,7 @@ public final class MiniCWorkbenchViewModel {
      */
     public void loadSource(String name, String source) {
         api.loadSource(name, source);
+        debugApi.loadSource(name, source);
         sourceName.set(name);
         sourceText.set(source);
         clearSessionState();
@@ -77,6 +93,7 @@ public final class MiniCWorkbenchViewModel {
      */
     public void renameSource(String name) {
         api.loadSource(name, sourceText.get());
+        debugApi.loadSource(name, sourceText.get());
         sourceName.set(name);
         clearSessionState();
     }
@@ -95,6 +112,17 @@ public final class MiniCWorkbenchViewModel {
         lastControlResult.set(null);
         selectedVisualStage.set("");
         lastOutcome.set("");
+        clearDebugState();
+    }
+
+    private void clearDebugState() {
+        debugStarted.set(false);
+        debugState.set(null);
+        debugMetadataView.set(null);
+        debugDataStructureView.set(null);
+        debugAstView.set(null);
+        debugIrView.set(null);
+        debugAsmView.set(null);
     }
 
     /**
@@ -217,6 +245,61 @@ public final class MiniCWorkbenchViewModel {
      */
     public void selectVisualStage(String stage) {
         selectedVisualStage.set(stage == null ? "" : stage);
+    }
+
+    /**
+     * 启动 Debug 模式并刷新 Debug DTO。
+     */
+    public void startDebug() {
+        String name = sourceName.get() == null || sourceName.get().isBlank() ? "untitled.mc" : sourceName.get();
+        debugApi.loadSource(name, sourceText.get());
+        debugApi.startDebug();
+        debugStarted.set(true);
+        refreshDebug();
+    }
+
+    /**
+     * 设置 Debug 断点。
+     *
+     * @param line 源码行
+     */
+    public void setDebugBreakpoint(int line) {
+        ensureDebugStarted();
+        debugApi.setBreakpoint(line);
+        refreshDebug();
+    }
+
+    /**
+     * 运行到断点。
+     */
+    public void debugRunToBreakpoint() {
+        ensureDebugStarted();
+        debugApi.runToBreakpoint();
+        refreshDebug();
+    }
+
+    /**
+     * 单退。
+     */
+    public void debugStepBack() {
+        ensureDebugStarted();
+        debugApi.stepBack();
+        refreshDebug();
+    }
+
+    /**
+     * 刷新 Debug DTO。
+     */
+    public void refreshDebug() {
+        if (!debugStarted.get()) {
+            return;
+        }
+        debugState.set(debugApi.currentState());
+        debugMetadataView.set(debugApi.metadataView());
+        debugDataStructureView.set(debugApi.dataStructureDebugView());
+        debugAstView.set(debugApi.astDebugView());
+        debugIrView.set(debugApi.irDebugView());
+        debugAsmView.set(debugApi.asmDebugView());
     }
 
     /**
@@ -371,6 +454,34 @@ public final class MiniCWorkbenchViewModel {
         return selectedVisualStage.getReadOnlyProperty();
     }
 
+    public ReadOnlyBooleanProperty debugStartedProperty() {
+        return debugStarted.getReadOnlyProperty();
+    }
+
+    public ReadOnlyObjectProperty<UiDebugStateDto> debugStateProperty() {
+        return debugState.getReadOnlyProperty();
+    }
+
+    public ReadOnlyObjectProperty<UiDebugMetadataViewDto> debugMetadataViewProperty() {
+        return debugMetadataView.getReadOnlyProperty();
+    }
+
+    public ReadOnlyObjectProperty<UiDebugDataStructureViewDto> debugDataStructureViewProperty() {
+        return debugDataStructureView.getReadOnlyProperty();
+    }
+
+    public ReadOnlyObjectProperty<UiDebugAstViewDto> debugAstViewProperty() {
+        return debugAstView.getReadOnlyProperty();
+    }
+
+    public ReadOnlyObjectProperty<UiDebugIrViewDto> debugIrViewProperty() {
+        return debugIrView.getReadOnlyProperty();
+    }
+
+    public ReadOnlyObjectProperty<UiDebugAsmViewDto> debugAsmViewProperty() {
+        return debugAsmView.getReadOnlyProperty();
+    }
+
     private void applyControlResult(UiControlResultDto result) {
         lastControlResult.set(result);
         lastOutcome.set(result.outcome());
@@ -380,6 +491,12 @@ public final class MiniCWorkbenchViewModel {
         if (Objects.equals(sourceName.get(), result.sourceName())
                 && Objects.equals(sourceText.get(), result.sourceText())) {
             realtimeAnalysis.set(result);
+        }
+    }
+
+    private void ensureDebugStarted() {
+        if (!debugStarted.get()) {
+            startDebug();
         }
     }
 }
