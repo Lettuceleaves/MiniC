@@ -30,9 +30,13 @@ class DebugSessionTest {
                 1,
                 new DebugCursor("helper", "entry", "ir-1", null, "ast-1", List.of("asm-1")),
                 stack,
-                "process-space:1",
-                "out",
-                "",
+                new DebugProcessSpace(
+                        DebugCodeSegment.empty(),
+                        DebugStaticSegment.empty(),
+                        DebugStackSegment.empty(),
+                        DebugHeapSegment.empty(),
+                        DebugIoSegment.empty().appendStdout("out")
+                ),
                 true,
                 DebugStopReason.BREAKPOINT
         );
@@ -43,6 +47,7 @@ class DebugSessionTest {
 
         assertThat(session.currentSnapshot()).isEqualTo(snapshot);
         assertThat(session.currentSnapshot().callStackSummary()).containsExactly("main", "helper");
+        assertThat(session.currentSnapshot().processSpace().io().stdout()).isEqualTo("out");
         assertThat(session.currentSnapshot().breakpointHit()).isTrue();
         assertThat(session.events()).singleElement().satisfies(event -> {
             assertThat(event.type()).isEqualTo("BREAKPOINT");
