@@ -24,7 +24,17 @@ class VisualStructureTest {
                 List.of(decorator),
                 List.of(validator)
         );
-        ArrayStructure array = new ArrayStructure("array-1", "table", "matrix", "matrix", 2, List.of(), List.of());
+        ArrayStructure array = new ArrayStructure(
+                "array-1",
+                "table",
+                "matrix",
+                "matrix",
+                2,
+                ArrayShape.twoDimensional(1, 1),
+                List.of(new ArrayCell("cell-0", 0, 0, 0, "1", "stack:a[0]", Map.of())),
+                List.of(),
+                List.of()
+        );
         CompositeStructure composite = new CompositeStructure(
                 "composite-1",
                 "hash",
@@ -39,7 +49,7 @@ class VisualStructureTest {
         assertThat(array.type()).isEqualTo(VisualStructureType.ARRAY);
         assertThat(composite.type()).isEqualTo(VisualStructureType.COMPOSITE);
         assertThat(graph.summary()).contains("graph tree", "nodes=1", "hierarchical");
-        assertThat(array.summary()).contains("dimensions=2");
+        assertThat(array.summary()).contains("dimensions=2", "cells=1");
         assertThat(composite.summary()).contains("parts=2");
     }
 
@@ -117,5 +127,72 @@ class VisualStructureTest {
         assertThat(graph.layoutHint()).isEqualTo("hierarchical");
         assertThat(graph.components()).hasSize(2);
         assertThat(graph.summary()).contains("nodes=3", "components=2");
+    }
+
+    @Test
+    void arrayStructureKeepsCellsShapeAndLayoutMetadata() {
+        ArrayCell first = new ArrayCell("cell-0", 0, 0, 0, "1", "stack:a[0]", Map.of("index", "0"));
+        ArrayCell second = new ArrayCell("cell-1", 0, 1, 1, "2", "stack:a[1]", Map.of("index", "1"));
+        VisualDecorator decorator = new VisualDecorator("decorator-cell", "cell-color", "cell:cell-1", Map.of("color", "blue"));
+
+        ArrayStructure array = new ArrayStructure(
+                "array-linear",
+                "arr",
+                "array",
+                "linear",
+                1,
+                ArrayShape.oneDimensional(2),
+                List.of(first, second),
+                List.of(decorator),
+                List.of()
+        );
+
+        assertThat(array.shape()).isEqualTo(ArrayShape.oneDimensional(2));
+        assertThat(array.cells()).containsExactly(first, second);
+        assertThat(array.decorators()).singleElement().isEqualTo(decorator);
+        assertThat(array.summary()).contains("shape=1x2", "layout=linear");
+    }
+
+    @Test
+    void arrayStructureSupportsMatrixGridRingAndBucketHints() {
+        ArrayStructure matrix = new ArrayStructure(
+                "array-matrix",
+                "dp",
+                "matrix",
+                "matrix",
+                2,
+                ArrayShape.twoDimensional(2, 3),
+                List.of(new ArrayCell("cell-0-0", 0, 0, 0, "0", "stack:dp[0][0]", Map.of("role", "origin"))),
+                List.of(),
+                List.of()
+        );
+        ArrayStructure ring = new ArrayStructure(
+                "array-ring",
+                "queue",
+                "queue",
+                "ring",
+                1,
+                new ArrayShape(1, 4, 4, 2),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+        ArrayStructure buckets = new ArrayStructure(
+                "array-buckets",
+                "hashBuckets",
+                "hash_bucket_array",
+                "bucket",
+                1,
+                ArrayShape.oneDimensional(8),
+                List.of(),
+                List.of(),
+                List.of()
+        );
+
+        assertThat(matrix.layoutHint()).isEqualTo("matrix");
+        assertThat(matrix.summary()).contains("shape=2x3");
+        assertThat(ring.layoutHint()).isEqualTo("ring");
+        assertThat(ring.shape().logicalLength()).isEqualTo(2);
+        assertThat(buckets.layoutHint()).isEqualTo("bucket");
     }
 }

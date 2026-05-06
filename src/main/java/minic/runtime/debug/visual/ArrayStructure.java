@@ -12,6 +12,8 @@ public record ArrayStructure(
         String kind,
         String layoutHint,
         int dimensions,
+        ArrayShape shape,
+        List<ArrayCell> cells,
         List<VisualDecorator> decorators,
         List<VisualValidator> validators
 ) implements VisualStructure {
@@ -20,6 +22,8 @@ public record ArrayStructure(
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(kind, "kind");
         Objects.requireNonNull(layoutHint, "layoutHint");
+        Objects.requireNonNull(shape, "shape");
+        Objects.requireNonNull(cells, "cells");
         Objects.requireNonNull(decorators, "decorators");
         Objects.requireNonNull(validators, "validators");
         if (id.isBlank() || name.isBlank() || kind.isBlank() || layoutHint.isBlank()) {
@@ -28,6 +32,7 @@ public record ArrayStructure(
         if (dimensions < 1) {
             throw new IllegalArgumentException("dimensions must be positive");
         }
+        cells = List.copyOf(cells);
         decorators = List.copyOf(decorators);
         validators = List.copyOf(validators);
     }
@@ -39,6 +44,11 @@ public record ArrayStructure(
 
     @Override
     public String summary() {
-        return "array " + name + " kind=" + kind + " dimensions=" + dimensions + " layout=" + layoutHint;
+        return "array " + name
+                + " kind=" + kind
+                + " dimensions=" + dimensions
+                + " cells=" + cells.size()
+                + " shape=" + shape.rows() + "x" + shape.columns()
+                + " layout=" + layoutHint;
     }
 }
