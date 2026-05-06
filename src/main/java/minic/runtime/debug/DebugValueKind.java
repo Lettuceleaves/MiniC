@@ -25,6 +25,16 @@ public enum DebugValueKind {
     BOOL,
 
     /**
+     * float 标量。
+     */
+    FLOAT,
+
+    /**
+     * double 标量。
+     */
+    DOUBLE,
+
+    /**
      * 指针值。
      */
     POINTER,
