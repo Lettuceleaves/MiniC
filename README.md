@@ -16,7 +16,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 
 ## 当前状态
 
-`0.4.0` 已完成，当前支持 C 子集语法和预编译扩展能力。`0.5.0` Debugger 已实现 CompositeStructure，下一步执行 `E270`：解析 @visual 注释协议。
+`0.4.0` 已完成，当前支持 C 子集语法和预编译扩展能力。`0.5.0` Debugger 已解析 @visual 注释协议，下一步执行 `E280`：实现 Visual 投影构建器。
 
 本阶段新增 `.mh` include、对象宏、条件编译、MiniC 头文件校验、`extern int printf(char *format, ...);` 可变参数外部函数声明、常用表达式运算符、`sizeof`、`do while` 和 `switch case default`。
 
