@@ -139,6 +139,16 @@ public final class MiniCDebugApi {
         return new UiDebugIrViewBuilder().build(lowered.module(), currentState());
     }
 
+    /**
+     * 查询 ASM Debug 视图模型。
+     *
+     * @return ASM Debug 视图模型
+     */
+    public UiDebugAsmViewDto asmDebugView() {
+        Lowered lowered = lowerWithProgram(requireSourceFile());
+        return new UiDebugAsmViewBuilder().build(lowered.module(), currentState());
+    }
+
     private void ensureSourceLoaded() {
         if (sourceFile == null) {
             throw new IllegalStateException("source must be loaded before starting debug");
