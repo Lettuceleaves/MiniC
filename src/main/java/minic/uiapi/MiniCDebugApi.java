@@ -106,6 +106,15 @@ public final class MiniCDebugApi {
         return UiDebugDtoMapper.state(requireSession());
     }
 
+    /**
+     * 查询元数据视图模型。
+     *
+     * @return 元数据视图模型
+     */
+    public UiDebugMetadataViewDto metadataView() {
+        return new UiDebugMetadataViewBuilder().build(currentState());
+    }
+
     private void ensureSourceLoaded() {
         if (sourceFile == null) {
             throw new IllegalStateException("source must be loaded before starting debug");
