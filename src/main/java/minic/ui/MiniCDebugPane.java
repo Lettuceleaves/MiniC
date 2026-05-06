@@ -3,8 +3,10 @@ package minic.ui;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
+import javafx.geometry.Orientation;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -25,8 +27,11 @@ import java.util.stream.Collectors;
 public final class MiniCDebugPane extends VBox {
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCSourceLoaderView sourceView;
+    private final SplitPane splitPane = new SplitPane();
     private final TabPane tabs = new TabPane();
+    private final TabPane splitTabs = new TabPane();
     private final Label status = label("", "body-text");
+    private boolean splitVisible;
 
     /**
      * 创建 Debug 面板。
@@ -39,6 +44,7 @@ public final class MiniCDebugPane extends VBox {
         sourceView = new MiniCSourceLoaderView(viewModel);
         HBox controls = controls();
         tabs.getStyleClass().add("debug-tabs");
+        splitTabs.getStyleClass().add("debug-tabs");
         tabs.getTabs().addAll(
                 tab("元数据", ""),
                 tab("数据结构", ""),
@@ -46,9 +52,19 @@ public final class MiniCDebugPane extends VBox {
                 tab("IR", ""),
                 tab("ASM", "")
         );
-        getChildren().addAll(controls, status, sourceView, tabs);
+        splitTabs.getTabs().addAll(
+                tab("元数据", ""),
+                tab("数据结构", ""),
+                tab("AST", ""),
+                tab("IR", ""),
+                tab("ASM", "")
+        );
+        splitPane.setOrientation(Orientation.HORIZONTAL);
+        splitPane.getItems().setAll(tabs);
+        splitPane.setDividerPositions(0.5);
+        getChildren().addAll(controls, status, sourceView, splitPane);
         VBox.setVgrow(sourceView, Priority.ALWAYS);
-        VBox.setVgrow(tabs, Priority.ALWAYS);
+        VBox.setVgrow(splitPane, Priority.ALWAYS);
         viewModel.debugStateProperty().addListener((observable, oldValue, newValue) -> refresh());
         viewModel.debugMetadataViewProperty().addListener((observable, oldValue, newValue) -> refresh());
         refresh();
@@ -73,7 +89,8 @@ public final class MiniCDebugPane extends VBox {
         });
         Button run = button("运行到断点", viewModel::debugRunToBreakpoint);
         Button back = button("单退", viewModel::debugStepBack);
-        HBox controls = new HBox(6, start, breakpoint, run, back);
+        Button split = button("拆分", this::toggleSplit);
+        HBox controls = new HBox(6, start, breakpoint, run, back, split);
         controls.getStyleClass().add("controls");
         return controls;
     }
@@ -118,10 +135,38 @@ public final class MiniCDebugPane extends VBox {
         setTabText(2, astText(viewModel.debugAstViewProperty().get()));
         setTabText(3, irText(viewModel.debugIrViewProperty().get()));
         setTabText(4, asmText(viewModel.debugAsmViewProperty().get()));
+        if (splitVisible) {
+            refreshSplitTabs();
+        }
     }
 
     private void setTabText(int index, String text) {
         tabs.getTabs().get(index).setContent(scroll(text == null ? "" : text));
+    }
+
+    private void setSplitTabText(int index, String text) {
+        splitTabs.getTabs().get(index).setContent(scroll(text == null ? "" : text));
+    }
+
+    private void toggleSplit() {
+        splitVisible = !splitVisible;
+        if (splitVisible) {
+            if (!splitPane.getItems().contains(splitTabs)) {
+                splitPane.getItems().add(splitTabs);
+            }
+            splitTabs.getSelectionModel().select(tabs.getSelectionModel().getSelectedIndex());
+            refreshSplitTabs();
+        } else {
+            splitPane.getItems().remove(splitTabs);
+        }
+    }
+
+    private void refreshSplitTabs() {
+        setSplitTabText(0, metadataText(viewModel.debugMetadataViewProperty().get()));
+        setSplitTabText(1, dataText(viewModel.debugDataStructureViewProperty().get()));
+        setSplitTabText(2, astText(viewModel.debugAstViewProperty().get()));
+        setSplitTabText(3, irText(viewModel.debugIrViewProperty().get()));
+        setSplitTabText(4, asmText(viewModel.debugAsmViewProperty().get()));
     }
 
     private String metadataText(UiDebugMetadataViewDto view) {
