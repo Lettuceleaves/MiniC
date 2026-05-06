@@ -9,13 +9,13 @@ import java.util.Optional;
  * @param name 名称
  * @param address 虚拟地址；没有时为 {@code null}
  * @param typeName 类型名
- * @param valueSummary 值摘要；E140 会引入正式 DebugValue
+ * @param value 值
  */
 public record DebugMemoryEntry(
         String name,
         DebugVirtualAddress address,
         String typeName,
-        String valueSummary
+        DebugValue value
 ) {
     /**
      * 创建虚拟内存条目。
@@ -23,7 +23,7 @@ public record DebugMemoryEntry(
     public DebugMemoryEntry {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(typeName, "typeName");
-        Objects.requireNonNull(valueSummary, "valueSummary");
+        Objects.requireNonNull(value, "value");
         if (name.isBlank()) {
             throw new IllegalArgumentException("name must not be blank");
         }
@@ -39,5 +39,14 @@ public record DebugMemoryEntry(
      */
     public Optional<DebugVirtualAddress> addressOptional() {
         return Optional.ofNullable(address);
+    }
+
+    /**
+     * 返回值摘要。
+     *
+     * @return 值摘要
+     */
+    public String valueSummary() {
+        return value.summary();
     }
 }
