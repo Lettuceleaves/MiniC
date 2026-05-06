@@ -14,3 +14,5 @@ out/
 
 release/*
 !release/.gitkeep
+!release/launcher/
+!release/launcher/**
