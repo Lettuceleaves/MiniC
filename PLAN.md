@@ -1,8 +1,8 @@
 # MiniC Agent 执行计划
 
-当前开发阶段：`0.4.0`。
+当前开发阶段：`0.5.0`。
 
-下一步任务：待定。
+下一步任务：`E110`：确认 Debugger 边界并更新 SPEC。
 
 `0.1.0` 编译闭环总结见 [version/0.1.0.md](version/0.1.0.md)。
 `0.2.0` 结构化观测阶段记录见 [version/0.2.0.md](version/0.2.0.md)。
@@ -23,372 +23,659 @@
 - 修改已有文件前应先查看当前内容，避免覆盖用户或其他 agent 的未提交改动。
 - 不提交构建产物、IDE 私有配置、临时文件、日志文件和本地环境文件。
 
-## 0.4.0 目标边界
+## 0.5.0 目标边界
 
-本阶段准备从现有 v0.1 C 子集继续扩展语法能力，并同步更新旧语法规范。扩展前必须先确认范围，避免一次性纳入过多 C 标准特性导致 parser、semantic、IR 和 codegen 的任务边界失控。
+本阶段目标是实现 MiniC 教学型可视化 Debugger。Debugger 是 Workbench 中的独立模式，由侧边栏 Debug 按钮进入；源码编辑器、行号、断点 gutter、诊断高亮和当前执行行高亮与现有编辑器共享。
 
-本阶段确认纳入：
+Debugger 不调试真实 exe，不接 Windows Debug API，不承诺寄存器级、机器码级或系统进程级状态。第一版执行模型为：
 
-- 常用运算符和表达式优先级：`-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`, `%`, `&`, `|`, `^`, `~`, `!`, `&&`, `||`, `<<`, `>>`, `?:`, `++`, `--`。
-- pipeline 前置预编译步骤：正式 lexer/parser 前先处理 include、宏定义、条件编译，并把预编译诊断并入编译诊断链路。
-- 轻量预处理宏语法：`#include "xxx.mh"`、`#define NAME value`、`#define NAME`、`#ifdef NAME`、`#ifndef NAME`、`#else`、`#endif`、`#undef NAME`。
-- MiniC 头文件语法：include 进来的文件只能使用 `.mh` 后缀，允许放置类似 `.h` 的函数声明、结构体声明、宏定义和条件编译块，但不得包含函数定义或可执行语句。
-- C 风格 `printf` 所需声明语法：字符串字面量作为 `char *`，函数声明支持 `...` 可变参数，样例中的旧写法 `extern int printf(int format, int value);` 应移除，改为 `extern int printf(char *format, ...);`。
-- 控制流和类型查询语法：`do while`、`switch case default`、`sizeof`。
+```text
+source -> preprocess -> lexer -> parser -> semantic -> ir -> debug interpreter
+```
 
-本阶段暂不纳入：
+普通编译观察模式继续保持：
 
-- 函数式宏、`#if/#elif` 表达式、系统头文件搜索路径、`.h` 文件 include 和完整 C 预处理器。
-- 完整标准库头文件建模；`printf` 先作为外部符号声明和 Windows x64 调用约定样例处理。
-- `const`、`restrict`、`unsigned`、`void` 全量语义，除非实现 `printf` 原型时确需最小支持再单独拆任务确认。
+```text
+source -> preprocess -> lexer -> parser -> semantic -> ir -> codegen -> toolchain -> execution
+```
 
-## Phase D 0.4.0：C 子集语法和预编译扩展
+Debugger 基于 IR Interpreter 执行，并使用“状态快照 + 事件日志”支持正向运行、暂停、重启、关闭、单退、步退和返回调用处。外部调用副作用不纳入可回退承诺范围，第一版只通过 debug stub 记录可控输出。
+
+## 控制语义
+
+- `快进`：持续运行，直到程序结束、下一个断点、运行时错误、外部阻塞或用户请求暂停。
+- `运行到断点`：从当前位置运行到下一个断点；如果没有断点则运行到结束或错误。
+- `单步`：执行下一条源码级可见语句；函数调用整体跳过，类似 Step Over。
+- `步入`：如果当前语句包含函数调用，则进入被调函数第一条可见语句；否则等同单步。
+- `步返`：继续执行到当前函数返回到调用者后一条可见语句。
+- `暂停`：只在 `快进` 和 `运行到断点` 这类连续运行中生效；解释器在下一条可见源码行执行前停住。
+- `关闭`：销毁 DebugSession，保留编辑器源码和断点。
+- `重启`：重新从 `main` 创建 DebugSession，保留断点。
+- `单退`：恢复到上一个可见调试步的快照。
+- `步退`：恢复到上一个断点命中的快照。
+- `返回调用处`：恢复到进入当前函数调用之前的快照，也就是调用点状态。
+
+## 右侧 Debug 视图
+
+右侧 Debug 区域顶部使用标签栏呈现，后续支持向右拆分对比。首版视图包括：
+
+- 元数据视图：展示状态、停止原因、当前函数、当前源码位置、调用栈、变量、stdout/stderr、断点、事件日志和 snapshot 时间线。
+- 数据结构视图：展示虚拟进程空间和由进程空间投影出的图形化数据结构。
+- AST 视图：高亮当前 debug 对应 AST 节点，点击节点显示节点数据、解释和源码映射。
+- IR 视图：高亮当前 IR 指令，展示基本块、操作数、结果值和解释。
+- ASM 视图：展示当前 IR 对应的生成汇编并高亮相关行组；这是映射展示，不代表真实 CPU 正在执行的机器指令。
+
+## 虚拟进程空间
+
+运行时数据按虚拟进程空间呈现，帮助用户理解程序执行时的数据位置和关系：
+
+- code：函数、当前 IR 指令和映射汇编行。
+- static/data：全局变量和字符串字面量。
+- stack：调用栈、参数、局部变量、返回目标和返回值。
+- heap：虚拟堆块、数组、结构体、指针目标和释放状态。
+- io：stdin、stdout、stderr。
+
+虚拟地址用于教学展示，不等同于 Windows 真实进程地址。
+
+## 数据结构图形化基础架构
+
+数据结构视图不为每一种高级数据结构实现独立渲染器，而是把高级数据结构映射到少量通用可视化基元：
+
+```text
+高级数据结构 = 基元结构 + 布局 + 装饰器 + 校验器 + 解释器
+```
+
+底层只定义三种基元：
+
+- GraphStructure：节点和边，覆盖链表、树、Trie、并查集森林、普通图、DAG、状态机、跳表等。
+- ArrayStructure：连续空间、表格、矩阵和网格，覆盖数组、字符串、栈/队列底层数组、矩阵、邻接矩阵、DP 表、网格、hash bucket array、bitmap 等。
+- CompositeStructure：由多个图或数组组合出的结构，覆盖哈希表、邻接表、LRU、堆的数组+树双投影、复杂业务结构等。
+
+树不是独立底层模型，而是 `GraphStructure + hierarchical layout`。红黑树后续作为 `GraphStructure + hierarchical layout + color decorator + rb validators` 扩展；第一批 descriptor 不包含红黑树。
+
+## @visual 注释协议
+
+第一版使用注释协议，不修改 MiniC 语法。`root` 只允许变量名，允许多个 visual，支持命名，同名结构可把多个离散 component 归并到同一个逻辑数据结构。
+
+第一版纳入：
+
+```c
+// @visual graph name=tree kind=tree root=root node=Node left=left right=right label=value
+// @visual array name=arr kind=array root=a length=n label=value
+// @visual composite name=cache kind=hash_table
+// @visual-node graph=network id=i label=name
+// @visual-edge graph=network from=u to=v label=w directed=true
+```
+
+`@visual-node` 和 `@visual-edge` 第一版进入，但只支持简单变量名或字面值，不支持复杂表达式。若后续扩展复杂表达式，需要复用 Debugger 表达式求值能力，不能单独维护第二套表达式解释器。
+
+## Phase E 0.5.0：教学型可视化 Debugger
 
 执行顺序原则：
 
-- 先改规范和样例方向，再实现 pipeline 结构。
-- 预编译阶段先做“直通可观测”，再分别实现 include、对象宏、条件编译和 `.mh` 头文件约束。
-- 语法能力按 lexer -> parser/AST -> semantic -> IR/codegen 分层推进，避免一次任务横跨过多层。
-- `printf` 修复不作为临时绕过：必须通过 `char *`、字符串字面量、`...` 可变参数声明和 Windows x64 调用约定形成可解释闭环。
+- 先写清边界和 SPEC，再实现 runtime debug 核心。
+- 先做可单测的 DebugSession、虚拟进程空间、IR Interpreter 和 snapshot，再接 Workbench。
+- UI 层只依赖 `minic.uiapi.*` DTO，不直接访问 runtime debug 内部对象。
+- 数据结构图形化先建立 Graph/Array/Composite 基础设施，再添加高级 descriptor。
+- ASM 视图只做 Source/IR/ASM 映射展示，不模拟真实 CPU 状态。
 
-### D100：更新语法扩展规范和 printf 原型方向（已完成）
+### E110：确认 Debugger 边界并更新 SPEC
 
-依赖：`0.3.1` 已完成。
+依赖：`0.4.0` 已完成。
 
-目标：更新 `SPEC.md` 和样例规划，明确本阶段语法扩展范围，并把旧 `printf` 声明方向修正为更符合 C 的可变参数外部函数原型。
+目标：把 0.5.0 Debugger 的模式、能力边界、控制语义、虚拟进程空间、数据结构图形化基元和 `@visual` 协议写入 `SPEC.md`。
 
 允许修改：
 
 - `README.md`
 - `PLAN.md`
 - `SPEC.md`
-- `samples/printf.mc`
 
 验收：
 
-- PLAN 清除旧阶段任务，并记录 Phase D 任务拆分。
-- README 当前状态指向 `D100`。
-- SPEC 记录本阶段要支持的 pipeline 预编译步骤、`.mh` include 限制、宏语法、MiniC 头文件语法、运算符、`do while`、`switch case`、`sizeof`。
-- SPEC 明确 `extern int printf(int format, int value);` 虽是合法 C 函数声明，但不是标准 `printf` 签名；MiniC 样例应改用 `extern int printf(char *format, ...);`。
-- `samples/printf.mc` 不再使用 `int format` 伪签名。
+- SPEC 明确 Debugger 是独立模式，不进入普通编译观察流水线。
+- SPEC 明确第一版执行 IR Interpreter，不调试真实 exe。
+- SPEC 记录控制语义：快进、运行到断点、单步、步入、暂停、关闭、重启、步退、单退、步返、返回调用处。
+- SPEC 明确暂停只在连续运行中生效。
+- SPEC 明确使用状态快照和事件日志实现反向能力。
+- SPEC 明确运行时数据按虚拟进程空间展示。
+- SPEC 明确数据结构图形化三类基元：GraphStructure、ArrayStructure、CompositeStructure。
+- SPEC 明确 `@visual-node` / `@visual-edge` 第一版进入，且首版只支持简单变量名或字面值。
+- SPEC 明确第一批 descriptor 不包含红黑树，红黑树作为后续特殊结构扩展。
+- SPEC 明确 ASM 视图是映射展示，不代表真实 CPU 执行状态。
+- README 当前状态指向提交完成之后的下一步任务。
 
 验证：文档任务，无需运行测试。
 
-### D110：建立预编译阶段数据模型和 pipeline 插槽（已完成）
+### E120：建立 Debug 基础模型
 
-依赖：`D100`。
+依赖：`E110`。
 
-目标：在正式 lexer/parser 前建立 preprocess 阶段的最小数据模型，并把 `MiniCompiler` pipeline 改为 preprocess -> lexer -> parser。
-
-允许修改：
-
-- `src/main/java/minic/compiler/preprocess/**`
-- `src/main/java/minic/compiler/pipeline/**`
-- `src/test/java/minic/compiler/preprocess/**`
-- `src/test/java/minic/compiler/pipeline/**`
-
-验收：
-
-- 新增 `PreprocessResult` 或等价模型，包含预编译后的 `SourceFile`、diagnostics、include 摘要和宏摘要。
-- 新增 `Preprocessor` 或等价入口，初始实现可直通源码。
-- `MiniCompiler` 必须先调用预编译入口，再把预编译后的源码交给 lexer。
-- 预编译 diagnostics 非空时 pipeline 停止在 lexer 之前，并返回结构化 diagnostics。
-- 现有无宏源码行为保持兼容。
-
-验证：`./gradlew test`
-
-### D111：补全 Phase D lexer token（已完成）
-
-依赖：`D110`。
-
-目标：让 lexer 能识别新增运算符、控制流关键字、`sizeof` 和 `...`。
+目标：新增 `minic.runtime.debug` 基础模型，先不执行真实 IR。
 
 允许修改：
 
-- `src/main/java/minic/compiler/lexer/**`
-- `src/test/java/minic/compiler/lexer/**`
+- `src/main/java/minic/runtime/debug/**`
+- `src/test/java/minic/runtime/debug/**`
 
 验收：
 
-- 识别复合赋值：`-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`。
-- 识别新增运算符：`%`, `&`, `|`, `^`, `~`, `!`, `&&`, `||`, `<<`, `>>`, `?`, `:`, `++`, `--`。
-- 识别关键字：`do`、`switch`、`case`、`default`、`sizeof`。
-- 识别 `...`，并能区分 `.`、`..` 非法或不完整省略号。
-- 新增 token 测试覆盖相似标识符边界，例如 `switchValue` 仍是 identifier。
+- 新增 DebugSession、DebugSnapshot、DebugEvent、DebugCursor、DebugStopReason、DebugCommand、DebugExecutionState。
+- DebugSession 能创建初始 paused 状态。
+- DebugSnapshot 能表达当前源码范围、调用栈、进程空间引用、stdout/stderr、断点命中和停止原因。
+- DebugEvent 能记录事件类型、标题、解释、源码范围和影响值引用。
+- 单元测试覆盖初始状态、snapshot 追加和事件日志追加。
 
 验证：`./gradlew test`
 
-### D120：实现 .mh include 解析和文件加载（已完成）
+### E130：建立虚拟进程空间模型
 
-依赖：`D110`。
+依赖：`E120`。
 
-目标：在预编译阶段支持 `#include "xxx.mh"`，并拒绝非 `.mh` 后缀。
+目标：建立 code/static/stack/heap/io 五段虚拟进程空间。
 
 允许修改：
 
-- `src/main/java/minic/compiler/preprocess/**`
-- `src/main/java/minic/compiler/pipeline/**`
-- `src/test/java/minic/compiler/preprocess/**`
-- 必要时 `src/main/java/minic/runtime/step/**`
+- `src/main/java/minic/runtime/debug/**`
+- `src/test/java/minic/runtime/debug/**`
 
 验收：
 
-- 支持 `#include "xxx.mh"`，include 目标必须是 `.mh` 后缀；`.h`、`.inc` 或其他后缀一律报 diagnostic。
-- `.mh` 查找限定为源文件相邻路径或编译选项显式 include 根目录。
-- 支持嵌套 include，并检测 include 循环。
-- include 展开顺序稳定，重复 include 暂不自动去重；后续可由 include guard 宏控制。
-- include 文件读取失败必须转为 diagnostic。
-- 预编译结果记录 include 列表，包含路径、来源行和展开状态。
-- 预编译后的源码保留主文件与 `.mh` 内容的可诊断来源信息。
+- 支持虚拟地址和值引用。
+- 支持 code 段记录函数和当前指令。
+- 支持 static/data 段记录全局变量和字符串字面量。
+- 支持 stack 段记录调用帧、参数、局部变量和返回目标。
+- 支持 heap 段记录虚拟堆块、数组、结构体和状态。
+- 支持 io 段记录 stdin/stdout/stderr。
+- 测试覆盖调用帧入栈/出栈、heap block 创建和 stdout 追加。
 
 验证：`./gradlew test`
 
-### D121：实现对象宏定义、取消定义和替换（已完成）
+### E140：建立 DebugValue 模型
 
-依赖：`D120`。
+依赖：`E130`。
 
-目标：支持 `#define NAME value`、`#define NAME`、`#undef NAME` 的对象宏。
+目标：建立运行时值体系。
 
 允许修改：
 
-- `src/main/java/minic/compiler/preprocess/**`
-- `src/test/java/minic/compiler/preprocess/**`
+- `src/main/java/minic/runtime/debug/**`
+- `src/test/java/minic/runtime/debug/**`
 
 验收：
 
-- 支持 `#define NAME value`、`#define NAME`、`#undef NAME`。
-- `#define NAME` 作为空宏或 presence 宏，可用于 `#ifdef/#ifndef`。
-- 宏名必须符合 MiniC identifier 规则。
-- 宏替换限定为对象宏 token 序列替换，不支持函数宏。
-- 替换只发生在普通源码 token 中，不替换字符串字面量内部内容。
-- 递归宏、直接自引用宏必须受限并给出 diagnostic 或保持不展开，避免无限循环。
+- 支持 int、long、char、bool、pointer、array、struct、null、uninitialized。
+- 指针值引用虚拟地址。
+- 数组和结构体值保留元素/字段元数据。
+- 所有值可生成稳定摘要，供元数据视图和事件日志使用。
 
 验证：`./gradlew test`
 
-### D122：实现条件编译块（已完成）
+### E150：实现 IR Interpreter 最小执行
 
-依赖：`D121`。
+依赖：`E140`。
 
-目标：支持 `#ifdef/#ifndef/#else/#endif` 条件包含。
+目标：从 `main` 执行到 `return`，形成最小可调试闭环。
 
 允许修改：
 
-- `src/main/java/minic/compiler/preprocess/**`
-- `src/test/java/minic/compiler/preprocess/**`
+- `src/main/java/minic/runtime/debug/**`
+- `src/test/java/minic/runtime/debug/**`
+- 必要时 `src/main/java/minic/compiler/ir/**`
 
 验收：
 
-- 支持 `#ifdef/#ifndef/#else/#endif` 条件包含，并对未闭合条件块给出 diagnostic。
-- 嵌套条件编译正确工作。
-- 同一条件块多个 `#else` 报 diagnostic。
-- 多余 `#endif` 或孤立 `#else` 报 diagnostic。
-- 被排除分支不参与普通源码输出，也不触发 lexer/parser 诊断。
-- 预编译后的源码必须保留足够的来源信息或 diagnostics range，后续 UI/CLI 能解释错误来自主文件还是 `.mh` 文件。
+- 能从已有 IR Module 找到 `main`。
+- 支持常量、局部变量声明、load/store、move、return。
+- 每个可见调试步记录 snapshot 和 event。
+- 返回值写入 debug 状态。
+- 测试覆盖 `int main() { int x = 1; return x; }` 的执行和状态快照。
 
 验证：`./gradlew test`
 
-### D125：校验 MiniC 头文件语法（已完成）
+### E160：支持表达式和控制流执行
 
-依赖：`D122`。
+依赖：`E150`。
 
-目标：允许 `.mh` 文件承载类似 C `.h` 的声明内容，并禁止头文件中出现实现体或可执行语句。
+目标：补齐常见 IR 运算和跳转执行。
 
 允许修改：
 
-- `src/main/java/minic/compiler/preprocess/**`
-- `src/main/java/minic/compiler/parser/**`
-- `src/main/java/minic/compiler/semantic/**`
-- `src/test/java/minic/compiler/preprocess/**`
-- `src/test/java/minic/compiler/parser/**`
-- `samples/**`
+- `src/main/java/minic/runtime/debug/**`
+- `src/test/java/minic/runtime/debug/**`
 
 验收：
 
-- `.mh` 文件允许函数声明、外部函数声明、结构体声明、宏定义、条件编译块。
-- `.mh` 文件禁止函数定义、顶层可执行语句和非声明内容，并给出 diagnostic。
-- 主 `.mc` 文件 include `.mh` 后可使用其中的声明。
-- `.mh` 中声明参与 parser/semantic，但不得生成函数体 IR。
-- `printf` 等运行库声明可放入 `.mh` 文件，例如 `extern int printf(char *format, ...);`。
-- 新增 `samples/minic_std.mh` 或等价样例头文件，集中放置 `printf` 这类运行库声明。
+- 支持 unary、binary、cast。
+- 支持 branch、jump 和 switch lowering 后的控制流。
+- 支持 check initialized 和 check non-zero。
+- 可执行 if、while、do while、switch 样例。
+- 测试覆盖分支、循环、短路和 switch。
 
 验证：`./gradlew test`
 
-### D130：支持可变参数函数声明和 printf 原型（已完成）
+### E170：支持函数调用和调用栈
 
-依赖：`D111`、`D125`。
+依赖：`E160`。
 
-目标：支持 `extern int printf(char *format, ...);` 这类 C 风格可变参数外部函数声明，并更新旧 `printf` 样例。
+目标：支持 MiniC 内部函数调用。
 
 允许修改：
 
-- `src/main/java/minic/compiler/parser/**`
-- `src/main/java/minic/compiler/ast/**`
-- `src/main/java/minic/compiler/semantic/**`
-- `src/main/java/minic/compiler/ir/**`
-- `src/test/java/minic/compiler/parser/**`
-- `src/test/java/minic/compiler/ast/**`
-- `src/test/java/minic/compiler/semantic/**`
-- `samples/**`
+- `src/main/java/minic/runtime/debug/**`
+- `src/test/java/minic/runtime/debug/**`
 
 验收：
 
-- lexer/parser 支持 `...` 出现在函数参数列表末尾。
-- 函数声明 AST/符号表能表达 variadic 标记。
-- variadic 函数调用允许实参数量大于等于固定参数数量。
-- 固定参数继续做类型检查，额外参数按普通表达式分析并交给调用约定。
-- `samples/printf.mc` 或等价样例不再使用 `extern int printf(int format, int value);`。
-- 明确记录：`extern int printf(int format, int value);` 是合法 C 声明，但不是标准库 `printf` 原型，因此不能作为 MiniC 标准样例。
+- 支持直接函数调用、参数传递、返回值和调用帧。
+- 支持步入。
+- 支持步返。
+- 支持返回调用处。
+- 测试覆盖嵌套调用、递归调用和调用栈快照恢复。
 
 验证：`./gradlew test`
 
-### D131：补全表达式 parser 和 AST（已完成）
+### E180：建立外部函数 debug stub
 
-依赖：`D111`。
+依赖：`E170`。
 
-目标：按 C 优先级补全新增运算符、条件表达式和 `sizeof` 的 parser/AST。
+目标：建立外部函数 stub 机制，先支持 `printf`。
 
 允许修改：
 
-- `src/main/java/minic/compiler/parser/**`
-- `src/main/java/minic/compiler/ast/**`
-- `src/test/java/minic/compiler/parser/**`
-- `src/test/java/minic/compiler/ast/**`
+- `src/main/java/minic/runtime/debug/**`
+- `src/test/java/minic/runtime/debug/**`
 
 验收：
 
-- 按 C 优先级解析：后缀、自增自减、一元、乘除余、加减、移位、关系、相等、按位与/异或/或、逻辑与/或、条件、赋值。
-- 支持复合赋值并在 AST 中保留可解释结构。
-- 支持 `sizeof expression` 和 `sizeof(type)`。
-- `?:` 右结合，赋值右结合。
-- parser 测试覆盖优先级组合而不是只测单个 token。
+- 外部调用通过 DebugExternalFunctionStub 分发。
+- `printf` 支持最小格式化输出并写入虚拟 stdout。
+- 事件日志记录外部调用。
+- 文档和测试明确外部调用副作用不纳入可回退承诺。
 
 验证：`./gradlew test`
 
-### D132：补全表达式语义规则（已完成）
+### E190：支持断点和正向运行控制
 
-依赖：`D131`。
+依赖：`E180`。
 
-目标：为新增表达式补充类型规则、左值规则和 diagnostics。
+目标：支持源码行断点和正向控制命令。
 
 允许修改：
 
-- `src/main/java/minic/compiler/semantic/**`
-- `src/test/java/minic/compiler/semantic/**`
+- `src/main/java/minic/runtime/debug/**`
+- `src/test/java/minic/runtime/debug/**`
 
 验收：
 
-- 逻辑运算接受标量或指针，结果为 `int` 或后续规范确认的 bool/int。
-- 按位运算和移位只接受整数类型。
-- `!` 接受标量或指针，`~` 只接受整数类型。
-- 自增自减和复合赋值要求左侧为可赋值表达式。
-- `sizeof` 只接受固定布局类型，结果类型暂定为 `long`。
-- 条件表达式分支类型按 MiniC 类型兼容规则合并，不兼容时报 diagnostic。
+- 支持设置/取消行断点。
+- 支持不可断行吸附或拒绝，并返回解释。
+- 支持快进、运行到断点、单步、暂停、关闭、重启。
+- 暂停只在连续运行中生效。
+- 测试覆盖断点命中、无断点运行到结束、暂停请求和重启保留断点。
 
 验证：`./gradlew test`
 
-### D133：补全表达式 IR lowering 和 codegen（已完成）
+### E200：支持反向调试
 
-依赖：`D132`。
+依赖：`E190`。
 
-目标：让新增表达式能生成可运行 IR/汇编。
+目标：基于 snapshot 实现回退能力。
 
 允许修改：
 
-- `src/main/java/minic/compiler/ir/**`
-- `src/main/java/minic/compiler/codegen/**`
-- `src/test/java/minic/compiler/ir/**`
-- `src/test/java/minic/compiler/codegen/**`
-- `samples/**`
+- `src/main/java/minic/runtime/debug/**`
+- `src/test/java/minic/runtime/debug/**`
 
 验收：
 
-- 新增二元/一元运算生成正确 IR 和关键汇编片段。
-- `sizeof` 对固定布局类型生成常量结果。
-- `&&` 和 `||` 使用控制流 lowering，保留右操作数短路副作用。
-- `?:` 生成正确控制流，保留未选分支短路副作用。
-- 复合赋值和自增自减生成正确 store。
+- 支持单退。
+- 支持步退到上一个断点命中快照。
+- 支持返回调用处。
+- 恢复 stack、heap、stdout/stderr、cursor 和停止原因。
+- 测试覆盖变量、调用栈、stdout 和 heap 状态回退。
 
 验证：`./gradlew test`
 
-### D140：补全 do while parser/semantic/IR（已完成）
+### E210：建立 DebugMappingIndex
 
-依赖：`D111`、`D132`。
+依赖：`E160`。
 
-目标：支持 `do while` 的 AST、语义和 IR lowering。
+目标：建立 Source/AST/IR/ASM 映射索引。
 
 允许修改：
 
-- `src/main/java/minic/compiler/parser/**`
-- `src/main/java/minic/compiler/ast/**`
-- `src/main/java/minic/compiler/semantic/**`
-- `src/main/java/minic/compiler/ir/**`
-- `src/test/java/minic/compiler/parser/**`
-- `src/test/java/minic/compiler/semantic/**`
-- `src/test/java/minic/compiler/ir/**`
+- `src/main/java/minic/runtime/debug/**`
+- `src/main/java/minic/uiapi/**`
+- `src/test/java/minic/runtime/debug/**`
+- `src/test/java/minic/uiapi/**`
+- 必要时 `src/main/java/minic/compiler/ast/**`
+- 必要时 `src/main/java/minic/compiler/ir/**`
+- 必要时 `src/main/java/minic/compiler/codegen/**`
 
 验收：
 
-- `do while` 至少执行一次循环体。
-- 条件表达式类型规则与 `while` 一致。
-- `break` 和 `continue` 在 `do while` 内合法。
-- `continue` 跳转到条件检查。
-- IR 控制流包含 body -> condition -> body/exit 的边。
+- AST 节点具备稳定 debug id 或可由映射器稳定生成。
+- IR 指令具备稳定 debug id 或可由映射器稳定生成。
+- ASM 行具备稳定 debug id 或可由映射器稳定生成。
+- 能从 source range 找到 AST/IR/ASM 相关项。
+- ASM 映射明确是生成汇编映射展示，不代表真实 CPU 状态。
 
 验证：`./gradlew test`
 
-### D141：补全 switch case parser/semantic（已完成）
+### E220：暴露 Debug UI API DTO
 
-依赖：`D111`、`D132`。
+依赖：`E200`、`E210`。
 
-目标：支持 `switch case default` 的 AST 和语义规则。
+目标：UI API 暴露 Debug 状态，不泄漏 runtime debug 内部对象。
 
 允许修改：
 
-- `src/main/java/minic/compiler/parser/**`
-- `src/main/java/minic/compiler/ast/**`
-- `src/main/java/minic/compiler/semantic/**`
-- `src/test/java/minic/compiler/parser/**`
-- `src/test/java/minic/compiler/semantic/**`
+- `src/main/java/minic/uiapi/**`
+- `src/test/java/minic/uiapi/**`
 
 验收：
 
-- `switch` selector 必须是整数类型。
-- `case` 表达式必须是整数常量表达式；若暂不实现完整常量折叠，至少支持整数字面量和可安全求值的简单常量。
-- `default` 最多一个。
-- `break` 在循环和 `switch` 内合法，`continue` 仍只在循环内合法。
-- case 之间允许 C 风格 fallthrough。
+- 新增 UiDebugStateDto、UiDebugSnapshotDto、UiDebugFrameDto、UiDebugVariableDto、UiDebugProcessSpaceDto、UiDebugEventDto、UiDebugBreakpointDto。
+- MiniCObservationApi 或新的 Debug API 能启动独立 Debug 模式。
+- DTO 不引用 `minic.runtime.debug.*` 类型。
+- 测试覆盖启动 Debug、设置断点、运行到断点、单退和查询状态。
 
 验证：`./gradlew test`
 
-### D142：补全 switch case IR lowering 和 codegen（已完成）
+### E230：建立 VisualStructure 基础模型
 
-依赖：`D141`。
+依赖：`E130`。
 
-目标：让 `switch case default` 生成正确控制流。
+目标：建立数据结构图形化基元。
 
 允许修改：
 
-- `src/main/java/minic/compiler/ir/**`
-- `src/main/java/minic/compiler/codegen/**`
-- `src/test/java/minic/compiler/ir/**`
-- `src/test/java/minic/compiler/codegen/**`
-- `samples/**`
+- `src/main/java/minic/runtime/debug/visual/**`
+- `src/test/java/minic/runtime/debug/visual/**`
 
 验收：
 
-- selector 只求值一次。
-- 每个 case 生成比较和跳转。
-- 无匹配 case 时跳转到 default；没有 default 时跳转到 switch exit。
-- case fallthrough 按源码顺序执行。
-- `break` 跳转到 switch exit。
+- 建立 VisualStructure 抽象。
+- 建立 GraphStructure、ArrayStructure、CompositeStructure。
+- 建立 DataStructureDescriptor、VisualDecorator、VisualValidator 插槽。
+- 测试覆盖三类结构的最小实例和摘要。
 
 验证：`./gradlew test`
 
-### D160：端到端样例、SPEC 和阶段验收（已完成）
+### E240：实现 GraphStructure
 
-依赖：`D122`、`D125`、`D130`、`D133`、`D140`、`D142`。
+依赖：`E230`。
 
-目标：收口 Phase D 的文档、样例和端到端验证。
+目标：实现节点和边基元。
+
+允许修改：
+
+- `src/main/java/minic/runtime/debug/visual/**`
+- `src/test/java/minic/runtime/debug/visual/**`
+
+验收：
+
+- 支持 nodes、edges、components、layout hint。
+- 支持 node/edge decorators。
+- 支持点击元数据所需字段。
+- 测试覆盖链表、树布局 hint 和离散 component。
+
+验证：`./gradlew test`
+
+### E250：实现 ArrayStructure
+
+依赖：`E230`。
+
+目标：实现连续空间、表格、矩阵和网格基元。
+
+允许修改：
+
+- `src/main/java/minic/runtime/debug/visual/**`
+- `src/test/java/minic/runtime/debug/visual/**`
+
+验收：
+
+- 支持 1D、2D、grid、matrix、ring、bucket layout hint。
+- 支持 cell decorators。
+- 测试覆盖数组、矩阵和循环队列布局元数据。
+
+验证：`./gradlew test`
+
+### E260：实现 CompositeStructure
+
+依赖：`E240`、`E250`。
+
+目标：实现混合结构基元。
+
+允许修改：
+
+- `src/main/java/minic/runtime/debug/visual/**`
+- `src/test/java/minic/runtime/debug/visual/**`
+
+验收：
+
+- 支持 parts、links、primaryPartId。
+- 支持 component relation explanation。
+- 测试覆盖 hash bucket + linked graph、heap array + tree graph。
+
+验证：`./gradlew test`
+
+### E270：解析 @visual 注释协议
+
+依赖：`E230`。
+
+目标：解析源码中的 `@visual` 注释。
+
+允许修改：
+
+- `src/main/java/minic/runtime/debug/visual/**`
+- `src/test/java/minic/runtime/debug/visual/**`
+- 必要时 `src/main/java/minic/source/**`
+
+验收：
+
+- 支持 `@visual graph`、`@visual array`、`@visual composite`。
+- 支持 `@visual-node` 和 `@visual-edge`，首版只接受简单变量名或字面值。
+- 相同 name/graph 归并到同一结构。
+- root 只允许变量名，复杂表达式报 diagnostic 或 visual warning。
+- 测试覆盖多个 visual、离散 component 和非法声明。
+
+验证：`./gradlew test`
+
+### E280：实现 Visual 投影构建器
+
+依赖：`E260`、`E270`。
+
+目标：从虚拟进程空间投影数据结构视图。
+
+允许修改：
+
+- `src/main/java/minic/runtime/debug/visual/**`
+- `src/test/java/minic/runtime/debug/visual/**`
+
+验收：
+
+- root 扫描为主，注解事件为辅。
+- 相同 name/graph 合并。
+- 不连通 component 保留在同一结构中。
+- 生成 GraphStructure、ArrayStructure 和 CompositeStructure。
+- 测试覆盖数组、链式图、混合结构和离散子图归并。
+
+验证：`./gradlew test`
+
+### E290：实现首批 DataStructureDescriptor
+
+依赖：`E280`。
+
+目标：实现第一批高级结构 descriptor，不包含红黑树。
+
+允许修改：
+
+- `src/main/java/minic/runtime/debug/visual/**`
+- `src/test/java/minic/runtime/debug/visual/**`
+
+验收：
+
+- 支持 array、matrix、list、doubly_linked_list、tree、binary_tree、bst、heap、graph、hash_table、union_find。
+- descriptor 只影响默认布局、装饰器、校验器和解释，不新增底层数据模型。
+- 红黑树不在第一批 descriptor 中，仅保留扩展点。
+
+验证：`./gradlew test`
+
+### E300：实现元数据视图 DTO/模型
+
+依赖：`E220`。
+
+目标：为右侧元数据视图提供 UI 模型。
+
+允许修改：
+
+- `src/main/java/minic/uiapi/**`
+- `src/main/java/minic/ui/**`
+- `src/test/java/minic/uiapi/**`
+- `src/test/java/minic/ui/**`
+
+验收：
+
+- 显示当前状态、停止原因、当前行、当前函数、调用栈、变量、stdout/stderr、断点、事件日志和 snapshot timeline。
+- 点击变量可定位进程空间中的值引用。
+- 测试覆盖 UI 模型字段和状态转换。
+
+验证：`./gradlew test`
+
+### E310：实现 AST Debug 视图
+
+依赖：`E210`、`E220`。
+
+目标：复用现有 AST 视图并增加 debug 高亮。
+
+允许修改：
+
+- `src/main/java/minic/uiapi/**`
+- `src/main/java/minic/ui/**`
+- `src/test/java/minic/uiapi/**`
+- `src/test/java/minic/ui/**`
+
+验收：
+
+- 当前 debug 节点高亮。
+- 点击节点显示节点数据、解释和源码范围。
+- 支持从 AST 节点关联到 IR/ASM 映射。
+
+验证：`./gradlew test`
+
+### E320：实现 IR Debug 视图
+
+依赖：`E210`、`E220`。
+
+目标：展示当前 IR 指令、基本块、操作数和运行时值。
+
+允许修改：
+
+- `src/main/java/minic/uiapi/**`
+- `src/main/java/minic/ui/**`
+- `src/test/java/minic/uiapi/**`
+- `src/test/java/minic/ui/**`
+
+验收：
+
+- 当前 IR 指令高亮。
+- 展示指令解释和关联源码。
+- 操作数和结果能关联到 DebugValue 或值引用。
+
+验证：`./gradlew test`
+
+### E330：实现 ASM Debug 视图
+
+依赖：`E210`、`E220`。
+
+目标：展示生成汇编映射并高亮当前 IR 对应行组。
+
+允许修改：
+
+- `src/main/java/minic/uiapi/**`
+- `src/main/java/minic/ui/**`
+- `src/test/java/minic/uiapi/**`
+- `src/test/java/minic/ui/**`
+
+验收：
+
+- 当前 IR 对应 ASM 行组高亮。
+- 视图说明 ASM 是映射展示，不代表真实 CPU 状态。
+- 点击 ASM 行能显示关联 IR 和源码范围。
+
+验证：`./gradlew test`
+
+### E340：实现数据结构视图 UI 模型
+
+依赖：`E280`、`E220`。
+
+目标：为数据结构 tab 提供 UI 模型。
+
+允许修改：
+
+- `src/main/java/minic/uiapi/**`
+- `src/main/java/minic/ui/**`
+- `src/test/java/minic/uiapi/**`
+- `src/test/java/minic/ui/**`
+
+验收：
+
+- 显示虚拟进程空间。
+- 显示多个 visual cards/tabs。
+- 支持 GraphStructure、ArrayStructure、CompositeStructure。
+- 节点、边、cell、part 点击后显示元数据和解释。
+
+验证：`./gradlew test`
+
+### E350：Workbench 接入 Debug 模式
+
+依赖：`E300`、`E310`、`E320`、`E330`、`E340`。
+
+目标：将 Debug 模式接入 JavaFX Workbench。
+
+允许修改：
+
+- `src/main/java/minic/ui/**`
+- `src/test/java/minic/ui/**`
+
+验收：
+
+- 侧边栏 Debug 按钮进入独立 Debug 模式。
+- 复用共享编辑器。
+- 支持 gutter 断点。
+- 支持当前执行行高亮。
+- 支持 Debug 控制栏。
+- 右侧 tabs 包含元数据、数据结构、AST、IR、ASM。
+- UI 不直接访问 runtime debug 内部对象。
+
+验证：`./gradlew test`
+
+### E360：支持右侧拆分对比
+
+依赖：`E350`。
+
+目标：支持 AST/IR/ASM/数据结构视图向右拆分对比。
+
+允许修改：
+
+- `src/main/java/minic/ui/**`
+- `src/test/java/minic/ui/**`
+
+验收：
+
+- 可将当前 tab 拆分到右侧并保留同步 debug 状态。
+- 拆分视图订阅同一个 UiDebugStateDto，不复制 DebugSession。
+- 关闭拆分不影响 DebugSession。
+
+验证：`./gradlew test`
+
+### E370：样例、文档和阶段验收
+
+依赖：`E350`。
+
+目标：收口 0.5.0 文档、样例和验收。
 
 允许修改：
 
@@ -396,15 +683,17 @@
 - `PLAN.md`
 - `SPEC.md`
 - `samples/**`
-- `version/0.4.0.md`
+- `version/0.5.0.md`
 - 必要时测试文件
 
 验收：
 
-- README 当前状态记录 `0.4.0` 语法扩展能力。
-- SPEC 更新完整语法片段、预编译阶段、`.mh` 头文件约束和 `printf` 声明说明。
-- 新增 `version/0.4.0.md` 阶段记录。
-- 样例覆盖 `.mh` include、宏、条件编译、`printf`、新增运算符、`do while`、`switch`、`sizeof`。
+- 新增 debugger 基础样例。
+- 新增数组/矩阵样例。
+- 新增链式图样例。
+- 新增混合结构样例。
+- 新增 `version/0.5.0.md`。
+- README 当前状态记录 0.5.0 Debugger 能力。
 - `./gradlew test` 通过。
 
 验证：`./gradlew test`
