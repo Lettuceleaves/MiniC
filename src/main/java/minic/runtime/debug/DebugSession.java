@@ -2,6 +2,7 @@ package minic.runtime.debug;
 
 import minic.source.SourceFile;
 import minic.source.SourceRange;
+import minic.runtime.debug.visual.VisualEvent;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -17,6 +18,7 @@ public final class DebugSession {
     private final SourceFile sourceFile;
     private final ArrayList<DebugSnapshot> snapshots = new ArrayList<>();
     private final ArrayList<DebugEvent> events = new ArrayList<>();
+    private final ArrayList<VisualEvent> visualEvents = new ArrayList<>();
     private final Map<Integer, DebugBreakpoint> breakpoints = new LinkedHashMap<>();
     private DebugExecutionState state = DebugExecutionState.PAUSED;
     private int currentSnapshotIndex;
@@ -93,6 +95,15 @@ public final class DebugSession {
     }
 
     /**
+     * 追加数据结构可视化事件。
+     *
+     * @param event 可视化事件
+     */
+    public void appendVisualEvent(VisualEvent event) {
+        visualEvents.add(Objects.requireNonNull(event, "event"));
+    }
+
+    /**
      * 返回快照历史。
      *
      * @return 快照历史
@@ -108,6 +119,15 @@ public final class DebugSession {
      */
     public List<DebugEvent> events() {
         return List.copyOf(events);
+    }
+
+    /**
+     * 返回数据结构可视化事件日志。
+     *
+     * @return 可视化事件日志
+     */
+    public List<VisualEvent> visualEvents() {
+        return List.copyOf(visualEvents);
     }
 
     /**

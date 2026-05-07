@@ -121,6 +121,34 @@ class IrDebugInterpreterTest {
     }
 
     @Test
+    void recordsRuntimeVisualNodeEventsFromRecursiveFunctionVisits() {
+        SourceFile sourceFile = new SourceFile("debug-runtime-visual.mc", """
+                // @visual graph name=avl kind=tree root=root mode=runtime function=dfs visit=index
+                // @visual-map node graph=avl id=index label=index
+                int dfs(int index) {
+                    if (index == 0) {
+                        return 0;
+                    }
+                    return index + dfs(index - 1);
+                }
+
+                int main() {
+                    int root = 3;
+                    return dfs(root);
+                }
+                """);
+        IrModule module = lower(sourceFile);
+
+        DebugSession session = new IrDebugInterpreter().runMain(module, sourceFile);
+
+        assertThat(session.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(session.visualEvents()).extracting(event -> event.graphName() + ":" + event.nodeId())
+                .containsExactly("avl:3", "avl:2", "avl:1");
+        assertThat(session.visualEvents()).allSatisfy(event ->
+                assertThat(event.snapshotId()).isGreaterThan(0));
+    }
+
+    @Test
     void dispatchesExternalPrintfThroughDebugStub() {
         SourceFile sourceFile = new SourceFile("debug-printf.mc", """
                 extern int printf(char *format, ...);

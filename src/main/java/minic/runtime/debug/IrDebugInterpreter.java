@@ -27,6 +27,9 @@ import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
+import minic.runtime.debug.visual.VisualAnnotation;
+import minic.runtime.debug.visual.VisualAnnotationParser;
+import minic.runtime.debug.visual.VisualEvent;
 import minic.source.SourceFile;
 
 import java.util.LinkedHashMap;
@@ -68,7 +71,8 @@ public final class IrDebugInterpreter {
         Objects.requireNonNull(sourceFile, "sourceFile");
         IrFunction main = module.findFunction("main").orElseThrow(() ->
                 new IllegalArgumentException("IR module does not contain main"));
-        InterpreterState state = new InterpreterState(module, main, sourceFile);
+        List<VisualAnnotation> visualAnnotations = new VisualAnnotationParser().parse(sourceFile).annotations();
+        InterpreterState state = new InterpreterState(module, main, sourceFile, visualAnnotations);
         state.pushFrame(main, List.of(), null);
         executeFunction(state);
         return state.session;
@@ -397,6 +401,40 @@ public final class IrDebugInterpreter {
                 instruction.range(),
                 List.of()
         ));
+        recordVisualEvents(state, snapshot.snapshotId());
+    }
+
+    private void recordVisualEvents(InterpreterState state, long snapshotId) {
+        if (state.visualRuntimeGraphs.isEmpty() || !state.hasFrames()) {
+            return;
+        }
+        CallFrame frame = state.currentFrame();
+        for (VisualRuntimeGraph graph : state.visualRuntimeGraphs) {
+            if (!graph.functionName().equals(frame.function.name())) {
+                continue;
+            }
+            DebugValue visitValue = valueBySourceName(frame, graph.visitVariable());
+            if (visitValue == null || numericValue(visitValue) == 0) {
+                continue;
+            }
+            String nodeId = visitValue.summary();
+            if (state.createdVisualNodeKeys.add(graph.name() + "\u0000" + nodeId)) {
+                state.session.appendVisualEvent(VisualEvent.nodeCreated(snapshotId, graph.name(), nodeId, nodeId));
+            }
+        }
+    }
+
+    private DebugValue valueBySourceName(CallFrame frame, String sourceName) {
+        DebugValue parameter = frame.parameters.get(sourceName);
+        if (parameter != null) {
+            return parameter;
+        }
+        for (Map.Entry<String, DebugValue> entry : frame.locals.entrySet()) {
+            if (frame.localNames.getOrDefault(entry.getKey(), entry.getKey()).equals(sourceName)) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 
     private DebugProcessSpace processSpace(InterpreterState state, DebugCursor cursor) {
@@ -514,6 +552,8 @@ public final class IrDebugInterpreter {
         private final IrModule module;
         private final IrFunction function;
         private final DebugSession session;
+        private final List<VisualRuntimeGraph> visualRuntimeGraphs;
+        private final java.util.Set<String> createdVisualNodeKeys = new java.util.LinkedHashSet<>();
         private final java.util.ArrayList<CallFrame> frames = new java.util.ArrayList<>();
         private long nextSnapshotId = 1;
         private long nextVisibleStep = 1;
@@ -525,10 +565,26 @@ public final class IrDebugInterpreter {
         private VisibleStepKey lastVisibleStepKey;
         private final StringBuilder stdout = new StringBuilder();
 
-        private InterpreterState(IrModule module, IrFunction function, SourceFile sourceFile) {
+        private InterpreterState(
+                IrModule module,
+                IrFunction function,
+                SourceFile sourceFile,
+                List<VisualAnnotation> visualAnnotations
+        ) {
             this.module = module;
             this.function = function;
             this.session = DebugSession.fromSource(sourceFile);
+            this.visualRuntimeGraphs = visualAnnotations.stream()
+                    .filter(annotation -> annotation.directive().equals("@visual"))
+                    .filter(annotation -> annotation.attributes().getOrDefault("mode", "").equals("runtime"))
+                    .filter(annotation -> annotation.attributes().containsKey("function"))
+                    .filter(annotation -> annotation.attributes().containsKey("visit"))
+                    .map(annotation -> new VisualRuntimeGraph(
+                            annotation.name(),
+                            annotation.attributes().get("function"),
+                            annotation.attributes().get("visit")
+                    ))
+                    .toList();
             this.lastFunctionName = function.name();
         }
 
@@ -645,5 +701,12 @@ public final class IrDebugInterpreter {
             blockIndex = targetIndex;
             instructionIndex = 0;
         }
+    }
+
+    private record VisualRuntimeGraph(
+            String name,
+            String functionName,
+            String visitVariable
+    ) {
     }
 }
