@@ -15,11 +15,14 @@ internal static class MiniCLauncher
         string javafxCache = Path.Combine(root, "cache", "javafx");
         string ml64 = Path.Combine(root, "toolchain", "msvc", "bin", "Hostx64", "x64", "ml64.exe");
         string link = Path.Combine(root, "toolchain", "msvc", "bin", "Hostx64", "x64", "link.exe");
+        string msvcRoot = Path.Combine(root, "toolchain", "msvc");
+        string msvcBin = Path.Combine(msvcRoot, "bin", "Hostx64", "x64");
+        string windowsKitsRoot = Path.Combine(root, "toolchain", "windows-kits");
         string libPaths = string.Join(Path.PathSeparator.ToString(), new[]
         {
-            Path.Combine(root, "toolchain", "msvc", "lib", "x64"),
-            Path.Combine(root, "toolchain", "windows-kits", "Lib", "10.0.26100.0", "um", "x64"),
-            Path.Combine(root, "toolchain", "windows-kits", "Lib", "10.0.26100.0", "ucrt", "x64")
+            Path.Combine(msvcRoot, "lib", "x64"),
+            Path.Combine(windowsKitsRoot, "Lib", "10.0.26100.0", "um", "x64"),
+            Path.Combine(windowsKitsRoot, "Lib", "10.0.26100.0", "ucrt", "x64")
         });
 
         bool hasMl64 = HasOption(args, "--ml64");
@@ -32,6 +35,9 @@ internal static class MiniCLauncher
             Arguments = BuildJavaArguments(classpath, isWorkbench ? "minic.ui.MiniCWorkbenchLauncher" : "minic.Main", args, !isWorkbench && (!hasMl64 || !hasLink), ml64, link, javafxCache)
         };
         start.Environment["MINIC_MSVC_LIB_PATHS"] = libPaths;
+        start.Environment["MINIC_MSVC_TOOLCHAIN_ROOT"] = msvcRoot;
+        start.Environment["MINIC_WINDOWS_KITS_ROOT"] = windowsKitsRoot;
+        start.Environment["PATH"] = msvcBin + Path.PathSeparator + start.Environment["PATH"];
 
         Process process = Process.Start(start);
         if (process == null)

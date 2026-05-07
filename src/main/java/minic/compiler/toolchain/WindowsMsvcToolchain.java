@@ -248,6 +248,7 @@ public final class WindowsMsvcToolchain implements Toolchain {
 
         private static List<Path> msvcToolCandidates(String fileName) {
             ArrayList<Path> candidates = new ArrayList<>();
+            addBundledMsvcToolCandidate(candidates, fileName);
             for (String edition : List.of("BuildTools", "Community", "Professional", "Enterprise")) {
                 Path toolsRoot = Path.of(
                         "C:",
@@ -269,6 +270,14 @@ public final class WindowsMsvcToolchain implements Toolchain {
             return candidates;
         }
 
+        private static void addBundledMsvcToolCandidate(ArrayList<Path> candidates, String fileName) {
+            String bundledRoot = configuredValue("minic.msvc.toolchain.root", "MINIC_MSVC_TOOLCHAIN_ROOT");
+            if (bundledRoot == null || bundledRoot.isBlank()) {
+                return;
+            }
+            candidates.add(Path.of(bundledRoot).resolve(Path.of("bin", "Hostx64", "x64", fileName)));
+        }
+
         private static Optional<Path> firstExisting(List<Path> candidates) {
             return candidates.stream()
                     .filter(Files::isRegularFile)
@@ -282,7 +291,7 @@ public final class WindowsMsvcToolchain implements Toolchain {
             if (Files.isDirectory(vcLib)) {
                 paths.add(vcLib);
             }
-            Path windowsKitsLib = Path.of("C:", "Program Files (x86)", "Windows Kits", "10", "Lib");
+            Path windowsKitsLib = windowsKitsLibRoot();
             latestDirectory(windowsKitsLib).ifPresent(version -> {
                 Path um = version.resolve(Path.of("um", "x64"));
                 Path ucrt = version.resolve(Path.of("ucrt", "x64"));
@@ -294,6 +303,22 @@ public final class WindowsMsvcToolchain implements Toolchain {
                 }
             });
             return List.copyOf(paths);
+        }
+
+        private static Path windowsKitsLibRoot() {
+            String bundledRoot = configuredValue("minic.windows.kits.root", "MINIC_WINDOWS_KITS_ROOT");
+            if (bundledRoot != null && !bundledRoot.isBlank()) {
+                return Path.of(bundledRoot).resolve("Lib");
+            }
+            return Path.of("C:", "Program Files (x86)", "Windows Kits", "10", "Lib");
+        }
+
+        private static String configuredValue(String propertyName, String environmentName) {
+            String property = System.getProperty(propertyName);
+            if (property != null && !property.isBlank()) {
+                return property;
+            }
+            return System.getenv(environmentName);
         }
 
         private static Optional<Path> latestDirectory(Path root) {
