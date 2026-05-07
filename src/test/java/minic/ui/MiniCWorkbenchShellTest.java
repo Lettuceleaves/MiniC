@@ -6,6 +6,7 @@ import javafx.application.Platform;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.Parent;
+import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.StackPane;
 
@@ -262,6 +263,9 @@ class MiniCWorkbenchShellTest {
         if (type.isInstance(node)) {
             return true;
         }
+        if (node instanceof SplitPane splitPane) {
+            return splitPane.getItems().stream().anyMatch(child -> containsNode(child, type));
+        }
         if (node instanceof Parent parent) {
             return parent.getChildrenUnmodifiable().stream().anyMatch(child -> containsNode(child, type));
         }
@@ -346,6 +350,9 @@ class MiniCWorkbenchShellTest {
         if (node instanceof Label label) {
             labels.add(label);
         }
+        if (node instanceof SplitPane splitPane) {
+            splitPane.getItems().forEach(child -> collectLabels(child, labels));
+        }
         if (node instanceof Parent parent) {
             parent.getChildrenUnmodifiable().forEach(child -> collectLabels(child, labels));
         }
@@ -354,6 +361,14 @@ class MiniCWorkbenchShellTest {
     private static Button button(javafx.scene.Node node, String text) {
         if (node instanceof Button button && button.getText().equals(text)) {
             return button;
+        }
+        if (node instanceof SplitPane splitPane) {
+            for (javafx.scene.Node child : splitPane.getItems()) {
+                Button found = button(child, text);
+                if (found != null) {
+                    return found;
+                }
+            }
         }
         if (node instanceof Parent parent) {
             for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {

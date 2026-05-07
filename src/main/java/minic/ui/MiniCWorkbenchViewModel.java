@@ -55,7 +55,7 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiDebugAstViewDto> debugAstView = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiDebugIrViewDto> debugIrView = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiDebugAsmViewDto> debugAsmView = new ReadOnlyObjectWrapper<>();
-    private List<Integer> pendingDebugBreakpoints = List.of();
+    private final ReadOnlyObjectWrapper<List<Integer>> debugBreakpointLines = new ReadOnlyObjectWrapper<>(List.of());
 
     /**
      * 使用默认 UI API 创建状态模型。
@@ -267,7 +267,7 @@ public final class MiniCWorkbenchViewModel {
      * @param lines 一基源码行号列表
      */
     public void setDebugBreakpoints(List<Integer> lines) {
-        pendingDebugBreakpoints = List.copyOf(Objects.requireNonNull(lines, "lines"));
+        debugBreakpointLines.set(normalizeBreakpoints(lines));
         syncDebugBreakpoints();
     }
 
@@ -289,7 +289,7 @@ public final class MiniCWorkbenchViewModel {
      */
     public void setDebugBreakpoint(int line) {
         ensureDebugStarted();
-        pendingDebugBreakpoints = mergeBreakpoint(line);
+        debugBreakpointLines.set(mergeBreakpoint(line));
         debugApi.setBreakpoint(line);
         refreshDebug();
     }
@@ -301,9 +301,9 @@ public final class MiniCWorkbenchViewModel {
      */
     public void clearDebugBreakpoint(int line) {
         ensureDebugStarted();
-        pendingDebugBreakpoints = pendingDebugBreakpoints.stream()
+        debugBreakpointLines.set(debugBreakpointLines.get().stream()
                 .filter(breakpoint -> breakpoint != line)
-                .toList();
+                .toList());
         debugApi.clearBreakpoint(line);
         refreshDebug();
     }
@@ -602,6 +602,10 @@ public final class MiniCWorkbenchViewModel {
         return debugAsmView.getReadOnlyProperty();
     }
 
+    public ReadOnlyObjectProperty<List<Integer>> debugBreakpointLinesProperty() {
+        return debugBreakpointLines.getReadOnlyProperty();
+    }
+
     private void applyControlResult(UiControlResultDto result) {
         lastControlResult.set(result);
         lastOutcome.set(result.outcome());
@@ -624,15 +628,24 @@ public final class MiniCWorkbenchViewModel {
         if (debugState.get() != null) {
             debugState.get().breakpoints().forEach(breakpoint -> debugApi.clearBreakpoint(breakpoint.line()));
         }
-        pendingDebugBreakpoints.forEach(debugApi::setBreakpoint);
+        debugBreakpointLines.get().forEach(debugApi::setBreakpoint);
     }
 
     private List<Integer> mergeBreakpoint(int line) {
-        if (line < 1 || pendingDebugBreakpoints.contains(line)) {
-            return pendingDebugBreakpoints;
+        List<Integer> current = debugBreakpointLines.get();
+        if (line < 1 || current.contains(line)) {
+            return current;
         }
-        java.util.ArrayList<Integer> lines = new java.util.ArrayList<>(pendingDebugBreakpoints);
+        java.util.ArrayList<Integer> lines = new java.util.ArrayList<>(current);
         lines.add(line);
-        return List.copyOf(lines);
+        return normalizeBreakpoints(lines);
+    }
+
+    private List<Integer> normalizeBreakpoints(List<Integer> lines) {
+        return Objects.requireNonNull(lines, "lines").stream()
+                .filter(line -> line != null && line >= 1)
+                .distinct()
+                .sorted()
+                .toList();
     }
 }

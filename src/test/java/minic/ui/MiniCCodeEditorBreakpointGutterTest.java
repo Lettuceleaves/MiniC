@@ -76,6 +76,19 @@ class MiniCCodeEditorBreakpointGutterTest {
         assertThat(inactive.getStyleClass()).doesNotContain("current-execution");
     }
 
+    @Test
+    void replacesBreakpointLinesWithoutFiringChangeAction() {
+        startJavafx();
+        MiniCCodeEditor editor = new MiniCCodeEditor();
+        java.util.concurrent.atomic.AtomicInteger changes = new java.util.concurrent.atomic.AtomicInteger();
+        editor.setBreakpointChangeAction(changes::incrementAndGet);
+
+        editor.replaceBreakpoints(java.util.List.of(4, 2, 2, 0));
+
+        assertThat(editor.breakpointLines()).containsExactly(2, 4);
+        assertThat(changes).hasValue(0);
+    }
+
     private HBox paragraphGraphic(MiniCCodeEditor editor, int paragraphIndex) throws Exception {
         Method method = MiniCCodeEditor.class.getDeclaredMethod("paragraphGraphic", int.class);
         method.setAccessible(true);

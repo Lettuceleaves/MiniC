@@ -171,6 +171,7 @@ class MiniCWorkbenchViewModelTest {
                 """);
 
         viewModel.setDebugBreakpoints(java.util.List.of(3));
+        assertThat(viewModel.debugBreakpointLinesProperty().get()).containsExactly(3);
         viewModel.startDebug();
         viewModel.debugRunToBreakpoint();
 

@@ -174,6 +174,20 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     /**
+     * 使用外部共享断点集合刷新编辑器本地 gutter，不触发变更回调。
+     *
+     * @param lines 一基行号列表
+     */
+    public void replaceBreakpoints(List<Integer> lines) {
+        breakpointLines.clear();
+        Objects.requireNonNull(lines, "lines").stream()
+                .filter(line -> line != null && line >= 1)
+                .sorted()
+                .forEach(breakpointLines::add);
+        refreshParagraphGraphics();
+    }
+
+    /**
      * 切换指定行断点。
      *
      * @param line 一基行号

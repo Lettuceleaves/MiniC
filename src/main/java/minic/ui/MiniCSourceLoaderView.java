@@ -60,7 +60,10 @@ public final class MiniCSourceLoaderView extends VBox {
         startButton.setOnAction(event -> startSession());
         openButton.setOnAction(event -> this.openAction.run());
         saveButton.setOnAction(event -> this.saveAction.run());
+        sourceEditor.replaceBreakpoints(viewModel.debugBreakpointLinesProperty().get());
         sourceEditor.setBreakpointChangeAction(() -> viewModel.setDebugBreakpoints(sourceEditor.breakpointLines()));
+        viewModel.debugBreakpointLinesProperty().addListener((observable, oldValue, newValue) ->
+                sourceEditor.replaceBreakpoints(newValue));
         sourceEditor.textProperty().addListener((observable, oldValue, newValue) -> {
             sourceEditor.render(viewModel.realtimeAnalysisProperty().get());
             submitRealtimeSource();
