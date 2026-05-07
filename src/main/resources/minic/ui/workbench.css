@@ -503,6 +503,59 @@
     -fx-fit-to-width: true;
 }
 
+.debug-metadata {
+    -fx-padding: 10px;
+    -fx-background-color: #1e1e1e;
+}
+
+.debug-summary-grid {
+    -fx-hgap: 10px;
+    -fx-vgap: 6px;
+    -fx-padding: 8px;
+    -fx-background-color: #252526;
+    -fx-border-color: #333333;
+    -fx-border-width: 1px;
+}
+
+.debug-summary-key {
+    -fx-min-width: 70px;
+    -fx-text-fill: #9d9d9d;
+    -fx-font-size: 12px;
+}
+
+.debug-summary-value {
+    -fx-text-fill: #ffffff;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.debug-section {
+    -fx-background-color: #252526;
+    -fx-border-color: #333333;
+    -fx-border-width: 1px;
+}
+
+.debug-section-title {
+    -fx-min-height: 26px;
+    -fx-padding: 0 8px;
+    -fx-alignment: center-left;
+    -fx-text-fill: #cccccc;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-background-color: #2d2d2d;
+}
+
+.debug-section-body {
+    -fx-padding: 7px 8px;
+}
+
+.debug-section-line {
+    -fx-text-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-wrap-text: true;
+}
+
 .stage-flow {
     -fx-min-width: 0;
     -fx-background-color: #1e1e1e;

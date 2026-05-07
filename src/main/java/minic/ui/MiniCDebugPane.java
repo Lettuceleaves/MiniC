@@ -8,6 +8,8 @@ import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.TextField;
 import javafx.geometry.Orientation;
+import javafx.scene.Node;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -25,6 +27,7 @@ import minic.uiapi.UiDebugVariableDto;
 import minic.uiapi.UiDebugVisualElementDto;
 import minic.uiapi.UiIrLineVisualDto;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -176,8 +179,8 @@ public final class MiniCDebugPane extends VBox {
                 + " · " + viewModel.debugStateProperty().get().currentSnapshot().stopReason()
                 + " · step " + viewModel.debugStateProperty().get().currentSnapshot().visibleStepIndex()
                 + " · " + viewModel.debugStateProperty().get().currentSnapshot().functionName());
-        sourceView.setCurrentExecutionLine(viewModel.debugStateProperty().get().currentSnapshot().sourceRange().startLine());
-        setTabText(0, metadataText(viewModel.debugMetadataViewProperty().get()));
+        sourceView.setCurrentExecutionLine(currentSourceLine());
+        setTabContent(0, metadataContent(viewModel.debugMetadataViewProperty().get()));
         setTabText(1, dataText(viewModel.debugDataStructureViewProperty().get()));
         setTabText(2, astText(viewModel.debugAstViewProperty().get()));
         setTabText(3, irText(viewModel.debugIrViewProperty().get()));
@@ -189,6 +192,10 @@ public final class MiniCDebugPane extends VBox {
 
     private void setTabText(int index, String text) {
         tabs.getTabs().get(index).setContent(scroll(text == null ? "" : text));
+    }
+
+    private void setTabContent(int index, Node content) {
+        tabs.getTabs().get(index).setContent(content);
     }
 
     private void setSplitTabText(int index, String text) {
@@ -214,6 +221,61 @@ public final class MiniCDebugPane extends VBox {
         setSplitTabText(2, astText(viewModel.debugAstViewProperty().get()));
         setSplitTabText(3, irText(viewModel.debugIrViewProperty().get()));
         setSplitTabText(4, asmText(viewModel.debugAsmViewProperty().get()));
+    }
+
+    private ScrollPane metadataContent(UiDebugMetadataViewDto view) {
+        VBox content = new VBox(10);
+        content.getStyleClass().add("debug-metadata");
+        if (view == null) {
+            return wrap(content);
+        }
+        content.getChildren().addAll(
+                metadataSummary(view),
+                metadataSection("调用栈", view.callStack().stream().map(this::frameText).toList()),
+                metadataSection("变量", view.variables().stream().map(this::variableText).toList()),
+                metadataSection("断点", view.breakpoints().stream().map(this::breakpointText).toList()),
+                metadataSection("事件日志", view.events().stream().map(this::eventText).toList()),
+                metadataSection("Snapshot 时间线", view.timeline().stream().map(this::timelineText).toList()),
+                metadataSection("stdout", List.of(view.stdout().isBlank() ? "(empty)" : view.stdout())),
+                metadataSection("stderr", List.of(view.stderr().isBlank() ? "(empty)" : view.stderr()))
+        );
+        return wrap(content);
+    }
+
+    private Node metadataSummary(UiDebugMetadataViewDto view) {
+        GridPane grid = new GridPane();
+        grid.getStyleClass().add("debug-summary-grid");
+        addSummaryRow(grid, 0, "状态", view.executionState());
+        addSummaryRow(grid, 1, "停止原因", view.stopReason());
+        addSummaryRow(grid, 2, "函数", view.currentFunction());
+        addSummaryRow(grid, 3, "源码", rangeText(view.currentSourceRange()));
+        return grid;
+    }
+
+    private void addSummaryRow(GridPane grid, int row, String key, String value) {
+        Label name = label(key, "debug-summary-key");
+        Label body = label(value == null || value.isBlank() ? "(empty)" : value, "debug-summary-value");
+        grid.add(name, 0, row);
+        grid.add(body, 1, row);
+    }
+
+    private Node metadataSection(String title, List<String> lines) {
+        VBox section = new VBox(4);
+        section.getStyleClass().add("debug-section");
+        Label heading = label(title, "debug-section-title");
+        VBox body = new VBox(2);
+        body.getStyleClass().add("debug-section-body");
+        List<String> visibleLines = lines.isEmpty() ? List.of("(empty)") : lines;
+        visibleLines.forEach(line -> body.getChildren().add(label(line, "debug-section-line")));
+        section.getChildren().addAll(heading, body);
+        return section;
+    }
+
+    private ScrollPane wrap(Node content) {
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.getStyleClass().add("visual-scroll");
+        scroll.setFitToWidth(true);
+        return scroll;
     }
 
     private String metadataText(UiDebugMetadataViewDto view) {
@@ -330,6 +392,14 @@ public final class MiniCDebugPane extends VBox {
                 + " reason=" + item.stopReason()
                 + " breakpoint=" + item.breakpointHit()
                 + " range=" + rangeText(item.sourceRange());
+    }
+
+    private int currentSourceLine() {
+        if (viewModel.debugStateProperty().get() == null
+                || viewModel.debugStateProperty().get().currentSnapshot().sourceRange() == null) {
+            return 0;
+        }
+        return viewModel.debugStateProperty().get().currentSnapshot().sourceRange().startLine();
     }
 
     private String visualElementText(UiDebugVisualElementDto element) {
