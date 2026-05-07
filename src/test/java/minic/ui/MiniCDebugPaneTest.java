@@ -6,6 +6,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.Parent;
+import javafx.scene.shape.Circle;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
@@ -154,6 +155,42 @@ class MiniCDebugPaneTest {
             assertThat(containsStyle(pane, "debug-graph-edge")).isTrue();
             assertThat(containsStyle(pane, "debug-graph-edge-head")).isTrue();
             assertThat(containsStyle(pane, "debug-pointer-arrow")).isTrue();
+        });
+    }
+
+    @Test
+    void rendersGraphTreeWithRecursiveTreeLayout() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            viewModel.loadSource("debug-tree-layout-ui.mc", """
+                    // @visual graph name=avl kind=tree root=root
+                    // @visual-node graph=avl id=1 label=10
+                    // @visual-node graph=avl id=2 label=5
+                    // @visual-node graph=avl id=3 label=15
+                    // @visual-edge graph=avl from=1 to=2 label=left directed=true
+                    // @visual-edge graph=avl from=1 to=3 label=right directed=true
+                    int main() {
+                        int root = 1;
+                        return root;
+                    }
+                    """);
+            viewModel.startDebug();
+            button(pane, "数据结构").fire();
+
+            Circle root = circleWithAccessibleText(pane, "debug-graph-node", "1");
+            Circle left = circleWithAccessibleText(pane, "debug-graph-node", "2");
+            Circle right = circleWithAccessibleText(pane, "debug-graph-node", "3");
+
+            assertThat(root).isNotNull();
+            assertThat(left).isNotNull();
+            assertThat(right).isNotNull();
+            assertThat(root.getCenterY()).isLessThan(left.getCenterY());
+            assertThat(root.getCenterY()).isLessThan(right.getCenterY());
+            assertThat(root.getCenterX()).isGreaterThan(left.getCenterX());
+            assertThat(root.getCenterX()).isLessThan(right.getCenterX());
         });
     }
 
@@ -502,6 +539,37 @@ class MiniCDebugPaneTest {
             return parent.getChildrenUnmodifiable().stream().anyMatch(child -> containsStyle(child, styleClass));
         }
         return false;
+    }
+
+    private static List<Circle> circlesWithStyle(javafx.scene.Node node, String styleClass) {
+        ArrayList<Circle> circles = new ArrayList<>();
+        collectCirclesWithStyle(node, styleClass, circles);
+        return circles;
+    }
+
+    private static Circle circleWithAccessibleText(javafx.scene.Node node, String styleClass, String accessibleText) {
+        return circlesWithStyle(node, styleClass).stream()
+                .filter(circle -> accessibleText.equals(circle.getAccessibleText()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static void collectCirclesWithStyle(javafx.scene.Node node, String styleClass, List<Circle> circles) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof Circle circle && circle.getStyleClass().contains(styleClass)) {
+            circles.add(circle);
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            collectCirclesWithStyle(scrollPane.getContent(), styleClass, circles);
+        }
+        if (node instanceof SplitPane splitPane) {
+            splitPane.getItems().forEach(child -> collectCirclesWithStyle(child, styleClass, circles));
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectCirclesWithStyle(child, styleClass, circles));
+        }
     }
 
     private static boolean containsNodeWithStyles(javafx.scene.Node node, String firstStyle, String secondStyle) {

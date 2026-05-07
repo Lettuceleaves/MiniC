@@ -512,7 +512,8 @@ public final class MiniCDebugPane extends VBox {
     private Node graphDiagram(String kind, List<UiDebugVisualElementDto> nodes, List<UiDebugVisualElementDto> edges) {
         Pane pane = new Pane();
         pane.getStyleClass().add("debug-visual-diagram");
-        Map<String, VisualPoint> positions = graphPositions(kind, nodes, edges);
+        List<UiDebugVisualElementDto> visibleNodes = visibleGraphNodes(kind, nodes, edges);
+        Map<String, VisualPoint> positions = graphPositions(kind, visibleNodes, edges);
         double width = Math.max(220, positions.values().stream().mapToDouble(VisualPoint::x).max().orElse(160) + VISUAL_MARGIN);
         double height = Math.max(150, positions.values().stream().mapToDouble(VisualPoint::y).max().orElse(100) + VISUAL_MARGIN);
         pane.setMinSize(width, height);
@@ -524,17 +525,48 @@ public final class MiniCDebugPane extends VBox {
                 pane.getChildren().addAll(arrow(from, to));
             }
         }
-        for (UiDebugVisualElementDto node : nodes) {
+        for (UiDebugVisualElementDto node : visibleNodes) {
             VisualPoint point = positions.get(simpleVisualId(node));
             if (point == null) {
                 continue;
             }
             Circle circle = new Circle(point.x(), point.y(), VISUAL_NODE_RADIUS);
             circle.getStyleClass().add("debug-graph-node");
+            circle.setAccessibleText(simpleVisualId(node));
             Text text = visualText(shortLabel(node.label()), point.x() - VISUAL_NODE_RADIUS, point.y() + 4, VISUAL_CELL_SIZE);
             pane.getChildren().addAll(circle, text);
         }
         return pane;
+    }
+
+    private List<UiDebugVisualElementDto> visibleGraphNodes(
+            String kind,
+            List<UiDebugVisualElementDto> nodes,
+            List<UiDebugVisualElementDto> edges
+    ) {
+        if (!kind.equals("tree") && !kind.equals("binary_tree")) {
+            return nodes;
+        }
+        java.util.HashSet<String> nodeIds = new java.util.HashSet<>();
+        nodes.forEach(node -> nodeIds.add(simpleVisualId(node)));
+        java.util.HashSet<String> edgeNodeIds = new java.util.HashSet<>();
+        edges.forEach(edge -> {
+            String from = edge.metadata().get("from");
+            String to = edge.metadata().get("to");
+            if (from != null) {
+                edgeNodeIds.add(from);
+            }
+            if (to != null) {
+                edgeNodeIds.add(to);
+            }
+        });
+        return nodes.stream()
+                .filter(node -> {
+                    String id = simpleVisualId(node);
+                    String summary = node.metadata().get("summary");
+                    return edgeNodeIds.contains(id) || summary == null || !nodeIds.contains(summary);
+                })
+                .toList();
     }
 
     private Map<String, VisualPoint> graphPositions(
@@ -557,28 +589,69 @@ public final class MiniCDebugPane extends VBox {
     }
 
     private Map<String, VisualPoint> treePositions(List<UiDebugVisualElementDto> nodes, List<UiDebugVisualElementDto> edges) {
-        LinkedHashMap<String, Integer> levels = new LinkedHashMap<>();
-        nodes.forEach(node -> levels.put(simpleVisualId(node), 0));
-        for (int pass = 0; pass < nodes.size(); pass++) {
-            for (UiDebugVisualElementDto edge : edges) {
-                String from = edge.metadata().get("from");
-                String to = edge.metadata().get("to");
-                if (from != null && to != null && levels.containsKey(from) && levels.containsKey(to)) {
-                    levels.put(to, Math.max(levels.get(to), levels.get(from) + 1));
-                }
+        LinkedHashMap<String, UiDebugVisualElementDto> nodeById = new LinkedHashMap<>();
+        nodes.forEach(node -> nodeById.put(simpleVisualId(node), node));
+        LinkedHashMap<String, ArrayList<String>> childrenById = new LinkedHashMap<>();
+        java.util.HashSet<String> childIds = new java.util.HashSet<>();
+        nodeById.keySet().forEach(id -> childrenById.put(id, new ArrayList<>()));
+        for (UiDebugVisualElementDto edge : edges) {
+            String from = edge.metadata().get("from");
+            String to = edge.metadata().get("to");
+            if (from != null && to != null && nodeById.containsKey(from) && nodeById.containsKey(to)) {
+                childrenById.computeIfAbsent(from, ignored -> new ArrayList<>()).add(to);
+                childIds.add(to);
             }
         }
-        LinkedHashMap<Integer, ArrayList<String>> byLevel = new LinkedHashMap<>();
-        levels.forEach((id, level) -> byLevel.computeIfAbsent(level, ignored -> new ArrayList<>()).add(id));
+        ArrayList<String> roots = new ArrayList<>();
+        nodeById.keySet().stream()
+                .filter(id -> !childIds.contains(id))
+                .forEach(roots::add);
+        if (roots.isEmpty()) {
+            roots.addAll(nodeById.keySet());
+        }
         LinkedHashMap<String, VisualPoint> positions = new LinkedHashMap<>();
-        byLevel.forEach((level, ids) -> {
-            for (int index = 0; index < ids.size(); index++) {
-                double x = VISUAL_MARGIN + VISUAL_NODE_RADIUS + index * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
-                double y = VISUAL_MARGIN + VISUAL_NODE_RADIUS + level * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
-                positions.put(ids.get(index), new VisualPoint(x, y));
-            }
-        });
+        TreeLayoutCursor cursor = new TreeLayoutCursor();
+        for (String root : roots) {
+            layoutTree(root, 0, childrenById, positions, new java.util.HashSet<>(), cursor);
+            cursor.nextLeafX += VISUAL_CELL_SIZE + VISUAL_GRID_GAP;
+        }
         return positions;
+    }
+
+    private double layoutTree(
+            String nodeId,
+            int depth,
+            Map<String, ArrayList<String>> childrenById,
+            Map<String, VisualPoint> positions,
+            java.util.Set<String> visiting,
+            TreeLayoutCursor cursor
+    ) {
+        if (!visiting.add(nodeId)) {
+            double x = cursor.nextLeafX;
+            cursor.nextLeafX += VISUAL_CELL_SIZE + VISUAL_GRID_GAP;
+            positions.put(nodeId, new VisualPoint(x, treeY(depth)));
+            return x;
+        }
+        List<String> children = childrenById.getOrDefault(nodeId, new ArrayList<>());
+        if (children.isEmpty()) {
+            double x = cursor.nextLeafX;
+            cursor.nextLeafX += VISUAL_CELL_SIZE + VISUAL_GRID_GAP;
+            positions.put(nodeId, new VisualPoint(x, treeY(depth)));
+            visiting.remove(nodeId);
+            return x;
+        }
+        ArrayList<Double> childXs = new ArrayList<>();
+        for (String child : children) {
+            childXs.add(layoutTree(child, depth + 1, childrenById, positions, visiting, cursor));
+        }
+        double x = (childXs.getFirst() + childXs.getLast()) / 2;
+        positions.put(nodeId, new VisualPoint(x, treeY(depth)));
+        visiting.remove(nodeId);
+        return x;
+    }
+
+    private double treeY(int depth) {
+        return VISUAL_MARGIN + VISUAL_NODE_RADIUS + depth * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
     }
 
     private List<Node> arrow(VisualPoint from, VisualPoint to) {
@@ -913,5 +986,9 @@ public final class MiniCDebugPane extends VBox {
     }
 
     private record VisualPoint(double x, double y) {
+    }
+
+    private static final class TreeLayoutCursor {
+        private double nextLeafX = VISUAL_MARGIN + VISUAL_NODE_RADIUS;
     }
 }
