@@ -150,12 +150,16 @@ public final class MiniCDebugPane extends VBox {
     }
 
     private ScrollPane scroll(String text) {
+        return scroll(text, "debug:plain");
+    }
+
+    private ScrollPane scroll(String text, String viewportKey) {
         Label body = label(text, "body-text");
         body.setWrapText(true);
         ScrollPane scroll = new ScrollPane(body);
         scroll.getStyleClass().add("visual-scroll");
         scroll.setFitToWidth(true);
-        return scroll;
+        return rememberViewport(scroll, viewportKey);
     }
 
     private void refresh() {
@@ -239,29 +243,33 @@ public final class MiniCDebugPane extends VBox {
     private Node contentFor(String viewId, boolean split) {
         return switch (viewId) {
             case "metadata" -> split
-                    ? scroll(metadataText(viewModel.debugMetadataViewProperty().get()))
-                    : metadataContent(viewModel.debugMetadataViewProperty().get());
+                    ? scroll(metadataText(viewModel.debugMetadataViewProperty().get()), debugViewportKey("metadata", true))
+                    : metadataContent(viewModel.debugMetadataViewProperty().get(), debugViewportKey("metadata", false));
             case "data" -> split
-                    ? scroll(dataText(viewModel.debugDataStructureViewProperty().get()))
-                    : dataContent(viewModel.debugDataStructureViewProperty().get());
+                    ? scroll(dataText(viewModel.debugDataStructureViewProperty().get()), debugViewportKey("data", true))
+                    : dataContent(viewModel.debugDataStructureViewProperty().get(), debugViewportKey("data", false));
             case "ast" -> split
-                    ? scroll(astText(viewModel.debugAstViewProperty().get()))
-                    : astContent(viewModel.debugAstViewProperty().get());
+                    ? scroll(astText(viewModel.debugAstViewProperty().get()), debugViewportKey("ast", true))
+                    : astContent(viewModel.debugAstViewProperty().get(), debugViewportKey("ast", false));
             case "ir" -> split
-                    ? scroll(irText(viewModel.debugIrViewProperty().get()))
-                    : irContent(viewModel.debugIrViewProperty().get());
+                    ? scroll(irText(viewModel.debugIrViewProperty().get()), debugViewportKey("ir", true))
+                    : irContent(viewModel.debugIrViewProperty().get(), debugViewportKey("ir", false));
             case "asm" -> split
-                    ? scroll(asmText(viewModel.debugAsmViewProperty().get()))
-                    : asmContent(viewModel.debugAsmViewProperty().get());
+                    ? scroll(asmText(viewModel.debugAsmViewProperty().get()), debugViewportKey("asm", true))
+                    : asmContent(viewModel.debugAsmViewProperty().get(), debugViewportKey("asm", false));
             default -> scroll("");
         };
     }
 
-    private ScrollPane metadataContent(UiDebugMetadataViewDto view) {
+    private String debugViewportKey(String viewId, boolean split) {
+        return "debug:" + (split ? "split:" : "primary:") + viewId;
+    }
+
+    private ScrollPane metadataContent(UiDebugMetadataViewDto view, String viewportKey) {
         VBox content = new VBox(10);
         content.getStyleClass().add("debug-metadata");
         if (view == null) {
-            return wrap(content);
+            return wrap(content, viewportKey);
         }
         content.getChildren().addAll(
                 metadataSummary(view),
@@ -273,7 +281,7 @@ public final class MiniCDebugPane extends VBox {
                 metadataSection("stdout", List.of(view.stdout().isBlank() ? "(empty)" : view.stdout())),
                 metadataSection("stderr", List.of(view.stderr().isBlank() ? "(empty)" : view.stderr()))
         );
-        return wrap(content);
+        return wrap(content, viewportKey);
     }
 
     private Node metadataSummary(UiDebugMetadataViewDto view) {
@@ -317,9 +325,24 @@ public final class MiniCDebugPane extends VBox {
     }
 
     private ScrollPane wrap(Node content) {
+        return wrap(content, "debug:wrap");
+    }
+
+    private ScrollPane wrap(Node content, String viewportKey) {
         ScrollPane scroll = new ScrollPane(content);
         scroll.getStyleClass().add("visual-scroll");
         scroll.setFitToWidth(true);
+        return rememberViewport(scroll, viewportKey);
+    }
+
+    private ScrollPane rememberViewport(ScrollPane scroll, String viewportKey) {
+        MiniCWorkbenchViewModel.UiViewportState state = viewModel.viewportState(viewportKey);
+        scroll.setHvalue(state.hvalue());
+        scroll.setVvalue(state.vvalue());
+        scroll.hvalueProperty().addListener((observable, oldValue, newValue) ->
+                viewModel.saveViewportState(viewportKey, newValue.doubleValue(), scroll.getVvalue()));
+        scroll.vvalueProperty().addListener((observable, oldValue, newValue) ->
+                viewModel.saveViewportState(viewportKey, scroll.getHvalue(), newValue.doubleValue()));
         return scroll;
     }
 
@@ -367,11 +390,11 @@ public final class MiniCDebugPane extends VBox {
                 + "\nwarnings:\n" + String.join("\n", view.warnings());
     }
 
-    private ScrollPane dataContent(UiDebugDataStructureViewDto view) {
+    private ScrollPane dataContent(UiDebugDataStructureViewDto view, String viewportKey) {
         VBox content = new VBox(10);
         content.getStyleClass().add("debug-data-space");
         if (view == null) {
-            return wrap(content);
+            return wrap(content, viewportKey);
         }
         content.getChildren().addAll(
                 processSpaceSection("code", List.of(
@@ -396,7 +419,7 @@ public final class MiniCDebugPane extends VBox {
                 visualCards(view.visuals()),
                 metadataSection("warnings", view.warnings())
         );
-        return wrap(content);
+        return wrap(content, viewportKey);
     }
 
     private Node processSpaceSection(String title, List<String> lines) {
@@ -446,12 +469,12 @@ public final class MiniCDebugPane extends VBox {
                 + "\nASM: " + view.relatedAsmIds();
     }
 
-    private ScrollPane astContent(UiDebugAstViewDto view) {
+    private ScrollPane astContent(UiDebugAstViewDto view, String viewportKey) {
         VBox content = new VBox(8);
         content.getStyleClass().add("debug-ast-view");
         content.getChildren().add(astSummary(view));
         content.getChildren().add(debugAstGraph(view));
-        return wrap(content);
+        return wrap(content, viewportKey);
     }
 
     private Node astSummary(UiDebugAstViewDto view) {
@@ -570,11 +593,11 @@ public final class MiniCDebugPane extends VBox {
                 .collect(Collectors.joining("\n"));
     }
 
-    private ScrollPane irContent(UiDebugIrViewDto view) {
+    private ScrollPane irContent(UiDebugIrViewDto view, String viewportKey) {
         VBox content = new VBox(8);
         content.getStyleClass().add("debug-code-view");
         if (view == null) {
-            return wrap(content);
+            return wrap(content, viewportKey);
         }
         content.getChildren().add(metadataSection("IR", List.of(
                 view.explanation(),
@@ -589,7 +612,7 @@ public final class MiniCDebugPane extends VBox {
                 .map(operand -> operand.name() + " " + operand.typeName()
                         + " = " + operand.valueSummary() + " @ " + operand.valueRef())
                 .toList()));
-        return wrap(content);
+        return wrap(content, viewportKey);
     }
 
     private Node irLineRow(UiIrLineVisualDto line) {
@@ -616,11 +639,11 @@ public final class MiniCDebugPane extends VBox {
                 .collect(Collectors.joining("\n"));
     }
 
-    private ScrollPane asmContent(UiDebugAsmViewDto view) {
+    private ScrollPane asmContent(UiDebugAsmViewDto view, String viewportKey) {
         VBox content = new VBox(8);
         content.getStyleClass().add("debug-code-view");
         if (view == null) {
-            return wrap(content);
+            return wrap(content, viewportKey);
         }
         content.getChildren().add(metadataSection("ASM", List.of(
                 view.explanation(),
@@ -630,7 +653,7 @@ public final class MiniCDebugPane extends VBox {
         rows.getStyleClass().add("debug-code-rows");
         view.lines().forEach(line -> rows.getChildren().add(asmLineRow(line)));
         content.getChildren().add(rows);
-        return wrap(content);
+        return wrap(content, viewportKey);
     }
 
     private Node asmLineRow(UiAssemblyLineVisualDto line) {

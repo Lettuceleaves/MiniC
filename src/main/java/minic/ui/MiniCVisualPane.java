@@ -57,14 +57,15 @@ public final class MiniCVisualPane extends VBox {
     private final MiniCAssemblyTextModelFactory assemblyTextModelFactory = new MiniCAssemblyTextModelFactory();
     private final Label header = new Label("图形视图");
     private final SplitPane splitPane = new SplitPane();
-    private final StageColumn leftColumn = new StageColumn(false);
-    private final StageColumn rightColumn = new StageColumn(true);
+    private final StageColumn leftColumn = new StageColumn("left", false);
+    private final StageColumn rightColumn = new StageColumn("right", true);
     private final Slider astZoom = new Slider(MIN_AST_ZOOM, MAX_AST_ZOOM, DEFAULT_AST_ZOOM);
     private final TextArea executionStdin = new TextArea();
     private final CheckBox executionNoInput = new CheckBox("无输入");
     private final Button executionConfirm = new Button("确认输入");
     private String selectedSemanticScopeId = "";
     private boolean refreshScheduled;
+    private String activeVisualStage = "pending";
 
     /**
      * 创建 Visual Pane。
@@ -135,6 +136,7 @@ public final class MiniCVisualPane extends VBox {
                 : viewModel.currentStageDataProperty().get().stage();
         String selectedStage = viewModel.selectedVisualStageProperty().get();
         String stage = selectedStage == null || selectedStage.isBlank() ? currentStage : selectedStage;
+        activeVisualStage = stage;
         if (!"semantic".equals(stage)) {
             selectedSemanticScopeId = "";
         }
@@ -1266,13 +1268,18 @@ public final class MiniCVisualPane extends VBox {
     }
 
     private final class StageColumn {
+        private final String columnId;
         private final VBox root = new VBox(6);
         private final Label title = new Label();
         private final VBox body = new VBox(4);
         private final ScrollPane scrollPane = new ScrollPane(body);
         private final boolean autoCenter;
+        private String viewportKey = "";
+        private boolean restoringViewport;
+        private boolean hasSavedViewport;
 
-        private StageColumn(boolean autoCenter) {
+        private StageColumn(String columnId, boolean autoCenter) {
+            this.columnId = columnId;
             this.autoCenter = autoCenter;
             root.getStyleClass().add("stage-flow-column");
             root.setMinWidth(0);
@@ -1287,6 +1294,8 @@ public final class MiniCVisualPane extends VBox {
             scrollPane.setHvalue(0);
             root.getChildren().addAll(title, scrollPane);
             VBox.setVgrow(scrollPane, Priority.ALWAYS);
+            scrollPane.hvalueProperty().addListener((observable, oldValue, newValue) -> saveViewport());
+            scrollPane.vvalueProperty().addListener((observable, oldValue, newValue) -> saveViewport());
             if (autoCenter) {
                 scrollPane.viewportBoundsProperty().addListener((observable, oldValue, newValue) -> centerActiveLater());
             }
@@ -1294,15 +1303,38 @@ public final class MiniCVisualPane extends VBox {
 
         private void setContent(String titleText, List<? extends Node> rows) {
             title.setText(titleText);
+            viewportKey = "visual:" + activeVisualStage + ":" + columnId + ":" + titleText;
+            hasSavedViewport = hasSavedViewport(viewportKey);
             body.getChildren().setAll(rows);
-            stabilizeHorizontalOrigin();
-            if (autoCenter) {
+            restoreViewportLater();
+            if (autoCenter && !hasSavedViewport) {
                 centerActiveLater();
             }
         }
 
-        private void stabilizeHorizontalOrigin() {
-            scrollPane.setHvalue(0);
+        private boolean hasSavedViewport(String key) {
+            MiniCWorkbenchViewModel.UiViewportState state = viewModel.viewportState(key);
+            return state.hvalue() != 0.0 || state.vvalue() != 0.0;
+        }
+
+        private void restoreViewportLater() {
+            Platform.runLater(() -> {
+                MiniCWorkbenchViewModel.UiViewportState state = viewModel.viewportState(viewportKey);
+                restoringViewport = true;
+                try {
+                    scrollPane.setHvalue(state.hvalue());
+                    scrollPane.setVvalue(state.vvalue());
+                } finally {
+                    restoringViewport = false;
+                }
+            });
+        }
+
+        private void saveViewport() {
+            if (restoringViewport || viewportKey.isBlank()) {
+                return;
+            }
+            viewModel.saveViewportState(viewportKey, scrollPane.getHvalue(), scrollPane.getVvalue());
         }
 
         private void centerActiveLater() {
@@ -1313,7 +1345,9 @@ public final class MiniCVisualPane extends VBox {
             double viewportHeight = scrollPane.getViewportBounds().getHeight();
             double contentHeight = body.getBoundsInLocal().getHeight();
             if (viewportHeight <= 0 || contentHeight <= viewportHeight) {
-                scrollPane.setVvalue(0);
+                if (!hasSavedViewport) {
+                    scrollPane.setVvalue(0);
+                }
                 return;
             }
             Double activeCenterY = activeCenterY();
@@ -1323,7 +1357,12 @@ public final class MiniCVisualPane extends VBox {
             double targetTop = activeCenterY - viewportHeight / 2.0;
             double maxTop = contentHeight - viewportHeight;
             double clampedTop = Math.max(0, Math.min(targetTop, maxTop));
-            scrollPane.setVvalue(clampedTop / maxTop);
+            restoringViewport = true;
+            try {
+                scrollPane.setVvalue(clampedTop / maxTop);
+            } finally {
+                restoringViewport = false;
+            }
         }
 
         private Double activeCenterY() {

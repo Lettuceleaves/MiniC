@@ -203,6 +203,40 @@ class MiniCDebugPaneTest {
     }
 
     @Test
+    void preservesDebugViewportAcrossStepRefresh() {
+        startJavafx();
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        MiniCDebugPane pane = runOnFxThreadWithResult(() -> {
+            MiniCDebugPane debugPane = new MiniCDebugPane(viewModel);
+            viewModel.loadSource("debug-scroll-ui.mc", """
+                    int main() {
+                        int value = 0;
+                        value = value + 1;
+                        value = value + 2;
+                        value = value + 3;
+                        return value;
+                    }
+                    """);
+            viewModel.startDebug();
+            viewModel.debugStepOver();
+            button(debugPane, "IR").fire();
+            ScrollPane scrollPane = scrollPaneWithContentStyle(debugPane, "debug-code-view");
+            assertThat(scrollPane).isNotNull();
+            scrollPane.setVvalue(0.73);
+            return debugPane;
+        });
+
+        runOnFxThread(() -> {
+            viewModel.debugStepOver();
+        });
+        runOnFxThread(() -> {
+            ScrollPane scrollPane = scrollPaneWithContentStyle(pane, "debug-code-view");
+            assertThat(scrollPane).isNotNull();
+            assertThat(scrollPane.getVvalue()).isCloseTo(0.73, org.assertj.core.data.Offset.offset(0.001));
+        });
+    }
+
+    @Test
     void debugStartDoesNotStartCompilerObservationSession() {
         startJavafx();
         runOnFxThread(() -> {
@@ -217,11 +251,19 @@ class MiniCDebugPaneTest {
     }
 
     private static void runOnFxThread(Runnable action) {
+        runOnFxThreadWithResult(() -> {
+            action.run();
+            return null;
+        });
+    }
+
+    private static <T> T runOnFxThreadWithResult(java.util.concurrent.Callable<T> action) {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicReference<T> result = new AtomicReference<>();
         Platform.runLater(() -> {
             try {
-                action.run();
+                result.set(action.call());
             } catch (Throwable throwable) {
                 failure.set(throwable);
             } finally {
@@ -237,6 +279,7 @@ class MiniCDebugPaneTest {
         if (failure.get() != null) {
             throw new AssertionError(failure.get());
         }
+        return result.get();
     }
 
     private static Button button(javafx.scene.Node node, String text) {
@@ -445,5 +488,28 @@ class MiniCDebugPaneTest {
             return parent.getChildrenUnmodifiable().stream().anyMatch(child -> containsNodeWithStyles(child, firstStyle, secondStyle));
         }
         return false;
+    }
+
+    private static ScrollPane scrollPaneWithContentStyle(javafx.scene.Node node, String styleClass) {
+        if (node instanceof ScrollPane scrollPane && containsStyle(scrollPane.getContent(), styleClass)) {
+            return scrollPane;
+        }
+        if (node instanceof SplitPane splitPane) {
+            for (javafx.scene.Node item : splitPane.getItems()) {
+                ScrollPane found = scrollPaneWithContentStyle(item, styleClass);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        if (node instanceof Parent parent) {
+            for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+                ScrollPane found = scrollPaneWithContentStyle(child, styleClass);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 }

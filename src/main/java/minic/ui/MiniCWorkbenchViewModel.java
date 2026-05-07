@@ -22,7 +22,9 @@ import minic.uiapi.UiStageDataDto;
 import minic.uiapi.UiStageVisualDto;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * JavaFX UI 使用的 MiniC 观测状态模型。
@@ -56,6 +58,7 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiDebugIrViewDto> debugIrView = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiDebugAsmViewDto> debugAsmView = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<List<Integer>> debugBreakpointLines = new ReadOnlyObjectWrapper<>(List.of());
+    private final Map<String, UiViewportState> viewportStates = new ConcurrentHashMap<>();
 
     /**
      * 使用默认 UI API 创建状态模型。
@@ -606,6 +609,21 @@ public final class MiniCWorkbenchViewModel {
         return debugBreakpointLines.getReadOnlyProperty();
     }
 
+    public UiViewportState viewportState(String key) {
+        return viewportStates.getOrDefault(key, UiViewportState.DEFAULT);
+    }
+
+    public void saveViewportState(String key, double hvalue, double vvalue) {
+        viewportStates.put(Objects.requireNonNull(key, "key"), new UiViewportState(clampUnit(hvalue), clampUnit(vvalue)));
+    }
+
+    private double clampUnit(double value) {
+        if (Double.isNaN(value) || Double.isInfinite(value)) {
+            return 0.0;
+        }
+        return Math.max(0.0, Math.min(1.0, value));
+    }
+
     private void applyControlResult(UiControlResultDto result) {
         lastControlResult.set(result);
         lastOutcome.set(result.outcome());
@@ -647,5 +665,9 @@ public final class MiniCWorkbenchViewModel {
                 .distinct()
                 .sorted()
                 .toList();
+    }
+
+    public record UiViewportState(double hvalue, double vvalue) {
+        public static final UiViewportState DEFAULT = new UiViewportState(0.0, 0.0);
     }
 }
