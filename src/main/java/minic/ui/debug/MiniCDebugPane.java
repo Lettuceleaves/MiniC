@@ -16,6 +16,8 @@ import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Line;
+import javafx.scene.shape.Polygon;
+import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
 import minic.uiapi.UiAssemblyLineVisualDto;
 import minic.uiapi.UiAstNodeVisualDto;
@@ -33,7 +35,10 @@ import minic.uiapi.UiDebugVisualElementDto;
 import minic.uiapi.UiDebugVisualStructureDto;
 import minic.uiapi.UiIrLineVisualDto;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -43,6 +48,10 @@ import java.util.stream.Collectors;
 public final class MiniCDebugPane extends VBox {
     private static final double DEBUG_AST_ZOOM = 0.8;
     private static final int METADATA_LIST_LIMIT = 200;
+    private static final double VISUAL_CELL_SIZE = 44;
+    private static final double VISUAL_NODE_RADIUS = VISUAL_CELL_SIZE / 2;
+    private static final double VISUAL_GRID_GAP = 34;
+    private static final double VISUAL_MARGIN = 24;
     private static final List<DebugView> DEBUG_VIEWS = List.of(
             new DebugView("metadata", "元数据"),
             new DebugView("data", "数据结构"),
@@ -454,8 +463,161 @@ public final class MiniCDebugPane extends VBox {
                 "debug-visual-title"
         ));
         card.getChildren().add(label(visual.summary(), "debug-section-line"));
+        Node diagram = visualDiagram(visual);
+        if (diagram != null) {
+            card.getChildren().add(diagram);
+        }
         visual.elements().forEach(element -> card.getChildren().add(label(visualElementText(element), "debug-section-line")));
         return card;
+    }
+
+    private Node visualDiagram(UiDebugVisualStructureDto visual) {
+        List<UiDebugVisualElementDto> arrayCells = visual.elements().stream()
+                .filter(element -> element.kind().equals("ARRAY_CELL"))
+                .toList();
+        if (!arrayCells.isEmpty()) {
+            return arrayDiagram(arrayCells);
+        }
+        List<UiDebugVisualElementDto> graphNodes = visual.elements().stream()
+                .filter(element -> element.kind().equals("GRAPH_NODE"))
+                .toList();
+        if (!graphNodes.isEmpty()) {
+            List<UiDebugVisualElementDto> graphEdges = visual.elements().stream()
+                    .filter(element -> element.kind().equals("GRAPH_EDGE"))
+                    .toList();
+            return graphDiagram(visual.kind(), graphNodes, graphEdges);
+        }
+        return null;
+    }
+
+    private Node arrayDiagram(List<UiDebugVisualElementDto> cells) {
+        Pane pane = new Pane();
+        pane.getStyleClass().add("debug-visual-diagram");
+        double width = VISUAL_MARGIN * 2 + VISUAL_CELL_SIZE * cells.size();
+        double height = VISUAL_MARGIN * 2 + VISUAL_CELL_SIZE;
+        pane.setMinSize(width, height);
+        pane.setPrefSize(width, height);
+        for (int index = 0; index < cells.size(); index++) {
+            UiDebugVisualElementDto cell = cells.get(index);
+            double x = VISUAL_MARGIN + index * VISUAL_CELL_SIZE;
+            double y = VISUAL_MARGIN;
+            Rectangle rect = new Rectangle(x, y, VISUAL_CELL_SIZE, VISUAL_CELL_SIZE);
+            rect.getStyleClass().add("debug-array-cell");
+            Text text = visualText(shortLabel(cell.label()), x, y + 4, VISUAL_CELL_SIZE);
+            pane.getChildren().addAll(rect, text);
+        }
+        return pane;
+    }
+
+    private Node graphDiagram(String kind, List<UiDebugVisualElementDto> nodes, List<UiDebugVisualElementDto> edges) {
+        Pane pane = new Pane();
+        pane.getStyleClass().add("debug-visual-diagram");
+        Map<String, VisualPoint> positions = graphPositions(kind, nodes, edges);
+        double width = Math.max(220, positions.values().stream().mapToDouble(VisualPoint::x).max().orElse(160) + VISUAL_MARGIN);
+        double height = Math.max(150, positions.values().stream().mapToDouble(VisualPoint::y).max().orElse(100) + VISUAL_MARGIN);
+        pane.setMinSize(width, height);
+        pane.setPrefSize(width, height);
+        for (UiDebugVisualElementDto edge : edges) {
+            VisualPoint from = positions.get(edge.metadata().getOrDefault("from", ""));
+            VisualPoint to = positions.get(edge.metadata().getOrDefault("to", ""));
+            if (from != null && to != null) {
+                pane.getChildren().addAll(arrow(from, to));
+            }
+        }
+        for (UiDebugVisualElementDto node : nodes) {
+            VisualPoint point = positions.get(simpleVisualId(node));
+            if (point == null) {
+                continue;
+            }
+            Circle circle = new Circle(point.x(), point.y(), VISUAL_NODE_RADIUS);
+            circle.getStyleClass().add("debug-graph-node");
+            Text text = visualText(shortLabel(node.label()), point.x() - VISUAL_NODE_RADIUS, point.y() + 4, VISUAL_CELL_SIZE);
+            pane.getChildren().addAll(circle, text);
+        }
+        return pane;
+    }
+
+    private Map<String, VisualPoint> graphPositions(
+            String kind,
+            List<UiDebugVisualElementDto> nodes,
+            List<UiDebugVisualElementDto> edges
+    ) {
+        if (kind.equals("tree") || kind.equals("binary_tree")) {
+            return treePositions(nodes, edges);
+        }
+        LinkedHashMap<String, VisualPoint> positions = new LinkedHashMap<>();
+        for (int index = 0; index < nodes.size(); index++) {
+            String id = simpleVisualId(nodes.get(index));
+            positions.put(id, new VisualPoint(
+                    VISUAL_MARGIN + VISUAL_NODE_RADIUS + index * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP),
+                    VISUAL_MARGIN + VISUAL_NODE_RADIUS
+            ));
+        }
+        return positions;
+    }
+
+    private Map<String, VisualPoint> treePositions(List<UiDebugVisualElementDto> nodes, List<UiDebugVisualElementDto> edges) {
+        LinkedHashMap<String, Integer> levels = new LinkedHashMap<>();
+        nodes.forEach(node -> levels.put(simpleVisualId(node), 0));
+        for (int pass = 0; pass < nodes.size(); pass++) {
+            for (UiDebugVisualElementDto edge : edges) {
+                String from = edge.metadata().get("from");
+                String to = edge.metadata().get("to");
+                if (from != null && to != null && levels.containsKey(from) && levels.containsKey(to)) {
+                    levels.put(to, Math.max(levels.get(to), levels.get(from) + 1));
+                }
+            }
+        }
+        LinkedHashMap<Integer, ArrayList<String>> byLevel = new LinkedHashMap<>();
+        levels.forEach((id, level) -> byLevel.computeIfAbsent(level, ignored -> new ArrayList<>()).add(id));
+        LinkedHashMap<String, VisualPoint> positions = new LinkedHashMap<>();
+        byLevel.forEach((level, ids) -> {
+            for (int index = 0; index < ids.size(); index++) {
+                double x = VISUAL_MARGIN + VISUAL_NODE_RADIUS + index * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
+                double y = VISUAL_MARGIN + VISUAL_NODE_RADIUS + level * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
+                positions.put(ids.get(index), new VisualPoint(x, y));
+            }
+        });
+        return positions;
+    }
+
+    private List<Node> arrow(VisualPoint from, VisualPoint to) {
+        double angle = Math.atan2(to.y() - from.y(), to.x() - from.x());
+        double startX = from.x() + Math.cos(angle) * VISUAL_NODE_RADIUS;
+        double startY = from.y() + Math.sin(angle) * VISUAL_NODE_RADIUS;
+        double endX = to.x() - Math.cos(angle) * VISUAL_NODE_RADIUS;
+        double endY = to.y() - Math.sin(angle) * VISUAL_NODE_RADIUS;
+        Line line = new Line(startX, startY, endX, endY);
+        line.getStyleClass().addAll("debug-graph-edge", "debug-pointer-arrow");
+        double arrowSize = 8;
+        Polygon head = new Polygon(
+                endX, endY,
+                endX - Math.cos(angle - Math.PI / 6) * arrowSize,
+                endY - Math.sin(angle - Math.PI / 6) * arrowSize,
+                endX - Math.cos(angle + Math.PI / 6) * arrowSize,
+                endY - Math.sin(angle + Math.PI / 6) * arrowSize
+        );
+        head.getStyleClass().addAll("debug-graph-edge-head", "debug-pointer-arrow");
+        return List.of(line, head);
+    }
+
+    private Text visualText(String label, double x, double y, double width) {
+        Text text = new Text(label);
+        text.getStyleClass().add("debug-visual-label");
+        text.setX(x);
+        text.setY(y + VISUAL_CELL_SIZE / 2);
+        text.setWrappingWidth(width);
+        text.setFill(Color.web("#d4d4d4"));
+        return text;
+    }
+
+    private String simpleVisualId(UiDebugVisualElementDto element) {
+        String metadataId = element.metadata().get("id");
+        if (metadataId != null && !metadataId.isBlank()) {
+            return metadataId;
+        }
+        int index = element.id().lastIndexOf('-');
+        return index < 0 ? element.id() : element.id().substring(index + 1);
     }
 
     private String astText(UiDebugAstViewDto view) {
@@ -748,5 +910,8 @@ public final class MiniCDebugPane extends VBox {
     }
 
     private record DebugView(String id, String title) {
+    }
+
+    private record VisualPoint(double x, double y) {
     }
 }

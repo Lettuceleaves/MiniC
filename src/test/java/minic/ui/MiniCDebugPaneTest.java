@@ -129,6 +129,35 @@ class MiniCDebugPaneTest {
     }
 
     @Test
+    void rendersDataStructureVisualsAsShapes() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            viewModel.loadSource("debug-visual-shapes-ui.mc", """
+                    // @visual array name=arr kind=array root=value
+                    // @visual-node graph=graph id=1 label=head
+                    // @visual-node graph=graph id=2 label=tail
+                    // @visual-edge graph=graph from=1 to=2 label=next directed=true
+                    int main() {
+                        int value = 1;
+                        return value;
+                    }
+                    """);
+            viewModel.startDebug();
+            button(pane, "数据结构").fire();
+
+            assertThat(containsStyle(pane, "debug-visual-diagram")).isTrue();
+            assertThat(containsStyle(pane, "debug-array-cell")).isTrue();
+            assertThat(containsStyle(pane, "debug-graph-node")).isTrue();
+            assertThat(containsStyle(pane, "debug-graph-edge")).isTrue();
+            assertThat(containsStyle(pane, "debug-graph-edge-head")).isTrue();
+            assertThat(containsStyle(pane, "debug-pointer-arrow")).isTrue();
+        });
+    }
+
+    @Test
     void switchesDebugViewsFromLeftSelector() {
         startJavafx();
         runOnFxThread(() -> {

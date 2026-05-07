@@ -642,6 +642,46 @@
     -fx-font-weight: bold;
 }
 
+.debug-visual-diagram {
+    -fx-background-color: #1e1e1e;
+    -fx-border-color: #333333;
+    -fx-border-width: 1px;
+}
+
+.debug-array-cell {
+    -fx-fill: #252526;
+    -fx-stroke: #007acc;
+    -fx-stroke-width: 1.6px;
+}
+
+.debug-graph-node {
+    -fx-fill: #252526;
+    -fx-stroke: #007acc;
+    -fx-stroke-width: 1.6px;
+}
+
+.debug-graph-edge {
+    -fx-stroke: #007acc;
+    -fx-stroke-width: 1.6px;
+    -fx-stroke-line-cap: round;
+}
+
+.debug-graph-edge-head {
+    -fx-fill: #007acc;
+    -fx-stroke: #007acc;
+    -fx-stroke-width: 1.6px;
+}
+
+.debug-pointer-arrow {
+}
+
+.debug-visual-label {
+    -fx-fill: #d4d4d4;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 10px;
+    -fx-text-alignment: center;
+}
+
 .debug-code-view {
     -fx-padding: 10px;
     -fx-background-color: #1e1e1e;
