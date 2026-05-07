@@ -419,9 +419,42 @@ public final class IrDebugInterpreter {
             }
             String nodeId = visitValue.summary();
             if (state.createdVisualNodeKeys.add(graph.name() + "\u0000" + nodeId)) {
-                state.session.appendVisualEvent(VisualEvent.nodeCreated(snapshotId, graph.name(), nodeId, nodeId));
+                state.session.appendVisualEvent(VisualEvent.nodeCreated(
+                        snapshotId,
+                        graph.name(),
+                        nodeId,
+                        mappedValue(frame, graph.nodeLabelExpression(), nodeId)
+                ));
+            } else if (!graph.nodeLabelExpression().isBlank()) {
+                state.session.appendVisualEvent(VisualEvent.nodeUpdated(
+                        snapshotId,
+                        graph.name(),
+                        nodeId,
+                        mappedValue(frame, graph.nodeLabelExpression(), nodeId)
+                ));
+            }
+            for (VisualMetaMapping metaMapping : graph.metaMappings()) {
+                String metaNodeId = mappedValue(frame, metaMapping.nodeExpression(), nodeId);
+                String metaValue = mappedValue(frame, metaMapping.valueExpression(), "");
+                if (!metaNodeId.isBlank() && !metaValue.isBlank()) {
+                    state.session.appendVisualEvent(VisualEvent.metaSet(
+                            snapshotId,
+                            graph.name(),
+                            metaNodeId,
+                            metaMapping.key(),
+                            metaValue
+                    ));
+                }
             }
         }
+    }
+
+    private String mappedValue(CallFrame frame, String expression, String fallback) {
+        if (expression.isBlank()) {
+            return fallback;
+        }
+        DebugValue value = valueBySourceName(frame, expression);
+        return value == null ? expression : value.summary();
     }
 
     private DebugValue valueBySourceName(CallFrame frame, String sourceName) {
@@ -574,6 +607,9 @@ public final class IrDebugInterpreter {
             this.module = module;
             this.function = function;
             this.session = DebugSession.fromSource(sourceFile);
+            List<VisualAnnotation> visualMapAnnotations = visualAnnotations.stream()
+                    .filter(annotation -> annotation.directive().equals("@visual-map"))
+                    .toList();
             this.visualRuntimeGraphs = visualAnnotations.stream()
                     .filter(annotation -> annotation.directive().equals("@visual"))
                     .filter(annotation -> annotation.attributes().getOrDefault("mode", "").equals("runtime"))
@@ -582,10 +618,34 @@ public final class IrDebugInterpreter {
                     .map(annotation -> new VisualRuntimeGraph(
                             annotation.name(),
                             annotation.attributes().get("function"),
-                            annotation.attributes().get("visit")
+                            annotation.attributes().get("visit"),
+                            nodeLabelExpression(annotation.name(), visualMapAnnotations),
+                            metaMappings(annotation.name(), visualMapAnnotations)
                     ))
                     .toList();
             this.lastFunctionName = function.name();
+        }
+
+        private String nodeLabelExpression(String graphName, List<VisualAnnotation> visualMapAnnotations) {
+            return visualMapAnnotations.stream()
+                    .filter(annotation -> annotation.name().equals(graphName))
+                    .filter(annotation -> annotation.structureType().equals("node"))
+                    .map(annotation -> annotation.attributes().getOrDefault("label", ""))
+                    .filter(label -> !label.isBlank())
+                    .findFirst()
+                    .orElse("");
+        }
+
+        private List<VisualMetaMapping> metaMappings(String graphName, List<VisualAnnotation> visualMapAnnotations) {
+            return visualMapAnnotations.stream()
+                    .filter(annotation -> annotation.name().equals(graphName))
+                    .filter(annotation -> annotation.structureType().equals("meta"))
+                    .map(annotation -> new VisualMetaMapping(
+                            annotation.attributes().get("key"),
+                            annotation.attributes().get("node"),
+                            annotation.attributes().get("value")
+                    ))
+                    .toList();
         }
 
         private void pushFrame(IrFunction function, List<DebugValue> arguments, IrTemporary returnTarget) {
@@ -706,7 +766,16 @@ public final class IrDebugInterpreter {
     private record VisualRuntimeGraph(
             String name,
             String functionName,
-            String visitVariable
+            String visitVariable,
+            String nodeLabelExpression,
+            List<VisualMetaMapping> metaMappings
+    ) {
+    }
+
+    private record VisualMetaMapping(
+            String key,
+            String nodeExpression,
+            String valueExpression
     ) {
     }
 }

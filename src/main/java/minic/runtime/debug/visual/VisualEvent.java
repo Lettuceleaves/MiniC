@@ -76,6 +76,30 @@ public record VisualEvent(
     }
 
     /**
+     * 创建节点标签更新事件。
+     *
+     * @param snapshotId 快照 ID
+     * @param graphName 图名称
+     * @param nodeId 节点 ID
+     * @param label 展示标签
+     * @return 节点更新事件
+     */
+    public static VisualEvent nodeUpdated(long snapshotId, String graphName, String nodeId, String label) {
+        return new VisualEvent(
+                snapshotId,
+                VisualEventType.NODE_UPDATED,
+                graphName,
+                nodeId,
+                "",
+                "",
+                "label",
+                label,
+                label,
+                Map.of()
+        );
+    }
+
+    /**
      * 创建边设置事件。
      *
      * @param snapshotId 快照 ID
@@ -97,6 +121,31 @@ public record VisualEvent(
                 "",
                 key,
                 Map.of()
+        );
+    }
+
+    /**
+     * 创建节点元数据设置事件。
+     *
+     * @param snapshotId 快照 ID
+     * @param graphName 图名称
+     * @param nodeId 节点 ID
+     * @param key 元数据键
+     * @param value 元数据值
+     * @return 元数据设置事件
+     */
+    public static VisualEvent metaSet(long snapshotId, String graphName, String nodeId, String key, String value) {
+        return new VisualEvent(
+                snapshotId,
+                VisualEventType.META_SET,
+                graphName,
+                nodeId,
+                "",
+                "",
+                key,
+                value,
+                "",
+                Map.of(key, value)
         );
     }
 }

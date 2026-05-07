@@ -125,7 +125,9 @@ class IrDebugInterpreterTest {
         SourceFile sourceFile = new SourceFile("debug-runtime-visual.mc", """
                 // @visual graph name=avl kind=tree root=root mode=runtime function=dfs visit=index
                 // @visual-map node graph=avl id=index label=index
+                // @visual-map meta graph=avl key=height node=index value=height
                 int dfs(int index) {
+                    int height = index;
                     if (index == 0) {
                         return 0;
                     }
@@ -143,7 +145,11 @@ class IrDebugInterpreterTest {
 
         assertThat(session.state()).isEqualTo(DebugExecutionState.COMPLETED);
         assertThat(session.visualEvents()).extracting(event -> event.graphName() + ":" + event.nodeId())
-                .containsExactly("avl:3", "avl:2", "avl:1");
+                .contains("avl:3", "avl:2", "avl:1");
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.nodeId()).isEqualTo("3");
+            assertThat(event.metadata()).containsEntry("height", "3");
+        });
         assertThat(session.visualEvents()).allSatisfy(event ->
                 assertThat(event.snapshotId()).isGreaterThan(0));
     }

@@ -13,12 +13,15 @@ class VisualEventTest {
     void createsNodeAndEdgeEventsAndFiltersBySnapshot() {
         VisualEvent node = VisualEvent.nodeCreated(2, "avl", "1", "10");
         VisualEvent edge = VisualEvent.edgeSet(4, "avl", "left", "1", "2");
+        VisualEvent meta = VisualEvent.metaSet(5, "avl", "1", "height", "3");
 
         assertThat(node.type()).isEqualTo(VisualEventType.NODE_CREATED);
         assertThat(node.nodeId()).isEqualTo("1");
         assertThat(edge.type()).isEqualTo(VisualEventType.EDGE_SET);
         assertThat(edge.fromId()).isEqualTo("1");
         assertThat(edge.toId()).isEqualTo("2");
+        assertThat(meta.type()).isEqualTo(VisualEventType.META_SET);
+        assertThat(meta.metadata()).containsExactly(Map.entry("height", "3"));
         assertThat(List.of(node, edge).stream()
                 .filter(event -> event.snapshotId() <= 2)
                 .toList()).containsExactly(node);
