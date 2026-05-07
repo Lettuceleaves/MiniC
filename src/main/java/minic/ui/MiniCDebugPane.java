@@ -80,11 +80,18 @@ public final class MiniCDebugPane extends VBox {
 
     private HBox controls() {
         Button start = button("启动", () -> {
+            viewModel.setDebugBreakpoints(sourceView.breakpointLines());
             sourceView.startSession();
             viewModel.startDebug();
         });
-        Button breakpoint = button("设断点", () -> viewModel.setDebugBreakpoint(breakpointLine()));
-        Button clearBreakpoint = button("清断点", () -> viewModel.clearDebugBreakpoint(breakpointLine()));
+        Button breakpoint = button("设断点", () -> {
+            sourceView.setBreakpoint(breakpointLine(), true);
+            viewModel.setDebugBreakpoint(breakpointLine());
+        });
+        Button clearBreakpoint = button("清断点", () -> {
+            sourceView.setBreakpoint(breakpointLine(), false);
+            viewModel.clearDebugBreakpoint(breakpointLine());
+        });
         Button fast = button("快进", viewModel::debugFastForward);
         Button run = button("运行到断点", viewModel::debugRunToBreakpoint);
         Button step = button("单步", viewModel::debugStepOver);

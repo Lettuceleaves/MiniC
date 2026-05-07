@@ -160,6 +160,28 @@ class MiniCWorkbenchViewModelTest {
     }
 
     @Test
+    void appliesPendingEditorBreakpointsWhenDebugStarts() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("debug-gutter.mc", """
+                int main() {
+                    int value = 1;
+                    value = value + 1;
+                    return value;
+                }
+                """);
+
+        viewModel.setDebugBreakpoints(java.util.List.of(3));
+        viewModel.startDebug();
+        viewModel.debugRunToBreakpoint();
+
+        assertThat(viewModel.debugStateProperty().get().breakpoints())
+                .extracting(minic.uiapi.UiDebugBreakpointDto::line)
+                .containsExactly(3);
+        assertThat(viewModel.debugStateProperty().get().currentSnapshot().stopReason()).isEqualTo("BREAKPOINT");
+        assertThat(viewModel.debugStateProperty().get().currentSnapshot().sourceRange().startLine()).isEqualTo(3);
+    }
+
+    @Test
     void visualDataSwitchesAcrossMainPipelineStages() {
         MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
         viewModel.loadSource("switch.mc", "int main() { return 0; }");

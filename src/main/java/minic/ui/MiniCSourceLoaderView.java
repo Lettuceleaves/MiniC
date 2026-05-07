@@ -6,6 +6,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -59,6 +60,7 @@ public final class MiniCSourceLoaderView extends VBox {
         startButton.setOnAction(event -> startSession());
         openButton.setOnAction(event -> this.openAction.run());
         saveButton.setOnAction(event -> this.saveAction.run());
+        sourceEditor.setBreakpointChangeAction(() -> viewModel.setDebugBreakpoints(sourceEditor.breakpointLines()));
         sourceEditor.textProperty().addListener((observable, oldValue, newValue) -> {
             sourceEditor.render(viewModel.realtimeAnalysisProperty().get());
             submitRealtimeSource();
@@ -81,6 +83,25 @@ public final class MiniCSourceLoaderView extends VBox {
         viewModel.loadSource(name, sourceEditor.getText());
         submitRealtimeSource();
         viewModel.startSession();
+    }
+
+    /**
+     * 返回当前源码编辑器断点。
+     *
+     * @return 一基行号列表
+     */
+    public List<Integer> breakpointLines() {
+        return sourceEditor.breakpointLines();
+    }
+
+    /**
+     * 设置源码编辑器断点。
+     *
+     * @param line 一基行号
+     * @param enabled 是否启用
+     */
+    public void setBreakpoint(int line, boolean enabled) {
+        sourceEditor.setBreakpoint(line, enabled);
     }
 
     private void submitRealtimeSource() {

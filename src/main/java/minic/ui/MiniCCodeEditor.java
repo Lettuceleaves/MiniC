@@ -32,6 +32,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.ArrayList;
+import java.util.Objects;
 import java.util.function.IntFunction;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -61,6 +62,8 @@ public final class MiniCCodeEditor extends StackPane {
     private final ListView<String> completionList = new ListView<>();
     private UiRealtimeAnalysisDto latestAnalysis;
     private List<UiDiagnosticDto> latestDiagnostics = List.of();
+    private Runnable breakpointChangeAction = () -> {
+    };
 
     /**
      * 创建代码编辑器。
@@ -166,6 +169,7 @@ public final class MiniCCodeEditor extends StackPane {
             breakpointLines.remove(line);
         }
         refreshParagraphGraphics();
+        breakpointChangeAction.run();
     }
 
     /**
@@ -180,6 +184,16 @@ public final class MiniCCodeEditor extends StackPane {
             breakpointLines.add(line);
         }
         refreshParagraphGraphics();
+        breakpointChangeAction.run();
+    }
+
+    /**
+     * 设置断点集合变更回调。
+     *
+     * @param breakpointChangeAction 回调
+     */
+    public void setBreakpointChangeAction(Runnable breakpointChangeAction) {
+        this.breakpointChangeAction = Objects.requireNonNull(breakpointChangeAction, "breakpointChangeAction");
     }
 
     /**

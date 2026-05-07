@@ -21,6 +21,7 @@ import minic.uiapi.UiRealtimeAnalysisDto;
 import minic.uiapi.UiStageDataDto;
 import minic.uiapi.UiStageVisualDto;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -54,6 +55,7 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiDebugAstViewDto> debugAstView = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiDebugIrViewDto> debugIrView = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiDebugAsmViewDto> debugAsmView = new ReadOnlyObjectWrapper<>();
+    private List<Integer> pendingDebugBreakpoints = List.of();
 
     /**
      * 使用默认 UI API 创建状态模型。
@@ -255,6 +257,28 @@ public final class MiniCWorkbenchViewModel {
         debugApi.loadSource(name, sourceText.get());
         debugApi.startDebug();
         debugStarted.set(true);
+        applyPendingDebugBreakpoints();
+        refreshDebug();
+    }
+
+    /**
+     * 使用编辑器断点同步 Debug 会话断点。
+     *
+     * @param lines 一基源码行号列表
+     */
+    public void setDebugBreakpoints(List<Integer> lines) {
+        pendingDebugBreakpoints = List.copyOf(Objects.requireNonNull(lines, "lines"));
+        syncDebugBreakpoints();
+    }
+
+    /**
+     * 将待同步断点应用到已启动的 Debug 会话。
+     */
+    public void syncDebugBreakpoints() {
+        if (!debugStarted.get()) {
+            return;
+        }
+        applyPendingDebugBreakpoints();
         refreshDebug();
     }
 
@@ -265,6 +289,7 @@ public final class MiniCWorkbenchViewModel {
      */
     public void setDebugBreakpoint(int line) {
         ensureDebugStarted();
+        pendingDebugBreakpoints = mergeBreakpoint(line);
         debugApi.setBreakpoint(line);
         refreshDebug();
     }
@@ -276,6 +301,9 @@ public final class MiniCWorkbenchViewModel {
      */
     public void clearDebugBreakpoint(int line) {
         ensureDebugStarted();
+        pendingDebugBreakpoints = pendingDebugBreakpoints.stream()
+                .filter(breakpoint -> breakpoint != line)
+                .toList();
         debugApi.clearBreakpoint(line);
         refreshDebug();
     }
@@ -590,5 +618,21 @@ public final class MiniCWorkbenchViewModel {
         if (!debugStarted.get()) {
             startDebug();
         }
+    }
+
+    private void applyPendingDebugBreakpoints() {
+        if (debugState.get() != null) {
+            debugState.get().breakpoints().forEach(breakpoint -> debugApi.clearBreakpoint(breakpoint.line()));
+        }
+        pendingDebugBreakpoints.forEach(debugApi::setBreakpoint);
+    }
+
+    private List<Integer> mergeBreakpoint(int line) {
+        if (line < 1 || pendingDebugBreakpoints.contains(line)) {
+            return pendingDebugBreakpoints;
+        }
+        java.util.ArrayList<Integer> lines = new java.util.ArrayList<>(pendingDebugBreakpoints);
+        lines.add(line);
+        return List.copyOf(lines);
     }
 }
