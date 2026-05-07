@@ -126,8 +126,10 @@ class IrDebugInterpreterTest {
                 // @visual graph name=avl kind=tree root=root mode=runtime function=dfs visit=index
                 // @visual-map node graph=avl id=index label=index
                 // @visual-map meta graph=avl key=height node=index value=height
+                // @visual-map edge graph=avl key=left from=index to=left
                 int dfs(int index) {
                     int height = index;
+                    int left = index - 1;
                     if (index == 0) {
                         return 0;
                     }
@@ -149,6 +151,11 @@ class IrDebugInterpreterTest {
         assertThat(session.visualEvents()).anySatisfy(event -> {
             assertThat(event.nodeId()).isEqualTo("3");
             assertThat(event.metadata()).containsEntry("height", "3");
+        });
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.fromId()).isEqualTo("3");
+            assertThat(event.toId()).isEqualTo("2");
+            assertThat(event.key()).isEqualTo("left");
         });
         assertThat(session.visualEvents()).allSatisfy(event ->
                 assertThat(event.snapshotId()).isGreaterThan(0));

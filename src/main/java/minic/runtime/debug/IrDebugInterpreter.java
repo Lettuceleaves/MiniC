@@ -446,6 +446,19 @@ public final class IrDebugInterpreter {
                     ));
                 }
             }
+            for (VisualEdgeMapping edgeMapping : graph.edgeMappings()) {
+                String fromId = mappedValue(frame, edgeMapping.fromExpression(), "");
+                String toId = mappedValue(frame, edgeMapping.toExpression(), "");
+                if (!fromId.isBlank() && !toId.isBlank() && !toId.equals("0")) {
+                    state.session.appendVisualEvent(VisualEvent.edgeSet(
+                            snapshotId,
+                            graph.name(),
+                            edgeMapping.key(),
+                            fromId,
+                            toId
+                    ));
+                }
+            }
         }
     }
 
@@ -620,7 +633,8 @@ public final class IrDebugInterpreter {
                             annotation.attributes().get("function"),
                             annotation.attributes().get("visit"),
                             nodeLabelExpression(annotation.name(), visualMapAnnotations),
-                            metaMappings(annotation.name(), visualMapAnnotations)
+                            metaMappings(annotation.name(), visualMapAnnotations),
+                            edgeMappings(annotation.name(), visualMapAnnotations)
                     ))
                     .toList();
             this.lastFunctionName = function.name();
@@ -644,6 +658,18 @@ public final class IrDebugInterpreter {
                             annotation.attributes().get("key"),
                             annotation.attributes().get("node"),
                             annotation.attributes().get("value")
+                    ))
+                    .toList();
+        }
+
+        private List<VisualEdgeMapping> edgeMappings(String graphName, List<VisualAnnotation> visualMapAnnotations) {
+            return visualMapAnnotations.stream()
+                    .filter(annotation -> annotation.name().equals(graphName))
+                    .filter(annotation -> annotation.structureType().equals("edge"))
+                    .map(annotation -> new VisualEdgeMapping(
+                            annotation.attributes().getOrDefault("key", annotation.attributes().getOrDefault("label", "edge")),
+                            annotation.attributes().get("from"),
+                            annotation.attributes().get("to")
                     ))
                     .toList();
         }
@@ -768,7 +794,8 @@ public final class IrDebugInterpreter {
             String functionName,
             String visitVariable,
             String nodeLabelExpression,
-            List<VisualMetaMapping> metaMappings
+            List<VisualMetaMapping> metaMappings,
+            List<VisualEdgeMapping> edgeMappings
     ) {
     }
 
@@ -776,6 +803,13 @@ public final class IrDebugInterpreter {
             String key,
             String nodeExpression,
             String valueExpression
+    ) {
+    }
+
+    private record VisualEdgeMapping(
+            String key,
+            String fromExpression,
+            String toExpression
     ) {
     }
 }
