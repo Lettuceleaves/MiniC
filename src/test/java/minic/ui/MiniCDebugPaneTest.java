@@ -5,7 +5,6 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
-import javafx.scene.control.TabPane;
 import javafx.scene.Parent;
 import org.junit.jupiter.api.Test;
 
@@ -47,6 +46,11 @@ class MiniCDebugPaneTest {
             MiniCDebugPane pane = new MiniCDebugPane(viewModel);
 
             assertThat(button(pane, "拆分")).isNotNull();
+            assertThat(button(pane, "元数据")).isNotNull();
+            assertThat(button(pane, "数据结构")).isNotNull();
+            assertThat(button(pane, "AST")).isNotNull();
+            assertThat(button(pane, "IR")).isNotNull();
+            assertThat(button(pane, "ASM")).isNotNull();
             assertThat(button(pane, "设断点")).isNotNull();
             assertThat(button(pane, "清断点")).isNotNull();
             assertThat(button(pane, "快进")).isNotNull();
@@ -93,11 +97,31 @@ class MiniCDebugPaneTest {
 
             viewModel.loadSource("debug-data-ui.mc", "int main() { return 0; }");
             viewModel.startDebug();
+            button(pane, "数据结构").fire();
 
             assertThat(labelsWithStyle(pane, "debug-process-title"))
                     .contains("code", "static/data", "stack", "heap", "io");
             assertThat(labelsWithStyle(pane, "debug-section-title"))
                     .contains("visual structures", "warnings");
+        });
+    }
+
+    @Test
+    void switchesDebugViewsFromLeftSelector() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            viewModel.loadSource("debug-selector-ui.mc", "int main() { return 0; }");
+            viewModel.startDebug();
+
+            Button ir = button(pane, "IR");
+            ir.fire();
+
+            assertThat(ir.getStyleClass()).contains("active");
+            assertThat(label(pane, "状态")).isNull();
+            assertThat(textContaining(pane, "current:")).isNotNull();
         });
     }
 
@@ -128,6 +152,14 @@ class MiniCDebugPaneTest {
         if (node instanceof Button button && button.getText().equals(text)) {
             return button;
         }
+        if (node instanceof SplitPane splitPane) {
+            for (javafx.scene.Node item : splitPane.getItems()) {
+                Button found = button(item, text);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
         if (node instanceof Parent parent) {
             for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
                 Button found = button(child, text);
@@ -142,14 +174,6 @@ class MiniCDebugPaneTest {
     private static Label label(javafx.scene.Node node, String text) {
         if (node instanceof Label label && label.getText().equals(text)) {
             return label;
-        }
-        if (node instanceof TabPane tabPane) {
-            for (javafx.scene.control.Tab tab : tabPane.getTabs()) {
-                Label found = label(tab.getContent(), text);
-                if (found != null) {
-                    return found;
-                }
-            }
         }
         if (node instanceof ScrollPane scrollPane) {
             return label(scrollPane.getContent(), text);
@@ -192,9 +216,6 @@ class MiniCDebugPaneTest {
         if (node instanceof Label label && label.getStyleClass().contains("debug-section-title")) {
             titles.add(label.getText());
         }
-        if (node instanceof TabPane tabPane) {
-            tabPane.getTabs().forEach(tab -> collectSectionTitles(tab.getContent(), titles));
-        }
         if (node instanceof ScrollPane scrollPane) {
             collectSectionTitles(scrollPane.getContent(), titles);
         }
@@ -213,9 +234,6 @@ class MiniCDebugPaneTest {
         if (node instanceof Label label && label.getStyleClass().contains(styleClass)) {
             labels.add(label.getText());
         }
-        if (node instanceof TabPane tabPane) {
-            tabPane.getTabs().forEach(tab -> collectLabelsWithStyle(tab.getContent(), styleClass, labels));
-        }
         if (node instanceof ScrollPane scrollPane) {
             collectLabelsWithStyle(scrollPane.getContent(), styleClass, labels);
         }
@@ -225,5 +243,31 @@ class MiniCDebugPaneTest {
         if (node instanceof Parent parent) {
             parent.getChildrenUnmodifiable().forEach(child -> collectLabelsWithStyle(child, styleClass, labels));
         }
+    }
+
+    private static Label textContaining(javafx.scene.Node node, String text) {
+        if (node instanceof Label label && label.getText().contains(text)) {
+            return label;
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            return textContaining(scrollPane.getContent(), text);
+        }
+        if (node instanceof SplitPane splitPane) {
+            for (javafx.scene.Node item : splitPane.getItems()) {
+                Label found = textContaining(item, text);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        if (node instanceof Parent parent) {
+            for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+                Label found = textContaining(child, text);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
     }
 }

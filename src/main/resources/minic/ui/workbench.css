@@ -556,6 +556,50 @@
     -fx-wrap-text: true;
 }
 
+.debug-view-shell {
+    -fx-background-color: #1e1e1e;
+}
+
+.debug-view-selector {
+    -fx-min-width: 88px;
+    -fx-pref-width: 88px;
+    -fx-max-width: 88px;
+    -fx-padding: 8px 6px;
+    -fx-background-color: #252526;
+    -fx-border-color: #333333;
+    -fx-border-width: 0 1px 0 0;
+}
+
+.debug-view-button {
+    -fx-min-width: 76px;
+    -fx-pref-width: 76px;
+    -fx-min-height: 30px;
+    -fx-alignment: center-left;
+    -fx-padding: 0 8px;
+    -fx-background-color: transparent;
+    -fx-text-fill: #bdbdbd;
+    -fx-border-color: transparent;
+    -fx-border-width: 1px;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.debug-view-button:hover {
+    -fx-background-color: #333333;
+    -fx-text-fill: #ffffff;
+}
+
+.debug-view-button.active {
+    -fx-background-color: #1e1e1e;
+    -fx-border-color: #007acc;
+    -fx-border-width: 0 0 0 2px;
+    -fx-text-fill: #ffffff;
+}
+
+.debug-view-content {
+    -fx-background-color: #1e1e1e;
+}
+
 .debug-data-space {
     -fx-padding: 10px;
     -fx-background-color: #1e1e1e;
