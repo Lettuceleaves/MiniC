@@ -149,6 +149,29 @@ class IrDebugInterpreterTest {
     }
 
     @Test
+    void executesForLoopWithPostIncrementAndPrintf() {
+        SourceFile sourceFile = new SourceFile("debug-for-printf.mc", """
+                extern int printf(char *format, ...);
+
+                int main() {
+                    int a = 0;
+                    for (int i = 0; i < 3; i++) {
+                        a += i;
+                    }
+                    printf("value = %d\\n", a);
+                    return 42;
+                }
+                """);
+        IrModule module = lower(sourceFile);
+
+        DebugSession session = new IrDebugInterpreter().runMain(module, sourceFile);
+
+        assertThat(session.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(session.currentSnapshot().processSpace().io().stdout()).isEqualTo("value = 3\nreturn 42");
+        assertThat(session.snapshots()).hasSizeLessThan(120);
+    }
+
+    @Test
     void supportsBreakpointsAndForwardControls() {
         SourceFile sourceFile = new SourceFile("debug-breakpoint.mc", """
                 int main() {

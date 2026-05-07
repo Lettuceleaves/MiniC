@@ -78,11 +78,18 @@ public final class MiniCSourceLoaderView extends VBox {
      * 使用当前编辑器内容启动观测会话。
      */
     public void startSession() {
+        loadCurrentSource();
+        submitRealtimeSource();
+        viewModel.startSession();
+    }
+
+    /**
+     * 将当前编辑器内容加载到状态模型，但不启动普通编译观察会话。
+     */
+    public void loadCurrentSource() {
         String currentName = viewModel.sourceNameProperty().get();
         String name = currentName == null || currentName.isBlank() ? fallbackSourceName() : currentName;
         viewModel.loadSource(name, sourceEditor.getText());
-        submitRealtimeSource();
-        viewModel.startSession();
     }
 
     /**

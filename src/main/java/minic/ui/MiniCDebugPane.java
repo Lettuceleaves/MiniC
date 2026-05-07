@@ -72,11 +72,6 @@ public final class MiniCDebugPane extends VBox {
         getChildren().addAll(controls, status, sourceView, splitPane);
         VBox.setVgrow(sourceView, Priority.ALWAYS);
         VBox.setVgrow(splitPane, Priority.ALWAYS);
-        viewModel.debugStateProperty().addListener((observable, oldValue, newValue) -> refresh());
-        viewModel.debugMetadataViewProperty().addListener((observable, oldValue, newValue) -> refresh());
-        viewModel.debugDataStructureViewProperty().addListener((observable, oldValue, newValue) -> refresh());
-        viewModel.debugAstViewProperty().addListener((observable, oldValue, newValue) -> refresh());
-        viewModel.debugIrViewProperty().addListener((observable, oldValue, newValue) -> refresh());
         viewModel.debugAsmViewProperty().addListener((observable, oldValue, newValue) -> refresh());
         refresh();
     }
@@ -84,7 +79,7 @@ public final class MiniCDebugPane extends VBox {
     private HBox controls() {
         Button start = button("启动", () -> {
             viewModel.setDebugBreakpoints(sourceView.breakpointLines());
-            sourceView.startSession();
+            sourceView.loadCurrentSource();
             viewModel.startDebug();
         });
         Button breakpoint = button("设断点", () -> {

@@ -125,6 +125,20 @@ class MiniCDebugPaneTest {
         });
     }
 
+    @Test
+    void debugStartDoesNotStartCompilerObservationSession() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            button(pane, "启动").fire();
+
+            assertThat(viewModel.debugStartedProperty().get()).isTrue();
+            assertThat(viewModel.sessionStartedProperty().get()).isFalse();
+        });
+    }
+
     private static void runOnFxThread(Runnable action) {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();
