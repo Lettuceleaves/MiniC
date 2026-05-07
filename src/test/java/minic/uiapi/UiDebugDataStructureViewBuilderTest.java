@@ -89,6 +89,50 @@ class UiDebugDataStructureViewBuilderTest {
         assertThat(completeElements).isEqualTo(5);
     }
 
+    @Test
+    void rendersRuntimeMappedGraphFromVisualEventsAtCurrentSnapshot() {
+        MiniCDebugApi api = new MiniCDebugApi();
+        api.loadSource("runtime-visual-tree.mc", """
+                // @visual graph name=avl kind=tree root=root mode=runtime function=dfs visit=index
+                // @visual-map node graph=avl id=index label=index
+                // @visual-map edge graph=avl key=left from=index to=left
+                int dfs(int index) {
+                    int left = index - 1;
+                    if (index == 0) {
+                        return 0;
+                    }
+                    return index + dfs(left);
+                }
+                int main() {
+                    int root = 3;
+                    return dfs(root);
+                }
+                """);
+        api.startDebug();
+
+        int initialElements = visualElementCount(api.dataStructureDebugView(), "avl");
+        int partialElements = 0;
+        for (int i = 0; i < 20 && partialElements == 0; i++) {
+            api.stepInto();
+            partialElements = visualElementCount(api.dataStructureDebugView(), "avl");
+        }
+        api.fastForward();
+        UiDebugDataStructureViewDto completeView = api.dataStructureDebugView();
+        int completeElements = visualElementCount(completeView, "avl");
+        api.stepBack();
+        int backElements = visualElementCount(api.dataStructureDebugView(), "avl");
+
+        assertThat(initialElements).isZero();
+        assertThat(partialElements).isGreaterThan(0);
+        assertThat(completeElements).isGreaterThan(partialElements);
+        assertThat(backElements).isLessThanOrEqualTo(completeElements);
+        assertThat(completeView.visuals()).anySatisfy(visual -> {
+            assertThat(visual.name()).isEqualTo("avl");
+            assertThat(visual.elements()).extracting(UiDebugVisualElementDto::kind)
+                    .contains("GRAPH_NODE", "GRAPH_EDGE");
+        });
+    }
+
     private int visualElementCount(UiDebugDataStructureViewDto view, String name) {
         return view.visuals().stream()
                 .filter(visual -> visual.name().equals(name))

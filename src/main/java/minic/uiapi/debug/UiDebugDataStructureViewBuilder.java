@@ -1,6 +1,7 @@
 package minic.uiapi;
 
 import minic.runtime.debug.DebugProcessSpace;
+import minic.runtime.debug.visual.VisualEvent;
 import minic.runtime.debug.visual.ArrayStructure;
 import minic.runtime.debug.visual.CompositeStructure;
 import minic.runtime.debug.visual.GraphStructure;
@@ -30,11 +31,31 @@ public final class UiDebugDataStructureViewBuilder {
      * @return 数据结构视图
      */
     public UiDebugDataStructureViewDto build(SourceFile sourceFile, UiDebugStateDto state, DebugProcessSpace processSpace) {
+        return build(sourceFile, state, processSpace, List.of());
+    }
+
+    /**
+     * 构建数据结构视图。
+     *
+     * @param sourceFile 源码文件
+     * @param state Debug 状态
+     * @param processSpace runtime 虚拟进程空间
+     * @param visualEvents 可视化事件日志
+     * @return 数据结构视图
+     */
+    public UiDebugDataStructureViewDto build(
+            SourceFile sourceFile,
+            UiDebugStateDto state,
+            DebugProcessSpace processSpace,
+            List<VisualEvent> visualEvents
+    ) {
         List<minic.runtime.debug.visual.VisualAnnotation> annotations =
                 new VisualAnnotationParser().parse(sourceFile).annotations();
         VisualProjection projection = new VisualProjectionBuilder().build(
                 processSpace,
-                visibleAnnotations(annotations, state)
+                visibleAnnotations(annotations, state),
+                visualEvents,
+                state.currentSnapshot().snapshotId()
         );
         return new UiDebugDataStructureViewDto(
                 state.currentSnapshot().processSpace(),

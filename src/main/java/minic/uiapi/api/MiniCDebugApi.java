@@ -250,7 +250,8 @@ public final class MiniCDebugApi {
         return new UiDebugDataStructureViewBuilder().build(
                 requireSourceFile(),
                 currentState(),
-                requireSession().currentSnapshot().processSpace()
+                requireSession().currentSnapshot().processSpace(),
+                requireSession().visualEvents()
         );
     }
 
