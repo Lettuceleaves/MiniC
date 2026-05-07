@@ -73,7 +73,7 @@ public final class MiniCDebugPane extends VBox {
     public MiniCDebugPane(MiniCWorkbenchViewModel viewModel) {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
         getStyleClass().add("debug-pane");
-        sourceView = new MiniCSourceLoaderView(viewModel);
+        sourceView = new MiniCSourceLoaderView(viewModel, false);
         HBox controls = controls();
         configureDebugBody();
         getChildren().addAll(controls, status, debugBody);

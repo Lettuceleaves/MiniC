@@ -198,7 +198,9 @@ class MiniCWorkbenchShellTest {
         assertThat(button(root, "运行到断点")).isNotNull();
         assertThat(button(root, "单退")).isNotNull();
         assertThat(button(root, "拆分")).isNotNull();
-        assertThat(button(root, "打开")).isNotNull();
+        assertThat(button(root, "开始")).isNull();
+        assertThat(button(root, "打开")).isNull();
+        assertThat(button(root, "保存")).isNull();
 
         activityItem(root, "设置").fireEvent(new javafx.scene.input.MouseEvent(
                 javafx.scene.input.MouseEvent.MOUSE_CLICKED,

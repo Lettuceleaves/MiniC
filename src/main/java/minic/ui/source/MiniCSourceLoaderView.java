@@ -36,16 +36,35 @@ public final class MiniCSourceLoaderView extends VBox {
      * 创建源码加载视图。
      *
      * @param viewModel UI 状态模型
+     * @param showControls 是否显示加载和启动工具条
+     */
+    public MiniCSourceLoaderView(MiniCWorkbenchViewModel viewModel, boolean showControls) {
+        this(viewModel, () -> {
+        }, () -> {
+        }, showControls);
+    }
+
+    /**
+     * 创建源码加载视图。
+     *
+     * @param viewModel UI 状态模型
      * @param openAction 打开文件动作
      * @param saveAction 保存文件动作
      */
     public MiniCSourceLoaderView(MiniCWorkbenchViewModel viewModel, Runnable openAction, Runnable saveAction) {
+        this(viewModel, openAction, saveAction, true);
+    }
+
+    private MiniCSourceLoaderView(
+            MiniCWorkbenchViewModel viewModel,
+            Runnable openAction,
+            Runnable saveAction,
+            boolean showControls
+    ) {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
         this.openAction = Objects.requireNonNull(openAction, "openAction");
         this.saveAction = Objects.requireNonNull(saveAction, "saveAction");
         getStyleClass().add("source-loader");
-        HBox controls = new HBox(6);
-        controls.getStyleClass().add("loader-controls");
         String initialSourceName = viewModel.sourceNameProperty().get();
         String initialSource = viewModel.sourceTextProperty().get();
         if (initialSourceName == null || initialSourceName.isBlank()) {
@@ -72,8 +91,13 @@ public final class MiniCSourceLoaderView extends VBox {
             sourceEditor.render(newValue);
         });
         Platform.runLater(this::submitRealtimeSource);
-        controls.getChildren().addAll(startButton, openButton, saveButton);
-        getChildren().addAll(controls, sourceEditor);
+        if (showControls) {
+            HBox controls = new HBox(6);
+            controls.getStyleClass().add("loader-controls");
+            controls.getChildren().addAll(startButton, openButton, saveButton);
+            getChildren().add(controls);
+        }
+        getChildren().add(sourceEditor);
         VBox.setVgrow(sourceEditor, Priority.ALWAYS);
     }
 

@@ -45,6 +45,10 @@ class MiniCDebugPaneTest {
             MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
             MiniCDebugPane pane = new MiniCDebugPane(viewModel);
 
+            assertThat(button(pane, "开始")).isNull();
+            assertThat(button(pane, "打开")).isNull();
+            assertThat(button(pane, "保存")).isNull();
+            assertThat(button(pane, "启动")).isNotNull();
             assertThat(button(pane, "拆分")).isNotNull();
             assertThat(button(pane, "元数据")).isNotNull();
             assertThat(button(pane, "数据结构")).isNotNull();
