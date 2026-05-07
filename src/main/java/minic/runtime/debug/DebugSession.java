@@ -269,9 +269,7 @@ public final class DebugSession {
 
     private DebugControlResult stepBack() {
         pauseRequested = false;
-        if (currentSnapshotIndex > 0) {
-            currentSnapshotIndex--;
-        }
+        currentSnapshotIndex = previousExecutableIndex();
         state = stateForCurrentSnapshot();
         return result(DebugCommand.STEP_BACK, "已回退到上一个可见调试步");
     }
@@ -306,7 +304,35 @@ public final class DebugSession {
     }
 
     private int nextExecutableIndex() {
-        return Math.min(currentSnapshotIndex + 1, snapshots.size() - 1);
+        long currentVisibleStep = currentSnapshot().visibleStepIndex();
+        for (int i = currentSnapshotIndex + 1; i < snapshots.size(); i++) {
+            if (snapshots.get(i).visibleStepIndex() > currentVisibleStep || isTerminalSnapshot(snapshots.get(i))) {
+                return endOfVisibleStep(i);
+            }
+        }
+        return snapshots.size() - 1;
+    }
+
+    private int previousExecutableIndex() {
+        long currentVisibleStep = currentSnapshot().visibleStepIndex();
+        for (int i = currentSnapshotIndex - 1; i >= 0; i--) {
+            if (snapshots.get(i).visibleStepIndex() < currentVisibleStep) {
+                return endOfVisibleStep(i);
+            }
+        }
+        return 0;
+    }
+
+    private int endOfVisibleStep(int snapshotIndex) {
+        long visibleStep = snapshots.get(snapshotIndex).visibleStepIndex();
+        int last = snapshotIndex;
+        for (int i = snapshotIndex + 1; i < snapshots.size(); i++) {
+            if (snapshots.get(i).visibleStepIndex() != visibleStep) {
+                break;
+            }
+            last = i;
+        }
+        return last;
     }
 
     private boolean isBreakableLine(int line) {

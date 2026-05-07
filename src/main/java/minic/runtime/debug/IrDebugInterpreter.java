@@ -368,8 +368,6 @@ public final class IrDebugInterpreter {
             DebugStopReason stopReason,
             boolean breakpointHit
     ) {
-        long nextSnapshotId = state.nextSnapshotId++;
-        long nextStep = state.nextVisibleStep++;
         DebugCursor cursor = new DebugCursor(
                 state.function.name(),
                 block.label(),
@@ -378,6 +376,8 @@ public final class IrDebugInterpreter {
                 null,
                 List.of()
         );
+        long nextSnapshotId = state.nextSnapshotId++;
+        long nextStep = state.visibleStepFor(cursor, stopReason);
         DebugSnapshot snapshot = new DebugSnapshot(
                 nextSnapshotId,
                 nextStep,
@@ -517,10 +517,12 @@ public final class IrDebugInterpreter {
         private final java.util.ArrayList<CallFrame> frames = new java.util.ArrayList<>();
         private long nextSnapshotId = 1;
         private long nextVisibleStep = 1;
+        private long currentVisibleStep;
         private long nextEventId;
         private boolean completed;
         private DebugValue returnValue;
         private String lastFunctionName;
+        private VisibleStepKey lastVisibleStepKey;
         private final StringBuilder stdout = new StringBuilder();
 
         private InterpreterState(IrModule module, IrFunction function, SourceFile sourceFile) {
@@ -564,6 +566,42 @@ public final class IrDebugInterpreter {
 
         private String currentFunctionName() {
             return frames.isEmpty() ? lastFunctionName : currentFrame().function.name();
+        }
+
+        private long visibleStepFor(DebugCursor cursor, DebugStopReason stopReason) {
+            VisibleStepKey key = VisibleStepKey.from(cursor, frames.size(), stopReason);
+            if (!key.equals(lastVisibleStepKey)) {
+                currentVisibleStep = nextVisibleStep++;
+                lastVisibleStepKey = key;
+            }
+            return currentVisibleStep;
+        }
+    }
+
+    private record VisibleStepKey(
+            String functionName,
+            int callDepth,
+            String sourceFile,
+            int line,
+            DebugStopReason stopReason
+    ) {
+        private static VisibleStepKey from(DebugCursor cursor, int callDepth, DebugStopReason stopReason) {
+            if (cursor.sourceRange() == null) {
+                return new VisibleStepKey(
+                        cursor.functionName(),
+                        callDepth,
+                        "",
+                        -1,
+                        stopReason
+                );
+            }
+            return new VisibleStepKey(
+                    cursor.functionName(),
+                    callDepth,
+                    cursor.sourceRange().sourceFile().path(),
+                    cursor.sourceRange().startPosition().line(),
+                    stopReason
+            );
         }
     }
 

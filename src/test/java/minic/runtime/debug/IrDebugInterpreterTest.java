@@ -198,6 +198,33 @@ class IrDebugInterpreterTest {
     }
 
     @Test
+    void sourceVisibleStepKeepsIrSnapshotsForExpressionDetail() {
+        SourceFile sourceFile = new SourceFile("debug-visible-step.mc", """
+                int main() {
+                    int value = 1;
+                    value = value + 2;
+                    return value;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+        session.setBreakpoint(3);
+        DebugControlResult breakpoint = session.control(DebugCommand.RUN_TO_BREAKPOINT);
+
+        long visibleStep = breakpoint.snapshot().visibleStepIndex();
+        long irSnapshotsInExpression = session.snapshots().stream()
+                .filter(snapshot -> snapshot.cursor().sourceRangeOptional()
+                        .map(range -> range.startPosition().line() == 3)
+                        .orElse(false))
+                .filter(snapshot -> snapshot.visibleStepIndex() == visibleStep)
+                .count();
+        DebugControlResult next = session.control(DebugCommand.STEP_OVER);
+
+        assertThat(irSnapshotsInExpression).isGreaterThan(1);
+        assertThat(next.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(4);
+    }
+
+    @Test
     void runsToCompletionWithoutBreakpointsAndCanRestartWithBreakpointsKept() {
         SourceFile sourceFile = new SourceFile("debug-run.mc", """
                 int main() {
