@@ -7,6 +7,7 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.Parent;
 import javafx.scene.shape.Circle;
+import javafx.scene.shape.Rectangle;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.CountDownLatch;
@@ -238,6 +239,8 @@ class MiniCDebugPaneTest {
             assertThat(root.getCenterY()).isLessThan(right.getCenterY());
             assertThat(root.getCenterX()).isGreaterThan(left.getCenterX());
             assertThat(root.getCenterX()).isLessThan(right.getCenterX());
+            assertThat(rectangleWithAccessibleText(pane, "debug-null-node", "null-2-left")).isNotNull();
+            assertThat(rectangleWithAccessibleText(pane, "debug-null-node", "null-2-right")).isNotNull();
         });
     }
 
@@ -601,6 +604,13 @@ class MiniCDebugPaneTest {
                 .orElse(null);
     }
 
+    private static Rectangle rectangleWithAccessibleText(javafx.scene.Node node, String styleClass, String accessibleText) {
+        return rectanglesWithStyle(node, styleClass).stream()
+                .filter(rectangle -> accessibleText.equals(rectangle.getAccessibleText()))
+                .findFirst()
+                .orElse(null);
+    }
+
     private static void collectCirclesWithStyle(javafx.scene.Node node, String styleClass, List<Circle> circles) {
         if (node == null) {
             return;
@@ -616,6 +626,30 @@ class MiniCDebugPaneTest {
         }
         if (node instanceof Parent parent) {
             parent.getChildrenUnmodifiable().forEach(child -> collectCirclesWithStyle(child, styleClass, circles));
+        }
+    }
+
+    private static List<Rectangle> rectanglesWithStyle(javafx.scene.Node node, String styleClass) {
+        ArrayList<Rectangle> rectangles = new ArrayList<>();
+        collectRectanglesWithStyle(node, styleClass, rectangles);
+        return rectangles;
+    }
+
+    private static void collectRectanglesWithStyle(javafx.scene.Node node, String styleClass, List<Rectangle> rectangles) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof Rectangle rectangle && rectangle.getStyleClass().contains(styleClass)) {
+            rectangles.add(rectangle);
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            collectRectanglesWithStyle(scrollPane.getContent(), styleClass, rectangles);
+        }
+        if (node instanceof SplitPane splitPane) {
+            splitPane.getItems().forEach(child -> collectRectanglesWithStyle(child, styleClass, rectangles));
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectRectanglesWithStyle(child, styleClass, rectangles));
         }
     }
 

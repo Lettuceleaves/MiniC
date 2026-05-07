@@ -660,6 +660,12 @@
     -fx-stroke-width: 1.6px;
 }
 
+.debug-null-node {
+    -fx-fill: #c43e3e;
+    -fx-stroke: #ff6b6b;
+    -fx-stroke-width: 1.6px;
+}
+
 .debug-graph-edge {
     -fx-stroke: #007acc;
     -fx-stroke-width: 1.6px;

@@ -157,6 +157,11 @@ class IrDebugInterpreterTest {
             assertThat(event.toId()).isEqualTo("2");
             assertThat(event.key()).isEqualTo("left");
         });
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.fromId()).isEqualTo("1");
+            assertThat(event.toId()).isEqualTo("0");
+            assertThat(event.key()).isEqualTo("left");
+        });
         assertThat(session.visualEvents()).allSatisfy(event ->
                 assertThat(event.snapshotId()).isGreaterThan(0));
     }

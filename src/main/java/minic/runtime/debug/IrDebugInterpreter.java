@@ -449,7 +449,7 @@ public final class IrDebugInterpreter {
             for (VisualEdgeMapping edgeMapping : graph.edgeMappings()) {
                 String fromId = mappedValue(frame, edgeMapping.fromExpression(), "");
                 String toId = mappedValue(frame, edgeMapping.toExpression(), "");
-                if (!fromId.isBlank() && !toId.isBlank() && !toId.equals("0")) {
+                if (!fromId.isBlank() && !toId.isBlank()) {
                     state.session.appendVisualEvent(VisualEvent.edgeSet(
                             snapshotId,
                             graph.name(),

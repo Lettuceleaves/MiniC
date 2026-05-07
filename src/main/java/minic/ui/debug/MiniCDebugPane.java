@@ -50,6 +50,7 @@ public final class MiniCDebugPane extends VBox {
     private static final int METADATA_LIST_LIMIT = 200;
     private static final double VISUAL_CELL_SIZE = 44;
     private static final double VISUAL_NODE_RADIUS = VISUAL_CELL_SIZE / 2;
+    private static final double VISUAL_NULL_SIZE = 16;
     private static final double VISUAL_GRID_GAP = 34;
     private static final double VISUAL_MARGIN = 24;
     private static final List<DebugView> DEBUG_VIEWS = List.of(
@@ -513,6 +514,8 @@ public final class MiniCDebugPane extends VBox {
         Pane pane = new Pane();
         pane.getStyleClass().add("debug-visual-diagram");
         List<UiDebugVisualElementDto> visibleNodes = visibleGraphNodes(kind, nodes, edges);
+        Map<String, UiDebugVisualElementDto> nodesById = visibleNodes.stream()
+                .collect(Collectors.toMap(this::simpleVisualId, node -> node, (left, right) -> left, LinkedHashMap::new));
         Map<String, VisualPoint> positions = graphPositions(kind, visibleNodes, edges);
         double width = Math.max(220, positions.values().stream().mapToDouble(VisualPoint::x).max().orElse(160) + VISUAL_MARGIN);
         double height = Math.max(150, positions.values().stream().mapToDouble(VisualPoint::y).max().orElse(100) + VISUAL_MARGIN);
@@ -522,12 +525,24 @@ public final class MiniCDebugPane extends VBox {
             VisualPoint from = positions.get(edge.metadata().getOrDefault("from", ""));
             VisualPoint to = positions.get(edge.metadata().getOrDefault("to", ""));
             if (from != null && to != null) {
-                pane.getChildren().addAll(arrow(from, to));
+                pane.getChildren().addAll(arrow(from, to, isNullNode(nodesById, edge.metadata().getOrDefault("to", ""))));
             }
         }
         for (UiDebugVisualElementDto node : visibleNodes) {
             VisualPoint point = positions.get(simpleVisualId(node));
             if (point == null) {
+                continue;
+            }
+            if (isNullNode(node)) {
+                Rectangle nullRect = new Rectangle(
+                        point.x() - VISUAL_NULL_SIZE / 2,
+                        point.y() - VISUAL_NULL_SIZE / 2,
+                        VISUAL_NULL_SIZE,
+                        VISUAL_NULL_SIZE
+                );
+                nullRect.getStyleClass().add("debug-null-node");
+                nullRect.setAccessibleText(simpleVisualId(node));
+                pane.getChildren().add(nullRect);
                 continue;
             }
             Circle circle = new Circle(point.x(), point.y(), VISUAL_NODE_RADIUS);
@@ -537,6 +552,15 @@ public final class MiniCDebugPane extends VBox {
             pane.getChildren().addAll(circle, text);
         }
         return pane;
+    }
+
+    private boolean isNullNode(Map<String, UiDebugVisualElementDto> nodesById, String id) {
+        UiDebugVisualElementDto node = nodesById.get(id);
+        return node != null && isNullNode(node);
+    }
+
+    private boolean isNullNode(UiDebugVisualElementDto node) {
+        return Boolean.parseBoolean(node.metadata().getOrDefault("visual-null", "false"));
     }
 
     private List<UiDebugVisualElementDto> visibleGraphNodes(
@@ -594,7 +618,7 @@ public final class MiniCDebugPane extends VBox {
         LinkedHashMap<String, ArrayList<String>> childrenById = new LinkedHashMap<>();
         java.util.HashSet<String> childIds = new java.util.HashSet<>();
         nodeById.keySet().forEach(id -> childrenById.put(id, new ArrayList<>()));
-        for (UiDebugVisualElementDto edge : edges) {
+        for (UiDebugVisualElementDto edge : orderedTreeEdges(edges)) {
             String from = edge.metadata().get("from");
             String to = edge.metadata().get("to");
             if (from != null && to != null && nodeById.containsKey(from) && nodeById.containsKey(to)) {
@@ -616,6 +640,22 @@ public final class MiniCDebugPane extends VBox {
             cursor.nextLeafX += VISUAL_CELL_SIZE + VISUAL_GRID_GAP;
         }
         return positions;
+    }
+
+    private List<UiDebugVisualElementDto> orderedTreeEdges(List<UiDebugVisualElementDto> edges) {
+        return edges.stream()
+                .sorted(java.util.Comparator
+                        .comparing((UiDebugVisualElementDto edge) -> edge.metadata().getOrDefault("from", ""))
+                        .thenComparingInt(edge -> treeEdgeOrder(edge.metadata().getOrDefault("key", edge.label()))))
+                .toList();
+    }
+
+    private int treeEdgeOrder(String key) {
+        return switch (key) {
+            case "left" -> 0;
+            case "right" -> 1;
+            default -> 2;
+        };
     }
 
     private double layoutTree(
@@ -654,12 +694,13 @@ public final class MiniCDebugPane extends VBox {
         return VISUAL_MARGIN + VISUAL_NODE_RADIUS + depth * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
     }
 
-    private List<Node> arrow(VisualPoint from, VisualPoint to) {
+    private List<Node> arrow(VisualPoint from, VisualPoint to, boolean nullTarget) {
         double angle = Math.atan2(to.y() - from.y(), to.x() - from.x());
         double startX = from.x() + Math.cos(angle) * VISUAL_NODE_RADIUS;
         double startY = from.y() + Math.sin(angle) * VISUAL_NODE_RADIUS;
-        double endX = to.x() - Math.cos(angle) * VISUAL_NODE_RADIUS;
-        double endY = to.y() - Math.sin(angle) * VISUAL_NODE_RADIUS;
+        double targetRadius = nullTarget ? VISUAL_NULL_SIZE / 2 : VISUAL_NODE_RADIUS;
+        double endX = to.x() - Math.cos(angle) * targetRadius;
+        double endY = to.y() - Math.sin(angle) * targetRadius;
         Line line = new Line(startX, startY, endX, endY);
         line.getStyleClass().addAll("debug-graph-edge", "debug-pointer-arrow");
         double arrowSize = 8;

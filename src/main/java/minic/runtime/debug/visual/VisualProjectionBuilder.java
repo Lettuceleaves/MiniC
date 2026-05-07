@@ -79,7 +79,12 @@ public final class VisualProjectionBuilder {
                     GraphAccumulator graph = graph(graphs, event.graphName(), "tree");
                     switch (event.type()) {
                         case NODE_CREATED, NODE_UPDATED -> graph.addNode(nodeFromEvent(event));
-                        case EDGE_SET -> graph.addEdge(edgeFromEvent(event));
+                        case EDGE_SET -> {
+                            if (isNullId(event.toId())) {
+                                graph.addNode(nullNodeFromEvent(event));
+                            }
+                            graph.addEdge(edgeFromEvent(event));
+                        }
                         case EDGE_REMOVED -> graph.removeEdge(event.key(), event.fromId(), event.toId());
                         case META_SET -> graph.mergeMetadata(event.nodeId(), event.metadata());
                     }
@@ -100,17 +105,37 @@ public final class VisualProjectionBuilder {
     }
 
     private GraphEdge edgeFromEvent(VisualEvent event) {
+        String toId = visualToId(event);
         LinkedHashMap<String, String> metadata = new LinkedHashMap<>();
         metadata.put("key", event.key());
         metadata.put("from", event.fromId());
-        metadata.put("to", event.toId());
+        metadata.put("to", toId);
+        if (isNullId(event.toId())) {
+            metadata.put("visual-null-edge", "true");
+        }
         return new GraphEdge(
-                edgeId(event.graphName(), event.key(), event.fromId(), event.toId()),
+                edgeId(event.graphName(), event.key(), event.fromId(), toId),
                 event.graphName() + "-node-" + event.fromId(),
-                event.graphName() + "-node-" + event.toId(),
+                event.graphName() + "-node-" + toId,
                 event.label().isBlank() ? event.key() : event.label(),
                 true,
                 metadata
+        );
+    }
+
+    private GraphNode nullNodeFromEvent(VisualEvent event) {
+        String nodeId = visualNullNodeId(event);
+        return new GraphNode(
+                event.graphName() + "-node-" + nodeId,
+                "null",
+                "",
+                componentId(event.graphName()),
+                Map.of(
+                        "id", nodeId,
+                        "visual-null", "true",
+                        "from", event.fromId(),
+                        "key", event.key()
+                )
         );
     }
 
@@ -263,6 +288,9 @@ public final class VisualProjectionBuilder {
         }
 
         private void addEdge(GraphEdge edge) {
+            edges.entrySet().removeIf(entry ->
+                    edgeRole(entry.getValue()).equals(edgeRole(edge))
+                            && entry.getValue().metadata().getOrDefault("from", "").equals(edge.metadata().getOrDefault("from", "")));
             edges.put(edge.id(), edge);
         }
 
@@ -288,17 +316,24 @@ public final class VisualProjectionBuilder {
         }
 
         private GraphStructure build() {
+            java.util.HashSet<String> edgeTargetIds = edges.values().stream()
+                    .map(GraphEdge::toNodeId)
+                    .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
+            List<GraphNode> visibleNodes = nodes.values().stream()
+                    .filter(node -> !Boolean.parseBoolean(node.metadata().getOrDefault("visual-null", "false"))
+                            || edgeTargetIds.contains(node.id()))
+                    .toList();
             GraphComponent component = new GraphComponent(
                     componentId(name),
                     name,
-                    nodes.keySet().stream().toList()
+                    visibleNodes.stream().map(GraphNode::id).toList()
             );
             return new GraphStructure(
                     "graph-" + name,
                     name,
                     kind,
                     kind.equals("tree") || kind.equals("binary_tree") ? "hierarchical" : "force",
-                    nodes.values().stream().toList(),
+                    visibleNodes,
                     edges.values().stream().toList(),
                     List.of(component),
                     List.of(),
@@ -309,5 +344,21 @@ public final class VisualProjectionBuilder {
 
     private String edgeId(String graphName, String key, String fromId, String toId) {
         return graphName + "-edge-" + key + "-" + fromId + "-" + toId;
+    }
+
+    private String edgeRole(GraphEdge edge) {
+        return edge.metadata().getOrDefault("key", edge.label());
+    }
+
+    private String visualToId(VisualEvent event) {
+        return isNullId(event.toId()) ? visualNullNodeId(event) : event.toId();
+    }
+
+    private String visualNullNodeId(VisualEvent event) {
+        return "null-" + event.fromId() + "-" + event.key();
+    }
+
+    private boolean isNullId(String id) {
+        return id.equals("0") || id.equals("null");
     }
 }

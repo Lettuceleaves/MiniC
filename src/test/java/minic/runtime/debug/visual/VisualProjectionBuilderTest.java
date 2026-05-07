@@ -89,7 +89,9 @@ class VisualProjectionBuilderTest {
                 VisualEvent.nodeCreated(1, "avl", "3", "30"),
                 VisualEvent.metaSet(2, "avl", "3", "height", "2"),
                 VisualEvent.nodeCreated(3, "avl", "2", "20"),
-                VisualEvent.edgeSet(4, "avl", "left", "3", "2")
+                VisualEvent.edgeSet(4, "avl", "left", "3", "2"),
+                VisualEvent.edgeSet(5, "avl", "right", "3", "0"),
+                VisualEvent.edgeSet(6, "avl", "right", "3", "2")
         );
 
         VisualProjection partial = new VisualProjectionBuilder().build(processSpace, annotations, events, 2);
@@ -109,6 +111,24 @@ class VisualProjectionBuilderTest {
             assertThat(edge.metadata()).containsEntry("from", "3");
             assertThat(edge.metadata()).containsEntry("to", "2");
         });
+        GraphStructure withNull = (GraphStructure) new VisualProjectionBuilder()
+                .build(processSpace, annotations, events, 5)
+                .structures()
+                .getFirst();
+        assertThat(withNull.nodes()).anySatisfy(node -> {
+            assertThat(node.label()).isEqualTo("null");
+            assertThat(node.metadata()).containsEntry("visual-null", "true");
+        });
+        assertThat(withNull.edges()).anySatisfy(edge ->
+                assertThat(edge.metadata()).containsEntry("to", "null-3-right"));
+        GraphStructure replacedNull = (GraphStructure) new VisualProjectionBuilder()
+                .build(processSpace, annotations, events, 6)
+                .structures()
+                .getFirst();
+        assertThat(replacedNull.nodes()).noneSatisfy(node ->
+                assertThat(node.metadata()).containsEntry("id", "null-3-right"));
+        assertThat(replacedNull.edges()).anySatisfy(edge ->
+                assertThat(edge.metadata()).containsEntry("to", "2"));
     }
 
     private DebugProcessSpace processSpace() {
