@@ -88,23 +88,29 @@ public final class VisualProjectionBuilder {
 
     private GraphNode nodeFromEvent(VisualEvent event) {
         String label = event.label().isBlank() ? event.nodeId() : event.label();
+        LinkedHashMap<String, String> metadata = new LinkedHashMap<>(event.metadata());
+        metadata.putIfAbsent("id", event.nodeId());
         return new GraphNode(
                 event.graphName() + "-node-" + event.nodeId(),
                 label,
                 "",
                 componentId(event.graphName()),
-                event.metadata()
+                metadata
         );
     }
 
     private GraphEdge edgeFromEvent(VisualEvent event) {
+        LinkedHashMap<String, String> metadata = new LinkedHashMap<>();
+        metadata.put("key", event.key());
+        metadata.put("from", event.fromId());
+        metadata.put("to", event.toId());
         return new GraphEdge(
                 edgeId(event.graphName(), event.key(), event.fromId(), event.toId()),
                 event.graphName() + "-node-" + event.fromId(),
                 event.graphName() + "-node-" + event.toId(),
                 event.label().isBlank() ? event.key() : event.label(),
                 true,
-                Map.of("key", event.key())
+                metadata
         );
     }
 

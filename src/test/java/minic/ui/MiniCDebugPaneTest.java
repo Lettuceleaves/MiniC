@@ -195,6 +195,53 @@ class MiniCDebugPaneTest {
     }
 
     @Test
+    void rendersRuntimeMappedGraphAsTreeLayout() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            viewModel.loadSource("debug-runtime-tree-layout-ui.mc", """
+                    // @visual graph name=avl kind=tree root=root mode=runtime function=build visit=index
+                    // @visual-map node graph=avl id=index label=index
+                    // @visual-map edge graph=avl key=left from=index to=left
+                    // @visual-map edge graph=avl key=right from=index to=right
+                    int build(int index) {
+                        int left = 0;
+                        int right = 0;
+                        if (index == 1) {
+                            left = 2;
+                            right = 3;
+                        }
+                        if (index == 0) {
+                            return 0;
+                        }
+                        return index + build(left) + build(right);
+                    }
+                    int main() {
+                        int root = 1;
+                        return build(root);
+                    }
+                    """);
+            viewModel.startDebug();
+            viewModel.debugFastForward();
+            button(pane, "数据结构").fire();
+
+            Circle root = circleWithAccessibleText(pane, "debug-graph-node", "1");
+            Circle left = circleWithAccessibleText(pane, "debug-graph-node", "2");
+            Circle right = circleWithAccessibleText(pane, "debug-graph-node", "3");
+
+            assertThat(root).isNotNull();
+            assertThat(left).isNotNull();
+            assertThat(right).isNotNull();
+            assertThat(root.getCenterY()).isLessThan(left.getCenterY());
+            assertThat(root.getCenterY()).isLessThan(right.getCenterY());
+            assertThat(root.getCenterX()).isGreaterThan(left.getCenterX());
+            assertThat(root.getCenterX()).isLessThan(right.getCenterX());
+        });
+    }
+
+    @Test
     void switchesDebugViewsFromLeftSelector() {
         startJavafx();
         runOnFxThread(() -> {

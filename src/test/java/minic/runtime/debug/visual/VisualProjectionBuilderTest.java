@@ -106,6 +106,8 @@ class VisualProjectionBuilderTest {
         assertThat(completeGraph.edges()).singleElement().satisfies(edge -> {
             assertThat(edge.fromNodeId()).isEqualTo("avl-node-3");
             assertThat(edge.toNodeId()).isEqualTo("avl-node-2");
+            assertThat(edge.metadata()).containsEntry("from", "3");
+            assertThat(edge.metadata()).containsEntry("to", "2");
         });
     }
 
