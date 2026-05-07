@@ -385,6 +385,39 @@ class IrDebugInterpreterTest {
         assertThat(callSite.snapshot().visibleStepIndex()).isLessThan(insideCall.snapshot().visibleStepIndex());
     }
 
+    @Test
+    void stepOverDoesNotEnterFunctionCallButStepIntoDoes() {
+        SourceFile sourceFile = new SourceFile("debug-step-over-call.mc", """
+                int inc(int value) {
+                    int next = value + 1;
+                    return next;
+                }
+
+                int main() {
+                    int value = inc(1);
+                    return value;
+                }
+                """);
+
+        DebugSession stepOverSession = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        stepOverSession.control(DebugCommand.RESTART);
+        stepOverSession.setBreakpoint(7);
+        DebugControlResult callLine = stepOverSession.control(DebugCommand.RUN_TO_BREAKPOINT);
+        DebugControlResult over = stepOverSession.control(DebugCommand.STEP_OVER);
+
+        assertThat(callLine.snapshot().callStackSummary()).containsExactly("main");
+        assertThat(over.snapshot().callStackSummary()).containsExactly("main");
+        assertThat(over.snapshot().visibleStepIndex()).isGreaterThan(callLine.snapshot().visibleStepIndex());
+
+        DebugSession stepIntoSession = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        stepIntoSession.control(DebugCommand.RESTART);
+        stepIntoSession.setBreakpoint(7);
+        stepIntoSession.control(DebugCommand.RUN_TO_BREAKPOINT);
+        DebugControlResult into = stepIntoSession.control(DebugCommand.STEP_INTO);
+
+        assertThat(into.snapshot().callStackSummary()).contains("inc");
+    }
+
     private IrModule lower(SourceFile sourceFile) {
         LexResult lexResult = new Lexer(sourceFile).lex();
         assertThat(lexResult.diagnostics()).isEmpty();

@@ -175,7 +175,9 @@ public final class DebugSession {
         return switch (command) {
             case FAST_FORWARD -> fastForward(command);
             case RUN_TO_BREAKPOINT -> runToBreakpoint(command);
-            case STEP_OVER, STEP_INTO, STEP_OUT -> moveToSnapshot(command, nextExecutableIndex(), "已前进一个可见调试步");
+            case STEP_OVER -> moveToSnapshot(command, stepOverIndex(), "已单步执行当前源码级语句");
+            case STEP_INTO -> moveToSnapshot(command, nextExecutableIndex(), "已步入下一个可见调试步");
+            case STEP_OUT -> moveToSnapshot(command, stepOutIndex(), "已运行到当前函数返回");
             case PAUSE -> requestPause();
             case CLOSE -> close();
             case RESTART -> restart();
@@ -327,6 +329,37 @@ public final class DebugSession {
         long currentVisibleStep = currentSnapshot().visibleStepIndex();
         for (int i = currentSnapshotIndex + 1; i < snapshots.size(); i++) {
             if (snapshots.get(i).visibleStepIndex() > currentVisibleStep || isTerminalSnapshot(snapshots.get(i))) {
+                return endOfVisibleStep(i);
+            }
+        }
+        return snapshots.size() - 1;
+    }
+
+    private int stepOverIndex() {
+        int currentDepth = currentSnapshot().callStackSummary().size();
+        int next = currentSnapshotIndex + 1;
+        while (next < snapshots.size()) {
+            DebugSnapshot snapshot = snapshots.get(next);
+            if (isTerminalSnapshot(snapshot)) {
+                return next;
+            }
+            if (snapshot.visibleStepIndex() > currentSnapshot().visibleStepIndex()
+                    && snapshot.callStackSummary().size() <= currentDepth) {
+                return endOfVisibleStep(next);
+            }
+            next++;
+        }
+        return snapshots.size() - 1;
+    }
+
+    private int stepOutIndex() {
+        int currentDepth = currentSnapshot().callStackSummary().size();
+        if (currentDepth <= 1) {
+            return stepOverIndex();
+        }
+        for (int i = currentSnapshotIndex + 1; i < snapshots.size(); i++) {
+            DebugSnapshot snapshot = snapshots.get(i);
+            if (isTerminalSnapshot(snapshot) || snapshot.callStackSummary().size() < currentDepth) {
                 return endOfVisibleStep(i);
             }
         }
