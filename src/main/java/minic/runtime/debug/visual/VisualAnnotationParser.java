@@ -47,14 +47,14 @@ public final class VisualAnnotationParser {
             return;
         }
         String[] parts = text.split("\\s+");
-        if (parts.length < 2 && parts[0].equals("@visual")) {
+        if (parts.length < 2 && (parts[0].equals("@visual") || parts[0].equals("@visual-map"))) {
             warnings.add("第 " + lineNumber + " 行 @visual 声明缺少类型");
             return;
         }
         String directive = parts[0];
-        String structureType = directive.equals("@visual") ? parts[1] : "graph";
+        String structureType = directive.equals("@visual") || directive.equals("@visual-map") ? parts[1] : "graph";
         LinkedHashMap<String, String> attributes = new LinkedHashMap<>();
-        int attributeStart = directive.equals("@visual") ? 2 : 1;
+        int attributeStart = directive.equals("@visual") || directive.equals("@visual-map") ? 2 : 1;
         for (int i = attributeStart; i < parts.length; i++) {
             int split = parts[i].indexOf('=');
             if (split <= 0 || split == parts[i].length() - 1) {
@@ -101,8 +101,33 @@ public final class VisualAnnotationParser {
             return validateSimple(attributes, "from", lineNumber, warnings)
                     && validateSimple(attributes, "to", lineNumber, warnings);
         }
+        if (directive.equals("@visual-map")) {
+            return validateVisualMap(structureType, attributes, lineNumber, warnings);
+        }
         warnings.add("第 " + lineNumber + " 行 @visual 指令不支持：" + directive);
         return false;
+    }
+
+    private boolean validateVisualMap(
+            String mapType,
+            Map<String, String> attributes,
+            int lineNumber,
+            ArrayList<String> warnings
+    ) {
+        if (!mapType.equals("node") && !mapType.equals("edge") && !mapType.equals("meta")) {
+            warnings.add("第 " + lineNumber + " 行 @visual-map 类型不支持：" + mapType);
+            return false;
+        }
+        if (mapType.equals("node")) {
+            return validateSimple(attributes, "id", lineNumber, warnings);
+        }
+        if (mapType.equals("edge")) {
+            return validateSimple(attributes, "from", lineNumber, warnings)
+                    && validateSimple(attributes, "to", lineNumber, warnings);
+        }
+        return validateSimple(attributes, "node", lineNumber, warnings)
+                && validateSimple(attributes, "key", lineNumber, warnings)
+                && validateSimple(attributes, "value", lineNumber, warnings);
     }
 
     private boolean validateSimple(
@@ -124,7 +149,7 @@ public final class VisualAnnotationParser {
     }
 
     private String name(String directive, Map<String, String> attributes) {
-        if (directive.equals("@visual-node") || directive.equals("@visual-edge")) {
+        if (directive.equals("@visual-node") || directive.equals("@visual-edge") || directive.equals("@visual-map")) {
             return attributes.getOrDefault("graph", "default");
         }
         return attributes.getOrDefault("name", attributes.getOrDefault("root", "visual"));
