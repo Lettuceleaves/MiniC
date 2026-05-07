@@ -247,8 +247,12 @@ public final class MiniCDebugPane extends VBox {
             case "ast" -> split
                     ? scroll(astText(viewModel.debugAstViewProperty().get()))
                     : astContent(viewModel.debugAstViewProperty().get());
-            case "ir" -> scroll(irText(viewModel.debugIrViewProperty().get()));
-            case "asm" -> scroll(asmText(viewModel.debugAsmViewProperty().get()));
+            case "ir" -> split
+                    ? scroll(irText(viewModel.debugIrViewProperty().get()))
+                    : irContent(viewModel.debugIrViewProperty().get());
+            case "asm" -> split
+                    ? scroll(asmText(viewModel.debugAsmViewProperty().get()))
+                    : asmContent(viewModel.debugAsmViewProperty().get());
             default -> scroll("");
         };
     }
@@ -566,6 +570,40 @@ public final class MiniCDebugPane extends VBox {
                 .collect(Collectors.joining("\n"));
     }
 
+    private ScrollPane irContent(UiDebugIrViewDto view) {
+        VBox content = new VBox(8);
+        content.getStyleClass().add("debug-code-view");
+        if (view == null) {
+            return wrap(content);
+        }
+        content.getChildren().add(metadataSection("IR", List.of(
+                view.explanation(),
+                "current: " + view.currentInstructionId(),
+                "range: " + rangeText(view.currentSourceRange())
+        )));
+        VBox rows = new VBox(2);
+        rows.getStyleClass().add("debug-code-rows");
+        view.lines().forEach(line -> rows.getChildren().add(irLineRow(line)));
+        content.getChildren().add(rows);
+        content.getChildren().add(metadataSection("operands", view.operands().stream()
+                .map(operand -> operand.name() + " " + operand.typeName()
+                        + " = " + operand.valueSummary() + " @ " + operand.valueRef())
+                .toList()));
+        return wrap(content);
+    }
+
+    private Node irLineRow(UiIrLineVisualDto line) {
+        HBox row = new HBox();
+        row.getStyleClass().add("debug-code-row");
+        if (line.active()) {
+            row.getStyleClass().add("active");
+        }
+        Label number = label(Integer.toString(line.lineNumber()), "debug-code-line-number");
+        Label text = label(line.text().isEmpty() ? " " : line.text(), "debug-code-text");
+        row.getChildren().addAll(number, text);
+        return row;
+    }
+
     private String asmText(UiDebugAsmViewDto view) {
         if (view == null) {
             return "";
@@ -576,6 +614,35 @@ public final class MiniCDebugPane extends VBox {
                 .filter(UiAssemblyLineVisualDto::active)
                 .map(line -> "  " + line.lineNumber() + ": " + line.text())
                 .collect(Collectors.joining("\n"));
+    }
+
+    private ScrollPane asmContent(UiDebugAsmViewDto view) {
+        VBox content = new VBox(8);
+        content.getStyleClass().add("debug-code-view");
+        if (view == null) {
+            return wrap(content);
+        }
+        content.getChildren().add(metadataSection("ASM", List.of(
+                view.explanation(),
+                "IR: " + view.relatedIrIds()
+        )));
+        VBox rows = new VBox(2);
+        rows.getStyleClass().add("debug-code-rows");
+        view.lines().forEach(line -> rows.getChildren().add(asmLineRow(line)));
+        content.getChildren().add(rows);
+        return wrap(content);
+    }
+
+    private Node asmLineRow(UiAssemblyLineVisualDto line) {
+        HBox row = new HBox();
+        row.getStyleClass().add("debug-code-row");
+        if (line.active()) {
+            row.getStyleClass().add("active");
+        }
+        Label number = label(Integer.toString(line.lineNumber()), "debug-code-line-number");
+        Label text = label(line.text().isEmpty() ? " " : line.text(), "debug-code-text");
+        row.getChildren().addAll(number, text);
+        return row;
     }
 
     private String frameText(UiDebugFrameDto frame) {

@@ -26,8 +26,12 @@ class UiDebugIrViewBuilderTest {
         assertThat(view.explanation()).contains("Debug 快照");
         assertThat(view.lines()).anySatisfy(line -> {
             assertThat(line.active()).isTrue();
-            assertThat(line.text()).contains("Ir");
+            assertThat(line.text()).contains("check_initialized");
         });
+        assertThat(view.lines()).extracting(UiIrLineVisualDto::text)
+                .contains("function main", "  block entry");
+        assertThat(view.lines()).anySatisfy(line ->
+                assertThat(line.text()).contains("store"));
         assertThat(view.operands()).anySatisfy(operand -> {
             assertThat(operand.name()).isEqualTo("value");
             assertThat(operand.valueRef()).isNotBlank();

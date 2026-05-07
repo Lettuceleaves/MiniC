@@ -167,6 +167,42 @@ class MiniCDebugPaneTest {
     }
 
     @Test
+    void rendersCompleteIrAndAsmRowsWithActiveOutline() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            viewModel.loadSource("debug-ir-asm-ui.mc", """
+                    extern int printf(char *format, ...);
+
+                    int main() {
+                        int a = 0;
+                        a += 1;
+                        printf("value = %d\\n", a);
+                        return 42;
+                    }
+                    """);
+            viewModel.startDebug();
+            viewModel.debugStepOver();
+
+            button(pane, "IR").fire();
+            assertThat(labelsWithStyle(pane, "debug-code-text"))
+                    .anyMatch(text -> text.contains("function main"))
+                    .anyMatch(text -> text.contains("store"))
+                    .anyMatch(text -> text.contains("call printf"));
+            assertThat(containsNodeWithStyles(pane, "debug-code-row", "active")).isTrue();
+
+            button(pane, "ASM").fire();
+            assertThat(labelsWithStyle(pane, "debug-code-text"))
+                    .anyMatch(text -> text.contains("main"))
+                    .anyMatch(text -> text.contains("call"))
+                    .anyMatch(text -> text.contains("ret"));
+            assertThat(containsNodeWithStyles(pane, "debug-code-row", "active")).isTrue();
+        });
+    }
+
+    @Test
     void debugStartDoesNotStartCompilerObservationSession() {
         startJavafx();
         runOnFxThread(() -> {
@@ -388,6 +424,25 @@ class MiniCDebugPaneTest {
         }
         if (node instanceof Parent parent) {
             return parent.getChildrenUnmodifiable().stream().anyMatch(child -> containsStyle(child, styleClass));
+        }
+        return false;
+    }
+
+    private static boolean containsNodeWithStyles(javafx.scene.Node node, String firstStyle, String secondStyle) {
+        if (node == null) {
+            return false;
+        }
+        if (node.getStyleClass().contains(firstStyle) && node.getStyleClass().contains(secondStyle)) {
+            return true;
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            return containsNodeWithStyles(scrollPane.getContent(), firstStyle, secondStyle);
+        }
+        if (node instanceof SplitPane splitPane) {
+            return splitPane.getItems().stream().anyMatch(child -> containsNodeWithStyles(child, firstStyle, secondStyle));
+        }
+        if (node instanceof Parent parent) {
+            return parent.getChildrenUnmodifiable().stream().anyMatch(child -> containsNodeWithStyles(child, firstStyle, secondStyle));
         }
         return false;
     }
