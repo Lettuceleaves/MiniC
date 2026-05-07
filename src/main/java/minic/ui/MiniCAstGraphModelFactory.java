@@ -28,8 +28,21 @@ public final class MiniCAstGraphModelFactory {
         if (visual.astRoot() == null) {
             return new MiniCAstGraphModel(List.of(), List.of(), 360, 240);
         }
+        return create(visual.astRoot());
+    }
+
+    /**
+     * 从 AST 根节点创建图模型。
+     *
+     * @param root AST 根节点
+     * @return 图模型
+     */
+    public MiniCAstGraphModel create(UiAstNodeVisualDto root) {
+        if (root == null) {
+            return new MiniCAstGraphModel(List.of(), List.of(), 360, 240);
+        }
         ArrayList<PositionedNode> positioned = new ArrayList<>();
-        int leafCount = assignPositions(visual.astRoot(), 0, new int[]{0}, positioned);
+        int leafCount = assignPositions(root, 0, new int[]{0}, positioned);
         Map<String, PositionedNode> positionedById = new HashMap<>();
         for (PositionedNode positionedNode : positioned) {
             positionedById.put(positionedNode.node.id(), positionedNode);

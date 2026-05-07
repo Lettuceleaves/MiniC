@@ -7,11 +7,18 @@ import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
+import javafx.scene.Group;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Circle;
+import javafx.scene.shape.Line;
+import javafx.scene.text.Text;
 import minic.uiapi.UiAssemblyLineVisualDto;
+import minic.uiapi.UiAstNodeVisualDto;
 import minic.uiapi.UiDebugAsmViewDto;
 import minic.uiapi.UiDebugAstViewDto;
 import minic.uiapi.UiDebugBreakpointDto;
@@ -34,6 +41,8 @@ import java.util.stream.Collectors;
  * Workbench 独立 Debug 模式首版面板。
  */
 public final class MiniCDebugPane extends VBox {
+    private static final double DEBUG_AST_ZOOM = 0.8;
+    private static final int METADATA_LIST_LIMIT = 200;
     private static final List<DebugView> DEBUG_VIEWS = List.of(
             new DebugView("metadata", "元数据"),
             new DebugView("data", "数据结构"),
@@ -49,6 +58,7 @@ public final class MiniCDebugPane extends VBox {
     private final SplitPane viewSplitPane = new SplitPane();
     private final VBox primaryContent = new VBox();
     private final VBox splitContent = new VBox();
+    private final MiniCAstGraphModelFactory astGraphModelFactory = new MiniCAstGraphModelFactory();
     private final Label status = label("", "body-text");
     private final TextField breakpointLine = new TextField("1");
     private String selectedViewId = "metadata";
@@ -234,7 +244,9 @@ public final class MiniCDebugPane extends VBox {
             case "data" -> split
                     ? scroll(dataText(viewModel.debugDataStructureViewProperty().get()))
                     : dataContent(viewModel.debugDataStructureViewProperty().get());
-            case "ast" -> scroll(astText(viewModel.debugAstViewProperty().get()));
+            case "ast" -> split
+                    ? scroll(astText(viewModel.debugAstViewProperty().get()))
+                    : astContent(viewModel.debugAstViewProperty().get());
             case "ir" -> scroll(irText(viewModel.debugIrViewProperty().get()));
             case "asm" -> scroll(asmText(viewModel.debugAsmViewProperty().get()));
             default -> scroll("");
@@ -252,8 +264,8 @@ public final class MiniCDebugPane extends VBox {
                 metadataSection("调用栈", view.callStack().stream().map(this::frameText).toList()),
                 metadataSection("变量", view.variables().stream().map(this::variableText).toList()),
                 metadataSection("断点", view.breakpoints().stream().map(this::breakpointText).toList()),
-                metadataSection("事件日志", view.events().stream().map(this::eventText).toList()),
-                metadataSection("Snapshot 时间线", view.timeline().stream().map(this::timelineText).toList()),
+                metadataSection("事件日志", boundedLines(view.events().stream().map(this::eventText).toList())),
+                metadataSection("Snapshot 时间线", boundedLines(view.timeline().stream().map(this::timelineText).toList())),
                 metadataSection("stdout", List.of(view.stdout().isBlank() ? "(empty)" : view.stdout())),
                 metadataSection("stderr", List.of(view.stderr().isBlank() ? "(empty)" : view.stderr()))
         );
@@ -287,6 +299,17 @@ public final class MiniCDebugPane extends VBox {
         visibleLines.forEach(line -> body.getChildren().add(label(line, "debug-section-line")));
         section.getChildren().addAll(heading, body);
         return section;
+    }
+
+    private List<String> boundedLines(List<String> lines) {
+        if (lines.size() <= METADATA_LIST_LIMIT) {
+            return lines;
+        }
+        int omitted = lines.size() - METADATA_LIST_LIMIT;
+        java.util.ArrayList<String> visible = new java.util.ArrayList<>();
+        visible.add("(已省略较早的 " + omitted + " 条，显示最近 " + METADATA_LIST_LIMIT + " 条)");
+        visible.addAll(lines.subList(omitted, lines.size()));
+        return visible;
     }
 
     private ScrollPane wrap(Node content) {
@@ -417,6 +440,113 @@ public final class MiniCDebugPane extends VBox {
                 + "\n" + view.activeNode().explanation()
                 + "\nIR: " + view.relatedIrIds()
                 + "\nASM: " + view.relatedAsmIds();
+    }
+
+    private ScrollPane astContent(UiDebugAstViewDto view) {
+        VBox content = new VBox(8);
+        content.getStyleClass().add("debug-ast-view");
+        content.getChildren().add(astSummary(view));
+        content.getChildren().add(debugAstGraph(view));
+        return wrap(content);
+    }
+
+    private Node astSummary(UiDebugAstViewDto view) {
+        if (view == null || view.activeNode() == null) {
+            return metadataSection("当前 AST 节点", List.of("(empty)"));
+        }
+        return metadataSection("当前 AST 节点", List.of(
+                view.activeNode().kind() + " " + view.activeNode().label(),
+                "range: " + rangeText(view.activeNode().sourceRange()),
+                view.activeNode().explanation(),
+                "IR: " + view.relatedIrIds(),
+                "ASM: " + view.relatedAsmIds()
+        ));
+    }
+
+    private Node debugAstGraph(UiDebugAstViewDto view) {
+        if (view == null || view.root() == null) {
+            return emptyAstPane("AST 尚未就绪");
+        }
+        MiniCAstGraphModel graph = astGraphModelFactory.create(view.root());
+        Pane pane = new Pane();
+        pane.getStyleClass().add("ast-graph");
+        pane.setMinSize(graph.width(), graph.height());
+        pane.setPrefSize(graph.width(), graph.height());
+        graph.edges().forEach(edge -> {
+            Line line = new Line(edge.fromX(), edge.fromY(), edge.toX(), edge.toY());
+            line.getStyleClass().add("ast-edge");
+            if (edge.hot()) {
+                line.getStyleClass().add("hot");
+            }
+            pane.getChildren().add(line);
+        });
+        graph.nodes().forEach(node -> {
+            Circle circle = new Circle(node.x(), node.y(), node.root() ? 30 : node.leaf() ? 22 : 26);
+            circle.getStyleClass().add("ast-graph-node");
+            if (node.root()) {
+                circle.getStyleClass().add("root");
+            }
+            if (node.active()) {
+                circle.getStyleClass().add("active");
+            }
+            if (node.leaf()) {
+                circle.getStyleClass().add("leaf");
+            }
+            Text text = new Text(shortLabel(node.label()));
+            text.getStyleClass().add("ast-graph-label");
+            text.setX(node.x() - 32);
+            text.setY(node.y() + 4);
+            text.setWrappingWidth(64);
+            text.setFill(Color.web("#d4d4d4"));
+            UiAstNodeVisualDto astNode = astNodeById(view.root(), node.id());
+            String tooltip = astNode == null
+                    ? node.label()
+                    : astNode.kind() + " " + astNode.label() + "\n" + rangeText(astNode.range());
+            circle.setAccessibleText(tooltip);
+            text.setAccessibleText(tooltip);
+            pane.getChildren().addAll(circle, text);
+        });
+        Group group = new Group(pane);
+        pane.setScaleX(DEBUG_AST_ZOOM);
+        pane.setScaleY(DEBUG_AST_ZOOM);
+        pane.setManaged(false);
+        Pane viewport = new Pane(group);
+        viewport.getStyleClass().add("ast-graph-viewport");
+        viewport.setMinSize(graph.width() * DEBUG_AST_ZOOM, graph.height() * DEBUG_AST_ZOOM);
+        viewport.setPrefSize(graph.width() * DEBUG_AST_ZOOM, graph.height() * DEBUG_AST_ZOOM);
+        return viewport;
+    }
+
+    private Pane emptyAstPane(String message) {
+        Pane pane = new Pane(label(message, "body-text"));
+        pane.getStyleClass().add("ast-graph");
+        pane.setMinSize(360, 180);
+        pane.setPrefSize(360, 180);
+        return pane;
+    }
+
+    private UiAstNodeVisualDto astNodeById(UiAstNodeVisualDto node, String id) {
+        if (node == null) {
+            return null;
+        }
+        if (node.id().equals(id)) {
+            return node;
+        }
+        for (UiAstNodeVisualDto child : node.children()) {
+            UiAstNodeVisualDto found = astNodeById(child, id);
+            if (found != null) {
+                return found;
+            }
+        }
+        return null;
+    }
+
+    private String shortLabel(String label) {
+        if (label == null || label.isBlank()) {
+            return "";
+        }
+        String compact = label.replace('\n', ' ').strip();
+        return compact.length() <= 10 ? compact : compact.substring(0, 9) + "...";
     }
 
     private String irText(UiDebugIrViewDto view) {

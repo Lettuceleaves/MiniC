@@ -22,6 +22,7 @@ import java.util.Objects;
 public final class MiniCDebugApi {
     private SourceFile sourceFile;
     private DebugSession session;
+    private Lowered lowered;
 
     /**
      * 加载源码文本。
@@ -41,6 +42,7 @@ public final class MiniCDebugApi {
     public void loadSource(SourceFile sourceFile) {
         this.sourceFile = Objects.requireNonNull(sourceFile, "sourceFile");
         session = null;
+        lowered = null;
     }
 
     /**
@@ -270,6 +272,9 @@ public final class MiniCDebugApi {
     }
 
     private Lowered lowerWithProgram(SourceFile sourceFile) {
+        if (lowered != null && lowered.sourceFile().equals(sourceFile)) {
+            return lowered;
+        }
         LexResult lexResult = new Lexer(sourceFile).lex();
         if (!lexResult.diagnostics().isEmpty()) {
             throw new IllegalStateException("debug source has lexer diagnostics");
@@ -283,7 +288,8 @@ public final class MiniCDebugApi {
         if (!semanticResult.diagnostics().isEmpty()) {
             throw new IllegalStateException("debug source has semantic diagnostics");
         }
-        return new Lowered(program, new IrLowerer().lower(program, semanticResult));
+        lowered = new Lowered(sourceFile, program, new IrLowerer().lower(program, semanticResult));
+        return lowered;
     }
 
     private SourceFile requireSourceFile() {
@@ -291,6 +297,6 @@ public final class MiniCDebugApi {
         return sourceFile;
     }
 
-    private record Lowered(Program program, IrModule module) {
+    private record Lowered(SourceFile sourceFile, Program program, IrModule module) {
     }
 }

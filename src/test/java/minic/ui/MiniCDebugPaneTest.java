@@ -144,6 +144,29 @@ class MiniCDebugPaneTest {
     }
 
     @Test
+    void rendersAstDebugViewAsGraph() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            viewModel.loadSource("debug-ast-graph-ui.mc", """
+                    int main() {
+                        int value = 1;
+                        return value;
+                    }
+                    """);
+            viewModel.startDebug();
+            button(pane, "AST").fire();
+
+            assertThat(containsStyle(pane, "ast-graph")).isTrue();
+            assertThat(containsStyle(pane, "ast-graph-node")).isTrue();
+            assertThat(containsStyle(pane, "active")).isTrue();
+            assertThat(labelsWithStyle(pane, "debug-section-title")).contains("当前 AST 节点");
+        });
+    }
+
+    @Test
     void debugStartDoesNotStartCompilerObservationSession() {
         startJavafx();
         runOnFxThread(() -> {
@@ -346,6 +369,25 @@ class MiniCDebugPaneTest {
         }
         if (node instanceof Parent parent) {
             return parent.getChildrenUnmodifiable().stream().anyMatch(child -> containsNode(child, type));
+        }
+        return false;
+    }
+
+    private static boolean containsStyle(javafx.scene.Node node, String styleClass) {
+        if (node == null) {
+            return false;
+        }
+        if (node.getStyleClass().contains(styleClass)) {
+            return true;
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            return containsStyle(scrollPane.getContent(), styleClass);
+        }
+        if (node instanceof SplitPane splitPane) {
+            return splitPane.getItems().stream().anyMatch(child -> containsStyle(child, styleClass));
+        }
+        if (node instanceof Parent parent) {
+            return parent.getChildrenUnmodifiable().stream().anyMatch(child -> containsStyle(child, styleClass));
         }
         return false;
     }

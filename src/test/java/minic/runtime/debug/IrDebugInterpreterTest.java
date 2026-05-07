@@ -155,7 +155,7 @@ class IrDebugInterpreterTest {
 
                 int main() {
                     int a = 0;
-                    for (int i = 0; i < 3; i++) {
+                    for (int i = 0; i < 100; i++) {
                         a += i;
                     }
                     printf("value = %d\\n", a);
@@ -167,8 +167,8 @@ class IrDebugInterpreterTest {
         DebugSession session = new IrDebugInterpreter().runMain(module, sourceFile);
 
         assertThat(session.state()).isEqualTo(DebugExecutionState.COMPLETED);
-        assertThat(session.currentSnapshot().processSpace().io().stdout()).isEqualTo("value = 3\nreturn 42");
-        assertThat(session.snapshots()).hasSizeLessThan(120);
+        assertThat(session.currentSnapshot().processSpace().io().stdout()).isEqualTo("value = 4950\nreturn 42");
+        assertThat(session.snapshots()).hasSizeLessThan(3_000);
     }
 
     @Test
