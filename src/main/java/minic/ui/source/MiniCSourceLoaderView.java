@@ -87,7 +87,17 @@ public final class MiniCSourceLoaderView extends VBox {
             sourceEditor.render(viewModel.realtimeAnalysisProperty().get());
             submitRealtimeSource();
         });
+        viewModel.sourceTextProperty().addListener((observable, oldValue, newValue) -> {
+            if (!Objects.equals(sourceEditor.getText(), newValue)) {
+                sourceEditor.setText(newValue);
+                submitRealtimeSource();
+            }
+        });
         viewModel.realtimeAnalysisProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue == null) {
+                submitRealtimeSource();
+                return;
+            }
             sourceEditor.render(newValue);
         });
         Platform.runLater(this::submitRealtimeSource);
@@ -117,6 +127,7 @@ public final class MiniCSourceLoaderView extends VBox {
         String currentName = viewModel.sourceNameProperty().get();
         String name = currentName == null || currentName.isBlank() ? fallbackSourceName() : currentName;
         viewModel.loadSource(name, sourceEditor.getText());
+        submitRealtimeSource();
     }
 
     /**
