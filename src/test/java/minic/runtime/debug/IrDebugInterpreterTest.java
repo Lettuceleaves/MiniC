@@ -476,6 +476,73 @@ class IrDebugInterpreterTest {
         });
     }
 
+    @Test
+    void recordsStructTreeVisualEventsWhileBuildingNodes() {
+        SourceFile sourceFile = new SourceFile("debug-struct-visual-build-tree.mc", """
+                struct Node {
+                    int value;
+                    struct Node *left;
+                    struct Node *right;
+                };
+
+                // @visual graph name=avl kind=tree root=root mode=runtime function=main
+                // @visual-map node graph=avl id=node label=node->value
+                // @visual-map edge graph=avl key=left from=node to=node->left
+                // @visual-map edge graph=avl key=right from=node to=node->right
+                int main() {
+                    struct Node n1;
+                    struct Node n2;
+                    struct Node n3;
+                    struct Node *root;
+
+                    root = &n1;
+                    n1.value = 10;
+                    n1.left = NULL;
+                    n1.right = NULL;
+
+                    n2.value = 5;
+                    n2.left = NULL;
+                    n2.right = NULL;
+                    n1.left = &n2;
+
+                    n3.value = 15;
+                    n3.left = NULL;
+                    n3.right = NULL;
+                    n1.right = &n3;
+
+                    return 0;
+                }
+                """);
+
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+
+        assertThat(session.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.label()).isEqualTo("10");
+            assertThat(event.nodeId()).startsWith("stack:0x");
+            assertThat(event.snapshotId()).isGreaterThan(0);
+        });
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.label()).isEqualTo("5");
+            assertThat(event.nodeId()).startsWith("stack:0x");
+        });
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.key()).isEqualTo("left");
+            assertThat(event.fromId()).startsWith("stack:0x");
+            assertThat(event.toId()).isEqualTo("null");
+        });
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.key()).isEqualTo("left");
+            assertThat(event.fromId()).startsWith("stack:0x");
+            assertThat(event.toId()).startsWith("stack:0x");
+        });
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.key()).isEqualTo("right");
+            assertThat(event.fromId()).startsWith("stack:0x");
+            assertThat(event.toId()).startsWith("stack:0x");
+        });
+    }
+
     private IrModule lower(SourceFile sourceFile) {
         LexResult lexResult = new Lexer(sourceFile).lex();
         assertThat(lexResult.diagnostics()).isEmpty();

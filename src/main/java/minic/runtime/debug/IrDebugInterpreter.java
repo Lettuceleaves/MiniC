@@ -154,7 +154,12 @@ public final class IrDebugInterpreter {
         }
         if (instruction instanceof IrStorePointerInstruction storePointer) {
             DebugVirtualAddress address = pointerAddress(resolveValue(state, storePointer.address()));
-            writePointerValue(state, address, resolveValue(state, storePointer.value()));
+            DebugValue value = resolveValue(state, storePointer.value());
+            VisualFieldWrite visualFieldWrite = visualFieldWrite(state, address, value);
+            writePointerValue(state, address, value);
+            if (visualFieldWrite != null) {
+                state.pendingVisualFieldWrites.add(visualFieldWrite);
+            }
             recordStep(state, block, instructionIndex, instruction, "STORE_POINTER", address.display());
             return;
         }
@@ -462,6 +467,14 @@ public final class IrDebugInterpreter {
         return address.segment() + ":" + address.offset();
     }
 
+    private VisualFieldWrite visualFieldWrite(InterpreterState state, DebugVirtualAddress fieldAddress, DebugValue value) {
+        AddressField field = state.addressFields.get(addressKey(fieldAddress));
+        if (field == null || !state.hasFrames()) {
+            return null;
+        }
+        return new VisualFieldWrite(state.currentFrame().function.name(), field.baseAddress(), field.fieldName(), value);
+    }
+
     private DebugValue constantValue(IrConstant constant) {
         return switch (constant.type()) {
             case BOOL -> DebugValue.boolValue(constant.value() != 0);
@@ -527,6 +540,7 @@ public final class IrDebugInterpreter {
                 List.of()
         ));
         recordVisualEvents(state, snapshot.snapshotId());
+        recordVisualFieldWriteEvents(state, snapshot.snapshotId());
     }
 
     private void recordVisualEvents(InterpreterState state, long snapshotId) {
@@ -535,6 +549,9 @@ public final class IrDebugInterpreter {
         }
         CallFrame frame = state.currentFrame();
         for (VisualRuntimeGraph graph : state.visualRuntimeGraphs) {
+            if (graph.visitVariable().isBlank()) {
+                continue;
+            }
             if (!graph.functionName().equals(frame.function.name())) {
                 continue;
             }
@@ -585,6 +602,87 @@ public final class IrDebugInterpreter {
                 }
             }
         }
+    }
+
+    private void recordVisualFieldWriteEvents(InterpreterState state, long snapshotId) {
+        if (state.pendingVisualFieldWrites.isEmpty()) {
+            return;
+        }
+        List<VisualFieldWrite> writes = List.copyOf(state.pendingVisualFieldWrites);
+        state.pendingVisualFieldWrites.clear();
+        for (VisualFieldWrite write : writes) {
+            for (VisualRuntimeGraph graph : state.visualRuntimeGraphs) {
+                if (!graph.functionName().equals(write.functionName())) {
+                    continue;
+                }
+                VisualNodeMapping nodeMapping = graph.nodeMapping();
+                if (nodeMapping == null || nodeMapping.idExpression().isBlank()) {
+                    continue;
+                }
+                String nodeId = write.ownerAddress().display();
+                if (nodeMapping.labelField().filter(write.fieldName()::equals).isPresent()) {
+                    appendVisualNode(state, snapshotId, graph.name(), nodeId, write.value().summary());
+                } else {
+                    appendVisualNode(state, snapshotId, graph.name(), nodeId, visualNodeLabel(state, graph, write.ownerAddress(), nodeId));
+                }
+                for (VisualMetaMapping metaMapping : graph.metaMappings()) {
+                    if (metaMapping.matchesField(nodeMapping.idExpression(), write.fieldName())) {
+                        state.session.appendVisualEvent(VisualEvent.metaSet(
+                                snapshotId,
+                                graph.name(),
+                                nodeId,
+                                metaMapping.key(),
+                                write.value().summary()
+                        ));
+                    }
+                }
+                for (VisualEdgeMapping edgeMapping : graph.edgeMappings()) {
+                    if (!edgeMapping.matchesField(nodeMapping.idExpression(), write.fieldName())) {
+                        continue;
+                    }
+                    String toId = write.value().kind() == DebugValueKind.NULL ? "null" : write.value().summary();
+                    if (write.value().kind() == DebugValueKind.POINTER) {
+                        DebugVirtualAddress targetAddress = pointerAddress(write.value());
+                        appendVisualNode(state, snapshotId, graph.name(), toId, visualNodeLabel(state, graph, targetAddress, toId));
+                    }
+                    state.session.appendVisualEvent(VisualEvent.edgeSet(
+                            snapshotId,
+                            graph.name(),
+                            edgeMapping.key(),
+                            nodeId,
+                            toId
+                    ));
+                }
+            }
+        }
+    }
+
+    private void appendVisualNode(InterpreterState state, long snapshotId, String graphName, String nodeId, String label) {
+        if (state.createdVisualNodeKeys.add(graphName + "\u0000" + nodeId)) {
+            state.session.appendVisualEvent(VisualEvent.nodeCreated(snapshotId, graphName, nodeId, label));
+        } else {
+            state.session.appendVisualEvent(VisualEvent.nodeUpdated(snapshotId, graphName, nodeId, label));
+        }
+    }
+
+    private String visualNodeLabel(
+            InterpreterState state,
+            VisualRuntimeGraph graph,
+            DebugVirtualAddress ownerAddress,
+            String fallback
+    ) {
+        VisualNodeMapping nodeMapping = graph.nodeMapping();
+        if (nodeMapping == null) {
+            return fallback;
+        }
+        return nodeMapping.labelField()
+                .map(fieldName -> fieldValueByName(state, pointerDebugValue(ownerAddress), fieldName))
+                .map(DebugValue::summary)
+                .orElse(fallback);
+    }
+
+    private DebugValue pointerDebugValue(DebugVirtualAddress address) {
+        return DebugValue.pointerValue("pointer", address);
     }
 
     private String mappedValue(InterpreterState state, CallFrame frame, String expression, String fallback) {
@@ -767,6 +865,7 @@ public final class IrDebugInterpreter {
         private final Map<String, AddressLocal> addressLocals = new LinkedHashMap<>();
         private final Map<String, AddressField> addressFields = new LinkedHashMap<>();
         private final Map<String, DebugValue> memory = new LinkedHashMap<>();
+        private final java.util.ArrayList<VisualFieldWrite> pendingVisualFieldWrites = new java.util.ArrayList<>();
         private final java.util.Set<String> createdVisualNodeKeys = new java.util.LinkedHashSet<>();
         private final java.util.ArrayList<CallFrame> frames = new java.util.ArrayList<>();
         private long nextSnapshotId = 1;
@@ -795,12 +894,11 @@ public final class IrDebugInterpreter {
                     .filter(annotation -> annotation.directive().equals("@visual"))
                     .filter(annotation -> annotation.attributes().getOrDefault("mode", "").equals("runtime"))
                     .filter(annotation -> annotation.attributes().containsKey("function"))
-                    .filter(annotation -> annotation.attributes().containsKey("visit"))
                     .map(annotation -> new VisualRuntimeGraph(
                             annotation.name(),
                             annotation.attributes().get("function"),
-                            annotation.attributes().get("visit"),
-                            nodeLabelExpression(annotation.name(), visualMapAnnotations),
+                            annotation.attributes().getOrDefault("visit", ""),
+                            nodeMapping(annotation.name(), visualMapAnnotations),
                             metaMappings(annotation.name(), visualMapAnnotations),
                             edgeMappings(annotation.name(), visualMapAnnotations)
                     ))
@@ -808,14 +906,16 @@ public final class IrDebugInterpreter {
             this.lastFunctionName = function.name();
         }
 
-        private String nodeLabelExpression(String graphName, List<VisualAnnotation> visualMapAnnotations) {
+        private VisualNodeMapping nodeMapping(String graphName, List<VisualAnnotation> visualMapAnnotations) {
             return visualMapAnnotations.stream()
                     .filter(annotation -> annotation.name().equals(graphName))
                     .filter(annotation -> annotation.structureType().equals("node"))
-                    .map(annotation -> annotation.attributes().getOrDefault("label", ""))
-                    .filter(label -> !label.isBlank())
+                    .map(annotation -> new VisualNodeMapping(
+                            annotation.attributes().getOrDefault("id", ""),
+                            annotation.attributes().getOrDefault("label", "")
+                    ))
                     .findFirst()
-                    .orElse("");
+                    .orElse(null);
         }
 
         private List<VisualMetaMapping> metaMappings(String graphName, List<VisualAnnotation> visualMapAnnotations) {
@@ -962,10 +1062,22 @@ public final class IrDebugInterpreter {
             String name,
             String functionName,
             String visitVariable,
-            String nodeLabelExpression,
+            VisualNodeMapping nodeMapping,
             List<VisualMetaMapping> metaMappings,
             List<VisualEdgeMapping> edgeMappings
     ) {
+        private String nodeLabelExpression() {
+            return nodeMapping == null ? "" : nodeMapping.labelExpression();
+        }
+    }
+
+    private record VisualNodeMapping(
+            String idExpression,
+            String labelExpression
+    ) {
+        private java.util.Optional<String> labelField() {
+            return fieldOf(idExpression, labelExpression);
+        }
     }
 
     private record VisualMetaMapping(
@@ -973,6 +1085,10 @@ public final class IrDebugInterpreter {
             String nodeExpression,
             String valueExpression
     ) {
+        private boolean matchesField(String ownerExpression, String fieldName) {
+            return nodeExpression.equals(ownerExpression)
+                    && fieldOf(ownerExpression, valueExpression).filter(fieldName::equals).isPresent();
+        }
     }
 
     private record VisualEdgeMapping(
@@ -980,6 +1096,30 @@ public final class IrDebugInterpreter {
             String fromExpression,
             String toExpression
     ) {
+        private boolean matchesField(String ownerExpression, String fieldName) {
+            return fromExpression.equals(ownerExpression)
+                    && fieldOf(ownerExpression, toExpression).filter(fieldName::equals).isPresent();
+        }
+    }
+
+    private record VisualFieldWrite(
+            String functionName,
+            DebugVirtualAddress ownerAddress,
+            String fieldName,
+            DebugValue value
+    ) {
+    }
+
+    private static java.util.Optional<String> fieldOf(String ownerExpression, String expression) {
+        String prefix = ownerExpression + "->";
+        if (ownerExpression.isBlank() || !expression.startsWith(prefix)) {
+            return java.util.Optional.empty();
+        }
+        String field = expression.substring(prefix.length());
+        if (field.isBlank() || field.contains("->")) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(field);
     }
 
     private record AddressLocal(
