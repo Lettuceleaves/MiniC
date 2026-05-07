@@ -349,6 +349,31 @@
     -fx-padding: 0 12px 0 0;
 }
 
+.editor-gutter {
+    -fx-background-color: #1e1e1e;
+    -fx-alignment: center-left;
+}
+
+.breakpoint-gutter {
+    -fx-min-width: 18px;
+    -fx-pref-width: 18px;
+    -fx-max-width: 18px;
+    -fx-min-height: 18px;
+    -fx-pref-height: 18px;
+    -fx-alignment: center;
+    -fx-text-fill: transparent;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 11px;
+}
+
+.breakpoint-gutter:hover {
+    -fx-text-fill: rgba(244, 113, 116, 0.55);
+}
+
+.breakpoint-gutter.active {
+    -fx-text-fill: #f47174;
+}
+
 .code-editor .paragraph-text {
     -fx-font-family: Consolas, "Courier New", monospace;
     -fx-font-size: 12px;

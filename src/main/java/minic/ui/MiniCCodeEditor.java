@@ -2,12 +2,16 @@ package minic.ui;
 
 import javafx.application.Platform;
 import javafx.beans.value.ObservableValue;
+import javafx.geometry.Pos;
 import javafx.geometry.Bounds;
+import javafx.scene.Node;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.Label;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseButton;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
@@ -28,6 +32,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.ArrayList;
+import java.util.function.IntFunction;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -49,6 +54,8 @@ public final class MiniCCodeEditor extends StackPane {
             "\\b(?:extern\\s+)?(?:bool|char|int|long|float|double|struct\\s+[A-Za-z_][A-Za-z0-9_]*)(?:\\s*\\*)*\\s+([A-Za-z_][A-Za-z0-9_]*)"
     );
     private final StyleClassedTextArea input = new StyleClassedTextArea();
+    private final IntFunction<Node> lineNumberFactory = LineNumberFactory.get(input);
+    private final Set<Integer> breakpointLines = new LinkedHashSet<>();
     private final Pane diagnosticLayer = new Pane();
     private final VBox diagnosticDetails = new VBox(4);
     private final ListView<String> completionList = new ListView<>();
@@ -62,7 +69,7 @@ public final class MiniCCodeEditor extends StackPane {
         getStyleClass().add("code-editor");
         input.getStyleClass().add("source-editor");
         input.setWrapText(false);
-        input.setParagraphGraphicFactory(LineNumberFactory.get(input));
+        input.setParagraphGraphicFactory(this::paragraphGraphic);
         input.setTextInsertionStyle(List.of("token-plain"));
         input.addEventFilter(KeyEvent.KEY_PRESSED, this::handleCompletionKeys);
         input.addEventFilter(KeyEvent.KEY_TYPED, this::handleTypedText);
@@ -133,6 +140,49 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     /**
+     * 返回当前编辑器本地断点行。
+     *
+     * @return 一基行号列表
+     */
+    public List<Integer> breakpointLines() {
+        return breakpointLines.stream()
+                .sorted(Comparator.naturalOrder())
+                .toList();
+    }
+
+    /**
+     * 设置或清除指定行断点。
+     *
+     * @param line 一基行号
+     * @param enabled 是否启用
+     */
+    public void setBreakpoint(int line, boolean enabled) {
+        if (line < 1) {
+            return;
+        }
+        if (enabled) {
+            breakpointLines.add(line);
+        } else {
+            breakpointLines.remove(line);
+        }
+        refreshParagraphGraphics();
+    }
+
+    /**
+     * 切换指定行断点。
+     *
+     * @param line 一基行号
+     */
+    public void toggleBreakpoint(int line) {
+        if (breakpointLines.contains(line)) {
+            breakpointLines.remove(line);
+        } else if (line >= 1) {
+            breakpointLines.add(line);
+        }
+        refreshParagraphGraphics();
+    }
+
+    /**
      * 根据实时分析结果重绘高亮。
      *
      * @param analysis 实时分析结果
@@ -186,6 +236,30 @@ public final class MiniCCodeEditor extends StackPane {
             builder.add(List.of("token-plain"), 0);
         }
         return builder.create();
+    }
+
+    private Node paragraphGraphic(int paragraphIndex) {
+        int line = paragraphIndex + 1;
+        Label breakpoint = new Label(breakpointLines.contains(line) ? "●" : "");
+        breakpoint.getStyleClass().add("breakpoint-gutter");
+        if (breakpointLines.contains(line)) {
+            breakpoint.getStyleClass().add("active");
+        }
+        breakpoint.setAlignment(Pos.CENTER);
+        breakpoint.setOnMouseClicked(event -> {
+            if (event.getButton() == MouseButton.PRIMARY) {
+                toggleBreakpoint(line);
+                event.consume();
+            }
+        });
+        HBox graphic = new HBox(breakpoint, lineNumberFactory.apply(paragraphIndex));
+        graphic.getStyleClass().add("editor-gutter");
+        graphic.setAlignment(Pos.CENTER_LEFT);
+        return graphic;
+    }
+
+    private void refreshParagraphGraphics() {
+        input.setParagraphGraphicFactory(this::paragraphGraphic);
     }
 
     private Collection<String> tokenStyles(String kind, boolean diagnostic) {

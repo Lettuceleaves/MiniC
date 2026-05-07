@@ -1,0 +1,93 @@
+package minic.ui;
+
+import javafx.application.Platform;
+import javafx.scene.Node;
+import javafx.scene.control.Label;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
+import javafx.scene.layout.HBox;
+import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Method;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+class MiniCCodeEditorBreakpointGutterTest {
+    private static boolean javafxStarted;
+
+    private static void startJavafx() {
+        if (javafxStarted) {
+            return;
+        }
+        CountDownLatch latch = new CountDownLatch(1);
+        try {
+            Platform.startup(latch::countDown);
+        } catch (IllegalStateException alreadyStarted) {
+            latch.countDown();
+        }
+        try {
+            assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(exception);
+        }
+        javafxStarted = true;
+    }
+
+    @Test
+    void togglesBreakpointLinesAndBuildsGutterGraphic() throws Exception {
+        startJavafx();
+        MiniCCodeEditor editor = new MiniCCodeEditor();
+        editor.setText("""
+                int main() {
+                    return 0;
+                }
+                """);
+
+        editor.setBreakpoint(2, true);
+
+        assertThat(editor.breakpointLines()).containsExactly(2);
+
+        HBox graphic = paragraphGraphic(editor, 1);
+        assertThat(graphic.getStyleClass()).contains("editor-gutter");
+        Label breakpoint = (Label) graphic.getChildren().getFirst();
+        assertThat(breakpoint.getStyleClass()).contains("breakpoint-gutter", "active");
+        assertThat(breakpoint.getText()).isEqualTo("●");
+
+        breakpoint.fireEvent(mouseClick());
+
+        assertThat(editor.breakpointLines()).isEmpty();
+    }
+
+    private HBox paragraphGraphic(MiniCCodeEditor editor, int paragraphIndex) throws Exception {
+        Method method = MiniCCodeEditor.class.getDeclaredMethod("paragraphGraphic", int.class);
+        method.setAccessible(true);
+        Node node = (Node) method.invoke(editor, paragraphIndex);
+        return (HBox) node;
+    }
+
+    private MouseEvent mouseClick() {
+        return new MouseEvent(
+                MouseEvent.MOUSE_CLICKED,
+                0,
+                0,
+                0,
+                0,
+                MouseButton.PRIMARY,
+                1,
+                false,
+                false,
+                false,
+                false,
+                true,
+                false,
+                false,
+                true,
+                false,
+                false,
+                null
+        );
+    }
+}
