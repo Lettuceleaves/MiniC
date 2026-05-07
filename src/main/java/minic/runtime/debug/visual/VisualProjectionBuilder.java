@@ -22,8 +22,27 @@ public final class VisualProjectionBuilder {
      * @return 投影
      */
     public VisualProjection build(DebugProcessSpace processSpace, List<VisualAnnotation> annotations) {
+        return build(processSpace, annotations, List.of(), Long.MAX_VALUE);
+    }
+
+    /**
+     * 构建投影，并把运行时可视化事件重放到指定快照。
+     *
+     * @param processSpace 虚拟进程空间
+     * @param annotations visual 注释
+     * @param events 可视化事件日志
+     * @param snapshotId 当前快照 ID
+     * @return 投影
+     */
+    public VisualProjection build(
+            DebugProcessSpace processSpace,
+            List<VisualAnnotation> annotations,
+            List<VisualEvent> events,
+            long snapshotId
+    ) {
         Objects.requireNonNull(processSpace, "processSpace");
         Objects.requireNonNull(annotations, "annotations");
+        Objects.requireNonNull(events, "events");
         LinkedHashMap<String, GraphAccumulator> graphs = new LinkedHashMap<>();
         ArrayList<VisualStructure> structures = new ArrayList<>();
         ArrayList<String> warnings = new ArrayList<>();
@@ -36,14 +55,57 @@ public final class VisualProjectionBuilder {
                         .addNode(nodeFromAnnotation(annotation));
                 case "@visual-edge" -> graph(graphs, annotation.name(), annotation.attributes().getOrDefault("kind", "graph"))
                         .addEdge(edgeFromAnnotation(annotation));
+                case "@visual-map" -> {
+                }
                 default -> warnings.add("忽略未知 visual 指令：" + annotation.directive());
             }
         }
+        replayEvents(events, snapshotId, graphs);
 
         graphs.values().stream()
                 .map(GraphAccumulator::build)
                 .forEach(structures::add);
         return new VisualProjection(structures, warnings);
+    }
+
+    private void replayEvents(
+            List<VisualEvent> events,
+            long snapshotId,
+            LinkedHashMap<String, GraphAccumulator> graphs
+    ) {
+        events.stream()
+                .filter(event -> event.snapshotId() <= snapshotId)
+                .forEach(event -> {
+                    GraphAccumulator graph = graph(graphs, event.graphName(), "tree");
+                    switch (event.type()) {
+                        case NODE_CREATED, NODE_UPDATED -> graph.addNode(nodeFromEvent(event));
+                        case EDGE_SET -> graph.addEdge(edgeFromEvent(event));
+                        case EDGE_REMOVED -> graph.removeEdge(event.key(), event.fromId(), event.toId());
+                        case META_SET -> graph.mergeMetadata(event.nodeId(), event.metadata());
+                    }
+                });
+    }
+
+    private GraphNode nodeFromEvent(VisualEvent event) {
+        String label = event.label().isBlank() ? event.nodeId() : event.label();
+        return new GraphNode(
+                event.graphName() + "-node-" + event.nodeId(),
+                label,
+                "",
+                componentId(event.graphName()),
+                event.metadata()
+        );
+    }
+
+    private GraphEdge edgeFromEvent(VisualEvent event) {
+        return new GraphEdge(
+                edgeId(event.graphName(), event.key(), event.fromId(), event.toId()),
+                event.graphName() + "-node-" + event.fromId(),
+                event.graphName() + "-node-" + event.toId(),
+                event.label().isBlank() ? event.key() : event.label(),
+                true,
+                Map.of("key", event.key())
+        );
     }
 
     private void buildRootStructure(
@@ -53,6 +115,10 @@ public final class VisualProjectionBuilder {
             ArrayList<VisualStructure> structures,
             ArrayList<String> warnings
     ) {
+        if (annotation.attributes().getOrDefault("mode", "").equals("runtime")) {
+            graph(graphs, annotation.name(), annotation.attributes().getOrDefault("kind", "graph"));
+            return;
+        }
         String root = annotation.attributes().get("root");
         DebugMemoryEntry rootEntry = root == null ? null : variables.get(root);
         if (root != null && rootEntry == null) {
@@ -194,6 +260,27 @@ public final class VisualProjectionBuilder {
             edges.put(edge.id(), edge);
         }
 
+        private void removeEdge(String key, String fromId, String toId) {
+            edges.remove(edgeId(name, key, fromId, toId));
+        }
+
+        private void mergeMetadata(String nodeId, Map<String, String> metadata) {
+            String id = name + "-node-" + nodeId;
+            GraphNode existing = nodes.get(id);
+            if (existing == null) {
+                return;
+            }
+            LinkedHashMap<String, String> merged = new LinkedHashMap<>(existing.metadata());
+            merged.putAll(metadata);
+            nodes.put(id, new GraphNode(
+                    existing.id(),
+                    existing.label(),
+                    existing.valueRef(),
+                    existing.componentId(),
+                    merged
+            ));
+        }
+
         private GraphStructure build() {
             GraphComponent component = new GraphComponent(
                     componentId(name),
@@ -212,5 +299,9 @@ public final class VisualProjectionBuilder {
                     List.of()
             );
         }
+    }
+
+    private String edgeId(String graphName, String key, String fromId, String toId) {
+        return graphName + "-edge-" + key + "-" + fromId + "-" + toId;
     }
 }
