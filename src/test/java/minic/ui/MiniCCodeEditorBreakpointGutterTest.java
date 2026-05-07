@@ -52,13 +52,28 @@ class MiniCCodeEditorBreakpointGutterTest {
 
         HBox graphic = paragraphGraphic(editor, 1);
         assertThat(graphic.getStyleClass()).contains("editor-gutter");
-        Label breakpoint = (Label) graphic.getChildren().getFirst();
+        Label breakpoint = (Label) graphic.getChildren().get(1);
         assertThat(breakpoint.getStyleClass()).contains("breakpoint-gutter", "active");
         assertThat(breakpoint.getText()).isEqualTo("●");
 
         breakpoint.fireEvent(mouseClick());
 
         assertThat(editor.breakpointLines()).isEmpty();
+    }
+
+    @Test
+    void marksCurrentExecutionLineInGutter() throws Exception {
+        startJavafx();
+        MiniCCodeEditor editor = new MiniCCodeEditor();
+
+        editor.setCurrentExecutionLine(3);
+
+        HBox active = paragraphGraphic(editor, 2);
+        HBox inactive = paragraphGraphic(editor, 1);
+
+        assertThat(active.getStyleClass()).contains("current-execution");
+        assertThat(((Label) active.getChildren().getFirst()).getText()).isEqualTo("▶");
+        assertThat(inactive.getStyleClass()).doesNotContain("current-execution");
     }
 
     private HBox paragraphGraphic(MiniCCodeEditor editor, int paragraphIndex) throws Exception {

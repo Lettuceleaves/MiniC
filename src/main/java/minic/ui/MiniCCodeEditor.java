@@ -64,6 +64,7 @@ public final class MiniCCodeEditor extends StackPane {
     private List<UiDiagnosticDto> latestDiagnostics = List.of();
     private Runnable breakpointChangeAction = () -> {
     };
+    private int currentExecutionLine;
 
     /**
      * 创建代码编辑器。
@@ -197,6 +198,16 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     /**
+     * 设置当前 Debug 执行行。
+     *
+     * @param line 一基行号；小于 1 表示清除
+     */
+    public void setCurrentExecutionLine(int line) {
+        currentExecutionLine = Math.max(0, line);
+        refreshParagraphGraphics();
+    }
+
+    /**
      * 根据实时分析结果重绘高亮。
      *
      * @param analysis 实时分析结果
@@ -266,8 +277,13 @@ public final class MiniCCodeEditor extends StackPane {
                 event.consume();
             }
         });
-        HBox graphic = new HBox(breakpoint, lineNumberFactory.apply(paragraphIndex));
+        Label execution = new Label(currentExecutionLine == line ? "▶" : "");
+        execution.getStyleClass().add("execution-gutter");
+        HBox graphic = new HBox(execution, breakpoint, lineNumberFactory.apply(paragraphIndex));
         graphic.getStyleClass().add("editor-gutter");
+        if (currentExecutionLine == line) {
+            graphic.getStyleClass().add("current-execution");
+        }
         graphic.setAlignment(Pos.CENTER_LEFT);
         return graphic;
     }

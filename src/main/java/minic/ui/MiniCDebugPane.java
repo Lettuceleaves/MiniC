@@ -164,6 +164,7 @@ public final class MiniCDebugPane extends VBox {
     private void refresh() {
         if (!viewModel.debugStartedProperty().get() || viewModel.debugStateProperty().get() == null) {
             status.setText("Debug 未启动");
+            sourceView.setCurrentExecutionLine(0);
             setTabText(0, "");
             setTabText(1, "");
             setTabText(2, "");
@@ -175,6 +176,7 @@ public final class MiniCDebugPane extends VBox {
                 + " · " + viewModel.debugStateProperty().get().currentSnapshot().stopReason()
                 + " · step " + viewModel.debugStateProperty().get().currentSnapshot().visibleStepIndex()
                 + " · " + viewModel.debugStateProperty().get().currentSnapshot().functionName());
+        sourceView.setCurrentExecutionLine(viewModel.debugStateProperty().get().currentSnapshot().sourceRange().startLine());
         setTabText(0, metadataText(viewModel.debugMetadataViewProperty().get()));
         setTabText(1, dataText(viewModel.debugDataStructureViewProperty().get()));
         setTabText(2, astText(viewModel.debugAstViewProperty().get()));

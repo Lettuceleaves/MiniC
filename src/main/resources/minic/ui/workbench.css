@@ -354,6 +354,22 @@
     -fx-alignment: center-left;
 }
 
+.editor-gutter.current-execution {
+    -fx-background-color: #2a3f5f;
+}
+
+.execution-gutter {
+    -fx-min-width: 16px;
+    -fx-pref-width: 16px;
+    -fx-max-width: 16px;
+    -fx-min-height: 18px;
+    -fx-pref-height: 18px;
+    -fx-alignment: center;
+    -fx-text-fill: #d7ba7d;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 11px;
+}
+
 .breakpoint-gutter {
     -fx-min-width: 18px;
     -fx-pref-width: 18px;

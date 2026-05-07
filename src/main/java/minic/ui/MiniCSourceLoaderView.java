@@ -104,6 +104,15 @@ public final class MiniCSourceLoaderView extends VBox {
         sourceEditor.setBreakpoint(line, enabled);
     }
 
+    /**
+     * 设置源码编辑器当前执行行。
+     *
+     * @param line 一基行号；小于 1 表示清除
+     */
+    public void setCurrentExecutionLine(int line) {
+        sourceEditor.setCurrentExecutionLine(line);
+    }
+
     private void submitRealtimeSource() {
         String currentName = viewModel.sourceNameProperty().get();
         String name = currentName == null || currentName.isBlank() ? fallbackSourceName() : currentName;
