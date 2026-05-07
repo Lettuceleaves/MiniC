@@ -59,10 +59,14 @@ public final class VisualProjectionBuilder {
             warnings.add("未找到 visual root 变量：" + root);
         }
         switch (annotation.structureType()) {
-            case "graph" -> graph(graphs, annotation.name(), annotation.attributes().getOrDefault("kind", "graph"))
-                    .addNode(rootEntry == null
+            case "graph" -> {
+                GraphAccumulator accumulator = graph(graphs, annotation.name(), annotation.attributes().getOrDefault("kind", "graph"));
+                if (!annotation.attributes().getOrDefault("reveal", "").equals("recursive")) {
+                    accumulator.addNode(rootEntry == null
                             ? new GraphNode(annotation.name() + "-root", annotation.name(), "", componentId(annotation.name()), Map.of())
                             : graphNode(rootEntry, annotation.name()));
+                }
+            }
             case "array" -> structures.add(array(annotation, rootEntry));
             case "composite" -> structures.add(composite(annotation));
             default -> warnings.add("忽略未知 visual 类型：" + annotation.structureType());

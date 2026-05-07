@@ -40,4 +40,60 @@ class UiDebugDataStructureViewBuilderTest {
                     assertThat(element.metadata()).containsKey("root"));
         });
     }
+
+    @Test
+    void revealsRecursiveGraphElementsFromExecutedBuildSteps() {
+        MiniCDebugApi api = new MiniCDebugApi();
+        api.loadSource("recursive-visual-tree.mc", """
+                // @visual graph name=avl kind=tree root=root reveal=recursive function=build visit=index
+                int left_of(int index) {
+                    if (index == 1) {
+                        return 2;
+                    }
+                    return 0;
+                }
+                int right_of(int index) {
+                    if (index == 1) {
+                        return 3;
+                    }
+                    return 0;
+                }
+                int build(int index) {
+                    if (index == 0) {
+                        return 0;
+                    }
+                    // @visual-node graph=avl id=1 label=10
+                    // @visual-node graph=avl id=2 label=5
+                    // @visual-node graph=avl id=3 label=15
+                    // @visual-edge graph=avl from=1 to=2 label=left directed=true
+                    // @visual-edge graph=avl from=1 to=3 label=right directed=true
+                    return 1 + build(left_of(index)) + build(right_of(index));
+                }
+                int main() {
+                    int root = 1;
+                    return build(root);
+                }
+                """);
+        api.startDebug();
+
+        int initialElements = visualElementCount(api.dataStructureDebugView(), "avl");
+        for (int i = 0; i < 18; i++) {
+            api.stepInto();
+        }
+        int partialElements = visualElementCount(api.dataStructureDebugView(), "avl");
+        api.fastForward();
+        int completeElements = visualElementCount(api.dataStructureDebugView(), "avl");
+
+        assertThat(initialElements).isLessThan(partialElements);
+        assertThat(partialElements).isLessThanOrEqualTo(completeElements);
+        assertThat(completeElements).isEqualTo(5);
+    }
+
+    private int visualElementCount(UiDebugDataStructureViewDto view, String name) {
+        return view.visuals().stream()
+                .filter(visual -> visual.name().equals(name))
+                .findFirst()
+                .map(visual -> visual.elements().size())
+                .orElse(0);
+    }
 }
