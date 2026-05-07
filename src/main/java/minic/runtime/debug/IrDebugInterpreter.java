@@ -2,18 +2,23 @@ package minic.runtime.debug;
 
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrBinaryOperator;
+import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrCastInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
 import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.IrElementAddressInstruction;
+import minic.compiler.ir.instruction.IrFieldAddressInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
+import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
+import minic.compiler.ir.instruction.IrStorePointerInstruction;
 import minic.compiler.ir.instruction.IrUnaryInstruction;
 import minic.compiler.ir.instruction.IrUnaryOperator;
 import minic.compiler.ir.model.IrBlock;
@@ -103,9 +108,54 @@ public final class IrDebugInterpreter {
             recordStep(state, block, instructionIndex, instruction, "DECLARE_LOCAL", declare.local().sourceName());
             return;
         }
+        if (instruction instanceof IrAddressOfLocalInstruction addressOfLocal) {
+            state.currentFrame().temps.put(
+                    addressOfLocal.result().name(),
+                    DebugValue.pointerValue(typeName(addressOfLocal.result().type()), localAddress(state, state.currentFrame(), addressOfLocal.local()))
+            );
+            recordStep(state, block, instructionIndex, instruction, "ADDRESS_OF_LOCAL", addressOfLocal.local().sourceName());
+            return;
+        }
+        if (instruction instanceof IrFieldAddressInstruction fieldAddress) {
+            DebugVirtualAddress baseAddress = pointerAddress(resolveValue(state, fieldAddress.baseAddress()));
+            DebugVirtualAddress address = new DebugVirtualAddress(baseAddress.segment(), baseAddress.offset() + fieldAddress.offset());
+            state.currentFrame().temps.put(
+                    fieldAddress.result().name(),
+                    DebugValue.pointerValue(typeName(fieldAddress.result().type()), address)
+            );
+            state.addressFields.put(addressKey(address), new AddressField(baseAddress, fieldAddress.fieldName()));
+            recordStep(state, block, instructionIndex, instruction, "FIELD_ADDRESS", fieldAddress.fieldName());
+            return;
+        }
+        if (instruction instanceof IrElementAddressInstruction elementAddress) {
+            DebugVirtualAddress baseAddress = pointerAddress(resolveValue(state, elementAddress.baseAddress()));
+            long indexValue = numericValue(resolveValue(state, elementAddress.index()));
+            DebugVirtualAddress address = new DebugVirtualAddress(
+                    baseAddress.segment(),
+                    baseAddress.offset() + indexValue * elementAddress.elementSizeBytes()
+            );
+            state.currentFrame().temps.put(
+                    elementAddress.result().name(),
+                    DebugValue.pointerValue(typeName(elementAddress.result().type()), address)
+            );
+            recordStep(state, block, instructionIndex, instruction, "ELEMENT_ADDRESS", Long.toString(indexValue));
+            return;
+        }
         if (instruction instanceof IrStoreLocalInstruction store) {
             state.currentFrame().locals.put(store.local().name(), resolveValue(state, store.value()));
             recordStep(state, block, instructionIndex, instruction, "STORE_LOCAL", store.local().sourceName());
+            return;
+        }
+        if (instruction instanceof IrLoadPointerInstruction loadPointer) {
+            DebugVirtualAddress address = pointerAddress(resolveValue(state, loadPointer.address()));
+            state.currentFrame().temps.put(loadPointer.result().name(), pointerValueAt(state, address));
+            recordStep(state, block, instructionIndex, instruction, "LOAD_POINTER", address.display());
+            return;
+        }
+        if (instruction instanceof IrStorePointerInstruction storePointer) {
+            DebugVirtualAddress address = pointerAddress(resolveValue(state, storePointer.address()));
+            writePointerValue(state, address, resolveValue(state, storePointer.value()));
+            recordStep(state, block, instructionIndex, instruction, "STORE_POINTER", address.display());
             return;
         }
         if (instruction instanceof IrLoadLocalInstruction load) {
@@ -337,6 +387,81 @@ public final class IrDebugInterpreter {
         return debugValue;
     }
 
+    private DebugVirtualAddress localAddress(InterpreterState state, CallFrame frame, IrLocal local) {
+        DebugVirtualAddress address = frame.localAddresses.get(local.name());
+        if (address == null) {
+            address = new DebugVirtualAddress("stack", Math.abs((frame.function.name() + ":" + local.name()).hashCode()));
+            frame.localAddresses.put(local.name(), address);
+        }
+        state.addressLocals.put(addressKey(address), new AddressLocal(frame, local.name()));
+        return address;
+    }
+
+    private DebugVirtualAddress pointerAddress(DebugValue value) {
+        return value.pointerTargetOptional().orElseThrow(() ->
+                new IllegalStateException("value is not a pointer: " + value.summary()));
+    }
+
+    private DebugValue pointerValueAt(InterpreterState state, DebugVirtualAddress address) {
+        AddressField field = state.addressFields.get(addressKey(address));
+        if (field != null) {
+            return fieldValue(state, field);
+        }
+        AddressLocal local = state.addressLocals.get(addressKey(address));
+        if (local != null) {
+            return local.frame().locals.getOrDefault(local.localName(), DebugValue.uninitialized("unknown"));
+        }
+        return state.memory.getOrDefault(addressKey(address), DebugValue.uninitialized("memory"));
+    }
+
+    private void writePointerValue(InterpreterState state, DebugVirtualAddress address, DebugValue value) {
+        AddressField field = state.addressFields.get(addressKey(address));
+        if (field != null) {
+            writeFieldValue(state, field, value);
+            return;
+        }
+        AddressLocal local = state.addressLocals.get(addressKey(address));
+        if (local != null) {
+            local.frame().locals.put(local.localName(), value);
+            return;
+        }
+        state.memory.put(addressKey(address), value);
+    }
+
+    private DebugValue fieldValue(InterpreterState state, AddressField field) {
+        AddressLocal local = state.addressLocals.get(addressKey(field.baseAddress()));
+        DebugValue structValue = local == null ? null : local.frame().locals.get(local.localName());
+        if (structValue == null || structValue.kind() == DebugValueKind.UNINITIALIZED) {
+            return DebugValue.uninitialized(field.fieldName());
+        }
+        return structValue.fields().stream()
+                .filter(valueField -> valueField.name().equals(field.fieldName()))
+                .map(DebugValueField::value)
+                .findFirst()
+                .orElse(DebugValue.uninitialized(field.fieldName()));
+    }
+
+    private void writeFieldValue(InterpreterState state, AddressField field, DebugValue value) {
+        AddressLocal local = state.addressLocals.get(addressKey(field.baseAddress()));
+        if (local == null) {
+            state.memory.put(addressKey(new DebugVirtualAddress(field.baseAddress().segment(), field.baseAddress().offset())), value);
+            return;
+        }
+        DebugValue structValue = local.frame().locals.get(local.localName());
+        java.util.LinkedHashMap<String, DebugValue> fields = new java.util.LinkedHashMap<>();
+        if (structValue != null && structValue.kind() == DebugValueKind.STRUCT) {
+            structValue.fields().forEach(valueField -> fields.put(valueField.name(), valueField.value()));
+        }
+        fields.put(field.fieldName(), value);
+        local.frame().locals.put(local.localName(), DebugValue.structValue("struct", fields.entrySet().stream()
+                .map(entry -> new DebugValueField(entry.getKey(), entry.getValue()))
+                .toList()));
+    }
+
+    private String addressKey(DebugVirtualAddress address) {
+        return address.segment() + ":" + address.offset();
+    }
+
     private DebugValue constantValue(IrConstant constant) {
         return switch (constant.type()) {
             case BOOL -> DebugValue.boolValue(constant.value() != 0);
@@ -423,19 +548,19 @@ public final class IrDebugInterpreter {
                         snapshotId,
                         graph.name(),
                         nodeId,
-                        mappedValue(frame, graph.nodeLabelExpression(), nodeId)
+                        mappedValue(state, frame, graph.nodeLabelExpression(), nodeId)
                 ));
             } else if (!graph.nodeLabelExpression().isBlank()) {
                 state.session.appendVisualEvent(VisualEvent.nodeUpdated(
                         snapshotId,
                         graph.name(),
                         nodeId,
-                        mappedValue(frame, graph.nodeLabelExpression(), nodeId)
+                        mappedValue(state, frame, graph.nodeLabelExpression(), nodeId)
                 ));
             }
             for (VisualMetaMapping metaMapping : graph.metaMappings()) {
-                String metaNodeId = mappedValue(frame, metaMapping.nodeExpression(), nodeId);
-                String metaValue = mappedValue(frame, metaMapping.valueExpression(), "");
+                String metaNodeId = mappedValue(state, frame, metaMapping.nodeExpression(), nodeId);
+                String metaValue = mappedValue(state, frame, metaMapping.valueExpression(), "");
                 if (!metaNodeId.isBlank() && !metaValue.isBlank()) {
                     state.session.appendVisualEvent(VisualEvent.metaSet(
                             snapshotId,
@@ -447,8 +572,8 @@ public final class IrDebugInterpreter {
                 }
             }
             for (VisualEdgeMapping edgeMapping : graph.edgeMappings()) {
-                String fromId = mappedValue(frame, edgeMapping.fromExpression(), "");
-                String toId = mappedValue(frame, edgeMapping.toExpression(), "");
+                String fromId = mappedValue(state, frame, edgeMapping.fromExpression(), "");
+                String toId = mappedValue(state, frame, edgeMapping.toExpression(), "");
                 if (!fromId.isBlank() && !toId.isBlank()) {
                     state.session.appendVisualEvent(VisualEvent.edgeSet(
                             snapshotId,
@@ -462,12 +587,44 @@ public final class IrDebugInterpreter {
         }
     }
 
-    private String mappedValue(CallFrame frame, String expression, String fallback) {
+    private String mappedValue(InterpreterState state, CallFrame frame, String expression, String fallback) {
         if (expression.isBlank()) {
             return fallback;
         }
-        DebugValue value = valueBySourceName(frame, expression);
+        DebugValue value = valueByVisualExpression(state, frame, expression);
         return value == null ? expression : value.summary();
+    }
+
+    private DebugValue valueByVisualExpression(InterpreterState state, CallFrame frame, String expression) {
+        String[] parts = expression.split("->");
+        DebugValue value = valueBySourceName(frame, parts[0]);
+        for (int i = 1; i < parts.length && value != null; i++) {
+            value = fieldValueByName(state, value, parts[i]);
+        }
+        return value;
+    }
+
+    private DebugValue fieldValueByName(InterpreterState state, DebugValue owner, String fieldName) {
+        if (owner.kind() == DebugValueKind.POINTER || owner.kind() == DebugValueKind.NULL) {
+            if (owner.kind() == DebugValueKind.NULL) {
+                return DebugValue.nullValue("pointer");
+            }
+            DebugVirtualAddress address = pointerAddress(owner);
+            AddressLocal local = state.addressLocals.get(addressKey(address));
+            DebugValue structValue = local == null ? null : local.frame().locals.get(local.localName());
+            if (structValue == null) {
+                return null;
+            }
+            return fieldValueByName(state, structValue, fieldName);
+        }
+        if (owner.kind() == DebugValueKind.STRUCT) {
+            return owner.fields().stream()
+                    .filter(field -> field.name().equals(fieldName))
+                    .map(DebugValueField::value)
+                    .findFirst()
+                    .orElse(null);
+        }
+        return null;
     }
 
     private DebugValue valueBySourceName(CallFrame frame, String sourceName) {
@@ -561,7 +718,10 @@ public final class IrDebugInterpreter {
     private DebugMemoryEntry memoryEntry(CallFrame frame, Map.Entry<String, DebugValue> entry) {
         return new DebugMemoryEntry(
                 frame.localNames.getOrDefault(entry.getKey(), entry.getKey()),
-                new DebugVirtualAddress("stack", Math.abs((frame.function.name() + ":" + entry.getKey()).hashCode())),
+                frame.localAddresses.getOrDefault(
+                        entry.getKey(),
+                        new DebugVirtualAddress("stack", Math.abs((frame.function.name() + ":" + entry.getKey()).hashCode()))
+                ),
                 entry.getValue().typeName(),
                 entry.getValue()
         );
@@ -570,8 +730,13 @@ public final class IrDebugInterpreter {
     private String eventTitle(String eventType) {
         return switch (eventType) {
             case "DECLARE_LOCAL" -> "声明局部变量";
+            case "ADDRESS_OF_LOCAL" -> "取得局部变量地址";
+            case "FIELD_ADDRESS" -> "计算结构体字段地址";
+            case "ELEMENT_ADDRESS" -> "计算元素地址";
             case "STORE_LOCAL" -> "写入局部变量";
             case "LOAD_LOCAL" -> "读取局部变量";
+            case "LOAD_POINTER" -> "通过指针读取";
+            case "STORE_POINTER" -> "通过指针写入";
             case "MOVE" -> "移动临时值";
             case "CHECK_INITIALIZED" -> "检查局部变量初始化";
             case "CHECK_NON_ZERO" -> "检查除数非零";
@@ -599,6 +764,9 @@ public final class IrDebugInterpreter {
         private final IrFunction function;
         private final DebugSession session;
         private final List<VisualRuntimeGraph> visualRuntimeGraphs;
+        private final Map<String, AddressLocal> addressLocals = new LinkedHashMap<>();
+        private final Map<String, AddressField> addressFields = new LinkedHashMap<>();
+        private final Map<String, DebugValue> memory = new LinkedHashMap<>();
         private final java.util.Set<String> createdVisualNodeKeys = new java.util.LinkedHashSet<>();
         private final java.util.ArrayList<CallFrame> frames = new java.util.ArrayList<>();
         private long nextSnapshotId = 1;
@@ -754,6 +922,7 @@ public final class IrDebugInterpreter {
         private final Map<String, DebugValue> parameters = new LinkedHashMap<>();
         private final Map<String, DebugValue> locals = new LinkedHashMap<>();
         private final Map<String, String> localNames = new LinkedHashMap<>();
+        private final Map<String, DebugVirtualAddress> localAddresses = new LinkedHashMap<>();
         private final Map<String, DebugValue> temps = new LinkedHashMap<>();
         private int blockIndex;
         private int instructionIndex;
@@ -810,6 +979,18 @@ public final class IrDebugInterpreter {
             String key,
             String fromExpression,
             String toExpression
+    ) {
+    }
+
+    private record AddressLocal(
+            CallFrame frame,
+            String localName
+    ) {
+    }
+
+    private record AddressField(
+            DebugVirtualAddress baseAddress,
+            String fieldName
     ) {
     }
 }

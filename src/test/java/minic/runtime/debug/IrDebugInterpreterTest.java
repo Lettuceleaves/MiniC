@@ -418,6 +418,64 @@ class IrDebugInterpreterTest {
         assertThat(into.snapshot().callStackSummary()).contains("inc");
     }
 
+    @Test
+    void debugsStructPointerTreeAndRecordsVisualFieldPaths() {
+        SourceFile sourceFile = new SourceFile("debug-struct-visual-tree.mc", """
+                struct Node {
+                    int value;
+                    struct Node *left;
+                    struct Node *right;
+                };
+
+                // @visual graph name=avl kind=tree root=root mode=runtime function=visit visit=node
+                // @visual-map node graph=avl id=node label=node->value
+                // @visual-map edge graph=avl key=left from=node to=node->left
+                // @visual-map edge graph=avl key=right from=node to=node->right
+                int visit(struct Node *node) {
+                    if (node == NULL) {
+                        return 0;
+                    }
+                    return visit(node->left) + node->value + visit(node->right);
+                }
+
+                int main() {
+                    struct Node n1;
+                    struct Node n2;
+                    struct Node n3;
+                    struct Node *root = &n1;
+
+                    n1.value = 10;
+                    n1.left = &n2;
+                    n1.right = &n3;
+                    n2.value = 5;
+                    n2.left = NULL;
+                    n2.right = NULL;
+                    n3.value = 15;
+                    n3.left = NULL;
+                    n3.right = NULL;
+
+                    return visit(root);
+                }
+                """);
+
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+
+        assertThat(session.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(session.currentSnapshot().processSpace().io().stdout()).isEqualTo("return 30");
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.label()).isEqualTo("10");
+            assertThat(event.nodeId()).startsWith("stack:0x");
+        });
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.key()).isEqualTo("left");
+            assertThat(event.toId()).startsWith("stack:0x");
+        });
+        assertThat(session.visualEvents()).anySatisfy(event -> {
+            assertThat(event.key()).isEqualTo("left");
+            assertThat(event.toId()).isEqualTo("null");
+        });
+    }
+
     private IrModule lower(SourceFile sourceFile) {
         LexResult lexResult = new Lexer(sourceFile).lex();
         assertThat(lexResult.diagnostics()).isEmpty();
@@ -425,7 +483,7 @@ class IrDebugInterpreterTest {
         assertThat(parseResult.diagnostics()).isEmpty();
         Program program = parseResult.program();
         SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
-        assertThat(semanticResult.diagnostics()).isEmpty();
+        assertThat(semanticResult.diagnostics()).as(semanticResult.diagnostics().toString()).isEmpty();
         return new IrLowerer().lower(program, semanticResult);
     }
 }

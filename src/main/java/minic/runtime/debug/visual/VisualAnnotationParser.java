@@ -14,6 +14,7 @@ import java.util.regex.Pattern;
 public final class VisualAnnotationParser {
     private static final Pattern VARIABLE_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final Pattern SIMPLE_VALUE = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*|-?[0-9]+|true|false");
+    private static final Pattern VISUAL_PATH = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*(->[A-Za-z_][A-Za-z0-9_]*)*|-?[0-9]+|true|false|null");
 
     /**
      * 解析源码中的 @visual 注释。
@@ -119,15 +120,33 @@ public final class VisualAnnotationParser {
             return false;
         }
         if (mapType.equals("node")) {
-            return validateSimple(attributes, "id", lineNumber, warnings);
+            return validateVisualPath(attributes, "id", lineNumber, warnings);
         }
         if (mapType.equals("edge")) {
-            return validateSimple(attributes, "from", lineNumber, warnings)
-                    && validateSimple(attributes, "to", lineNumber, warnings);
+            return validateVisualPath(attributes, "from", lineNumber, warnings)
+                    && validateVisualPath(attributes, "to", lineNumber, warnings);
         }
-        return validateSimple(attributes, "node", lineNumber, warnings)
+        return validateVisualPath(attributes, "node", lineNumber, warnings)
                 && validateSimple(attributes, "key", lineNumber, warnings)
-                && validateSimple(attributes, "value", lineNumber, warnings);
+                && validateVisualPath(attributes, "value", lineNumber, warnings);
+    }
+
+    private boolean validateVisualPath(
+            Map<String, String> attributes,
+            String key,
+            int lineNumber,
+            ArrayList<String> warnings
+    ) {
+        String value = attributes.get(key);
+        if (value == null) {
+            warnings.add("第 " + lineNumber + " 行缺少 " + key);
+            return false;
+        }
+        if (!VISUAL_PATH.matcher(value).matches()) {
+            warnings.add("第 " + lineNumber + " 行 " + key + " 只允许变量名、字面值或 -> 字段路径：" + value);
+            return false;
+        }
+        return true;
     }
 
     private boolean validateSimple(

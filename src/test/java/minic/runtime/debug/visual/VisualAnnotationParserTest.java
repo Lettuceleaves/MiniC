@@ -17,15 +17,17 @@ class VisualAnnotationParserTest {
                 // @visual-map node graph=network id=index label=value
                 // @visual-map edge graph=network key=left from=index to=left
                 // @visual-map meta graph=network key=height node=index value=height
+                // @visual-map node graph=tree id=node label=node->value
+                // @visual-map edge graph=tree key=left from=node to=node->left
                 int main() { return 0; }
                 """);
 
         VisualAnnotationParseResult result = new VisualAnnotationParser().parse(sourceFile);
 
         assertThat(result.warnings()).isEmpty();
-        assertThat(result.annotations()).hasSize(8);
+        assertThat(result.annotations()).hasSize(10);
         assertThat(result.annotations()).extracting(VisualAnnotation::structureType)
-                .containsExactly("graph", "array", "composite", "graph", "graph", "node", "edge", "meta");
+                .containsExactly("graph", "array", "composite", "graph", "graph", "node", "edge", "meta", "node", "edge");
         assertThat(result.annotations()).extracting(VisualAnnotation::name)
                 .contains("tree", "arr", "cache", "network");
     }
@@ -64,7 +66,7 @@ class VisualAnnotationParserTest {
         assertThat(result.warnings()).hasSize(5);
         assertThat(result.warnings()).anySatisfy(warning -> assertThat(warning).contains("root 只允许变量名"));
         assertThat(result.warnings()).anySatisfy(warning -> assertThat(warning).contains("id 只允许简单变量名或字面值"));
-        assertThat(result.warnings()).anySatisfy(warning -> assertThat(warning).contains("to 只允许简单变量名或字面值"));
-        assertThat(result.warnings()).anySatisfy(warning -> assertThat(warning).contains("value 只允许简单变量名或字面值"));
+        assertThat(result.warnings()).anySatisfy(warning -> assertThat(warning).contains("to 只允许变量名、字面值或 -> 字段路径"));
+        assertThat(result.warnings()).anySatisfy(warning -> assertThat(warning).contains("value 只允许变量名、字面值或 -> 字段路径"));
     }
 }
