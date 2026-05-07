@@ -73,6 +73,24 @@ class MiniCDebugPaneTest {
     }
 
     @Test
+    void laysOutViewSelectorSourceAndDebugViewSideBySide() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            Parent workspace = (Parent) directChildWithStyle(pane, "debug-workspace");
+            assertThat(workspace).isNotNull();
+            assertThat(workspace.getChildrenUnmodifiable().getFirst().getStyleClass()).contains("debug-view-selector");
+            assertThat(workspace.getChildrenUnmodifiable().get(1)).isInstanceOf(SplitPane.class);
+            assertThat(buttonTextsWithStyle(pane, "debug-view-button"))
+                    .contains("元数据", "数据结构", "AST", "IR", "ASM");
+            assertThat(containsNode(pane, MiniCSourceLoaderView.class)).isTrue();
+            assertThat(containsNode(pane, SplitPane.class)).isTrue();
+        });
+    }
+
+    @Test
     void rendersStructuredMetadataSections() {
         startJavafx();
         runOnFxThread(() -> {
@@ -223,6 +241,12 @@ class MiniCDebugPaneTest {
         return labels;
     }
 
+    private static List<String> buttonTextsWithStyle(javafx.scene.Node node, String styleClass) {
+        ArrayList<String> buttons = new ArrayList<>();
+        collectButtonTextsWithStyle(node, styleClass, buttons);
+        return buttons;
+    }
+
     private static void collectSectionTitles(javafx.scene.Node node, List<String> titles) {
         if (node == null) {
             return;
@@ -259,6 +283,24 @@ class MiniCDebugPaneTest {
         }
     }
 
+    private static void collectButtonTextsWithStyle(javafx.scene.Node node, String styleClass, List<String> buttons) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof Button button && button.getStyleClass().contains(styleClass)) {
+            buttons.add(button.getText());
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            collectButtonTextsWithStyle(scrollPane.getContent(), styleClass, buttons);
+        }
+        if (node instanceof SplitPane splitPane) {
+            splitPane.getItems().forEach(item -> collectButtonTextsWithStyle(item, styleClass, buttons));
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectButtonTextsWithStyle(child, styleClass, buttons));
+        }
+    }
+
     private static Label textContaining(javafx.scene.Node node, String text) {
         if (node instanceof Label label && label.getText().contains(text)) {
             return label;
@@ -283,5 +325,28 @@ class MiniCDebugPaneTest {
             }
         }
         return null;
+    }
+
+    private static javafx.scene.Node directChildWithStyle(Parent parent, String styleClass) {
+        return parent.getChildrenUnmodifiable().stream()
+                .filter(child -> child.getStyleClass().contains(styleClass))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static boolean containsNode(javafx.scene.Node node, Class<?> type) {
+        if (type.isInstance(node)) {
+            return true;
+        }
+        if (node instanceof SplitPane splitPane) {
+            return splitPane.getItems().stream().anyMatch(child -> containsNode(child, type));
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            return containsNode(scrollPane.getContent(), type);
+        }
+        if (node instanceof Parent parent) {
+            return parent.getChildrenUnmodifiable().stream().anyMatch(child -> containsNode(child, type));
+        }
+        return false;
     }
 }

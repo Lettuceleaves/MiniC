@@ -43,9 +43,10 @@ public final class MiniCDebugPane extends VBox {
     );
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCSourceLoaderView sourceView;
-    private final SplitPane splitPane = new SplitPane();
-    private final HBox primaryDebugView = new HBox();
-    private final HBox splitDebugView = new HBox();
+    private final HBox debugBody = new HBox();
+    private final VBox viewSelector = new VBox(4);
+    private final SplitPane workspaceSplitPane = new SplitPane();
+    private final SplitPane viewSplitPane = new SplitPane();
     private final VBox primaryContent = new VBox();
     private final VBox splitContent = new VBox();
     private final Label status = label("", "body-text");
@@ -64,14 +65,9 @@ public final class MiniCDebugPane extends VBox {
         getStyleClass().add("debug-pane");
         sourceView = new MiniCSourceLoaderView(viewModel);
         HBox controls = controls();
-        configureDebugView(primaryDebugView, primaryContent, false);
-        configureDebugView(splitDebugView, splitContent, true);
-        splitPane.setOrientation(Orientation.HORIZONTAL);
-        splitPane.getItems().setAll(primaryDebugView);
-        splitPane.setDividerPositions(0.5);
-        getChildren().addAll(controls, status, sourceView, splitPane);
-        VBox.setVgrow(sourceView, Priority.ALWAYS);
-        VBox.setVgrow(splitPane, Priority.ALWAYS);
+        configureDebugBody();
+        getChildren().addAll(controls, status, debugBody);
+        VBox.setVgrow(debugBody, Priority.ALWAYS);
         viewModel.debugAsmViewProperty().addListener((observable, oldValue, newValue) -> refresh());
         refresh();
     }
@@ -171,42 +167,39 @@ public final class MiniCDebugPane extends VBox {
         }
     }
 
-    private void configureDebugView(HBox root, VBox content, boolean split) {
-        root.getStyleClass().add("debug-view-shell");
-        VBox selector = new VBox(4);
-        selector.getStyleClass().add("debug-view-selector");
-        DEBUG_VIEWS.forEach(view -> selector.getChildren().add(viewButton(view, split)));
-        content.getStyleClass().add("debug-view-content");
-        root.getChildren().setAll(selector, content);
-        HBox.setHgrow(content, Priority.ALWAYS);
-        refreshViewButtons(split);
+    private void configureDebugBody() {
+        debugBody.getStyleClass().add("debug-workspace");
+        viewSelector.getStyleClass().add("debug-view-selector");
+        DEBUG_VIEWS.forEach(view -> viewSelector.getChildren().add(viewButton(view)));
+        primaryContent.getStyleClass().add("debug-view-content");
+        splitContent.getStyleClass().add("debug-view-content");
+        viewSplitPane.setOrientation(Orientation.HORIZONTAL);
+        viewSplitPane.getItems().setAll(primaryContent);
+        workspaceSplitPane.setOrientation(Orientation.HORIZONTAL);
+        workspaceSplitPane.getItems().setAll(sourceView, viewSplitPane);
+        workspaceSplitPane.setDividerPositions(0.5);
+        debugBody.getChildren().setAll(viewSelector, workspaceSplitPane);
+        HBox.setHgrow(workspaceSplitPane, Priority.ALWAYS);
+        refreshViewButtons();
     }
 
-    private Button viewButton(DebugView view, boolean split) {
+    private Button viewButton(DebugView view) {
         Button button = new Button(view.title());
         button.getStyleClass().add("debug-view-button");
         button.setAccessibleText("Debug视图:" + view.title());
         button.setOnAction(event -> {
-            if (split) {
-                selectedSplitViewId = view.id();
-                setSplitContent(contentFor(selectedSplitViewId, true));
-            } else {
-                selectedViewId = view.id();
-                setPrimaryContent(contentFor(selectedViewId, false));
-            }
-            refreshViewButtons(split);
+            selectedViewId = view.id();
+            setPrimaryContent(contentFor(selectedViewId, false));
+            refreshViewButtons();
         });
         return button;
     }
 
-    private void refreshViewButtons(boolean split) {
-        HBox root = split ? splitDebugView : primaryDebugView;
-        String selected = split ? selectedSplitViewId : selectedViewId;
-        VBox selector = (VBox) root.getChildren().getFirst();
+    private void refreshViewButtons() {
         for (int index = 0; index < DEBUG_VIEWS.size(); index++) {
-            Button button = (Button) selector.getChildren().get(index);
+            Button button = (Button) viewSelector.getChildren().get(index);
             button.getStyleClass().remove("active");
-            if (DEBUG_VIEWS.get(index).id().equals(selected)) {
+            if (DEBUG_VIEWS.get(index).id().equals(selectedViewId)) {
                 button.getStyleClass().add("active");
             }
         }
@@ -223,14 +216,13 @@ public final class MiniCDebugPane extends VBox {
     private void toggleSplit() {
         splitVisible = !splitVisible;
         if (splitVisible) {
-            if (!splitPane.getItems().contains(splitDebugView)) {
-                splitPane.getItems().add(splitDebugView);
+            if (!viewSplitPane.getItems().contains(splitContent)) {
+                viewSplitPane.getItems().add(splitContent);
             }
             selectedSplitViewId = selectedViewId;
             setSplitContent(contentFor(selectedSplitViewId, true));
-            refreshViewButtons(true);
         } else {
-            splitPane.getItems().remove(splitDebugView);
+            viewSplitPane.getItems().remove(splitContent);
         }
     }
 
