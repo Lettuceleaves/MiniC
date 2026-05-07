@@ -25,6 +25,7 @@ import minic.uiapi.UiDebugMetadataViewDto;
 import minic.uiapi.UiDebugTimelineItemDto;
 import minic.uiapi.UiDebugVariableDto;
 import minic.uiapi.UiDebugVisualElementDto;
+import minic.uiapi.UiDebugVisualStructureDto;
 import minic.uiapi.UiIrLineVisualDto;
 
 import java.util.List;
@@ -78,6 +79,10 @@ public final class MiniCDebugPane extends VBox {
         VBox.setVgrow(splitPane, Priority.ALWAYS);
         viewModel.debugStateProperty().addListener((observable, oldValue, newValue) -> refresh());
         viewModel.debugMetadataViewProperty().addListener((observable, oldValue, newValue) -> refresh());
+        viewModel.debugDataStructureViewProperty().addListener((observable, oldValue, newValue) -> refresh());
+        viewModel.debugAstViewProperty().addListener((observable, oldValue, newValue) -> refresh());
+        viewModel.debugIrViewProperty().addListener((observable, oldValue, newValue) -> refresh());
+        viewModel.debugAsmViewProperty().addListener((observable, oldValue, newValue) -> refresh());
         refresh();
     }
 
@@ -181,7 +186,7 @@ public final class MiniCDebugPane extends VBox {
                 + " · " + viewModel.debugStateProperty().get().currentSnapshot().functionName());
         sourceView.setCurrentExecutionLine(currentSourceLine());
         setTabContent(0, metadataContent(viewModel.debugMetadataViewProperty().get()));
-        setTabText(1, dataText(viewModel.debugDataStructureViewProperty().get()));
+        setTabContent(1, dataContent(viewModel.debugDataStructureViewProperty().get()));
         setTabText(2, astText(viewModel.debugAstViewProperty().get()));
         setTabText(3, irText(viewModel.debugIrViewProperty().get()));
         setTabText(4, asmText(viewModel.debugAsmViewProperty().get()));
@@ -322,6 +327,74 @@ public final class MiniCDebugPane extends VBox {
                 + "\nwarnings:\n" + String.join("\n", view.warnings());
     }
 
+    private ScrollPane dataContent(UiDebugDataStructureViewDto view) {
+        VBox content = new VBox(10);
+        content.getStyleClass().add("debug-data-space");
+        if (view == null) {
+            return wrap(content);
+        }
+        content.getChildren().addAll(
+                processSpaceSection("code", List.of(
+                        "current function: " + view.processSpace().currentFunctionName(),
+                        "current instruction: " + view.processSpace().currentInstructionId(),
+                        "functions: " + String.join(", ", view.processSpace().functions())
+                )),
+                processSpaceSection("static/data", view.processSpace().staticValues().stream()
+                        .map(this::variableText)
+                        .toList()),
+                processSpaceSection("stack", view.processSpace().stackFrames().stream()
+                        .map(this::frameWithValuesText)
+                        .toList()),
+                processSpaceSection("heap", view.processSpace().heapValues().stream()
+                        .map(this::variableText)
+                        .toList()),
+                processSpaceSection("io", List.of(
+                        "stdin: " + emptyText(view.processSpace().stdin()),
+                        "stdout: " + emptyText(view.processSpace().stdout()),
+                        "stderr: " + emptyText(view.processSpace().stderr())
+                )),
+                visualCards(view.visuals()),
+                metadataSection("warnings", view.warnings())
+        );
+        return wrap(content);
+    }
+
+    private Node processSpaceSection(String title, List<String> lines) {
+        VBox section = new VBox(4);
+        section.getStyleClass().add("debug-process-section");
+        Label heading = label(title, "debug-process-title");
+        VBox body = new VBox(2);
+        body.getStyleClass().add("debug-section-body");
+        List<String> visibleLines = lines.isEmpty() ? List.of("(empty)") : lines;
+        visibleLines.forEach(line -> body.getChildren().add(label(line, "debug-section-line")));
+        section.getChildren().addAll(heading, body);
+        return section;
+    }
+
+    private Node visualCards(List<UiDebugVisualStructureDto> visuals) {
+        VBox section = new VBox(6);
+        section.getStyleClass().add("debug-visuals");
+        section.getChildren().add(label("visual structures", "debug-section-title"));
+        if (visuals.isEmpty()) {
+            section.getChildren().add(label("(empty)", "debug-section-line"));
+            return section;
+        }
+        visuals.forEach(visual -> section.getChildren().add(visualCard(visual)));
+        return section;
+    }
+
+    private Node visualCard(UiDebugVisualStructureDto visual) {
+        VBox card = new VBox(4);
+        card.getStyleClass().add("debug-visual-card");
+        card.getChildren().add(label(
+                visual.type() + " " + visual.name() + " · " + visual.kind(),
+                "debug-visual-title"
+        ));
+        card.getChildren().add(label(visual.summary(), "debug-section-line"));
+        visual.elements().forEach(element -> card.getChildren().add(label(visualElementText(element), "debug-section-line")));
+        return card;
+    }
+
     private String astText(UiDebugAstViewDto view) {
         if (view == null || view.activeNode() == null) {
             return "";
@@ -368,6 +441,18 @@ public final class MiniCDebugPane extends VBox {
                 + " active=" + rangeText(frame.activeRange());
     }
 
+    private String frameWithValuesText(UiDebugFrameDto frame) {
+        String parameters = frame.parameters().stream()
+                .map(this::variableText)
+                .collect(Collectors.joining("; "));
+        String locals = frame.locals().stream()
+                .map(this::variableText)
+                .collect(Collectors.joining("; "));
+        return frameText(frame)
+                + " params=[" + parameters + "]"
+                + " locals=[" + locals + "]";
+    }
+
     private String variableText(UiDebugVariableDto variable) {
         return "  " + variable.name()
                 + " " + variable.typeName()
@@ -406,6 +491,10 @@ public final class MiniCDebugPane extends VBox {
         return "    " + element.kind() + " " + element.id()
                 + " " + element.label()
                 + " " + element.metadata();
+    }
+
+    private String emptyText(String value) {
+        return value == null || value.isBlank() ? "(empty)" : value;
     }
 
     private String rangeText(minic.uiapi.UiSourceSpanDto range) {

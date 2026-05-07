@@ -84,6 +84,23 @@ class MiniCDebugPaneTest {
         });
     }
 
+    @Test
+    void rendersProcessSpaceSectionsInDataStructureTab() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            viewModel.loadSource("debug-data-ui.mc", "int main() { return 0; }");
+            viewModel.startDebug();
+
+            assertThat(labelsWithStyle(pane, "debug-process-title"))
+                    .contains("code", "static/data", "stack", "heap", "io");
+            assertThat(labelsWithStyle(pane, "debug-section-title"))
+                    .contains("visual structures", "warnings");
+        });
+    }
+
     private static void runOnFxThread(Runnable action) {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -162,6 +179,12 @@ class MiniCDebugPaneTest {
         return titles;
     }
 
+    private static List<String> labelsWithStyle(javafx.scene.Node node, String styleClass) {
+        ArrayList<String> labels = new ArrayList<>();
+        collectLabelsWithStyle(node, styleClass, labels);
+        return labels;
+    }
+
     private static void collectSectionTitles(javafx.scene.Node node, List<String> titles) {
         if (node == null) {
             return;
@@ -180,6 +203,27 @@ class MiniCDebugPaneTest {
         }
         if (node instanceof Parent parent) {
             parent.getChildrenUnmodifiable().forEach(child -> collectSectionTitles(child, titles));
+        }
+    }
+
+    private static void collectLabelsWithStyle(javafx.scene.Node node, String styleClass, List<String> labels) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof Label label && label.getStyleClass().contains(styleClass)) {
+            labels.add(label.getText());
+        }
+        if (node instanceof TabPane tabPane) {
+            tabPane.getTabs().forEach(tab -> collectLabelsWithStyle(tab.getContent(), styleClass, labels));
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            collectLabelsWithStyle(scrollPane.getContent(), styleClass, labels);
+        }
+        if (node instanceof SplitPane splitPane) {
+            splitPane.getItems().forEach(item -> collectLabelsWithStyle(item, styleClass, labels));
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectLabelsWithStyle(child, styleClass, labels));
         }
     }
 }
