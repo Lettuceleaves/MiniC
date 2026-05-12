@@ -59,6 +59,7 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiDebugAsmViewDto> debugAsmView = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<List<Integer>> debugBreakpointLines = new ReadOnlyObjectWrapper<>(List.of());
     private final Map<String, UiViewportState> viewportStates = new ConcurrentHashMap<>();
+    private String executionInputDraft = "";
 
     /**
      * 使用默认 UI API 创建状态模型。
@@ -159,6 +160,7 @@ public final class MiniCWorkbenchViewModel {
      */
     public UiControlResultDto next() {
         selectedVisualStage.set("");
+        autoConfirmExecutionInput();
         UiControlResultDto result = api.next();
         applyControlResult(result);
         refreshAll();
@@ -172,7 +174,12 @@ public final class MiniCWorkbenchViewModel {
      */
     public UiControlResultDto nextStage() {
         selectedVisualStage.set("");
-        UiControlResultDto result = api.nextStage();
+        autoConfirmExecutionInput();
+        UiControlResultDto result = currentState.get() != null
+                && "execution".equals(currentState.get().currentStage())
+                && currentState.get().canNext()
+                ? api.next()
+                : api.nextStage();
         applyControlResult(result);
         refreshAll();
         return result;
@@ -185,6 +192,7 @@ public final class MiniCWorkbenchViewModel {
      */
     public UiControlResultDto play() {
         selectedVisualStage.set("");
+        autoConfirmExecutionInput();
         UiControlResultDto result = api.play();
         applyControlResult(result);
         refreshAll();
@@ -198,6 +206,7 @@ public final class MiniCWorkbenchViewModel {
      */
     public UiControlResultDto playFast() {
         selectedVisualStage.set("");
+        autoConfirmExecutionInput();
         UiControlResultDto result = api.playFast();
         applyControlResult(result);
         refreshAll();
@@ -211,6 +220,7 @@ public final class MiniCWorkbenchViewModel {
      */
     public UiControlResultDto tick() {
         selectedVisualStage.set("");
+        autoConfirmExecutionInput();
         UiControlResultDto result = api.tick();
         applyControlResult(result);
         refreshAll();
@@ -237,10 +247,65 @@ public final class MiniCWorkbenchViewModel {
      */
     public UiControlResultDto confirmExecutionInput(String standardInput) {
         selectedVisualStage.set("");
+        executionInputDraft = standardInput == null ? "" : standardInput;
         UiControlResultDto result = api.confirmExecutionInput(standardInput);
         applyControlResult(result);
         refreshAll();
         return result;
+    }
+
+    /**
+     * 更新执行阶段标准输入草稿。
+     *
+     * @param standardInput 标准输入文本
+     */
+    public void updateExecutionInputDraft(String standardInput) {
+        executionInputDraft = standardInput == null ? "" : standardInput;
+    }
+
+    /**
+     * 返回执行阶段标准输入草稿。
+     *
+     * @return 标准输入文本
+     */
+    public String executionInputDraft() {
+        return executionInputDraft;
+    }
+
+    /**
+     * UI 控制栏是否允许执行下一步。
+     *
+     * @return 允许时为 {@code true}
+     */
+    public boolean canNextControl() {
+        return currentState.get() != null && (currentState.get().canNext() || executionAwaitingInput());
+    }
+
+    /**
+     * UI 控制栏是否允许跳转下一阶段。
+     *
+     * @return 允许时为 {@code true}
+     */
+    public boolean canNextStageControl() {
+        return canNextControl();
+    }
+
+    /**
+     * UI 控制栏是否允许播放。
+     *
+     * @return 允许时为 {@code true}
+     */
+    public boolean canPlayControl() {
+        return currentState.get() != null && (currentState.get().canPlay() || executionAwaitingInput());
+    }
+
+    /**
+     * UI 控制栏是否允许两倍速播放。
+     *
+     * @return 允许时为 {@code true}
+     */
+    public boolean canPlayFastControl() {
+        return currentState.get() != null && (currentState.get().canPlayFast() || executionAwaitingInput());
     }
 
     /**
@@ -627,6 +692,34 @@ public final class MiniCWorkbenchViewModel {
     private void applyControlResult(UiControlResultDto result) {
         lastControlResult.set(result);
         lastOutcome.set(result.outcome());
+    }
+
+    private void autoConfirmExecutionInput() {
+        if (!sessionStarted.get()) {
+            return;
+        }
+        UiCurrentStateDto state = currentState.get();
+        UiGlobalDataDto data = globalData.get();
+        if (state == null || data == null || !"execution".equals(state.currentStage())) {
+            return;
+        }
+        boolean confirmed = data.executionInputSummary().stream()
+                .anyMatch(line -> line.equals("stdin confirmed"));
+        if (confirmed) {
+            return;
+        }
+        UiControlResultDto result = api.confirmExecutionInput(executionInputDraft);
+        applyControlResult(result);
+        refreshAll();
+    }
+
+    private boolean executionAwaitingInput() {
+        UiCurrentStateDto state = currentState.get();
+        UiGlobalDataDto data = globalData.get();
+        return state != null
+                && data != null
+                && "execution".equals(state.currentStage())
+                && data.executionInputSummary().stream().anyMatch(line -> line.equals("stdin pending"));
     }
 
     private void applyRealtimeAnalysis(UiRealtimeAnalysisDto result) {

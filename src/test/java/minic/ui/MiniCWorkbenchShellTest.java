@@ -203,6 +203,8 @@ class MiniCWorkbenchShellTest {
         assertThat(button(root, "运行到断点")).isNotNull();
         assertThat(button(root, "单退")).isNotNull();
         assertThat(button(root, "拆分")).isNotNull();
+        assertThat(button(root, "确认输入")).isNull();
+        assertThat(labels(root).stream().map(Label::getText)).doesNotContain("无输入");
         assertThat(button(root, "开始")).isNull();
         assertThat(button(root, "打开")).isNull();
         assertThat(button(root, "保存")).isNull();

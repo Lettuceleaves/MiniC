@@ -5,8 +5,6 @@ import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Group;
-import javafx.scene.control.Button;
-import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Slider;
@@ -61,8 +59,6 @@ public final class MiniCVisualPane extends VBox {
     private final StageColumn rightColumn = new StageColumn("right", true);
     private final Slider astZoom = new Slider(MIN_AST_ZOOM, MAX_AST_ZOOM, DEFAULT_AST_ZOOM);
     private final TextArea executionStdin = new TextArea();
-    private final CheckBox executionNoInput = new CheckBox("无输入");
-    private final Button executionConfirm = new Button("确认输入");
     private String selectedSemanticScopeId = "";
     private boolean refreshScheduled;
     private String activeVisualStage = "pending";
@@ -250,25 +246,20 @@ public final class MiniCVisualPane extends VBox {
     private void configureExecutionInputControls() {
         executionStdin.getStyleClass().add("execution-stdin");
         executionStdin.setWrapText(false);
-        executionNoInput.selectedProperty().addListener((observable, oldValue, selected) -> executionStdin.setDisable(selected));
-        executionConfirm.setOnAction(event -> viewModel.confirmExecutionInput(
-                executionNoInput.isSelected() ? "" : executionStdin.getText()
-        ));
+        executionStdin.setText(viewModel.executionInputDraft());
+        executionStdin.textProperty().addListener((observable, oldValue, newValue) ->
+                viewModel.updateExecutionInputDraft(newValue));
     }
 
     private VBox executionInputPane() {
         VBox box = new VBox(8);
-        HBox actions = new HBox(8, executionNoInput, executionConfirm);
-        actions.getStyleClass().add("execution-actions");
         boolean completed = viewModel.currentStageDataProperty().get() != null
                 && viewModel.currentStageDataProperty().get().completed();
         boolean confirmed = viewModel.globalDataProperty().get() != null
                 && viewModel.globalDataProperty().get().executionInputSummary().stream()
                 .anyMatch(line -> line.equals("stdin confirmed"));
-        executionStdin.setDisable(executionNoInput.isSelected() || completed || confirmed);
-        executionNoInput.setDisable(completed || confirmed);
-        executionConfirm.setDisable(completed || confirmed);
-        box.getChildren().addAll(actions, executionStdin);
+        executionStdin.setDisable(completed || confirmed);
+        box.getChildren().add(executionStdin);
         VBox.setVgrow(executionStdin, Priority.ALWAYS);
         return box;
     }

@@ -153,6 +153,84 @@ class MiniCWorkbenchViewModelTest {
     }
 
     @Test
+    void nextAutomaticallyConfirmsExecutionInputDraft() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("execution-input-view.mc", "int main() { return 0; }");
+        viewModel.startSession();
+        viewModel.updateExecutionInputDraft("abc\n");
+
+        advanceToStage(viewModel, "execution");
+
+        assertThat(viewModel.globalDataProperty().get().executionInputSummary()).contains("stdin pending");
+
+        UiControlResultDto result = viewModel.next();
+
+        assertThat(result.outcome()).isEqualTo("STAGE_COMPLETED");
+        assertThat(viewModel.globalDataProperty().get().executionInputSummary()).contains("stdin confirmed", "abc\n");
+        assertThat(viewModel.currentStageDataProperty().get().completed()).isTrue();
+    }
+
+    @Test
+    void nextStageAutomaticallyConfirmsExecutionInputDraft() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("execution-input-stage-view.mc", "int main() { return 0; }");
+        viewModel.startSession();
+        viewModel.updateExecutionInputDraft("stage input");
+
+        advanceToStage(viewModel, "execution");
+
+        UiControlResultDto result = viewModel.nextStage();
+
+        assertThat(result.outcome()).isEqualTo("STAGE_COMPLETED");
+        assertThat(viewModel.globalDataProperty().get().executionInputSummary()).contains("stdin confirmed", "stage input");
+    }
+
+    @Test
+    void executionPendingInputKeepsPlaybackControlsEnabled() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("execution-controls-view.mc", "int main() { return 0; }");
+        viewModel.startSession();
+        viewModel.updateExecutionInputDraft("controls input");
+
+        advanceToStage(viewModel, "execution");
+
+        assertThat(viewModel.currentStateProperty().get().canNext()).isFalse();
+        assertThat(viewModel.currentStateProperty().get().canPlay()).isFalse();
+        assertThat(viewModel.currentStateProperty().get().canPlayFast()).isFalse();
+        assertThat(viewModel.canNextControl()).isTrue();
+        assertThat(viewModel.canNextStageControl()).isTrue();
+        assertThat(viewModel.canPlayControl()).isTrue();
+        assertThat(viewModel.canPlayFastControl()).isTrue();
+    }
+
+    @Test
+    void playControlsAutomaticallyConfirmExecutionInputDraft() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("execution-play-view.mc", "int main() { return 0; }");
+        viewModel.startSession();
+        viewModel.updateExecutionInputDraft("play input");
+        advanceToStage(viewModel, "execution");
+
+        UiControlResultDto play = viewModel.play();
+
+        assertThat(play.outcome()).isEqualTo("ADVANCED");
+        assertThat(viewModel.currentStateProperty().get().playbackMode()).isEqualTo("PLAYING");
+        assertThat(viewModel.globalDataProperty().get().executionInputSummary()).contains("stdin confirmed", "play input");
+
+        viewModel.pause();
+        viewModel.loadSource("execution-play-fast-view.mc", "int main() { return 0; }");
+        viewModel.startSession();
+        viewModel.updateExecutionInputDraft("fast input");
+        advanceToStage(viewModel, "execution");
+
+        UiControlResultDto playFast = viewModel.playFast();
+
+        assertThat(playFast.outcome()).isEqualTo("ADVANCED");
+        assertThat(viewModel.currentStateProperty().get().playbackMode()).isEqualTo("FAST_PLAYING");
+        assertThat(viewModel.globalDataProperty().get().executionInputSummary()).contains("stdin confirmed", "fast input");
+    }
+
+    @Test
     void publicApiExposesOnlyUiLayerAndJavaFxTypes() {
         assertThat(MiniCWorkbenchViewModel.class.getMethods())
                 .filteredOn(method -> method.getDeclaringClass() == MiniCWorkbenchViewModel.class)
