@@ -153,6 +153,25 @@ class MiniCWorkbenchViewModelTest {
     }
 
     @Test
+    void runToExecutionStopsAtExecutionInputStep() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("run-to-execution-view.mc", "int main() { return 0; }");
+        viewModel.startSession();
+        viewModel.updateExecutionInputDraft("should not run yet");
+
+        UiControlResultDto result = viewModel.runToExecution();
+
+        assertThat(result.outcome()).isEqualTo("ADVANCED");
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("execution");
+        assertThat(viewModel.currentStageDataProperty().get().completed()).isFalse();
+        assertThat(viewModel.globalDataProperty().get().executionInputSummary()).contains("stdin pending");
+        assertThat(viewModel.globalDataProperty().get().executionInputSummary()).doesNotContain("stdin confirmed");
+        assertThat(viewModel.globalDataProperty().get().executionOutputSummary()).isEmpty();
+        assertThat(viewModel.canRunToExecutionControl()).isFalse();
+        assertThat(viewModel.canNextControl()).isTrue();
+    }
+
+    @Test
     void nextAutomaticallyConfirmsExecutionInputDraft() {
         MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
         viewModel.loadSource("execution-input-view.mc", "int main() { return 0; }");

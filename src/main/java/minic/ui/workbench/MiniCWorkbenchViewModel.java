@@ -186,6 +186,40 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
+     * 一步推进到执行阶段入口并刷新全部 UI 数据。
+     *
+     * @return 最后一次控制结果
+     */
+    public UiControlResultDto runToExecution() {
+        selectedVisualStage.set("");
+        UiControlResultDto result = null;
+        int guard = 0;
+        while (currentState.get() != null
+                && !"execution".equals(currentState.get().currentStage())
+                && currentState.get().canNext()
+                && guard++ < 1000) {
+            result = api.nextStage();
+            applyControlResult(result);
+            refreshAll();
+            if ("FAILED".equals(result.outcome()) || "CANNOT_ADVANCE".equals(result.outcome())) {
+                return result;
+            }
+        }
+        if (result == null) {
+            result = new UiControlResultDto(
+                    "CANNOT_ADVANCE",
+                    "execution",
+                    "已在执行阶段",
+                    "当前已经位于执行阶段入口。",
+                    List.of()
+            );
+            applyControlResult(result);
+        }
+        refreshAll();
+        return result;
+    }
+
+    /**
      * 开启自动播放状态并刷新当前状态。
      *
      * @return 控制结果
@@ -288,6 +322,17 @@ public final class MiniCWorkbenchViewModel {
      */
     public boolean canNextStageControl() {
         return canNextControl();
+    }
+
+    /**
+     * UI 控制栏是否允许一步推进到执行阶段。
+     *
+     * @return 允许时为 {@code true}
+     */
+    public boolean canRunToExecutionControl() {
+        return currentState.get() != null
+                && currentState.get().canNext()
+                && !"execution".equals(currentState.get().currentStage());
     }
 
     /**

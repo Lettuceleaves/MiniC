@@ -57,6 +57,7 @@ class MiniCWorkbenchShellTest {
                 .doesNotContain("Problems / Output / Terminal");
         assertThat(button(root, "打开")).isNotNull();
         assertThat(button(root, "保存")).isNotNull();
+        assertThat(button(root, "到执行")).isNotNull();
         assertThat(button(root, "+")).isNotNull();
 
         assertThat(visibleChildren(mainContent)).singleElement()

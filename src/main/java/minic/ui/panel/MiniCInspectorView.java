@@ -19,6 +19,7 @@ public final class MiniCInspectorView extends VBox {
     private final Label accumulatedOutput = body("");
     private final Button nextButton = control("下一步", true);
     private final Button nextStageButton = control("下一阶段", false);
+    private final Button runToExecutionButton = control("到执行", false);
     private final Button playButton = control("播放", false);
     private final Button playFastButton = control("2x", false);
     private final Button pauseButton = control("暂停", false);
@@ -34,6 +35,7 @@ public final class MiniCInspectorView extends VBox {
         getStyleClass().add("inspector");
         nextButton.setOnAction(event -> viewModel.next());
         nextStageButton.setOnAction(event -> playbackController.nextStage());
+        runToExecutionButton.setOnAction(event -> viewModel.runToExecution());
         playButton.setOnAction(event -> playbackController.play());
         playFastButton.setOnAction(event -> playbackController.playFast());
         pauseButton.setOnAction(event -> playbackController.pause());
@@ -70,6 +72,7 @@ public final class MiniCInspectorView extends VBox {
         boolean hasState = viewModel.currentStateProperty().get() != null;
         nextButton.setDisable(!started || !hasState || !viewModel.canNextControl());
         nextStageButton.setDisable(!started || !hasState || !viewModel.canNextStageControl());
+        runToExecutionButton.setDisable(!started || !hasState || !viewModel.canRunToExecutionControl());
         playButton.setDisable(!started || !hasState || !viewModel.canPlayControl());
         playFastButton.setDisable(!started || !hasState || !viewModel.canPlayFastControl());
         pauseButton.setDisable(!started || !hasState || !viewModel.currentStateProperty().get().canPause());
@@ -78,7 +81,7 @@ public final class MiniCInspectorView extends VBox {
     private HBox controls() {
         HBox controls = new HBox(6);
         controls.getStyleClass().add("controls");
-        controls.getChildren().addAll(nextButton, nextStageButton, playButton, playFastButton, pauseButton);
+        controls.getChildren().addAll(nextButton, nextStageButton, runToExecutionButton, playButton, playFastButton, pauseButton);
         return controls;
     }
 
