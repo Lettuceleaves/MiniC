@@ -66,6 +66,11 @@ class MiniCWorkbenchShellTest {
         viewModel.startSession();
 
         assertThat(visibleChildren(mainContent)).singleElement()
+                .satisfies(node -> assertThat(containsNode(node, MiniCSourceLoaderView.class)).isTrue());
+
+        viewModel.next();
+
+        assertThat(visibleChildren(mainContent)).singleElement()
                 .isInstanceOf(MiniCVisualPane.class);
 
         viewModel.selectVisualStage("source");

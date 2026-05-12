@@ -15,13 +15,16 @@ class MiniCObservationApiTest {
         api.startSession();
 
         assertThat(api.currentState().sourceName()).isEqualTo("ui.mc");
-        assertThat(api.currentState().currentStage()).isEqualTo("preprocess");
-        assertThat(api.currentStageData().stage()).isEqualTo("preprocess");
-        assertThat(api.currentStageVisualData().stage()).isEqualTo("preprocess");
+        assertThat(api.currentState().currentStage()).isEqualTo("source");
+        assertThat(api.currentStageData().stage()).isEqualTo("source");
+        assertThat(api.currentStageVisualData().stage()).isEqualTo("source");
         assertThat(api.currentStageVisualData().visualType()).isEqualTo("generic");
         assertThat(api.globalData().source()).isEqualTo("int main() { return 0; }");
+        assertThat(api.next().outcome()).isEqualTo("ADVANCED");
+        assertThat(api.currentState().currentStage()).isEqualTo("preprocess");
         assertThat(api.next().outcome()).isEqualTo("STAGE_COMPLETED");
         assertThat(api.next().outcome()).isEqualTo("ADVANCED");
+        assertThat(api.currentState().currentStage()).isEqualTo("lexer");
         assertThat(api.next().outcome()).isEqualTo("ADVANCED");
         assertThat(api.currentStageVisualData().lexerTokens())
                 .anySatisfy(token -> {
@@ -47,6 +50,12 @@ class MiniCObservationApiTest {
 
         assertThat(result.outcome()).isEqualTo("ADVANCED");
         assertThat(result.title()).contains("跳转到下一环节");
+        assertThat(api.currentState().currentStage()).isEqualTo("preprocess");
+        assertThat(api.currentStageVisualData().visualType()).isEqualTo("generic");
+
+        result = api.nextStage();
+
+        assertThat(result.outcome()).isEqualTo("ADVANCED");
         assertThat(api.currentState().currentStage()).isEqualTo("lexer");
         assertThat(api.globalData().preprocessSummary()).isNotEmpty();
         assertThat(api.currentStageVisualData().visualType()).isEqualTo("lexer");
@@ -58,6 +67,8 @@ class MiniCObservationApiTest {
         api.loadSource("next-stage-repeat-ui.mc", "int main() { return 0; }");
         api.startSession();
 
+        api.nextStage();
+        assertThat(api.currentState().currentStage()).isEqualTo("preprocess");
         api.nextStage();
         assertThat(api.currentState().currentStage()).isEqualTo("lexer");
         api.nextStage();
@@ -98,6 +109,7 @@ class MiniCObservationApiTest {
         api.loadSource("overlay.mc", "int\tmain\n  value123 >= 10;");
         api.startSession();
 
+        api.next();
         api.next();
         api.next();
         api.next();

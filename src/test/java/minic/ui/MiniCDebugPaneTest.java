@@ -57,8 +57,8 @@ class MiniCDebugPaneTest {
             assertThat(button(pane, "AST")).isNotNull();
             assertThat(button(pane, "IR")).isNotNull();
             assertThat(button(pane, "ASM")).isNotNull();
-            assertThat(button(pane, "设断点")).isNotNull();
-            assertThat(button(pane, "清断点")).isNotNull();
+            assertThat(button(pane, "设断点")).isNull();
+            assertThat(button(pane, "清断点")).isNull();
             assertThat(button(pane, "快进")).isNotNull();
             assertThat(button(pane, "运行到断点")).isNotNull();
             assertThat(button(pane, "单步")).isNotNull();

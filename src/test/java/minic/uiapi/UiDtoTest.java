@@ -18,7 +18,7 @@ class UiDtoTest {
         UiCurrentStateDto state = api.currentState();
 
         assertThat(state.sourceName()).isEqualTo("dto.mc");
-        assertThat(state.currentStage()).isEqualTo("preprocess");
+        assertThat(state.currentStage()).isEqualTo("source");
         assertThat(state.playbackMode()).isEqualTo("PAUSED");
         assertThat(state.frameIntervalMillis()).isEqualTo(1000);
         assertThat(state.canPrevious()).isFalse();

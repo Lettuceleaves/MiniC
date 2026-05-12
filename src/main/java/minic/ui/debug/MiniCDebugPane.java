@@ -4,8 +4,8 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
-import javafx.scene.control.TextField;
 import javafx.geometry.Orientation;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Group;
 import javafx.scene.layout.GridPane;
@@ -70,7 +70,6 @@ public final class MiniCDebugPane extends VBox {
     private final VBox splitContent = new VBox();
     private final MiniCAstGraphModelFactory astGraphModelFactory = new MiniCAstGraphModelFactory();
     private final Label status = label("", "body-text");
-    private final TextField breakpointLine = new TextField("1");
     private String selectedViewId = "metadata";
     private String selectedSplitViewId = "metadata";
     private boolean splitVisible;
@@ -98,14 +97,6 @@ public final class MiniCDebugPane extends VBox {
             sourceView.loadCurrentSource();
             viewModel.startDebug();
         });
-        Button breakpoint = button("设断点", () -> {
-            sourceView.setBreakpoint(breakpointLine(), true);
-            viewModel.setDebugBreakpoint(breakpointLine());
-        });
-        Button clearBreakpoint = button("清断点", () -> {
-            sourceView.setBreakpoint(breakpointLine(), false);
-            viewModel.clearDebugBreakpoint(breakpointLine());
-        });
         Button fast = button("快进", viewModel::debugFastForward);
         Button run = button("运行到断点", viewModel::debugRunToBreakpoint);
         Button step = button("单步", viewModel::debugStepOver);
@@ -118,38 +109,27 @@ public final class MiniCDebugPane extends VBox {
         Button backBreakpoint = button("步退", viewModel::debugBackToBreakpoint);
         Button backCall = button("返回调用处", viewModel::debugBackToCallSite);
         Button split = button("拆分", this::toggleSplit);
-        breakpointLine.getStyleClass().add("debug-breakpoint-line");
-        breakpointLine.setPrefWidth(58);
+        VBox pairedControls = new VBox(4);
+        pairedControls.getStyleClass().add("debug-paired-controls");
+        pairedControls.getChildren().addAll(
+                new HBox(6, run, step, into),
+                new HBox(6, backBreakpoint, back, backCall)
+        );
         HBox controls = new HBox(
                 6,
                 start,
-                label("行", "body-text"),
-                breakpointLine,
-                breakpoint,
-                clearBreakpoint,
                 fast,
-                run,
-                step,
-                into,
-                out,
+                pairedControls,
                 pause,
                 restart,
                 close,
-                back,
-                backBreakpoint,
-                backCall,
+                out,
                 split
         );
         controls.getStyleClass().add("controls");
+        controls.getStyleClass().add("debug-controls");
+        controls.setAlignment(Pos.CENTER_LEFT);
         return controls;
-    }
-
-    private int breakpointLine() {
-        try {
-            return Math.max(1, Integer.parseInt(breakpointLine.getText().trim()));
-        } catch (NumberFormatException exception) {
-            return 1;
-        }
     }
 
     private Button button(String text, Runnable action) {

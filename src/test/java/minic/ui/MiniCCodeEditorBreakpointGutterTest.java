@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Method;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -39,54 +40,83 @@ class MiniCCodeEditorBreakpointGutterTest {
     @Test
     void togglesBreakpointLinesAndBuildsGutterGraphic() throws Exception {
         startJavafx();
-        MiniCCodeEditor editor = new MiniCCodeEditor();
-        editor.setText("""
-                int main() {
-                    return 0;
-                }
-                """);
+        runOnFxThread(() -> {
+            MiniCCodeEditor editor = new MiniCCodeEditor();
+            editor.setText("""
+                    int main() {
+                        return 0;
+                    }
+                    """);
 
-        editor.setBreakpoint(2, true);
+            editor.setBreakpoint(2, true);
 
-        assertThat(editor.breakpointLines()).containsExactly(2);
+            assertThat(editor.breakpointLines()).containsExactly(2);
 
-        HBox graphic = paragraphGraphic(editor, 1);
-        assertThat(graphic.getStyleClass()).contains("editor-gutter");
-        Label breakpoint = (Label) graphic.getChildren().get(1);
-        assertThat(breakpoint.getStyleClass()).contains("breakpoint-gutter", "active");
-        assertThat(breakpoint.getText()).isEqualTo("●");
+            HBox graphic = paragraphGraphic(editor, 1);
+            assertThat(graphic.getStyleClass()).contains("editor-gutter");
+            Label breakpoint = (Label) graphic.getChildren().get(1);
+            assertThat(breakpoint.getStyleClass()).contains("breakpoint-gutter", "active");
+            assertThat(breakpoint.getText()).isEqualTo("●");
 
-        breakpoint.fireEvent(mouseClick());
+            breakpoint.fireEvent(mouseClick());
 
-        assertThat(editor.breakpointLines()).isEmpty();
+            assertThat(editor.breakpointLines()).isEmpty();
+        });
     }
 
     @Test
     void marksCurrentExecutionLineInGutter() throws Exception {
         startJavafx();
-        MiniCCodeEditor editor = new MiniCCodeEditor();
+        runOnFxThread(() -> {
+            MiniCCodeEditor editor = new MiniCCodeEditor();
 
-        editor.setCurrentExecutionLine(3);
+            editor.setCurrentExecutionLine(3);
 
-        HBox active = paragraphGraphic(editor, 2);
-        HBox inactive = paragraphGraphic(editor, 1);
+            HBox active = paragraphGraphic(editor, 2);
+            HBox inactive = paragraphGraphic(editor, 1);
 
-        assertThat(active.getStyleClass()).contains("current-execution");
-        assertThat(((Label) active.getChildren().getFirst()).getText()).isEqualTo("▶");
-        assertThat(inactive.getStyleClass()).doesNotContain("current-execution");
+            assertThat(active.getStyleClass()).contains("current-execution");
+            assertThat(((Label) active.getChildren().getFirst()).getText()).isEqualTo("▶");
+            assertThat(inactive.getStyleClass()).doesNotContain("current-execution");
+        });
     }
 
     @Test
     void replacesBreakpointLinesWithoutFiringChangeAction() {
         startJavafx();
-        MiniCCodeEditor editor = new MiniCCodeEditor();
-        java.util.concurrent.atomic.AtomicInteger changes = new java.util.concurrent.atomic.AtomicInteger();
-        editor.setBreakpointChangeAction(changes::incrementAndGet);
+        runOnFxThread(() -> {
+            MiniCCodeEditor editor = new MiniCCodeEditor();
+            java.util.concurrent.atomic.AtomicInteger changes = new java.util.concurrent.atomic.AtomicInteger();
+            editor.setBreakpointChangeAction(changes::incrementAndGet);
 
-        editor.replaceBreakpoints(java.util.List.of(4, 2, 2, 0));
+            editor.replaceBreakpoints(java.util.List.of(4, 2, 2, 0));
 
-        assertThat(editor.breakpointLines()).containsExactly(2, 4);
-        assertThat(changes).hasValue(0);
+            assertThat(editor.breakpointLines()).containsExactly(2, 4);
+            assertThat(changes).hasValue(0);
+        });
+    }
+
+    private void runOnFxThread(ThrowingRunnable action) {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Platform.runLater(() -> {
+            try {
+                action.run();
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            } finally {
+                latch.countDown();
+            }
+        });
+        try {
+            assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(exception);
+        }
+        if (failure.get() != null) {
+            throw new AssertionError(failure.get());
+        }
     }
 
     private HBox paragraphGraphic(MiniCCodeEditor editor, int paragraphIndex) throws Exception {
@@ -117,5 +147,9 @@ class MiniCCodeEditorBreakpointGutterTest {
                 false,
                 null
         );
+    }
+
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 }

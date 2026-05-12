@@ -37,14 +37,15 @@ public final class MiniCStageListFactory {
             UiGlobalDataDto globalData
     ) {
         List<MiniCStageView> views = new ArrayList<>();
-        String currentStage = currentState == null ? "lexer" : currentState.currentStage();
+        String currentStage = currentState == null ? "source" : currentState.currentStage();
         int currentIndex = stageIndex(currentStage);
         for (int index = 0; index < STAGES.size(); index++) {
             StageInfo stage = STAGES.get(index);
             boolean active = stage.id().equals(currentStage);
-            boolean done = index < currentIndex || active && currentStageData != null && currentStageData.completed();
+            boolean done = currentState != null
+                    && (index < currentIndex || active && currentStageData != null && currentStageData.completed());
             String state = state(active, done, globalData);
-            int progress = progress(stage.id(), active, done, currentStageData);
+            int progress = progress(stage.id(), active, done, currentState, currentStageData);
             String detail = detail(stage.id(), active, currentStageData, globalData);
             views.add(new MiniCStageView(stage.id(), stage.title(), state, detail, progress));
         }
@@ -78,8 +79,17 @@ public final class MiniCStageListFactory {
                 && globalData.diagnostics().stream().anyMatch(diagnostic -> "ERROR".equals(diagnostic.severity()));
     }
 
-    private int progress(String stage, boolean active, boolean done, UiStageDataDto currentStageData) {
+    private int progress(
+            String stage,
+            boolean active,
+            boolean done,
+            UiCurrentStateDto currentState,
+            UiStageDataDto currentStageData
+    ) {
         if (done) {
+            return 100;
+        }
+        if ("source".equals(stage) && active && currentState != null) {
             return 100;
         }
         if (!active || currentStageData == null || currentStageData.totalSteps() <= 0) {

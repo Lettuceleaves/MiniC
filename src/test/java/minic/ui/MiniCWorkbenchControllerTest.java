@@ -15,10 +15,11 @@ class MiniCWorkbenchControllerTest {
         long before = viewModel.currentStateProperty().get().globalStepIndex();
         UiControlResultDto result = controller.next();
 
-        assertThat(result.outcome()).isEqualTo("STAGE_COMPLETED");
-        assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isEqualTo(before + 1);
-        assertThat(viewModel.currentStageDataProperty().get().accumulatedOutput()).isNotEmpty();
-        assertThat(viewModel.globalDataProperty().get().preprocessSummary()).isNotEmpty();
+        assertThat(result.outcome()).isEqualTo("ADVANCED");
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("preprocess");
+        assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isEqualTo(before);
+        assertThat(viewModel.currentStageDataProperty().get().accumulatedOutput()).isEmpty();
+        assertThat(viewModel.globalDataProperty().get().preprocessSummary()).isEmpty();
     }
 
     @Test
@@ -30,6 +31,6 @@ class MiniCWorkbenchControllerTest {
         UiControlResultDto result = controller.nextStage();
 
         assertThat(result.outcome()).isEqualTo("ADVANCED");
-        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("lexer");
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("preprocess");
     }
 }

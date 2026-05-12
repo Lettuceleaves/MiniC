@@ -14,7 +14,15 @@ class CompileObservationSessionNextTest {
 
         StepResult first = session.next();
 
-        assertThat(first.outcome()).isEqualTo(StepOutcome.STAGE_COMPLETED);
+        assertThat(first.outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PREPROCESS);
+        assertThat(session.globalStepCount()).isZero();
+        assertThat(session.currentState().globalStepIndex()).isZero();
+        assertThat(session.preprocessResult()).isEmpty();
+
+        StepResult preprocess = session.next();
+
+        assertThat(preprocess.outcome()).isEqualTo(StepOutcome.STAGE_COMPLETED);
         assertThat(session.currentStage()).isEqualTo(CompileStage.PREPROCESS);
         assertThat(session.globalStepCount()).isEqualTo(1);
         assertThat(session.currentState().globalStepIndex()).isEqualTo(1);
@@ -48,9 +56,15 @@ class CompileObservationSessionNextTest {
 
         assertThat(result.outcome()).isEqualTo(StepOutcome.ADVANCED);
         assertThat(result.title()).contains("跳转到下一环节");
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PREPROCESS);
+        assertThat(session.preprocessResult()).isEmpty();
+        assertThat(session.currentStageData().stage()).isEqualTo(CompileStage.PREPROCESS);
+
+        StepResult next = session.nextStage();
+
+        assertThat(next.outcome()).isEqualTo(StepOutcome.ADVANCED);
         assertThat(session.currentStage()).isEqualTo(CompileStage.LEXER);
         assertThat(session.preprocessResult()).isPresent();
-        assertThat(session.currentStageData().stage()).isEqualTo(CompileStage.LEXER);
     }
 
     @Test
@@ -65,6 +79,8 @@ class CompileObservationSessionNextTest {
                         """
         );
 
+        assertThat(session.nextStage().outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PREPROCESS);
         assertThat(session.nextStage().outcome()).isEqualTo(StepOutcome.ADVANCED);
         assertThat(session.currentStage()).isEqualTo(CompileStage.LEXER);
         assertThat(session.nextStage().outcome()).isEqualTo(StepOutcome.ADVANCED);
@@ -97,6 +113,8 @@ class CompileObservationSessionNextTest {
         );
 
         assertThat(session.nextStage().outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PREPROCESS);
+        assertThat(session.nextStage().outcome()).isEqualTo(StepOutcome.ADVANCED);
         assertThat(session.currentStage()).isEqualTo(CompileStage.LEXER);
         assertThat(session.nextStage().outcome()).isEqualTo(StepOutcome.ADVANCED);
         assertThat(session.currentStage()).isEqualTo(CompileStage.PARSER);
@@ -116,6 +134,7 @@ class CompileObservationSessionNextTest {
     void globalDataCanReadCompletedParserSummaryAfterStageJump() {
         CompileObservationSession session = CompileObservationSession.fromSource("parser-summary.mc", "int main() { return 0; }");
 
+        session.nextStage();
         session.nextStage();
         session.nextStage();
         session.nextStage();

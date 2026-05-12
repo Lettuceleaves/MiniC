@@ -15,7 +15,36 @@ class MiniCStageListFactoryTest {
                 .extracting(MiniCStageView::id)
                 .containsExactly("source", "preprocess", "lexer", "parser", "semantic", "ir", "codegen", "toolchain", "execution");
         assertThat(stages).allSatisfy(stage -> assertThat(stage.progressPercent()).isBetween(0, 100));
-        assertThat(stages.get(1).state()).isEqualTo("done");
+        assertThat(stages.getFirst().state()).isEqualTo("running");
+        assertThat(stages.getFirst().progressPercent()).isZero();
+        assertThat(stages.subList(1, stages.size()))
+                .allSatisfy(stage -> {
+                    assertThat(stage.state()).isEqualTo("queued");
+                    assertThat(stage.progressPercent()).isZero();
+                });
+    }
+
+    @Test
+    void marksSourceAsCompleteAfterSessionStarts() {
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        viewModel.loadSource("stage.mc", "int main() { return 0; }");
+        viewModel.startSession();
+
+        List<MiniCStageView> stages = new MiniCStageListFactory().create(
+                viewModel.currentStateProperty().get(),
+                viewModel.currentStageDataProperty().get(),
+                viewModel.globalDataProperty().get()
+        );
+
+        MiniCStageView source = stages.getFirst();
+        assertThat(source.id()).isEqualTo("source");
+        assertThat(source.state()).isEqualTo("running");
+        assertThat(source.progressPercent()).isEqualTo(100);
+        assertThat(stages.subList(1, stages.size()))
+                .allSatisfy(stage -> {
+                    assertThat(stage.state()).isEqualTo("queued");
+                    assertThat(stage.progressPercent()).isZero();
+                });
     }
 
     @Test

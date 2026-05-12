@@ -20,6 +20,7 @@ class MiniCInspectorModelFactoryTest {
         viewModel.loadSource("inspector.mc", "int main() { return 0; }");
         viewModel.startSession();
         viewModel.next();
+        viewModel.next();
 
         MiniCInspectorModel model = new MiniCInspectorModelFactory().create(
                 viewModel.currentStateProperty().get(),

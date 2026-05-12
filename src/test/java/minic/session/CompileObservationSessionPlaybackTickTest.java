@@ -1,6 +1,7 @@
 package minic.session;
 
 import minic.runtime.step.PlaybackMode;
+import minic.runtime.step.CompileStage;
 import minic.runtime.step.StepOutcome;
 import org.junit.jupiter.api.Test;
 
@@ -17,8 +18,9 @@ class CompileObservationSessionPlaybackTickTest {
         long before = session.globalStepCount();
 
         assertThat(session.currentState().frameInterval()).isEqualTo(Duration.ofSeconds(1));
-        assertThat(session.tick().outcome()).isEqualTo(StepOutcome.STAGE_COMPLETED);
-        assertThat(session.globalStepCount()).isEqualTo(before + 1);
+        assertThat(session.tick().outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PREPROCESS);
+        assertThat(session.globalStepCount()).isEqualTo(before);
         assertThat(session.playbackMode()).isEqualTo(PlaybackMode.PLAYING);
     }
 
@@ -30,8 +32,9 @@ class CompileObservationSessionPlaybackTickTest {
         long before = session.globalStepCount();
 
         assertThat(session.currentState().frameInterval()).isEqualTo(Duration.ofMillis(500));
-        assertThat(session.tick().outcome()).isEqualTo(StepOutcome.STAGE_COMPLETED);
-        assertThat(session.globalStepCount()).isEqualTo(before + 1);
+        assertThat(session.tick().outcome()).isEqualTo(StepOutcome.ADVANCED);
+        assertThat(session.currentStage()).isEqualTo(CompileStage.PREPROCESS);
+        assertThat(session.globalStepCount()).isEqualTo(before);
         assertThat(session.playbackMode()).isEqualTo(PlaybackMode.FAST_PLAYING);
     }
 

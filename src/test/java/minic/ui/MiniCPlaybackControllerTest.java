@@ -17,7 +17,8 @@ class MiniCPlaybackControllerTest {
         assertThat(viewModel.currentStateProperty().get().frameIntervalMillis()).isEqualTo(1000);
 
         playback.tickOnce();
-        assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isEqualTo(1);
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("preprocess");
+        assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isZero();
 
         playback.playFast();
         assertThat(viewModel.currentStateProperty().get().playbackMode()).isEqualTo("FAST_PLAYING");

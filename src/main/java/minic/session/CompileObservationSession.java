@@ -18,6 +18,7 @@ import minic.runtime.step.ParserStageStepper;
 import minic.runtime.step.PlaybackMode;
 import minic.runtime.step.PreprocessStageStepper;
 import minic.runtime.step.SemanticStageStepper;
+import minic.runtime.step.SourceStageStepper;
 import minic.runtime.step.StageStepData;
 import minic.runtime.step.StageStepper;
 import minic.runtime.step.StepCapabilities;
@@ -39,6 +40,7 @@ import java.util.Optional;
  */
 public final class CompileObservationSession {
     private static final List<CompileStage> STAGE_ORDER = List.of(
+            CompileStage.SOURCE,
             CompileStage.PREPROCESS,
             CompileStage.LEXER,
             CompileStage.PARSER,
@@ -64,6 +66,7 @@ public final class CompileObservationSession {
 
     private CompileObservationSession(SourceFile sourceFile) {
         this.sourceFile = Objects.requireNonNull(sourceFile, "sourceFile");
+        steppers.put(CompileStage.SOURCE, new SourceStageStepper(sourceFile));
         steppers.put(CompileStage.PREPROCESS, new PreprocessStageStepper(sourceFile));
     }
 
@@ -451,7 +454,7 @@ public final class CompileObservationSession {
                 // Execution stepper owns its result; globalData reads it directly.
             }
             case SOURCE -> {
-                // 本阶段不调度 source/toolchain。
+                // Source stepper 只持有原始源码快照。
             }
         }
     }
@@ -459,6 +462,9 @@ public final class CompileObservationSession {
     private void prepareNextStage() {
         CompileStage nextStage = STAGE_ORDER.get(currentStageIndex + 1);
         switch (nextStage) {
+            case PREPROCESS -> {
+                // Preprocess stepper 在会话创建时已准备好，以便启动后先展示源码阶段。
+            }
             case LEXER -> {
                 PreprocessResult readyPreprocessResult = preprocessResult().orElseGet(() -> {
                     PreprocessResult result = ((PreprocessStageStepper) currentStepper()).preprocessResult();

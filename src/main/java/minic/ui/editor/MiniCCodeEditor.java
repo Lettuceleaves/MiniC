@@ -43,6 +43,10 @@ import java.util.regex.Pattern;
  */
 public final class MiniCCodeEditor extends StackPane {
     private static final String TAB_TEXT = "    ";
+    private static final double DEFAULT_EDITOR_FONT_SIZE = 12;
+    private static final double MIN_EDITOR_FONT_SIZE = 10;
+    private static final double MAX_EDITOR_FONT_SIZE = 24;
+    private static final double EDITOR_LINE_HEIGHT_PADDING = 6;
     private static final List<String> KEYWORDS = List.of(
             "bool", "char", "int", "long", "float", "double", "extern", "struct",
             "return", "if", "else", "while", "for", "break", "continue", "true", "false", "null"
@@ -65,6 +69,7 @@ public final class MiniCCodeEditor extends StackPane {
     private Runnable breakpointChangeAction = () -> {
     };
     private int currentExecutionLine;
+    private double editorFontSize = DEFAULT_EDITOR_FONT_SIZE;
 
     /**
      * 创建代码编辑器。
@@ -72,6 +77,7 @@ public final class MiniCCodeEditor extends StackPane {
     public MiniCCodeEditor() {
         getStyleClass().add("code-editor");
         input.getStyleClass().add("source-editor");
+        applyEditorFontSize();
         input.setWrapText(false);
         input.setParagraphGraphicFactory(this::paragraphGraphic);
         input.setTextInsertionStyle(List.of("token-plain"));
@@ -281,6 +287,7 @@ public final class MiniCCodeEditor extends StackPane {
         int line = paragraphIndex + 1;
         Label breakpoint = new Label(breakpointLines.contains(line) ? "●" : "");
         breakpoint.getStyleClass().add("breakpoint-gutter");
+        applyGutterSize(breakpoint);
         if (breakpointLines.contains(line)) {
             breakpoint.getStyleClass().add("active");
         }
@@ -293,7 +300,10 @@ public final class MiniCCodeEditor extends StackPane {
         });
         Label execution = new Label(currentExecutionLine == line ? "▶" : "");
         execution.getStyleClass().add("execution-gutter");
-        HBox graphic = new HBox(execution, breakpoint, lineNumberFactory.apply(paragraphIndex));
+        applyGutterSize(execution);
+        Node lineNumber = lineNumberFactory.apply(paragraphIndex);
+        lineNumber.setStyle("-fx-font-size: " + editorFontSize + "px;");
+        HBox graphic = new HBox(execution, breakpoint, lineNumber);
         graphic.getStyleClass().add("editor-gutter");
         if (currentExecutionLine == line) {
             graphic.getStyleClass().add("current-execution");
@@ -320,6 +330,10 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     private void handleCompletionKeys(KeyEvent event) {
+        if (event.isControlDown() && handleFontZoomKey(event)) {
+            event.consume();
+            return;
+        }
         if (isCompletionShowing()) {
             if (event.getCode() == KeyCode.ENTER || event.getCode() == KeyCode.TAB) {
                 applySelectedCompletion();
@@ -366,6 +380,45 @@ public final class MiniCCodeEditor extends StackPane {
             event.consume();
             return;
         }
+    }
+
+    private boolean handleFontZoomKey(KeyEvent event) {
+        if (event.getCode() == KeyCode.PLUS || event.getCode() == KeyCode.ADD || event.getCode() == KeyCode.EQUALS) {
+            adjustEditorFontSize(1);
+            return true;
+        }
+        if (event.getCode() == KeyCode.MINUS || event.getCode() == KeyCode.SUBTRACT) {
+            adjustEditorFontSize(-1);
+            return true;
+        }
+        return false;
+    }
+
+    private void adjustEditorFontSize(double delta) {
+        double next = Math.max(MIN_EDITOR_FONT_SIZE, Math.min(MAX_EDITOR_FONT_SIZE, editorFontSize + delta));
+        if (Double.compare(next, editorFontSize) == 0) {
+            return;
+        }
+        editorFontSize = next;
+        applyEditorFontSize();
+        refreshParagraphGraphics();
+        Platform.runLater(this::drawDiagnostics);
+    }
+
+    private void applyEditorFontSize() {
+        input.setStyle("-fx-font-size: " + editorFontSize + "px;");
+    }
+
+    private void applyGutterSize(Label label) {
+        double lineHeight = editorLineHeight();
+        label.setMinHeight(lineHeight);
+        label.setPrefHeight(lineHeight);
+        label.setMaxHeight(lineHeight);
+        label.setStyle("-fx-font-size: " + editorFontSize + "px;");
+    }
+
+    private double editorLineHeight() {
+        return editorFontSize + EDITOR_LINE_HEIGHT_PADDING;
     }
 
     private void handleTypedText(KeyEvent event) {

@@ -20,6 +20,7 @@ class MiniCVisualModelFactoryTest {
         viewModel.loadSource("visual.mc", "int main() { return 0; }");
         viewModel.startSession();
         viewModel.next();
+        viewModel.next();
 
         List<MiniCVisualItem> items = new MiniCVisualModelFactory().create(
                 viewModel.currentStageDataProperty().get(),

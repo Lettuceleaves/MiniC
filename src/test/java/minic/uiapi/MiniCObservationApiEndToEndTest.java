@@ -19,8 +19,13 @@ class MiniCObservationApiEndToEndTest {
         );
         api.startSession();
 
+        assertThat(api.currentState().currentStage()).isEqualTo("source");
+        assertThat(api.currentStageData().accumulatedOutput()).contains("src extern int puts(char *text);");
+
+        UiControlResultDto enterPreprocess = api.next();
+
+        assertThat(enterPreprocess.outcome()).isEqualTo("ADVANCED");
         assertThat(api.currentState().currentStage()).isEqualTo("preprocess");
-        assertThat(api.currentStageData().accumulatedOutput()).isEmpty();
 
         UiControlResultDto first = api.next();
         UiStageDataDto afterFirst = api.currentStageData();
@@ -75,7 +80,7 @@ class MiniCObservationApiEndToEndTest {
         api.startSession();
 
         assertThat(api.currentStageVisualData().visualType()).isEqualTo("generic");
-        assertThat(api.currentState().currentStage()).isEqualTo("preprocess");
+        assertThat(api.currentState().currentStage()).isEqualTo("source");
 
         advanceToStage(api, "lexer");
         assertThat(api.currentStageVisualData().visualType()).isEqualTo("lexer");

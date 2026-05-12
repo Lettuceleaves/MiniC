@@ -22,8 +22,8 @@ class MiniCWorkbenchViewModelTest {
         viewModel.startSession();
 
         assertThat(viewModel.sessionStartedProperty().get()).isTrue();
-        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("preprocess");
-        assertThat(viewModel.currentStageDataProperty().get().stage()).isEqualTo("preprocess");
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("source");
+        assertThat(viewModel.currentStageDataProperty().get().stage()).isEqualTo("source");
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("generic");
         assertThat(viewModel.lexerVisualDataProperty().get().visualType()).isEqualTo("generic");
         assertThat(viewModel.astVisualDataProperty().get().visualType()).isEqualTo("generic");
@@ -50,6 +50,7 @@ class MiniCWorkbenchViewModelTest {
         );
         viewModel.startSession();
         viewModel.next();
+        viewModel.next();
 
         assertThat(viewModel.currentStageDataProperty().get().diagnostics()).isEmpty();
         assertThat(viewModel.globalDataProperty().get().preprocessSummary())
@@ -64,12 +65,14 @@ class MiniCWorkbenchViewModelTest {
 
         UiControlResultDto next = viewModel.next();
 
-        assertThat(next.outcome()).isEqualTo("STAGE_COMPLETED");
-        assertThat(viewModel.lastOutcomeProperty().get()).isEqualTo("STAGE_COMPLETED");
+        assertThat(next.outcome()).isEqualTo("ADVANCED");
+        assertThat(viewModel.lastOutcomeProperty().get()).isEqualTo("ADVANCED");
         assertThat(viewModel.lastControlResultProperty().get()).isSameAs(next);
-        assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isEqualTo(1);
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("preprocess");
+        assertThat(viewModel.currentStateProperty().get().globalStepIndex()).isZero();
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("generic");
 
+        viewModel.next();
         viewModel.next();
         viewModel.next();
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
@@ -116,6 +119,12 @@ class MiniCWorkbenchViewModelTest {
         UiControlResultDto result = viewModel.nextStage();
 
         assertThat(result.outcome()).isEqualTo("ADVANCED");
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("preprocess");
+        assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("generic");
+
+        result = viewModel.nextStage();
+
+        assertThat(result.outcome()).isEqualTo("ADVANCED");
         assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("lexer");
         assertThat(viewModel.currentStageVisualDataProperty().get().visualType()).isEqualTo("lexer");
         assertThat(viewModel.globalDataProperty().get().preprocessSummary()).isNotEmpty();
@@ -127,6 +136,8 @@ class MiniCWorkbenchViewModelTest {
         viewModel.loadSource("next-stage-repeat-view.mc", "int main() { return 0; }");
         viewModel.startSession();
 
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("preprocess");
         viewModel.nextStage();
         assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("lexer");
         viewModel.nextStage();
@@ -217,6 +228,8 @@ class MiniCWorkbenchViewModelTest {
         viewModel.loadSource("review.mc", "int main() { return 0; }");
         viewModel.startSession();
 
+        viewModel.nextStage();
+        assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("preprocess");
         viewModel.nextStage();
         assertThat(viewModel.currentStateProperty().get().currentStage()).isEqualTo("lexer");
         viewModel.nextStage();

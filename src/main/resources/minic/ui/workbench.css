@@ -362,24 +362,18 @@
     -fx-min-width: 16px;
     -fx-pref-width: 16px;
     -fx-max-width: 16px;
-    -fx-min-height: 18px;
-    -fx-pref-height: 18px;
     -fx-alignment: center;
     -fx-text-fill: #d7ba7d;
     -fx-font-family: Consolas, "Courier New", monospace;
-    -fx-font-size: 11px;
 }
 
 .breakpoint-gutter {
     -fx-min-width: 18px;
     -fx-pref-width: 18px;
     -fx-max-width: 18px;
-    -fx-min-height: 18px;
-    -fx-pref-height: 18px;
     -fx-alignment: center;
     -fx-text-fill: transparent;
     -fx-font-family: Consolas, "Courier New", monospace;
-    -fx-font-size: 11px;
 }
 
 .breakpoint-gutter:hover {
@@ -397,6 +391,7 @@
 
 .code-editor .caret {
     -fx-stroke: #ffffff;
+    -fx-stroke-width: 1.4px;
 }
 
 .code-editor .selection {
@@ -1195,6 +1190,18 @@
     -fx-padding: 10px 14px;
     -fx-border-color: #333333;
     -fx-border-width: 0 0 1px 0;
+}
+
+.debug-controls {
+    -fx-alignment: center-left;
+}
+
+.debug-paired-controls {
+    -fx-alignment: center-left;
+}
+
+.debug-paired-controls .hbox {
+    -fx-alignment: center-left;
 }
 
 .control-primary,
