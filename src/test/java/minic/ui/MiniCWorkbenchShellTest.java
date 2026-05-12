@@ -58,6 +58,12 @@ class MiniCWorkbenchShellTest {
         assertThat(button(root, "打开")).isNotNull();
         assertThat(button(root, "保存")).isNotNull();
         assertThat(button(root, "到执行")).isNotNull();
+        assertInspectorButton(root, "下一步");
+        assertInspectorButton(root, "下一阶段");
+        assertInspectorButton(root, "到执行");
+        assertInspectorButton(root, "播放");
+        assertInspectorButton(root, "2x");
+        assertInspectorButton(root, "暂停");
         assertThat(button(root, "+")).isNotNull();
 
         assertThat(visibleChildren(mainContent)).singleElement()
@@ -389,5 +395,15 @@ class MiniCWorkbenchShellTest {
             }
         }
         return null;
+    }
+
+    private static void assertInspectorButton(javafx.scene.Node node, String text) {
+        Button button = button(node, text);
+        assertThat(button).isNotNull();
+        assertThat(button.getStyleClass()).contains("inspector-control-button");
+        assertThat(button.getPrefWidth()).isEqualTo(78);
+        assertThat(button.getMinWidth()).isEqualTo(78);
+        assertThat(button.getMaxWidth()).isEqualTo(78);
+        assertThat(button.getPrefHeight()).isEqualTo(28);
     }
 }

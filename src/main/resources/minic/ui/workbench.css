@@ -1192,16 +1192,52 @@
     -fx-border-width: 0 0 1px 0;
 }
 
+.inspector-controls {
+    -fx-spacing: 6px;
+}
+
+.inspector-control-row {
+    -fx-spacing: 6px;
+    -fx-alignment: center-left;
+}
+
+.inspector-control-button {
+    -fx-padding: 0 8px;
+    -fx-alignment: center;
+}
+
 .debug-controls {
     -fx-alignment: center-left;
+    -fx-spacing: 6px;
 }
 
 .debug-paired-controls {
     -fx-alignment: center-left;
 }
 
-.debug-paired-controls .hbox {
+.debug-paired-row {
     -fx-alignment: center-left;
+    -fx-spacing: 6px;
+}
+
+.debug-control-single-button,
+.debug-control-paired-button {
+    -fx-min-height: 28px;
+    -fx-pref-height: 28px;
+    -fx-max-height: 28px;
+    -fx-padding: 0 8px;
+}
+
+.debug-control-single-button {
+    -fx-min-width: 64px;
+    -fx-pref-width: 64px;
+    -fx-max-width: 64px;
+}
+
+.debug-control-paired-button {
+    -fx-min-width: 92px;
+    -fx-pref-width: 92px;
+    -fx-max-width: 92px;
 }
 
 .control-primary,

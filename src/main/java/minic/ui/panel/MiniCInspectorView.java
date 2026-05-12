@@ -11,6 +11,8 @@ import java.util.Objects;
  * 右侧观测详情面板。
  */
 public final class MiniCInspectorView extends VBox {
+    private static final double INSPECTOR_BUTTON_WIDTH = 78;
+    private static final double INSPECTOR_BUTTON_HEIGHT = 28;
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCInspectorModelFactory modelFactory = new MiniCInspectorModelFactory();
     private final MiniCPlaybackController playbackController;
@@ -78,16 +80,25 @@ public final class MiniCInspectorView extends VBox {
         pauseButton.setDisable(!started || !hasState || !viewModel.currentStateProperty().get().canPause());
     }
 
-    private HBox controls() {
-        HBox controls = new HBox(6);
+    private VBox controls() {
+        HBox firstRow = new HBox(6, nextButton, nextStageButton, runToExecutionButton);
+        HBox secondRow = new HBox(6, playButton, playFastButton, pauseButton);
+        firstRow.getStyleClass().add("inspector-control-row");
+        secondRow.getStyleClass().add("inspector-control-row");
+        VBox controls = new VBox(6);
         controls.getStyleClass().add("controls");
-        controls.getChildren().addAll(nextButton, nextStageButton, runToExecutionButton, playButton, playFastButton, pauseButton);
+        controls.getStyleClass().add("inspector-controls");
+        controls.getChildren().addAll(firstRow, secondRow);
         return controls;
     }
 
     private Button control(String text, boolean primary) {
         Button button = new Button(text);
         button.getStyleClass().add(primary ? "control-primary" : "control-secondary");
+        button.getStyleClass().add("inspector-control-button");
+        button.setMinSize(INSPECTOR_BUTTON_WIDTH, INSPECTOR_BUTTON_HEIGHT);
+        button.setPrefSize(INSPECTOR_BUTTON_WIDTH, INSPECTOR_BUTTON_HEIGHT);
+        button.setMaxSize(INSPECTOR_BUTTON_WIDTH, INSPECTOR_BUTTON_HEIGHT);
         return button;
     }
 

@@ -47,6 +47,9 @@ import java.util.stream.Collectors;
  */
 public final class MiniCDebugPane extends VBox {
     private static final double DEBUG_AST_ZOOM = 0.8;
+    private static final double DEBUG_SINGLE_BUTTON_WIDTH = 64;
+    private static final double DEBUG_PAIRED_BUTTON_WIDTH = 92;
+    private static final double DEBUG_BUTTON_HEIGHT = 28;
     private static final int METADATA_LIST_LIMIT = 200;
     private static final double VISUAL_CELL_SIZE = 44;
     private static final double VISUAL_NODE_RADIUS = VISUAL_CELL_SIZE / 2;
@@ -109,11 +112,19 @@ public final class MiniCDebugPane extends VBox {
         Button backBreakpoint = button("步退", viewModel::debugBackToBreakpoint);
         Button backCall = button("返回调用处", viewModel::debugBackToCallSite);
         Button split = button("拆分", this::toggleSplit);
+        List.of(run, step, into, backBreakpoint, back, backCall)
+                .forEach(this::formatPairedButton);
+        List.of(start, fast, pause, restart, close, out, split)
+                .forEach(this::formatSingleButton);
+        HBox forwardControls = new HBox(6, run, step, into);
+        HBox backwardControls = new HBox(6, backBreakpoint, back, backCall);
+        forwardControls.getStyleClass().add("debug-paired-row");
+        backwardControls.getStyleClass().add("debug-paired-row");
         VBox pairedControls = new VBox(4);
         pairedControls.getStyleClass().add("debug-paired-controls");
         pairedControls.getChildren().addAll(
-                new HBox(6, run, step, into),
-                new HBox(6, backBreakpoint, back, backCall)
+                forwardControls,
+                backwardControls
         );
         HBox controls = new HBox(
                 6,
@@ -137,6 +148,22 @@ public final class MiniCDebugPane extends VBox {
         button.getStyleClass().add("control-secondary");
         button.setOnAction(event -> action.run());
         return button;
+    }
+
+    private void formatSingleButton(Button button) {
+        button.getStyleClass().add("debug-control-single-button");
+        lockButtonSize(button, DEBUG_SINGLE_BUTTON_WIDTH);
+    }
+
+    private void formatPairedButton(Button button) {
+        button.getStyleClass().add("debug-control-paired-button");
+        lockButtonSize(button, DEBUG_PAIRED_BUTTON_WIDTH);
+    }
+
+    private void lockButtonSize(Button button, double width) {
+        button.setMinSize(width, DEBUG_BUTTON_HEIGHT);
+        button.setPrefSize(width, DEBUG_BUTTON_HEIGHT);
+        button.setMaxSize(width, DEBUG_BUTTON_HEIGHT);
     }
 
     private ScrollPane scroll(String text) {

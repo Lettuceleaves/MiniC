@@ -70,6 +70,24 @@ class MiniCDebugPaneTest {
             assertThat(button(pane, "单退")).isNotNull();
             assertThat(button(pane, "步退")).isNotNull();
             assertThat(button(pane, "返回调用处")).isNotNull();
+            assertThat(List.of("运行到断点", "单步", "步入", "步退", "单退", "返回调用处"))
+                    .allSatisfy(text -> {
+                        Button debugButton = button(pane, text);
+                        assertThat(debugButton.getStyleClass()).contains("debug-control-paired-button");
+                        assertThat(debugButton.getPrefWidth()).isEqualTo(92);
+                        assertThat(debugButton.getMinWidth()).isEqualTo(92);
+                        assertThat(debugButton.getMaxWidth()).isEqualTo(92);
+                        assertThat(debugButton.getPrefHeight()).isEqualTo(28);
+                    });
+            assertThat(List.of("启动", "快进", "暂停", "重启", "关闭", "步返", "拆分"))
+                    .allSatisfy(text -> {
+                        Button debugButton = button(pane, text);
+                        assertThat(debugButton.getStyleClass()).contains("debug-control-single-button");
+                        assertThat(debugButton.getPrefWidth()).isEqualTo(64);
+                        assertThat(debugButton.getMinWidth()).isEqualTo(64);
+                        assertThat(debugButton.getMaxWidth()).isEqualTo(64);
+                        assertThat(debugButton.getPrefHeight()).isEqualTo(28);
+                    });
             assertThat(viewModel.debugStartedProperty().get()).isFalse();
 
             button(pane, "拆分").fire();

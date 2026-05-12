@@ -9,6 +9,7 @@ import java.lang.reflect.Field;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -37,45 +38,74 @@ class MiniCSourceLoaderViewBreakpointTest {
     @Test
     void sharesBreakpointsAcrossSourceLoaderInstances() {
         startJavafx();
-        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
-        MiniCSourceLoaderView compileView = new MiniCSourceLoaderView(viewModel);
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCSourceLoaderView compileView = new MiniCSourceLoaderView(viewModel);
 
-        compileView.setBreakpoint(3, true);
-        MiniCSourceLoaderView debugView = new MiniCSourceLoaderView(viewModel);
+            compileView.setBreakpoint(3, true);
+            MiniCSourceLoaderView debugView = new MiniCSourceLoaderView(viewModel);
 
-        assertThat(viewModel.debugBreakpointLinesProperty().get()).containsExactly(3);
-        assertThat(debugView.breakpointLines()).containsExactly(3);
+            assertThat(viewModel.debugBreakpointLinesProperty().get()).containsExactly(3);
+            assertThat(debugView.breakpointLines()).containsExactly(3);
 
-        debugView.setBreakpoint(5, true);
+            debugView.setBreakpoint(5, true);
 
-        assertThat(compileView.breakpointLines()).containsExactly(3, 5);
-        assertThat(viewModel.debugBreakpointLinesProperty().get()).containsExactly(3, 5);
+            assertThat(compileView.breakpointLines()).containsExactly(3, 5);
+            assertThat(viewModel.debugBreakpointLinesProperty().get()).containsExactly(3, 5);
+        });
     }
 
     @Test
     void refreshesEditorTextWhenSourceIsLoadedAfterViewCreation() {
         startJavafx();
-        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
-        MiniCSourceLoaderView compileView = new MiniCSourceLoaderView(viewModel);
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCSourceLoaderView compileView = new MiniCSourceLoaderView(viewModel);
 
-        viewModel.loadSource("loaded.mc", "int main() { return 7; }");
+            viewModel.loadSource("loaded.mc", "int main() { return 7; }");
 
-        assertThat(editor(compileView).getText()).isEqualTo("int main() { return 7; }");
+            assertThat(editor(compileView).getText()).isEqualTo("int main() { return 7; }");
+        });
     }
 
     @Test
     void keepsEditorTokenStylesWhenStartingSessionClearsRealtimeAnalysis() throws Exception {
         startJavafx();
-        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
-        MiniCSourceLoaderView compileView = new MiniCSourceLoaderView(viewModel);
-        MiniCCodeEditor editor = editor(compileView);
-        editor.setText("int main() { return 7; }");
-        editor.render(MiniCRealtimeAnalyzer.analyzeNow("loaded.mc", editor.getText(), 1));
-        assertThat(styleAt(editor, 0)).contains("token-keyword");
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCSourceLoaderView compileView = new MiniCSourceLoaderView(viewModel);
+            MiniCCodeEditor editor = editor(compileView);
+            editor.setText("int main() { return 7; }");
+            editor.render(MiniCRealtimeAnalyzer.analyzeNow("loaded.mc", editor.getText(), 1));
+            assertThat(styleAt(editor, 0)).contains("token-keyword");
 
-        compileView.loadCurrentSource();
+            compileView.loadCurrentSource();
 
-        assertThat(styleAt(editor, 0)).contains("token-keyword");
+            assertThat(styleAt(editor, 0)).contains("token-keyword");
+        });
+    }
+
+    private void runOnFxThread(ThrowingRunnable action) {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Platform.runLater(() -> {
+            try {
+                action.run();
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            } finally {
+                latch.countDown();
+            }
+        });
+        try {
+            assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(exception);
+        }
+        if (failure.get() != null) {
+            throw new AssertionError(failure.get());
+        }
     }
 
     private MiniCCodeEditor editor(MiniCSourceLoaderView view) {
@@ -97,5 +127,9 @@ class MiniCSourceLoaderViewBreakpointTest {
 
     private List<Node> children(Parent parent) {
         return parent.getChildrenUnmodifiable().stream().toList();
+    }
+
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 }
