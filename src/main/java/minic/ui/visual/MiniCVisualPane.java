@@ -17,7 +17,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
-import javafx.scene.paint.Color;
+import minic.color.ThemeRegistry;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
@@ -479,7 +479,7 @@ public final class MiniCVisualPane extends VBox {
             text.setX(node.x() - 32);
             text.setY(node.y() + 4);
             text.setWrappingWidth(64);
-            text.setFill(Color.web("#d4d4d4"));
+            text.setFill(ThemeRegistry.getColor("graph.label"));
             UiAstNodeVisualDto astNode = astNodeById(visual.astRoot(), node.id());
             MiniCHoverInspectorContent content = astNodeContent(astNode, visual);
             attachInspectorClick(circle, content);
@@ -525,7 +525,7 @@ public final class MiniCVisualPane extends VBox {
             text.setX(node.x() - 32);
             text.setY(node.y() + 4);
             text.setWrappingWidth(64);
-            text.setFill(Color.web("#d4d4d4"));
+            text.setFill(ThemeRegistry.getColor("graph.label"));
             UiAstNodeVisualDto astNode = astNodeById(visual.astRoot(), node.id());
             MiniCHoverInspectorContent content = astNodeContent(astNode, visual);
             attachInspectorClick(circle, content);
@@ -747,7 +747,7 @@ public final class MiniCVisualPane extends VBox {
         text.getStyleClass().add("ast-graph-label");
         text.setX(18);
         text.setY(38);
-        text.setFill(Color.web("#858585"));
+        text.setFill(ThemeRegistry.getColor("text.line_number"));
         pane.getChildren().add(text);
         return pane;
     }

@@ -13,7 +13,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
-import javafx.scene.paint.Color;
+import minic.color.ThemeRegistry;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Polygon;
@@ -728,7 +728,7 @@ public final class MiniCDebugPane extends VBox {
         text.setX(x);
         text.setY(y + VISUAL_CELL_SIZE / 2);
         text.setWrappingWidth(width);
-        text.setFill(Color.web("#d4d4d4"));
+        text.setFill(ThemeRegistry.getColor("graph.label"));
         return text;
     }
 
@@ -807,7 +807,7 @@ public final class MiniCDebugPane extends VBox {
             text.setX(node.x() - 32);
             text.setY(node.y() + 4);
             text.setWrappingWidth(64);
-            text.setFill(Color.web("#d4d4d4"));
+            text.setFill(ThemeRegistry.getColor("graph.label"));
             UiAstNodeVisualDto astNode = astNodeById(view.root(), node.id());
             String tooltip = astNode == null
                     ? node.label()

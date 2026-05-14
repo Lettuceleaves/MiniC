@@ -13,6 +13,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import minic.settings.MiniCSettingsPane;
 import javafx.scene.shape.SVGPath;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
@@ -122,6 +123,13 @@ public final class MiniCWorkbenchShell {
         }
         if (activeSection == ActivitySection.DEBUG) {
             return new MiniCDebugPane(documents.get(activeDocumentIndex).viewModel());
+        }
+        if (activeSection == ActivitySection.SETTINGS) {
+            body = null;
+            visualPane = null;
+            sourcePane = null;
+            mainContent = null;
+            return new MiniCSettingsPane();
         }
         body = null;
         visualPane = null;

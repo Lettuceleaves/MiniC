@@ -15,7 +15,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.scene.paint.Color;
+import minic.color.ThemeRegistry;
 import javafx.scene.shape.Polyline;
 import minic.uiapi.UiDiagnosticDto;
 import minic.uiapi.UiLexerTokenVisualDto;
@@ -655,7 +655,7 @@ public final class MiniCCodeEditor extends StackPane {
         Polyline wave = new Polyline();
         wave.getStyleClass().add("diagnostic-wave");
         wave.getPoints().setAll(points);
-        wave.setStroke(Color.web("#f48771"));
+        wave.setStroke(ThemeRegistry.getColor("accent.diagnostic_wave"));
         wave.setStrokeWidth(1.4);
         diagnosticLayer.getChildren().add(wave);
     }
