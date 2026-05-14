@@ -284,7 +284,7 @@ public final class MiniCCodeEditor extends StackPane {
 
     private Node paragraphGraphic(int paragraphIndex) {
         int line = paragraphIndex + 1;
-        Label breakpoint = new Label(breakpointLines.contains(line) ? "●" : "");
+        Label breakpoint = new Label("●");
         breakpoint.getStyleClass().add("breakpoint-gutter");
         applyGutterSize(breakpoint);
         if (breakpointLines.contains(line)) {

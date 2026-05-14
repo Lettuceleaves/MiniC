@@ -374,14 +374,25 @@
     -fx-alignment: center;
     -fx-text-fill: transparent;
     -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-cursor: hand;
 }
 
 .breakpoint-gutter:hover {
     -fx-text-fill: {{text.breakpoint_hover}};
+    -fx-scale-x: 1.5;
+    -fx-scale-y: 1.5;
 }
 
 .breakpoint-gutter.active {
     -fx-text-fill: {{accent.breakpoint}};
+    -fx-scale-x: 1.5;
+    -fx-scale-y: 1.5;
+}
+
+.breakpoint-gutter.active:hover {
+    -fx-text-fill: {{text.breakpoint_hover}};
+    -fx-scale-x: 1.5;
+    -fx-scale-y: 1.5;
 }
 
 .code-editor .paragraph-text {
