@@ -46,7 +46,6 @@ public final class MiniCCodeEditor extends StackPane {
     private static final double DEFAULT_EDITOR_FONT_SIZE = 12;
     private static final double MIN_EDITOR_FONT_SIZE = 10;
     private static final double MAX_EDITOR_FONT_SIZE = 24;
-    private static final double EDITOR_LINE_HEIGHT_PADDING = 6;
     private static final List<String> KEYWORDS = List.of(
             "bool", "char", "int", "long", "float", "double", "extern", "struct",
             "return", "if", "else", "while", "for", "break", "continue", "true", "false", "null"
@@ -406,7 +405,16 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     private void applyEditorFontSize() {
-        input.setStyle("-fx-font-size: " + editorFontSize + "px;");
+        String style = "-fx-font-size: " + editorFontSize + "px;";
+        input.setStyle(style);
+        setStyle(style);
+        Platform.runLater(() -> {
+            Node caret = input.lookup(".caret");
+            if (caret != null) {
+                double caretWidth = Math.max(1.0, editorFontSize / 9.0);
+                caret.setStyle("-fx-stroke-width: " + caretWidth + "px;");
+            }
+        });
     }
 
     private void applyGutterSize(Label label) {
@@ -418,7 +426,7 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     private double editorLineHeight() {
-        return editorFontSize + EDITOR_LINE_HEIGHT_PADDING;
+        return editorFontSize + editorFontSize * 0.5;
     }
 
     private void handleTypedText(KeyEvent event) {

@@ -386,7 +386,6 @@
 
 .code-editor .paragraph-text {
     -fx-font-family: Consolas, "Courier New", monospace;
-    -fx-font-size: 12px;
 }
 
 .code-editor .caret {
