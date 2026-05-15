@@ -226,7 +226,7 @@ class MiniCWorkbenchShellTest {
                 false, false, null
         ));
         assertThat(labels(root).stream().map(Label::getText))
-                .contains("设置", "修改 config/theme.json 后点击下方按钮刷新主题。");
+                .contains("设置", "主题");
 
         activityItem(root, "信息").fireEvent(new javafx.scene.input.MouseEvent(
                 javafx.scene.input.MouseEvent.MOUSE_CLICKED,

@@ -157,7 +157,8 @@
     -fx-background-color: {{background.primary}};
 }
 
-.split .split-pane-divider {
+.split .split-pane-divider,
+.debug-workspace .split-pane-divider {
     -fx-padding: 0 2px;
     -fx-background-color: {{background.tertiary}};
 }
@@ -563,6 +564,47 @@
 
 .debug-workspace {
     -fx-background-color: {{background.primary}};
+}
+
+.debug-pane {
+    -fx-background-color: {{background.primary}};
+    -fx-padding: 0;
+}
+
+.debug-pane .split-pane {
+    -fx-background-color: {{background.primary}};
+    -fx-padding: 0;
+}
+
+.debug-pane .scroll-pane {
+    -fx-background-color: {{background.primary}};
+    -fx-background: {{background.primary}};
+    -fx-padding: 0;
+}
+
+.debug-pane .scroll-pane .viewport {
+    -fx-background-color: {{background.primary}};
+}
+
+.debug-pane .scroll-bar {
+    -fx-background-color: {{background.secondary}};
+}
+
+.debug-pane .scroll-bar .thumb {
+    -fx-background-color: {{background.hover}};
+    -fx-background-radius: 0;
+}
+
+.debug-pane .scroll-bar .increment-button,
+.debug-pane .scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.debug-pane .scroll-bar .increment-arrow,
+.debug-pane .scroll-bar .decrement-arrow {
+    -fx-shape: "";
+    -fx-padding: 0;
 }
 
 .debug-view-selector {
@@ -1269,6 +1311,28 @@
 .control-secondary {
     -fx-background-color: {{background.tertiary}};
     -fx-text-fill: {{text.label}};
+}
+
+.control-secondary .list-cell {
+    -fx-text-fill: {{text.active}};
+    -fx-background-color: {{background.tertiary}};
+}
+
+.control-secondary .list-cell:hover {
+    -fx-background-color: {{background.hover}};
+}
+
+.control-secondary .combo-box-popup .list-view {
+    -fx-background-color: {{background.secondary}};
+}
+
+.control-secondary .combo-box-popup .list-cell {
+    -fx-text-fill: {{text.active}};
+    -fx-background-color: {{background.secondary}};
+}
+
+.control-secondary .combo-box-popup .list-cell:hover {
+    -fx-background-color: {{background.hover}};
 }
 
 .status-bar {

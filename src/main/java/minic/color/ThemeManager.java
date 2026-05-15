@@ -7,9 +7,12 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 public final class ThemeManager {
-    private static final Path CONFIG_PATH = Path.of("config", "theme.json");
+    private static final Path THEMES_DIR = Path.of("config", "themes");
+    private static final String DEFAULT_THEME = "dark";
+    private static String currentThemeName = DEFAULT_THEME;
     private static Scene scene;
     private static Path cssFile;
 
@@ -22,12 +25,44 @@ public final class ThemeManager {
     }
 
     public static void refresh() {
+        Path themePath = THEMES_DIR.resolve(currentThemeName + ".json");
+        if (!Files.exists(themePath)) {
+            themePath = THEMES_DIR.resolve(DEFAULT_THEME + ".json");
+        }
         try {
-            ThemeRegistry.load(CONFIG_PATH);
+            ThemeRegistry.load(themePath);
         } catch (IOException e) {
-            throw new IllegalStateException("Failed to load theme config: " + CONFIG_PATH, e);
+            throw new IllegalStateException("Failed to load theme: " + themePath, e);
         }
         applyStylesheet();
+    }
+
+    public static void setTheme(String themeName) {
+        currentThemeName = themeName;
+        refresh();
+    }
+
+    public static String currentTheme() {
+        return currentThemeName;
+    }
+
+    public static List<String> availableThemes() {
+        if (!Files.isDirectory(THEMES_DIR)) {
+            return List.of();
+        }
+        try (var stream = Files.list(THEMES_DIR)) {
+            return stream
+                    .filter(p -> p.toString().endsWith(".json"))
+                    .map(p -> p.getFileName().toString().replace(".json", ""))
+                    .sorted()
+                    .toList();
+        } catch (IOException e) {
+            return List.of();
+        }
+    }
+
+    public static Path themesDirectory() {
+        return THEMES_DIR;
     }
 
     private static void applyStylesheet() {

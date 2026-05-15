@@ -176,6 +176,8 @@ public final class MiniCDebugPane extends VBox {
         ScrollPane scroll = new ScrollPane(body);
         scroll.getStyleClass().add("visual-scroll");
         scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         return rememberViewport(scroll, viewportKey);
     }
 
@@ -204,6 +206,8 @@ public final class MiniCDebugPane extends VBox {
         DEBUG_VIEWS.forEach(view -> viewSelector.getChildren().add(viewButton(view)));
         primaryContent.getStyleClass().add("debug-view-content");
         splitContent.getStyleClass().add("debug-view-content");
+        VBox.setVgrow(primaryContent, Priority.ALWAYS);
+        VBox.setVgrow(splitContent, Priority.ALWAYS);
         viewSplitPane.setOrientation(Orientation.HORIZONTAL);
         viewSplitPane.getItems().setAll(primaryContent);
         workspaceSplitPane.setOrientation(Orientation.HORIZONTAL);
@@ -238,10 +242,12 @@ public final class MiniCDebugPane extends VBox {
 
     private void setPrimaryContent(Node content) {
         primaryContent.getChildren().setAll(content);
+        VBox.setVgrow(content, Priority.ALWAYS);
     }
 
     private void setSplitContent(Node content) {
         splitContent.getChildren().setAll(content);
+        VBox.setVgrow(content, Priority.ALWAYS);
     }
 
     private void toggleSplit() {
@@ -349,6 +355,9 @@ public final class MiniCDebugPane extends VBox {
         ScrollPane scroll = new ScrollPane(content);
         scroll.getStyleClass().add("visual-scroll");
         scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        VBox.setVgrow(scroll, Priority.ALWAYS);
         return rememberViewport(scroll, viewportKey);
     }
 
