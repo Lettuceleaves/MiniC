@@ -3,6 +3,7 @@ package minic.ui;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.util.Duration;
+import minic.settings.MiniCSettings;
 import minic.uiapi.UiControlResultDto;
 
 import java.util.Objects;
@@ -27,6 +28,11 @@ public final class MiniCPlaybackController {
     MiniCPlaybackController(MiniCWorkbenchViewModel viewModel, boolean timelineEnabled) {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
         this.timelineEnabled = timelineEnabled;
+        MiniCSettings.setFrameIntervalChangeListener(() -> {
+            if (running()) {
+                restartTimeline();
+            }
+        });
     }
 
     /**

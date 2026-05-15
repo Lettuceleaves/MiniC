@@ -533,9 +533,10 @@ public final class CompileObservationSession {
     }
 
     private Duration frameInterval() {
+        long base = minic.settings.MiniCSettings.frameIntervalMillis();
         return switch (playbackMode) {
-            case PAUSED, PLAYING -> Duration.ofSeconds(1);
-            case FAST_PLAYING -> Duration.ofMillis(500);
+            case PAUSED, PLAYING -> Duration.ofMillis(base);
+            case FAST_PLAYING -> Duration.ofMillis(base / 2);
         };
     }
 

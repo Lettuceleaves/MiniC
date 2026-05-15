@@ -5,6 +5,7 @@ import javafx.collections.ObservableList;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.Slider;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
@@ -45,7 +46,30 @@ public final class MiniCSettingsPane extends VBox {
 
         HBox themeRow = new HBox(10, themeCombo, uploadBtn);
 
-        getChildren().addAll(title, themeLabel, themeRow);
+        Label intervalLabel = new Label("帧间隔");
+        intervalLabel.getStyleClass().add("activity-placeholder-text");
+
+        long current = MiniCSettings.frameIntervalMillis();
+        Slider intervalSlider = new Slider(
+                MiniCSettings.minFrameInterval(),
+                MiniCSettings.maxFrameInterval(),
+                current);
+        intervalSlider.setBlockIncrement(50);
+        intervalSlider.getStyleClass().add("control-secondary");
+
+        Label intervalValue = new Label(current + " ms");
+        intervalValue.getStyleClass().add("body-text");
+        intervalValue.setMinWidth(60);
+
+        intervalSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
+            long millis = Math.round(newVal.doubleValue());
+            intervalValue.setText(millis + " ms");
+            MiniCSettings.setFrameIntervalMillis(millis);
+        });
+
+        HBox intervalRow = new HBox(10, intervalSlider, intervalValue);
+
+        getChildren().addAll(title, themeLabel, themeRow, intervalLabel, intervalRow);
     }
 
     private void refreshThemeList() {
