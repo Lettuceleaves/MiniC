@@ -453,25 +453,44 @@ public final class MiniCCodeEditor extends StackPane {
 
     private void insertNewlineWithIndent() {
         int caret = input.getCaretPosition();
-        formatCurrentLineBefore(caret);
-        caret = input.getCaretPosition();
         String source = input.getText();
-        String currentIndent = currentLineIndent(caret);
-        boolean afterOpeningBrace = caret > 0 && source.charAt(caret - 1) == '{';
-        boolean beforeClosingBrace = caret < source.length() && source.charAt(caret) == '}';
-        if (afterOpeningBrace && !beforeClosingBrace) {
-            input.insertText(caret, "}");
-            source = input.getText();
-            beforeClosingBrace = caret < source.length() && source.charAt(caret) == '}';
-        }
-        if (afterOpeningBrace && beforeClosingBrace) {
+        int lineStart = source.lastIndexOf('\n', Math.max(0, caret - 1)) + 1;
+        String lineBefore = source.substring(lineStart, caret);
+        String formatted = formatLine(lineBefore);
+        int formatDelta = formatted.length() - lineBefore.length();
+        String currentIndent = leadingWhitespace(formatted);
+        boolean afterOpeningBrace = !formatted.isEmpty() && formatted.charAt(formatted.length() - 1) == '{';
+        int adjustedCaret = caret + formatDelta;
+        String afterCaret = source.substring(caret);
+        boolean beforeClosingBrace = !afterCaret.isEmpty() && afterCaret.charAt(0) == '}';
+        boolean needsClosingBrace = afterOpeningBrace && !beforeClosingBrace
+                && !braceBalancedAfter(source, caret);
+        String insertion;
+        int cursorOffset;
+        if (afterOpeningBrace && (beforeClosingBrace || needsClosingBrace)) {
             String innerIndent = currentIndent + TAB_TEXT;
-            input.insertText(caret, "\n" + innerIndent + "\n" + currentIndent);
-            input.moveTo(caret + 1 + innerIndent.length());
-            return;
+            String closingPart = needsClosingBrace ? "\n" + currentIndent + "}" : "\n" + currentIndent;
+            insertion = "\n" + innerIndent + closingPart;
+            cursorOffset = 1 + innerIndent.length();
+        } else {
+            String nextIndent = currentIndent + (afterOpeningBrace ? TAB_TEXT : "");
+            insertion = "\n" + nextIndent;
+            cursorOffset = insertion.length();
         }
-        String nextIndent = currentIndent + (afterOpeningBrace ? TAB_TEXT : "");
-        input.insertText(caret, "\n" + nextIndent);
+        String replacement = formatted + insertion;
+        input.replaceText(lineStart, caret, replacement);
+        input.moveTo(lineStart + formatted.length() + cursorOffset);
+    }
+
+    private boolean braceBalancedAfter(String source, int from) {
+        int depth = 1;
+        for (int i = from; i < source.length(); i++) {
+            char c = source.charAt(i);
+            if (c == '{') depth++;
+            else if (c == '}') depth--;
+            if (depth == 0) return true;
+        }
+        return false;
     }
 
     private void formatCurrentLineBefore(int caret) {
