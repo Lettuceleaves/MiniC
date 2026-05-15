@@ -1119,37 +1119,42 @@ public final class MiniCVisualPane extends VBox {
 
     private String explainToken(UiLexerTokenVisualDto token) {
         String text = displayTokenText(token);
+        String header = ExplanationTemplates.header("lexer")
+                .replace("${kind}", token.kind())
+                .replace("${text}", text)
+                .replace("${startLine}", String.valueOf(token.startLine()))
+                .replace("${startColumn}", String.valueOf(token.startColumn()))
+                .replace("${endLine}", String.valueOf(token.endLine()))
+                .replace("${endColumn}", String.valueOf(token.endColumn()))
+                .replace("${startOffset}", String.valueOf(token.startOffset()))
+                .replace("${endOffset}", String.valueOf(token.endOffset()));
         String role = tokenRole(token.kind());
-        return "词法阶段把源码字符流切成 token。当前 token 是 " + token.kind()
-                + "，文本为 `" + text + "`，源码位置是 " + token.startLine() + ":" + token.startColumn()
-                + " 到 " + token.endLine() + ":" + token.endColumn()
-                + "，offset 范围是 " + token.startOffset() + ".." + token.endOffset()
-                + "。\n\n解释: " + role
-                + "\n\n用途: token 是 parser 的输入。只要看清当前 token 的类别、文本和位置，就能理解 AST 为什么会在这里创建某个节点，或者为什么语法错误会落在这一段源码上。";
+        String footer = ExplanationTemplates.footer("lexer");
+        return header + "\n\n解释: " + role + "\n\n" + footer;
     }
 
     private String tokenRole(String kind) {
         if (isTypeKeyword(kind)) {
-            return "这是类型关键字，用来声明变量、函数返回值或形参类型。parser 会把它放进声明节点，语义分析会用它检查赋值、返回值和函数调用是否类型匹配。";
+            return ExplanationTemplates.get("lexer", "type_keyword");
         }
         if (isControlKeyword(kind)) {
-            return "这是控制流关键字，决定 parser 构造哪类语句节点。例如 return 产生返回语句，if/else 产生分支，for/while 产生循环，break/continue 约束在循环作用域内。";
+            return ExplanationTemplates.get("lexer", "control_keyword");
         }
         if ("EXTERN".equals(kind)) {
-            return "extern 表示外部声明。它告诉编译器该函数或符号由外部目标文件/运行库提供，语义分析登记签名，代码生成只产生调用引用。";
+            return ExplanationTemplates.get("lexer", "EXTERN");
         }
         return switch (kind) {
-            case "IDENTIFIER" -> "标识符是用户定义的名字，后续语义分析会把它解析为变量、函数或类型，并检查是否已经声明、是否在当前作用域可见。";
+            case "IDENTIFIER" -> ExplanationTemplates.get("lexer", "IDENTIFIER");
             case "INTEGER_LITERAL", "LONG_LITERAL", "FLOAT_LITERAL", "DOUBLE_LITERAL", "CHAR_LITERAL", "BOOL_LITERAL", "NULL_LITERAL" ->
-                    "字面量是源码中直接写出的值，会在 AST 中形成常量表达式，后续 IR 通常把它变成立即数、常量地址或空指针值。";
-            case "STRING_LITERAL" -> "字符串字面量会作为连续字符数据保存，调用 printf 这类外部函数时通常作为格式串地址传入。";
+                    ExplanationTemplates.get("lexer", "literal");
+            case "STRING_LITERAL" -> ExplanationTemplates.get("lexer", "STRING_LITERAL");
             case "PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "EQUAL", "PLUS_EQUAL", "MINUS_EQUAL", "PLUS_PLUS", "MINUS_MINUS",
                     "EQUAL_EQUAL", "BANG_EQUAL", "LESS", "LESS_EQUAL", "GREATER", "GREATER_EQUAL", "AMPERSAND", "BANG", "DOT" ->
-                    "这是运算符 token，描述表达式或语句之间的动作。parser 会依据优先级和结合性组织表达式树，语义分析再检查操作数类型。";
+                    ExplanationTemplates.get("lexer", "operator");
             case "LEFT_PAREN", "RIGHT_PAREN", "LEFT_BRACE", "RIGHT_BRACE", "LEFT_BRACKET", "RIGHT_BRACKET", "COMMA", "SEMICOLON" ->
-                    "这是结构/分隔符 token，用来限定参数列表、语句块、数组/下标或语句边界。它主要决定 AST 的层级和边界。";
-            case "EOF" -> "EOF 是源码结束标记，不对应真实字符，用来告诉 parser 输入已经耗尽。";
-            default -> "该 token 是 lexer 从字符流中切分出的最小语法单元，parser 不再直接看原始字符，而是消费这些 token。";
+                    ExplanationTemplates.get("lexer", "delimiter");
+            case "EOF" -> ExplanationTemplates.get("lexer", "EOF");
+            default -> ExplanationTemplates.get("lexer", "default");
         };
     }
 
@@ -1168,85 +1173,76 @@ public final class MiniCVisualPane extends VBox {
     }
 
     private String explainAstNode(UiAstNodeVisualDto node) {
-        String role = switch (node.kind()) {
-            case "Program" -> "Program 是整棵语法树的根，收集所有顶层声明。后续语义分析和 IR lowering 都从这里开始遍历。";
-            case "FunctionDecl" -> "FunctionDecl 表示函数声明或定义，包含返回类型、函数名、参数列表和可选函数体。它会进入符号表，并在 IR 阶段变成一个函数单元。";
-            case "Parameter" -> "Parameter 表示函数形参。语义分析会把它加入函数体作用域，函数调用检查也会用它验证实参与形参是否匹配。";
-            case "BlockStmt" -> "BlockStmt 表示一对花括号包围的语句块。它通常创建新的作用域，局部变量只在这个块及其子块内可见。";
-            case "VarDeclStmt" -> "VarDeclStmt 表示局部变量声明。语义分析会检查重名和初始化表达式类型，IR 阶段会为变量分配临时值或栈位置。";
-            case "ReturnStmt" -> "ReturnStmt 表示函数返回。语义分析会检查返回值类型是否匹配函数返回类型，IR/ASM 会生成返回值传递和退出序列。";
-            case "IfStmt" -> "IfStmt 表示条件分支。IR 阶段会把它降成条件跳转和基本块。";
-            case "ForStmt" -> "ForStmt 表示 for 循环，包含初始化、条件、步进和循环体。IR 阶段会把它拆成循环入口、条件判断、循环体、步进和退出跳转。";
-            case "WhileStmt" -> "WhileStmt 表示 while 循环，IR 阶段会生成条件判断和回边跳转。";
-            case "ExprStmt" -> "ExprStmt 表示把表达式当作语句执行，例如函数调用或赋值。它通常关注副作用而不是最终值。";
-            case "BinaryExpr" -> "BinaryExpr 表示二元表达式，左右子节点分别是操作数。语义分析会检查两侧类型，IR 阶段会生成对应计算或比较指令。";
-            case "UnaryExpr" -> "UnaryExpr 表示单目表达式，例如取负、取地址、解引用或自增自减。它会影响值类别和后续代码生成方式。";
-            case "CallExpr" -> "CallExpr 表示函数调用。语义分析会解析被调用函数并检查参数数量/类型，代码生成会按调用约定传参。";
-            case "NameExpr" -> "NameExpr 表示一个名字引用。语义分析会在作用域链里查找它对应的符号，IR 阶段再读取或写入该符号。";
-            case "IntegerLiteralExpr" -> "IntegerLiteralExpr 表示整数常量，通常直接降低为 IR 立即数。";
-            case "StringLiteralExpr" -> "StringLiteralExpr 表示字符串常量，后端会把它放入数据区，并把地址传给使用它的表达式。";
-            default -> "该节点表示源码中的一个语法结构。父子关系说明 parser 如何把线性的 token 串组织成可遍历的树。";
-        };
-        return "AST 阶段把 token 串组织成树。当前节点是 " + node.kind()
-                + "，显示标签为 `" + node.label() + "`，id 为 `" + node.id() + "`，子节点数 "
-                + node.children().size() + "，当前是否正在处理: " + yesNo(node.active()) + "。"
-                + "\n\n解释: " + role
-                + "\n\n用途: AST 是语义分析和 IR lowering 的共同输入。看这个节点的类型、标签、子节点和源码遮罩，就能知道编译器当前把哪一段源码理解成了什么语法结构。";
+        String role = ExplanationTemplates.get("parser", node.kind());
+        String header = ExplanationTemplates.header("parser")
+                .replace("${kind}", node.kind())
+                .replace("${label}", node.label())
+                .replace("${id}", node.id())
+                .replace("${childCount}", String.valueOf(node.children().size()))
+                .replace("${active}", yesNo(node.active()));
+        String footer = ExplanationTemplates.footer("parser");
+        return header + "\n\n解释: " + role + "\n\n" + footer;
     }
 
     private String explainIrLine(UiIrLineVisualDto line) {
         String text = line.text();
         String lower = text.toLowerCase(java.util.Locale.ROOT).trim();
-        String role;
+        String roleKey;
         if (lower.contains("call")) {
-            role = "call 表示函数调用。它把已经求值的参数交给目标函数，并把返回值保存到临时值或忽略。";
+            roleKey = "call";
         } else if (lower.contains("ret") || lower.startsWith("return")) {
-            role = "return/ret 表示当前函数结束并返回结果，后端会把返回值放到平台约定的位置。";
+            roleKey = "return";
         } else if (lower.contains("br") || lower.contains("jump")) {
-            role = "br/jump 表示控制流跳转，用来连接 if、for、while 这类结构产生的基本块。";
+            roleKey = "branch";
         } else if (lower.contains("cmp") || lower.contains("<") || lower.contains(">") || lower.contains("==")) {
-            role = "比较类 IR 会计算条件值，后续通常接条件跳转，用于分支和循环判断。";
+            roleKey = "compare";
         } else if (lower.contains("store") || lower.contains("=")) {
-            role = "赋值/存储类 IR 把右侧计算结果写入变量、临时值或内存位置，是变量状态变化的来源。";
+            roleKey = "store";
         } else if (lower.contains("load")) {
-            role = "load 表示读取变量或内存中的值，后续计算使用的是读取出的临时值。";
+            roleKey = "load";
         } else {
-            role = "该 IR 行是后端前的中间表示，把 AST 中较复杂的语法结构拆成更接近机器执行顺序的小步骤。";
+            roleKey = "default";
         }
-        return "IR 阶段把 AST 降成更线性的中间表示。当前是第 " + line.lineNumber()
-                + " 行，文本为 `" + text + "`。"
-                + "\n\n解释: " + role
-                + "\n\n用途: IR 抹平了很多语法细节，让后端可以按顺序生成汇编。结合左侧源码范围和这一行文本，可以看出某个 AST 节点最终产生了哪一步计算、跳转、调用或返回。";
+        String role = ExplanationTemplates.get("ir", roleKey);
+        String header = ExplanationTemplates.header("ir")
+                .replace("${lineNumber}", String.valueOf(line.lineNumber()))
+                .replace("${text}", text);
+        String footer = ExplanationTemplates.footer("ir");
+        return header + "\n\n解释: " + role + "\n\n" + footer;
     }
 
     private String explainAssemblyLine(MiniCAssemblyTextLine line) {
         String text = line.text().trim();
         String lower = text.toLowerCase(java.util.Locale.ROOT);
-        String role;
+        String roleKey;
         if (line.kind().equals("LABEL") || text.endsWith(":")) {
-            role = "标签是汇编中的跳转目标，不直接执行计算。条件分支、循环和函数入口会跳到这些名字。";
+            roleKey = "label";
         } else if (lower.startsWith("mov")) {
-            role = "mov 负责复制数据，例如把立即数、寄存器值或内存值移动到目标寄存器/内存。";
+            roleKey = "mov";
         } else if (lower.startsWith("add") || lower.startsWith("sub") || lower.startsWith("imul")) {
-            role = "算术指令执行整数计算，通常对应源码里的加减乘或栈指针调整。";
+            roleKey = "arithmetic";
         } else if (lower.startsWith("cmp") || lower.startsWith("test")) {
-            role = "cmp/test 设置 CPU 标志位，后续条件跳转会根据这些标志决定走哪条路径。";
+            roleKey = "compare";
         } else if (lower.startsWith("j")) {
-            role = "j* 是跳转指令。无条件跳转用于连接基本块，条件跳转用于 if/循环判断。";
+            roleKey = "jump";
         } else if (lower.startsWith("call")) {
-            role = "call 调用函数。Windows x64 下前几个参数通常放在 rcx、rdx、r8、r9，返回值通常在 rax。";
+            roleKey = "call";
         } else if (lower.startsWith("ret")) {
-            role = "ret 从当前函数返回到调用者，结束当前函数的机器级执行。";
+            roleKey = "ret";
         } else if (lower.startsWith("push") || lower.startsWith("pop")) {
-            role = "push/pop 操作栈，用于保存/恢复寄存器或维护调用帧。";
+            roleKey = "stack";
         } else {
-            role = "该汇编行是最终交给汇编器的低层指令或伪指令，直接决定生成的目标文件内容。";
+            roleKey = "default";
         }
-        return "汇编阶段把 IR 翻译成 Windows x64 汇编。当前第 " + line.lineNumber()
-                + " 行，类型 `" + line.kind() + "`，段 `" + blankValue(line.section())
-                + "`，标签 `" + blankValue(line.label()) + "`，文本为 `" + line.text() + "`。"
-                + "\n\n解释: " + role
-                + "\n\n用途: 汇编是生成 exe 前最接近机器执行的表示。看这一行可以知道源码/IR 最终变成了寄存器移动、算术、比较、跳转、函数调用还是返回。";
+        String role = ExplanationTemplates.get("codegen", roleKey);
+        String header = ExplanationTemplates.header("codegen")
+                .replace("${lineNumber}", String.valueOf(line.lineNumber()))
+                .replace("${kind}", line.kind())
+                .replace("${section}", blankValue(line.section()))
+                .replace("${label}", blankValue(line.label()))
+                .replace("${text}", line.text());
+        String footer = ExplanationTemplates.footer("codegen");
+        return header + "\n\n解释: " + role + "\n\n" + footer;
     }
 
     private HBox textRow(String text, String rowStyle, String textStyle) {
