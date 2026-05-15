@@ -253,7 +253,6 @@ public final class MiniCWorkbenchViewModel {
      * @return 控制结果
      */
     public UiControlResultDto tick() {
-        selectedVisualStage.set("");
         autoConfirmExecutionInput();
         UiControlResultDto result = api.tick();
         applyControlResult(result);
@@ -360,6 +359,12 @@ public final class MiniCWorkbenchViewModel {
      */
     public void selectVisualStage(String stage) {
         selectedVisualStage.set(stage == null ? "" : stage);
+        if (stage != null && !stage.isEmpty()) {
+            var state = currentState.get();
+            if (state != null && !"PAUSED".equals(state.playbackMode())) {
+                pause();
+            }
+        }
     }
 
     /**

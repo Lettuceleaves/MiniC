@@ -33,6 +33,11 @@ public final class MiniCPlaybackController {
                 restartTimeline();
             }
         });
+        viewModel.currentStateProperty().addListener((obs, oldState, newState) -> {
+            if (running() && newState != null && "PAUSED".equals(newState.playbackMode())) {
+                stopTimeline();
+            }
+        });
     }
 
     /**
@@ -75,6 +80,11 @@ public final class MiniCPlaybackController {
      * @return tick 结果
      */
     public UiControlResultDto tickOnce() {
+        var state = viewModel.currentStateProperty().get();
+        if (state != null && "PAUSED".equals(state.playbackMode())) {
+            stopTimeline();
+            return null;
+        }
         UiControlResultDto result = viewModel.tick();
         if (viewModel.currentStateProperty().get() != null && !viewModel.currentStateProperty().get().canNext()) {
             stopTimeline();

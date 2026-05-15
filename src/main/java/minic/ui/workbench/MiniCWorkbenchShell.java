@@ -7,6 +7,8 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -200,6 +202,14 @@ public final class MiniCWorkbenchShell {
         sourcePane.setMinWidth(0);
         visualPane.setMinWidth(0);
         mainContent.getChildren().addAll(sourcePane, visualPane);
+        mainContent.addEventFilter(MouseEvent.MOUSE_CLICKED, event -> {
+            if (event.getButton() == MouseButton.PRIMARY) {
+                var state = viewModel.currentStateProperty().get();
+                if (state != null && !"PAUSED".equals(state.playbackMode())) {
+                    viewModel.pause();
+                }
+            }
+        });
         viewModel.sessionStartedProperty().addListener((observable, oldValue, newValue) -> updateMainContent());
         viewModel.currentStateProperty().addListener((observable, oldValue, newValue) -> updateMainContent());
         viewModel.selectedVisualStageProperty().addListener((observable, oldValue, newValue) -> updateMainContent());
@@ -224,6 +234,9 @@ public final class MiniCWorkbenchShell {
         String selectedStage = viewModel.selectedVisualStageProperty().get();
         if ("source".equals(selectedStage)) {
             return true;
+        }
+        if (selectedStage != null && !selectedStage.isEmpty()) {
+            return false;
         }
         return !viewModel.sessionStartedProperty().get()
                 || viewModel.currentStateProperty().get() == null
