@@ -1,13 +1,18 @@
 package minic.ui;
 
+import javafx.scene.Parent;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Slider;
 import javafx.scene.control.SplitPane;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Group;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
@@ -46,7 +51,14 @@ import java.util.stream.Collectors;
  * Workbench 独立 Debug 模式首版面板。
  */
 public final class MiniCDebugPane extends VBox {
-    private static final double DEBUG_AST_ZOOM = 0.8;
+    private static final double DEFAULT_AST_ZOOM = 0.8;
+    private static final double MIN_AST_ZOOM = 0.05;
+    private static final double MAX_AST_ZOOM = 2.0;
+    private static final double AST_ZOOM_STEP = 0.025;
+    private static final String AST_DRAG_START_X_KEY = "debugAstDragX";
+    private static final String AST_DRAG_START_Y_KEY = "debugAstDragY";
+    private static final String AST_DRAG_START_H_KEY = "debugAstDragH";
+    private static final String AST_DRAG_START_V_KEY = "debugAstDragV";
     private static final double DEBUG_SINGLE_BUTTON_WIDTH = 64;
     private static final double DEBUG_PAIRED_BUTTON_WIDTH = 92;
     private static final double DEBUG_BUTTON_HEIGHT = 28;
@@ -72,6 +84,8 @@ public final class MiniCDebugPane extends VBox {
     private final VBox primaryContent = new VBox();
     private final VBox splitContent = new VBox();
     private final MiniCAstGraphModelFactory astGraphModelFactory = new MiniCAstGraphModelFactory();
+    private final MiniCKeyBindingConfig keyBindings = MiniCKeyBindingConfig.loadDefault();
+    private final Slider astZoom = new Slider(MIN_AST_ZOOM, MAX_AST_ZOOM, DEFAULT_AST_ZOOM);
     private final Label status = label("", "body-text");
     private String selectedViewId = "metadata";
     private String selectedSplitViewId = "metadata";
@@ -91,6 +105,7 @@ public final class MiniCDebugPane extends VBox {
         getChildren().addAll(controls, status, debugBody);
         VBox.setVgrow(debugBody, Priority.ALWAYS);
         viewModel.debugAsmViewProperty().addListener((observable, oldValue, newValue) -> refresh());
+        addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, this::handleZoomShortcut);
         refresh();
     }
 
@@ -766,7 +781,13 @@ public final class MiniCDebugPane extends VBox {
         content.getStyleClass().add("debug-ast-view");
         content.getChildren().add(astSummary(view));
         content.getChildren().add(debugAstGraph(view));
-        return wrap(content, viewportKey);
+        ScrollPane scroll = new ScrollPane(content);
+        scroll.getStyleClass().add("visual-scroll");
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        VBox.setVgrow(scroll, Priority.ALWAYS);
+        return rememberViewport(scroll, viewportKey);
     }
 
     private Node astSummary(UiDebugAstViewDto view) {
@@ -826,14 +847,27 @@ public final class MiniCDebugPane extends VBox {
             pane.getChildren().addAll(circle, text);
         });
         Group group = new Group(pane);
-        pane.setScaleX(DEBUG_AST_ZOOM);
-        pane.setScaleY(DEBUG_AST_ZOOM);
+        pane.scaleXProperty().bind(astZoom.valueProperty());
+        pane.scaleYProperty().bind(astZoom.valueProperty());
         pane.setManaged(false);
-        Pane viewport = new Pane(group);
-        viewport.getStyleClass().add("ast-graph-viewport");
-        viewport.setMinSize(graph.width() * DEBUG_AST_ZOOM, graph.height() * DEBUG_AST_ZOOM);
-        viewport.setPrefSize(graph.width() * DEBUG_AST_ZOOM, graph.height() * DEBUG_AST_ZOOM);
-        return viewport;
+        Pane graphViewport = new Pane(group);
+        graphViewport.getStyleClass().add("ast-graph-viewport");
+        graphViewport.setMinSize(graph.width(), graph.height());
+        graphViewport.setPrefSize(graph.width(), graph.height());
+        configureAstWheelZoom(graphViewport);
+        configureAstDrag(graphViewport);
+        VBox box = new VBox(6);
+        box.getStyleClass().add("ast-zoom-box");
+        HBox zoomControls = new HBox(8);
+        zoomControls.getStyleClass().add("ast-zoom-controls");
+        Label zoomLabel = new Label("缩放");
+        zoomLabel.getStyleClass().add("ast-zoom-label");
+        Label zoomValue = new Label();
+        zoomValue.getStyleClass().add("ast-zoom-value");
+        zoomValue.textProperty().bind(astZoom.valueProperty().multiply(100).asString("%.0f%%"));
+        zoomControls.getChildren().addAll(zoomLabel, astZoom, zoomValue);
+        box.getChildren().addAll(zoomControls, graphViewport);
+        return box;
     }
 
     private Pane emptyAstPane(String message) {
@@ -1037,6 +1071,92 @@ public final class MiniCDebugPane extends VBox {
         Label label = new Label(text);
         label.getStyleClass().add(styleClass);
         return label;
+    }
+
+    private void setAstZoom(double value) {
+        astZoom.setValue(Math.max(MIN_AST_ZOOM, Math.min(MAX_AST_ZOOM, value)));
+    }
+
+    private void handleZoomShortcut(javafx.scene.input.KeyEvent event) {
+        if (keyBindings.matches("ast.zoom.in", event)) {
+            setAstZoom(astZoom.getValue() + AST_ZOOM_STEP);
+            event.consume();
+        } else if (keyBindings.matches("ast.zoom.out", event)) {
+            setAstZoom(astZoom.getValue() - AST_ZOOM_STEP);
+            event.consume();
+        }
+    }
+
+    private void configureAstWheelZoom(Pane graphViewport) {
+        graphViewport.addEventFilter(ScrollEvent.SCROLL, event -> {
+            if (event.getDeltaY() == 0) {
+                return;
+            }
+            setAstZoom(astZoom.getValue() + (event.getDeltaY() > 0 ? AST_ZOOM_STEP : -AST_ZOOM_STEP));
+            event.consume();
+        });
+    }
+
+    private void configureAstDrag(Pane graphViewport) {
+        graphViewport.addEventFilter(MouseEvent.MOUSE_PRESSED, event -> {
+            if (event.getButton() != MouseButton.SECONDARY) {
+                return;
+            }
+            ScrollPane scrollPane = nearestScrollPane(graphViewport);
+            if (scrollPane == null) {
+                return;
+            }
+            graphViewport.getProperties().put(AST_DRAG_START_X_KEY, event.getScreenX());
+            graphViewport.getProperties().put(AST_DRAG_START_Y_KEY, event.getScreenY());
+            graphViewport.getProperties().put(AST_DRAG_START_H_KEY, scrollPane.getHvalue());
+            graphViewport.getProperties().put(AST_DRAG_START_V_KEY, scrollPane.getVvalue());
+            event.consume();
+        });
+        graphViewport.addEventFilter(MouseEvent.MOUSE_DRAGGED, event -> {
+            if (!event.isSecondaryButtonDown()) {
+                return;
+            }
+            ScrollPane scrollPane = nearestScrollPane(graphViewport);
+            if (scrollPane == null) {
+                return;
+            }
+            Object startX = graphViewport.getProperties().get(AST_DRAG_START_X_KEY);
+            Object startY = graphViewport.getProperties().get(AST_DRAG_START_Y_KEY);
+            Object startH = graphViewport.getProperties().get(AST_DRAG_START_H_KEY);
+            Object startV = graphViewport.getProperties().get(AST_DRAG_START_V_KEY);
+            if (!(startX instanceof Number x)
+                    || !(startY instanceof Number y)
+                    || !(startH instanceof Number h)
+                    || !(startV instanceof Number v)) {
+                return;
+            }
+            double contentWidth = scrollPane.getContent().getBoundsInLocal().getWidth();
+            double contentHeight = scrollPane.getContent().getBoundsInLocal().getHeight();
+            double viewportWidth = scrollPane.getViewportBounds().getWidth();
+            double viewportHeight = scrollPane.getViewportBounds().getHeight();
+            double maxX = Math.max(1, contentWidth - viewportWidth);
+            double maxY = Math.max(1, contentHeight - viewportHeight);
+            double deltaX = x.doubleValue() - event.getScreenX();
+            double deltaY = y.doubleValue() - event.getScreenY();
+            scrollPane.setHvalue(clamp(h.doubleValue() + deltaX / maxX));
+            scrollPane.setVvalue(clamp(v.doubleValue() + deltaY / maxY));
+            event.consume();
+        });
+    }
+
+    private ScrollPane nearestScrollPane(Node node) {
+        Parent parent = node.getParent();
+        while (parent != null) {
+            if (parent instanceof ScrollPane scrollPane) {
+                return scrollPane;
+            }
+            parent = parent.getParent();
+        }
+        return null;
+    }
+
+    private double clamp(double value) {
+        return Math.max(0, Math.min(1, value));
     }
 
     private record DebugView(String id, String title) {
