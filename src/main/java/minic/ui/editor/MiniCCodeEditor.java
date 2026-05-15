@@ -57,7 +57,7 @@ public final class MiniCCodeEditor extends StackPane {
     private static final Pattern DECLARED_NAME_PATTERN = Pattern.compile(
             "\\b(?:extern\\s+)?(?:bool|char|int|long|float|double|struct\\s+[A-Za-z_][A-Za-z0-9_]*)(?:\\s*\\*)*\\s+([A-Za-z_][A-Za-z0-9_]*)"
     );
-    private final StyleClassedTextArea input = new StyleClassedTextArea();
+    private final StyleClassedTextArea input = new StyleClassedTextArea(false);
     private final IntFunction<Node> lineNumberFactory = LineNumberFactory.get(input);
     private final Set<Integer> breakpointLines = new LinkedHashSet<>();
     private final Pane diagnosticLayer = new Pane();
@@ -240,7 +240,9 @@ public final class MiniCCodeEditor extends StackPane {
             latestAnalysis = analysis;
         }
         latestDiagnostics = analysis == null ? List.of() : analysis.diagnostics();
+        double scrollY = input.getEstimatedScrollY();
         input.setStyleSpans(0, styleSpans(source, analysis));
+        input.scrollYToPixel(scrollY);
         Platform.runLater(this::drawDiagnostics);
         updateDiagnosticDetails();
         if (source.isEmpty()) {
