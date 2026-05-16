@@ -136,3 +136,159 @@ cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\
 - 每次 agent 只能执行 [PLAN.md](PLAN.md) 中的一个任务编号，除非用户明确批准合并。
 - 每个非文档任务必须有测试或明确说明无法测试的原因。
 - 不提交构建产物、IDE 私有配置、临时文件、日志文件和本地环境文件。
+
+## MiniC 语法参考
+
+### 类型系统
+
+| 类型 | 大小 | 说明 |
+|------|------|------|
+| `bool` | 1 字节 | 布尔值 `true` / `false` |
+| `char` | 1 字节 | 有符号 8 位整数 |
+| `int` | 4 字节 | 有符号 32 位整数 |
+| `long` | 8 字节 | 有符号 64 位整数 |
+| `float` | 4 字节 | IEEE 754 单精度浮点 |
+| `double` | 8 字节 | IEEE 754 双精度浮点 |
+
+复合类型：
+
+- 指针：`int *p;`
+- 数组：`int arr[10];`
+- 结构体：`struct Point { int x; int y; };`
+- 函数指针：`int (*fp)(int, int);`
+- 空指针：`null`
+
+### 字面量
+
+```c
+42          // int
+100L        // long
+3.14f       // float
+3.14        // double
+'A'         // char
+"hello"     // string
+true false  // bool
+null        // null pointer
+```
+
+### 运算符（按优先级从高到低）
+
+| 优先级 | 运算符 | 说明 |
+|--------|--------|------|
+| 1 | `[]` `.` `->` `()` `++` `--`（后缀） | 下标、成员访问、调用、后缀自增减 |
+| 2 | `++` `--` `+` `-` `!` `~` `*` `&` `sizeof`（前缀） | 前缀自增减、正负号、逻辑非、按位取反、解引用、取址 |
+| 3 | `*` `/` `%` | 乘除取模 |
+| 4 | `+` `-` | 加减 |
+| 5 | `<<` `>>` | 位移 |
+| 6 | `<` `<=` `>` `>=` | 关系比较 |
+| 7 | `==` `!=` | 相等比较 |
+| 8 | `&` | 按位与 |
+| 9 | `^` | 按位异或 |
+| 10 | `\|` | 按位或 |
+| 11 | `&&` | 逻辑与 |
+| 12 | `\|\|` | 逻辑或 |
+| 13 | `? :` | 条件（三元） |
+| 14 | `=` `+=` `-=` `*=` `/=` `%=` `&=` `\|=` `^=` `<<=` `>>=` | 赋值 |
+
+### 控制流
+
+```c
+// if-else
+if (condition) { ... } else { ... }
+
+// while
+while (condition) { ... }
+
+// do-while
+do { ... } while (condition);
+
+// for
+for (int i = 0; i < n; i = i + 1) { ... }
+
+// switch
+switch (value) {
+    case 1: ...; break;
+    case 2: ...; break;
+    default: ...;
+}
+
+// break / continue
+break;
+continue;
+```
+
+### 函数
+
+```c
+// 声明
+int add(int a, int b);
+
+// 定义
+int add(int a, int b) {
+    return a + b;
+}
+
+// 外部函数（可变参数）
+extern int printf(char *format, ...);
+
+// 程序入口
+int main() { return 0; }
+```
+
+### 结构体
+
+```c
+struct Point {
+    int x;
+    int y;
+};
+
+struct Point p;
+p.x = 10;
+
+struct Point *pp;
+pp->y = 20;
+```
+
+### 指针与数组
+
+```c
+int a = 42;
+int *p = &a;    // 取址
+int b = *p;     // 解引用
+
+int arr[5];
+arr[0] = 1;
+int *q = arr;   // 数组退化为指针
+```
+
+### 预处理器
+
+```c
+#include "header.mh"       // 引入头文件（仅 .mh）
+
+#define PI 3
+#define MAX 100
+#undef MAX
+
+#ifdef DEBUG
+    // 条件编译
+#endif
+
+#ifndef GUARD
+    // ...
+#else
+    // ...
+#endif
+```
+
+### 注释
+
+```c
+// 单行注释（不支持 /* */ 块注释）
+```
+
+### 标识符规则
+
+- 以字母或下划线开头，后跟字母、数字或下划线
+- 用户函数不能以下划线开头（保留给运行时）
