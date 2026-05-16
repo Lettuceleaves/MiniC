@@ -7,6 +7,9 @@ import minic.compiler.lexer.LexResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParseResult;
 import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.MiniCPreprocessor;
+import minic.compiler.preprocess.PreprocessResult;
+import minic.compiler.preprocess.Preprocessor;
 import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.semantic.SemanticResult;
 import minic.runtime.debug.DebugCommand;
@@ -20,9 +23,18 @@ import java.util.Objects;
  * UI 层使用的独立 Debug 模式门面。
  */
 public final class MiniCDebugApi {
+    private final Preprocessor preprocessor;
     private SourceFile sourceFile;
     private DebugSession session;
     private Lowered lowered;
+
+    public MiniCDebugApi() {
+        this(new MiniCPreprocessor());
+    }
+
+    public MiniCDebugApi(Preprocessor preprocessor) {
+        this.preprocessor = Objects.requireNonNull(preprocessor, "preprocessor");
+    }
 
     /**
      * 加载源码文本。
@@ -276,7 +288,12 @@ public final class MiniCDebugApi {
         if (lowered != null && lowered.sourceFile().equals(sourceFile)) {
             return lowered;
         }
-        LexResult lexResult = new Lexer(sourceFile).lex();
+        PreprocessResult preprocessResult = preprocessor.preprocess(sourceFile);
+        if (!preprocessResult.diagnostics().isEmpty()) {
+            throw new IllegalStateException("debug source has preprocess diagnostics");
+        }
+        SourceFile preprocessed = preprocessResult.sourceFile();
+        LexResult lexResult = new Lexer(preprocessed).lex();
         if (!lexResult.diagnostics().isEmpty()) {
             throw new IllegalStateException("debug source has lexer diagnostics");
         }
