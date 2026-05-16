@@ -11,12 +11,14 @@ import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrFieldAddressInstruction;
+import minic.compiler.ir.instruction.IrIndirectCallInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
 import minic.compiler.ir.instruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
+import minic.compiler.ir.instruction.IrSelectInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.instruction.IrStorePointerInstruction;
 import minic.compiler.ir.instruction.IrUnaryInstruction;
@@ -28,6 +30,7 @@ import minic.compiler.ir.model.IrModule;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrConstant;
 import minic.compiler.ir.value.IrFloatConstant;
+import minic.compiler.ir.value.IrFunctionAddress;
 import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
@@ -234,6 +237,44 @@ public final class IrDebugInterpreter {
             state.pushFrame(callee.orElseThrow(), arguments, call.result());
             return;
         }
+        if (instruction instanceof IrIndirectCallInstruction indirectCall) {
+            DebugValue calleeValue = resolveValue(state, indirectCall.calleeAddress());
+            DebugVirtualAddress calleeAddr = pointerAddress(calleeValue);
+            String calleeName = resolveFunctionName(state, calleeAddr);
+            List<DebugValue> arguments = indirectCall.arguments().stream()
+                    .map(argument -> resolveValue(state, argument))
+                    .toList();
+            java.util.Optional<IrFunction> callee = state.module.findFunction(calleeName);
+            if (callee.isEmpty()) {
+                if (state.module.externalFunctionNames().contains(calleeName)) {
+                    DebugExternalFunctionStub stub = externalFunctions.find(calleeName).orElseThrow(() ->
+                            new UnsupportedOperationException("debug external stub is not available: " + calleeName));
+                    DebugExternalCallResult result = stub.invoke(
+                            calleeName,
+                            indirectCall.arguments(),
+                            arguments,
+                            new DebugExternalCallContext(state.module)
+                    );
+                    state.currentFrame().temps.put(indirectCall.result().name(), result.returnValue());
+                    state.stdout.append(result.stdoutAppend());
+                    recordStep(state, block, instructionIndex, instruction, "INDIRECT_CALL_EXTERNAL", calleeName);
+                    return;
+                }
+                throw new UnsupportedOperationException("indirect call target function not found: " + calleeName);
+            }
+            recordStep(state, block, instructionIndex, instruction, "INDIRECT_CALL", calleeName);
+            state.pushFrame(callee.orElseThrow(), arguments, indirectCall.result());
+            return;
+        }
+        if (instruction instanceof IrSelectInstruction select) {
+            DebugValue condition = resolveValue(state, select.condition());
+            DebugValue result = numericValue(condition) != 0
+                    ? resolveValue(state, select.thenValue())
+                    : resolveValue(state, select.elseValue());
+            state.currentFrame().temps.put(select.result().name(), result);
+            recordStep(state, block, instructionIndex, instruction, "SELECT", condition.summary());
+            return;
+        }
         if (instruction instanceof IrReturnInstruction ret) {
             state.returnValue = resolveValue(state, ret.value());
             IrTemporary returnTarget = state.currentFrame().returnTarget;
@@ -281,6 +322,9 @@ public final class IrDebugInterpreter {
         }
         if (value instanceof IrStringLiteral stringLiteral) {
             return DebugValue.pointerValue("char *", stringAddress(stringLiteral.label()));
+        }
+        if (value instanceof IrFunctionAddress functionAddress) {
+            return DebugValue.pointerValue("fn *", functionAddress(functionAddress.functionName()));
         }
         throw new UnsupportedOperationException("unsupported E160 IR value: " + value.getClass().getSimpleName());
     }
@@ -851,6 +895,24 @@ public final class IrDebugInterpreter {
 
     private DebugVirtualAddress stringAddress(String label) {
         return new DebugVirtualAddress("static", Math.abs(label.hashCode()));
+    }
+
+    private DebugVirtualAddress functionAddress(String functionName) {
+        return new DebugVirtualAddress("code", Math.abs(functionName.hashCode()));
+    }
+
+    private String resolveFunctionName(InterpreterState state, DebugVirtualAddress address) {
+        for (IrFunction function : state.module.functions()) {
+            if (functionAddress(function.name()).equals(address)) {
+                return function.name();
+            }
+        }
+        for (String externalName : state.module.externalFunctionNames()) {
+            if (functionAddress(externalName).equals(address)) {
+                return externalName;
+            }
+        }
+        throw new UnsupportedOperationException("cannot resolve function at address: " + address.display());
     }
 
     private String typeName(IrType type) {
