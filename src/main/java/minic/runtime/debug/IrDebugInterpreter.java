@@ -386,6 +386,7 @@ public final class IrDebugInterpreter {
         return switch (unary.operator()) {
             case LOGICAL_NOT -> DebugValue.intValue(value == 0 ? 1 : 0);
             case BITWISE_NOT -> integerResult(unary.result().type(), ~value);
+            case NEGATE -> integerResult(unary.result().type(), -value);
         };
     }
 

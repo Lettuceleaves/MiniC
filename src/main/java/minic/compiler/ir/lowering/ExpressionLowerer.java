@@ -353,6 +353,20 @@ final class ExpressionLowerer {
             ));
             return result;
         }
+        if (unaryExpr.operator() == TokenKind.MINUS) {
+            IrValue operand = lowerExpression(unaryExpr.operand());
+            IrTemporary result = builder.newTemporary(irTypeOf(unaryExpr));
+            builder.addInstruction(new IrUnaryInstruction(
+                    result,
+                    IrUnaryOperator.NEGATE,
+                    operand,
+                    unaryExpr.range()
+            ));
+            return result;
+        }
+        if (unaryExpr.operator() == TokenKind.PLUS) {
+            return lowerExpression(unaryExpr.operand());
+        }
         if (unaryExpr.operator() == TokenKind.PLUS_PLUS || unaryExpr.operator() == TokenKind.MINUS_MINUS) {
             IrValue currentValue = lowerExpression(unaryExpr.operand());
             IrConstant one = new IrConstant(1, currentValue.type());

@@ -215,7 +215,9 @@ final class ExpressionParser {
                 || state.match(TokenKind.BANG)
                 || state.match(TokenKind.TILDE)
                 || state.match(TokenKind.PLUS_PLUS)
-                || state.match(TokenKind.MINUS_MINUS)) {
+                || state.match(TokenKind.MINUS_MINUS)
+                || state.match(TokenKind.MINUS)
+                || state.match(TokenKind.PLUS)) {
             Token operator = state.previous();
             Expression operand = parseUnary();
             if (operand == null) {

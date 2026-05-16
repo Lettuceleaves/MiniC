@@ -277,6 +277,9 @@ final class WindowsX64InstructionEmitter {
             case BITWISE_NOT -> builder.append("    not ")
                     .append(valueEmitter.storeRegister("rax", unary.result().type()))
                     .append(System.lineSeparator());
+            case NEGATE -> builder.append("    neg ")
+                    .append(valueEmitter.storeRegister("rax", unary.result().type()))
+                    .append(System.lineSeparator());
         }
         emitStoreRegisterToMemory(
                 builder,

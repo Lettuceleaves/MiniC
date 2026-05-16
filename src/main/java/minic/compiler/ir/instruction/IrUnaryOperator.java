@@ -12,5 +12,10 @@ public enum IrUnaryOperator {
     /**
      * 按位取反。
      */
-    BITWISE_NOT
+    BITWISE_NOT,
+
+    /**
+     * 取负。
+     */
+    NEGATE
 }

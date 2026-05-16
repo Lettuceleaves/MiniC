@@ -133,6 +133,12 @@ final class ExpressionSemanticAnalyzer {
             }
             return targetType;
         }
+        if (unaryExpr.operator() == TokenKind.MINUS || unaryExpr.operator() == TokenKind.PLUS) {
+            if (!operandType.isScalar()) {
+                reporter.report(unaryExpr.range(), "一元 +/- 操作数必须是标量类型");
+            }
+            return operandType.isScalar() ? operandType : MiniType.INT;
+        }
         throw new IllegalArgumentException("unsupported unary operator: " + unaryExpr.operator());
     }
 
