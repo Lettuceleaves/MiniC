@@ -199,13 +199,17 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
         java.util.LinkedHashMap<String, IrFunctionSignature> signatures = new java.util.LinkedHashMap<>();
         for (FunctionDecl function : program.functions()) {
             ArrayList<IrType> parameterTypes = new ArrayList<>();
-            for (var parameter : function.parameters()) {
-                parameterTypes.add(IrTypeLowerer.lower(parameter.type()));
+            boolean structReturn = function.returnType().isStruct();
+            if (structReturn) {
+                parameterTypes.add(IrType.POINTER);
             }
-            signatures.put(function.name(), new IrFunctionSignature(
-                    IrTypeLowerer.lower(function.returnType()),
-                    parameterTypes
-            ));
+            for (var parameter : function.parameters()) {
+                parameterTypes.add(parameter.type().isStruct()
+                        ? IrType.POINTER
+                        : IrTypeLowerer.lower(parameter.type()));
+            }
+            IrType irReturnType = structReturn ? IrType.POINTER : IrTypeLowerer.lower(function.returnType());
+            signatures.put(function.name(), new IrFunctionSignature(irReturnType, parameterTypes));
         }
         return signatures;
     }

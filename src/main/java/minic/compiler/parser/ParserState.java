@@ -78,6 +78,14 @@ final class ParserState {
         return tokens.get(currentIndex);
     }
 
+    Token peekAt(int offset) {
+        int index = currentIndex + offset;
+        if (index >= tokens.size()) {
+            return tokens.getLast();
+        }
+        return tokens.get(index);
+    }
+
     Token previous() {
         return tokens.get(currentIndex - 1);
     }

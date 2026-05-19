@@ -141,9 +141,6 @@ final class StatementSemanticAnalyzer {
                             returnStmt.expressionOptional().orElseThrow(),
                             scope
                     );
-                    if (returnType.isStruct()) {
-                        reporter.report(returnStmt.range(), "函数不能返回结构体值");
-                    }
                     if (!TypeCompatibility.isAssignmentCompatible(currentFunction.returnType(), returnType)) {
                         reporter.report(returnStmt.range(), "return 类型不匹配");
                     }

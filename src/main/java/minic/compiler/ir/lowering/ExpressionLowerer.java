@@ -25,11 +25,13 @@ import minic.compiler.ir.instruction.IrCallInstruction;
 import minic.compiler.ir.instruction.IrCastInstruction;
 import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
 import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
+import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.IrFieldAddressInstruction;
 import minic.compiler.ir.instruction.IrIndirectCallInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
+import minic.compiler.ir.instruction.IrMemCopyInstruction;
 import minic.compiler.ir.instruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.instruction.IrStorePointerInstruction;
@@ -102,7 +104,7 @@ final class ExpressionLowerer {
             }
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local != null) {
-                if (local.type() == IrType.INT_ARRAY) {
+                if (local.type() == IrType.INT_ARRAY || local.type() == IrType.STRUCT) {
                     return lowerAddress(nameExpr);
                 }
                 builder.addInstruction(new IrCheckInitializedInstruction(local, nameExpr.range()));
@@ -163,14 +165,35 @@ final class ExpressionLowerer {
         if (expression instanceof SizeofExpr sizeofExpr) {
             MiniType queriedType = sizeofExpr.queriedTypeOptional()
                     .orElseGet(() -> expressionTypes.get(sizeofExpr.expressionOptional().orElseThrow()));
-            return new IrConstant(minic.compiler.type.TypeLayout.sizeOf(queriedType), IrType.LONG);
+            int size = sizeOfType(queriedType);
+            return new IrConstant(size, IrType.LONG);
         }
         if (expression instanceof CallExpr callExpr) {
+            MiniType callResultType = expressionTypes.get(callExpr);
+            boolean structReturn = callResultType != null && callResultType.isStruct();
+
             ArrayList<IrValue> arguments = new ArrayList<>();
-            for (Expression argument : callExpr.arguments()) {
-                arguments.add(lowerExpression(argument));
+            IrValue returnSlotAddress = null;
+            if (structReturn) {
+                int size = sizeOfType(callResultType);
+                IrLocal returnSlot = builder.declareAnonymousLocal(IrType.STRUCT, size, callExpr.range());
+                builder.addInstruction(new IrDeclareLocalInstruction(returnSlot, callExpr.range()));
+                IrTemporary addr = builder.newTemporary(IrType.POINTER);
+                builder.addInstruction(new IrAddressOfLocalInstruction(addr, returnSlot, callExpr.range()));
+                returnSlotAddress = addr;
+                arguments.add(returnSlotAddress);
             }
-            IrTemporary result = builder.newTemporary(irTypeOf(callExpr));
+
+            for (int i = 0; i < callExpr.arguments().size(); i++) {
+                Expression argument = callExpr.arguments().get(i);
+                IrValue argValue = lowerExpression(argument);
+                MiniType argType = expressionTypes.get(argument);
+                if (argType != null && argType.isStruct()) {
+                    argValue = copyStructForArg(argValue, (MiniType.StructType) argType, callExpr.range());
+                }
+                arguments.add(argValue);
+            }
+            IrTemporary result = builder.newTemporary(structReturn ? IrType.POINTER : irTypeOf(callExpr));
             if (isDirectFunctionCall(callExpr)) {
                 arguments = castArguments(callExpr.calleeName(), arguments, callExpr);
                 builder.addInstruction(new IrCallInstruction(result, callExpr.calleeName(), arguments, callExpr.range()));
@@ -179,7 +202,7 @@ final class ExpressionLowerer {
                 arguments = castArguments(callExpr, arguments);
                 builder.addInstruction(new IrIndirectCallInstruction(result, calleeAddress, arguments, callExpr.range()));
             }
-            return result;
+            return structReturn ? returnSlotAddress : result;
         }
         throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
     }
@@ -387,6 +410,15 @@ final class ExpressionLowerer {
     }
 
     private void lowerStore(Expression target, IrValue value, minic.source.SourceRange range) {
+        MiniType targetType = expressionTypes.get(target);
+        if (targetType != null && targetType.isStruct()) {
+            IrValue destAddress = lowerAddress(target);
+            IrValue srcAddress = value;
+            String structName = ((MiniType.StructType) targetType).name();
+            int size = builder.structSize(structName);
+            builder.addInstruction(new IrMemCopyInstruction(destAddress, srcAddress, size, range));
+            return;
+        }
         if (target instanceof NameExpr nameExpr) {
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local == null) {
@@ -435,7 +467,27 @@ final class ExpressionLowerer {
         } else if (targetType != null && targetType.isPointer()) {
             elementType = targetType.pointee();
         }
-        return minic.compiler.type.TypeLayout.sizeOf(elementType);
+        return sizeOfType(elementType);
+    }
+
+    private int sizeOfType(MiniType type) {
+        if (type instanceof MiniType.StructType structType) {
+            return builder.structSize(structType.name());
+        }
+        if (type.isArray() && type.elementType() instanceof MiniType.StructType structType) {
+            return builder.structSize(structType.name()) * type.arrayLength();
+        }
+        return minic.compiler.type.TypeLayout.sizeOf(type);
+    }
+
+    private IrValue copyStructForArg(IrValue srcAddress, MiniType.StructType structType, minic.source.SourceRange range) {
+        int size = builder.structSize(structType.name());
+        IrLocal copy = builder.declareAnonymousLocal(IrType.STRUCT, size, range);
+        builder.addInstruction(new IrDeclareLocalInstruction(copy, range));
+        IrTemporary destAddress = builder.newTemporary(IrType.POINTER);
+        builder.addInstruction(new IrAddressOfLocalInstruction(destAddress, copy, range));
+        builder.addInstruction(new IrMemCopyInstruction(destAddress, srcAddress, size, range));
+        return destAddress;
     }
 
     private IrValue lowerFieldAddress(FieldAccessExpr fieldAccessExpr) {
@@ -464,6 +516,9 @@ final class ExpressionLowerer {
             IrTemporary result = builder.newTemporary(IrType.POINTER);
             builder.addInstruction(new IrAddressOfLocalInstruction(result, local, nameExpr.range()));
             return result;
+        }
+        if (expression instanceof IndexExpr indexExpr) {
+            return lowerElementAddress(indexExpr);
         }
         if (expression instanceof FieldAccessExpr fieldAccessExpr) {
             return lowerFieldAddress(fieldAccessExpr);
@@ -558,7 +613,10 @@ final class ExpressionLowerer {
         }
         ArrayList<IrValue> casted = new ArrayList<>();
         for (int index = 0; index < arguments.size(); index++) {
-            casted.add(castIfNeeded(arguments.get(index), parameterTypes.get(index), callExpr.arguments().get(index).range()));
+            minic.source.SourceRange range = index < callExpr.arguments().size()
+                    ? callExpr.arguments().get(index).range()
+                    : callExpr.range();
+            casted.add(castIfNeeded(arguments.get(index), parameterTypes.get(index), range));
         }
         return casted;
     }

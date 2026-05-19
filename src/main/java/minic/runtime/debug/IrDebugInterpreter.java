@@ -16,6 +16,7 @@ import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
+import minic.compiler.ir.instruction.IrMemCopyInstruction;
 import minic.compiler.ir.instruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrSelectInstruction;
@@ -164,6 +165,18 @@ public final class IrDebugInterpreter {
                 state.pendingVisualFieldWrites.add(visualFieldWrite);
             }
             recordStep(state, block, instructionIndex, instruction, "STORE_POINTER", address.display());
+            return;
+        }
+        if (instruction instanceof IrMemCopyInstruction memCopy) {
+            DebugVirtualAddress destAddr = pointerAddress(resolveValue(state, memCopy.destination()));
+            DebugVirtualAddress srcAddr = pointerAddress(resolveValue(state, memCopy.source()));
+            for (int offset = 0; offset < memCopy.sizeBytes(); offset += 4) {
+                DebugVirtualAddress srcField = new DebugVirtualAddress(srcAddr.segment(), srcAddr.offset() + offset);
+                DebugVirtualAddress destField = new DebugVirtualAddress(destAddr.segment(), destAddr.offset() + offset);
+                DebugValue value = pointerValueAt(state, srcField);
+                writePointerValue(state, destField, value);
+            }
+            recordStep(state, block, instructionIndex, instruction, "MEM_COPY", destAddr.display());
             return;
         }
         if (instruction instanceof IrLoadLocalInstruction load) {

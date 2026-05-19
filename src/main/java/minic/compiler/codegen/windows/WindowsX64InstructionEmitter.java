@@ -15,6 +15,7 @@ import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrLoadLocalInstruction;
 import minic.compiler.ir.instruction.IrLoadPointerInstruction;
+import minic.compiler.ir.instruction.IrMemCopyInstruction;
 import minic.compiler.ir.instruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
@@ -168,6 +169,7 @@ final class WindowsX64InstructionEmitter {
             }
             case IrCallInstruction call -> emitCall(builder, call);
             case IrIndirectCallInstruction call -> emitIndirectCall(builder, call);
+            case IrMemCopyInstruction memCopy -> emitMemCopy(builder, memCopy);
             case IrBranchInstruction branch -> emitBranch(builder, functionName, branch);
             case IrJumpInstruction jump -> emitJump(builder, functionName, jump.targetLabel());
             case IrReturnInstruction returnInstruction -> {
@@ -585,5 +587,12 @@ final class WindowsX64InstructionEmitter {
 
     private void emitJump(StringBuilder builder, String functionName, String targetLabel) {
         builder.append("    jmp ").append(blockSymbol(functionName, targetLabel)).append(System.lineSeparator());
+    }
+
+    private void emitMemCopy(StringBuilder builder, IrMemCopyInstruction memCopy) {
+        valueEmitter.emitLoadValue(builder, memCopy.destination(), "rdi");
+        valueEmitter.emitLoadValue(builder, memCopy.source(), "rsi");
+        builder.append("    mov ecx, ").append(memCopy.sizeBytes()).append(System.lineSeparator());
+        builder.append("    rep movsb").append(System.lineSeparator());
     }
 }

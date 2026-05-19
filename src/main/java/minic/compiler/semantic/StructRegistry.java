@@ -71,6 +71,10 @@ final class StructRegistry {
         return Map.copyOf(structLayouts);
     }
 
+    boolean hasLayout(String structName) {
+        return structLayouts.containsKey(structName) || structDecls.containsKey(structName);
+    }
+
     java.util.Optional<StructFieldLayout> field(MiniType type, String fieldName) {
         if (type instanceof MiniType.StructType structType) {
             StructLayout layout = layoutOf(structType.name());

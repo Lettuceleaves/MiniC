@@ -11,6 +11,7 @@ import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrParameter;
+import minic.compiler.ir.model.IrType;
 import minic.compiler.semantic.StructLayout;
 import minic.compiler.type.MiniType;
 
@@ -41,13 +42,18 @@ final class IncrementalIrFunctionLowerer {
     ) {
         this.function = Objects.requireNonNull(function, "function");
         builder = new IrFunctionBuilder(structLayouts);
+        boolean structReturn = function.returnType().isStruct();
+        IrType irReturnType = structReturn ? IrType.POINTER : IrTypeLowerer.lower(function.returnType());
         statementLowerer = new StatementLowerer(
                 builder,
                 Objects.requireNonNull(stringLiteralRegistry, "stringLiteralRegistry"),
                 expressionTypes,
                 functionSignatures,
-                IrTypeLowerer.lower(function.returnType())
+                irReturnType
         );
+        if (structReturn) {
+            statementLowerer.setStructReturn(((MiniType.StructType) function.returnType()).name());
+        }
         astSteps = function.bodyOptional()
                 .map(IncrementalIrFunctionLowerer::astNodes)
                 .orElse(List.of());
@@ -58,10 +64,18 @@ final class IncrementalIrFunctionLowerer {
             throw new IllegalStateException("function lowering already begun");
         }
         begun = true;
+        if (function.returnType().isStruct()) {
+            IrParameter retPtr = new IrParameter("__retptr", IrType.POINTER, function.range());
+            parameters.add(retPtr);
+            builder.defineParameter("__retptr", retPtr.ref());
+        }
         for (Parameter parameter : function.parameters()) {
+            IrType paramIrType = parameter.type().isStruct()
+                    ? IrType.POINTER
+                    : IrTypeLowerer.lower(parameter.type());
             IrParameter irParameter = new IrParameter(
                     parameter.name(),
-                    IrTypeLowerer.lower(parameter.type()),
+                    paramIrType,
                     parameter.range()
             );
             parameters.add(irParameter);

@@ -90,6 +90,11 @@ final class IrFunctionBuilder {
         return local;
     }
 
+    IrLocal declareAnonymousLocal(IrType type, int sizeBytes, minic.source.SourceRange range) {
+        String name = "__copy#" + nextLocalIndex++;
+        return new IrLocal(name, name, type, 1, sizeBytes, range);
+    }
+
     int fieldOffset(String structName, String fieldName) {
         StructLayout layout = structLayouts.get(structName);
         if (layout == null) {
@@ -98,6 +103,14 @@ final class IrFunctionBuilder {
         return layout.field(fieldName)
                 .orElseThrow(() -> new IllegalArgumentException("missing struct field: " + structName + "." + fieldName))
                 .offset();
+    }
+
+    int structSize(String structName) {
+        StructLayout layout = structLayouts.get(structName);
+        if (layout == null) {
+            throw new IllegalArgumentException("missing struct layout: " + structName);
+        }
+        return layout.size();
     }
 
     private int sizeBytes(MiniType declaredType, IrType irType) {

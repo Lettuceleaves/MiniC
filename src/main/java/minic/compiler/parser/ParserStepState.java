@@ -100,7 +100,7 @@ public final class ParserStepState implements CompilerStageState<ParserStepState
             throw new IllegalStateException("parser state is already completed");
         }
         currentNode = null;
-        if (work.state.check(TokenKind.STRUCT)) {
+        if (work.state.check(TokenKind.STRUCT) && isStructDeclaration()) {
             StructDecl structDecl = work.declarationParser.parseStructDecl();
             if (structDecl != null) {
                 work.structs.add(structDecl);
@@ -177,6 +177,11 @@ public final class ParserStepState implements CompilerStageState<ParserStepState
      */
     public ParseResult toParseResult() {
         return new ParseResult(new Program(work.structs, work.functions, programRange()), work.state.diagnostics());
+    }
+
+    private boolean isStructDeclaration() {
+        return work.state.peekAt(1).kind() == TokenKind.IDENTIFIER
+                && work.state.peekAt(2).kind() == TokenKind.LEFT_BRACE;
     }
 
     private SourceRange programRange() {

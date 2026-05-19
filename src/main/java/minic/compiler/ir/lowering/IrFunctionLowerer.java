@@ -5,6 +5,7 @@ import minic.compiler.ast.decl.Parameter;
 import minic.compiler.ast.expr.Expression;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrParameter;
+import minic.compiler.ir.model.IrType;
 import minic.compiler.semantic.StructLayout;
 import minic.compiler.type.MiniType;
 
@@ -36,19 +37,36 @@ final class IrFunctionLowerer {
     IrFunction lower() {
         IrFunctionBuilder builder = new IrFunctionBuilder(structLayouts);
         ArrayList<IrParameter> parameters = new ArrayList<>();
+        boolean structReturn = function.returnType().isStruct();
+
+        if (structReturn) {
+            IrParameter retPtr = new IrParameter("__retptr", IrType.POINTER, function.range());
+            parameters.add(retPtr);
+            builder.defineParameter("__retptr", retPtr.ref());
+        }
+
         for (Parameter parameter : function.parameters()) {
+            IrType paramIrType = parameter.type().isStruct()
+                    ? IrType.POINTER
+                    : IrTypeLowerer.lower(parameter.type());
             IrParameter irParameter = new IrParameter(
                     parameter.name(),
-                    IrTypeLowerer.lower(parameter.type()),
+                    paramIrType,
                     parameter.range()
             );
             parameters.add(irParameter);
             builder.defineParameter(parameter.name(), irParameter.ref());
         }
 
+        IrType irReturnType = structReturn ? IrType.POINTER : IrTypeLowerer.lower(function.returnType());
         builder.pushLocalScope();
-        new StatementLowerer(builder, stringLiteralRegistry, expressionTypes, functionSignatures, IrTypeLowerer.lower(function.returnType()))
-                .lowerBlock(function.bodyOptional().orElseThrow(), false);
+        StatementLowerer statementLowerer = new StatementLowerer(
+                builder, stringLiteralRegistry, expressionTypes, functionSignatures, irReturnType);
+        if (structReturn) {
+            statementLowerer.setStructReturn(
+                    ((MiniType.StructType) function.returnType()).name());
+        }
+        statementLowerer.lowerBlock(function.bodyOptional().orElseThrow(), false);
         builder.popLocalScope();
         return new IrFunction(function.name(), parameters, builder.buildBlocks(), function.range());
     }

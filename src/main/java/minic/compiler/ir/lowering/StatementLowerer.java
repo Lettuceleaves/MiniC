@@ -22,8 +22,10 @@ import minic.compiler.ir.instruction.IrBinaryOperator;
 import minic.compiler.ast.stmt.VarDeclStmt;
 import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.ir.instruction.IrBranchInstruction;
+import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
+import minic.compiler.ir.instruction.IrMemCopyInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
 import minic.compiler.ir.model.IrLocal;
@@ -42,6 +44,7 @@ final class StatementLowerer {
     private final IrType returnType;
     private final Deque<LoopTarget> loopTargets = new ArrayDeque<>();
     private final Deque<String> switchBreakTargets = new ArrayDeque<>();
+    private String structReturnName;
 
     StatementLowerer(
             IrFunctionBuilder builder,
@@ -53,6 +56,10 @@ final class StatementLowerer {
         this.builder = builder;
         this.returnType = returnType;
         expressionLowerer = new ExpressionLowerer(builder, stringLiteralRegistry, expressionTypes, functionSignatures);
+    }
+
+    void setStructReturn(String structName) {
+        this.structReturnName = structName;
     }
 
     void lowerBlock(BlockStmt block, boolean createChildScope) {
@@ -72,10 +79,17 @@ final class StatementLowerer {
             Expression expression = returnStmt.expressionOptional()
                     .orElseThrow(() -> new IllegalArgumentException("return statement must have a value"));
             IrValue value = expressionLowerer.lowerExpression(expression);
-            builder.addInstruction(new IrReturnInstruction(
-                    expressionLowerer.castForTarget(value, returnType, returnStmt.range()),
-                    returnStmt.range()
-            ));
+            if (structReturnName != null) {
+                IrValue retPtr = builder.resolveParameter("__retptr");
+                int size = builder.structSize(structReturnName);
+                builder.addInstruction(new IrMemCopyInstruction(retPtr, value, size, returnStmt.range()));
+                builder.addInstruction(new IrReturnInstruction(retPtr, returnStmt.range()));
+            } else {
+                builder.addInstruction(new IrReturnInstruction(
+                        expressionLowerer.castForTarget(value, returnType, returnStmt.range()),
+                        returnStmt.range()
+                ));
+            }
             return;
         }
         if (statement instanceof BlockStmt blockStmt) {
@@ -89,7 +103,7 @@ final class StatementLowerer {
         if (statement instanceof VarDeclStmt varDeclStmt) {
             IrLocal local = builder.declareLocal(varDeclStmt);
             builder.addInstruction(new IrDeclareLocalInstruction(local, varDeclStmt.range()));
-            if (!varDeclStmt.type().isArray()) {
+            if (!varDeclStmt.type().isArray() && !varDeclStmt.type().isStruct()) {
                 varDeclStmt.initializerOptional().ifPresent(initializer -> {
                     IrValue value = expressionLowerer.lowerExpression(initializer);
                     builder.addInstruction(new IrStoreLocalInstruction(
@@ -97,6 +111,15 @@ final class StatementLowerer {
                             expressionLowerer.castForTarget(value, local.type(), varDeclStmt.range()),
                             varDeclStmt.range()
                     ));
+                });
+            } else if (varDeclStmt.type().isStruct()) {
+                varDeclStmt.initializerOptional().ifPresent(initializer -> {
+                    IrValue srcAddress = expressionLowerer.lowerExpression(initializer);
+                    IrTemporary destAddress = builder.newTemporary(IrType.POINTER);
+                    builder.addInstruction(new IrAddressOfLocalInstruction(destAddress, local, varDeclStmt.range()));
+                    String structName = ((MiniType.StructType) varDeclStmt.type()).name();
+                    int size = builder.structSize(structName);
+                    builder.addInstruction(new IrMemCopyInstruction(destAddress, srcAddress, size, varDeclStmt.range()));
                 });
             }
             return;

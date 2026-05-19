@@ -159,7 +159,13 @@ final class ExpressionSemanticAnalyzer {
             reporter.report(assignmentExpr.range(), "数组不能整体赋值");
         }
         if (targetType.isStruct() || valueType.isStruct()) {
-            reporter.report(assignmentExpr.range(), "暂不支持结构体整体赋值");
+            if (!targetType.equals(valueType)) {
+                reporter.report(assignmentExpr.range(), "结构体赋值类型不匹配");
+            }
+            if (assignmentExpr.compoundBinaryOperator().isPresent()) {
+                reporter.report(assignmentExpr.range(), "结构体不支持复合赋值运算");
+            }
+            return targetType;
         }
         if (assignmentExpr.compoundBinaryOperator().isPresent()) {
             TokenKind binaryOperator = assignmentExpr.compoundBinaryOperator().orElseThrow();
@@ -194,10 +200,20 @@ final class ExpressionSemanticAnalyzer {
         if (queriedType == null) {
             queriedType = analyzeExpression(sizeofExpr.expressionOptional().orElseThrow(), scope);
         }
-        if (!TypeLayout.hasFixedLayout(queriedType)) {
+        if (!TypeLayout.hasFixedLayout(queriedType) && !hasStructLayout(queriedType)) {
             reporter.report(sizeofExpr.range(), "sizeof 只支持固定布局类型");
         }
         return MiniType.LONG;
+    }
+
+    private boolean hasStructLayout(MiniType type) {
+        if (type instanceof MiniType.StructType structType) {
+            return structRegistry.hasLayout(structType.name());
+        }
+        if (type.isArray() && type.elementType() instanceof MiniType.StructType structType) {
+            return structRegistry.hasLayout(structType.name());
+        }
+        return false;
     }
 
     private MiniType analyzeAssignmentTarget(Expression target, Scope scope, SourceRange range) {
