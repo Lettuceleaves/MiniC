@@ -85,6 +85,11 @@ final class StructRegistry {
         return java.util.Optional.empty();
     }
 
+    java.util.List<StructFieldLayout> fields(String structName) {
+        StructLayout layout = layoutOf(structName);
+        return layout != null ? layout.fields() : null;
+    }
+
     private void validateFields(StructDecl structDecl) {
         Set<String> fieldNames = new HashSet<>();
         for (StructField field : structDecl.fields()) {

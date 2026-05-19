@@ -17,6 +17,7 @@ import minic.compiler.ast.expr.IntegerLiteralExpr;
 import minic.compiler.ast.expr.LongLiteralExpr;
 import minic.compiler.ast.expr.CharLiteralExpr;
 import minic.compiler.ast.expr.BoolLiteralExpr;
+import minic.compiler.ast.expr.StructInitExpr;
 import minic.compiler.ir.instruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.IrBinaryOperator;
 import minic.compiler.ast.stmt.VarDeclStmt;
@@ -24,10 +25,12 @@ import minic.compiler.ast.stmt.WhileStmt;
 import minic.compiler.ir.instruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.IrFieldAddressInstruction;
 import minic.compiler.ir.instruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.IrMemCopyInstruction;
 import minic.compiler.ir.instruction.IrReturnInstruction;
 import minic.compiler.ir.instruction.IrStoreLocalInstruction;
+import minic.compiler.ir.instruction.IrStorePointerInstruction;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrValue;
@@ -114,12 +117,16 @@ final class StatementLowerer {
                 });
             } else if (varDeclStmt.type().isStruct()) {
                 varDeclStmt.initializerOptional().ifPresent(initializer -> {
-                    IrValue srcAddress = expressionLowerer.lowerExpression(initializer);
-                    IrTemporary destAddress = builder.newTemporary(IrType.POINTER);
-                    builder.addInstruction(new IrAddressOfLocalInstruction(destAddress, local, varDeclStmt.range()));
-                    String structName = ((MiniType.StructType) varDeclStmt.type()).name();
-                    int size = builder.structSize(structName);
-                    builder.addInstruction(new IrMemCopyInstruction(destAddress, srcAddress, size, varDeclStmt.range()));
+                    if (initializer instanceof StructInitExpr structInitExpr) {
+                        lowerStructInit(local, varDeclStmt, structInitExpr);
+                    } else {
+                        IrValue srcAddress = expressionLowerer.lowerExpression(initializer);
+                        IrTemporary destAddress = builder.newTemporary(IrType.POINTER);
+                        builder.addInstruction(new IrAddressOfLocalInstruction(destAddress, local, varDeclStmt.range()));
+                        String structName = ((MiniType.StructType) varDeclStmt.type()).name();
+                        int size = builder.structSize(structName);
+                        builder.addInstruction(new IrMemCopyInstruction(destAddress, srcAddress, size, varDeclStmt.range()));
+                    }
                 });
             }
             return;
@@ -342,6 +349,20 @@ final class StatementLowerer {
             builder.pushLocalScope();
             lowerStatement(statement);
             builder.popLocalScope();
+        }
+    }
+
+    private void lowerStructInit(IrLocal local, VarDeclStmt varDeclStmt, StructInitExpr structInitExpr) {
+        String structName = ((MiniType.StructType) varDeclStmt.type()).name();
+        IrTemporary baseAddress = builder.newTemporary(IrType.POINTER);
+        builder.addInstruction(new IrAddressOfLocalInstruction(baseAddress, local, varDeclStmt.range()));
+        for (int i = 0; i < structInitExpr.values().size(); i++) {
+            int offset = builder.fieldOffset(structName, i);
+            IrTemporary fieldAddr = builder.newTemporary(IrType.POINTER);
+            builder.addInstruction(new IrFieldAddressInstruction(
+                    fieldAddr, baseAddress, "field" + i, offset, varDeclStmt.range()));
+            IrValue value = expressionLowerer.lowerExpression(structInitExpr.values().get(i));
+            builder.addInstruction(new IrStorePointerInstruction(fieldAddr, value, varDeclStmt.range()));
         }
     }
 

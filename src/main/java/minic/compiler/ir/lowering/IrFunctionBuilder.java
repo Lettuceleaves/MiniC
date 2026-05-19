@@ -105,6 +105,14 @@ final class IrFunctionBuilder {
                 .offset();
     }
 
+    int fieldOffset(String structName, int fieldIndex) {
+        StructLayout layout = structLayouts.get(structName);
+        if (layout == null) {
+            throw new IllegalArgumentException("missing struct layout: " + structName);
+        }
+        return layout.fields().get(fieldIndex).offset();
+    }
+
     int structSize(String structName) {
         StructLayout layout = structLayouts.get(structName);
         if (layout == null) {

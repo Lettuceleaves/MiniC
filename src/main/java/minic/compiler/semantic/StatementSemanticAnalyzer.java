@@ -124,7 +124,11 @@ final class StatementSemanticAnalyzer {
                 }
                 varDeclStmt.initializerOptional()
                         .ifPresent(initializer -> {
+                            if (varDeclStmt.type().isStruct()) {
+                                expressionAnalyzer.setStructInitTargetType(varDeclStmt.type());
+                            }
                             MiniType initializerType = expressionAnalyzer.analyzeExpression(initializer, scope);
+                            expressionAnalyzer.setStructInitTargetType(null);
                             if (!unsupportedArrayInitializer
                                     && !isInitializerCompatible(varDeclStmt.type(), initializerType)) {
                                 reporter.report(varDeclStmt.range(), "变量初始化类型不匹配：" + varDeclStmt.name());

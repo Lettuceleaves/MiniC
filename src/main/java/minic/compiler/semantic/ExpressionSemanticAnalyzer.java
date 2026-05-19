@@ -18,6 +18,7 @@ import minic.compiler.ast.expr.NameExpr;
 import minic.compiler.ast.expr.NullLiteralExpr;
 import minic.compiler.ast.expr.SizeofExpr;
 import minic.compiler.ast.expr.StringLiteralExpr;
+import minic.compiler.ast.expr.StructInitExpr;
 import minic.compiler.ast.expr.UnaryExpr;
 import minic.compiler.type.MiniType;
 import minic.compiler.type.TypeLayout;
@@ -35,6 +36,7 @@ final class ExpressionSemanticAnalyzer {
     private final SemanticReporter reporter;
     private final Map<Expression, MiniType> expressionTypes;
     private Set<String> currentParameterNames = Set.of();
+    private MiniType structInitTargetType;
 
     ExpressionSemanticAnalyzer(
             FunctionRegistry functionRegistry,
@@ -50,6 +52,10 @@ final class ExpressionSemanticAnalyzer {
 
     void setCurrentParameterNames(Collection<String> parameterNames) {
         currentParameterNames = Set.copyOf(parameterNames);
+    }
+
+    void setStructInitTargetType(MiniType type) {
+        this.structInitTargetType = type;
     }
 
     MiniType analyzeExpression(Expression expression, Scope scope) {
@@ -88,6 +94,7 @@ final class ExpressionSemanticAnalyzer {
                         : resolveFunctionPointerCall(callExpr, scope, argumentTypes);
                 yield returnType;
             }
+            case StructInitExpr structInitExpr -> analyzeStructInit(structInitExpr, scope);
             default -> throw new IllegalArgumentException("unsupported expression: "
                     + expression.getClass().getSimpleName());
         };
@@ -214,6 +221,33 @@ final class ExpressionSemanticAnalyzer {
             return structRegistry.hasLayout(structType.name());
         }
         return false;
+    }
+
+    private MiniType analyzeStructInit(StructInitExpr structInitExpr, Scope scope) {
+        if (structInitTargetType == null || !structInitTargetType.isStruct()) {
+            reporter.report(structInitExpr.range(), "大括号初始化只能用于结构体变量");
+            return MiniType.INT;
+        }
+        MiniType.StructType targetStruct = (MiniType.StructType) structInitTargetType;
+        java.util.List<StructFieldLayout> fields = structRegistry.fields(targetStruct.name());
+        if (fields == null) {
+            reporter.report(structInitExpr.range(), "未知结构体类型：" + targetStruct.name());
+            return structInitTargetType;
+        }
+        if (structInitExpr.values().size() != fields.size()) {
+            reporter.report(structInitExpr.range(),
+                    "结构体初始化值数量不匹配：期望 " + fields.size() + " 个，实际 " + structInitExpr.values().size() + " 个");
+        }
+        int count = Math.min(structInitExpr.values().size(), fields.size());
+        for (int i = 0; i < count; i++) {
+            MiniType valueType = analyzeExpression(structInitExpr.values().get(i), scope);
+            MiniType fieldType = fields.get(i).type();
+            if (!TypeCompatibility.isAssignmentCompatible(fieldType, valueType)) {
+                reporter.report(structInitExpr.values().get(i).range(),
+                        "结构体字段 " + fields.get(i).name() + " 初始化类型不匹配");
+            }
+        }
+        return structInitTargetType;
     }
 
     private MiniType analyzeAssignmentTarget(Expression target, Scope scope, SourceRange range) {

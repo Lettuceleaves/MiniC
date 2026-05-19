@@ -1,6 +1,7 @@
 package minic.compiler.parser;
 
 import minic.compiler.ast.expr.Expression;
+import minic.compiler.ast.expr.StructInitExpr;
 import minic.compiler.ast.stmt.BlockStmt;
 import minic.compiler.ast.stmt.BreakStmt;
 import minic.compiler.ast.stmt.ContinueStmt;
@@ -340,7 +341,11 @@ final class StatementParser {
         }
         Expression initializer = null;
         if (state.match(TokenKind.EQUAL)) {
-            initializer = expressionParser.parseExpression();
+            if (state.check(TokenKind.LEFT_BRACE)) {
+                initializer = parseStructInitializer();
+            } else {
+                initializer = expressionParser.parseExpression();
+            }
         }
         Token semicolonToken = state.consume(TokenKind.SEMICOLON, "期望 ';'");
 
@@ -384,6 +389,25 @@ final class StatementParser {
             return baseType;
         }
         return baseType.arrayOf(length);
+    }
+
+    private Expression parseStructInitializer() {
+        Token startToken = state.advance();
+        ArrayList<Expression> values = new ArrayList<>();
+        if (!state.check(TokenKind.RIGHT_BRACE)) {
+            values.add(expressionParser.parseExpression());
+            while (state.match(TokenKind.COMMA)) {
+                values.add(expressionParser.parseExpression());
+            }
+        }
+        Token endToken = state.consume(TokenKind.RIGHT_BRACE, "期望 '}'");
+        if (endToken == null) {
+            return null;
+        }
+        return new StructInitExpr(
+                values,
+                new SourceRange(startToken.range().sourceFile(), startToken.range().startOffset(), endToken.range().endOffset())
+        );
     }
 
     private ReturnStmt parseReturnStmt() {
