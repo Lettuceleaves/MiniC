@@ -163,6 +163,29 @@ class SemanticAnalyzerTest {
     }
 
     @Test
+    void acceptsAddressOfCompositeLvalues() {
+        SemanticResult result = analyze("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                int main() {
+                    int values[3];
+                    struct Point point;
+                    struct Point *pointPtr = &point;
+                    int *fromArray = &values[0];
+                    int *fromField = &point.x;
+                    int *fromArrow = &pointPtr->y;
+                    int *fromDeref = &*fromArray;
+                    return 0;
+                }
+                """);
+
+        assertThat(result.diagnostics()).isEmpty();
+    }
+
+    @Test
     void reportsVariadicFunctionCallsWithMissingOrBadFixedArguments() {
         SemanticResult result = analyze("""
                 extern int printf(char *format, ...);

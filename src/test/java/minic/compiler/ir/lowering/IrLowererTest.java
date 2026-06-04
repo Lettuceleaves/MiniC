@@ -327,6 +327,41 @@ class IrLowererTest {
     }
 
     @Test
+    void lowersAddressOfCompositeLvaluesToAddressCalculations() {
+        Program program = parse("""
+                struct Point {
+                    int x;
+                    int y;
+                };
+
+                int main() {
+                    int values[3];
+                    struct Point point;
+                    struct Point *pointPtr = &point;
+                    int *fromArray = &values[1];
+                    int *fromField = &point.x;
+                    int *fromArrow = &pointPtr->y;
+                    int *fromDeref = &*fromArray;
+                    return 0;
+                }
+                """);
+        SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
+        assertThat(semanticResult.diagnostics()).isEmpty();
+
+        List<IrInstruction> mainInstructions = instructions(new IrLowerer().lower(program, semanticResult)
+                .findFunction("main").orElseThrow());
+
+        assertThat(mainInstructions).filteredOn(IrElementAddressInstruction.class::isInstance).hasSize(1);
+        assertThat(mainInstructions).filteredOn(IrFieldAddressInstruction.class::isInstance).hasSize(2);
+        assertThat(mainInstructions).filteredOn(IrLoadPointerInstruction.class::isInstance).isEmpty();
+        assertThat(mainInstructions)
+                .filteredOn(IrStoreLocalInstruction.class::isInstance)
+                .map(IrStoreLocalInstruction.class::cast)
+                .extracting(store -> store.local().sourceName())
+                .contains("fromArray", "fromField", "fromArrow", "fromDeref");
+    }
+
+    @Test
     void lowersScalarWidthsNullFloatingConstantsAndCasts() {
         Program program = parse("""
                 long idLong(long value) { return value; }

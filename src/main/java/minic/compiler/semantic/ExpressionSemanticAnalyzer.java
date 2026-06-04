@@ -103,17 +103,11 @@ final class ExpressionSemanticAnalyzer {
     }
 
     private MiniType analyzeUnary(UnaryExpr unaryExpr, Scope scope) {
-        MiniType operandType = analyzeExpression(unaryExpr.operand(), scope);
         if (unaryExpr.operator() == TokenKind.AMPERSAND) {
-            if (unaryExpr.operand() instanceof NameExpr nameExpr) {
-                if (currentParameterNames.contains(nameExpr.name())) {
-                    reporter.report(unaryExpr.range(), "暂不支持对参数取址：" + nameExpr.name());
-                }
-            } else {
-                reporter.report(unaryExpr.range(), "取址操作数必须是变量");
-            }
+            MiniType operandType = analyzeAddressOperand(unaryExpr.operand(), scope, unaryExpr.range());
             return operandType.pointerTo();
         }
+        MiniType operandType = analyzeExpression(unaryExpr.operand(), scope);
         if (unaryExpr.operator() == TokenKind.STAR) {
             if (!operandType.isPointer()) {
                 reporter.report(unaryExpr.range(), "解引用操作数必须是指针");
@@ -147,6 +141,29 @@ final class ExpressionSemanticAnalyzer {
             return operandType.isScalar() ? operandType : MiniType.INT;
         }
         throw new IllegalArgumentException("unsupported unary operator: " + unaryExpr.operator());
+    }
+
+    private MiniType analyzeAddressOperand(Expression operand, Scope scope, SourceRange range) {
+        if (operand instanceof NameExpr nameExpr) {
+            scope.resolve(nameExpr.name()).ifPresent(symbol -> {
+                if (symbol.kind() == SymbolKind.VARIABLE && currentParameterNames.contains(nameExpr.name())) {
+                    reporter.report(range, "暂不支持对参数取址：" + nameExpr.name());
+                }
+                if (symbol.kind() == SymbolKind.FUNCTION) {
+                    reporter.report(range, "取址操作数必须是变量");
+                }
+            });
+            return analyzeExpression(operand, scope);
+        }
+        if (operand instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenKind.STAR) {
+            return analyzeExpression(operand, scope);
+        }
+        if (operand instanceof IndexExpr || operand instanceof FieldAccessExpr) {
+            return analyzeExpression(operand, scope);
+        }
+        MiniType operandType = analyzeExpression(operand, scope);
+        reporter.report(range, "取址操作数必须是变量");
+        return operandType;
     }
 
     private MiniType analyzeAssignment(AssignmentExpr assignmentExpr, Scope scope) {

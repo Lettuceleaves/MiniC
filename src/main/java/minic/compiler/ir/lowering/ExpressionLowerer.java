@@ -350,14 +350,8 @@ final class ExpressionLowerer {
     }
 
     private IrValue lowerUnary(UnaryExpr unaryExpr) {
-        if (unaryExpr.operator() == TokenKind.AMPERSAND && unaryExpr.operand() instanceof NameExpr nameExpr) {
-            IrLocal local = builder.resolveLocal(nameExpr.name());
-            if (local == null) {
-                throw new IllegalArgumentException("address-of target must be a local variable: " + nameExpr.name());
-            }
-            IrTemporary result = builder.newTemporary(IrType.POINTER);
-            builder.addInstruction(new IrAddressOfLocalInstruction(result, local, unaryExpr.range()));
-            return result;
+        if (unaryExpr.operator() == TokenKind.AMPERSAND) {
+            return lowerAddress(unaryExpr.operand());
         }
         if (unaryExpr.operator() == TokenKind.STAR) {
             IrValue address = lowerExpression(unaryExpr.operand());
@@ -522,6 +516,9 @@ final class ExpressionLowerer {
         }
         if (expression instanceof FieldAccessExpr fieldAccessExpr) {
             return lowerFieldAddress(fieldAccessExpr);
+        }
+        if (expression instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenKind.STAR) {
+            return lowerExpression(unaryExpr.operand());
         }
         return lowerExpression(expression);
     }
