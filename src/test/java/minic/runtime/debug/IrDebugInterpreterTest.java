@@ -494,6 +494,40 @@ class IrDebugInterpreterTest {
     }
 
     @Test
+    void stepBackOverSkipsReturnedCalleeSnapshotsOnSameCallerDepth() {
+        SourceFile sourceFile = new SourceFile("debug-step-back-over-expression-call.mc", """
+                int func1() {
+                    return 10;
+                }
+
+                int func2() {
+                    return 20;
+                }
+
+                int main() {
+                    int a = 0;
+                    a = 1 + func1() + func2();
+                    return a;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+        session.setBreakpoint(11);
+        DebugControlResult firstCall = session.control(DebugCommand.RUN_TO_BREAKPOINT);
+        DebugControlResult secondCall = session.control(DebugCommand.STEP_OVER);
+
+        DebugControlResult back = session.control(DebugCommand.STEP_BACK_OVER);
+
+        assertThat(firstCall.snapshot().cursor().functionName()).isEqualTo("main");
+        assertThat(firstCall.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(11);
+        assertThat(secondCall.snapshot().cursor().functionName()).isEqualTo("main");
+        assertThat(secondCall.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(11);
+        assertThat(back.snapshot().cursor().functionName()).isEqualTo("main");
+        assertThat(back.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(11);
+        assertThat(back.snapshot().cursor().sourceRange()).isEqualTo(firstCall.snapshot().cursor().sourceRange());
+    }
+
+    @Test
     void debugsStructPointerTreeAndRecordsVisualFieldPaths() {
         SourceFile sourceFile = new SourceFile("debug-struct-visual-tree.mc", """
                 struct Node {

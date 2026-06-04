@@ -421,19 +421,25 @@ public final class DebugSession {
     }
 
     private int stepBackOverIndex() {
-        int currentDepth = currentSnapshot().callStackSummary().size();
+        DebugSnapshot current = currentSnapshot();
+        int currentDepth = current.callStackSummary().size();
         if (currentDepth == 0) {
             return previousExecutableIndex();
         }
-        long currentVisibleStep = currentSnapshot().visibleStepIndex();
+        long currentVisibleStep = current.visibleStepIndex();
         for (int i = currentSnapshotIndex - 1; i >= 0; i--) {
             DebugSnapshot snapshot = snapshots.get(i);
             if (snapshot.visibleStepIndex() < currentVisibleStep
-                    && snapshot.callStackSummary().size() <= currentDepth) {
+                    && isSameDebugLayer(snapshot, current)) {
                 return endOfVisibleStep(i);
             }
         }
-        return 0;
+        return currentSnapshotIndex;
+    }
+
+    private boolean isSameDebugLayer(DebugSnapshot candidate, DebugSnapshot current) {
+        return candidate.callStackSummary().equals(current.callStackSummary())
+                && candidate.cursor().functionName().equals(current.cursor().functionName());
     }
 
     private int endOfVisibleStep(int snapshotIndex) {

@@ -394,14 +394,16 @@ public final class IrDebugInterpreter {
         if (instruction instanceof IrReturnInstruction ret) {
             state.returnValue = resolveValue(state, ret.value());
             IrTemporary returnTarget = state.currentFrame().returnTarget;
-            state.popFrame();
-            if (returnTarget == null || !state.hasFrames()) {
-                state.completed = true;
+            boolean completedProgram = returnTarget == null || state.frames.size() <= 1;
+            if (completedProgram) {
                 recordStep(state, block, instructionIndex, instruction, "RETURN", state.returnValue.summary(), DebugStopReason.COMPLETED, false);
+                state.popFrame();
+                state.completed = true;
                 state.session.setState(DebugExecutionState.COMPLETED);
             } else {
-                state.currentFrame().temps.put(returnTarget.name(), state.returnValue);
                 recordStep(state, block, instructionIndex, instruction, "RETURN", state.returnValue.summary(), DebugStopReason.RETURN, false);
+                state.popFrame();
+                state.currentFrame().temps.put(returnTarget.name(), state.returnValue);
             }
             return;
         }
