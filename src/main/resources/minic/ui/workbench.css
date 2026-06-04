@@ -1286,9 +1286,9 @@
 }
 
 .debug-control-single-button {
-    -fx-min-width: 64px;
-    -fx-pref-width: 64px;
-    -fx-max-width: 64px;
+    -fx-min-width: 92px;
+    -fx-pref-width: 92px;
+    -fx-max-width: 92px;
 }
 
 .debug-control-paired-button {

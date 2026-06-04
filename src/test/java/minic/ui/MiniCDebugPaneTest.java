@@ -6,9 +6,11 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.Parent;
+import javafx.geometry.Pos;
 import javafx.scene.layout.HBox;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
+import org.fxmisc.flowless.VirtualizedScrollPane;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -85,11 +87,17 @@ class MiniCDebugPaneTest {
                     .allSatisfy(text -> {
                         Button debugButton = button(pane, text);
                         assertThat(debugButton.getStyleClass()).contains("debug-control-single-button");
-                        assertThat(debugButton.getPrefWidth()).isEqualTo(64);
-                        assertThat(debugButton.getMinWidth()).isEqualTo(64);
-                        assertThat(debugButton.getMaxWidth()).isEqualTo(64);
+                        assertThat(debugButton.getPrefWidth()).isEqualTo(92);
+                        assertThat(debugButton.getMinWidth()).isEqualTo(92);
+                        assertThat(debugButton.getMaxWidth()).isEqualTo(92);
                         assertThat(debugButton.getPrefHeight()).isEqualTo(28);
                     });
+            assertThat(hboxesWithStyle(pane, "debug-controls"))
+                    .singleElement()
+                    .extracting(HBox::getAlignment)
+                    .isEqualTo(Pos.TOP_LEFT);
+            assertThat(hboxesWithStyle(pane, "debug-paired-row"))
+                    .allSatisfy(row -> assertThat(row.getAlignment()).isEqualTo(Pos.TOP_LEFT));
             assertThat(pairedDebugControlRows(pane))
                     .containsExactly(
                             List.of("从头开始", "下个断点", "本层下一句", "下一句"),
@@ -100,6 +108,21 @@ class MiniCDebugPaneTest {
             button(pane, "拆分").fire();
 
             assertThat(viewModel.debugStartedProperty().get()).isFalse();
+        });
+    }
+
+    @Test
+    void debuggerSourceEditorUsesDraggableScrollBars() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            VirtualizedScrollPane<?> scrollPane = virtualizedScrollPaneWithStyle(pane, "debug-source-editor-scroll");
+
+            assertThat(scrollPane).isNotNull();
+            assertThat(scrollPane.getVbarPolicy()).isEqualTo(ScrollPane.ScrollBarPolicy.ALWAYS);
+            assertThat(scrollPane.getHbarPolicy()).isEqualTo(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         });
     }
 
@@ -669,6 +692,24 @@ class MiniCDebugPaneTest {
         return rows;
     }
 
+    private static List<HBox> hboxesWithStyle(javafx.scene.Node node, String styleClass) {
+        List<HBox> rows = new ArrayList<>();
+        collectHboxesWithStyle(node, styleClass, rows);
+        return rows;
+    }
+
+    private static void collectHboxesWithStyle(javafx.scene.Node node, String styleClass, List<HBox> rows) {
+        if (node instanceof HBox hbox && hbox.getStyleClass().contains(styleClass)) {
+            rows.add(hbox);
+        }
+        if (node instanceof SplitPane splitPane) {
+            splitPane.getItems().forEach(child -> collectHboxesWithStyle(child, styleClass, rows));
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectHboxesWithStyle(child, styleClass, rows));
+        }
+    }
+
     private static void collectPairedDebugControlRows(javafx.scene.Node node, List<List<String>> rows) {
         if (node instanceof HBox hbox && hbox.getStyleClass().contains("debug-paired-row")) {
             rows.add(hbox.getChildren().stream()
@@ -717,6 +758,32 @@ class MiniCDebugPaneTest {
         if (node instanceof Parent parent) {
             for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
                 MiniCCodeEditor found = editor(child);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static VirtualizedScrollPane<?> virtualizedScrollPaneWithStyle(javafx.scene.Node node, String styleClass) {
+        if (node instanceof VirtualizedScrollPane<?> scrollPane && scrollPane.getStyleClass().contains(styleClass)) {
+            return scrollPane;
+        }
+        if (node instanceof SplitPane splitPane) {
+            for (javafx.scene.Node item : splitPane.getItems()) {
+                VirtualizedScrollPane<?> found = virtualizedScrollPaneWithStyle(item, styleClass);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            return virtualizedScrollPaneWithStyle(scrollPane.getContent(), styleClass);
+        }
+        if (node instanceof Parent parent) {
+            for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+                VirtualizedScrollPane<?> found = virtualizedScrollPaneWithStyle(child, styleClass);
                 if (found != null) {
                     return found;
                 }

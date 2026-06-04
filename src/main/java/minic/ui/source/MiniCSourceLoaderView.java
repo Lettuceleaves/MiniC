@@ -2,6 +2,7 @@ package minic.ui;
 
 import javafx.application.Platform;
 import javafx.scene.control.Button;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -166,6 +167,19 @@ public final class MiniCSourceLoaderView extends VBox {
      */
     public void setCurrentExecutionRange(UiSourceSpanDto range) {
         sourceEditor.setCurrentExecutionRange(range);
+    }
+
+    /**
+     * 让源码编辑器显示常驻垂直滚动条，方便在 Debugger 源码页直接拖动。
+     *
+     * @param scrollStyleClass 内部滚动容器样式类
+     */
+    public void usePersistentEditorScrollBars(String scrollStyleClass) {
+        sourceEditor.addScrollContainerStyleClass(scrollStyleClass);
+        sourceEditor.setScrollBarPolicies(
+                ScrollPane.ScrollBarPolicy.AS_NEEDED,
+                ScrollPane.ScrollBarPolicy.ALWAYS
+        );
     }
 
     private void submitRealtimeSource() {

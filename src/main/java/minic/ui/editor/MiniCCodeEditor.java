@@ -8,6 +8,7 @@ import javafx.scene.Node;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
@@ -59,6 +60,11 @@ public final class MiniCCodeEditor extends StackPane {
             "\\b(?:extern\\s+)?(?:bool|char|int|long|float|double|struct\\s+[A-Za-z_][A-Za-z0-9_]*)(?:\\s*\\*)*\\s+([A-Za-z_][A-Za-z0-9_]*)"
     );
     private final StyleClassedTextArea input = new StyleClassedTextArea(false);
+    private final VirtualizedScrollPane<StyleClassedTextArea> scrollPane = new VirtualizedScrollPane<>(
+            input,
+            ScrollPane.ScrollBarPolicy.AS_NEEDED,
+            ScrollPane.ScrollBarPolicy.AS_NEEDED
+    );
     private final IntFunction<Node> lineNumberFactory = LineNumberFactory.get(input);
     private final Set<Integer> breakpointLines = new LinkedHashSet<>();
     private final Pane diagnosticLayer = new Pane();
@@ -101,7 +107,8 @@ public final class MiniCCodeEditor extends StackPane {
         diagnosticDetails.setVisible(false);
         diagnosticDetails.maxWidthProperty().bind(widthProperty());
         configureCompletionList();
-        getChildren().addAll(new VirtualizedScrollPane<>(input), diagnosticLayer, diagnosticDetails, completionList);
+        scrollPane.getStyleClass().add("source-editor-scroll");
+        getChildren().addAll(scrollPane, diagnosticLayer, diagnosticDetails, completionList);
     }
 
     /**
@@ -122,6 +129,32 @@ public final class MiniCCodeEditor extends StackPane {
         input.replaceText(text);
         clearCurrentExecutionRange();
         render(null);
+    }
+
+    /**
+     * 配置源码编辑器内部滚动条策略。
+     *
+     * @param horizontalPolicy 水平滚动条策略
+     * @param verticalPolicy 垂直滚动条策略
+     */
+    public void setScrollBarPolicies(
+            ScrollPane.ScrollBarPolicy horizontalPolicy,
+            ScrollPane.ScrollBarPolicy verticalPolicy
+    ) {
+        scrollPane.setHbarPolicy(Objects.requireNonNull(horizontalPolicy, "horizontalPolicy"));
+        scrollPane.setVbarPolicy(Objects.requireNonNull(verticalPolicy, "verticalPolicy"));
+    }
+
+    /**
+     * 给源码编辑器内部滚动容器添加样式类。
+     *
+     * @param styleClass 样式类
+     */
+    public void addScrollContainerStyleClass(String styleClass) {
+        if (styleClass == null || styleClass.isBlank() || scrollPane.getStyleClass().contains(styleClass)) {
+            return;
+        }
+        scrollPane.getStyleClass().add(styleClass);
     }
 
     /**

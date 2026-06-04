@@ -61,8 +61,7 @@ public final class MiniCDebugPane extends VBox {
     private static final String AST_DRAG_START_Y_KEY = "debugAstDragY";
     private static final String AST_DRAG_START_H_KEY = "debugAstDragH";
     private static final String AST_DRAG_START_V_KEY = "debugAstDragV";
-    private static final double DEBUG_SINGLE_BUTTON_WIDTH = 64;
-    private static final double DEBUG_PAIRED_BUTTON_WIDTH = 92;
+    private static final double DEBUG_CONTROL_BUTTON_WIDTH = 92;
     private static final double DEBUG_BUTTON_HEIGHT = 28;
     private static final int METADATA_LIST_LIMIT = 200;
     private static final double VISUAL_CELL_SIZE = 44;
@@ -102,6 +101,7 @@ public final class MiniCDebugPane extends VBox {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
         getStyleClass().add("debug-pane");
         sourceView = new MiniCSourceLoaderView(viewModel, false);
+        sourceView.usePersistentEditorScrollBars("debug-source-editor-scroll");
         HBox controls = controls();
         configureDebugBody();
         getChildren().addAll(controls, status, debugBody);
@@ -127,9 +127,12 @@ public final class MiniCDebugPane extends VBox {
                 .forEach(this::formatSingleButton);
         HBox forwardControls = new HBox(6, start, run, step, into);
         HBox backwardControls = new HBox(6, end, backBreakpoint, backOver, back);
+        forwardControls.setAlignment(Pos.TOP_LEFT);
+        backwardControls.setAlignment(Pos.TOP_LEFT);
         forwardControls.getStyleClass().add("debug-paired-row");
         backwardControls.getStyleClass().add("debug-paired-row");
         VBox pairedControls = new VBox(4);
+        pairedControls.setAlignment(Pos.TOP_LEFT);
         pairedControls.getStyleClass().add("debug-paired-controls");
         pairedControls.getChildren().addAll(
                 forwardControls,
@@ -142,7 +145,7 @@ public final class MiniCDebugPane extends VBox {
         );
         controls.getStyleClass().add("controls");
         controls.getStyleClass().add("debug-controls");
-        controls.setAlignment(Pos.CENTER_LEFT);
+        controls.setAlignment(Pos.TOP_LEFT);
         return controls;
     }
 
@@ -171,12 +174,12 @@ public final class MiniCDebugPane extends VBox {
 
     private void formatSingleButton(Button button) {
         button.getStyleClass().add("debug-control-single-button");
-        lockButtonSize(button, DEBUG_SINGLE_BUTTON_WIDTH);
+        lockButtonSize(button, DEBUG_CONTROL_BUTTON_WIDTH);
     }
 
     private void formatPairedButton(Button button) {
         button.getStyleClass().add("debug-control-paired-button");
-        lockButtonSize(button, DEBUG_PAIRED_BUTTON_WIDTH);
+        lockButtonSize(button, DEBUG_CONTROL_BUTTON_WIDTH);
     }
 
     private void lockButtonSize(Button button, double width) {
