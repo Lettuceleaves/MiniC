@@ -6,6 +6,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Slider;
 import javafx.scene.control.SplitPane;
+import javafx.scene.control.Tooltip;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -418,15 +419,12 @@ public final class MiniCDebugPane extends VBox {
         if (view == null) {
             return "";
         }
-        return "stack frames: " + view.processSpace().stackFrames().size()
-                + "\nfunctions: " + view.processSpace().functions()
-                + "\ncurrent: " + view.processSpace().currentFunctionName()
-                + " / " + view.processSpace().currentInstructionId()
+        return "runtime:\n" + String.join("\n", runtimeSummary(view))
                 + "\nvisuals:\n" + view.visuals().stream()
-                .map(visual -> "  " + visual.type() + " " + visual.name() + " · " + visual.summary()
-                        + "\n" + visual.elements().stream()
-                        .map(this::visualElementText)
-                        .collect(Collectors.joining("\n")))
+                .map(visual -> "  " + visual.type() + " " + visual.name()
+                        + " · " + visual.kind()
+                        + " · " + visual.summary()
+                        + compactVisualCounts(visual.elements()))
                 .collect(Collectors.joining("\n"))
                 + "\nwarnings:\n" + String.join("\n", view.warnings());
     }
@@ -438,29 +436,22 @@ public final class MiniCDebugPane extends VBox {
             return wrap(content, viewportKey);
         }
         content.getChildren().addAll(
-                processSpaceSection("code", List.of(
-                        "current function: " + view.processSpace().currentFunctionName(),
-                        "current instruction: " + view.processSpace().currentInstructionId(),
-                        "functions: " + String.join(", ", view.processSpace().functions())
-                )),
-                processSpaceSection("static/data", view.processSpace().staticValues().stream()
-                        .map(this::variableText)
-                        .toList()),
-                processSpaceSection("stack", view.processSpace().stackFrames().stream()
-                        .map(this::frameWithValuesText)
-                        .toList()),
-                processSpaceSection("heap", view.processSpace().heapValues().stream()
-                        .map(this::variableText)
-                        .toList()),
-                processSpaceSection("io", List.of(
-                        "stdin: " + emptyText(view.processSpace().stdin()),
-                        "stdout: " + emptyText(view.processSpace().stdout()),
-                        "stderr: " + emptyText(view.processSpace().stderr())
-                )),
+                processSpaceSection("runtime", runtimeSummary(view)),
                 visualCards(view.visuals()),
                 metadataSection("warnings", view.warnings())
         );
         return wrap(content, viewportKey);
+    }
+
+    private List<String> runtimeSummary(UiDebugDataStructureViewDto view) {
+        return List.of(
+                "current: " + view.processSpace().currentFunctionName()
+                        + " / " + view.processSpace().currentInstructionId(),
+                "functions=" + view.processSpace().functions().size()
+                        + " · stackFrames=" + view.processSpace().stackFrames().size()
+                        + " · heapEntries=" + view.processSpace().heapValues().size(),
+                "stdout: " + emptyText(view.processSpace().stdout())
+        );
     }
 
     private Node processSpaceSection(String title, List<String> lines) {
@@ -495,12 +486,55 @@ public final class MiniCDebugPane extends VBox {
                 "debug-visual-title"
         ));
         card.getChildren().add(label(visual.summary(), "debug-section-line"));
+        if (!visual.explanation().isBlank()) {
+            Tooltip.install(card, new Tooltip(visual.explanation()));
+        }
+        String counts = compactVisualCounts(visual.elements());
+        if (!counts.isBlank()) {
+            card.getChildren().add(label(counts.substring(3), "debug-section-line"));
+        }
         Node diagram = visualDiagram(visual);
         if (diagram != null) {
             card.getChildren().add(diagram);
         }
-        visual.elements().forEach(element -> card.getChildren().add(label(visualElementText(element), "debug-section-line")));
+        compactVisualElementLines(visual)
+                .forEach(line -> card.getChildren().add(label(line, "debug-section-line")));
         return card;
+    }
+
+    private String compactVisualCounts(List<UiDebugVisualElementDto> elements) {
+        long cells = elements.stream().filter(element -> element.kind().equals("ARRAY_CELL")).count();
+        long nodes = elements.stream().filter(element -> element.kind().equals("GRAPH_NODE")).count();
+        long edges = elements.stream().filter(element -> element.kind().equals("GRAPH_EDGE")).count();
+        long fields = elements.stream().filter(element -> element.kind().equals("COMPOSITE_PART")).count();
+        ArrayList<String> parts = new ArrayList<>();
+        if (cells > 0) {
+            parts.add("cells=" + cells);
+        }
+        if (nodes > 0) {
+            parts.add("nodes=" + nodes);
+        }
+        if (edges > 0) {
+            parts.add("edges=" + edges);
+        }
+        if (fields > 0) {
+            parts.add("fields=" + fields);
+        }
+        return parts.isEmpty() ? "" : " · " + String.join(" · ", parts);
+    }
+
+    private List<String> compactVisualElementLines(UiDebugVisualStructureDto visual) {
+        boolean diagramBacked = visual.elements().stream()
+                .anyMatch(element -> element.kind().equals("ARRAY_CELL") || element.kind().equals("GRAPH_NODE"));
+        if (diagramBacked) {
+            return List.of();
+        }
+        return visual.elements().stream()
+                .filter(element -> element.kind().equals("COMPOSITE_PART"))
+                .map(this::visualElementText)
+                .filter(line -> !line.isBlank())
+                .limit(12)
+                .toList();
     }
 
     private Node visualDiagram(UiDebugVisualStructureDto visual) {
@@ -517,7 +551,7 @@ public final class MiniCDebugPane extends VBox {
             List<UiDebugVisualElementDto> graphEdges = visual.elements().stream()
                     .filter(element -> element.kind().equals("GRAPH_EDGE"))
                     .toList();
-            return graphDiagram(visual.kind(), graphNodes, graphEdges);
+            return graphDiagram(visual.kind(), visual.layoutHint(), graphNodes, graphEdges);
         }
         return null;
     }
@@ -541,13 +575,18 @@ public final class MiniCDebugPane extends VBox {
         return pane;
     }
 
-    private Node graphDiagram(String kind, List<UiDebugVisualElementDto> nodes, List<UiDebugVisualElementDto> edges) {
+    private Node graphDiagram(
+            String kind,
+            String layoutHint,
+            List<UiDebugVisualElementDto> nodes,
+            List<UiDebugVisualElementDto> edges
+    ) {
         Pane pane = new Pane();
         pane.getStyleClass().add("debug-visual-diagram");
-        List<UiDebugVisualElementDto> visibleNodes = visibleGraphNodes(kind, nodes, edges);
+        List<UiDebugVisualElementDto> visibleNodes = visibleGraphNodes(kind, layoutHint, nodes, edges);
         Map<String, UiDebugVisualElementDto> nodesById = visibleNodes.stream()
                 .collect(Collectors.toMap(this::simpleVisualId, node -> node, (left, right) -> left, LinkedHashMap::new));
-        Map<String, VisualPoint> positions = graphPositions(kind, visibleNodes, edges);
+        Map<String, VisualPoint> positions = graphPositions(kind, layoutHint, visibleNodes, edges);
         double width = Math.max(220, positions.values().stream().mapToDouble(VisualPoint::x).max().orElse(160) + VISUAL_MARGIN);
         double height = Math.max(150, positions.values().stream().mapToDouble(VisualPoint::y).max().orElse(100) + VISUAL_MARGIN);
         pane.setMinSize(width, height);
@@ -596,10 +635,11 @@ public final class MiniCDebugPane extends VBox {
 
     private List<UiDebugVisualElementDto> visibleGraphNodes(
             String kind,
+            String layoutHint,
             List<UiDebugVisualElementDto> nodes,
             List<UiDebugVisualElementDto> edges
     ) {
-        if (!kind.equals("tree") && !kind.equals("binary_tree")) {
+        if (!isTreeLayout(kind, layoutHint)) {
             return nodes;
         }
         java.util.HashSet<String> nodeIds = new java.util.HashSet<>();
@@ -626,11 +666,15 @@ public final class MiniCDebugPane extends VBox {
 
     private Map<String, VisualPoint> graphPositions(
             String kind,
+            String layoutHint,
             List<UiDebugVisualElementDto> nodes,
             List<UiDebugVisualElementDto> edges
     ) {
-        if (kind.equals("tree") || kind.equals("binary_tree")) {
+        if (isTreeLayout(kind, layoutHint)) {
             return treePositions(nodes, edges);
+        }
+        if (isBucketedLayout(kind, layoutHint)) {
+            return bucketedPositions(nodes);
         }
         LinkedHashMap<String, VisualPoint> positions = new LinkedHashMap<>();
         for (int index = 0; index < nodes.size(); index++) {
@@ -641,6 +685,73 @@ public final class MiniCDebugPane extends VBox {
             ));
         }
         return positions;
+    }
+
+    private boolean isTreeLayout(String kind, String layoutHint) {
+        return kind.equals("tree")
+                || kind.equals("binary_tree")
+                || kind.equals("binary-tree")
+                || layoutHint.equals("hierarchical");
+    }
+
+    private boolean isBucketedLayout(String kind, String layoutHint) {
+        return kind.equals("hash-chain-table")
+                || kind.equals("adjacency-list")
+                || layoutHint.equals("bucketed")
+                || layoutHint.equals("bucket_graph");
+    }
+
+    private Map<String, VisualPoint> bucketedPositions(List<UiDebugVisualElementDto> nodes) {
+        LinkedHashMap<String, VisualPoint> positions = new LinkedHashMap<>();
+        List<UiDebugVisualElementDto> buckets = nodes.stream()
+                .filter(node -> node.metadata().getOrDefault("visual-role", "").equals("bucket"))
+                .sorted(java.util.Comparator.comparingInt(node -> metadataInt(node, "bucketIndex", Integer.MAX_VALUE)))
+                .toList();
+        LinkedHashMap<String, Double> bucketXByIndex = new LinkedHashMap<>();
+        double bucketY = VISUAL_MARGIN + VISUAL_NODE_RADIUS;
+        for (int index = 0; index < buckets.size(); index++) {
+            UiDebugVisualElementDto bucket = buckets.get(index);
+            int bucketIndex = metadataInt(bucket, "bucketIndex", index);
+            double x = VISUAL_MARGIN + VISUAL_NODE_RADIUS + index * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
+            bucketXByIndex.put(Integer.toString(bucketIndex), x);
+            positions.put(simpleVisualId(bucket), new VisualPoint(x, bucketY));
+        }
+        nodes.stream()
+                .filter(node -> node.metadata().getOrDefault("visual-role", "").equals("chain-node"))
+                .sorted(java.util.Comparator
+                        .comparingInt((UiDebugVisualElementDto node) -> metadataInt(node, "bucketIndex", Integer.MAX_VALUE))
+                        .thenComparingInt(node -> metadataInt(node, "chainDepth", Integer.MAX_VALUE)))
+                .forEach(node -> {
+                    String bucketIndex = node.metadata().getOrDefault("bucketIndex", "0");
+                    int chainDepth = metadataInt(node, "chainDepth", 0);
+                    double x = bucketXByIndex.getOrDefault(
+                            bucketIndex,
+                            VISUAL_MARGIN + VISUAL_NODE_RADIUS + bucketXByIndex.size() * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP)
+                    );
+                    double y = bucketY + (chainDepth + 1) * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
+                    positions.put(simpleVisualId(node), new VisualPoint(x, y));
+                });
+        int fallbackIndex = 0;
+        for (UiDebugVisualElementDto node : nodes) {
+            String id = simpleVisualId(node);
+            if (positions.containsKey(id)) {
+                continue;
+            }
+            positions.put(id, new VisualPoint(
+                    VISUAL_MARGIN + VISUAL_NODE_RADIUS + fallbackIndex * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP),
+                    bucketY + (VISUAL_CELL_SIZE + VISUAL_GRID_GAP)
+            ));
+            fallbackIndex++;
+        }
+        return positions;
+    }
+
+    private int metadataInt(UiDebugVisualElementDto element, String key, int fallback) {
+        try {
+            return Integer.parseInt(element.metadata().getOrDefault(key, Integer.toString(fallback)));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
     }
 
     private Map<String, VisualPoint> treePositions(List<UiDebugVisualElementDto> nodes, List<UiDebugVisualElementDto> edges) {
@@ -1001,12 +1112,8 @@ public final class MiniCDebugPane extends VBox {
     }
 
     private String frameWithValuesText(UiDebugFrameDto frame) {
-        String parameters = frame.parameters().stream()
-                .map(this::variableText)
-                .collect(Collectors.joining("; "));
-        String locals = frame.locals().stream()
-                .map(this::variableText)
-                .collect(Collectors.joining("; "));
+        String parameters = variableTreeText(frame.parameters());
+        String locals = variableTreeText(frame.locals());
         return frameText(frame)
                 + " params=[" + parameters + "]"
                 + " locals=[" + locals + "]";
@@ -1017,7 +1124,43 @@ public final class MiniCDebugPane extends VBox {
                 + " " + variable.typeName()
                 + " " + variable.valueKind()
                 + " = " + variable.valueSummary()
-                + " @ " + variable.address();
+                + " @ " + variable.address()
+                + (variable.pointerTarget().isBlank() ? "" : " pointerTarget=" + variable.pointerTarget())
+                + (variable.typeShape().isBlank() ? "" : " shape=" + variable.typeShape())
+                + (variable.highlightedChange() ? " changed" : "")
+                + (variable.explanation().isBlank() ? "" : " · " + variable.explanation());
+    }
+
+    private List<String> stackLines(List<UiDebugFrameDto> frames) {
+        ArrayList<String> lines = new ArrayList<>();
+        for (UiDebugFrameDto frame : frames) {
+            lines.add(frameText(frame));
+            if (!frame.parameters().isEmpty()) {
+                lines.add("  parameters:");
+                lines.addAll(variableLines(frame.parameters()));
+            }
+            if (!frame.locals().isEmpty()) {
+                lines.add("  locals:");
+                lines.addAll(variableLines(frame.locals()));
+            }
+        }
+        return lines;
+    }
+
+    private List<String> variableLines(List<UiDebugVariableDto> variables) {
+        ArrayList<String> lines = new ArrayList<>();
+        variables.forEach(variable -> addVariableLines(lines, variable, 0));
+        return lines;
+    }
+
+    private void addVariableLines(List<String> lines, UiDebugVariableDto variable, int depth) {
+        lines.add("  " + "  ".repeat(depth) + variableText(variable).stripLeading());
+        variable.fields().forEach(field -> addVariableLines(lines, field, depth + 1));
+        variable.elements().forEach(element -> addVariableLines(lines, element, depth + 1));
+    }
+
+    private String variableTreeText(List<UiDebugVariableDto> variables) {
+        return String.join("\n", variableLines(variables));
     }
 
     private String breakpointText(UiDebugBreakpointDto breakpoint) {
@@ -1047,9 +1190,18 @@ public final class MiniCDebugPane extends VBox {
     }
 
     private String visualElementText(UiDebugVisualElementDto element) {
-        return "    " + element.kind() + " " + element.id()
-                + " " + element.label()
-                + " " + element.metadata();
+        Map<String, String> metadata = element.metadata();
+        String name = metadata.getOrDefault("fieldName", element.label());
+        String value = metadata.getOrDefault("valueSummary", "");
+        String pointerTarget = metadata.getOrDefault("pointerTarget", "");
+        String type = metadata.getOrDefault("type", metadata.getOrDefault("typeName", ""));
+        if (!pointerTarget.isBlank()) {
+            return name + (type.isBlank() ? "" : " : " + type) + " -> " + pointerTarget;
+        }
+        if (!value.isBlank()) {
+            return name + (type.isBlank() ? "" : " : " + type) + " = " + value;
+        }
+        return name + (type.isBlank() ? "" : " : " + type);
     }
 
     private String emptyText(String value) {

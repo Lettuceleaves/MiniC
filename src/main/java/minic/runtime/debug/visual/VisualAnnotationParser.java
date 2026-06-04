@@ -4,6 +4,7 @@ import minic.source.SourceFile;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
@@ -23,20 +24,37 @@ public final class VisualAnnotationParser {
      * @return 解析结果
      */
     public VisualAnnotationParseResult parse(SourceFile sourceFile) {
+        ParsedVisualAnnotations parsed = parseAll(sourceFile);
+        return new VisualAnnotationParseResult(parsed.annotations(), parsed.specs(), parsed.warnings());
+    }
+
+    /**
+     * 解析源码中的简化 @visual DSL 声明。
+     *
+     * @param sourceFile 源码文件
+     * @return 规范化视觉声明
+     */
+    public List<VisualSpec> specs(SourceFile sourceFile) {
+        return parse(sourceFile).specs();
+    }
+
+    private ParsedVisualAnnotations parseAll(SourceFile sourceFile) {
         Objects.requireNonNull(sourceFile, "sourceFile");
         ArrayList<VisualAnnotation> annotations = new ArrayList<>();
+        ArrayList<VisualSpec> specs = new ArrayList<>();
         ArrayList<String> warnings = new ArrayList<>();
         String[] lines = sourceFile.content().replace("\r\n", "\n").replace('\r', '\n').split("\n", -1);
         for (int index = 0; index < lines.length; index++) {
-            parseLine(lines[index], index + 1, annotations, warnings);
+            parseLine(lines[index], index + 1, annotations, specs, warnings);
         }
-        return new VisualAnnotationParseResult(annotations, warnings);
+        return new ParsedVisualAnnotations(annotations, specs, warnings);
     }
 
     private void parseLine(
             String line,
             int lineNumber,
             ArrayList<VisualAnnotation> annotations,
+            ArrayList<VisualSpec> specs,
             ArrayList<String> warnings
     ) {
         int comment = line.indexOf("//");
@@ -53,17 +71,17 @@ public final class VisualAnnotationParser {
             return;
         }
         String directive = parts[0];
-        String structureType = directive.equals("@visual") || directive.equals("@visual-map") ? parts[1] : "graph";
-        LinkedHashMap<String, String> attributes = new LinkedHashMap<>();
-        int attributeStart = directive.equals("@visual") || directive.equals("@visual-map") ? 2 : 1;
-        for (int i = attributeStart; i < parts.length; i++) {
-            int split = parts[i].indexOf('=');
-            if (split <= 0 || split == parts[i].length() - 1) {
-                warnings.add("第 " + lineNumber + " 行忽略非法属性：" + parts[i]);
-                continue;
+        if (directive.equals("@visual") && parts.length >= 2 && parts[1].contains("=")) {
+            LinkedHashMap<String, String> attributes = parseAttributes(parts, 1, lineNumber, warnings);
+            VisualSpec spec = parseSpec(attributes, lineNumber, warnings);
+            if (spec != null) {
+                specs.add(spec);
             }
-            attributes.put(parts[i].substring(0, split), parts[i].substring(split + 1));
+            return;
         }
+        String structureType = directive.equals("@visual") || directive.equals("@visual-map") ? parts[1] : "graph";
+        int attributeStart = directive.equals("@visual") || directive.equals("@visual-map") ? 2 : 1;
+        LinkedHashMap<String, String> attributes = parseAttributes(parts, attributeStart, lineNumber, warnings);
         if (!validate(directive, structureType, attributes, lineNumber, warnings)) {
             return;
         }
@@ -74,6 +92,53 @@ public final class VisualAnnotationParser {
                 lineNumber,
                 attributes
         ));
+    }
+
+    private LinkedHashMap<String, String> parseAttributes(
+            String[] parts,
+            int attributeStart,
+            int lineNumber,
+            ArrayList<String> warnings
+    ) {
+        LinkedHashMap<String, String> attributes = new LinkedHashMap<>();
+        for (int i = attributeStart; i < parts.length; i++) {
+            int split = parts[i].indexOf('=');
+            if (split <= 0 || split == parts[i].length() - 1) {
+                warnings.add("第 " + lineNumber + " 行忽略非法属性：" + parts[i]);
+                continue;
+            }
+            attributes.put(parts[i].substring(0, split), parts[i].substring(split + 1));
+        }
+        return attributes;
+    }
+
+    private VisualSpec parseSpec(
+            Map<String, String> attributes,
+            int lineNumber,
+            ArrayList<String> warnings
+    ) {
+        String root = attributes.get("root");
+        if (root == null) {
+            warnings.add("第 " + lineNumber + " 行 @visual 缺少 root");
+            return null;
+        }
+        if (!VARIABLE_NAME.matcher(root).matches()) {
+            warnings.add("第 " + lineNumber + " 行 root 只允许变量名：" + root);
+            return null;
+        }
+        String rawKind = attributes.getOrDefault("kind", "auto");
+        VisualKind kind = VisualKind.parse(rawKind).orElseGet(() -> {
+            warnings.add("第 " + lineNumber + " 行 kind 不支持：" + rawKind);
+            return VisualKind.AUTO;
+        });
+        return new VisualSpec(
+                attributes.getOrDefault("name", root),
+                root,
+                kind,
+                attributes,
+                VisualSpec.parseFields(attributes.get("fields")),
+                lineNumber
+        );
     }
 
     private boolean validate(
@@ -172,5 +237,17 @@ public final class VisualAnnotationParser {
             return attributes.getOrDefault("graph", "default");
         }
         return attributes.getOrDefault("name", attributes.getOrDefault("root", "visual"));
+    }
+
+    private record ParsedVisualAnnotations(
+            List<VisualAnnotation> annotations,
+            List<VisualSpec> specs,
+            List<String> warnings
+    ) {
+        private ParsedVisualAnnotations {
+            annotations = List.copyOf(annotations);
+            specs = List.copyOf(specs);
+            warnings = List.copyOf(warnings);
+        }
     }
 }

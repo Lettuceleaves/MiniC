@@ -142,7 +142,8 @@ class MiniCDebugPaneTest {
             button(pane, "数据结构").fire();
 
             assertThat(labelsWithStyle(pane, "debug-process-title"))
-                    .contains("code", "static/data", "stack", "heap", "io");
+                    .contains("runtime")
+                    .doesNotContain("static/data", "stack", "heap", "io");
             assertThat(labelsWithStyle(pane, "debug-section-title"))
                     .contains("visual structures", "warnings");
         });
@@ -174,6 +175,76 @@ class MiniCDebugPaneTest {
             assertThat(containsStyle(pane, "debug-graph-edge")).isTrue();
             assertThat(containsStyle(pane, "debug-graph-edge-head")).isTrue();
             assertThat(containsStyle(pane, "debug-pointer-arrow")).isTrue();
+        });
+    }
+
+    @Test
+    void rendersBeginnerExplanationsInDataStructureTab() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            viewModel.loadSource("debug-visual-explanation-ui.mc", """
+                    // @visual array name=slot kind=array root=value
+                    int main() {
+                        int value = 1;
+                        value = value + 1;
+                        return value;
+                    }
+                    """);
+            viewModel.startDebug();
+            viewModel.debugFastForward();
+            button(pane, "数据结构").fire();
+
+            assertThat(labelsWithStyle(pane, "debug-section-line"))
+                    .anySatisfy(text -> assertThat(text).contains("cells=1"))
+                    .noneSatisfy(text -> assertThat(text).contains("C 代码"));
+        });
+    }
+
+    @Test
+    void rendersNestedStructFieldsAndPointerTargetsInDataStructureTab() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            viewModel.loadSource("debug-nested-data-ui.mc", """
+                    // @visual root=n1 kind=struct fields=value,left,right
+                    struct Node {
+                        int value;
+                        struct Node *left;
+                        struct Node *right;
+                    };
+
+                    int main() {
+                        struct Node n1;
+                        struct Node n2;
+                        struct Node n3;
+                        struct Node *root = &n1;
+                        n1.value = 10;
+                        n1.left = &n2;
+                        n1.right = &n3;
+                        n2.value = 5;
+                        n2.left = NULL;
+                        n2.right = NULL;
+                        n3.value = 15;
+                        n3.left = NULL;
+                        n3.right = NULL;
+                        return n1.value;
+                    }
+                    """);
+            viewModel.setDebugBreakpoints(List.of(22));
+            viewModel.startDebug();
+            viewModel.debugRunToBreakpoint();
+            button(pane, "数据结构").fire();
+
+            assertThat(labelsWithStyle(pane, "debug-section-line"))
+                    .anySatisfy(text -> assertThat(text).contains("value", "int", "10"))
+                    .anySatisfy(text -> assertThat(text).contains("left", "pointer", "-> stack:"))
+                    .anySatisfy(text -> assertThat(text).contains("right", "pointer", "-> stack:"))
+                    .noneSatisfy(text -> assertThat(text).contains("pointerTarget="));
         });
     }
 
@@ -259,6 +330,48 @@ class MiniCDebugPaneTest {
             assertThat(root.getCenterX()).isLessThan(right.getCenterX());
             assertThat(rectangleWithAccessibleText(pane, "debug-null-node", "null-2-left")).isNotNull();
             assertThat(rectangleWithAccessibleText(pane, "debug-null-node", "null-2-right")).isNotNull();
+        });
+    }
+
+    @Test
+    void rendersHashChainTableWithChainsBelowBuckets() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+
+            viewModel.loadSource("debug-hash-chain-layout-ui.mc", """
+                    // @visual graph name=hash kind=hash-chain-table root=root
+                    // @visual-node graph=hash id=b0 label=[0] visual-role=bucket bucketIndex=0
+                    // @visual-node graph=hash id=b1 label=[1] visual-role=bucket bucketIndex=1
+                    // @visual-node graph=hash id=b2 label=[2] visual-role=bucket bucketIndex=2
+                    // @visual-node graph=hash id=n0 label=10 visual-role=chain-node bucketIndex=0 chainDepth=0
+                    // @visual-node graph=hash id=n1 label=20 visual-role=chain-node bucketIndex=0 chainDepth=1
+                    // @visual-node graph=hash id=n2 label=30 visual-role=chain-node bucketIndex=2 chainDepth=0
+                    // @visual-edge graph=hash from=b0 to=n0 label=bucket directed=true bucketIndex=0
+                    // @visual-edge graph=hash from=n0 to=n1 label=next directed=true bucketIndex=0
+                    // @visual-edge graph=hash from=b2 to=n2 label=bucket directed=true bucketIndex=2
+                    int main() { return 0; }
+                    """);
+            viewModel.startDebug();
+            button(pane, "数据结构").fire();
+
+            Circle bucket0 = circleWithAccessibleText(pane, "debug-graph-node", "b0");
+            Circle bucket1 = circleWithAccessibleText(pane, "debug-graph-node", "b1");
+            Circle bucket2 = circleWithAccessibleText(pane, "debug-graph-node", "b2");
+            List<Circle> chainNodes = circlesWithStyle(pane, "debug-graph-node").stream()
+                    .filter(circle -> circle.getAccessibleText() == null || !circle.getAccessibleText().startsWith("b"))
+                    .toList();
+
+            assertThat(bucket0).isNotNull();
+            assertThat(bucket1).isNotNull();
+            assertThat(bucket2).isNotNull();
+            assertThat(bucket0.getCenterY()).isEqualTo(bucket1.getCenterY());
+            assertThat(bucket1.getCenterY()).isEqualTo(bucket2.getCenterY());
+            assertThat(bucket0.getCenterX()).isLessThan(bucket1.getCenterX());
+            assertThat(bucket1.getCenterX()).isLessThan(bucket2.getCenterX());
+            assertThat(chainNodes).anySatisfy(node ->
+                    assertThat(node.getCenterY()).isGreaterThan(bucket0.getCenterY()));
         });
     }
 

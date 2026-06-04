@@ -263,7 +263,8 @@ public final class MiniCDebugApi {
                 requireSourceFile(),
                 currentState(),
                 requireSession().currentSnapshot().processSpace(),
-                requireSession().visualEvents()
+                requireSession().visualEvents(),
+                requireSession().dataFlowEvents()
         );
     }
 

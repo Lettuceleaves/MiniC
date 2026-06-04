@@ -2,6 +2,7 @@ package minic.runtime.debug;
 
 import minic.source.SourceFile;
 import minic.source.SourceRange;
+import minic.runtime.debug.dataflow.DataFlowEvent;
 import minic.runtime.debug.visual.VisualEvent;
 
 import java.util.ArrayList;
@@ -18,6 +19,7 @@ public final class DebugSession {
     private final SourceFile sourceFile;
     private final ArrayList<DebugSnapshot> snapshots = new ArrayList<>();
     private final ArrayList<DebugEvent> events = new ArrayList<>();
+    private final ArrayList<DataFlowEvent> dataFlowEvents = new ArrayList<>();
     private final ArrayList<VisualEvent> visualEvents = new ArrayList<>();
     private final Map<Integer, DebugBreakpoint> breakpoints = new LinkedHashMap<>();
     private DebugExecutionState state = DebugExecutionState.PAUSED;
@@ -95,6 +97,15 @@ public final class DebugSession {
     }
 
     /**
+     * 追加数据流事件。
+     *
+     * @param event 数据流事件
+     */
+    public void appendDataFlowEvent(DataFlowEvent event) {
+        dataFlowEvents.add(Objects.requireNonNull(event, "event"));
+    }
+
+    /**
      * 追加数据结构可视化事件。
      *
      * @param event 可视化事件
@@ -119,6 +130,15 @@ public final class DebugSession {
      */
     public List<DebugEvent> events() {
         return List.copyOf(events);
+    }
+
+    /**
+     * 返回数据流事件日志。
+     *
+     * @return 数据流事件日志
+     */
+    public List<DataFlowEvent> dataFlowEvents() {
+        return List.copyOf(dataFlowEvents);
     }
 
     /**

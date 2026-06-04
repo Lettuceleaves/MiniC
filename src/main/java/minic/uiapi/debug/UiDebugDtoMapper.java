@@ -7,6 +7,8 @@ import minic.runtime.debug.DebugProcessSpace;
 import minic.runtime.debug.DebugSession;
 import minic.runtime.debug.DebugSnapshot;
 import minic.runtime.debug.DebugStackFrame;
+import minic.runtime.debug.DebugValue;
+import minic.runtime.debug.DebugValueKind;
 
 import java.util.List;
 
@@ -45,7 +47,7 @@ final class UiDebugDtoMapper {
         );
     }
 
-    private static UiDebugProcessSpaceDto processSpace(DebugProcessSpace processSpace) {
+    static UiDebugProcessSpaceDto processSpace(DebugProcessSpace processSpace) {
         return new UiDebugProcessSpaceDto(
                 processSpace.code().currentFunctionOptional().orElse(""),
                 processSpace.code().currentInstructionOptional().orElse(""),
@@ -77,19 +79,72 @@ final class UiDebugDtoMapper {
                         block.address().display(),
                         block.typeName(),
                         "HEAP_BLOCK",
-                        block.status()
+                        block.status(),
+                        "",
+                        "HEAP_BLOCK",
+                        false,
+                        "",
+                        block.entries().stream().map(UiDebugDtoMapper::variable).toList(),
+                        List.of()
                 ))
                 .toList();
     }
 
     private static UiDebugVariableDto variable(DebugMemoryEntry entry) {
-        return new UiDebugVariableDto(
+        return variable(
                 entry.name(),
                 entry.addressOptional().map(minic.runtime.debug.DebugVirtualAddress::display).orElse(""),
                 entry.typeName(),
-                entry.value().kind().name(),
-                entry.valueSummary()
+                entry.value()
         );
+    }
+
+    private static UiDebugVariableDto variable(String name, String address, String typeName, DebugValue value) {
+        return new UiDebugVariableDto(
+                name,
+                address,
+                typeName,
+                value.kind().name(),
+                value.summary(),
+                value.pointerTargetOptional()
+                        .map(minic.runtime.debug.DebugVirtualAddress::display)
+                        .orElse(""),
+                typeShape(value),
+                false,
+                "",
+                value.fields().stream()
+                        .map(field -> variable(
+                                field.name(),
+                                childAddress(address, "." + field.name()),
+                                field.value().typeName(),
+                                field.value()
+                        ))
+                        .toList(),
+                value.elements().stream()
+                        .map(element -> variable(
+                                "[" + element.index() + "]",
+                                childAddress(address, "[" + element.index() + "]"),
+                                element.value().typeName(),
+                                element.value()
+                        ))
+                        .toList()
+        );
+    }
+
+    private static String childAddress(String parentAddress, String suffix) {
+        return parentAddress.isBlank() ? "" : parentAddress + suffix;
+    }
+
+    private static String typeShape(DebugValue value) {
+        DebugValueKind kind = value.kind();
+        return switch (kind) {
+            case ARRAY -> "ARRAY";
+            case STRUCT -> "STRUCT";
+            case POINTER -> "POINTER";
+            case NULL -> "NULL";
+            case UNINITIALIZED -> "UNINITIALIZED";
+            default -> "SCALAR";
+        };
     }
 
     private static UiDebugEventDto event(DebugEvent event) {

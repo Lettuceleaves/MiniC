@@ -36,6 +36,8 @@ import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
+import minic.runtime.debug.dataflow.DataFlowEvent;
+import minic.runtime.debug.dataflow.DataFlowEventType;
 import minic.runtime.debug.visual.VisualAnnotation;
 import minic.runtime.debug.visual.VisualAnnotationParser;
 import minic.runtime.debug.visual.VisualEvent;
@@ -108,14 +110,36 @@ public final class IrDebugInterpreter {
 
     private void executeInstruction(InterpreterState state, IrBlock block, int instructionIndex, IrInstruction instruction) {
         if (instruction instanceof IrDeclareLocalInstruction declare) {
-            state.currentFrame().locals.put(declare.local().name(), DebugValue.uninitialized(typeName(declare.local().type())));
+            DebugValue value = DebugValue.uninitialized(typeName(declare.local().type()));
+            state.currentFrame().locals.put(declare.local().name(), value);
+            queueDataFlowEvent(
+                    state,
+                    instruction,
+                    DataFlowEventType.DECLARE_LOCAL,
+                    declare.local().sourceName(),
+                    null,
+                    value,
+                    "",
+                    ""
+            );
             recordStep(state, block, instructionIndex, instruction, "DECLARE_LOCAL", declare.local().sourceName());
             return;
         }
         if (instruction instanceof IrAddressOfLocalInstruction addressOfLocal) {
+            DebugVirtualAddress address = localAddress(state, state.currentFrame(), addressOfLocal.local());
             state.currentFrame().temps.put(
                     addressOfLocal.result().name(),
-                    DebugValue.pointerValue(typeName(addressOfLocal.result().type()), localAddress(state, state.currentFrame(), addressOfLocal.local()))
+                    DebugValue.pointerValue(typeName(addressOfLocal.result().type()), address)
+            );
+            queueDataFlowEvent(
+                    state,
+                    instruction,
+                    DataFlowEventType.ADDRESS_OF_LOCAL,
+                    "&" + addressOfLocal.local().sourceName(),
+                    null,
+                    DebugValue.pointerValue("pointer", address),
+                    address.display(),
+                    address.display()
             );
             recordStep(state, block, instructionIndex, instruction, "ADDRESS_OF_LOCAL", addressOfLocal.local().sourceName());
             return;
@@ -123,11 +147,23 @@ public final class IrDebugInterpreter {
         if (instruction instanceof IrFieldAddressInstruction fieldAddress) {
             DebugVirtualAddress baseAddress = pointerAddress(resolveValue(state, fieldAddress.baseAddress()));
             DebugVirtualAddress address = new DebugVirtualAddress(baseAddress.segment(), baseAddress.offset() + fieldAddress.offset());
+            AddressField fieldReference = new AddressField(baseAddress, fieldAddress.fieldName());
             state.currentFrame().temps.put(
                     fieldAddress.result().name(),
                     DebugValue.pointerValue(typeName(fieldAddress.result().type()), address)
             );
-            state.addressFields.put(addressKey(address), new AddressField(baseAddress, fieldAddress.fieldName()));
+            state.currentFrame().tempAddressFields.put(fieldAddress.result().name(), fieldReference);
+            state.addressFields.put(addressKey(address), fieldReference);
+            queueDataFlowEvent(
+                    state,
+                    instruction,
+                    DataFlowEventType.FIELD_ADDRESS,
+                    fieldPath(state, fieldReference),
+                    null,
+                    DebugValue.pointerValue("pointer", address),
+                    address.display(),
+                    address.display()
+            );
             recordStep(state, block, instructionIndex, instruction, "FIELD_ADDRESS", fieldAddress.fieldName());
             return;
         }
@@ -142,25 +178,81 @@ public final class IrDebugInterpreter {
                     elementAddress.result().name(),
                     DebugValue.pointerValue(typeName(elementAddress.result().type()), address)
             );
+            if (state.addressLocals.containsKey(addressKey(baseAddress)) || state.addressElements.containsKey(addressKey(baseAddress))) {
+                AddressElement elementReference = new AddressElement(baseAddress, address, indexValue);
+                state.currentFrame().tempAddressElements.put(elementAddress.result().name(), elementReference);
+                state.addressElements.put(addressKey(address), elementReference);
+            }
+            queueDataFlowEvent(
+                    state,
+                    instruction,
+                    DataFlowEventType.ELEMENT_ADDRESS,
+                    addressPath(state, elementAddress.result(), address),
+                    null,
+                    DebugValue.pointerValue("pointer", address),
+                    address.display(),
+                    address.display()
+            );
             recordStep(state, block, instructionIndex, instruction, "ELEMENT_ADDRESS", Long.toString(indexValue));
             return;
         }
         if (instruction instanceof IrStoreLocalInstruction store) {
-            state.currentFrame().locals.put(store.local().name(), resolveValue(state, store.value()));
+            DebugValue oldValue = localValue(state, store.local());
+            DebugValue newValue = resolveValue(state, store.value());
+            DebugVirtualAddress address = localAddress(state, state.currentFrame(), store.local());
+            String lvaluePath = localSourceName(state.currentFrame(), store.local().name());
+            DataFlowEventType dataFlowType = isPointerRetarget(store.local(), newValue)
+                    ? DataFlowEventType.POINTER_RETARGET
+                    : DataFlowEventType.WRITE_LOCAL;
+            queueDataFlowEvent(
+                    state,
+                    instruction,
+                    dataFlowType,
+                    lvaluePath,
+                    oldValue,
+                    newValue,
+                    address.display(),
+                    pointerTarget(newValue)
+            );
+            state.currentFrame().locals.put(store.local().name(), newValue);
             recordStep(state, block, instructionIndex, instruction, "STORE_LOCAL", store.local().sourceName());
             return;
         }
         if (instruction instanceof IrLoadPointerInstruction loadPointer) {
             DebugVirtualAddress address = pointerAddress(resolveValue(state, loadPointer.address()));
-            state.currentFrame().temps.put(loadPointer.result().name(), pointerValueAt(state, address));
+            DebugValue value = pointerValueAt(state, loadPointer.address(), address);
+            state.currentFrame().temps.put(loadPointer.result().name(), value);
+            queueDataFlowEvent(
+                    state,
+                    instruction,
+                    DataFlowEventType.LOAD_POINTER,
+                    addressPath(state, loadPointer.address(), address),
+                    null,
+                    value,
+                    address.display(),
+                    pointerTarget(value)
+            );
             recordStep(state, block, instructionIndex, instruction, "LOAD_POINTER", address.display());
             return;
         }
         if (instruction instanceof IrStorePointerInstruction storePointer) {
             DebugVirtualAddress address = pointerAddress(resolveValue(state, storePointer.address()));
             DebugValue value = resolveValue(state, storePointer.value());
-            VisualFieldWrite visualFieldWrite = visualFieldWrite(state, address, value);
-            writePointerValue(state, address, value);
+            DebugValue oldValue = pointerValueAt(state, storePointer.address(), address);
+            DataFlowEventType dataFlowType = pointerStoreEventType(state, storePointer.address(), address);
+            String lvaluePath = addressPath(state, storePointer.address(), address);
+            queueDataFlowEvent(
+                    state,
+                    instruction,
+                    dataFlowType,
+                    lvaluePath,
+                    oldValue,
+                    value,
+                    address.display(),
+                    pointerTarget(value)
+            );
+            VisualFieldWrite visualFieldWrite = visualFieldWrite(state, storePointer.address(), address, value);
+            writePointerValue(state, storePointer.address(), address, value);
             if (visualFieldWrite != null) {
                 state.pendingVisualFieldWrites.add(visualFieldWrite);
             }
@@ -174,6 +266,17 @@ public final class IrDebugInterpreter {
                 DebugVirtualAddress srcField = new DebugVirtualAddress(srcAddr.segment(), srcAddr.offset() + offset);
                 DebugVirtualAddress destField = new DebugVirtualAddress(destAddr.segment(), destAddr.offset() + offset);
                 DebugValue value = pointerValueAt(state, srcField);
+                DebugValue oldValue = pointerValueAt(state, destField);
+                queueDataFlowEvent(
+                        state,
+                        instruction,
+                        DataFlowEventType.STORE_POINTER,
+                        addressPath(state, destField),
+                        oldValue,
+                        value,
+                        destField.display(),
+                        pointerTarget(value)
+                );
                 writePointerValue(state, destField, value);
             }
             recordStep(state, block, instructionIndex, instruction, "MEM_COPY", destAddr.display());
@@ -466,9 +569,25 @@ public final class IrDebugInterpreter {
     }
 
     private DebugValue pointerValueAt(InterpreterState state, DebugVirtualAddress address) {
+        return pointerValueAt(state, null, address);
+    }
+
+    private DebugValue pointerValueAt(InterpreterState state, IrValue addressValue, DebugVirtualAddress address) {
+        AddressField tempField = tempAddressField(state, addressValue);
+        if (tempField != null) {
+            return fieldValue(state, tempField);
+        }
+        AddressElement tempElement = tempAddressElement(state, addressValue);
+        if (tempElement != null) {
+            return elementValue(state, tempElement);
+        }
         AddressField field = state.addressFields.get(addressKey(address));
         if (field != null) {
             return fieldValue(state, field);
+        }
+        AddressElement element = state.addressElements.get(addressKey(address));
+        if (element != null) {
+            return elementValue(state, element);
         }
         AddressLocal local = state.addressLocals.get(addressKey(address));
         if (local != null) {
@@ -478,9 +597,28 @@ public final class IrDebugInterpreter {
     }
 
     private void writePointerValue(InterpreterState state, DebugVirtualAddress address, DebugValue value) {
+        writePointerValue(state, null, address, value);
+    }
+
+    private void writePointerValue(InterpreterState state, IrValue addressValue, DebugVirtualAddress address, DebugValue value) {
+        AddressField tempField = tempAddressField(state, addressValue);
+        if (tempField != null) {
+            writeFieldValue(state, tempField, value);
+            return;
+        }
+        AddressElement tempElement = tempAddressElement(state, addressValue);
+        if (tempElement != null) {
+            writeElementValue(state, tempElement, value);
+            return;
+        }
         AddressField field = state.addressFields.get(addressKey(address));
         if (field != null) {
             writeFieldValue(state, field, value);
+            return;
+        }
+        AddressElement element = state.addressElements.get(addressKey(address));
+        if (element != null) {
+            writeElementValue(state, element, value);
             return;
         }
         AddressLocal local = state.addressLocals.get(addressKey(address));
@@ -491,46 +629,294 @@ public final class IrDebugInterpreter {
         state.memory.put(addressKey(address), value);
     }
 
+    private AddressField tempAddressField(InterpreterState state, IrValue addressValue) {
+        if (addressValue instanceof IrTemporary temporary && state.hasFrames()) {
+            return state.currentFrame().tempAddressFields.get(temporary.name());
+        }
+        return null;
+    }
+
+    private AddressElement tempAddressElement(InterpreterState state, IrValue addressValue) {
+        if (addressValue instanceof IrTemporary temporary && state.hasFrames()) {
+            return state.currentFrame().tempAddressElements.get(temporary.name());
+        }
+        return null;
+    }
+
     private DebugValue fieldValue(InterpreterState state, AddressField field) {
+        AddressElement element = state.addressElements.get(addressKey(field.baseAddress()));
+        if (element != null) {
+            return fieldValue(elementValue(state, element), field.fieldName());
+        }
         AddressLocal local = state.addressLocals.get(addressKey(field.baseAddress()));
         DebugValue structValue = local == null ? null : local.frame().locals.get(local.localName());
         if (structValue == null || structValue.kind() == DebugValueKind.UNINITIALIZED) {
             return DebugValue.uninitialized(field.fieldName());
         }
-        return structValue.fields().stream()
-                .filter(valueField -> valueField.name().equals(field.fieldName()))
-                .map(DebugValueField::value)
-                .findFirst()
-                .orElse(DebugValue.uninitialized(field.fieldName()));
+        return fieldValue(structValue, field.fieldName());
     }
 
     private void writeFieldValue(InterpreterState state, AddressField field, DebugValue value) {
+        AddressElement element = state.addressElements.get(addressKey(field.baseAddress()));
+        if (element != null) {
+            DebugValue structValue = elementValue(state, element);
+            writeElementValue(state, element, structWithField(structValue, field.fieldName(), value));
+            return;
+        }
         AddressLocal local = state.addressLocals.get(addressKey(field.baseAddress()));
         if (local == null) {
             state.memory.put(addressKey(new DebugVirtualAddress(field.baseAddress().segment(), field.baseAddress().offset())), value);
             return;
         }
         DebugValue structValue = local.frame().locals.get(local.localName());
+        local.frame().locals.put(local.localName(), structWithField(structValue, field.fieldName(), value));
+    }
+
+    private DebugValue fieldValue(DebugValue structValue, String fieldName) {
+        if (structValue.kind() == DebugValueKind.UNINITIALIZED) {
+            return DebugValue.uninitialized(fieldName);
+        }
+        return structValue.fields().stream()
+                .filter(valueField -> valueField.name().equals(fieldName))
+                .map(DebugValueField::value)
+                .findFirst()
+                .orElse(DebugValue.uninitialized(fieldName));
+    }
+
+    private DebugValue structWithField(DebugValue structValue, String fieldName, DebugValue value) {
         java.util.LinkedHashMap<String, DebugValue> fields = new java.util.LinkedHashMap<>();
         if (structValue != null && structValue.kind() == DebugValueKind.STRUCT) {
             structValue.fields().forEach(valueField -> fields.put(valueField.name(), valueField.value()));
         }
-        fields.put(field.fieldName(), value);
-        local.frame().locals.put(local.localName(), DebugValue.structValue("struct", fields.entrySet().stream()
+        fields.put(fieldName, value);
+        return DebugValue.structValue("struct", fields.entrySet().stream()
                 .map(entry -> new DebugValueField(entry.getKey(), entry.getValue()))
-                .toList()));
+                .toList());
+    }
+
+    private DebugValue elementValue(InterpreterState state, AddressElement element) {
+        AddressLocal local = state.addressLocals.get(addressKey(element.baseAddress()));
+        if (local == null) {
+            return state.memory.getOrDefault(addressKey(element.elementAddress()), DebugValue.uninitialized("element"));
+        }
+        DebugValue arrayValue = local.frame().locals.get(local.localName());
+        if (arrayValue == null || arrayValue.kind() != DebugValueKind.ARRAY) {
+            return DebugValue.uninitialized("element");
+        }
+        return arrayValue.elements().stream()
+                .filter(valueElement -> valueElement.index() == element.index())
+                .map(DebugValueElement::value)
+                .findFirst()
+                .orElse(DebugValue.uninitialized("element"));
+    }
+
+    private void writeElementValue(InterpreterState state, AddressElement element, DebugValue value) {
+        AddressLocal local = state.addressLocals.get(addressKey(element.baseAddress()));
+        if (local == null) {
+            state.memory.put(addressKey(element.elementAddress()), value);
+            return;
+        }
+        DebugValue arrayValue = local.frame().locals.get(local.localName());
+        java.util.LinkedHashMap<Long, DebugValue> elements = new java.util.LinkedHashMap<>();
+        if (arrayValue != null && arrayValue.kind() == DebugValueKind.ARRAY) {
+            arrayValue.elements().forEach(valueElement -> elements.put(valueElement.index(), valueElement.value()));
+        }
+        elements.put(element.index(), value);
+        IrLocal localSlot = local.frame().localSlots.get(local.localName());
+        int elementCount = localSlot == null ? elements.size() : localSlot.elementCount();
+        java.util.ArrayList<DebugValueElement> debugElements = new java.util.ArrayList<>();
+        for (long index = 0; index < elementCount; index++) {
+            debugElements.add(new DebugValueElement(index, elements.getOrDefault(index, DebugValue.uninitialized("element"))));
+        }
+        String arrayTypeName = arrayValue != null && arrayValue.kind() == DebugValueKind.ARRAY
+                ? arrayValue.typeName()
+                : localSlot == null ? "array" : typeName(localSlot.type());
+        local.frame().locals.put(local.localName(), DebugValue.arrayValue(arrayTypeName, debugElements));
     }
 
     private String addressKey(DebugVirtualAddress address) {
         return address.segment() + ":" + address.offset();
     }
 
-    private VisualFieldWrite visualFieldWrite(InterpreterState state, DebugVirtualAddress fieldAddress, DebugValue value) {
-        AddressField field = state.addressFields.get(addressKey(fieldAddress));
+    private VisualFieldWrite visualFieldWrite(
+            InterpreterState state,
+            IrValue addressValue,
+            DebugVirtualAddress fieldAddress,
+            DebugValue value
+    ) {
+        AddressField field = tempAddressField(state, addressValue);
+        if (field == null) {
+            field = state.addressFields.get(addressKey(fieldAddress));
+        }
         if (field == null || !state.hasFrames()) {
             return null;
         }
         return new VisualFieldWrite(state.currentFrame().function.name(), field.baseAddress(), field.fieldName(), value);
+    }
+
+    private void queueDataFlowEvent(
+            InterpreterState state,
+            IrInstruction instruction,
+            DataFlowEventType type,
+            String lvaluePath,
+            DebugValue oldValue,
+            DebugValue newValue,
+            String address,
+            String pointerTarget
+    ) {
+        state.pendingDataFlowEvents.add(new PendingDataFlowEvent(
+                instruction.range(),
+                type,
+                dataFlowExpression(instruction, lvaluePath, type),
+                lvaluePath.isBlank() ? address : lvaluePath,
+                valueSummary(oldValue),
+                valueSummary(newValue),
+                address,
+                pointerTarget
+        ));
+    }
+
+    private DataFlowEventType pointerStoreEventType(
+            InterpreterState state,
+            IrValue addressValue,
+            DebugVirtualAddress address
+    ) {
+        if (tempAddressField(state, addressValue) != null || state.addressFields.containsKey(addressKey(address))) {
+            return DataFlowEventType.FIELD_WRITE;
+        }
+        if (tempAddressElement(state, addressValue) != null || state.addressElements.containsKey(addressKey(address))) {
+            return DataFlowEventType.ARRAY_ELEMENT_WRITE;
+        }
+        return DataFlowEventType.STORE_POINTER;
+    }
+
+    private String addressPath(InterpreterState state, IrValue addressValue, DebugVirtualAddress address) {
+        AddressField tempField = tempAddressField(state, addressValue);
+        if (tempField != null) {
+            return fieldPath(state, tempField);
+        }
+        AddressElement tempElement = tempAddressElement(state, addressValue);
+        if (tempElement != null) {
+            return elementPath(state, tempElement);
+        }
+        return addressPath(state, address);
+    }
+
+    private String addressPath(InterpreterState state, DebugVirtualAddress address) {
+        AddressField field = state.addressFields.get(addressKey(address));
+        if (field != null) {
+            return fieldPath(state, field);
+        }
+        AddressElement element = state.addressElements.get(addressKey(address));
+        if (element != null) {
+            return elementPath(state, element);
+        }
+        AddressLocal local = state.addressLocals.get(addressKey(address));
+        if (local != null) {
+            return localSourceName(local.frame(), local.localName());
+        }
+        return address.display();
+    }
+
+    private String fieldPath(InterpreterState state, AddressField field) {
+        String basePath = fieldBasePath(state, field.baseAddress());
+        if (basePath.isBlank()) {
+            basePath = field.baseAddress().display();
+        }
+        return basePath + "." + field.fieldName();
+    }
+
+    private String elementPath(InterpreterState state, AddressElement element) {
+        String basePath = elementBasePath(state, element.baseAddress());
+        if (basePath.isBlank()) {
+            basePath = element.baseAddress().display();
+        }
+        return basePath + "[" + element.index() + "]";
+    }
+
+    private String fieldBasePath(InterpreterState state, DebugVirtualAddress baseAddress) {
+        AddressElement element = state.addressElements.get(addressKey(baseAddress));
+        if (element != null) {
+            return elementPath(state, element);
+        }
+        AddressLocal local = state.addressLocals.get(addressKey(baseAddress));
+        if (local != null) {
+            return localSourceName(local.frame(), local.localName());
+        }
+        AddressField parentField = state.addressFields.get(addressKey(baseAddress));
+        if (parentField != null && !parentField.baseAddress().equals(baseAddress)) {
+            return fieldPath(state, parentField);
+        }
+        return baseAddress.display();
+    }
+
+    private String elementBasePath(InterpreterState state, DebugVirtualAddress baseAddress) {
+        AddressLocal local = state.addressLocals.get(addressKey(baseAddress));
+        if (local != null) {
+            return localSourceName(local.frame(), local.localName());
+        }
+        AddressElement parentElement = state.addressElements.get(addressKey(baseAddress));
+        if (parentElement != null && !parentElement.elementAddress().equals(baseAddress)) {
+            return elementPath(state, parentElement);
+        }
+        AddressField field = state.addressFields.get(addressKey(baseAddress));
+        if (field != null && !field.baseAddress().equals(baseAddress)) {
+            return fieldPath(state, field);
+        }
+        return baseAddress.display();
+    }
+
+    private boolean isPointerRetarget(IrLocal local, DebugValue value) {
+        String typeName = typeName(local.type());
+        return typeName.contains("*") || value.kind() == DebugValueKind.POINTER || value.kind() == DebugValueKind.NULL;
+    }
+
+    private String localSourceName(CallFrame frame, String localName) {
+        return frame.localNames.getOrDefault(localName, localName);
+    }
+
+    private String pointerTarget(DebugValue value) {
+        if (value.kind() == DebugValueKind.NULL) {
+            return "null";
+        }
+        return value.pointerTargetOptional()
+                .map(DebugVirtualAddress::display)
+                .orElse("");
+    }
+
+    private String valueSummary(DebugValue value) {
+        return value == null ? "<uninitialized>" : value.summary();
+    }
+
+    private String dataFlowExpression(IrInstruction instruction, String lvaluePath, DataFlowEventType type) {
+        String sourceText = instruction.range() == null ? "" : instruction.range().text().strip();
+        if (sourceText.isBlank()) {
+            return lvaluePath + " " + type.name().toLowerCase(java.util.Locale.ROOT);
+        }
+        String compactSource = sourceText.replaceAll("\\s+", " ");
+        if (!mentionsPath(compactSource, lvaluePath)) {
+            return compactSource + " -> " + lvaluePath;
+        }
+        return compactSource;
+    }
+
+    private boolean mentionsPath(String sourceText, String lvaluePath) {
+        if (lvaluePath.isBlank()) {
+            return true;
+        }
+        if (sourceText.contains(lvaluePath)) {
+            return true;
+        }
+        String leaf = lvaluePath;
+        int dotIndex = Math.max(leaf.lastIndexOf('.'), leaf.lastIndexOf('>'));
+        if (dotIndex >= 0 && dotIndex + 1 < leaf.length()) {
+            leaf = leaf.substring(dotIndex + 1);
+        }
+        int bracketIndex = leaf.indexOf('[');
+        if (bracketIndex > 0) {
+            leaf = leaf.substring(0, bracketIndex);
+        }
+        return !leaf.isBlank() && sourceText.contains(leaf);
     }
 
     private DebugValue constantValue(IrConstant constant) {
@@ -597,8 +983,31 @@ public final class IrDebugInterpreter {
                 instruction.range(),
                 List.of()
         ));
+        recordDataFlowEvents(state, snapshot.snapshotId(), cursor.instructionId());
         recordVisualEvents(state, snapshot.snapshotId());
         recordVisualFieldWriteEvents(state, snapshot.snapshotId());
+    }
+
+    private void recordDataFlowEvents(InterpreterState state, long snapshotId, String instructionId) {
+        if (state.pendingDataFlowEvents.isEmpty()) {
+            return;
+        }
+        List<PendingDataFlowEvent> events = List.copyOf(state.pendingDataFlowEvents);
+        state.pendingDataFlowEvents.clear();
+        for (PendingDataFlowEvent event : events) {
+            state.session.appendDataFlowEvent(new DataFlowEvent(
+                    snapshotId,
+                    instructionId,
+                    event.sourceRange(),
+                    event.type(),
+                    event.cExpression(),
+                    event.lvaluePath(),
+                    event.oldValue(),
+                    event.newValue(),
+                    event.address(),
+                    event.pointerTarget()
+            ));
+        }
     }
 
     private void recordVisualEvents(InterpreterState state, long snapshotId) {
@@ -767,7 +1176,11 @@ public final class IrDebugInterpreter {
             }
             DebugVirtualAddress address = pointerAddress(owner);
             AddressLocal local = state.addressLocals.get(addressKey(address));
-            DebugValue structValue = local == null ? null : local.frame().locals.get(local.localName());
+            AddressElement element = state.addressElements.get(addressKey(address));
+            DebugValue localValue = local == null ? null : local.frame().locals.get(local.localName());
+            DebugValue structValue = localValue != null && localValue.kind() == DebugValueKind.STRUCT
+                    ? localValue
+                    : element == null ? localValue : elementValue(state, element);
             if (structValue == null) {
                 return null;
             }
@@ -940,7 +1353,9 @@ public final class IrDebugInterpreter {
         private final List<VisualRuntimeGraph> visualRuntimeGraphs;
         private final Map<String, AddressLocal> addressLocals = new LinkedHashMap<>();
         private final Map<String, AddressField> addressFields = new LinkedHashMap<>();
+        private final Map<String, AddressElement> addressElements = new LinkedHashMap<>();
         private final Map<String, DebugValue> memory = new LinkedHashMap<>();
+        private final java.util.ArrayList<PendingDataFlowEvent> pendingDataFlowEvents = new java.util.ArrayList<>();
         private final java.util.ArrayList<VisualFieldWrite> pendingVisualFieldWrites = new java.util.ArrayList<>();
         private final java.util.Set<String> createdVisualNodeKeys = new java.util.LinkedHashSet<>();
         private final java.util.ArrayList<CallFrame> frames = new java.util.ArrayList<>();
@@ -1099,6 +1514,9 @@ public final class IrDebugInterpreter {
         private final Map<String, DebugValue> locals = new LinkedHashMap<>();
         private final Map<String, String> localNames = new LinkedHashMap<>();
         private final Map<String, DebugVirtualAddress> localAddresses = new LinkedHashMap<>();
+        private final Map<String, IrLocal> localSlots = new LinkedHashMap<>();
+        private final Map<String, AddressField> tempAddressFields = new LinkedHashMap<>();
+        private final Map<String, AddressElement> tempAddressElements = new LinkedHashMap<>();
         private final Map<String, DebugValue> temps = new LinkedHashMap<>();
         private int blockIndex;
         private int instructionIndex;
@@ -1115,6 +1533,7 @@ public final class IrDebugInterpreter {
                 for (IrInstruction instruction : block.instructions()) {
                     if (instruction instanceof IrDeclareLocalInstruction declare) {
                         localNames.put(declare.local().name(), declare.local().sourceName());
+                        localSlots.put(declare.local().name(), declare.local());
                     }
                 }
             }
@@ -1186,6 +1605,18 @@ public final class IrDebugInterpreter {
     ) {
     }
 
+    private record PendingDataFlowEvent(
+            minic.source.SourceRange sourceRange,
+            DataFlowEventType type,
+            String cExpression,
+            String lvaluePath,
+            String oldValue,
+            String newValue,
+            String address,
+            String pointerTarget
+    ) {
+    }
+
     private static java.util.Optional<String> fieldOf(String ownerExpression, String expression) {
         String prefix = ownerExpression + "->";
         if (ownerExpression.isBlank() || !expression.startsWith(prefix)) {
@@ -1207,6 +1638,13 @@ public final class IrDebugInterpreter {
     private record AddressField(
             DebugVirtualAddress baseAddress,
             String fieldName
+    ) {
+    }
+
+    private record AddressElement(
+            DebugVirtualAddress baseAddress,
+            DebugVirtualAddress elementAddress,
+            long index
     ) {
     }
 }
