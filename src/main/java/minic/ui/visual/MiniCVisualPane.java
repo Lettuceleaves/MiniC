@@ -58,6 +58,8 @@ public final class MiniCVisualPane extends VBox {
     private static final String AST_DRAG_START_Y_KEY = "astDragStartY";
     private static final String AST_DRAG_START_H_KEY = "astDragStartH";
     private static final String AST_DRAG_START_V_KEY = "astDragStartV";
+    private static final String STAGE_SCROLL_FILTER_INSTALLED_KEY =
+            "minic.ui.visual.stageScrollFilterInstalled";
 
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCHoverInspector hoverInspector;
@@ -707,8 +709,11 @@ public final class MiniCVisualPane extends VBox {
             MiniCGraphViewportAdapter adapter = graphViewportAdapter(graphViewport);
             if (adapter == null) {
                 setAstZoom(astZoom.getValue() + delta);
+            } else if (controlHub != null) {
+                controlHub.viewportRegistry().businessActive(adapter);
+                controlHub.handleZoom(viewportPoint(graphViewport, event.getX(), event.getY()), delta);
             } else {
-                adapter.zoomAt(new Point2D(event.getX(), event.getY()), delta);
+                adapter.zoomAt(viewportPoint(graphViewport, event.getX(), event.getY()), delta);
             }
             event.consume();
         });
@@ -742,7 +747,12 @@ public final class MiniCVisualPane extends VBox {
             if (adapter != null && startX instanceof Number x && startY instanceof Number y) {
                 double deltaX = x.doubleValue() - event.getScreenX();
                 double deltaY = y.doubleValue() - event.getScreenY();
-                adapter.pan(deltaX, deltaY);
+                if (controlHub != null) {
+                    controlHub.viewportRegistry().businessActive(adapter);
+                    controlHub.handlePan(deltaX, deltaY);
+                } else {
+                    adapter.pan(deltaX, deltaY);
+                }
                 graphViewport.getProperties().put(AST_DRAG_START_X_KEY, event.getScreenX());
                 graphViewport.getProperties().put(AST_DRAG_START_Y_KEY, event.getScreenY());
                 event.consume();
@@ -824,6 +834,51 @@ public final class MiniCVisualPane extends VBox {
             parent = parent.getParent();
         }
         return null;
+    }
+
+    private Point2D viewportPoint(Pane graphViewport, double localX, double localY) {
+        ScrollPane scrollPane = nearestScrollPane(graphViewport);
+        if (scrollPane == null || scrollPane.getContent() == null) {
+            return new Point2D(localX, localY);
+        }
+        Bounds viewport = scrollPane.getViewportBounds();
+        Bounds contentBounds = scrollPane.getContent().getLayoutBounds();
+        double visibleMinX = visibleMin(
+                scrollPane.getHvalue(),
+                scrollPane.getHmin(),
+                scrollPane.getHmax(),
+                contentBounds.getMinX(),
+                contentBounds.getWidth(),
+                viewport.getWidth()
+        );
+        double visibleMinY = visibleMin(
+                scrollPane.getVvalue(),
+                scrollPane.getVmin(),
+                scrollPane.getVmax(),
+                contentBounds.getMinY(),
+                contentBounds.getHeight(),
+                viewport.getHeight()
+        );
+        return new Point2D(localX - visibleMinX, localY - visibleMinY);
+    }
+
+    private double visibleMin(
+            double value,
+            double min,
+            double max,
+            double contentMin,
+            double contentSize,
+            double viewportSize
+    ) {
+        double maxOffset = Math.max(0, contentSize - viewportSize);
+        return contentMin + normalized(value, min, max) * maxOffset;
+    }
+
+    private double normalized(double value, double min, double max) {
+        if (max <= min) {
+            return 0;
+        }
+        return clamp((value - min) / (max - min));
     }
 
     private double clamp(double value) {
@@ -1458,7 +1513,29 @@ public final class MiniCVisualPane extends VBox {
         }
 
         private void installViewportTarget(MiniCWorkbenchControlHub controlHub) {
-            controlHub.installViewportTarget(scrollPane, viewportAdapter);
+            MiniCWorkbenchControlHub hub = Objects.requireNonNull(controlHub, "controlHub");
+            hub.installViewportTarget(scrollPane, viewportAdapter);
+            if (Boolean.TRUE.equals(scrollPane.getProperties().get(STAGE_SCROLL_FILTER_INSTALLED_KEY))) {
+                return;
+            }
+            scrollPane.getProperties().put(STAGE_SCROLL_FILTER_INSTALLED_KEY, true);
+            scrollPane.addEventFilter(ScrollEvent.SCROLL, event -> {
+                hub.viewportRegistry().businessActive(viewportAdapter);
+                if (event.isShiftDown() && event.getDeltaY() != 0) {
+                    hub.handleScrollHorizontal(-event.getDeltaY());
+                    event.consume();
+                    return;
+                }
+                if (event.getDeltaY() != 0) {
+                    hub.handleScrollVertical(-event.getDeltaY());
+                    event.consume();
+                    return;
+                }
+                if (event.getDeltaX() != 0) {
+                    hub.handleScrollHorizontal(-event.getDeltaX());
+                    event.consume();
+                }
+            });
         }
 
         private void setContent(String titleText, List<? extends Node> rows) {

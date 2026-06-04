@@ -44,6 +44,7 @@ class MiniCInspectorViewControlHubTest {
             MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
             AtomicInteger trackingCalls = new AtomicInteger();
             hub.setActiveTrackingAction(trackingCalls::incrementAndGet);
+            hub.setActiveTrackingScheduler(Runnable::run);
             MiniCInspectorView inspector = new MiniCInspectorView(viewModel, hub);
 
             button(inspector, "下一步").fire();

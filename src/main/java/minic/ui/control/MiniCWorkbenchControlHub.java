@@ -1,5 +1,6 @@
 package minic.ui.control;
 
+import javafx.application.Platform;
 import javafx.geometry.Point2D;
 import javafx.scene.Node;
 import javafx.scene.input.MouseButton;
@@ -46,6 +47,7 @@ public final class MiniCWorkbenchControlHub {
     private final List<Runnable> additionalActiveTrackingActions = new ArrayList<>();
     private Runnable activeTrackingAction = () -> {
     };
+    private Consumer<Runnable> activeTrackingScheduler = MiniCWorkbenchControlHub::runLaterIfPossible;
     private String pendingThemeName;
     private Long pendingFrameIntervalMillis;
 
@@ -86,20 +88,24 @@ public final class MiniCWorkbenchControlHub {
         this.activeTrackingAction = Objects.requireNonNull(activeTrackingAction, "activeTrackingAction");
     }
 
+    public void setActiveTrackingScheduler(Consumer<Runnable> activeTrackingScheduler) {
+        this.activeTrackingScheduler = Objects.requireNonNull(activeTrackingScheduler, "activeTrackingScheduler");
+    }
+
     public void addActiveTrackingAction(Runnable activeTrackingAction) {
         additionalActiveTrackingActions.add(Objects.requireNonNull(activeTrackingAction, "activeTrackingAction"));
     }
 
     public void registerDebuggerCommands(DebuggerCommands commands) {
         Objects.requireNonNull(commands, "commands");
-        register(DEBUG_START, "从头开始", () -> true, commands.start());
-        register(DEBUG_RUN_TO_END, "运行到结束", () -> true, commands.runToEnd());
-        register(DEBUG_RUN_TO_BREAKPOINT, "下个断点", () -> true, commands.runToBreakpoint());
-        register(DEBUG_STEP_OVER, "本层下一句", () -> true, commands.stepOver());
-        register(DEBUG_STEP_INTO, "下一句", () -> true, commands.stepInto());
-        register(DEBUG_BACK_TO_BREAKPOINT, "上个断点", () -> true, commands.backToBreakpoint());
-        register(DEBUG_STEP_BACK_OVER, "本层上一句", () -> true, commands.stepBackOver());
-        register(DEBUG_STEP_BACK, "上一句", () -> true, commands.stepBack());
+        register(DEBUG_START, "从头开始", commands.canStart(), commands.start());
+        register(DEBUG_RUN_TO_END, "运行到结束", commands.canRunToEnd(), commands.runToEnd());
+        register(DEBUG_RUN_TO_BREAKPOINT, "下个断点", commands.canRunToBreakpoint(), commands.runToBreakpoint());
+        register(DEBUG_STEP_OVER, "本层下一句", commands.canStepOver(), commands.stepOver());
+        register(DEBUG_STEP_INTO, "下一句", commands.canStepInto(), commands.stepInto());
+        register(DEBUG_BACK_TO_BREAKPOINT, "上个断点", commands.canBackToBreakpoint(), commands.backToBreakpoint());
+        register(DEBUG_STEP_BACK_OVER, "本层上一句", commands.canStepBackOver(), commands.stepBackOver());
+        register(DEBUG_STEP_BACK, "上一句", commands.canStepBack(), commands.stepBack());
     }
 
     public void registerCompilerCommands(CompilerCommands commands) {
@@ -143,8 +149,7 @@ public final class MiniCWorkbenchControlHub {
     public boolean execute(String commandId) {
         boolean executed = commandRegistry.execute(commandId);
         if (executed) {
-            activeTrackingAction.run();
-            additionalActiveTrackingActions.forEach(Runnable::run);
+            activeTrackingScheduler.accept(this::trackActiveViews);
         }
         return executed;
     }
@@ -221,6 +226,19 @@ public final class MiniCWorkbenchControlHub {
         commandIds.add(id);
     }
 
+    private void trackActiveViews() {
+        activeTrackingAction.run();
+        additionalActiveTrackingActions.forEach(Runnable::run);
+    }
+
+    private static void runLaterIfPossible(Runnable action) {
+        try {
+            Platform.runLater(action);
+        } catch (IllegalStateException ignored) {
+            action.run();
+        }
+    }
+
     private static long clamp(long value, LongSupplier minSupplier, LongSupplier maxSupplier) {
         long min = minSupplier.getAsLong();
         long max = maxSupplier.getAsLong();
@@ -228,23 +246,69 @@ public final class MiniCWorkbenchControlHub {
     }
 
     public record DebuggerCommands(
+            BooleanSupplier canStart,
             Runnable start,
+            BooleanSupplier canRunToEnd,
             Runnable runToEnd,
+            BooleanSupplier canRunToBreakpoint,
             Runnable runToBreakpoint,
+            BooleanSupplier canStepOver,
             Runnable stepOver,
+            BooleanSupplier canStepInto,
             Runnable stepInto,
+            BooleanSupplier canBackToBreakpoint,
             Runnable backToBreakpoint,
+            BooleanSupplier canStepBackOver,
             Runnable stepBackOver,
+            BooleanSupplier canStepBack,
             Runnable stepBack
     ) {
+        public DebuggerCommands(
+                Runnable start,
+                Runnable runToEnd,
+                Runnable runToBreakpoint,
+                Runnable stepOver,
+                Runnable stepInto,
+                Runnable backToBreakpoint,
+                Runnable stepBackOver,
+                Runnable stepBack
+        ) {
+            this(
+                    () -> true,
+                    start,
+                    () -> true,
+                    runToEnd,
+                    () -> true,
+                    runToBreakpoint,
+                    () -> true,
+                    stepOver,
+                    () -> true,
+                    stepInto,
+                    () -> true,
+                    backToBreakpoint,
+                    () -> true,
+                    stepBackOver,
+                    () -> true,
+                    stepBack
+            );
+        }
+
         public DebuggerCommands {
+            Objects.requireNonNull(canStart, "canStart");
             Objects.requireNonNull(start, "start");
+            Objects.requireNonNull(canRunToEnd, "canRunToEnd");
             Objects.requireNonNull(runToEnd, "runToEnd");
+            Objects.requireNonNull(canRunToBreakpoint, "canRunToBreakpoint");
             Objects.requireNonNull(runToBreakpoint, "runToBreakpoint");
+            Objects.requireNonNull(canStepOver, "canStepOver");
             Objects.requireNonNull(stepOver, "stepOver");
+            Objects.requireNonNull(canStepInto, "canStepInto");
             Objects.requireNonNull(stepInto, "stepInto");
+            Objects.requireNonNull(canBackToBreakpoint, "canBackToBreakpoint");
             Objects.requireNonNull(backToBreakpoint, "backToBreakpoint");
+            Objects.requireNonNull(canStepBackOver, "canStepBackOver");
             Objects.requireNonNull(stepBackOver, "stepBackOver");
+            Objects.requireNonNull(canStepBack, "canStepBack");
             Objects.requireNonNull(stepBack, "stepBack");
         }
     }

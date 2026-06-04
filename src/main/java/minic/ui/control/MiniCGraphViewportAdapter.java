@@ -56,7 +56,55 @@ public final class MiniCGraphViewportAdapter implements MiniCViewportAdapter {
 
     @Override
     public void zoomAt(Point2D localPoint, double delta) {
-        zoomCallback.accept(localPoint == null ? Point2D.ZERO : localPoint, delta);
+        Point2D viewportPoint = localPoint == null ? Point2D.ZERO : localPoint;
+        Bounds viewport = scrollPane.getViewportBounds();
+        Bounds before = scrollContentBounds();
+        if (viewport.getWidth() <= 0 || viewport.getHeight() <= 0) {
+            zoomCallback.accept(viewportPoint, delta);
+            return;
+        }
+        double visibleMinX = visibleMin(
+                scrollPane.getHvalue(),
+                scrollPane.getHmin(),
+                scrollPane.getHmax(),
+                before.getMinX(),
+                before.getWidth(),
+                viewport.getWidth()
+        );
+        double visibleMinY = visibleMin(
+                scrollPane.getVvalue(),
+                scrollPane.getVmin(),
+                scrollPane.getVmax(),
+                before.getMinY(),
+                before.getHeight(),
+                viewport.getHeight()
+        );
+        double anchorX = visibleMinX + viewportPoint.getX();
+        double anchorY = visibleMinY + viewportPoint.getY();
+
+        zoomCallback.accept(viewportPoint, delta);
+        scrollPane.applyCss();
+        scrollPane.layout();
+
+        Bounds after = scrollContentBounds();
+        setAxisToVisibleMin(
+                anchorX - viewportPoint.getX(),
+                after.getMinX(),
+                after.getWidth(),
+                viewport.getWidth(),
+                scrollPane.getHmin(),
+                scrollPane.getHmax(),
+                scrollPane::setHvalue
+        );
+        setAxisToVisibleMin(
+                anchorY - viewportPoint.getY(),
+                after.getMinY(),
+                after.getHeight(),
+                viewport.getHeight(),
+                scrollPane.getVmin(),
+                scrollPane.getVmax(),
+                scrollPane::setVvalue
+        );
     }
 
     @Override
@@ -216,6 +264,24 @@ public final class MiniCGraphViewportAdapter implements MiniCViewportAdapter {
         }
         double targetMin = activeCenter - viewportSize / 2.0;
         double offset = Math.max(0, Math.min(targetMin - contentMin, maxOffset));
+        setter.accept(min + offset / maxOffset * (max - min));
+    }
+
+    private void setAxisToVisibleMin(
+            double targetVisibleMin,
+            double contentMin,
+            double contentSize,
+            double viewportSize,
+            double min,
+            double max,
+            DoubleConsumer setter
+    ) {
+        double maxOffset = Math.max(0, contentSize - viewportSize);
+        if (maxOffset <= 0 || max <= min) {
+            setter.accept(min);
+            return;
+        }
+        double offset = Math.max(0, Math.min(targetVisibleMin - contentMin, maxOffset));
         setter.accept(min + offset / maxOffset * (max - min));
     }
 

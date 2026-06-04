@@ -1,8 +1,10 @@
 package minic.ui;
 
 import javafx.application.Platform;
+import javafx.geometry.Point2D;
 import javafx.scene.control.Button;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -17,6 +19,9 @@ import java.util.Objects;
  * 源码加载和会话启动控件。
  */
 public final class MiniCSourceLoaderView extends VBox {
+    private static final String CONTROL_SCROLL_FILTER_INSTALLED_KEY =
+            "minic.ui.source.controlScrollFilterInstalled";
+
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCCodeEditor sourceEditor = new MiniCCodeEditor();
     private final Button startButton = new Button("开始");
@@ -186,7 +191,25 @@ public final class MiniCSourceLoaderView extends VBox {
      * @param controlHub 共享控制中心
      */
     public void installViewportTarget(MiniCWorkbenchControlHub controlHub) {
-        Objects.requireNonNull(controlHub, "controlHub").installViewportTarget(sourceEditor, viewportAdapter());
+        MiniCWorkbenchControlHub hub = Objects.requireNonNull(controlHub, "controlHub");
+        hub.installViewportTarget(sourceEditor, viewportAdapter());
+        if (Boolean.TRUE.equals(sourceEditor.getProperties().get(CONTROL_SCROLL_FILTER_INSTALLED_KEY))) {
+            return;
+        }
+        sourceEditor.getProperties().put(CONTROL_SCROLL_FILTER_INSTALLED_KEY, true);
+        sourceEditor.addEventFilter(ScrollEvent.SCROLL, event -> {
+            MiniCViewportAdapter adapter = viewportAdapter();
+            hub.viewportRegistry().businessActive(adapter);
+            if (event.isControlDown() && adapter.canZoom()) {
+                hub.handleZoom(new Point2D(event.getX(), event.getY()), event.getDeltaY() > 0 ? 1.0 : -1.0);
+                event.consume();
+                return;
+            }
+            if (!event.isShiftDown() && adapter.canScrollVertical() && event.getDeltaY() != 0) {
+                hub.handleScrollVertical(-event.getDeltaY());
+                event.consume();
+            }
+        });
     }
 
     /**

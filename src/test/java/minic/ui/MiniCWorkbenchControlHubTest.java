@@ -53,11 +53,130 @@ class MiniCWorkbenchControlHubTest {
         AtomicInteger startCalls = new AtomicInteger();
         AtomicInteger trackingCalls = new AtomicInteger();
         hub.setActiveTrackingAction(trackingCalls::incrementAndGet);
+        hub.setActiveTrackingScheduler(Runnable::run);
         hub.registerDebuggerCommands(debuggerCommands(startCalls));
 
         assertThat(hub.execute("debug.start")).isTrue();
 
         assertThat(startCalls).hasValue(1);
+        assertThat(trackingCalls).hasValue(1);
+    }
+
+    @Test
+    void everyDebuggerCommandRunsItsMappedAction() {
+        MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
+        AtomicInteger trackingCalls = new AtomicInteger();
+        AtomicInteger startCalls = new AtomicInteger();
+        AtomicInteger runToEndCalls = new AtomicInteger();
+        AtomicInteger runToBreakpointCalls = new AtomicInteger();
+        AtomicInteger stepOverCalls = new AtomicInteger();
+        AtomicInteger stepIntoCalls = new AtomicInteger();
+        AtomicInteger backToBreakpointCalls = new AtomicInteger();
+        AtomicInteger stepBackOverCalls = new AtomicInteger();
+        AtomicInteger stepBackCalls = new AtomicInteger();
+        hub.setActiveTrackingAction(trackingCalls::incrementAndGet);
+        hub.setActiveTrackingScheduler(Runnable::run);
+        hub.registerDebuggerCommands(new MiniCWorkbenchControlHub.DebuggerCommands(
+                () -> true,
+                startCalls::incrementAndGet,
+                () -> true,
+                runToEndCalls::incrementAndGet,
+                () -> true,
+                runToBreakpointCalls::incrementAndGet,
+                () -> true,
+                stepOverCalls::incrementAndGet,
+                () -> true,
+                stepIntoCalls::incrementAndGet,
+                () -> true,
+                backToBreakpointCalls::incrementAndGet,
+                () -> true,
+                stepBackOverCalls::incrementAndGet,
+                () -> true,
+                stepBackCalls::incrementAndGet
+        ));
+
+        assertThat(hub.execute("debug.start")).isTrue();
+        assertThat(hub.execute("debug.runToEnd")).isTrue();
+        assertThat(hub.execute("debug.runToBreakpoint")).isTrue();
+        assertThat(hub.execute("debug.stepOver")).isTrue();
+        assertThat(hub.execute("debug.stepInto")).isTrue();
+        assertThat(hub.execute("debug.backToBreakpoint")).isTrue();
+        assertThat(hub.execute("debug.stepBackOver")).isTrue();
+        assertThat(hub.execute("debug.stepBack")).isTrue();
+
+        assertThat(startCalls).hasValue(1);
+        assertThat(runToEndCalls).hasValue(1);
+        assertThat(runToBreakpointCalls).hasValue(1);
+        assertThat(stepOverCalls).hasValue(1);
+        assertThat(stepIntoCalls).hasValue(1);
+        assertThat(backToBreakpointCalls).hasValue(1);
+        assertThat(stepBackOverCalls).hasValue(1);
+        assertThat(stepBackCalls).hasValue(1);
+        assertThat(trackingCalls).hasValue(8);
+    }
+
+    @Test
+    void disabledDebuggerCommandDoesNotRunOrTrack() {
+        MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
+        AtomicBoolean enabled = new AtomicBoolean(false);
+        AtomicInteger runToEndCalls = new AtomicInteger();
+        AtomicInteger trackingCalls = new AtomicInteger();
+        hub.setActiveTrackingAction(trackingCalls::incrementAndGet);
+        hub.setActiveTrackingScheduler(Runnable::run);
+        hub.registerDebuggerCommands(new MiniCWorkbenchControlHub.DebuggerCommands(
+                () -> true,
+                () -> {
+                },
+                enabled::get,
+                runToEndCalls::incrementAndGet,
+                () -> true,
+                () -> {
+                },
+                () -> true,
+                () -> {
+                },
+                () -> true,
+                () -> {
+                },
+                () -> true,
+                () -> {
+                },
+                () -> true,
+                () -> {
+                },
+                () -> true,
+                () -> {
+                }
+        ));
+
+        assertThat(hub.commandEnabled("debug.runToEnd")).isFalse();
+        assertThat(hub.execute("debug.runToEnd")).isFalse();
+
+        assertThat(runToEndCalls).hasValue(0);
+        assertThat(trackingCalls).hasValue(0);
+
+        enabled.set(true);
+        assertThat(hub.commandEnabled("debug.runToEnd")).isTrue();
+        assertThat(hub.execute("debug.runToEnd")).isTrue();
+        assertThat(runToEndCalls).hasValue(1);
+        assertThat(trackingCalls).hasValue(1);
+    }
+
+    @Test
+    void schedulesActiveTrackingAfterCommandAction() {
+        MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
+        AtomicInteger startCalls = new AtomicInteger();
+        AtomicInteger trackingCalls = new AtomicInteger();
+        AtomicReference<Runnable> scheduledTracking = new AtomicReference<>();
+        hub.setActiveTrackingAction(trackingCalls::incrementAndGet);
+        hub.setActiveTrackingScheduler(scheduledTracking::set);
+        hub.registerDebuggerCommands(debuggerCommands(startCalls));
+
+        assertThat(hub.execute("debug.start")).isTrue();
+
+        assertThat(startCalls).hasValue(1);
+        assertThat(trackingCalls).hasValue(0);
+        assertThat(scheduledTracking).hasValueSatisfying(Runnable::run);
         assertThat(trackingCalls).hasValue(1);
     }
 
@@ -68,6 +187,7 @@ class MiniCWorkbenchControlHubTest {
         AtomicInteger trackingCalls = new AtomicInteger();
         AtomicBoolean enabled = new AtomicBoolean(false);
         hub.setActiveTrackingAction(trackingCalls::incrementAndGet);
+        hub.setActiveTrackingScheduler(Runnable::run);
         hub.registerCompilerCommands(compilerCommands(nextCalls, enabled::get));
 
         assertThat(hub.commandEnabled("compiler.next")).isFalse();
@@ -81,6 +201,45 @@ class MiniCWorkbenchControlHubTest {
         assertThat(hub.execute("compiler.next")).isTrue();
         assertThat(nextCalls).hasValue(1);
         assertThat(trackingCalls).hasValue(1);
+    }
+
+    @Test
+    void everyCompilerCommandRunsItsMappedAction() {
+        MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
+        AtomicInteger nextCalls = new AtomicInteger();
+        AtomicInteger nextStageCalls = new AtomicInteger();
+        AtomicInteger runToExecutionCalls = new AtomicInteger();
+        AtomicInteger playCalls = new AtomicInteger();
+        AtomicInteger playFastCalls = new AtomicInteger();
+        AtomicInteger pauseCalls = new AtomicInteger();
+        hub.registerCompilerCommands(new MiniCWorkbenchControlHub.CompilerCommands(
+                () -> true,
+                nextCalls::incrementAndGet,
+                () -> true,
+                nextStageCalls::incrementAndGet,
+                () -> true,
+                runToExecutionCalls::incrementAndGet,
+                () -> true,
+                playCalls::incrementAndGet,
+                () -> true,
+                playFastCalls::incrementAndGet,
+                () -> true,
+                pauseCalls::incrementAndGet
+        ));
+
+        assertThat(hub.execute("compiler.next")).isTrue();
+        assertThat(hub.execute("compiler.nextStage")).isTrue();
+        assertThat(hub.execute("compiler.runToExecution")).isTrue();
+        assertThat(hub.execute("compiler.play")).isTrue();
+        assertThat(hub.execute("compiler.playFast")).isTrue();
+        assertThat(hub.execute("compiler.pause")).isTrue();
+
+        assertThat(nextCalls).hasValue(1);
+        assertThat(nextStageCalls).hasValue(1);
+        assertThat(runToExecutionCalls).hasValue(1);
+        assertThat(playCalls).hasValue(1);
+        assertThat(playFastCalls).hasValue(1);
+        assertThat(pauseCalls).hasValue(1);
     }
 
     @Test

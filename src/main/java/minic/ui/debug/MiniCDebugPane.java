@@ -1,5 +1,6 @@
 package minic.ui;
 
+import javafx.beans.binding.Bindings;
 import javafx.scene.Parent;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -169,13 +170,21 @@ public final class MiniCDebugPane extends VBox {
 
     private void registerDebuggerCommands() {
         controlHub.registerDebuggerCommands(new MiniCWorkbenchControlHub.DebuggerCommands(
+                () -> true,
                 this::startFromBeginning,
+                this::debugStarted,
                 viewModel::debugRunToEnd,
+                this::debugStarted,
                 viewModel::debugRunToBreakpoint,
+                this::debugStarted,
                 viewModel::debugStepOver,
+                this::debugStarted,
                 viewModel::debugStepInto,
+                this::debugStarted,
                 viewModel::debugBackToBreakpoint,
+                this::debugStarted,
                 viewModel::debugStepBackOver,
+                this::debugStarted,
                 viewModel::debugStepBack
         ));
     }
@@ -189,6 +198,10 @@ public final class MiniCDebugPane extends VBox {
     private Button button(String text, String commandId, String tooltipText) {
         Button button = new Button(text);
         button.getStyleClass().add("control-secondary");
+        button.disableProperty().bind(Bindings.createBooleanBinding(
+                () -> !controlHub.commandEnabled(commandId),
+                viewModel.debugStartedProperty()
+        ));
         button.setOnAction(event -> {
             controlHub.execute(commandId);
             refresh();
@@ -197,6 +210,10 @@ public final class MiniCDebugPane extends VBox {
             button.setTooltip(new Tooltip(tooltipText));
         }
         return button;
+    }
+
+    private boolean debugStarted() {
+        return viewModel.debugStartedProperty().get();
     }
 
     private void formatSingleButton(Button button) {
@@ -1292,7 +1309,8 @@ public final class MiniCDebugPane extends VBox {
             if (adapter == null) {
                 setAstZoom(astZoom.getValue() + delta);
             } else {
-                adapter.zoomAt(new Point2D(event.getX(), event.getY()), delta);
+                controlHub.viewportRegistry().businessActive(adapter);
+                controlHub.handleZoom(viewportPoint(graphViewport, event.getX(), event.getY()), delta);
             }
             event.consume();
         });
@@ -1326,7 +1344,8 @@ public final class MiniCDebugPane extends VBox {
             if (adapter != null && startX instanceof Number x && startY instanceof Number y) {
                 double deltaX = x.doubleValue() - event.getScreenX();
                 double deltaY = y.doubleValue() - event.getScreenY();
-                adapter.pan(deltaX, deltaY);
+                controlHub.viewportRegistry().businessActive(adapter);
+                controlHub.handlePan(deltaX, deltaY);
                 graphViewport.getProperties().put(AST_DRAG_START_X_KEY, event.getScreenX());
                 graphViewport.getProperties().put(AST_DRAG_START_Y_KEY, event.getScreenY());
                 event.consume();
@@ -1413,6 +1432,51 @@ public final class MiniCDebugPane extends VBox {
             parent = parent.getParent();
         }
         return null;
+    }
+
+    private Point2D viewportPoint(Pane graphViewport, double localX, double localY) {
+        ScrollPane scrollPane = nearestScrollPane(graphViewport);
+        if (scrollPane == null || scrollPane.getContent() == null) {
+            return new Point2D(localX, localY);
+        }
+        javafx.geometry.Bounds viewport = scrollPane.getViewportBounds();
+        javafx.geometry.Bounds contentBounds = scrollPane.getContent().getLayoutBounds();
+        double visibleMinX = visibleMin(
+                scrollPane.getHvalue(),
+                scrollPane.getHmin(),
+                scrollPane.getHmax(),
+                contentBounds.getMinX(),
+                contentBounds.getWidth(),
+                viewport.getWidth()
+        );
+        double visibleMinY = visibleMin(
+                scrollPane.getVvalue(),
+                scrollPane.getVmin(),
+                scrollPane.getVmax(),
+                contentBounds.getMinY(),
+                contentBounds.getHeight(),
+                viewport.getHeight()
+        );
+        return new Point2D(localX - visibleMinX, localY - visibleMinY);
+    }
+
+    private double visibleMin(
+            double value,
+            double min,
+            double max,
+            double contentMin,
+            double contentSize,
+            double viewportSize
+    ) {
+        double maxOffset = Math.max(0, contentSize - viewportSize);
+        return contentMin + normalized(value, min, max) * maxOffset;
+    }
+
+    private double normalized(double value, double min, double max) {
+        if (max <= min) {
+            return 0;
+        }
+        return clamp((value - min) / (max - min));
     }
 
     private double clamp(double value) {

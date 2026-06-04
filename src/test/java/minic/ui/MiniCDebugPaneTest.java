@@ -56,6 +56,7 @@ class MiniCDebugPaneTest {
             MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
             java.util.concurrent.atomic.AtomicInteger trackingCalls = new java.util.concurrent.atomic.AtomicInteger();
             hub.setActiveTrackingAction(trackingCalls::incrementAndGet);
+            hub.setActiveTrackingScheduler(Runnable::run);
             MiniCDebugPane pane = new MiniCDebugPane(viewModel, hub);
 
             button(pane, "从头开始").fire();
