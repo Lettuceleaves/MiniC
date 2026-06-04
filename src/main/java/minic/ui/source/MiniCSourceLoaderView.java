@@ -6,6 +6,7 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import minic.ui.control.MiniCViewportAdapter;
 import minic.uiapi.UiSourceSpanDto;
 
 import java.util.List;
@@ -167,6 +168,15 @@ public final class MiniCSourceLoaderView extends VBox {
      */
     public void setCurrentExecutionRange(UiSourceSpanDto range) {
         sourceEditor.setCurrentExecutionRange(range);
+    }
+
+    /**
+     * 返回源码编辑器文本视口适配器。
+     *
+     * @return 文本视口适配器
+     */
+    public MiniCViewportAdapter viewportAdapter() {
+        return sourceEditor.viewportAdapter();
     }
 
     /**
