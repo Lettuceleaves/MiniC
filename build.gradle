@@ -5,7 +5,7 @@ plugins {
 }
 
 group = 'minic'
-version = '0.4.0'
+version = '1.0.0'
 
 java {
     toolchain {
@@ -41,6 +41,9 @@ tasks.register('runUi', JavaExec) {
     description = '启动 MiniC Visual Workbench JavaFX UI'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'minic.ui.MiniCWorkbenchLauncher'
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    })
     jvmArgs = [
             '--module-path', configurations.runtimeClasspath.asPath,
             '--add-modules', javafx.modules.join(','),
