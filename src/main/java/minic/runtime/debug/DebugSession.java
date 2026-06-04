@@ -249,7 +249,9 @@ public final class DebugSession {
                 state = DebugExecutionState.PAUSED;
                 return result(command, "已按暂停请求停在下一条可见源码行之前");
             }
-            if (isBreakpointSnapshot(currentSnapshot())) {
+            Optional<Integer> breakpointTarget = breakpointTargetIndex(i);
+            if (breakpointTarget.isPresent()) {
+                currentSnapshotIndex = breakpointTarget.orElseThrow();
                 replaceCurrentStop(DebugStopReason.BREAKPOINT, true);
                 state = DebugExecutionState.PAUSED;
                 return result(command, "命中第 " + currentLine().orElse(-1) + " 行断点");
@@ -273,7 +275,9 @@ public final class DebugSession {
                 state = DebugExecutionState.PAUSED;
                 return result(command, "已按暂停请求停在下一条可见源码行之前");
             }
-            if (isBreakpointSnapshot(currentSnapshot())) {
+            Optional<Integer> breakpointTarget = breakpointTargetIndex(i);
+            if (breakpointTarget.isPresent()) {
+                currentSnapshotIndex = breakpointTarget.orElseThrow();
                 replaceCurrentStop(DebugStopReason.BREAKPOINT, true);
                 state = DebugExecutionState.PAUSED;
                 return result(command, "命中第 " + currentLine().orElse(-1) + " 行断点");
@@ -371,7 +375,11 @@ public final class DebugSession {
     private int nextExecutableIndex() {
         long currentVisibleStep = currentSnapshot().visibleStepIndex();
         for (int i = currentSnapshotIndex + 1; i < snapshots.size(); i++) {
-            if (snapshots.get(i).visibleStepIndex() > currentVisibleStep || isTerminalSnapshot(snapshots.get(i))) {
+            DebugSnapshot snapshot = snapshots.get(i);
+            if (isTerminalSnapshot(snapshot)) {
+                return i;
+            }
+            if (snapshot.visibleStepIndex() > currentVisibleStep && isControlStepStart(i)) {
                 return endOfVisibleStep(i);
             }
         }
@@ -388,7 +396,8 @@ public final class DebugSession {
             }
             if (snapshot.visibleStepIndex() > currentSnapshot().visibleStepIndex()
                     && snapshot.callStackSummary().size() <= currentDepth
-                    && snapshot.stopReason() != DebugStopReason.RETURN) {
+                    && snapshot.stopReason() != DebugStopReason.RETURN
+                    && isControlStepStart(next)) {
                 return endOfVisibleStep(next);
             }
             next++;
@@ -414,7 +423,11 @@ public final class DebugSession {
         long currentVisibleStep = currentSnapshot().visibleStepIndex();
         for (int i = currentSnapshotIndex - 1; i >= 0; i--) {
             if (snapshots.get(i).visibleStepIndex() < currentVisibleStep) {
-                return endOfVisibleStep(i);
+                int start = startOfVisibleStep(i);
+                if (isControlStepStart(start)) {
+                    return endOfVisibleStep(start);
+                }
+                i = start;
             }
         }
         return 0;
@@ -428,16 +441,22 @@ public final class DebugSession {
         }
         long currentVisibleStep = current.visibleStepIndex();
         for (int i = currentSnapshotIndex - 1; i >= 0; i--) {
-            DebugSnapshot snapshot = snapshots.get(i);
+            int start = startOfVisibleStep(i);
+            DebugSnapshot snapshot = snapshots.get(start);
             if (snapshot.visibleStepIndex() >= currentVisibleStep) {
                 continue;
             }
+            if (!isControlStepStart(start)) {
+                i = start;
+                continue;
+            }
             if (isSameDebugLayer(snapshot, current)) {
-                return endOfVisibleStep(i);
+                return endOfVisibleStep(start);
             }
             if (snapshot.callStackSummary().size() < currentDepth) {
-                return endOfVisibleStep(i);
+                return endOfVisibleStep(start);
             }
+            i = start;
         }
         return currentSnapshotIndex;
     }
@@ -472,6 +491,35 @@ public final class DebugSession {
         return last;
     }
 
+    private int startOfVisibleStep(int snapshotIndex) {
+        long visibleStep = snapshots.get(snapshotIndex).visibleStepIndex();
+        int first = snapshotIndex;
+        for (int i = snapshotIndex - 1; i >= 0; i--) {
+            if (snapshots.get(i).visibleStepIndex() != visibleStep) {
+                break;
+            }
+            first = i;
+        }
+        return first;
+    }
+
+    private boolean isControlStepStart(int snapshotIndex) {
+        DebugSnapshot snapshot = snapshots.get(snapshotIndex);
+        if (isTerminalSnapshot(snapshot) || isCallSnapshot(snapshot)) {
+            return true;
+        }
+        return line(snapshot.cursor().sourceRange())
+                .map(snapshotLine -> isFirstSourceLineOccurrence(snapshotIndex, snapshotLine))
+                .orElse(true);
+    }
+
+    private boolean isCallSnapshot(DebugSnapshot snapshot) {
+        return events.stream()
+                .filter(event -> event.snapshotId() == snapshot.snapshotId())
+                .map(DebugEvent::type)
+                .anyMatch(type -> type.contains("CALL"));
+    }
+
     private boolean isBreakableLine(int line) {
         if (line < 1) {
             return false;
@@ -484,12 +532,36 @@ public final class DebugSession {
                 .anyMatch(snapshotLine -> snapshotLine == line);
     }
 
-    private boolean isBreakpointSnapshot(DebugSnapshot snapshot) {
-        return line(snapshot.cursor().sourceRange()).stream()
-                .anyMatch(snapshotLine -> {
-                    DebugBreakpoint breakpoint = breakpoints.get(snapshotLine);
-                    return breakpoint != null && breakpoint.enabled();
-                });
+    private Optional<Integer> breakpointTargetIndex(int snapshotIndex) {
+        DebugSnapshot snapshot = snapshots.get(snapshotIndex);
+        Optional<Integer> snapshotLine = line(snapshot.cursor().sourceRange());
+        if (snapshotLine.isEmpty()) {
+            return Optional.empty();
+        }
+        DebugBreakpoint breakpoint = breakpoints.get(snapshotLine.orElseThrow());
+        if (breakpoint == null || !breakpoint.enabled()) {
+            return Optional.empty();
+        }
+        if (!isFirstSourceLineOccurrence(snapshotIndex, snapshotLine.orElseThrow())) {
+            return Optional.empty();
+        }
+        return Optional.of(snapshotIndex);
+    }
+
+    private boolean isFirstSourceLineOccurrence(int snapshotIndex, int sourceLine) {
+        DebugSnapshot current = snapshots.get(snapshotIndex);
+        for (int i = snapshotIndex - 1; i >= 0; i--) {
+            DebugSnapshot previous = snapshots.get(i);
+            if (!isSameDebugLayer(previous, current)) {
+                continue;
+            }
+            Optional<Integer> previousLine = line(previous.cursor().sourceRange());
+            if (previousLine.isEmpty()) {
+                continue;
+            }
+            return previousLine.orElseThrow() != sourceLine;
+        }
+        return true;
     }
 
     private Optional<Integer> currentLine() {
@@ -520,12 +592,48 @@ public final class DebugSession {
         snapshots.set(currentSnapshotIndex, new DebugSnapshot(
                 current.snapshotId(),
                 current.visibleStepIndex(),
-                current.cursor(),
+                breakpointHit ? lineRangeCursor(current.cursor()) : current.cursor(),
                 current.callStackSummary(),
                 current.processSpace(),
                 breakpointHit,
                 stopReason
         ));
+    }
+
+    private DebugCursor lineRangeCursor(DebugCursor cursor) {
+        SourceRange range = cursor.sourceRange();
+        if (range == null) {
+            return cursor;
+        }
+        SourceRange lineRange = sourceLineRange(range.startPosition().line());
+        return new DebugCursor(
+                cursor.functionName(),
+                cursor.basicBlockId(),
+                cursor.instructionId(),
+                lineRange,
+                cursor.astNodeId(),
+                cursor.asmLineIds()
+        );
+    }
+
+    private SourceRange sourceLineRange(int line) {
+        String content = sourceFile.content();
+        int currentLine = 1;
+        int lineStart = 0;
+        for (int i = 0; i < content.length() && currentLine < line; i++) {
+            if (content.charAt(i) == '\n') {
+                currentLine++;
+                lineStart = i + 1;
+            }
+        }
+        int lineEnd = lineStart;
+        while (lineEnd < content.length() && content.charAt(lineEnd) != '\n') {
+            lineEnd++;
+        }
+        if (lineEnd > lineStart && content.charAt(lineEnd - 1) == '\r') {
+            lineEnd--;
+        }
+        return new SourceRange(sourceFile, lineStart, lineEnd);
     }
 
     private DebugControlResult result(DebugCommand command, String message) {

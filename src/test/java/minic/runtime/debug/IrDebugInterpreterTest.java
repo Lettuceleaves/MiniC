@@ -273,6 +273,63 @@ class IrDebugInterpreterTest {
     }
 
     @Test
+    void breakpointOnCallLineStopsAtStatementInsteadOfArgumentExpression() {
+        SourceFile sourceFile = new SourceFile("debug-breakpoint-call-arguments.mc", """
+                int add(int left, int right) {
+                    return left + right;
+                }
+
+                int main() {
+                    int a = 1;
+                    int b = 2;
+                    int value = add(a + 1, b + 2);
+                    return value;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+        session.setBreakpoint(8);
+
+        DebugControlResult breakpoint = session.control(DebugCommand.RUN_TO_BREAKPOINT);
+        DebugControlResult into = session.control(DebugCommand.STEP_INTO);
+
+        assertThat(breakpoint.snapshot().cursor().sourceRange().text().strip())
+                .isEqualTo("int value = add(a + 1, b + 2);");
+        assertThat(into.snapshot().callStackSummary()).containsExactly("main", "add");
+    }
+
+    @Test
+    void breakpointOnLineWithMultipleCallsDoesNotRehitSameSourceLineOccurrence() {
+        SourceFile sourceFile = new SourceFile("debug-breakpoint-same-line-calls.mc", """
+                int func1() {
+                    return 10;
+                }
+
+                int func2() {
+                    return 20;
+                }
+
+                int main() {
+                    int a = 0;
+                    a = 1 + func1() + func2();
+                    return a;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+        session.setBreakpoint(11);
+
+        DebugControlResult firstHit = session.control(DebugCommand.RUN_TO_BREAKPOINT);
+        DebugControlResult secondRun = session.control(DebugCommand.RUN_TO_BREAKPOINT);
+
+        assertThat(firstHit.snapshot().breakpointHit()).isTrue();
+        assertThat(firstHit.snapshot().cursor().sourceRange().text().strip())
+                .isEqualTo("a = 1 + func1() + func2();");
+        assertThat(secondRun.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(secondRun.snapshot().breakpointHit()).isFalse();
+    }
+
+    @Test
     void runsToCompletionWithoutBreakpointsAndCanRestartWithBreakpointsKept() {
         SourceFile sourceFile = new SourceFile("debug-run.mc", """
                 int main() {
@@ -431,7 +488,7 @@ class IrDebugInterpreterTest {
         assertThat(callLine.snapshot().callStackSummary()).containsExactly("main");
         assertThat(over.snapshot().callStackSummary()).containsExactly("main");
         assertThat(over.snapshot().stopReason()).isEqualTo(DebugStopReason.STEP);
-        assertThat(over.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(7);
+        assertThat(over.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(8);
         assertThat(over.snapshot().visibleStepIndex()).isGreaterThan(callLine.snapshot().visibleStepIndex());
 
         DebugSession stepIntoSession = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
@@ -525,6 +582,37 @@ class IrDebugInterpreterTest {
         assertThat(back.snapshot().cursor().functionName()).isEqualTo("main");
         assertThat(back.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(11);
         assertThat(back.snapshot().cursor().sourceRange()).isEqualTo(firstCall.snapshot().cursor().sourceRange());
+    }
+
+    @Test
+    void stepOverSkipsPureOperationRemainderAfterLastCallOnLine() {
+        SourceFile sourceFile = new SourceFile("debug-step-over-skip-operation-remainder.mc", """
+                int func1() {
+                    return 10;
+                }
+
+                int func2() {
+                    return 20;
+                }
+
+                int main() {
+                    int a = 0;
+                    a = 1 + func1() + func2();
+                    return a;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+        session.setBreakpoint(11);
+        DebugControlResult firstCallLine = session.control(DebugCommand.RUN_TO_BREAKPOINT);
+        DebugControlResult secondCall = session.control(DebugCommand.STEP_OVER);
+
+        DebugControlResult afterLine = session.control(DebugCommand.STEP_OVER);
+
+        assertThat(firstCallLine.snapshot().cursor().sourceRange().text().strip())
+                .isEqualTo("a = 1 + func1() + func2();");
+        assertThat(secondCall.snapshot().cursor().sourceRange().text()).isEqualTo("func2()");
+        assertThat(afterLine.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(12);
     }
 
     @Test

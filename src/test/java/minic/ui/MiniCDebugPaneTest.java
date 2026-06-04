@@ -589,8 +589,10 @@ class MiniCDebugPaneTest {
             int func1Start = source.lastIndexOf("func1()");
             int func2Start = source.lastIndexOf("func2()");
             int statementStart = source.indexOf("a = 1");
+            int returnValueStart = source.lastIndexOf("a;");
             assertThat(styleAt(editor, func1Start)).contains("debug-execution-range");
-            assertThat(styleAt(editor, func2Start)).doesNotContain("debug-execution-range");
+            assertThat(styleAt(editor, func2Start)).contains("debug-execution-range");
+            assertThat(styleAt(editor, statementStart)).contains("debug-execution-range");
 
             button(pane, "本层下一句").fire();
 
@@ -599,9 +601,10 @@ class MiniCDebugPaneTest {
 
             button(pane, "本层下一句").fire();
 
-            assertThat(styleAt(editor, statementStart)).contains("debug-execution-range");
-            assertThat(styleAt(editor, func1Start)).contains("debug-execution-range");
-            assertThat(styleAt(editor, func2Start)).contains("debug-execution-range");
+            assertThat(styleAt(editor, statementStart)).doesNotContain("debug-execution-range");
+            assertThat(styleAt(editor, func1Start)).doesNotContain("debug-execution-range");
+            assertThat(styleAt(editor, func2Start)).doesNotContain("debug-execution-range");
+            assertThat(styleAt(editor, returnValueStart)).contains("debug-execution-range");
         });
     }
 
