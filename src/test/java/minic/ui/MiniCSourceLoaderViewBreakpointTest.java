@@ -87,6 +87,22 @@ class MiniCSourceLoaderViewBreakpointTest {
     }
 
     @Test
+    void editorTokenStylesUseReusableTextStyleClassesAndLegacyAliases() throws Exception {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCSourceLoaderView compileView = new MiniCSourceLoaderView(viewModel);
+            MiniCCodeEditor editor = editor(compileView);
+            editor.setText("int main() { return 7; }");
+            editor.render(MiniCRealtimeAnalyzer.analyzeNow("loaded.mc", editor.getText(), 1));
+
+            assertThat(styleAt(editor, 0)).contains("mc-text-code-keyword", "token-keyword");
+            assertThat(styleAt(editor, editor.getText().indexOf("main")))
+                    .contains("mc-text-code-identifier", "token-identifier");
+        });
+    }
+
+    @Test
     void marksCurrentExecutionSourceRangeWithoutLosingTokenStyles() throws Exception {
         startJavafx();
         runOnFxThread(() -> {

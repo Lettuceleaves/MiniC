@@ -20,6 +20,10 @@ import minic.color.ThemeRegistry;
 import javafx.scene.shape.Polyline;
 import minic.ui.control.MiniCTextViewportAdapter;
 import minic.ui.control.MiniCViewportAdapter;
+import minic.ui.text.MiniCSyntaxTextStyleMapper;
+import minic.ui.text.MiniCTextStyleRole;
+import minic.ui.text.MiniCTextStyleState;
+import minic.ui.text.MiniCTextStyles;
 import minic.uiapi.UiDiagnosticDto;
 import minic.uiapi.UiLexerTokenVisualDto;
 import minic.uiapi.UiRealtimeAnalysisDto;
@@ -73,6 +77,7 @@ public final class MiniCCodeEditor extends StackPane {
     private final VBox diagnosticDetails = new VBox(4);
     private final ListView<String> completionList = new ListView<>();
     private final MiniCViewportAdapter viewportAdapter = new MiniCTextViewportAdapter(this);
+    private final MiniCSyntaxTextStyleMapper syntaxTextStyleMapper = new MiniCSyntaxTextStyleMapper();
     private UiRealtimeAnalysisDto latestAnalysis;
     private List<UiDiagnosticDto> latestDiagnostics = List.of();
     private Runnable breakpointChangeAction = () -> {
@@ -92,7 +97,7 @@ public final class MiniCCodeEditor extends StackPane {
         applyEditorFontSize();
         input.setWrapText(false);
         input.setParagraphGraphicFactory(this::paragraphGraphic);
-        input.setTextInsertionStyle(List.of("token-plain"));
+        input.setTextInsertionStyle(MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN));
         input.addEventFilter(KeyEvent.KEY_PRESSED, this::handleCompletionKeys);
         input.addEventFilter(KeyEvent.KEY_TYPED, this::handleTypedText);
         input.caretPositionProperty().addListener((observable, oldValue, newValue) -> updateCompletion(false));
@@ -408,9 +413,9 @@ public final class MiniCCodeEditor extends StackPane {
         List<UiDiagnosticDto> diagnostics = analysis == null ? List.of() : analysis.diagnostics();
         if (tokens.isEmpty()) {
             if (source.isEmpty()) {
-                builder.add(List.of("token-plain"), 0);
+                builder.add(MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN), 0);
             } else {
-                addStyledRange(builder, source, 0, source.length(), List.of("token-plain"));
+                addStyledRange(builder, source, 0, source.length(), MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN));
             }
             return builder.create();
         }
@@ -419,16 +424,16 @@ public final class MiniCCodeEditor extends StackPane {
             int start = safeOffset(source, token.startOffset());
             int end = safeOffset(source, token.endOffset());
             if (start > cursor) {
-                addStyledRange(builder, source, cursor, start, List.of("token-plain"));
+                addStyledRange(builder, source, cursor, start, MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN));
             }
             addStyledRange(builder, source, start, end, tokenStyles(token.kind(), overlapsDiagnostic(start, end, diagnostics)));
             cursor = end;
         }
         if (cursor < source.length()) {
-            addStyledRange(builder, source, cursor, source.length(), List.of("token-plain"));
+            addStyledRange(builder, source, cursor, source.length(), MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN));
         }
         if (source.isEmpty()) {
-            builder.add(List.of("token-plain"), 0);
+            builder.add(MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN), 0);
         }
         return builder.create();
     }
@@ -467,16 +472,7 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     private Collection<String> tokenStyles(String kind, boolean diagnostic) {
-        String tokenStyle = switch (kind) {
-            case "BOOL", "CHAR", "INT", "LONG", "FLOAT", "DOUBLE", "EXTERN", "STRUCT",
-                    "RETURN", "IF", "ELSE", "WHILE", "FOR", "BREAK", "CONTINUE" -> "token-keyword";
-            case "STRING_LITERAL", "CHAR_LITERAL" -> "token-string";
-            case "INTEGER_LITERAL", "LONG_LITERAL", "FLOAT_LITERAL", "DOUBLE_LITERAL",
-                    "BOOL_LITERAL", "NULL_LITERAL" -> "token-literal";
-            case "IDENTIFIER" -> "token-identifier";
-            default -> "token-operator";
-        };
-        return diagnostic ? List.of(tokenStyle, "diagnostic") : List.of(tokenStyle);
+        return syntaxTextStyleMapper.styleClassesFor(kind, diagnostic);
     }
 
     private void addStyledRange(
@@ -509,9 +505,7 @@ public final class MiniCCodeEditor extends StackPane {
 
     private Collection<String> withDebugExecutionRange(Collection<String> baseStyles) {
         ArrayList<String> styles = new ArrayList<>(baseStyles);
-        if (!styles.contains("debug-execution-range")) {
-            styles.add("debug-execution-range");
-        }
+        MiniCTextStyles.addStateClasses(styles, MiniCTextStyleState.DEBUG_EXECUTION);
         return styles;
     }
 

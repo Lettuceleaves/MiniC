@@ -17,7 +17,7 @@ public final class ThemeCssGenerator {
         for (Map.Entry<String, String> entry : snapshot.entrySet()) {
             css = css.replace("{{" + entry.getKey() + "}}", entry.getValue());
         }
-        return css;
+        return css + MiniCTextStyleCssGenerator.generate();
     }
 
     private static String loadTemplate() {

@@ -25,4 +25,15 @@ class ThemeCssGeneratorTest {
         assertThat(css).contains(".stage-flow-scroll .scroll-bar:vertical .thumb");
         assertThat(css).contains(".visual-scroll .scroll-bar:vertical .thumb");
     }
+
+    @Test
+    void generatesReusableTextStyleCssForRoleStateAndFontAttributes() {
+        String css = ThemeCssGenerator.generate();
+
+        assertThat(css).contains(".mc-text-code-keyword");
+        assertThat(css).contains(".mc-text-state-debug-execution");
+        assertThat(css).contains("-fx-font-family: Consolas, \"Courier New\", monospace");
+        assertThat(css).contains("-fx-font-weight: bold");
+        assertThat(css).contains("-fx-font-style: italic");
+    }
 }

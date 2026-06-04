@@ -14,6 +14,7 @@ MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。�
 - [version/0.3.1.md](version/0.3.1.md)：`0.3.1` 阶段专属图形化增强记录。
 - [version/0.4.0.md](version/0.4.0.md)：`0.4.0` C 子集语法和预编译扩展阶段记录。
 - [version/0.5.0.md](version/0.5.0.md)：`0.5.0` 教学型可视化 Debugger 阶段记录。
+- [docs/text-style-system.md](docs/text-style-system.md)：Workbench 文本样式抽象、主题配置和迁移指南。
 
 ## 当前状态
 

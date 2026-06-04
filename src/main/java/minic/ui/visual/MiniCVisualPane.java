@@ -21,16 +21,20 @@ import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import minic.color.ThemeRegistry;
-import minic.settings.MiniCSettings;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
+import javafx.scene.text.TextFlow;
+import minic.settings.MiniCSettings;
 import minic.ui.control.MiniCControlTargetType;
 import minic.ui.control.MiniCGraphViewportAdapter;
 import minic.ui.control.MiniCViewportPointMapper;
 import minic.ui.control.MiniCViewportAdapter;
 import minic.ui.control.MiniCWorkbenchControlHub;
+import minic.ui.text.MiniCAssemblyTextHighlighter;
+import minic.ui.text.MiniCIrTextHighlighter;
+import minic.ui.text.MiniCTextFlowFactory;
 import minic.uiapi.UiAstNodeVisualDto;
 import minic.uiapi.UiAssemblyLineVisualDto;
 import minic.uiapi.ExplanationTemplates;
@@ -69,6 +73,8 @@ public final class MiniCVisualPane extends VBox {
     private final MiniCAstGraphModelFactory astGraphModelFactory = new MiniCAstGraphModelFactory();
     private final MiniCSemanticScopeTreeModelFactory semanticScopeTreeModelFactory = new MiniCSemanticScopeTreeModelFactory();
     private final MiniCAssemblyTextModelFactory assemblyTextModelFactory = new MiniCAssemblyTextModelFactory();
+    private final MiniCIrTextHighlighter irTextHighlighter = new MiniCIrTextHighlighter();
+    private final MiniCAssemblyTextHighlighter assemblyTextHighlighter = new MiniCAssemblyTextHighlighter();
     private final Label header = new Label("图形视图");
     private final SplitPane splitPane = new SplitPane();
     private final StageColumn leftColumn = new StageColumn("left", false);
@@ -354,13 +360,16 @@ public final class MiniCVisualPane extends VBox {
         row.getStyleClass().add("assembly-row");
         Label number = new Label(Integer.toString(line.lineNumber()));
         number.getStyleClass().add("assembly-line-number");
-        Label text = new Label(line.text().isEmpty() ? " " : line.text());
-        text.getStyleClass().add("assembly-text");
+        TextFlow text = MiniCTextFlowFactory.textFlow(
+                irTextHighlighter.highlight(line.text()),
+                "assembly-text",
+                line.active()
+        );
         if (line.active()) {
             row.getStyleClass().add("active");
             number.getStyleClass().add("active");
-            text.getStyleClass().add("active");
         }
+        HBox.setHgrow(text, Priority.ALWAYS);
         row.getChildren().addAll(number, text);
         attachInspectorClick(row, inspectorContent(
                 "IR 行 " + line.lineNumber(),
@@ -924,13 +933,16 @@ public final class MiniCVisualPane extends VBox {
         row.getStyleClass().add("assembly-row");
         Label number = new Label(Integer.toString(line.lineNumber()));
         number.getStyleClass().add("assembly-line-number");
-        Label text = new Label(line.text());
-        text.getStyleClass().add("assembly-text");
+        TextFlow text = MiniCTextFlowFactory.textFlow(
+                assemblyTextHighlighter.highlight(line.text()),
+                "assembly-text",
+                line.active()
+        );
         if (line.active()) {
             row.getStyleClass().add("active");
             number.getStyleClass().add("active");
-            text.getStyleClass().add("active");
         }
+        HBox.setHgrow(text, Priority.ALWAYS);
         row.getChildren().addAll(number, text);
         attachInspectorClick(row, inspectorContent(
                 "汇编行 " + line.lineNumber(),
