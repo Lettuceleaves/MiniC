@@ -612,6 +612,24 @@
     -fx-padding: 0;
 }
 
+.debug-source-editor-scroll .scroll-bar:vertical {
+    -fx-min-width: 12px;
+    -fx-pref-width: 12px;
+    -fx-max-width: 12px;
+    -fx-background-color: {{background.tertiary}};
+    -fx-opacity: 1;
+}
+
+.debug-source-editor-scroll .scroll-bar:vertical .track {
+    -fx-background-color: {{background.tertiary}};
+}
+
+.debug-source-editor-scroll .scroll-bar:vertical .thumb {
+    -fx-background-color: {{accent.blue}};
+    -fx-background-insets: 2px;
+    -fx-background-radius: 6px;
+}
+
 .debug-view-selector {
     -fx-min-width: 88px;
     -fx-pref-width: 88px;

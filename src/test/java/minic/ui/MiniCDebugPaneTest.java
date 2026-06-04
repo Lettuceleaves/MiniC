@@ -3,8 +3,10 @@ package minic.ui;
 import javafx.application.Platform;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollBar;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
+import javafx.scene.Scene;
 import javafx.scene.Parent;
 import javafx.geometry.Pos;
 import javafx.scene.layout.HBox;
@@ -123,6 +125,38 @@ class MiniCDebugPaneTest {
             assertThat(scrollPane).isNotNull();
             assertThat(scrollPane.getVbarPolicy()).isEqualTo(ScrollPane.ScrollBarPolicy.ALWAYS);
             assertThat(scrollPane.getHbarPolicy()).isEqualTo(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        });
+    }
+
+    @Test
+    void debuggerSourceEditorRendersVisibleRightSideScrollBar() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+            Scene scene = new Scene(pane, 1200, 760);
+            pane.applyCss();
+            pane.layout();
+
+            VirtualizedScrollPane<?> editorScroll = virtualizedScrollPaneWithStyle(pane, "debug-source-editor-scroll");
+            assertThat(editorScroll).isNotNull();
+            editorScroll.applyCss();
+            editorScroll.resize(500, 640);
+            editorScroll.layout();
+
+            List<ScrollBar> verticalScrollBars = scrollBars(editorScroll).stream()
+                    .filter(scrollBar -> scrollBar.getOrientation() == javafx.geometry.Orientation.VERTICAL)
+                    .filter(scrollBar -> scrollBar.isVisible())
+                    .filter(scrollBar -> scrollBar.getBoundsInParent().getWidth() > 0)
+                    .toList();
+            assertThat(verticalScrollBars).isNotEmpty();
+            assertThat(verticalScrollBars)
+                    .anySatisfy(scrollBar -> assertThat(scrollBar.getBoundsInParent().getMaxX())
+                            .isGreaterThanOrEqualTo(editorScroll.getWidth() - 16));
+            assertThat(verticalScrollBars)
+                    .anySatisfy(scrollBar -> assertThat(scrollBar.lookup(".thumb").getBoundsInParent().getHeight())
+                            .isGreaterThan(0));
+            assertThat(scene.getRoot()).isSameAs(pane);
         });
     }
 
@@ -790,6 +824,27 @@ class MiniCDebugPaneTest {
             }
         }
         return null;
+    }
+
+    private static List<ScrollBar> scrollBars(javafx.scene.Node node) {
+        List<ScrollBar> result = new ArrayList<>();
+        collectScrollBars(node, result);
+        return result;
+    }
+
+    private static void collectScrollBars(javafx.scene.Node node, List<ScrollBar> result) {
+        if (node instanceof ScrollBar scrollBar) {
+            result.add(scrollBar);
+        }
+        if (node instanceof SplitPane splitPane) {
+            splitPane.getItems().forEach(child -> collectScrollBars(child, result));
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            collectScrollBars(scrollPane.getContent(), result);
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectScrollBars(child, result));
+        }
     }
 
     @SuppressWarnings("unchecked")
