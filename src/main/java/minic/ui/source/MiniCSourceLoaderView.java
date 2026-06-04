@@ -7,6 +7,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import minic.ui.control.MiniCViewportAdapter;
+import minic.ui.control.MiniCWorkbenchControlHub;
 import minic.uiapi.UiSourceSpanDto;
 
 import java.util.List;
@@ -177,6 +178,15 @@ public final class MiniCSourceLoaderView extends VBox {
      */
     public MiniCViewportAdapter viewportAdapter() {
         return sourceEditor.viewportAdapter();
+    }
+
+    /**
+     * 将源码编辑器注册到共享控制中心，参与 hover/pin 目标解析。
+     *
+     * @param controlHub 共享控制中心
+     */
+    public void installViewportTarget(MiniCWorkbenchControlHub controlHub) {
+        Objects.requireNonNull(controlHub, "controlHub").installViewportTarget(sourceEditor, viewportAdapter());
     }
 
     /**

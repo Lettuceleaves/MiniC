@@ -1,6 +1,9 @@
 package minic.ui;
 
 import javafx.geometry.Point2D;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
+import javafx.scene.layout.Pane;
 import minic.ui.control.MiniCControlTargetType;
 import minic.ui.control.MiniCViewportAdapter;
 import minic.ui.control.MiniCWorkbenchControlHub;
@@ -123,6 +126,46 @@ class MiniCWorkbenchControlHubTest {
         assertThat(adapter.horizontalDelta).isEqualTo(-4);
         assertThat(adapter.panDeltaX).isEqualTo(5);
         assertThat(adapter.panDeltaY).isEqualTo(6);
+    }
+
+    @Test
+    void installedViewportTargetUpdatesHoverAndPinnedTargetsFromMouseEvents() {
+        MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
+        Pane node = new Pane();
+        FakeViewportAdapter adapter = new FakeViewportAdapter();
+        hub.installViewportTarget(node, adapter);
+
+        node.fireEvent(new MouseEvent(
+                MouseEvent.MOUSE_ENTERED,
+                1, 1, 1, 1,
+                MouseButton.NONE,
+                0,
+                false, false, false, false,
+                false, false, false, false,
+                false, false, null
+        ));
+        assertThat(hub.viewportRegistry().currentTarget()).containsSame(adapter);
+
+        node.fireEvent(new MouseEvent(
+                MouseEvent.MOUSE_CLICKED,
+                1, 1, 1, 1,
+                MouseButton.PRIMARY,
+                1,
+                false, false, false, false,
+                true, false, false, true,
+                false, false, null
+        ));
+        node.fireEvent(new MouseEvent(
+                MouseEvent.MOUSE_EXITED,
+                1, 1, 1, 1,
+                MouseButton.NONE,
+                0,
+                false, false, false, false,
+                false, false, false, false,
+                false, false, null
+        ));
+
+        assertThat(hub.viewportRegistry().currentTarget()).containsSame(adapter);
     }
 
     private static MiniCWorkbenchControlHub.DebuggerCommands debuggerCommands(AtomicInteger firstCommandCalls) {

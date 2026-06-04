@@ -1,9 +1,14 @@
 package minic.ui.control;
 
 import javafx.geometry.Point2D;
+import javafx.scene.Node;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 
 import java.util.Collections;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
@@ -15,6 +20,7 @@ import java.util.function.LongSupplier;
  * Workbench-level facade for command execution and viewport routing.
  */
 public final class MiniCWorkbenchControlHub {
+    private static final String VIEWPORT_TARGET_PROPERTY = "minic.ui.control.viewportTargetAdapter";
     public static final String DEBUG_START = "debug.start";
     public static final String DEBUG_RUN_TO_END = "debug.runToEnd";
     public static final String DEBUG_RUN_TO_BREAKPOINT = "debug.runToBreakpoint";
@@ -37,6 +43,7 @@ public final class MiniCWorkbenchControlHub {
     private final MiniCCommandRegistry commandRegistry;
     private final MiniCViewportRegistry viewportRegistry;
     private final Set<String> commandIds = new LinkedHashSet<>();
+    private final List<Runnable> additionalActiveTrackingActions = new ArrayList<>();
     private Runnable activeTrackingAction = () -> {
     };
     private String pendingThemeName;
@@ -77,6 +84,10 @@ public final class MiniCWorkbenchControlHub {
 
     public void setActiveTrackingAction(Runnable activeTrackingAction) {
         this.activeTrackingAction = Objects.requireNonNull(activeTrackingAction, "activeTrackingAction");
+    }
+
+    public void addActiveTrackingAction(Runnable activeTrackingAction) {
+        additionalActiveTrackingActions.add(Objects.requireNonNull(activeTrackingAction, "activeTrackingAction"));
     }
 
     public void registerDebuggerCommands(DebuggerCommands commands) {
@@ -133,6 +144,7 @@ public final class MiniCWorkbenchControlHub {
         boolean executed = commandRegistry.execute(commandId);
         if (executed) {
             activeTrackingAction.run();
+            additionalActiveTrackingActions.forEach(Runnable::run);
         }
         return executed;
     }
@@ -186,6 +198,22 @@ public final class MiniCWorkbenchControlHub {
         viewportRegistry.currentTarget()
                 .filter(MiniCViewportAdapter::canPan)
                 .ifPresent(adapter -> adapter.pan(deltaX, deltaY));
+    }
+
+    public void installViewportTarget(Node node, MiniCViewportAdapter adapter) {
+        Objects.requireNonNull(node, "node");
+        Objects.requireNonNull(adapter, "adapter");
+        if (node.getProperties().get(VIEWPORT_TARGET_PROPERTY) == adapter) {
+            return;
+        }
+        node.getProperties().put(VIEWPORT_TARGET_PROPERTY, adapter);
+        node.addEventHandler(MouseEvent.MOUSE_ENTERED, event -> viewportRegistry.hover(adapter));
+        node.addEventHandler(MouseEvent.MOUSE_EXITED, event -> viewportRegistry.clearHover(adapter));
+        node.addEventHandler(MouseEvent.MOUSE_CLICKED, event -> {
+            if (event.getButton() == MouseButton.PRIMARY) {
+                viewportRegistry.pin(adapter);
+            }
+        });
     }
 
     private void register(String id, String label, BooleanSupplier enabled, Runnable action) {

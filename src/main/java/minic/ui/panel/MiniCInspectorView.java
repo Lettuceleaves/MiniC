@@ -17,7 +17,7 @@ public final class MiniCInspectorView extends VBox {
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCInspectorModelFactory modelFactory = new MiniCInspectorModelFactory();
     private final MiniCPlaybackController playbackController;
-    private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
+    private final MiniCWorkbenchControlHub controlHub;
     private final Label currentState = body("");
     private final Label currentItem = body("");
     private final Label accumulatedOutput = body("");
@@ -34,7 +34,18 @@ public final class MiniCInspectorView extends VBox {
      * @param viewModel UI 状态模型
      */
     public MiniCInspectorView(MiniCWorkbenchViewModel viewModel) {
+        this(viewModel, new MiniCWorkbenchControlHub());
+    }
+
+    /**
+     * 创建 Inspector。
+     *
+     * @param viewModel UI 状态模型
+     * @param controlHub 共享控制中心
+     */
+    public MiniCInspectorView(MiniCWorkbenchViewModel viewModel, MiniCWorkbenchControlHub controlHub) {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
+        this.controlHub = Objects.requireNonNull(controlHub, "controlHub");
         playbackController = new MiniCPlaybackController(viewModel);
         registerCompilerCommands();
         getStyleClass().add("inspector");

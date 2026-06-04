@@ -1,6 +1,8 @@
 package minic.ui;
 
 import javafx.application.Platform;
+import javafx.geometry.BoundingBox;
+import javafx.geometry.Bounds;
 import javafx.geometry.Orientation;
 import javafx.geometry.Point2D;
 import javafx.scene.Node;
@@ -23,7 +25,10 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
+import minic.ui.control.MiniCControlTargetType;
 import minic.ui.control.MiniCGraphViewportAdapter;
+import minic.ui.control.MiniCViewportAdapter;
+import minic.ui.control.MiniCWorkbenchControlHub;
 import minic.uiapi.UiAstNodeVisualDto;
 import minic.uiapi.UiAssemblyLineVisualDto;
 import minic.uiapi.ExplanationTemplates;
@@ -33,6 +38,7 @@ import minic.uiapi.UiSemanticScopeVisualDto;
 import minic.uiapi.UiSourceSpanDto;
 import minic.uiapi.UiStageVisualDto;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,6 +71,7 @@ public final class MiniCVisualPane extends VBox {
     private final StageColumn rightColumn = new StageColumn("right", true);
     private final Slider astZoom = new Slider(MIN_AST_ZOOM, MAX_AST_ZOOM, DEFAULT_AST_ZOOM);
     private final TextArea executionStdin = new TextArea();
+    private MiniCWorkbenchControlHub controlHub;
     private String selectedSemanticScopeId = "";
     private boolean refreshScheduled;
     private String activeVisualStage = "pending";
@@ -235,6 +242,30 @@ public final class MiniCVisualPane extends VBox {
      */
     public void zoomAstOut() {
         setAstZoom(astZoom.getValue() - AST_ZOOM_STEP);
+    }
+
+    /**
+     * 将可视化区域中的文本列和图形视口注册到共享控制中心。
+     *
+     * @param controlHub 共享控制中心
+     */
+    public void installViewportTargets(MiniCWorkbenchControlHub controlHub) {
+        this.controlHub = Objects.requireNonNull(controlHub, "controlHub");
+        leftColumn.installViewportTarget(controlHub);
+        rightColumn.installViewportTarget(controlHub);
+    }
+
+    /**
+     * 返回当前可参与 active tracking 的视口适配器。
+     *
+     * @return 视口适配器列表
+     */
+    public List<MiniCViewportAdapter> activeViewportAdapters() {
+        ArrayList<MiniCViewportAdapter> adapters = new ArrayList<>();
+        adapters.add(leftColumn.viewportAdapter);
+        adapters.add(rightColumn.viewportAdapter);
+        collectGraphViewportAdapters(this, adapters);
+        return adapters;
     }
 
     private void setAstZoom(double value) {
@@ -762,7 +793,26 @@ public final class MiniCVisualPane extends VBox {
                 (point, delta) -> setAstZoom(astZoom.getValue() + delta)
         );
         graphViewport.getProperties().put(MiniCGraphViewportAdapter.ADAPTER_PROPERTY, adapter);
+        if (controlHub != null) {
+            controlHub.installViewportTarget(graphViewport, adapter);
+        }
         return adapter;
+    }
+
+    private void collectGraphViewportAdapters(Node node, List<MiniCViewportAdapter> adapters) {
+        Object adapter = node.getProperties().get(MiniCGraphViewportAdapter.ADAPTER_PROPERTY);
+        if (adapter instanceof MiniCViewportAdapter viewportAdapter) {
+            adapters.add(viewportAdapter);
+        }
+        if (node instanceof SplitPane pane) {
+            pane.getItems().forEach(child -> collectGraphViewportAdapters(child, adapters));
+        }
+        if (node instanceof ScrollPane pane && pane.getContent() != null) {
+            collectGraphViewportAdapters(pane.getContent(), adapters);
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectGraphViewportAdapters(child, adapters));
+        }
     }
 
     private ScrollPane nearestScrollPane(Node node) {
@@ -1376,6 +1426,7 @@ public final class MiniCVisualPane extends VBox {
         private final Label title = new Label();
         private final VBox body = new VBox(4);
         private final ScrollPane scrollPane = new ScrollPane(body);
+        private final MiniCViewportAdapter viewportAdapter = new StageColumnViewportAdapter();
         private final boolean autoCenter;
         private String viewportKey = "";
         private boolean restoringViewport;
@@ -1404,6 +1455,10 @@ public final class MiniCVisualPane extends VBox {
             if (autoCenter) {
                 scrollPane.viewportBoundsProperty().addListener((observable, oldValue, newValue) -> centerActiveLater());
             }
+        }
+
+        private void installViewportTarget(MiniCWorkbenchControlHub controlHub) {
+            controlHub.installViewportTarget(scrollPane, viewportAdapter);
         }
 
         private void setContent(String titleText, List<? extends Node> rows) {
@@ -1443,7 +1498,7 @@ public final class MiniCVisualPane extends VBox {
         }
 
         private void centerActiveLater() {
-            Platform.runLater(this::centerActive);
+            Platform.runLater(viewportAdapter::centerActiveIfNeeded);
         }
 
         private void centerActive() {
@@ -1470,6 +1525,49 @@ public final class MiniCVisualPane extends VBox {
             }
         }
 
+        private boolean isActiveFullyVisible() {
+            Bounds activeBounds = activeBounds();
+            if (activeBounds == null) {
+                return true;
+            }
+            double viewportHeight = scrollPane.getViewportBounds().getHeight();
+            double contentHeight = body.getBoundsInLocal().getHeight();
+            if (viewportHeight <= 0 || contentHeight <= viewportHeight) {
+                return true;
+            }
+            double maxTop = Math.max(1, contentHeight - viewportHeight);
+            double visibleTop = scrollPane.getVvalue() * maxTop;
+            double visibleBottom = visibleTop + viewportHeight;
+            return activeBounds.getMinY() >= visibleTop && activeBounds.getMaxY() <= visibleBottom;
+        }
+
+        private Bounds activeBounds() {
+            Node active = activeNode(body);
+            if (active != null) {
+                return body.sceneToLocal(active.localToScene(active.getBoundsInLocal()));
+            }
+            Double centerY = activeCenterY();
+            if (centerY == null) {
+                return null;
+            }
+            return new BoundingBox(0, centerY - 10.0, body.getBoundsInLocal().getWidth(), 20.0);
+        }
+
+        private Node activeNode(Node node) {
+            if (node.getStyleClass().contains("active")) {
+                return node;
+            }
+            if (node instanceof Parent parent) {
+                for (Node child : parent.getChildrenUnmodifiable()) {
+                    Node found = activeNode(child);
+                    if (found != null) {
+                        return found;
+                    }
+                }
+            }
+            return null;
+        }
+
         private Double activeCenterY() {
             for (Node child : body.getChildren()) {
                 Object marker = child.getProperties().get(ACTIVE_CENTER_Y_KEY);
@@ -1491,6 +1589,76 @@ public final class MiniCVisualPane extends VBox {
                 return parent.getChildrenUnmodifiable().stream().anyMatch(this::hasActiveStyle);
             }
             return false;
+        }
+
+        private void scrollVertical(double delta) {
+            scrollAxis(delta, false);
+        }
+
+        private void scrollHorizontal(double delta) {
+            scrollAxis(delta, true);
+        }
+
+        private void scrollAxis(double delta, boolean horizontal) {
+            double viewportSize = horizontal
+                    ? scrollPane.getViewportBounds().getWidth()
+                    : scrollPane.getViewportBounds().getHeight();
+            double contentSize = horizontal
+                    ? body.getBoundsInLocal().getWidth()
+                    : body.getBoundsInLocal().getHeight();
+            double maxOffset = Math.max(0, contentSize - viewportSize);
+            if (maxOffset <= 0) {
+                if (horizontal) {
+                    scrollPane.setHvalue(0);
+                } else {
+                    scrollPane.setVvalue(0);
+                }
+                return;
+            }
+            double current = horizontal ? scrollPane.getHvalue() : scrollPane.getVvalue();
+            double target = Math.max(0, Math.min(1, current + delta / maxOffset));
+            if (horizontal) {
+                scrollPane.setHvalue(target);
+            } else {
+                scrollPane.setVvalue(target);
+            }
+        }
+
+        private final class StageColumnViewportAdapter implements MiniCViewportAdapter {
+            @Override
+            public MiniCControlTargetType type() {
+                return MiniCControlTargetType.STAGE;
+            }
+
+            @Override
+            public boolean canScrollVertical() {
+                return true;
+            }
+
+            @Override
+            public void scrollVertical(double delta) {
+                StageColumn.this.scrollVertical(delta);
+            }
+
+            @Override
+            public boolean canScrollHorizontal() {
+                return true;
+            }
+
+            @Override
+            public void scrollHorizontal(double delta) {
+                StageColumn.this.scrollHorizontal(delta);
+            }
+
+            @Override
+            public boolean isActiveFullyVisible() {
+                return StageColumn.this.isActiveFullyVisible();
+            }
+
+            @Override
+            public void centerActive() {
+                StageColumn.this.centerActive();
+            }
         }
     }
 }

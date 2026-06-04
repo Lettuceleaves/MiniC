@@ -19,12 +19,16 @@ import minic.settings.MiniCSettingsPane;
 import javafx.scene.shape.SVGPath;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
+import minic.ui.control.MiniCActiveTrackingService;
+import minic.ui.control.MiniCViewportAdapter;
+import minic.ui.control.MiniCWorkbenchControlHub;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -36,12 +40,14 @@ public final class MiniCWorkbenchShell {
     private static final double INSPECTOR_WIDTH = 360;
     private final ArrayList<DocumentTab> documents = new ArrayList<>();
     private final MiniCKeyBindingConfig keyBindings = MiniCKeyBindingConfig.loadDefault();
+    private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
     private BorderPane root;
     private HBox body;
     private HBox tabs;
     private VBox editor;
     private MiniCWorkbenchViewModel viewModel;
     private MiniCVisualPane visualPane;
+    private MiniCSourceLoaderView sourceLoader;
     private VBox sourcePane;
     private StackPane mainContent;
     private MiniCHoverInspector hoverInspector;
@@ -168,7 +174,7 @@ public final class MiniCWorkbenchShell {
         body.getChildren().clear();
         VBox sidebar = sidebar();
         editor = editorArea();
-        VBox inspector = new MiniCInspectorView(viewModel);
+        VBox inspector = new MiniCInspectorView(viewModel, controlHub);
         lockWidth(sidebar, SIDEBAR_WIDTH);
         lockWidth(inspector, INSPECTOR_WIDTH);
         editor.setMinWidth(0);
@@ -199,6 +205,9 @@ public final class MiniCWorkbenchShell {
         VBox.setVgrow(mainContent, Priority.ALWAYS);
         sourcePane = sourceArea();
         visualPane = new MiniCVisualPane(viewModel, hoverInspector);
+        sourceLoader.installViewportTarget(controlHub);
+        visualPane.installViewportTargets(controlHub);
+        controlHub.setActiveTrackingAction(new MiniCActiveTrackingService(this::activeViewportAdapters)::trackActiveViewports);
         sourcePane.setMinWidth(0);
         visualPane.setMinWidth(0);
         mainContent.getChildren().addAll(sourcePane, visualPane);
@@ -246,11 +255,21 @@ public final class MiniCWorkbenchShell {
     private VBox sourceArea() {
         VBox sourceArea = new VBox();
         sourceArea.getStyleClass().add("source-area");
-        MiniCSourceLoaderView loader = new MiniCSourceLoaderView(viewModel, this::openDocument, this::saveDocument);
-        loader.usePersistentEditorScrollBars("pipeline-source-editor-scroll");
-        sourceArea.getChildren().add(loader);
-        VBox.setVgrow(loader, Priority.ALWAYS);
+        sourceLoader = new MiniCSourceLoaderView(viewModel, this::openDocument, this::saveDocument);
+        sourceLoader.usePersistentEditorScrollBars("pipeline-source-editor-scroll");
+        sourceArea.getChildren().add(sourceLoader);
+        VBox.setVgrow(sourceLoader, Priority.ALWAYS);
         return sourceArea;
+    }
+
+    private List<MiniCViewportAdapter> activeViewportAdapters() {
+        if (sourceLoader == null || visualPane == null) {
+            return List.of();
+        }
+        if (sourceMode()) {
+            return List.of(sourceLoader.viewportAdapter());
+        }
+        return visualPane.activeViewportAdapters();
     }
 
     private HBox statusBar() {

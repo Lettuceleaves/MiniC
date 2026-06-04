@@ -26,7 +26,9 @@ import javafx.scene.shape.Line;
 import javafx.scene.shape.Polygon;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
+import minic.ui.control.MiniCActiveTrackingService;
 import minic.ui.control.MiniCGraphViewportAdapter;
+import minic.ui.control.MiniCViewportAdapter;
 import minic.ui.control.MiniCWorkbenchControlHub;
 import minic.uiapi.UiAssemblyLineVisualDto;
 import minic.uiapi.UiAstNodeVisualDto;
@@ -81,7 +83,7 @@ public final class MiniCDebugPane extends VBox {
     );
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCSourceLoaderView sourceView;
-    private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
+    private final MiniCWorkbenchControlHub controlHub;
     private final HBox debugBody = new HBox();
     private final VBox viewSelector = new VBox(4);
     private final SplitPane workspaceSplitPane = new SplitPane();
@@ -102,10 +104,23 @@ public final class MiniCDebugPane extends VBox {
      * @param viewModel UI 状态模型
      */
     public MiniCDebugPane(MiniCWorkbenchViewModel viewModel) {
+        this(viewModel, new MiniCWorkbenchControlHub());
+    }
+
+    /**
+     * 创建 Debug 面板。
+     *
+     * @param viewModel UI 状态模型
+     * @param controlHub 共享控制中心
+     */
+    public MiniCDebugPane(MiniCWorkbenchViewModel viewModel, MiniCWorkbenchControlHub controlHub) {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
+        this.controlHub = Objects.requireNonNull(controlHub, "controlHub");
         getStyleClass().add("debug-pane");
         sourceView = new MiniCSourceLoaderView(viewModel, false);
         sourceView.usePersistentEditorScrollBars("debug-source-editor-scroll");
+        sourceView.installViewportTarget(controlHub);
+        controlHub.addActiveTrackingAction(new MiniCActiveTrackingService(this::activeViewportAdapters)::trackActiveViewports);
         registerDebuggerCommands();
         HBox controls = controls();
         configureDebugBody();
@@ -1362,7 +1377,31 @@ public final class MiniCDebugPane extends VBox {
                 (point, delta) -> setAstZoom(astZoom.getValue() + delta)
         );
         graphViewport.getProperties().put(MiniCGraphViewportAdapter.ADAPTER_PROPERTY, adapter);
+        controlHub.installViewportTarget(graphViewport, adapter);
         return adapter;
+    }
+
+    private List<MiniCViewportAdapter> activeViewportAdapters() {
+        ArrayList<MiniCViewportAdapter> adapters = new ArrayList<>();
+        adapters.add(sourceView.viewportAdapter());
+        collectGraphViewportAdapters(this, adapters);
+        return adapters;
+    }
+
+    private void collectGraphViewportAdapters(Node node, List<MiniCViewportAdapter> adapters) {
+        Object adapter = node.getProperties().get(MiniCGraphViewportAdapter.ADAPTER_PROPERTY);
+        if (adapter instanceof MiniCViewportAdapter viewportAdapter) {
+            adapters.add(viewportAdapter);
+        }
+        if (node instanceof SplitPane pane) {
+            pane.getItems().forEach(child -> collectGraphViewportAdapters(child, adapters));
+        }
+        if (node instanceof ScrollPane pane && pane.getContent() != null) {
+            collectGraphViewportAdapters(pane.getContent(), adapters);
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectGraphViewportAdapters(child, adapters));
+        }
     }
 
     private ScrollPane nearestScrollPane(Node node) {

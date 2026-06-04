@@ -12,6 +12,7 @@ import javafx.geometry.Pos;
 import javafx.scene.layout.HBox;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
+import minic.ui.control.MiniCWorkbenchControlHub;
 import org.fxmisc.flowless.VirtualizedScrollPane;
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +45,24 @@ class MiniCDebugPaneTest {
             throw new AssertionError(exception);
         }
         javafxStarted = true;
+    }
+
+    @Test
+    void debuggerButtonsExecuteThroughSharedControlHubTrackingAction() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            viewModel.loadSource("debug-hub.mc", "int main() { return 0; }");
+            MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
+            java.util.concurrent.atomic.AtomicInteger trackingCalls = new java.util.concurrent.atomic.AtomicInteger();
+            hub.setActiveTrackingAction(trackingCalls::incrementAndGet);
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel, hub);
+
+            button(pane, "从头开始").fire();
+
+            assertThat(viewModel.debugStartedProperty().get()).isTrue();
+            assertThat(trackingCalls).hasValue(1);
+        });
     }
 
     @Test
