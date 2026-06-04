@@ -297,6 +297,14 @@ int main() {
 - 每个桶下面垂直挂自己的链。
 - 每个链节点显示 `label=key` 指定的 `key` 字段。
 
+默认链字段叫 `next`。如果同一个结构体里还有别的链，比如 LRU 同时有 `next/prev` 和 `hashNext`，哈希桶必须明确写：
+
+```c
+// @visual root=buckets kind=hash-chain-table label=key next=hashNext
+```
+
+这样桶图会沿 `hashNext` 往下画，LRU 图仍然可以沿 `next/prev` 横向画，两张图不会互相串线。
+
 ### 5.7 堆数组
 
 ```c

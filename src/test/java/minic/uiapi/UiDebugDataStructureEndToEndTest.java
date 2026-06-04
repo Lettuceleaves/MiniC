@@ -57,6 +57,31 @@ class UiDebugDataStructureEndToEndTest {
         }
     }
 
+    @Test
+    void lruHashStressSampleUsesHashNextForBucketChains() throws IOException {
+        Path path = Path.of("tmp", "ds_visual_stress", "01_lru_hash.mc");
+        String source = Files.readString(path);
+        MiniCDebugApi api = new MiniCDebugApi();
+        api.loadSource(new SourceFile(path.getFileName().toString(), source));
+        api.startDebug();
+        api.setBreakpoint(findLine(source, "put(nodes, &used, 4, buckets, &head, &tail, 7, 700);"));
+        api.runToBreakpoint();
+
+        UiDebugVisualStructureDto buckets = api.dataStructureDebugView().visuals().stream()
+                .filter(visual -> visual.name().equals("buckets"))
+                .findFirst()
+                .orElseThrow();
+
+        List<UiDebugVisualElementDto> edges = elementsOfKind(buckets, "GRAPH_EDGE");
+        assertThat(edges)
+                .extracting(UiDebugVisualElementDto::label)
+                .containsOnly("bucket", "hashNext");
+        assertThat(edges)
+                .noneSatisfy(edge -> assertThat(edge.metadata().getOrDefault("path", ""))
+                        .as(edge.id() + " path")
+                        .endsWith(".next"));
+    }
+
     private static int findBreakLine(String source) {
         String[] lines = source.replace("\r\n", "\n").replace('\r', '\n').split("\n");
         for (int index = 0; index < lines.length; index++) {
@@ -73,6 +98,16 @@ class UiDebugDataStructureEndToEndTest {
             throw new IllegalArgumentException("@break marker has no following line");
         }
         throw new IllegalArgumentException("sample has no @break marker");
+    }
+
+    private static int findLine(String source, String text) {
+        String[] lines = source.replace("\r\n", "\n").replace('\r', '\n').split("\n");
+        for (int index = 0; index < lines.length; index++) {
+            if (lines[index].contains(text)) {
+                return index + 1;
+            }
+        }
+        throw new IllegalArgumentException("line not found: " + text);
     }
 
     private static UiDebugVisualStructureDto expectedVisual(

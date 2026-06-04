@@ -1,4 +1,4 @@
-// @visual root=buckets kind=hash-chain-table label=key
+// @visual root=buckets kind=hash-chain-table label=key next=hashNext
 // @visual root=head kind=lru-list label=key
 // @visual root=nodes kind=struct-array fields=key,value,prev,next,hashNext,alive
 struct LruNode {
