@@ -507,6 +507,62 @@ class MiniCDebugPaneTest {
         });
     }
 
+    @Test
+    void previousStatementInCurrentLayerDoesNotReenterCompletedFunctionFromButton() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+            viewModel.loadSource("debug-ui-step-back-over.mc", """
+                    int inc(int value) {
+                        int next = value + 1;
+                        return next;
+                    }
+
+                    int main() {
+                        int value = inc(1);
+                        return value;
+                    }
+                    """);
+            viewModel.startDebug();
+
+            movePastIncCallWithButton(pane, viewModel);
+            button(pane, "本层上一句").fire();
+
+            assertThat(viewModel.debugStateProperty().get().currentSnapshot().callStackSummary())
+                    .containsExactly("main");
+        });
+    }
+
+    @Test
+    void previousStatementInCurrentLayerDoesNotReenterFunctionSkippedByNextLayerButton() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+            viewModel.loadSource("debug-ui-step-over-then-back-over.mc", """
+                    int inc(int value) {
+                        int next = value + 1;
+                        return next;
+                    }
+
+                    int main() {
+                        int value = inc(1);
+                        return value;
+                    }
+                    """);
+            viewModel.startDebug();
+            viewModel.setDebugBreakpoint(7);
+            button(pane, "下个断点").fire();
+            button(pane, "本层下一句").fire();
+
+            button(pane, "本层上一句").fire();
+
+            assertThat(viewModel.debugStateProperty().get().currentSnapshot().callStackSummary())
+                    .containsExactly("main");
+        });
+    }
+
     private static void runOnFxThread(Runnable action) {
         runOnFxThreadWithResult(() -> {
             action.run();
@@ -579,6 +635,23 @@ class MiniCDebugPaneTest {
         if (node instanceof Parent parent) {
             parent.getChildrenUnmodifiable().forEach(child -> collectPairedDebugControlRows(child, rows));
         }
+    }
+
+    private static void movePastIncCallWithButton(MiniCDebugPane pane, MiniCWorkbenchViewModel viewModel) {
+        viewModel.setDebugBreakpoint(7);
+        button(pane, "下个断点").fire();
+        boolean enteredInc = false;
+        while (!"COMPLETED".equals(viewModel.debugStateProperty().get().executionState())) {
+            button(pane, "下一句").fire();
+            List<String> stack = viewModel.debugStateProperty().get().currentSnapshot().callStackSummary();
+            if (stack.contains("inc")) {
+                enteredInc = true;
+            }
+            if (enteredInc && stack.equals(List.of("main"))) {
+                return;
+            }
+        }
+        throw new AssertionError("did not return from inc call");
     }
 
     private static Label label(javafx.scene.Node node, String text) {

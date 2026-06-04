@@ -473,6 +473,27 @@ class IrDebugInterpreterTest {
     }
 
     @Test
+    void stepBackOverFromProgramEndReturnsToLastStatementInsteadOfInitialSnapshot() {
+        SourceFile sourceFile = new SourceFile("debug-step-back-over-from-end.mc", """
+                int main() {
+                    int value = 1;
+                    value = value + 1;
+                    return value;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+        DebugControlResult completed = session.control(DebugCommand.RUN_TO_END);
+
+        DebugControlResult back = session.control(DebugCommand.STEP_BACK_OVER);
+
+        assertThat(completed.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(back.snapshot().stopReason()).isNotEqualTo(DebugStopReason.START);
+        assertThat(back.snapshot().visibleStepIndex()).isGreaterThan(0);
+        assertThat(back.snapshot().visibleStepIndex()).isLessThan(completed.snapshot().visibleStepIndex());
+    }
+
+    @Test
     void debugsStructPointerTreeAndRecordsVisualFieldPaths() {
         SourceFile sourceFile = new SourceFile("debug-struct-visual-tree.mc", """
                 struct Node {

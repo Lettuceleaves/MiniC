@@ -422,6 +422,9 @@ public final class DebugSession {
 
     private int stepBackOverIndex() {
         int currentDepth = currentSnapshot().callStackSummary().size();
+        if (currentDepth == 0) {
+            return previousExecutableIndex();
+        }
         long currentVisibleStep = currentSnapshot().visibleStepIndex();
         for (int i = currentSnapshotIndex - 1; i >= 0; i--) {
             DebugSnapshot snapshot = snapshots.get(i);
