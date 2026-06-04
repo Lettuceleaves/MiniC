@@ -27,10 +27,16 @@ import javafx.scene.shape.Line;
 import javafx.scene.shape.Polygon;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
+import javafx.scene.text.TextFlow;
 import minic.ui.control.MiniCActiveTrackingService;
 import minic.ui.control.MiniCGraphViewportAdapter;
+import minic.ui.control.MiniCScrollPaneViewportAdapter;
 import minic.ui.control.MiniCViewportAdapter;
+import minic.ui.control.MiniCViewportPointMapper;
 import minic.ui.control.MiniCWorkbenchControlHub;
+import minic.ui.text.MiniCAssemblyTextHighlighter;
+import minic.ui.text.MiniCIrTextHighlighter;
+import minic.ui.text.MiniCTextFlowFactory;
 import minic.uiapi.UiAssemblyLineVisualDto;
 import minic.uiapi.UiAstNodeVisualDto;
 import minic.uiapi.UiDebugAsmViewDto;
@@ -67,6 +73,10 @@ public final class MiniCDebugPane extends VBox {
     private static final String AST_DRAG_START_Y_KEY = "debugAstDragY";
     private static final String AST_DRAG_START_H_KEY = "debugAstDragH";
     private static final String AST_DRAG_START_V_KEY = "debugAstDragV";
+    private static final String SCROLL_VIEWPORT_FILTER_INSTALLED_KEY =
+            "minic.ui.debug.scrollViewportFilterInstalled";
+    private static final String SCROLL_DRAG_START_X_KEY = "debugScrollDragX";
+    private static final String SCROLL_DRAG_START_Y_KEY = "debugScrollDragY";
     private static final double DEBUG_CONTROL_BUTTON_WIDTH = 92;
     private static final double DEBUG_BUTTON_HEIGHT = 28;
     private static final int METADATA_LIST_LIMIT = 200;
@@ -92,6 +102,8 @@ public final class MiniCDebugPane extends VBox {
     private final VBox primaryContent = new VBox();
     private final VBox splitContent = new VBox();
     private final MiniCAstGraphModelFactory astGraphModelFactory = new MiniCAstGraphModelFactory();
+    private final MiniCIrTextHighlighter irTextHighlighter = new MiniCIrTextHighlighter();
+    private final MiniCAssemblyTextHighlighter assemblyTextHighlighter = new MiniCAssemblyTextHighlighter();
     private final MiniCKeyBindingConfig keyBindings = MiniCKeyBindingConfig.loadDefault();
     private final Slider astZoom = new Slider(MIN_AST_ZOOM, MAX_AST_ZOOM, DEFAULT_AST_ZOOM);
     private final Label status = label("", "body-text");
@@ -244,6 +256,7 @@ public final class MiniCDebugPane extends VBox {
         scroll.setFitToWidth(true);
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        installScrollViewportTarget(scroll);
         return rememberViewport(scroll, viewportKey);
     }
 
@@ -426,6 +439,7 @@ public final class MiniCDebugPane extends VBox {
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         VBox.setVgrow(scroll, Priority.ALWAYS);
+        installScrollViewportTarget(scroll);
         return rememberViewport(scroll, viewportKey);
     }
 
@@ -950,6 +964,7 @@ public final class MiniCDebugPane extends VBox {
         scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
         VBox.setVgrow(scroll, Priority.ALWAYS);
+        installScrollViewportTarget(scroll);
         return rememberViewport(scroll, viewportKey);
     }
 
@@ -1112,7 +1127,12 @@ public final class MiniCDebugPane extends VBox {
             row.getStyleClass().add("active");
         }
         Label number = label(Integer.toString(line.lineNumber()), "debug-code-line-number");
-        Label text = label(line.text().isEmpty() ? " " : line.text(), "debug-code-text");
+        TextFlow text = MiniCTextFlowFactory.textFlow(
+                irTextHighlighter.highlight(line.text()),
+                "debug-code-text",
+                line.active()
+        );
+        HBox.setHgrow(text, Priority.ALWAYS);
         row.getChildren().addAll(number, text);
         return row;
     }
@@ -1153,7 +1173,12 @@ public final class MiniCDebugPane extends VBox {
             row.getStyleClass().add("active");
         }
         Label number = label(Integer.toString(line.lineNumber()), "debug-code-line-number");
-        Label text = label(line.text().isEmpty() ? " " : line.text(), "debug-code-text");
+        TextFlow text = MiniCTextFlowFactory.textFlow(
+                assemblyTextHighlighter.highlight(line.text()),
+                "debug-code-text",
+                line.active()
+        );
+        HBox.setHgrow(text, Priority.ALWAYS);
         row.getChildren().addAll(number, text);
         return row;
     }
@@ -1400,11 +1425,88 @@ public final class MiniCDebugPane extends VBox {
         return adapter;
     }
 
+    private void installScrollViewportTarget(ScrollPane scrollPane) {
+        MiniCScrollPaneViewportAdapter adapter = scrollPaneViewportAdapter(scrollPane);
+        controlHub.installViewportTarget(scrollPane, adapter);
+        if (Boolean.TRUE.equals(scrollPane.getProperties().get(SCROLL_VIEWPORT_FILTER_INSTALLED_KEY))) {
+            return;
+        }
+        scrollPane.getProperties().put(SCROLL_VIEWPORT_FILTER_INSTALLED_KEY, true);
+        scrollPane.addEventHandler(ScrollEvent.SCROLL, event -> {
+            controlHub.viewportRegistry().businessActive(adapter);
+            if (event.isShiftDown() && event.getDeltaY() != 0) {
+                controlHub.handleScrollHorizontal(-event.getDeltaY());
+                event.consume();
+                return;
+            }
+            if (event.getDeltaY() != 0) {
+                controlHub.handleScrollVertical(-event.getDeltaY());
+                event.consume();
+                return;
+            }
+            if (event.getDeltaX() != 0) {
+                controlHub.handleScrollHorizontal(-event.getDeltaX());
+                event.consume();
+            }
+        });
+        scrollPane.addEventHandler(MouseEvent.MOUSE_PRESSED, event -> {
+            if (event.getButton() != MouseButton.SECONDARY) {
+                return;
+            }
+            controlHub.viewportRegistry().businessActive(adapter);
+            scrollPane.getProperties().put(SCROLL_DRAG_START_X_KEY, event.getScreenX());
+            scrollPane.getProperties().put(SCROLL_DRAG_START_Y_KEY, event.getScreenY());
+            event.consume();
+        });
+        scrollPane.addEventHandler(MouseEvent.MOUSE_DRAGGED, event -> {
+            if (!event.isSecondaryButtonDown()) {
+                return;
+            }
+            Object startX = scrollPane.getProperties().get(SCROLL_DRAG_START_X_KEY);
+            Object startY = scrollPane.getProperties().get(SCROLL_DRAG_START_Y_KEY);
+            if (!(startX instanceof Number x) || !(startY instanceof Number y)) {
+                return;
+            }
+            controlHub.viewportRegistry().businessActive(adapter);
+            controlHub.handlePan(x.doubleValue() - event.getScreenX(), y.doubleValue() - event.getScreenY());
+            scrollPane.getProperties().put(SCROLL_DRAG_START_X_KEY, event.getScreenX());
+            scrollPane.getProperties().put(SCROLL_DRAG_START_Y_KEY, event.getScreenY());
+            event.consume();
+        });
+    }
+
+    private MiniCScrollPaneViewportAdapter scrollPaneViewportAdapter(ScrollPane scrollPane) {
+        Object existing = scrollPane.getProperties().get(MiniCScrollPaneViewportAdapter.ADAPTER_PROPERTY);
+        if (existing instanceof MiniCScrollPaneViewportAdapter adapter) {
+            return adapter;
+        }
+        MiniCScrollPaneViewportAdapter adapter = new MiniCScrollPaneViewportAdapter(scrollPane);
+        scrollPane.getProperties().put(MiniCScrollPaneViewportAdapter.ADAPTER_PROPERTY, adapter);
+        return adapter;
+    }
+
     private List<MiniCViewportAdapter> activeViewportAdapters() {
         ArrayList<MiniCViewportAdapter> adapters = new ArrayList<>();
         adapters.add(sourceView.viewportAdapter());
+        collectScrollViewportAdapters(this, adapters);
         collectGraphViewportAdapters(this, adapters);
         return adapters;
+    }
+
+    private void collectScrollViewportAdapters(Node node, List<MiniCViewportAdapter> adapters) {
+        Object adapter = node.getProperties().get(MiniCScrollPaneViewportAdapter.ADAPTER_PROPERTY);
+        if (adapter instanceof MiniCViewportAdapter viewportAdapter) {
+            adapters.add(viewportAdapter);
+        }
+        if (node instanceof SplitPane pane) {
+            pane.getItems().forEach(child -> collectScrollViewportAdapters(child, adapters));
+        }
+        if (node instanceof ScrollPane pane && pane.getContent() != null) {
+            collectScrollViewportAdapters(pane.getContent(), adapters);
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectScrollViewportAdapters(child, adapters));
+        }
     }
 
     private void collectGraphViewportAdapters(Node node, List<MiniCViewportAdapter> adapters) {
@@ -1436,47 +1538,10 @@ public final class MiniCDebugPane extends VBox {
 
     private Point2D viewportPoint(Pane graphViewport, double localX, double localY) {
         ScrollPane scrollPane = nearestScrollPane(graphViewport);
-        if (scrollPane == null || scrollPane.getContent() == null) {
+        if (scrollPane == null) {
             return new Point2D(localX, localY);
         }
-        javafx.geometry.Bounds viewport = scrollPane.getViewportBounds();
-        javafx.geometry.Bounds contentBounds = scrollPane.getContent().getLayoutBounds();
-        double visibleMinX = visibleMin(
-                scrollPane.getHvalue(),
-                scrollPane.getHmin(),
-                scrollPane.getHmax(),
-                contentBounds.getMinX(),
-                contentBounds.getWidth(),
-                viewport.getWidth()
-        );
-        double visibleMinY = visibleMin(
-                scrollPane.getVvalue(),
-                scrollPane.getVmin(),
-                scrollPane.getVmax(),
-                contentBounds.getMinY(),
-                contentBounds.getHeight(),
-                viewport.getHeight()
-        );
-        return new Point2D(localX - visibleMinX, localY - visibleMinY);
-    }
-
-    private double visibleMin(
-            double value,
-            double min,
-            double max,
-            double contentMin,
-            double contentSize,
-            double viewportSize
-    ) {
-        double maxOffset = Math.max(0, contentSize - viewportSize);
-        return contentMin + normalized(value, min, max) * maxOffset;
-    }
-
-    private double normalized(double value, double min, double max) {
-        if (max <= min) {
-            return 0;
-        }
-        return clamp((value - min) / (max - min));
+        return MiniCViewportPointMapper.toViewportPoint(graphViewport, localX, localY, scrollPane);
     }
 
     private double clamp(double value) {

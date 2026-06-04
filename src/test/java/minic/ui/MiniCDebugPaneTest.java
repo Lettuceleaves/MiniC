@@ -10,8 +10,12 @@ import javafx.scene.Scene;
 import javafx.scene.Parent;
 import javafx.geometry.Pos;
 import javafx.scene.layout.HBox;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
+import javafx.scene.text.Text;
+import javafx.scene.text.TextFlow;
+import minic.ui.control.MiniCScrollPaneViewportAdapter;
 import minic.ui.control.MiniCWorkbenchControlHub;
 import org.fxmisc.flowless.VirtualizedScrollPane;
 import org.junit.jupiter.api.Test;
@@ -173,6 +177,39 @@ class MiniCDebugPaneTest {
                     .anySatisfy(scrollBar -> assertThat(scrollBar.lookup(".thumb").getBoundsInParent().getHeight())
                             .isGreaterThan(0));
             assertThat(scene.getRoot()).isSameAs(pane);
+        });
+    }
+
+    @Test
+    void debuggerVisualScrollPanesRouteWheelThroughControlHub() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel, hub);
+            new Scene(pane, 1200, 760);
+            pane.applyCss();
+            pane.layout();
+            ScrollPane scrollPane = scrollPaneWithStyle(pane, "visual-scroll");
+            assertThat(scrollPane).isNotNull();
+            MiniCScrollPaneViewportAdapter adapter = (MiniCScrollPaneViewportAdapter) scrollPane
+                    .getProperties()
+                    .get(MiniCScrollPaneViewportAdapter.ADAPTER_PROPERTY);
+            assertThat(adapter).isNotNull();
+
+            scrollPane.fireEvent(new ScrollEvent(
+                    ScrollEvent.SCROLL,
+                    20, 30, 20, 30,
+                    false, false, false, false,
+                    false, false,
+                    0, -40, 0, -40,
+                    ScrollEvent.HorizontalTextScrollUnits.NONE, 0,
+                    ScrollEvent.VerticalTextScrollUnits.NONE, 0,
+                    0,
+                    null
+            ));
+
+            assertThat(hub.viewportRegistry().currentTarget()).containsSame(adapter);
         });
     }
 
@@ -518,14 +555,14 @@ class MiniCDebugPaneTest {
             viewModel.debugStepOver();
 
             button(pane, "IR").fire();
-            assertThat(labelsWithStyle(pane, "debug-code-text"))
+            assertThat(textsWithStyle(pane, "debug-code-text"))
                     .anyMatch(text -> text.contains("function main"))
                     .anyMatch(text -> text.contains("store"))
                     .anyMatch(text -> text.contains("call printf"));
             assertThat(containsNodeWithStyles(pane, "debug-code-row", "active")).isTrue();
 
             button(pane, "ASM").fire();
-            assertThat(labelsWithStyle(pane, "debug-code-text"))
+            assertThat(textsWithStyle(pane, "debug-code-text"))
                     .anyMatch(text -> text.contains("main"))
                     .anyMatch(text -> text.contains("call"))
                     .anyMatch(text -> text.contains("ret"));
@@ -914,6 +951,12 @@ class MiniCDebugPaneTest {
         return labels;
     }
 
+    private static List<String> textsWithStyle(javafx.scene.Node node, String styleClass) {
+        ArrayList<String> labels = new ArrayList<>();
+        collectTextsWithStyle(node, styleClass, labels);
+        return labels;
+    }
+
     private static List<String> buttonTextsWithStyle(javafx.scene.Node node, String styleClass) {
         ArrayList<String> buttons = new ArrayList<>();
         collectButtonTextsWithStyle(node, styleClass, buttons);
@@ -953,6 +996,31 @@ class MiniCDebugPaneTest {
         }
         if (node instanceof Parent parent) {
             parent.getChildrenUnmodifiable().forEach(child -> collectLabelsWithStyle(child, styleClass, labels));
+        }
+    }
+
+    private static void collectTextsWithStyle(javafx.scene.Node node, String styleClass, List<String> labels) {
+        if (node == null) {
+            return;
+        }
+        if (node instanceof Label label && label.getStyleClass().contains(styleClass)) {
+            labels.add(label.getText());
+        }
+        if (node instanceof TextFlow textFlow && textFlow.getStyleClass().contains(styleClass)) {
+            labels.add(textFlow.getChildren().stream()
+                    .filter(Text.class::isInstance)
+                    .map(Text.class::cast)
+                    .map(Text::getText)
+                    .reduce("", String::concat));
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            collectTextsWithStyle(scrollPane.getContent(), styleClass, labels);
+        }
+        if (node instanceof SplitPane splitPane) {
+            splitPane.getItems().forEach(item -> collectTextsWithStyle(item, styleClass, labels));
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectTextsWithStyle(child, styleClass, labels));
         }
     }
 
@@ -1138,6 +1206,29 @@ class MiniCDebugPaneTest {
         if (node instanceof Parent parent) {
             for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
                 ScrollPane found = scrollPaneWithContentStyle(child, styleClass);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static ScrollPane scrollPaneWithStyle(javafx.scene.Node node, String styleClass) {
+        if (node instanceof ScrollPane scrollPane && scrollPane.getStyleClass().contains(styleClass)) {
+            return scrollPane;
+        }
+        if (node instanceof SplitPane splitPane) {
+            for (javafx.scene.Node item : splitPane.getItems()) {
+                ScrollPane found = scrollPaneWithStyle(item, styleClass);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        if (node instanceof Parent parent) {
+            for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+                ScrollPane found = scrollPaneWithStyle(child, styleClass);
                 if (found != null) {
                     return found;
                 }

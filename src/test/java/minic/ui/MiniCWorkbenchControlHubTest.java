@@ -163,6 +163,51 @@ class MiniCWorkbenchControlHubTest {
     }
 
     @Test
+    void everyDebuggerCommandUsesItsOwnEnablementSupplier() {
+        MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
+        AtomicBoolean[] enabled = booleans(8);
+        AtomicInteger[] calls = counters(8);
+        hub.registerDebuggerCommands(new MiniCWorkbenchControlHub.DebuggerCommands(
+                enabled[0]::get,
+                calls[0]::incrementAndGet,
+                enabled[1]::get,
+                calls[1]::incrementAndGet,
+                enabled[2]::get,
+                calls[2]::incrementAndGet,
+                enabled[3]::get,
+                calls[3]::incrementAndGet,
+                enabled[4]::get,
+                calls[4]::incrementAndGet,
+                enabled[5]::get,
+                calls[5]::incrementAndGet,
+                enabled[6]::get,
+                calls[6]::incrementAndGet,
+                enabled[7]::get,
+                calls[7]::incrementAndGet
+        ));
+        String[] commandIds = {
+                "debug.start",
+                "debug.runToEnd",
+                "debug.runToBreakpoint",
+                "debug.stepOver",
+                "debug.stepInto",
+                "debug.backToBreakpoint",
+                "debug.stepBackOver",
+                "debug.stepBack"
+        };
+
+        for (int index = 0; index < commandIds.length; index++) {
+            assertThat(hub.commandEnabled(commandIds[index])).isFalse();
+            assertThat(hub.execute(commandIds[index])).isFalse();
+            enabled[index].set(true);
+            assertThat(hub.commandEnabled(commandIds[index])).isTrue();
+            assertThat(hub.execute(commandIds[index])).isTrue();
+            assertThat(calls[index]).hasValue(1);
+            enabled[index].set(false);
+        }
+    }
+
+    @Test
     void schedulesActiveTrackingAfterCommandAction() {
         MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
         AtomicInteger startCalls = new AtomicInteger();
@@ -240,6 +285,45 @@ class MiniCWorkbenchControlHubTest {
         assertThat(playCalls).hasValue(1);
         assertThat(playFastCalls).hasValue(1);
         assertThat(pauseCalls).hasValue(1);
+    }
+
+    @Test
+    void everyCompilerCommandUsesItsOwnEnablementSupplier() {
+        MiniCWorkbenchControlHub hub = new MiniCWorkbenchControlHub();
+        AtomicBoolean[] enabled = booleans(6);
+        AtomicInteger[] calls = counters(6);
+        hub.registerCompilerCommands(new MiniCWorkbenchControlHub.CompilerCommands(
+                enabled[0]::get,
+                calls[0]::incrementAndGet,
+                enabled[1]::get,
+                calls[1]::incrementAndGet,
+                enabled[2]::get,
+                calls[2]::incrementAndGet,
+                enabled[3]::get,
+                calls[3]::incrementAndGet,
+                enabled[4]::get,
+                calls[4]::incrementAndGet,
+                enabled[5]::get,
+                calls[5]::incrementAndGet
+        ));
+        String[] commandIds = {
+                "compiler.next",
+                "compiler.nextStage",
+                "compiler.runToExecution",
+                "compiler.play",
+                "compiler.playFast",
+                "compiler.pause"
+        };
+
+        for (int index = 0; index < commandIds.length; index++) {
+            assertThat(hub.commandEnabled(commandIds[index])).isFalse();
+            assertThat(hub.execute(commandIds[index])).isFalse();
+            enabled[index].set(true);
+            assertThat(hub.commandEnabled(commandIds[index])).isTrue();
+            assertThat(hub.execute(commandIds[index])).isTrue();
+            assertThat(calls[index]).hasValue(1);
+            enabled[index].set(false);
+        }
     }
 
     @Test
@@ -384,6 +468,22 @@ class MiniCWorkbenchControlHubTest {
                 () -> 1000,
                 50
         );
+    }
+
+    private static AtomicBoolean[] booleans(int count) {
+        AtomicBoolean[] result = new AtomicBoolean[count];
+        for (int index = 0; index < count; index++) {
+            result[index] = new AtomicBoolean(false);
+        }
+        return result;
+    }
+
+    private static AtomicInteger[] counters(int count) {
+        AtomicInteger[] result = new AtomicInteger[count];
+        for (int index = 0; index < count; index++) {
+            result[index] = new AtomicInteger();
+        }
+        return result;
     }
 
     private static final class FakeViewportAdapter implements MiniCViewportAdapter {

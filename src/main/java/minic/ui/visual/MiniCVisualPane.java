@@ -27,6 +27,7 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
 import minic.ui.control.MiniCControlTargetType;
 import minic.ui.control.MiniCGraphViewportAdapter;
+import minic.ui.control.MiniCViewportPointMapper;
 import minic.ui.control.MiniCViewportAdapter;
 import minic.ui.control.MiniCWorkbenchControlHub;
 import minic.uiapi.UiAstNodeVisualDto;
@@ -838,47 +839,10 @@ public final class MiniCVisualPane extends VBox {
 
     private Point2D viewportPoint(Pane graphViewport, double localX, double localY) {
         ScrollPane scrollPane = nearestScrollPane(graphViewport);
-        if (scrollPane == null || scrollPane.getContent() == null) {
+        if (scrollPane == null) {
             return new Point2D(localX, localY);
         }
-        Bounds viewport = scrollPane.getViewportBounds();
-        Bounds contentBounds = scrollPane.getContent().getLayoutBounds();
-        double visibleMinX = visibleMin(
-                scrollPane.getHvalue(),
-                scrollPane.getHmin(),
-                scrollPane.getHmax(),
-                contentBounds.getMinX(),
-                contentBounds.getWidth(),
-                viewport.getWidth()
-        );
-        double visibleMinY = visibleMin(
-                scrollPane.getVvalue(),
-                scrollPane.getVmin(),
-                scrollPane.getVmax(),
-                contentBounds.getMinY(),
-                contentBounds.getHeight(),
-                viewport.getHeight()
-        );
-        return new Point2D(localX - visibleMinX, localY - visibleMinY);
-    }
-
-    private double visibleMin(
-            double value,
-            double min,
-            double max,
-            double contentMin,
-            double contentSize,
-            double viewportSize
-    ) {
-        double maxOffset = Math.max(0, contentSize - viewportSize);
-        return contentMin + normalized(value, min, max) * maxOffset;
-    }
-
-    private double normalized(double value, double min, double max) {
-        if (max <= min) {
-            return 0;
-        }
-        return clamp((value - min) / (max - min));
+        return MiniCViewportPointMapper.toViewportPoint(graphViewport, localX, localY, scrollPane);
     }
 
     private double clamp(double value) {
@@ -1519,7 +1483,7 @@ public final class MiniCVisualPane extends VBox {
                 return;
             }
             scrollPane.getProperties().put(STAGE_SCROLL_FILTER_INSTALLED_KEY, true);
-            scrollPane.addEventFilter(ScrollEvent.SCROLL, event -> {
+            scrollPane.addEventHandler(ScrollEvent.SCROLL, event -> {
                 hub.viewportRegistry().businessActive(viewportAdapter);
                 if (event.isShiftDown() && event.getDeltaY() != 0) {
                     hub.handleScrollHorizontal(-event.getDeltaY());
