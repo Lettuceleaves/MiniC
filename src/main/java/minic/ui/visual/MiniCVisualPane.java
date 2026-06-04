@@ -24,14 +24,18 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
 import minic.uiapi.UiAstNodeVisualDto;
 import minic.uiapi.UiAssemblyLineVisualDto;
+import minic.uiapi.ExplanationTemplates;
 import minic.uiapi.UiIrLineVisualDto;
 import minic.uiapi.UiLexerTokenVisualDto;
 import minic.uiapi.UiSemanticScopeVisualDto;
 import minic.uiapi.UiSourceSpanDto;
 import minic.uiapi.UiStageVisualDto;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * 当前阶段结构化可视化区域。
@@ -982,6 +986,28 @@ public final class MiniCVisualPane extends VBox {
         return viewModel.sourceTextProperty().get();
     }
 
+    private String sourceSnippetForRange(UiSourceSpanDto range, UiStageVisualDto preferredVisual) {
+        if (range == null) {
+            return "<暂无源码片段>";
+        }
+        String source = sourceTextForRange(range, preferredVisual);
+        if (source.isBlank()) {
+            return "<暂无源码片段>";
+        }
+        int start = Math.max(0, Math.min(range.startOffset(), source.length()));
+        int end = Math.max(start, Math.min(range.endOffset(), source.length()));
+        String snippet = source.substring(start, end).strip();
+        if (snippet.isBlank()) {
+            return "<暂无源码片段>";
+        }
+        return snippet.replace("\r\n", "\n")
+                .replace('\r', '\n')
+                .lines()
+                .map(String::strip)
+                .filter(line -> !line.isBlank())
+                .collect(Collectors.joining(" "));
+    }
+
     private String sourceTextFromVisual(UiSourceSpanDto range, UiStageVisualDto visual) {
         if (visual == null || visual.sourceText().isBlank()) {
             return "";
@@ -1039,6 +1065,16 @@ public final class MiniCVisualPane extends VBox {
             return "源码范围: 不可用";
         }
         return "源码范围: " + range.sourceName()
+                + " " + range.startLine() + ":" + range.startColumn()
+                + " - " + range.endLine() + ":" + range.endColumn()
+                + " offset " + range.startOffset() + ".." + range.endOffset();
+    }
+
+    private String rangeValue(UiSourceSpanDto range) {
+        if (range == null) {
+            return "不可用";
+        }
+        return range.sourceName()
                 + " " + range.startLine() + ":" + range.startColumn()
                 + " - " + range.endLine() + ":" + range.endColumn()
                 + " offset " + range.startOffset() + ".." + range.endOffset();
@@ -1118,44 +1154,37 @@ public final class MiniCVisualPane extends VBox {
     }
 
     private String explainToken(UiLexerTokenVisualDto token) {
-        String text = displayTokenText(token);
-        String header = ExplanationTemplates.header("lexer")
-                .replace("${kind}", token.kind())
-                .replace("${text}", text)
-                .replace("${startLine}", String.valueOf(token.startLine()))
-                .replace("${startColumn}", String.valueOf(token.startColumn()))
-                .replace("${endLine}", String.valueOf(token.endLine()))
-                .replace("${endColumn}", String.valueOf(token.endColumn()))
-                .replace("${startOffset}", String.valueOf(token.startOffset()))
-                .replace("${endOffset}", String.valueOf(token.endOffset()));
-        String role = tokenRole(token.kind());
-        String footer = ExplanationTemplates.footer("lexer");
+        Map<String, String> variables = tokenVariables(token);
+        String header = ExplanationTemplates.renderHeader("lexer", variables);
+        String role = tokenRole(token.kind(), variables);
+        String footer = ExplanationTemplates.renderFooter("lexer", variables);
         return header + "\n\n解释: " + role + "\n\n" + footer;
     }
 
-    private String tokenRole(String kind) {
+    private String tokenRole(String kind, Map<String, String> variables) {
         if (isTypeKeyword(kind)) {
-            return ExplanationTemplates.get("lexer", "type_keyword");
+            return ExplanationTemplates.render("lexer", "type_keyword", variables);
         }
         if (isControlKeyword(kind)) {
-            return ExplanationTemplates.get("lexer", "control_keyword");
+            return ExplanationTemplates.render("lexer", "control_keyword", variables);
         }
         if ("EXTERN".equals(kind)) {
-            return ExplanationTemplates.get("lexer", "EXTERN");
+            return ExplanationTemplates.render("lexer", "EXTERN", variables);
         }
-        return switch (kind) {
-            case "IDENTIFIER" -> ExplanationTemplates.get("lexer", "IDENTIFIER");
+        String key = switch (kind) {
+            case "IDENTIFIER" -> "IDENTIFIER";
             case "INTEGER_LITERAL", "LONG_LITERAL", "FLOAT_LITERAL", "DOUBLE_LITERAL", "CHAR_LITERAL", "BOOL_LITERAL", "NULL_LITERAL" ->
-                    ExplanationTemplates.get("lexer", "literal");
-            case "STRING_LITERAL" -> ExplanationTemplates.get("lexer", "STRING_LITERAL");
+                    "literal";
+            case "STRING_LITERAL" -> "STRING_LITERAL";
             case "PLUS", "MINUS", "STAR", "SLASH", "PERCENT", "EQUAL", "PLUS_EQUAL", "MINUS_EQUAL", "PLUS_PLUS", "MINUS_MINUS",
                     "EQUAL_EQUAL", "BANG_EQUAL", "LESS", "LESS_EQUAL", "GREATER", "GREATER_EQUAL", "AMPERSAND", "BANG", "DOT" ->
-                    ExplanationTemplates.get("lexer", "operator");
+                    "operator";
             case "LEFT_PAREN", "RIGHT_PAREN", "LEFT_BRACE", "RIGHT_BRACE", "LEFT_BRACKET", "RIGHT_BRACKET", "COMMA", "SEMICOLON" ->
-                    ExplanationTemplates.get("lexer", "delimiter");
-            case "EOF" -> ExplanationTemplates.get("lexer", "EOF");
-            default -> ExplanationTemplates.get("lexer", "default");
+                    "delimiter";
+            case "EOF" -> "EOF";
+            default -> "default";
         };
+        return ExplanationTemplates.render("lexer", key, variables);
     }
 
     private boolean isTypeKeyword(String kind) {
@@ -1173,14 +1202,10 @@ public final class MiniCVisualPane extends VBox {
     }
 
     private String explainAstNode(UiAstNodeVisualDto node) {
-        String role = ExplanationTemplates.get("parser", node.kind());
-        String header = ExplanationTemplates.header("parser")
-                .replace("${kind}", node.kind())
-                .replace("${label}", node.label())
-                .replace("${id}", node.id())
-                .replace("${childCount}", String.valueOf(node.children().size()))
-                .replace("${active}", yesNo(node.active()));
-        String footer = ExplanationTemplates.footer("parser");
+        Map<String, String> variables = astVariables(node);
+        String role = ExplanationTemplates.render("parser", node.kind(), variables);
+        String header = ExplanationTemplates.renderHeader("parser", variables);
+        String footer = ExplanationTemplates.renderFooter("parser", variables);
         return header + "\n\n解释: " + role + "\n\n" + footer;
     }
 
@@ -1203,11 +1228,10 @@ public final class MiniCVisualPane extends VBox {
         } else {
             roleKey = "default";
         }
-        String role = ExplanationTemplates.get("ir", roleKey);
-        String header = ExplanationTemplates.header("ir")
-                .replace("${lineNumber}", String.valueOf(line.lineNumber()))
-                .replace("${text}", text);
-        String footer = ExplanationTemplates.footer("ir");
+        Map<String, String> variables = irVariables(line);
+        String role = ExplanationTemplates.render("ir", roleKey, variables);
+        String header = ExplanationTemplates.renderHeader("ir", variables);
+        String footer = ExplanationTemplates.renderFooter("ir", variables);
         return header + "\n\n解释: " + role + "\n\n" + footer;
     }
 
@@ -1234,15 +1258,62 @@ public final class MiniCVisualPane extends VBox {
         } else {
             roleKey = "default";
         }
-        String role = ExplanationTemplates.get("codegen", roleKey);
-        String header = ExplanationTemplates.header("codegen")
-                .replace("${lineNumber}", String.valueOf(line.lineNumber()))
-                .replace("${kind}", line.kind())
-                .replace("${section}", blankValue(line.section()))
-                .replace("${label}", blankValue(line.label()))
-                .replace("${text}", line.text());
-        String footer = ExplanationTemplates.footer("codegen");
+        Map<String, String> variables = assemblyVariables(line);
+        String role = ExplanationTemplates.render("codegen", roleKey, variables);
+        String header = ExplanationTemplates.renderHeader("codegen", variables);
+        String footer = ExplanationTemplates.renderFooter("codegen", variables);
         return header + "\n\n解释: " + role + "\n\n" + footer;
+    }
+
+    private Map<String, String> tokenVariables(UiLexerTokenVisualDto token) {
+        Map<String, String> variables = new LinkedHashMap<>();
+        variables.put("kind", token.kind());
+        variables.put("text", displayTokenText(token));
+        variables.put("source", sourceSnippetForRange(token.range(), null));
+        variables.put("range", rangeValue(token.range()));
+        variables.put("startLine", String.valueOf(token.startLine()));
+        variables.put("startColumn", String.valueOf(token.startColumn()));
+        variables.put("endLine", String.valueOf(token.endLine()));
+        variables.put("endColumn", String.valueOf(token.endColumn()));
+        variables.put("startOffset", String.valueOf(token.startOffset()));
+        variables.put("endOffset", String.valueOf(token.endOffset()));
+        variables.put("active", yesNo(token.active()));
+        return variables;
+    }
+
+    private Map<String, String> astVariables(UiAstNodeVisualDto node) {
+        Map<String, String> variables = new LinkedHashMap<>();
+        variables.put("kind", node.kind());
+        variables.put("label", node.label());
+        variables.put("id", node.id());
+        variables.put("source", sourceSnippetForRange(node.range(), null));
+        variables.put("range", rangeValue(node.range()));
+        variables.put("childCount", String.valueOf(node.children().size()));
+        variables.put("active", yesNo(node.active()));
+        return variables;
+    }
+
+    private Map<String, String> irVariables(UiIrLineVisualDto line) {
+        Map<String, String> variables = new LinkedHashMap<>();
+        variables.put("lineNumber", String.valueOf(line.lineNumber()));
+        variables.put("text", line.text());
+        variables.put("source", sourceSnippetForRange(line.range(), null));
+        variables.put("range", rangeValue(line.range()));
+        variables.put("active", yesNo(line.active()));
+        return variables;
+    }
+
+    private Map<String, String> assemblyVariables(MiniCAssemblyTextLine line) {
+        Map<String, String> variables = new LinkedHashMap<>();
+        variables.put("lineNumber", String.valueOf(line.lineNumber()));
+        variables.put("text", line.text());
+        variables.put("kind", line.kind());
+        variables.put("section", blankValue(line.section()));
+        variables.put("label", blankValue(line.label()));
+        variables.put("source", sourceSnippetForRange(line.range(), null));
+        variables.put("range", rangeValue(line.range()));
+        variables.put("active", yesNo(line.active()));
+        return variables;
     }
 
     private HBox textRow(String text, String rowStyle, String textStyle) {

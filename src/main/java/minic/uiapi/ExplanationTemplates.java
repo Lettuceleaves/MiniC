@@ -1,4 +1,4 @@
-package minic.ui;
+package minic.uiapi;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -25,6 +25,31 @@ public final class ExplanationTemplates {
 
     public static String footer(String stage) {
         return load(stage).getOrDefault("footer", "");
+    }
+
+    public static String render(String stage, String key, Map<String, String> variables) {
+        return renderText(get(stage, key), variables);
+    }
+
+    public static String renderHeader(String stage, Map<String, String> variables) {
+        return renderText(header(stage), variables);
+    }
+
+    public static String renderFooter(String stage, Map<String, String> variables) {
+        return renderText(footer(stage), variables);
+    }
+
+    private static String renderText(String template, Map<String, String> variables) {
+        String rendered = template;
+        for (Map.Entry<String, String> entry : variables.entrySet()) {
+            String value = entry.getValue() == null ? "" : entry.getValue();
+            rendered = rendered
+                    .replace("${" + entry.getKey() + "}", value)
+                    .replace("{{" + entry.getKey() + "}}", value);
+        }
+        return rendered
+                .replaceAll("\\$\\{[A-Za-z0-9_]+}", "")
+                .replaceAll("\\{\\{[A-Za-z0-9_]+}}", "");
     }
 
     private static Map<String, String> load(String stage) {
