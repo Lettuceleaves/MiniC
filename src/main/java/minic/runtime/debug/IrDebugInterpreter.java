@@ -1226,7 +1226,7 @@ public final class IrDebugInterpreter {
                     ))
                     .toList();
             frames.add(new DebugStackFrame(
-                    "frame-" + frameState.function.name() + "-" + frames.size(),
+                    frameState.frameId,
                     frameState.function.name(),
                     frameParameters,
                     frameLocals,
@@ -1361,6 +1361,7 @@ public final class IrDebugInterpreter {
         private final java.util.ArrayList<VisualFieldWrite> pendingVisualFieldWrites = new java.util.ArrayList<>();
         private final java.util.Set<String> createdVisualNodeKeys = new java.util.LinkedHashSet<>();
         private final java.util.ArrayList<CallFrame> frames = new java.util.ArrayList<>();
+        private long nextFrameId = 1;
         private long nextSnapshotId = 1;
         private long nextVisibleStep = 1;
         private long currentVisibleStep;
@@ -1436,7 +1437,7 @@ public final class IrDebugInterpreter {
         }
 
         private void pushFrame(IrFunction function, List<DebugValue> arguments, IrTemporary returnTarget) {
-            frames.add(new CallFrame(function, arguments, returnTarget));
+            frames.add(new CallFrame("frame-" + function.name() + "-" + nextFrameId++, function, arguments, returnTarget));
             lastFunctionName = function.name();
         }
 
@@ -1509,6 +1510,7 @@ public final class IrDebugInterpreter {
     }
 
     private static final class CallFrame {
+        private final String frameId;
         private final IrFunction function;
         private final IrTemporary returnTarget;
         private final Map<String, Integer> blockIndexes = new LinkedHashMap<>();
@@ -1523,7 +1525,8 @@ public final class IrDebugInterpreter {
         private int blockIndex;
         private int instructionIndex;
 
-        private CallFrame(IrFunction function, List<DebugValue> arguments, IrTemporary returnTarget) {
+        private CallFrame(String frameId, IrFunction function, List<DebugValue> arguments, IrTemporary returnTarget) {
+            this.frameId = frameId;
             this.function = function;
             this.returnTarget = returnTarget;
             for (int i = 0; i < function.parameters().size(); i++) {

@@ -528,6 +528,36 @@ class IrDebugInterpreterTest {
     }
 
     @Test
+    void stepBackOverFromRepeatedFunctionEntryReturnsToCurrentCallSite() {
+        SourceFile sourceFile = new SourceFile("debug-step-back-over-repeated-entry.mc", """
+                int insert(int value) {
+                    int current = value;
+                    return current;
+                }
+
+                int main() {
+                    int first = insert(1);
+                    int second = insert(2);
+                    return first + second;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+        session.setBreakpoint(2);
+        session.control(DebugCommand.RUN_TO_BREAKPOINT);
+        session.control(DebugCommand.STEP_OUT);
+        DebugControlResult secondEntry = session.control(DebugCommand.RUN_TO_BREAKPOINT);
+
+        DebugControlResult back = session.control(DebugCommand.STEP_BACK_OVER);
+
+        assertThat(secondEntry.snapshot().callStackSummary()).containsExactly("main", "insert");
+        assertThat(secondEntry.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(2);
+        assertThat(back.snapshot().callStackSummary()).containsExactly("main");
+        assertThat(back.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(8);
+        assertThat(back.snapshot().cursor().sourceRange()).isNotEqualTo(secondEntry.snapshot().cursor().sourceRange());
+    }
+
+    @Test
     void debugsStructPointerTreeAndRecordsVisualFieldPaths() {
         SourceFile sourceFile = new SourceFile("debug-struct-visual-tree.mc", """
                 struct Node {

@@ -429,8 +429,13 @@ public final class DebugSession {
         long currentVisibleStep = current.visibleStepIndex();
         for (int i = currentSnapshotIndex - 1; i >= 0; i--) {
             DebugSnapshot snapshot = snapshots.get(i);
-            if (snapshot.visibleStepIndex() < currentVisibleStep
-                    && isSameDebugLayer(snapshot, current)) {
+            if (snapshot.visibleStepIndex() >= currentVisibleStep) {
+                continue;
+            }
+            if (isSameDebugLayer(snapshot, current)) {
+                return endOfVisibleStep(i);
+            }
+            if (snapshot.callStackSummary().size() < currentDepth) {
                 return endOfVisibleStep(i);
             }
         }
@@ -438,8 +443,21 @@ public final class DebugSession {
     }
 
     private boolean isSameDebugLayer(DebugSnapshot candidate, DebugSnapshot current) {
+        Optional<String> candidateFrameId = topFrameId(candidate);
+        Optional<String> currentFrameId = topFrameId(current);
+        if (candidateFrameId.isPresent() && currentFrameId.isPresent()) {
+            return candidateFrameId.equals(currentFrameId);
+        }
         return candidate.callStackSummary().equals(current.callStackSummary())
                 && candidate.cursor().functionName().equals(current.cursor().functionName());
+    }
+
+    private Optional<String> topFrameId(DebugSnapshot snapshot) {
+        List<DebugStackFrame> frames = snapshot.processSpace().stack().frames();
+        if (frames.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(frames.getLast().frameId());
     }
 
     private int endOfVisibleStep(int snapshotIndex) {
