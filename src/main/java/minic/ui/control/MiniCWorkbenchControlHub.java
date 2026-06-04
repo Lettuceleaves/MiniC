@@ -1,0 +1,273 @@
+package minic.ui.control;
+
+import javafx.geometry.Point2D;
+
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Objects;
+import java.util.Set;
+import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
+import java.util.function.LongConsumer;
+import java.util.function.LongSupplier;
+
+/**
+ * Workbench-level facade for command execution and viewport routing.
+ */
+public final class MiniCWorkbenchControlHub {
+    public static final String DEBUG_START = "debug.start";
+    public static final String DEBUG_RUN_TO_END = "debug.runToEnd";
+    public static final String DEBUG_RUN_TO_BREAKPOINT = "debug.runToBreakpoint";
+    public static final String DEBUG_STEP_OVER = "debug.stepOver";
+    public static final String DEBUG_STEP_INTO = "debug.stepInto";
+    public static final String DEBUG_BACK_TO_BREAKPOINT = "debug.backToBreakpoint";
+    public static final String DEBUG_STEP_BACK_OVER = "debug.stepBackOver";
+    public static final String DEBUG_STEP_BACK = "debug.stepBack";
+    public static final String COMPILER_NEXT = "compiler.next";
+    public static final String COMPILER_NEXT_STAGE = "compiler.nextStage";
+    public static final String COMPILER_RUN_TO_EXECUTION = "compiler.runToExecution";
+    public static final String COMPILER_PLAY = "compiler.play";
+    public static final String COMPILER_PLAY_FAST = "compiler.playFast";
+    public static final String COMPILER_PAUSE = "compiler.pause";
+    public static final String SETTINGS_THEME_SET = "settings.theme.set";
+    public static final String SETTINGS_FRAME_INTERVAL_SET = "settings.frameInterval.set";
+    public static final String SETTINGS_FRAME_INTERVAL_INCREASE = "settings.frameInterval.increase";
+    public static final String SETTINGS_FRAME_INTERVAL_DECREASE = "settings.frameInterval.decrease";
+
+    private final MiniCCommandRegistry commandRegistry;
+    private final MiniCViewportRegistry viewportRegistry;
+    private final Set<String> commandIds = new LinkedHashSet<>();
+    private Runnable activeTrackingAction = () -> {
+    };
+    private String pendingThemeName;
+    private Long pendingFrameIntervalMillis;
+
+    /**
+     * Creates a hub with fresh command and viewport registries.
+     */
+    public MiniCWorkbenchControlHub() {
+        this(new MiniCCommandRegistry(), new MiniCViewportRegistry());
+    }
+
+    /**
+     * Creates a hub around existing registries.
+     *
+     * @param commandRegistry command registry to wrap
+     * @param viewportRegistry viewport registry to wrap
+     */
+    public MiniCWorkbenchControlHub(
+            MiniCCommandRegistry commandRegistry,
+            MiniCViewportRegistry viewportRegistry
+    ) {
+        this.commandRegistry = Objects.requireNonNull(commandRegistry, "commandRegistry");
+        this.viewportRegistry = Objects.requireNonNull(viewportRegistry, "viewportRegistry");
+    }
+
+    public MiniCCommandRegistry commandRegistry() {
+        return commandRegistry;
+    }
+
+    public MiniCViewportRegistry viewportRegistry() {
+        return viewportRegistry;
+    }
+
+    public Set<String> commandIds() {
+        return Collections.unmodifiableSet(commandIds);
+    }
+
+    public void setActiveTrackingAction(Runnable activeTrackingAction) {
+        this.activeTrackingAction = Objects.requireNonNull(activeTrackingAction, "activeTrackingAction");
+    }
+
+    public void registerDebuggerCommands(DebuggerCommands commands) {
+        Objects.requireNonNull(commands, "commands");
+        register(DEBUG_START, "从头开始", () -> true, commands.start());
+        register(DEBUG_RUN_TO_END, "运行到结束", () -> true, commands.runToEnd());
+        register(DEBUG_RUN_TO_BREAKPOINT, "下个断点", () -> true, commands.runToBreakpoint());
+        register(DEBUG_STEP_OVER, "本层下一句", () -> true, commands.stepOver());
+        register(DEBUG_STEP_INTO, "下一句", () -> true, commands.stepInto());
+        register(DEBUG_BACK_TO_BREAKPOINT, "上个断点", () -> true, commands.backToBreakpoint());
+        register(DEBUG_STEP_BACK_OVER, "本层上一句", () -> true, commands.stepBackOver());
+        register(DEBUG_STEP_BACK, "上一句", () -> true, commands.stepBack());
+    }
+
+    public void registerCompilerCommands(CompilerCommands commands) {
+        Objects.requireNonNull(commands, "commands");
+        register(COMPILER_NEXT, "下一步", commands.canNext(), commands.next());
+        register(COMPILER_NEXT_STAGE, "下一阶段", commands.canNextStage(), commands.nextStage());
+        register(COMPILER_RUN_TO_EXECUTION, "到执行", commands.canRunToExecution(), commands.runToExecution());
+        register(COMPILER_PLAY, "播放", commands.canPlay(), commands.play());
+        register(COMPILER_PLAY_FAST, "2x", commands.canPlayFast(), commands.playFast());
+        register(COMPILER_PAUSE, "暂停", commands.canPause(), commands.pause());
+    }
+
+    public void registerSettingsCommands(SettingsCommands commands) {
+        Objects.requireNonNull(commands, "commands");
+        register(SETTINGS_THEME_SET, "设置主题", () -> pendingThemeName != null, () ->
+                commands.themeSetter().accept(pendingThemeName));
+        register(SETTINGS_FRAME_INTERVAL_SET, "设置帧间隔", () -> pendingFrameIntervalMillis != null, () ->
+                commands.frameIntervalSetter().accept(clamp(
+                        pendingFrameIntervalMillis,
+                        commands.minFrameInterval(),
+                        commands.maxFrameInterval()
+                )));
+        register(SETTINGS_FRAME_INTERVAL_INCREASE, "增加帧间隔", () -> true, () ->
+                commands.frameIntervalSetter().accept(clamp(
+                        commands.currentFrameInterval().getAsLong() + commands.frameIntervalStep(),
+                        commands.minFrameInterval(),
+                        commands.maxFrameInterval()
+                )));
+        register(SETTINGS_FRAME_INTERVAL_DECREASE, "减少帧间隔", () -> true, () ->
+                commands.frameIntervalSetter().accept(clamp(
+                        commands.currentFrameInterval().getAsLong() - commands.frameIntervalStep(),
+                        commands.minFrameInterval(),
+                        commands.maxFrameInterval()
+                )));
+    }
+
+    public boolean commandEnabled(String commandId) {
+        return commandRegistry.enabled(commandId);
+    }
+
+    public boolean execute(String commandId) {
+        boolean executed = commandRegistry.execute(commandId);
+        if (executed) {
+            activeTrackingAction.run();
+        }
+        return executed;
+    }
+
+    public boolean setTheme(String themeName) {
+        pendingThemeName = Objects.requireNonNull(themeName, "themeName");
+        try {
+            return execute(SETTINGS_THEME_SET);
+        } finally {
+            pendingThemeName = null;
+        }
+    }
+
+    public boolean setFrameIntervalMillis(long millis) {
+        pendingFrameIntervalMillis = millis;
+        try {
+            return execute(SETTINGS_FRAME_INTERVAL_SET);
+        } finally {
+            pendingFrameIntervalMillis = null;
+        }
+    }
+
+    public boolean increaseFrameInterval() {
+        return execute(SETTINGS_FRAME_INTERVAL_INCREASE);
+    }
+
+    public boolean decreaseFrameInterval() {
+        return execute(SETTINGS_FRAME_INTERVAL_DECREASE);
+    }
+
+    public void handleZoom(Point2D localPoint, double delta) {
+        Objects.requireNonNull(localPoint, "localPoint");
+        viewportRegistry.currentTarget()
+                .filter(MiniCViewportAdapter::canZoom)
+                .ifPresent(adapter -> adapter.zoomAt(localPoint, delta));
+    }
+
+    public void handleScrollVertical(double delta) {
+        viewportRegistry.currentTarget()
+                .filter(MiniCViewportAdapter::canScrollVertical)
+                .ifPresent(adapter -> adapter.scrollVertical(delta));
+    }
+
+    public void handleScrollHorizontal(double delta) {
+        viewportRegistry.currentTarget()
+                .filter(MiniCViewportAdapter::canScrollHorizontal)
+                .ifPresent(adapter -> adapter.scrollHorizontal(delta));
+    }
+
+    public void handlePan(double deltaX, double deltaY) {
+        viewportRegistry.currentTarget()
+                .filter(MiniCViewportAdapter::canPan)
+                .ifPresent(adapter -> adapter.pan(deltaX, deltaY));
+    }
+
+    private void register(String id, String label, BooleanSupplier enabled, Runnable action) {
+        commandRegistry.register(new MiniCControlCommand(id, label, enabled, action));
+        commandIds.add(id);
+    }
+
+    private static long clamp(long value, LongSupplier minSupplier, LongSupplier maxSupplier) {
+        long min = minSupplier.getAsLong();
+        long max = maxSupplier.getAsLong();
+        return Math.max(min, Math.min(max, value));
+    }
+
+    public record DebuggerCommands(
+            Runnable start,
+            Runnable runToEnd,
+            Runnable runToBreakpoint,
+            Runnable stepOver,
+            Runnable stepInto,
+            Runnable backToBreakpoint,
+            Runnable stepBackOver,
+            Runnable stepBack
+    ) {
+        public DebuggerCommands {
+            Objects.requireNonNull(start, "start");
+            Objects.requireNonNull(runToEnd, "runToEnd");
+            Objects.requireNonNull(runToBreakpoint, "runToBreakpoint");
+            Objects.requireNonNull(stepOver, "stepOver");
+            Objects.requireNonNull(stepInto, "stepInto");
+            Objects.requireNonNull(backToBreakpoint, "backToBreakpoint");
+            Objects.requireNonNull(stepBackOver, "stepBackOver");
+            Objects.requireNonNull(stepBack, "stepBack");
+        }
+    }
+
+    public record CompilerCommands(
+            BooleanSupplier canNext,
+            Runnable next,
+            BooleanSupplier canNextStage,
+            Runnable nextStage,
+            BooleanSupplier canRunToExecution,
+            Runnable runToExecution,
+            BooleanSupplier canPlay,
+            Runnable play,
+            BooleanSupplier canPlayFast,
+            Runnable playFast,
+            BooleanSupplier canPause,
+            Runnable pause
+    ) {
+        public CompilerCommands {
+            Objects.requireNonNull(canNext, "canNext");
+            Objects.requireNonNull(next, "next");
+            Objects.requireNonNull(canNextStage, "canNextStage");
+            Objects.requireNonNull(nextStage, "nextStage");
+            Objects.requireNonNull(canRunToExecution, "canRunToExecution");
+            Objects.requireNonNull(runToExecution, "runToExecution");
+            Objects.requireNonNull(canPlay, "canPlay");
+            Objects.requireNonNull(play, "play");
+            Objects.requireNonNull(canPlayFast, "canPlayFast");
+            Objects.requireNonNull(playFast, "playFast");
+            Objects.requireNonNull(canPause, "canPause");
+            Objects.requireNonNull(pause, "pause");
+        }
+    }
+
+    public record SettingsCommands(
+            Consumer<String> themeSetter,
+            LongConsumer frameIntervalSetter,
+            LongSupplier currentFrameInterval,
+            LongSupplier minFrameInterval,
+            LongSupplier maxFrameInterval,
+            long frameIntervalStep
+    ) {
+        public SettingsCommands {
+            Objects.requireNonNull(themeSetter, "themeSetter");
+            Objects.requireNonNull(frameIntervalSetter, "frameIntervalSetter");
+            Objects.requireNonNull(currentFrameInterval, "currentFrameInterval");
+            Objects.requireNonNull(minFrameInterval, "minFrameInterval");
+            Objects.requireNonNull(maxFrameInterval, "maxFrameInterval");
+            if (frameIntervalStep < 1) {
+                throw new IllegalArgumentException("frameIntervalStep must be positive");
+            }
+        }
+    }
+}

@@ -27,6 +27,7 @@ import javafx.scene.shape.Polygon;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
 import minic.ui.control.MiniCGraphViewportAdapter;
+import minic.ui.control.MiniCWorkbenchControlHub;
 import minic.uiapi.UiAssemblyLineVisualDto;
 import minic.uiapi.UiAstNodeVisualDto;
 import minic.uiapi.UiDebugAsmViewDto;
@@ -80,6 +81,7 @@ public final class MiniCDebugPane extends VBox {
     );
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCSourceLoaderView sourceView;
+    private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
     private final HBox debugBody = new HBox();
     private final VBox viewSelector = new VBox(4);
     private final SplitPane workspaceSplitPane = new SplitPane();
@@ -104,6 +106,7 @@ public final class MiniCDebugPane extends VBox {
         getStyleClass().add("debug-pane");
         sourceView = new MiniCSourceLoaderView(viewModel, false);
         sourceView.usePersistentEditorScrollBars("debug-source-editor-scroll");
+        registerDebuggerCommands();
         HBox controls = controls();
         configureDebugBody();
         getChildren().addAll(controls, status, debugBody);
@@ -114,14 +117,14 @@ public final class MiniCDebugPane extends VBox {
     }
 
     private HBox controls() {
-        Button start = button("从头开始", this::startFromBeginning, "重新加载当前源码和断点，从第一条调试快照开始");
-        Button end = button("运行到结束", viewModel::debugRunToEnd, "一直运行到程序结束或运行时错误");
-        Button run = button("下个断点", viewModel::debugRunToBreakpoint, "运行到下一个断点");
-        Button step = button("本层下一句", viewModel::debugStepOver, "不进入函数调用，运行本调用层的下一句");
-        Button into = button("下一句", viewModel::debugStepInto, "运行下一句，遇到函数调用时允许进入函数内部");
-        Button backBreakpoint = button("上个断点", viewModel::debugBackToBreakpoint, "回退到上一个断点命中状态");
-        Button backOver = button("本层上一句", viewModel::debugStepBackOver, "不钻回函数内部，回退本调用层的上一句");
-        Button back = button("上一句", viewModel::debugStepBack, "回退上一句，允许回到函数调用内部");
+        Button start = button("从头开始", MiniCWorkbenchControlHub.DEBUG_START, "重新加载当前源码和断点，从第一条调试快照开始");
+        Button end = button("运行到结束", MiniCWorkbenchControlHub.DEBUG_RUN_TO_END, "一直运行到程序结束或运行时错误");
+        Button run = button("下个断点", MiniCWorkbenchControlHub.DEBUG_RUN_TO_BREAKPOINT, "运行到下一个断点");
+        Button step = button("本层下一句", MiniCWorkbenchControlHub.DEBUG_STEP_OVER, "不进入函数调用，运行本调用层的下一句");
+        Button into = button("下一句", MiniCWorkbenchControlHub.DEBUG_STEP_INTO, "运行下一句，遇到函数调用时允许进入函数内部");
+        Button backBreakpoint = button("上个断点", MiniCWorkbenchControlHub.DEBUG_BACK_TO_BREAKPOINT, "回退到上一个断点命中状态");
+        Button backOver = button("本层上一句", MiniCWorkbenchControlHub.DEBUG_STEP_BACK_OVER, "不钻回函数内部，回退本调用层的上一句");
+        Button back = button("上一句", MiniCWorkbenchControlHub.DEBUG_STEP_BACK, "回退上一句，允许回到函数调用内部");
         List.of(run, step, into, backBreakpoint, backOver, back)
                 .forEach(this::formatPairedButton);
         List.of(start, end)
@@ -149,21 +152,30 @@ public final class MiniCDebugPane extends VBox {
         return controls;
     }
 
+    private void registerDebuggerCommands() {
+        controlHub.registerDebuggerCommands(new MiniCWorkbenchControlHub.DebuggerCommands(
+                this::startFromBeginning,
+                viewModel::debugRunToEnd,
+                viewModel::debugRunToBreakpoint,
+                viewModel::debugStepOver,
+                viewModel::debugStepInto,
+                viewModel::debugBackToBreakpoint,
+                viewModel::debugStepBackOver,
+                viewModel::debugStepBack
+        ));
+    }
+
     private void startFromBeginning() {
         viewModel.setDebugBreakpoints(sourceView.breakpointLines());
         sourceView.loadCurrentSource();
         viewModel.startDebug();
     }
 
-    private Button button(String text, Runnable action) {
-        return button(text, action, null);
-    }
-
-    private Button button(String text, Runnable action, String tooltipText) {
+    private Button button(String text, String commandId, String tooltipText) {
         Button button = new Button(text);
         button.getStyleClass().add("control-secondary");
         button.setOnAction(event -> {
-            action.run();
+            controlHub.execute(commandId);
             refresh();
         });
         if (tooltipText != null && !tooltipText.isBlank()) {

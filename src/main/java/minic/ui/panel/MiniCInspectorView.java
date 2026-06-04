@@ -4,6 +4,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import minic.ui.control.MiniCWorkbenchControlHub;
 
 import java.util.Objects;
 
@@ -16,6 +17,7 @@ public final class MiniCInspectorView extends VBox {
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCInspectorModelFactory modelFactory = new MiniCInspectorModelFactory();
     private final MiniCPlaybackController playbackController;
+    private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
     private final Label currentState = body("");
     private final Label currentItem = body("");
     private final Label accumulatedOutput = body("");
@@ -34,13 +36,14 @@ public final class MiniCInspectorView extends VBox {
     public MiniCInspectorView(MiniCWorkbenchViewModel viewModel) {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
         playbackController = new MiniCPlaybackController(viewModel);
+        registerCompilerCommands();
         getStyleClass().add("inspector");
-        nextButton.setOnAction(event -> viewModel.next());
-        nextStageButton.setOnAction(event -> playbackController.nextStage());
-        runToExecutionButton.setOnAction(event -> viewModel.runToExecution());
-        playButton.setOnAction(event -> playbackController.play());
-        playFastButton.setOnAction(event -> playbackController.playFast());
-        pauseButton.setOnAction(event -> playbackController.pause());
+        nextButton.setOnAction(event -> execute(MiniCWorkbenchControlHub.COMPILER_NEXT));
+        nextStageButton.setOnAction(event -> execute(MiniCWorkbenchControlHub.COMPILER_NEXT_STAGE));
+        runToExecutionButton.setOnAction(event -> execute(MiniCWorkbenchControlHub.COMPILER_RUN_TO_EXECUTION));
+        playButton.setOnAction(event -> execute(MiniCWorkbenchControlHub.COMPILER_PLAY));
+        playFastButton.setOnAction(event -> execute(MiniCWorkbenchControlHub.COMPILER_PLAY_FAST));
+        pauseButton.setOnAction(event -> execute(MiniCWorkbenchControlHub.COMPILER_PAUSE));
         getChildren().addAll(
                 label("MiniC 观测", "panel-title"),
                 controls(),
@@ -72,12 +75,35 @@ public final class MiniCInspectorView extends VBox {
         accumulatedOutput.setText(model.accumulatedOutput());
         boolean started = viewModel.sessionStartedProperty().get();
         boolean hasState = viewModel.currentStateProperty().get() != null;
-        nextButton.setDisable(!started || !hasState || !viewModel.canNextControl());
-        nextStageButton.setDisable(!started || !hasState || !viewModel.canNextStageControl());
-        runToExecutionButton.setDisable(!started || !hasState || !viewModel.canRunToExecutionControl());
-        playButton.setDisable(!started || !hasState || !viewModel.canPlayControl());
-        playFastButton.setDisable(!started || !hasState || !viewModel.canPlayFastControl());
-        pauseButton.setDisable(!started || !hasState || !viewModel.currentStateProperty().get().canPause());
+        nextButton.setDisable(!started || !hasState || !controlHub.commandEnabled(MiniCWorkbenchControlHub.COMPILER_NEXT));
+        nextStageButton.setDisable(!started || !hasState || !controlHub.commandEnabled(MiniCWorkbenchControlHub.COMPILER_NEXT_STAGE));
+        runToExecutionButton.setDisable(!started || !hasState || !controlHub.commandEnabled(MiniCWorkbenchControlHub.COMPILER_RUN_TO_EXECUTION));
+        playButton.setDisable(!started || !hasState || !controlHub.commandEnabled(MiniCWorkbenchControlHub.COMPILER_PLAY));
+        playFastButton.setDisable(!started || !hasState || !controlHub.commandEnabled(MiniCWorkbenchControlHub.COMPILER_PLAY_FAST));
+        pauseButton.setDisable(!started || !hasState || !controlHub.commandEnabled(MiniCWorkbenchControlHub.COMPILER_PAUSE));
+    }
+
+    private void registerCompilerCommands() {
+        controlHub.registerCompilerCommands(new MiniCWorkbenchControlHub.CompilerCommands(
+                viewModel::canNextControl,
+                viewModel::next,
+                viewModel::canNextStageControl,
+                playbackController::nextStage,
+                viewModel::canRunToExecutionControl,
+                viewModel::runToExecution,
+                viewModel::canPlayControl,
+                playbackController::play,
+                viewModel::canPlayFastControl,
+                playbackController::playFast,
+                () -> viewModel.currentStateProperty().get() != null
+                        && viewModel.currentStateProperty().get().canPause(),
+                playbackController::pause
+        ));
+    }
+
+    private void execute(String commandId) {
+        controlHub.execute(commandId);
+        refresh();
     }
 
     private VBox controls() {

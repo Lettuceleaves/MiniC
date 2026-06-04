@@ -66,6 +66,11 @@ class MiniCWorkbenchShellTest {
         assertInspectorButton(root, "播放");
         assertInspectorButton(root, "2x");
         assertInspectorButton(root, "暂停");
+        assertThat(inspectorControlRows(root))
+                .containsExactly(
+                        java.util.List.of("下一步", "下一阶段", "到执行"),
+                        java.util.List.of("播放", "2x", "暂停")
+                );
         assertThat(button(root, "+")).isNotNull();
 
         assertThat(visibleChildren(mainContent)).singleElement()
@@ -483,5 +488,31 @@ class MiniCWorkbenchShellTest {
         assertThat(button.getMinWidth()).isEqualTo(78);
         assertThat(button.getMaxWidth()).isEqualTo(78);
         assertThat(button.getPrefHeight()).isEqualTo(28);
+    }
+
+    private static java.util.List<java.util.List<String>> inspectorControlRows(javafx.scene.Node node) {
+        java.util.ArrayList<java.util.List<String>> rows = new java.util.ArrayList<>();
+        collectInspectorControlRows(node, rows);
+        return rows;
+    }
+
+    private static void collectInspectorControlRows(
+            javafx.scene.Node node,
+            java.util.List<java.util.List<String>> rows
+    ) {
+        if (node instanceof javafx.scene.layout.HBox hbox
+                && hbox.getStyleClass().contains("inspector-control-row")) {
+            rows.add(hbox.getChildren().stream()
+                    .filter(Button.class::isInstance)
+                    .map(Button.class::cast)
+                    .map(Button::getText)
+                    .toList());
+        }
+        if (node instanceof SplitPane splitPane) {
+            splitPane.getItems().forEach(child -> collectInspectorControlRows(child, rows));
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectInspectorControlRows(child, rows));
+        }
     }
 }

@@ -10,6 +10,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import minic.color.ThemeManager;
+import minic.ui.control.MiniCWorkbenchControlHub;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,10 +18,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
 public final class MiniCSettingsPane extends VBox {
+    private static final long FRAME_INTERVAL_STEP = 50;
     private final ObservableList<String> themeNames = FXCollections.observableArrayList();
     private final ComboBox<String> themeCombo = new ComboBox<>(themeNames);
+    private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
 
     public MiniCSettingsPane() {
+        registerSettingsCommands();
         setSpacing(16);
         getStyleClass().add("activity-placeholder");
 
@@ -36,7 +40,7 @@ public final class MiniCSettingsPane extends VBox {
         themeCombo.setOnAction(e -> {
             String selected = themeCombo.getValue();
             if (selected != null) {
-                ThemeManager.setTheme(selected);
+                controlHub.setTheme(selected);
             }
         });
 
@@ -54,7 +58,7 @@ public final class MiniCSettingsPane extends VBox {
                 MiniCSettings.minFrameInterval(),
                 MiniCSettings.maxFrameInterval(),
                 current);
-        intervalSlider.setBlockIncrement(50);
+        intervalSlider.setBlockIncrement(FRAME_INTERVAL_STEP);
         intervalSlider.getStyleClass().add("control-secondary");
 
         Label intervalValue = new Label(current + " ms");
@@ -63,13 +67,24 @@ public final class MiniCSettingsPane extends VBox {
 
         intervalSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
             long millis = Math.round(newVal.doubleValue());
-            intervalValue.setText(millis + " ms");
-            MiniCSettings.setFrameIntervalMillis(millis);
+            controlHub.setFrameIntervalMillis(millis);
+            intervalValue.setText(MiniCSettings.frameIntervalMillis() + " ms");
         });
 
         HBox intervalRow = new HBox(10, intervalSlider, intervalValue);
 
         getChildren().addAll(title, themeLabel, themeRow, intervalLabel, intervalRow);
+    }
+
+    private void registerSettingsCommands() {
+        controlHub.registerSettingsCommands(new MiniCWorkbenchControlHub.SettingsCommands(
+                ThemeManager::setTheme,
+                MiniCSettings::setFrameIntervalMillis,
+                MiniCSettings::frameIntervalMillis,
+                MiniCSettings::minFrameInterval,
+                MiniCSettings::maxFrameInterval,
+                FRAME_INTERVAL_STEP
+        ));
     }
 
     private void refreshThemeList() {
@@ -95,6 +110,6 @@ public final class MiniCSettingsPane extends VBox {
         String name = target.getFileName().toString().replace(".json", "");
         refreshThemeList();
         themeCombo.setValue(name);
-        ThemeManager.setTheme(name);
+        controlHub.setTheme(name);
     }
 }
