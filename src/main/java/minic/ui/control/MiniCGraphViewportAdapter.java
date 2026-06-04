@@ -88,7 +88,7 @@ public final class MiniCGraphViewportAdapter implements MiniCViewportAdapter {
 
         Bounds after = scrollContentBounds();
         setAxisToVisibleMin(
-                anchorX - viewportPoint.getX(),
+                scaledVisibleMin(anchorX, before.getMinX(), before.getWidth(), after.getMinX(), after.getWidth(), viewportPoint.getX()),
                 after.getMinX(),
                 after.getWidth(),
                 viewport.getWidth(),
@@ -97,7 +97,7 @@ public final class MiniCGraphViewportAdapter implements MiniCViewportAdapter {
                 scrollPane::setHvalue
         );
         setAxisToVisibleMin(
-                anchorY - viewportPoint.getY(),
+                scaledVisibleMin(anchorY, before.getMinY(), before.getHeight(), after.getMinY(), after.getHeight(), viewportPoint.getY()),
                 after.getMinY(),
                 after.getHeight(),
                 viewport.getHeight(),
@@ -105,6 +105,22 @@ public final class MiniCGraphViewportAdapter implements MiniCViewportAdapter {
                 scrollPane.getVmax(),
                 scrollPane::setVvalue
         );
+    }
+
+    private double scaledVisibleMin(
+            double beforeAnchor,
+            double beforeContentMin,
+            double beforeContentSize,
+            double afterContentMin,
+            double afterContentSize,
+            double viewportOffset
+    ) {
+        if (beforeContentSize <= 0 || afterContentSize <= 0) {
+            return beforeAnchor - viewportOffset;
+        }
+        double relativeAnchor = beforeAnchor - beforeContentMin;
+        double scaledAnchor = afterContentMin + relativeAnchor * afterContentSize / beforeContentSize;
+        return scaledAnchor - viewportOffset;
     }
 
     @Override

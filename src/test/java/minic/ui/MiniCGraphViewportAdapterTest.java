@@ -71,7 +71,7 @@ class MiniCGraphViewportAdapterTest {
     }
 
     @Test
-    void mouseCenteredZoomKeepsViewportAnchorStableWhenContentSizeChanges() {
+    void mouseCenteredZoomKeepsGraphPointUnderMouseStableWhenContentScales() {
         startJavafx();
         runOnFxThread(() -> {
             Pane content = fixedContent(800, 800);
@@ -82,6 +82,7 @@ class MiniCGraphViewportAdapterTest {
             Point2D mousePoint = new Point2D(70, 90);
             double anchorX = visibleMinX(scrollPane, content) + mousePoint.getX();
             double anchorY = visibleMinY(scrollPane, content) + mousePoint.getY();
+            double scale = 1000.0 / 800.0;
             MiniCGraphViewportAdapter adapter = new MiniCGraphViewportAdapter(scrollPane, content, (point, delta) -> {
                 content.setPrefSize(1000, 1000);
                 content.setMinSize(1000, 1000);
@@ -96,8 +97,8 @@ class MiniCGraphViewportAdapterTest {
             scrollPane.layout();
 
             assertThat(content.getLayoutBounds().getWidth()).isGreaterThan(900);
-            assertThat(visibleMinX(scrollPane, content) + mousePoint.getX()).isCloseTo(anchorX, within(2.0));
-            assertThat(visibleMinY(scrollPane, content) + mousePoint.getY()).isCloseTo(anchorY, within(2.0));
+            assertThat(visibleMinX(scrollPane, content) + mousePoint.getX()).isCloseTo(anchorX * scale, within(2.0));
+            assertThat(visibleMinY(scrollPane, content) + mousePoint.getY()).isCloseTo(anchorY * scale, within(2.0));
         });
     }
 
