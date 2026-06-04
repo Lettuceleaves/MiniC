@@ -71,6 +71,37 @@ class MiniCGraphViewportAdapterTest {
     }
 
     @Test
+    void mouseCenteredZoomKeepsViewportAnchorStableWhenContentSizeChanges() {
+        startJavafx();
+        runOnFxThread(() -> {
+            Pane content = fixedContent(800, 800);
+            ScrollPane scrollPane = laidOutScrollPane(content);
+            scrollPane.setHvalue(0.35);
+            scrollPane.setVvalue(0.40);
+            scrollPane.layout();
+            Point2D mousePoint = new Point2D(70, 90);
+            double anchorX = visibleMinX(scrollPane, content) + mousePoint.getX();
+            double anchorY = visibleMinY(scrollPane, content) + mousePoint.getY();
+            MiniCGraphViewportAdapter adapter = new MiniCGraphViewportAdapter(scrollPane, content, (point, delta) -> {
+                content.setPrefSize(1000, 1000);
+                content.setMinSize(1000, 1000);
+                content.setMaxSize(1000, 1000);
+                content.resize(1000, 1000);
+                content.autosize();
+                content.layout();
+                scrollPane.layout();
+            });
+
+            adapter.zoomAt(mousePoint, 0.25);
+            scrollPane.layout();
+
+            assertThat(content.getLayoutBounds().getWidth()).isGreaterThan(900);
+            assertThat(visibleMinX(scrollPane, content) + mousePoint.getX()).isCloseTo(anchorX, within(2.0));
+            assertThat(visibleMinY(scrollPane, content) + mousePoint.getY()).isCloseTo(anchorY, within(2.0));
+        });
+    }
+
+    @Test
     void scrollAndPanMoveGraphViewportWithinScrollBounds() {
         startJavafx();
         runOnFxThread(() -> {
@@ -201,17 +232,27 @@ class MiniCGraphViewportAdapterTest {
     private static double visibleCenterX(ScrollPane scrollPane, Pane content) {
         double visibleWidth = scrollPane.getViewportBounds().getWidth();
         double contentWidth = content.getLayoutBounds().getWidth();
-        double visibleLeft = normalized(scrollPane.getHvalue(), scrollPane.getHmin(), scrollPane.getHmax())
-                * Math.max(0, contentWidth - visibleWidth);
-        return visibleLeft + visibleWidth / 2.0;
+        return visibleMinX(scrollPane, content) + visibleWidth / 2.0;
     }
 
     private static double visibleCenterY(ScrollPane scrollPane, Pane content) {
         double visibleHeight = scrollPane.getViewportBounds().getHeight();
         double contentHeight = content.getLayoutBounds().getHeight();
-        double visibleTop = normalized(scrollPane.getVvalue(), scrollPane.getVmin(), scrollPane.getVmax())
+        return visibleMinY(scrollPane, content) + visibleHeight / 2.0;
+    }
+
+    private static double visibleMinX(ScrollPane scrollPane, Pane content) {
+        double visibleWidth = scrollPane.getViewportBounds().getWidth();
+        double contentWidth = content.getLayoutBounds().getWidth();
+        return normalized(scrollPane.getHvalue(), scrollPane.getHmin(), scrollPane.getHmax())
+                * Math.max(0, contentWidth - visibleWidth);
+    }
+
+    private static double visibleMinY(ScrollPane scrollPane, Pane content) {
+        double visibleHeight = scrollPane.getViewportBounds().getHeight();
+        double contentHeight = content.getLayoutBounds().getHeight();
+        return normalized(scrollPane.getVvalue(), scrollPane.getVmin(), scrollPane.getVmax())
                 * Math.max(0, contentHeight - visibleHeight);
-        return visibleTop + visibleHeight / 2.0;
     }
 
     private static double normalized(double value, double min, double max) {
