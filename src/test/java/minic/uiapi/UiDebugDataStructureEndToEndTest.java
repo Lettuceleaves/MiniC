@@ -82,6 +82,30 @@ class UiDebugDataStructureEndToEndTest {
                         .endsWith(".next"));
     }
 
+    @Test
+    void lruHashStressSampleRemovesEvictedNodeFromOldBucket() throws IOException {
+        Path path = Path.of("tmp", "ds_visual_stress", "01_lru_hash.mc");
+        String source = Files.readString(path);
+        MiniCDebugApi api = new MiniCDebugApi();
+        api.loadSource(new SourceFile(path.getFileName().toString(), source));
+        api.startDebug();
+        api.setBreakpoint(findLine(source, "score = score + get(buckets, &head, &tail, 6);"));
+        api.runToBreakpoint();
+
+        UiDebugVisualStructureDto buckets = api.dataStructureDebugView().visuals().stream()
+                .filter(visual -> visual.name().equals("buckets"))
+                .findFirst()
+                .orElseThrow();
+
+        List<String> bucketTargets = elementsOfKind(buckets, "GRAPH_EDGE").stream()
+                .filter(edge -> edge.label().equals("bucket"))
+                .map(edge -> metadata(edge, "to"))
+                .toList();
+        assertThat(bucketTargets)
+                .as("each non-empty bucket should point to a different chain head after LRU eviction")
+                .doesNotHaveDuplicates();
+    }
+
     private static int findBreakLine(String source) {
         String[] lines = source.replace("\r\n", "\n").replace('\r', '\n').split("\n");
         for (int index = 0; index < lines.length; index++) {

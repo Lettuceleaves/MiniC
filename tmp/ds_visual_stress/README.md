@@ -31,3 +31,4 @@
 - 若要观察“构建过程”，可以单步运行；若只看最终形态，直接运行到 `// @break`。
 - 哈希拉链和 LRU 同时使用 `hash-chain-table`、`lru-list` 和 `struct-array` 注释，方便从多个角度看同一份内存。
 - `01_lru_hash.mc` 的 LRU 节点同时有 `next` 和 `hashNext`：`next/prev` 给 LRU 链表用，`hashNext` 给哈希桶拉链用，所以哈希桶注释必须写 `next=hashNext`。
+- LRU 淘汰节点并复用结构体变量前，必须先从旧哈希桶里 `hashRemove`，否则旧桶和新桶会同时指向同一个节点。

@@ -40,6 +40,26 @@ int hashInsert(struct LruNode **buckets, struct LruNode *node) {
     return 0;
 }
 
+int hashRemove(struct LruNode **buckets, struct LruNode *node) {
+    int bucket = hashKey(node->key);
+    struct LruNode *cur = buckets[bucket];
+    struct LruNode *prev = NULL;
+    while (cur != NULL) {
+        if (cur == node) {
+            if (prev == NULL) {
+                buckets[bucket] = cur->hashNext;
+            } else {
+                prev->hashNext = cur->hashNext;
+            }
+            cur->hashNext = NULL;
+            return 1;
+        }
+        prev = cur;
+        cur = cur->hashNext;
+    }
+    return 0;
+}
+
 int hashFind(struct LruNode **buckets, int key, struct LruNode **out) {
     int bucket = hashKey(key);
     struct LruNode *cur = buckets[bucket];
@@ -110,6 +130,7 @@ int put(struct LruNode **nodes, int *used, int capacity, struct LruNode **bucket
         return 0;
     }
     struct LruNode *victim = *tail;
+    hashRemove(buckets, victim);
     detach(victim, head, tail);
     victim->alive = 0;
     initNode(victim, key, value);
