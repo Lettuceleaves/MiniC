@@ -32,3 +32,4 @@
 - 哈希拉链和 LRU 同时使用 `hash-chain-table`、`lru-list` 和 `struct-array` 注释，方便从多个角度看同一份内存。
 - `01_lru_hash.mc` 的 LRU 节点同时有 `next` 和 `hashNext`：`next/prev` 给 LRU 链表用，`hashNext` 给哈希桶拉链用，所以哈希桶注释必须写 `next=hashNext`。
 - LRU 淘汰节点并复用结构体变量前，必须先从旧哈希桶里 `hashRemove`，否则旧桶和新桶会同时指向同一个节点。
+- `03_red_black_tree.mc` 中插入 `1` 会触发 `rotateRight`，插入 `20` 会触发 `rotateLeft`；单步进入 `rbInsert -> fixInsert` 可以观察旋转前后的树形变化。

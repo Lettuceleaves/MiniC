@@ -207,18 +207,18 @@ int main() {
     nodes[7] = &n7;
     rbInsert(nodes, &used, &root, 10);
     rbInsert(nodes, &used, &root, 5);
+    rbInsert(nodes, &used, &root, 1);  // LL case: rotateRight
     rbInsert(nodes, &used, &root, 15);
-    rbInsert(nodes, &used, &root, 3);
+    rbInsert(nodes, &used, &root, 20); // RR case: rotateLeft
     rbInsert(nodes, &used, &root, 7);
-    rbInsert(nodes, &used, &root, 12);
-    rbInsert(nodes, &used, &root, 18);
-    if (rbFind(root, 7) != 0) {
-        score = score + 7;
+    rbInsert(nodes, &used, &root, 6);
+    if (rbFind(root, 20) != 0) {
+        score = score + 20;
     }
     rbDeleteMark(root, 5);
-    rbInsert(nodes, &used, &root, 6);
-    if (rbFind(root, 6) != 0) {
-        score = score + 6;
+    rbInsert(nodes, &used, &root, 8);
+    if (rbFind(root, 8) != 0) {
+        score = score + 8;
     }
     return score + root->key + used; // @break
 }

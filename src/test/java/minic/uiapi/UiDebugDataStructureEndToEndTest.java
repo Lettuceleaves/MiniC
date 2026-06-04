@@ -106,6 +106,23 @@ class UiDebugDataStructureEndToEndTest {
                 .doesNotHaveDuplicates();
     }
 
+    @Test
+    void redBlackStressSampleExercisesLeftAndRightRotations() throws IOException {
+        Path path = Path.of("tmp", "ds_visual_stress", "03_red_black_tree.mc");
+        String source = Files.readString(path);
+        MiniCDebugApi api = new MiniCDebugApi();
+        api.loadSource(new SourceFile(path.getFileName().toString(), source));
+        api.startDebug();
+        UiDebugStateDto state = api.fastForward();
+
+        assertThat(state.snapshots())
+                .as("red-black sample should visibly exercise rotateLeft")
+                .anySatisfy(snapshot -> assertThat(snapshot.callStackSummary()).contains("rotateLeft"));
+        assertThat(state.snapshots())
+                .as("red-black sample should visibly exercise rotateRight")
+                .anySatisfy(snapshot -> assertThat(snapshot.callStackSummary()).contains("rotateRight"));
+    }
+
     private static int findBreakLine(String source) {
         String[] lines = source.replace("\r\n", "\n").replace('\r', '\n').split("\n");
         for (int index = 0; index < lines.length; index++) {
