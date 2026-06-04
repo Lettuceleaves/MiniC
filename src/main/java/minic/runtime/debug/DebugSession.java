@@ -364,7 +364,8 @@ public final class DebugSession {
                 return next;
             }
             if (snapshot.visibleStepIndex() > currentSnapshot().visibleStepIndex()
-                    && snapshot.callStackSummary().size() <= currentDepth) {
+                    && snapshot.callStackSummary().size() <= currentDepth
+                    && snapshot.stopReason() != DebugStopReason.RETURN) {
                 return endOfVisibleStep(next);
             }
             next++;

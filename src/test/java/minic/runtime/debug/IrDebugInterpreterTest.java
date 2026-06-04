@@ -407,6 +407,8 @@ class IrDebugInterpreterTest {
 
         assertThat(callLine.snapshot().callStackSummary()).containsExactly("main");
         assertThat(over.snapshot().callStackSummary()).containsExactly("main");
+        assertThat(over.snapshot().stopReason()).isEqualTo(DebugStopReason.STEP);
+        assertThat(over.snapshot().cursor().sourceRange().startPosition().line()).isEqualTo(7);
         assertThat(over.snapshot().visibleStepIndex()).isGreaterThan(callLine.snapshot().visibleStepIndex());
 
         DebugSession stepIntoSession = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
