@@ -6,6 +6,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.Parent;
+import javafx.scene.layout.HBox;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ class MiniCDebugPaneTest {
             assertThat(button(pane, "开始")).isNull();
             assertThat(button(pane, "打开")).isNull();
             assertThat(button(pane, "保存")).isNull();
-            assertThat(button(pane, "启动")).isNotNull();
+            assertThat(button(pane, "从头开始")).isNotNull();
             assertThat(button(pane, "拆分")).isNotNull();
             assertThat(button(pane, "元数据")).isNotNull();
             assertThat(button(pane, "数据结构")).isNotNull();
@@ -59,18 +60,18 @@ class MiniCDebugPaneTest {
             assertThat(button(pane, "ASM")).isNotNull();
             assertThat(button(pane, "设断点")).isNull();
             assertThat(button(pane, "清断点")).isNull();
-            assertThat(button(pane, "快进")).isNotNull();
-            assertThat(button(pane, "运行到断点")).isNotNull();
-            assertThat(button(pane, "单步")).isNotNull();
-            assertThat(button(pane, "步入")).isNotNull();
-            assertThat(button(pane, "步返")).isNotNull();
-            assertThat(button(pane, "暂停")).isNotNull();
-            assertThat(button(pane, "重启")).isNotNull();
-            assertThat(button(pane, "关闭")).isNotNull();
-            assertThat(button(pane, "单退")).isNotNull();
-            assertThat(button(pane, "步退")).isNotNull();
-            assertThat(button(pane, "返回调用处")).isNotNull();
-            assertThat(List.of("运行到断点", "单步", "步入", "步退", "单退", "返回调用处"))
+            assertThat(button(pane, "快进")).isNull();
+            assertThat(button(pane, "运行到断点")).isNull();
+            assertThat(button(pane, "单步")).isNull();
+            assertThat(button(pane, "步入")).isNull();
+            assertThat(button(pane, "步返")).isNull();
+            assertThat(button(pane, "暂停")).isNull();
+            assertThat(button(pane, "重启")).isNull();
+            assertThat(button(pane, "关闭")).isNull();
+            assertThat(button(pane, "单退")).isNull();
+            assertThat(button(pane, "步退")).isNull();
+            assertThat(button(pane, "返回调用处")).isNull();
+            assertThat(List.of("下个断点", "本层下一句", "下一句", "上个断点", "本层上一句", "上一句"))
                     .allSatisfy(text -> {
                         Button debugButton = button(pane, text);
                         assertThat(debugButton.getStyleClass()).contains("debug-control-paired-button");
@@ -79,7 +80,7 @@ class MiniCDebugPaneTest {
                         assertThat(debugButton.getMaxWidth()).isEqualTo(92);
                         assertThat(debugButton.getPrefHeight()).isEqualTo(28);
                     });
-            assertThat(List.of("启动", "快进", "暂停", "重启", "关闭", "步返", "拆分"))
+            assertThat(List.of("从头开始", "运行到结束", "拆分"))
                     .allSatisfy(text -> {
                         Button debugButton = button(pane, text);
                         assertThat(debugButton.getStyleClass()).contains("debug-control-single-button");
@@ -88,6 +89,11 @@ class MiniCDebugPaneTest {
                         assertThat(debugButton.getMaxWidth()).isEqualTo(64);
                         assertThat(debugButton.getPrefHeight()).isEqualTo(28);
                     });
+            assertThat(pairedDebugControlRows(pane))
+                    .containsExactly(
+                            List.of("从头开始", "下个断点", "本层下一句", "下一句"),
+                            List.of("运行到结束", "上个断点", "本层上一句", "上一句")
+                    );
             assertThat(viewModel.debugStartedProperty().get()).isFalse();
 
             button(pane, "拆分").fire();
@@ -494,7 +500,7 @@ class MiniCDebugPaneTest {
             MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
             MiniCDebugPane pane = new MiniCDebugPane(viewModel);
 
-            button(pane, "启动").fire();
+            button(pane, "从头开始").fire();
 
             assertThat(viewModel.debugStartedProperty().get()).isTrue();
             assertThat(viewModel.sessionStartedProperty().get()).isFalse();
@@ -554,6 +560,25 @@ class MiniCDebugPaneTest {
             }
         }
         return null;
+    }
+
+    private static List<List<String>> pairedDebugControlRows(javafx.scene.Node node) {
+        List<List<String>> rows = new ArrayList<>();
+        collectPairedDebugControlRows(node, rows);
+        return rows;
+    }
+
+    private static void collectPairedDebugControlRows(javafx.scene.Node node, List<List<String>> rows) {
+        if (node instanceof HBox hbox && hbox.getStyleClass().contains("debug-paired-row")) {
+            rows.add(hbox.getChildren().stream()
+                    .filter(Button.class::isInstance)
+                    .map(Button.class::cast)
+                    .map(Button::getText)
+                    .toList());
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> collectPairedDebugControlRows(child, rows));
+        }
     }
 
     private static Label label(javafx.scene.Node node, String text) {

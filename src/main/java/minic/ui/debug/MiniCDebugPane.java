@@ -111,29 +111,21 @@ public final class MiniCDebugPane extends VBox {
     }
 
     private HBox controls() {
-        Button start = button("启动", () -> {
-            viewModel.setDebugBreakpoints(sourceView.breakpointLines());
-            sourceView.loadCurrentSource();
-            viewModel.startDebug();
-        });
-        Button fast = button("快进", viewModel::debugFastForward);
-        Button run = button("运行到断点", viewModel::debugRunToBreakpoint);
-        Button step = button("单步", viewModel::debugStepOver);
-        Button into = button("步入", viewModel::debugStepInto);
-        Button out = button("步返", viewModel::debugStepOut);
-        Button pause = button("暂停", viewModel::debugPause);
-        Button restart = button("重启", viewModel::debugRestart);
-        Button close = button("关闭", viewModel::debugClose);
-        Button back = button("单退", viewModel::debugStepBack);
-        Button backBreakpoint = button("步退", viewModel::debugBackToBreakpoint);
-        Button backCall = button("返回调用处", viewModel::debugBackToCallSite);
+        Button start = button("从头开始", this::startFromBeginning, "重新加载当前源码和断点，从第一条调试快照开始");
+        Button end = button("运行到结束", viewModel::debugRunToEnd, "一直运行到程序结束或运行时错误");
+        Button run = button("下个断点", viewModel::debugRunToBreakpoint, "运行到下一个断点");
+        Button step = button("本层下一句", viewModel::debugStepOver, "不进入函数调用，运行本调用层的下一句");
+        Button into = button("下一句", viewModel::debugStepInto, "运行下一句，遇到函数调用时允许进入函数内部");
+        Button backBreakpoint = button("上个断点", viewModel::debugBackToBreakpoint, "回退到上一个断点命中状态");
+        Button backOver = button("本层上一句", viewModel::debugStepBackOver, "不钻回函数内部，回退本调用层的上一句");
+        Button back = button("上一句", viewModel::debugStepBack, "回退上一句，允许回到函数调用内部");
         Button split = button("拆分", this::toggleSplit);
-        List.of(run, step, into, backBreakpoint, back, backCall)
+        List.of(run, step, into, backBreakpoint, backOver, back)
                 .forEach(this::formatPairedButton);
-        List.of(start, fast, pause, restart, close, out, split)
+        List.of(start, end, split)
                 .forEach(this::formatSingleButton);
-        HBox forwardControls = new HBox(6, run, step, into);
-        HBox backwardControls = new HBox(6, backBreakpoint, back, backCall);
+        HBox forwardControls = new HBox(6, start, run, step, into);
+        HBox backwardControls = new HBox(6, end, backBreakpoint, backOver, back);
         forwardControls.getStyleClass().add("debug-paired-row");
         backwardControls.getStyleClass().add("debug-paired-row");
         VBox pairedControls = new VBox(4);
@@ -144,13 +136,7 @@ public final class MiniCDebugPane extends VBox {
         );
         HBox controls = new HBox(
                 6,
-                start,
-                fast,
                 pairedControls,
-                pause,
-                restart,
-                close,
-                out,
                 split
         );
         controls.getStyleClass().add("controls");
@@ -159,10 +145,23 @@ public final class MiniCDebugPane extends VBox {
         return controls;
     }
 
+    private void startFromBeginning() {
+        viewModel.setDebugBreakpoints(sourceView.breakpointLines());
+        sourceView.loadCurrentSource();
+        viewModel.startDebug();
+    }
+
     private Button button(String text, Runnable action) {
+        return button(text, action, null);
+    }
+
+    private Button button(String text, Runnable action, String tooltipText) {
         Button button = new Button(text);
         button.getStyleClass().add("control-secondary");
         button.setOnAction(event -> action.run());
+        if (tooltipText != null && !tooltipText.isBlank()) {
+            button.setTooltip(new Tooltip(tooltipText));
+        }
         return button;
     }
 

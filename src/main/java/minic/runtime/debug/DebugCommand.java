@@ -15,6 +15,11 @@ public enum DebugCommand {
     RUN_TO_BREAKPOINT,
 
     /**
+     * 运行到程序结束或运行时错误，不因普通断点暂停。
+     */
+    RUN_TO_END,
+
+    /**
      * 单步执行源码级可见语句。
      */
     STEP_OVER,
@@ -48,6 +53,11 @@ public enum DebugCommand {
      * 回退到上一个可见调试步。
      */
     STEP_BACK,
+
+    /**
+     * 回退到本调用层的上一个可见调试步。
+     */
+    STEP_BACK_OVER,
 
     /**
      * 回退到上一个断点命中状态。

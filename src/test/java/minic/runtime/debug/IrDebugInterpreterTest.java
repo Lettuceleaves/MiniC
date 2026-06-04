@@ -12,6 +12,8 @@ import minic.compiler.semantic.SemanticResult;
 import minic.source.SourceFile;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class IrDebugInterpreterTest {
@@ -297,6 +299,27 @@ class IrDebugInterpreterTest {
     }
 
     @Test
+    void runToEndIgnoresBreakpointsUntilTerminalSnapshot() {
+        SourceFile sourceFile = new SourceFile("debug-run-to-end.mc", """
+                int main() {
+                    int value = 1;
+                    value = value + 1;
+                    return value;
+                }
+                """);
+        DebugSession session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        session.control(DebugCommand.RESTART);
+        session.setBreakpoint(3);
+
+        DebugControlResult result = session.control(DebugCommand.RUN_TO_END);
+
+        assertThat(result.state()).isEqualTo(DebugExecutionState.COMPLETED);
+        assertThat(result.snapshot().stopReason()).isEqualTo(DebugStopReason.COMPLETED);
+        assertThat(result.snapshot().breakpointHit()).isFalse();
+        assertThat(result.snapshot().processSpace().io().stdout()).isEqualTo("return 2");
+    }
+
+    @Test
     void pauseRequestOnlyStopsContinuousRun() {
         SourceFile sourceFile = new SourceFile("debug-pause.mc", """
                 int main() {
@@ -418,6 +441,35 @@ class IrDebugInterpreterTest {
         DebugControlResult into = stepIntoSession.control(DebugCommand.STEP_INTO);
 
         assertThat(into.snapshot().callStackSummary()).contains("inc");
+    }
+
+    @Test
+    void stepBackOverStaysInCallerButStepBackCanReenterCompletedCall() {
+        SourceFile sourceFile = new SourceFile("debug-step-back-over-call.mc", """
+                int inc(int value) {
+                    int next = value + 1;
+                    return next;
+                }
+
+                int main() {
+                    int value = inc(1);
+                    return value;
+                }
+                """);
+
+        DebugSession stepBackSession = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        DebugControlResult afterCall = runPastIncCall(stepBackSession);
+        DebugControlResult intoPrevious = stepBackSession.control(DebugCommand.STEP_BACK);
+
+        assertThat(afterCall.snapshot().callStackSummary()).containsExactly("main");
+        assertThat(intoPrevious.snapshot().callStackSummary()).contains("inc");
+
+        DebugSession stepBackOverSession = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        runPastIncCall(stepBackOverSession);
+        DebugControlResult callerPrevious = stepBackOverSession.control(DebugCommand.STEP_BACK_OVER);
+
+        assertThat(callerPrevious.snapshot().callStackSummary()).containsExactly("main");
+        assertThat(callerPrevious.snapshot().visibleStepIndex()).isLessThan(afterCall.snapshot().visibleStepIndex());
     }
 
     @Test
@@ -554,5 +606,23 @@ class IrDebugInterpreterTest {
         SemanticResult semanticResult = new SemanticAnalyzer().analyze(program);
         assertThat(semanticResult.diagnostics()).as(semanticResult.diagnostics().toString()).isEmpty();
         return new IrLowerer().lower(program, semanticResult);
+    }
+
+    private DebugControlResult runPastIncCall(DebugSession session) {
+        session.control(DebugCommand.RESTART);
+        session.setBreakpoint(7);
+        session.control(DebugCommand.RUN_TO_BREAKPOINT);
+        DebugControlResult current = null;
+        boolean enteredInc = false;
+        while (session.state() != DebugExecutionState.COMPLETED) {
+            current = session.control(DebugCommand.STEP_INTO);
+            if (current.snapshot().callStackSummary().contains("inc")) {
+                enteredInc = true;
+            }
+            if (enteredInc && current.snapshot().callStackSummary().equals(List.of("main"))) {
+                return current;
+            }
+        }
+        throw new AssertionError("did not return from inc call");
     }
 }

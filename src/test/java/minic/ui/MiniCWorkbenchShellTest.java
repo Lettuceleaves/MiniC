@@ -206,9 +206,9 @@ class MiniCWorkbenchShellTest {
         ));
         assertThat(labels(root).stream().map(Label::getText))
                 .doesNotContain("调试视图将在后续实现。");
-        assertThat(button(root, "启动")).isNotNull();
-        assertThat(button(root, "运行到断点")).isNotNull();
-        assertThat(button(root, "单退")).isNotNull();
+        assertThat(button(root, "从头开始")).isNotNull();
+        assertThat(button(root, "下个断点")).isNotNull();
+        assertThat(button(root, "上一句")).isNotNull();
         assertThat(button(root, "拆分")).isNotNull();
         assertThat(button(root, "确认输入")).isNull();
         assertThat(labels(root).stream().map(Label::getText)).doesNotContain("无输入");

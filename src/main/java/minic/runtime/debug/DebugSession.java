@@ -195,6 +195,7 @@ public final class DebugSession {
         return switch (command) {
             case FAST_FORWARD -> fastForward(command);
             case RUN_TO_BREAKPOINT -> runToBreakpoint(command);
+            case RUN_TO_END -> runToEnd(command);
             case STEP_OVER -> moveToSnapshot(command, stepOverIndex(), "已单步执行当前源码级语句");
             case STEP_INTO -> moveToSnapshot(command, nextExecutableIndex(), "已步入下一个可见调试步");
             case STEP_OUT -> moveToSnapshot(command, stepOutIndex(), "已运行到当前函数返回");
@@ -202,6 +203,7 @@ public final class DebugSession {
             case CLOSE -> close();
             case RESTART -> restart();
             case STEP_BACK -> stepBack();
+            case STEP_BACK_OVER -> stepBackOver();
             case BACK_TO_BREAKPOINT -> backToBreakpoint();
             case BACK_TO_CALL_SITE -> backToCallSite();
         };
@@ -285,6 +287,20 @@ public final class DebugSession {
         return result(command, "没有后续断点");
     }
 
+    private DebugControlResult runToEnd(DebugCommand command) {
+        pauseRequested = false;
+        state = DebugExecutionState.RUNNING;
+        for (int i = currentSnapshotIndex + 1; i < snapshots.size(); i++) {
+            currentSnapshotIndex = i;
+            if (isTerminalSnapshot(currentSnapshot())) {
+                state = stateForCurrentSnapshot();
+                return result(command, "已运行到程序结束或错误");
+            }
+        }
+        state = stateForCurrentSnapshot();
+        return result(command, "已运行到调试历史末尾");
+    }
+
     private DebugControlResult moveToSnapshot(DebugCommand command, int targetIndex, String message) {
         currentSnapshotIndex = targetIndex;
         state = stateForCurrentSnapshot();
@@ -314,6 +330,13 @@ public final class DebugSession {
         currentSnapshotIndex = previousExecutableIndex();
         state = stateForCurrentSnapshot();
         return result(DebugCommand.STEP_BACK, "已回退到上一个可见调试步");
+    }
+
+    private DebugControlResult stepBackOver() {
+        pauseRequested = false;
+        currentSnapshotIndex = stepBackOverIndex();
+        state = stateForCurrentSnapshot();
+        return result(DebugCommand.STEP_BACK_OVER, "已回退到本层上一个可见调试步");
     }
 
     private DebugControlResult backToBreakpoint() {
@@ -391,6 +414,19 @@ public final class DebugSession {
         long currentVisibleStep = currentSnapshot().visibleStepIndex();
         for (int i = currentSnapshotIndex - 1; i >= 0; i--) {
             if (snapshots.get(i).visibleStepIndex() < currentVisibleStep) {
+                return endOfVisibleStep(i);
+            }
+        }
+        return 0;
+    }
+
+    private int stepBackOverIndex() {
+        int currentDepth = currentSnapshot().callStackSummary().size();
+        long currentVisibleStep = currentSnapshot().visibleStepIndex();
+        for (int i = currentSnapshotIndex - 1; i >= 0; i--) {
+            DebugSnapshot snapshot = snapshots.get(i);
+            if (snapshot.visibleStepIndex() < currentVisibleStep
+                    && snapshot.callStackSummary().size() <= currentDepth) {
                 return endOfVisibleStep(i);
             }
         }

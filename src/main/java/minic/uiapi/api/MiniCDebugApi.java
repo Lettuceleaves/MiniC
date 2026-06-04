@@ -102,6 +102,16 @@ public final class MiniCDebugApi {
     }
 
     /**
+     * 运行到结束或运行时错误，不因普通断点暂停。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto runToEnd() {
+        requireSession().control(DebugCommand.RUN_TO_END);
+        return currentState();
+    }
+
+    /**
      * 快进到结束、断点、错误或暂停请求。
      *
      * @return Debug 状态
@@ -178,6 +188,16 @@ public final class MiniCDebugApi {
      */
     public UiDebugStateDto stepBack() {
         requireSession().control(DebugCommand.STEP_BACK);
+        return currentState();
+    }
+
+    /**
+     * 回退到本调用层的上一句。
+     *
+     * @return Debug 状态
+     */
+    public UiDebugStateDto stepBackOver() {
+        requireSession().control(DebugCommand.STEP_BACK_OVER);
         return currentState();
     }
 

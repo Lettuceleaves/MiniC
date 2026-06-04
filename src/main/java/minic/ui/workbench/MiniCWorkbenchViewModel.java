@@ -436,6 +436,15 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
+     * Debug 运行到结束。
+     */
+    public void debugRunToEnd() {
+        ensureDebugStarted();
+        debugApi.runToEnd();
+        refreshDebug();
+    }
+
+    /**
      * Debug 快进。
      */
     public void debugFastForward() {
@@ -504,6 +513,15 @@ public final class MiniCWorkbenchViewModel {
     public void debugStepBack() {
         ensureDebugStarted();
         debugApi.stepBack();
+        refreshDebug();
+    }
+
+    /**
+     * 本层单退。
+     */
+    public void debugStepBackOver() {
+        ensureDebugStarted();
+        debugApi.stepBackOver();
         refreshDebug();
     }
 
