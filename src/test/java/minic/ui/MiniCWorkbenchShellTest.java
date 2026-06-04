@@ -5,10 +5,12 @@ import org.junit.jupiter.api.Test;
 import javafx.application.Platform;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.Parent;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.StackPane;
+import org.fxmisc.flowless.VirtualizedScrollPane;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -84,6 +86,30 @@ class MiniCWorkbenchShellTest {
 
         assertThat(visibleChildren(mainContent)).singleElement()
                 .satisfies(node -> assertThat(containsNode(node, MiniCSourceLoaderView.class)).isTrue());
+    }
+
+    @Test
+    void compilerPipelineUsesVisibleRightSideScrollBars() {
+        startJavafx();
+        MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+        MiniCWorkbenchShell shell = new MiniCWorkbenchShell(viewModel);
+        Parent root = shell.createRoot();
+
+        VirtualizedScrollPane<?> sourceScroll = virtualizedScrollPaneWithStyle(root, "pipeline-source-editor-scroll");
+        assertThat(sourceScroll).isNotNull();
+        assertThat(sourceScroll.getVbarPolicy()).isEqualTo(ScrollPane.ScrollBarPolicy.ALWAYS);
+        assertThat(sourceScroll.getHbarPolicy()).isEqualTo(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+
+        viewModel.loadSource("pipeline-scroll.mc", "int main() { int value = 1; return value; }");
+        viewModel.startSession();
+        viewModel.next();
+
+        assertThat(scrollPanesWithStyle(root, "stage-flow-scroll"))
+                .hasSizeGreaterThanOrEqualTo(2)
+                .allSatisfy(scrollPane -> {
+                    assertThat(scrollPane.getVbarPolicy()).isEqualTo(ScrollPane.ScrollBarPolicy.ALWAYS);
+                    assertThat(scrollPane.getHbarPolicy()).isEqualTo(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+                });
     }
 
     @Test
@@ -286,6 +312,58 @@ class MiniCWorkbenchShellTest {
             return parent.getChildrenUnmodifiable().stream().anyMatch(child -> containsNode(child, type));
         }
         return false;
+    }
+
+    private static VirtualizedScrollPane<?> virtualizedScrollPaneWithStyle(javafx.scene.Node node, String styleClass) {
+        if (node instanceof VirtualizedScrollPane<?> scrollPane && scrollPane.getStyleClass().contains(styleClass)) {
+            return scrollPane;
+        }
+        if (node instanceof SplitPane splitPane) {
+            for (javafx.scene.Node item : splitPane.getItems()) {
+                VirtualizedScrollPane<?> found = virtualizedScrollPaneWithStyle(item, styleClass);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            return virtualizedScrollPaneWithStyle(scrollPane.getContent(), styleClass);
+        }
+        if (node instanceof Parent parent) {
+            for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+                VirtualizedScrollPane<?> found = virtualizedScrollPaneWithStyle(child, styleClass);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static java.util.List<ScrollPane> scrollPanesWithStyle(javafx.scene.Node node, String styleClass) {
+        java.util.ArrayList<ScrollPane> scrollPanes = new java.util.ArrayList<>();
+        collectScrollPanesWithStyle(node, styleClass, scrollPanes);
+        return scrollPanes;
+    }
+
+    private static void collectScrollPanesWithStyle(
+            javafx.scene.Node node,
+            String styleClass,
+            java.util.List<ScrollPane> scrollPanes
+    ) {
+        if (node instanceof ScrollPane scrollPane) {
+            if (scrollPane.getStyleClass().contains(styleClass)) {
+                scrollPanes.add(scrollPane);
+            }
+            collectScrollPanesWithStyle(scrollPane.getContent(), styleClass, scrollPanes);
+        }
+        if (node instanceof SplitPane splitPane) {
+            splitPane.getItems().forEach(child -> collectScrollPanesWithStyle(child, styleClass, scrollPanes));
+        }
+        if (node instanceof Parent parent) {
+            parent.getChildrenUnmodifiable()
+                    .forEach(child -> collectScrollPanesWithStyle(child, styleClass, scrollPanes));
+        }
     }
 
     private static java.util.List<Label> labels(javafx.scene.Node node) {

@@ -612,7 +612,11 @@
     -fx-padding: 0;
 }
 
-.debug-source-editor-scroll .scroll-bar:vertical {
+.source-editor-scroll .scroll-bar:vertical,
+.debug-source-editor-scroll .scroll-bar:vertical,
+.pipeline-source-editor-scroll .scroll-bar:vertical,
+.stage-flow-scroll .scroll-bar:vertical,
+.visual-scroll .scroll-bar:vertical {
     -fx-min-width: 12px;
     -fx-pref-width: 12px;
     -fx-max-width: 12px;
@@ -620,11 +624,19 @@
     -fx-opacity: 1;
 }
 
-.debug-source-editor-scroll .scroll-bar:vertical .track {
+.source-editor-scroll .scroll-bar:vertical .track,
+.debug-source-editor-scroll .scroll-bar:vertical .track,
+.pipeline-source-editor-scroll .scroll-bar:vertical .track,
+.stage-flow-scroll .scroll-bar:vertical .track,
+.visual-scroll .scroll-bar:vertical .track {
     -fx-background-color: {{background.tertiary}};
 }
 
-.debug-source-editor-scroll .scroll-bar:vertical .thumb {
+.source-editor-scroll .scroll-bar:vertical .thumb,
+.debug-source-editor-scroll .scroll-bar:vertical .thumb,
+.pipeline-source-editor-scroll .scroll-bar:vertical .thumb,
+.stage-flow-scroll .scroll-bar:vertical .thumb,
+.visual-scroll .scroll-bar:vertical .thumb {
     -fx-background-color: {{accent.blue}};
     -fx-background-insets: 2px;
     -fx-background-radius: 6px;

@@ -1348,6 +1348,8 @@ public final class MiniCVisualPane extends VBox {
             scrollPane.getStyleClass().add("stage-flow-scroll");
             scrollPane.setFitToWidth(false);
             scrollPane.setFitToHeight(false);
+            scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+            scrollPane.setVbarPolicy(ScrollPane.ScrollBarPolicy.ALWAYS);
             scrollPane.setMinWidth(0);
             scrollPane.setHvalue(0);
             root.getChildren().addAll(title, scrollPane);

@@ -247,6 +247,7 @@ public final class MiniCWorkbenchShell {
         VBox sourceArea = new VBox();
         sourceArea.getStyleClass().add("source-area");
         MiniCSourceLoaderView loader = new MiniCSourceLoaderView(viewModel, this::openDocument, this::saveDocument);
+        loader.usePersistentEditorScrollBars("pipeline-source-editor-scroll");
         sourceArea.getChildren().add(loader);
         VBox.setVgrow(loader, Priority.ALWAYS);
         return sourceArea;
