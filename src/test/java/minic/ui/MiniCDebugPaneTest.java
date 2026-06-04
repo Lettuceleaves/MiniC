@@ -10,6 +10,7 @@ import javafx.scene.Scene;
 import javafx.scene.Parent;
 import javafx.geometry.Pos;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
 import javafx.scene.input.ScrollEvent;
 import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
@@ -531,6 +532,48 @@ class MiniCDebugPaneTest {
             assertThat(containsStyle(pane, "ast-graph-node")).isTrue();
             assertThat(containsStyle(pane, "active")).isTrue();
             assertThat(labelsWithStyle(pane, "debug-section-title")).contains("当前 AST 节点");
+        });
+    }
+
+    @Test
+    void astWheelZoomResizesGraphViewportForMouseAnchoredScrolling() {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+            new Scene(pane, 1200, 760);
+
+            viewModel.loadSource("debug-ast-zoom-ui.mc", """
+                    int main() {
+                        int value = 1;
+                        return value;
+                    }
+                    """);
+            viewModel.startDebug();
+            button(pane, "AST").fire();
+            pane.applyCss();
+            pane.layout();
+
+            Pane graphViewport = paneWithStyle(pane, "ast-graph-viewport");
+            assertThat(graphViewport).isNotNull();
+            double initialWidth = graphViewport.getPrefWidth();
+            double initialHeight = graphViewport.getPrefHeight();
+
+            graphViewport.fireEvent(new ScrollEvent(
+                    ScrollEvent.SCROLL,
+                    80, 60, 80, 60,
+                    false, false, false, false,
+                    false, false,
+                    0, 120, 0, 120,
+                    ScrollEvent.HorizontalTextScrollUnits.NONE, 0,
+                    ScrollEvent.VerticalTextScrollUnits.NONE, 0,
+                    0,
+                    null
+            ));
+            pane.layout();
+
+            assertThat(graphViewport.getPrefWidth()).isGreaterThan(initialWidth);
+            assertThat(graphViewport.getPrefHeight()).isGreaterThan(initialHeight);
         });
     }
 
@@ -1229,6 +1272,32 @@ class MiniCDebugPaneTest {
         if (node instanceof Parent parent) {
             for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
                 ScrollPane found = scrollPaneWithStyle(child, styleClass);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static Pane paneWithStyle(javafx.scene.Node node, String styleClass) {
+        if (node instanceof Pane pane && pane.getStyleClass().contains(styleClass)) {
+            return pane;
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            return paneWithStyle(scrollPane.getContent(), styleClass);
+        }
+        if (node instanceof SplitPane splitPane) {
+            for (javafx.scene.Node item : splitPane.getItems()) {
+                Pane found = paneWithStyle(item, styleClass);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        if (node instanceof Parent parent) {
+            for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+                Pane found = paneWithStyle(child, styleClass);
                 if (found != null) {
                     return found;
                 }

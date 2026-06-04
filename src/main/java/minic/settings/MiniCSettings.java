@@ -9,9 +9,15 @@ import java.util.Map;
 
 public final class MiniCSettings {
     private static final Path SETTINGS_FILE = Path.of("config", "settings.json");
+    private static final String DEFAULT_THEME = "dark";
     private static final long DEFAULT_FRAME_INTERVAL = 1000;
     private static final long MIN_FRAME_INTERVAL = 1;
     private static final long MAX_FRAME_INTERVAL = 1000;
+    private static final double DEFAULT_GRAPH_ZOOM_STEP = 0.025;
+    private static final double MIN_GRAPH_ZOOM_STEP = 0.001;
+    private static final double MAX_GRAPH_ZOOM_STEP = 0.25;
+    private static final String DEFAULT_GRAPH_ZOOM_ANCHOR = "mouse";
+    private static final Map<String, String> DEFAULT_VALUES = defaultValues();
     private static final Map<String, String> values = new LinkedHashMap<>();
     private static Runnable frameIntervalChangeListener;
 
@@ -19,18 +25,25 @@ public final class MiniCSettings {
 
     public static void load() {
         values.clear();
+        values.putAll(DEFAULT_VALUES);
         if (!Files.exists(SETTINGS_FILE)) {
+            save();
             return;
         }
         try {
             String json = Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8);
-            parseInto(json, values);
+            Map<String, String> loaded = new LinkedHashMap<>();
+            parseInto(json, loaded);
+            values.putAll(loaded);
+            if (!loaded.keySet().containsAll(DEFAULT_VALUES.keySet())) {
+                save();
+            }
         } catch (IOException ignored) {
         }
     }
 
     public static String theme() {
-        return values.getOrDefault("theme", "dark");
+        return values.getOrDefault("theme", DEFAULT_THEME);
     }
 
     public static void setTheme(String name) {
@@ -72,7 +85,32 @@ public final class MiniCSettings {
         return MAX_FRAME_INTERVAL;
     }
 
+    public static double graphZoomStep() {
+        String raw = values.get("graphZoomStep");
+        if (raw == null) {
+            return DEFAULT_GRAPH_ZOOM_STEP;
+        }
+        try {
+            double value = Double.parseDouble(raw);
+            return Math.max(MIN_GRAPH_ZOOM_STEP, Math.min(MAX_GRAPH_ZOOM_STEP, value));
+        } catch (NumberFormatException exception) {
+            return DEFAULT_GRAPH_ZOOM_STEP;
+        }
+    }
+
+    public static String graphZoomAnchor() {
+        return values.getOrDefault("graphZoomAnchor", DEFAULT_GRAPH_ZOOM_ANCHOR);
+    }
+
+    public static boolean graphZoomAnchoredAtMouse() {
+        return "mouse".equalsIgnoreCase(graphZoomAnchor());
+    }
+
     private static void save() {
+        try {
+            Files.createDirectories(SETTINGS_FILE.getParent());
+        } catch (IOException ignored) {
+        }
         StringBuilder sb = new StringBuilder("{\n");
         int i = 0;
         for (Map.Entry<String, String> entry : values.entrySet()) {
@@ -96,11 +134,20 @@ public final class MiniCSettings {
 
     private static boolean isNumeric(String value) {
         try {
-            Long.parseLong(value);
+            Double.parseDouble(value);
             return true;
         } catch (NumberFormatException e) {
             return false;
         }
+    }
+
+    private static Map<String, String> defaultValues() {
+        Map<String, String> defaults = new LinkedHashMap<>();
+        defaults.put("theme", DEFAULT_THEME);
+        defaults.put("frameInterval", String.valueOf(DEFAULT_FRAME_INTERVAL));
+        defaults.put("graphZoomStep", String.valueOf(DEFAULT_GRAPH_ZOOM_STEP));
+        defaults.put("graphZoomAnchor", DEFAULT_GRAPH_ZOOM_ANCHOR);
+        return defaults;
     }
 
     private static void parseInto(String json, Map<String, String> target) {

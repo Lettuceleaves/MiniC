@@ -1,4 +1,6 @@
 {
   "theme": "dark",
-  "frameInterval": 1000
+  "frameInterval": 1000,
+  "graphZoomStep": 0.025,
+  "graphZoomAnchor": "mouse"
 }

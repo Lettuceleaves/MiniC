@@ -28,6 +28,7 @@ import javafx.scene.shape.Polygon;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextFlow;
+import minic.settings.MiniCSettings;
 import minic.ui.control.MiniCActiveTrackingService;
 import minic.ui.control.MiniCGraphViewportAdapter;
 import minic.ui.control.MiniCScrollPaneViewportAdapter;
@@ -68,7 +69,6 @@ public final class MiniCDebugPane extends VBox {
     private static final double DEFAULT_AST_ZOOM = 0.8;
     private static final double MIN_AST_ZOOM = 0.05;
     private static final double MAX_AST_ZOOM = 2.0;
-    private static final double AST_ZOOM_STEP = 0.025;
     private static final String AST_DRAG_START_X_KEY = "debugAstDragX";
     private static final String AST_DRAG_START_Y_KEY = "debugAstDragY";
     private static final String AST_DRAG_START_H_KEY = "debugAstDragH";
@@ -1030,8 +1030,7 @@ public final class MiniCDebugPane extends VBox {
         pane.setManaged(false);
         Pane graphViewport = new Pane(group);
         graphViewport.getStyleClass().add("ast-graph-viewport");
-        graphViewport.setMinSize(graph.width(), graph.height());
-        graphViewport.setPrefSize(graph.width(), graph.height());
+        resizeGraphViewport(graphViewport, graph.width(), graph.height(), astZoom.getValue());
         configureAstWheelZoom(graphViewport);
         configureAstDrag(graphViewport);
         installGraphAdapterLater(graphViewport);
@@ -1044,6 +1043,8 @@ public final class MiniCDebugPane extends VBox {
         Label zoomValue = new Label();
         zoomValue.getStyleClass().add("ast-zoom-value");
         zoomValue.textProperty().bind(astZoom.valueProperty().multiply(100).asString("%.0f%%"));
+        astZoom.valueProperty().addListener((observable, oldValue, newValue) ->
+                resizeGraphViewport(graphViewport, graph.width(), graph.height(), newValue.doubleValue()));
         zoomControls.getChildren().addAll(zoomLabel, astZoom, zoomValue);
         box.getChildren().addAll(zoomControls, graphViewport);
         return box;
@@ -1316,10 +1317,10 @@ public final class MiniCDebugPane extends VBox {
 
     private void handleZoomShortcut(javafx.scene.input.KeyEvent event) {
         if (keyBindings.matches("ast.zoom.in", event)) {
-            setAstZoom(astZoom.getValue() + AST_ZOOM_STEP);
+            setAstZoom(astZoom.getValue() + graphZoomStep());
             event.consume();
         } else if (keyBindings.matches("ast.zoom.out", event)) {
-            setAstZoom(astZoom.getValue() - AST_ZOOM_STEP);
+            setAstZoom(astZoom.getValue() - graphZoomStep());
             event.consume();
         }
     }
@@ -1329,13 +1330,13 @@ public final class MiniCDebugPane extends VBox {
             if (event.getDeltaY() == 0) {
                 return;
             }
-            double delta = event.getDeltaY() > 0 ? AST_ZOOM_STEP : -AST_ZOOM_STEP;
+            double delta = event.getDeltaY() > 0 ? graphZoomStep() : -graphZoomStep();
             MiniCGraphViewportAdapter adapter = graphViewportAdapter(graphViewport);
             if (adapter == null) {
                 setAstZoom(astZoom.getValue() + delta);
             } else {
                 controlHub.viewportRegistry().businessActive(adapter);
-                controlHub.handleZoom(viewportPoint(graphViewport, event.getX(), event.getY()), delta);
+                controlHub.handleZoom(graphZoomPoint(graphViewport, event.getX(), event.getY()), delta);
             }
             event.consume();
         });
@@ -1542,6 +1543,31 @@ public final class MiniCDebugPane extends VBox {
             return new Point2D(localX, localY);
         }
         return MiniCViewportPointMapper.toViewportPoint(graphViewport, localX, localY, scrollPane);
+    }
+
+    private Point2D graphZoomPoint(Pane graphViewport, double localX, double localY) {
+        if (MiniCSettings.graphZoomAnchoredAtMouse()) {
+            return viewportPoint(graphViewport, localX, localY);
+        }
+        ScrollPane scrollPane = nearestScrollPane(graphViewport);
+        if (scrollPane == null) {
+            return new Point2D(localX, localY);
+        }
+        return new Point2D(
+                scrollPane.getViewportBounds().getWidth() / 2.0,
+                scrollPane.getViewportBounds().getHeight() / 2.0
+        );
+    }
+
+    private void resizeGraphViewport(Pane graphViewport, double baseWidth, double baseHeight, double zoom) {
+        double width = Math.max(1, baseWidth * zoom);
+        double height = Math.max(1, baseHeight * zoom);
+        graphViewport.setMinSize(width, height);
+        graphViewport.setPrefSize(width, height);
+    }
+
+    private double graphZoomStep() {
+        return MiniCSettings.graphZoomStep();
     }
 
     private double clamp(double value) {
