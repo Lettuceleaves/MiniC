@@ -120,10 +120,9 @@ public final class MiniCDebugPane extends VBox {
         Button backBreakpoint = button("上个断点", viewModel::debugBackToBreakpoint, "回退到上一个断点命中状态");
         Button backOver = button("本层上一句", viewModel::debugStepBackOver, "不钻回函数内部，回退本调用层的上一句");
         Button back = button("上一句", viewModel::debugStepBack, "回退上一句，允许回到函数调用内部");
-        Button split = button("拆分", this::toggleSplit);
         List.of(run, step, into, backBreakpoint, backOver, back)
                 .forEach(this::formatPairedButton);
-        List.of(start, end, split)
+        List.of(start, end)
                 .forEach(this::formatSingleButton);
         HBox forwardControls = new HBox(6, start, run, step, into);
         HBox backwardControls = new HBox(6, end, backBreakpoint, backOver, back);
@@ -140,8 +139,7 @@ public final class MiniCDebugPane extends VBox {
         );
         HBox controls = new HBox(
                 6,
-                pairedControls,
-                split
+                pairedControls
         );
         controls.getStyleClass().add("controls");
         controls.getStyleClass().add("debug-controls");

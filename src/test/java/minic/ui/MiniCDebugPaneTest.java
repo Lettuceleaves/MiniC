@@ -47,7 +47,7 @@ class MiniCDebugPaneTest {
     }
 
     @Test
-    void exposesSplitControlWithoutCreatingAnotherDebugSession() {
+    void exposesEightDebugControlsWithoutSplitControl() {
         startJavafx();
         runOnFxThread(() -> {
             MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
@@ -57,7 +57,7 @@ class MiniCDebugPaneTest {
             assertThat(button(pane, "打开")).isNull();
             assertThat(button(pane, "保存")).isNull();
             assertThat(button(pane, "从头开始")).isNotNull();
-            assertThat(button(pane, "拆分")).isNotNull();
+            assertThat(button(pane, "拆分")).isNull();
             assertThat(button(pane, "元数据")).isNotNull();
             assertThat(button(pane, "数据结构")).isNotNull();
             assertThat(button(pane, "AST")).isNotNull();
@@ -85,7 +85,7 @@ class MiniCDebugPaneTest {
                         assertThat(debugButton.getMaxWidth()).isEqualTo(92);
                         assertThat(debugButton.getPrefHeight()).isEqualTo(28);
                     });
-            assertThat(List.of("从头开始", "运行到结束", "拆分"))
+            assertThat(List.of("从头开始", "运行到结束"))
                     .allSatisfy(text -> {
                         Button debugButton = button(pane, text);
                         assertThat(debugButton.getStyleClass()).contains("debug-control-single-button");
@@ -105,10 +105,6 @@ class MiniCDebugPaneTest {
                             List.of("从头开始", "下个断点", "本层下一句", "下一句"),
                             List.of("运行到结束", "上个断点", "本层上一句", "上一句")
                     );
-            assertThat(viewModel.debugStartedProperty().get()).isFalse();
-
-            button(pane, "拆分").fire();
-
             assertThat(viewModel.debugStartedProperty().get()).isFalse();
         });
     }
