@@ -9,6 +9,7 @@ import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tooltip;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
+import javafx.geometry.Point2D;
 import javafx.scene.Node;
 import javafx.scene.Group;
 import javafx.scene.input.MouseButton;
@@ -25,6 +26,7 @@ import javafx.scene.shape.Line;
 import javafx.scene.shape.Polygon;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
+import minic.ui.control.MiniCGraphViewportAdapter;
 import minic.uiapi.UiAssemblyLineVisualDto;
 import minic.uiapi.UiAstNodeVisualDto;
 import minic.uiapi.UiDebugAsmViewDto;
@@ -973,6 +975,7 @@ public final class MiniCDebugPane extends VBox {
         graphViewport.setPrefSize(graph.width(), graph.height());
         configureAstWheelZoom(graphViewport);
         configureAstDrag(graphViewport);
+        installGraphAdapterLater(graphViewport);
         VBox box = new VBox(6);
         box.getStyleClass().add("ast-zoom-box");
         HBox zoomControls = new HBox(8);
@@ -1257,7 +1260,13 @@ public final class MiniCDebugPane extends VBox {
             if (event.getDeltaY() == 0) {
                 return;
             }
-            setAstZoom(astZoom.getValue() + (event.getDeltaY() > 0 ? AST_ZOOM_STEP : -AST_ZOOM_STEP));
+            double delta = event.getDeltaY() > 0 ? AST_ZOOM_STEP : -AST_ZOOM_STEP;
+            MiniCGraphViewportAdapter adapter = graphViewportAdapter(graphViewport);
+            if (adapter == null) {
+                setAstZoom(astZoom.getValue() + delta);
+            } else {
+                adapter.zoomAt(new Point2D(event.getX(), event.getY()), delta);
+            }
             event.consume();
         });
     }
@@ -1268,25 +1277,38 @@ public final class MiniCDebugPane extends VBox {
                 return;
             }
             ScrollPane scrollPane = nearestScrollPane(graphViewport);
-            if (scrollPane == null) {
+            MiniCGraphViewportAdapter adapter = graphViewportAdapter(graphViewport);
+            if (scrollPane == null && adapter == null) {
                 return;
             }
             graphViewport.getProperties().put(AST_DRAG_START_X_KEY, event.getScreenX());
             graphViewport.getProperties().put(AST_DRAG_START_Y_KEY, event.getScreenY());
-            graphViewport.getProperties().put(AST_DRAG_START_H_KEY, scrollPane.getHvalue());
-            graphViewport.getProperties().put(AST_DRAG_START_V_KEY, scrollPane.getVvalue());
+            if (scrollPane != null) {
+                graphViewport.getProperties().put(AST_DRAG_START_H_KEY, scrollPane.getHvalue());
+                graphViewport.getProperties().put(AST_DRAG_START_V_KEY, scrollPane.getVvalue());
+            }
             event.consume();
         });
         graphViewport.addEventFilter(MouseEvent.MOUSE_DRAGGED, event -> {
             if (!event.isSecondaryButtonDown()) {
                 return;
             }
+            Object startX = graphViewport.getProperties().get(AST_DRAG_START_X_KEY);
+            Object startY = graphViewport.getProperties().get(AST_DRAG_START_Y_KEY);
+            MiniCGraphViewportAdapter adapter = graphViewportAdapter(graphViewport);
+            if (adapter != null && startX instanceof Number x && startY instanceof Number y) {
+                double deltaX = x.doubleValue() - event.getScreenX();
+                double deltaY = y.doubleValue() - event.getScreenY();
+                adapter.pan(deltaX, deltaY);
+                graphViewport.getProperties().put(AST_DRAG_START_X_KEY, event.getScreenX());
+                graphViewport.getProperties().put(AST_DRAG_START_Y_KEY, event.getScreenY());
+                event.consume();
+                return;
+            }
             ScrollPane scrollPane = nearestScrollPane(graphViewport);
             if (scrollPane == null) {
                 return;
             }
-            Object startX = graphViewport.getProperties().get(AST_DRAG_START_X_KEY);
-            Object startY = graphViewport.getProperties().get(AST_DRAG_START_Y_KEY);
             Object startH = graphViewport.getProperties().get(AST_DRAG_START_H_KEY);
             Object startV = graphViewport.getProperties().get(AST_DRAG_START_V_KEY);
             if (!(startX instanceof Number x)
@@ -1307,6 +1329,28 @@ public final class MiniCDebugPane extends VBox {
             scrollPane.setVvalue(clamp(v.doubleValue() + deltaY / maxY));
             event.consume();
         });
+    }
+
+    private void installGraphAdapterLater(Pane graphViewport) {
+        javafx.application.Platform.runLater(() -> graphViewportAdapter(graphViewport));
+    }
+
+    private MiniCGraphViewportAdapter graphViewportAdapter(Pane graphViewport) {
+        Object existing = graphViewport.getProperties().get(MiniCGraphViewportAdapter.ADAPTER_PROPERTY);
+        if (existing instanceof MiniCGraphViewportAdapter adapter) {
+            return adapter;
+        }
+        ScrollPane scrollPane = nearestScrollPane(graphViewport);
+        if (scrollPane == null) {
+            return null;
+        }
+        MiniCGraphViewportAdapter adapter = new MiniCGraphViewportAdapter(
+                scrollPane,
+                graphViewport,
+                (point, delta) -> setAstZoom(astZoom.getValue() + delta)
+        );
+        graphViewport.getProperties().put(MiniCGraphViewportAdapter.ADAPTER_PROPERTY, adapter);
+        return adapter;
     }
 
     private ScrollPane nearestScrollPane(Node node) {

@@ -2,6 +2,7 @@ package minic.ui;
 
 import javafx.application.Platform;
 import javafx.geometry.Orientation;
+import javafx.geometry.Point2D;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Group;
@@ -22,6 +23,7 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Text;
+import minic.ui.control.MiniCGraphViewportAdapter;
 import minic.uiapi.UiAstNodeVisualDto;
 import minic.uiapi.UiAssemblyLineVisualDto;
 import minic.uiapi.ExplanationTemplates;
@@ -619,6 +621,7 @@ public final class MiniCVisualPane extends VBox {
         graphViewport.setPrefSize(baseWidth, baseHeight);
         configureAstGraphWheelZoom(graphViewport);
         configureAstGraphDrag(graphViewport);
+        installGraphAdapterLater(graphViewport);
         updateZoomedActiveMarker(box, graph, astZoom.getValue());
         astZoom.valueProperty().addListener((observable, oldValue, newValue) ->
                 updateZoomedActiveMarker(box, graph, newValue.doubleValue()));
@@ -655,6 +658,7 @@ public final class MiniCVisualPane extends VBox {
         graphViewport.setPrefSize(baseWidth, baseHeight);
         configureAstGraphWheelZoom(graphViewport);
         configureAstGraphDrag(graphViewport);
+        installGraphAdapterLater(graphViewport);
         updateZoomedActiveMarker(box, graph, astZoom.getValue());
         astZoom.valueProperty().addListener((observable, oldValue, newValue) ->
                 updateZoomedActiveMarker(box, graph, newValue.doubleValue()));
@@ -668,7 +672,13 @@ public final class MiniCVisualPane extends VBox {
             if (event.getDeltaY() == 0) {
                 return;
             }
-            setAstZoom(astZoom.getValue() + (event.getDeltaY() > 0 ? AST_ZOOM_STEP : -AST_ZOOM_STEP));
+            double delta = event.getDeltaY() > 0 ? AST_ZOOM_STEP : -AST_ZOOM_STEP;
+            MiniCGraphViewportAdapter adapter = graphViewportAdapter(graphViewport);
+            if (adapter == null) {
+                setAstZoom(astZoom.getValue() + delta);
+            } else {
+                adapter.zoomAt(new Point2D(event.getX(), event.getY()), delta);
+            }
             event.consume();
         });
     }
@@ -679,25 +689,38 @@ public final class MiniCVisualPane extends VBox {
                 return;
             }
             ScrollPane scrollPane = nearestScrollPane(graphViewport);
-            if (scrollPane == null) {
+            MiniCGraphViewportAdapter adapter = graphViewportAdapter(graphViewport);
+            if (scrollPane == null && adapter == null) {
                 return;
             }
             graphViewport.getProperties().put(AST_DRAG_START_X_KEY, event.getScreenX());
             graphViewport.getProperties().put(AST_DRAG_START_Y_KEY, event.getScreenY());
-            graphViewport.getProperties().put(AST_DRAG_START_H_KEY, scrollPane.getHvalue());
-            graphViewport.getProperties().put(AST_DRAG_START_V_KEY, scrollPane.getVvalue());
+            if (scrollPane != null) {
+                graphViewport.getProperties().put(AST_DRAG_START_H_KEY, scrollPane.getHvalue());
+                graphViewport.getProperties().put(AST_DRAG_START_V_KEY, scrollPane.getVvalue());
+            }
             event.consume();
         });
         graphViewport.addEventFilter(MouseEvent.MOUSE_DRAGGED, event -> {
             if (!event.isSecondaryButtonDown()) {
                 return;
             }
+            Object startX = graphViewport.getProperties().get(AST_DRAG_START_X_KEY);
+            Object startY = graphViewport.getProperties().get(AST_DRAG_START_Y_KEY);
+            MiniCGraphViewportAdapter adapter = graphViewportAdapter(graphViewport);
+            if (adapter != null && startX instanceof Number x && startY instanceof Number y) {
+                double deltaX = x.doubleValue() - event.getScreenX();
+                double deltaY = y.doubleValue() - event.getScreenY();
+                adapter.pan(deltaX, deltaY);
+                graphViewport.getProperties().put(AST_DRAG_START_X_KEY, event.getScreenX());
+                graphViewport.getProperties().put(AST_DRAG_START_Y_KEY, event.getScreenY());
+                event.consume();
+                return;
+            }
             ScrollPane scrollPane = nearestScrollPane(graphViewport);
             if (scrollPane == null) {
                 return;
             }
-            Object startX = graphViewport.getProperties().get(AST_DRAG_START_X_KEY);
-            Object startY = graphViewport.getProperties().get(AST_DRAG_START_Y_KEY);
             Object startH = graphViewport.getProperties().get(AST_DRAG_START_H_KEY);
             Object startV = graphViewport.getProperties().get(AST_DRAG_START_V_KEY);
             if (!(startX instanceof Number x)
@@ -718,6 +741,28 @@ public final class MiniCVisualPane extends VBox {
             scrollPane.setVvalue(clamp(v.doubleValue() + deltaY / maxY));
             event.consume();
         });
+    }
+
+    private void installGraphAdapterLater(Pane graphViewport) {
+        Platform.runLater(() -> graphViewportAdapter(graphViewport));
+    }
+
+    private MiniCGraphViewportAdapter graphViewportAdapter(Pane graphViewport) {
+        Object existing = graphViewport.getProperties().get(MiniCGraphViewportAdapter.ADAPTER_PROPERTY);
+        if (existing instanceof MiniCGraphViewportAdapter adapter) {
+            return adapter;
+        }
+        ScrollPane scrollPane = nearestScrollPane(graphViewport);
+        if (scrollPane == null) {
+            return null;
+        }
+        MiniCGraphViewportAdapter adapter = new MiniCGraphViewportAdapter(
+                scrollPane,
+                graphViewport,
+                (point, delta) -> setAstZoom(astZoom.getValue() + delta)
+        );
+        graphViewport.getProperties().put(MiniCGraphViewportAdapter.ADAPTER_PROPERTY, adapter);
+        return adapter;
     }
 
     private ScrollPane nearestScrollPane(Node node) {
