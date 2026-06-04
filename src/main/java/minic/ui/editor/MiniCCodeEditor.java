@@ -20,6 +20,7 @@ import javafx.scene.shape.Polyline;
 import minic.uiapi.UiDiagnosticDto;
 import minic.uiapi.UiLexerTokenVisualDto;
 import minic.uiapi.UiRealtimeAnalysisDto;
+import minic.uiapi.UiSourceSpanDto;
 import org.fxmisc.flowless.VirtualizedScrollPane;
 import org.fxmisc.richtext.LineNumberFactory;
 import org.fxmisc.richtext.StyleClassedTextArea;
@@ -68,6 +69,8 @@ public final class MiniCCodeEditor extends StackPane {
     private Runnable breakpointChangeAction = () -> {
     };
     private int currentExecutionLine;
+    private int currentExecutionRangeStart = -1;
+    private int currentExecutionRangeEnd = -1;
     private double editorFontSize = DEFAULT_EDITOR_FONT_SIZE;
 
     /**
@@ -117,6 +120,7 @@ public final class MiniCCodeEditor extends StackPane {
      */
     public void setText(String text) {
         input.replaceText(text);
+        clearCurrentExecutionRange();
         render(null);
     }
 
@@ -227,6 +231,40 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     /**
+     * 设置当前 Debug 执行源码范围。
+     *
+     * @param range 源码范围；{@code null} 表示清除
+     */
+    public void setCurrentExecutionRange(UiSourceSpanDto range) {
+        if (range == null) {
+            clearCurrentExecutionRange();
+            render(latestAnalysis);
+        } else {
+            setCurrentExecutionRange(range.startOffset(), range.endOffset());
+        }
+    }
+
+    /**
+     * 设置当前 Debug 执行源码范围。
+     *
+     * @param startOffset 起始 offset
+     * @param endOffset 结束 offset
+     */
+    public void setCurrentExecutionRange(int startOffset, int endOffset) {
+        String source = input.getText();
+        int start = safeOffset(source, startOffset);
+        int end = safeOffset(source, endOffset);
+        if (end <= start) {
+            clearCurrentExecutionRange();
+            render(latestAnalysis);
+            return;
+        }
+        currentExecutionRangeStart = start;
+        currentExecutionRangeEnd = end;
+        render(latestAnalysis);
+    }
+
+    /**
      * 根据实时分析结果重绘高亮。
      *
      * @param analysis 实时分析结果
@@ -262,7 +300,11 @@ public final class MiniCCodeEditor extends StackPane {
                 .toList();
         List<UiDiagnosticDto> diagnostics = analysis == null ? List.of() : analysis.diagnostics();
         if (tokens.isEmpty()) {
-            builder.add(List.of("token-plain"), source.length());
+            if (source.isEmpty()) {
+                builder.add(List.of("token-plain"), 0);
+            } else {
+                addStyledRange(builder, source, 0, source.length(), List.of("token-plain"));
+            }
             return builder.create();
         }
         int cursor = 0;
@@ -270,13 +312,13 @@ public final class MiniCCodeEditor extends StackPane {
             int start = safeOffset(source, token.startOffset());
             int end = safeOffset(source, token.endOffset());
             if (start > cursor) {
-                builder.add(List.of("token-plain"), start - cursor);
+                addStyledRange(builder, source, cursor, start, List.of("token-plain"));
             }
-            builder.add(tokenStyles(token.kind(), overlapsDiagnostic(start, end, diagnostics)), end - start);
+            addStyledRange(builder, source, start, end, tokenStyles(token.kind(), overlapsDiagnostic(start, end, diagnostics)));
             cursor = end;
         }
         if (cursor < source.length()) {
-            builder.add(List.of("token-plain"), source.length() - cursor);
+            addStyledRange(builder, source, cursor, source.length(), List.of("token-plain"));
         }
         if (source.isEmpty()) {
             builder.add(List.of("token-plain"), 0);
@@ -328,6 +370,47 @@ public final class MiniCCodeEditor extends StackPane {
             default -> "token-operator";
         };
         return diagnostic ? List.of(tokenStyle, "diagnostic") : List.of(tokenStyle);
+    }
+
+    private void addStyledRange(
+            StyleSpansBuilder<Collection<String>> builder,
+            String source,
+            int start,
+            int end,
+            Collection<String> baseStyles
+    ) {
+        if (end <= start) {
+            return;
+        }
+        int highlightStart = safeOffset(source, currentExecutionRangeStart);
+        int highlightEnd = safeOffset(source, currentExecutionRangeEnd);
+        if (currentExecutionRangeStart < 0 || highlightEnd <= highlightStart
+                || end <= highlightStart || start >= highlightEnd) {
+            builder.add(baseStyles, end - start);
+            return;
+        }
+        int hotStart = Math.max(start, highlightStart);
+        int hotEnd = Math.min(end, highlightEnd);
+        if (start < hotStart) {
+            builder.add(baseStyles, hotStart - start);
+        }
+        builder.add(withDebugExecutionRange(baseStyles), hotEnd - hotStart);
+        if (hotEnd < end) {
+            builder.add(baseStyles, end - hotEnd);
+        }
+    }
+
+    private Collection<String> withDebugExecutionRange(Collection<String> baseStyles) {
+        ArrayList<String> styles = new ArrayList<>(baseStyles);
+        if (!styles.contains("debug-execution-range")) {
+            styles.add("debug-execution-range");
+        }
+        return styles;
+    }
+
+    private void clearCurrentExecutionRange() {
+        currentExecutionRangeStart = -1;
+        currentExecutionRangeEnd = -1;
     }
 
     private void handleCompletionKeys(KeyEvent event) {

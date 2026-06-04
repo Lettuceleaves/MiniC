@@ -3,6 +3,7 @@ package minic.ui;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.Parent;
+import minic.uiapi.UiSourceSpanDto;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
@@ -82,6 +83,27 @@ class MiniCSourceLoaderViewBreakpointTest {
             compileView.loadCurrentSource();
 
             assertThat(styleAt(editor, 0)).contains("token-keyword");
+        });
+    }
+
+    @Test
+    void marksCurrentExecutionSourceRangeWithoutLosingTokenStyles() throws Exception {
+        startJavafx();
+        runOnFxThread(() -> {
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCSourceLoaderView view = new MiniCSourceLoaderView(viewModel);
+            MiniCCodeEditor editor = editor(view);
+            String source = "int main() { return 7; }";
+            int start = source.indexOf("return");
+            int end = start + "return 7".length();
+            editor.setText(source);
+            editor.render(MiniCRealtimeAnalyzer.analyzeNow("range.mc", source, 1));
+
+            view.setCurrentExecutionRange(new UiSourceSpanDto("range.mc", start, end, 1, start + 1, 1, end + 1));
+
+            assertThat(styleAt(editor, start)).contains("token-keyword", "debug-execution-range");
+            assertThat(styleAt(editor, end - 1)).contains("debug-execution-range");
+            assertThat(styleAt(editor, source.indexOf("main"))).doesNotContain("debug-execution-range");
         });
     }
 

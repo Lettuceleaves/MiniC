@@ -11,6 +11,7 @@ import javafx.scene.shape.Circle;
 import javafx.scene.shape.Rectangle;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.ArrayList;
@@ -563,6 +564,47 @@ class MiniCDebugPaneTest {
         });
     }
 
+    @Test
+    void highlightsCurrentDebugSourceRangeAcrossExpressionSteps() {
+        startJavafx();
+        runOnFxThread(() -> {
+            String source = """
+                    int func1() { return 10; }
+                    int func2() { return 20; }
+                    int main() {
+                        int a = 0;
+                        a = 1 + func1() + func2();
+                        return a;
+                    }
+                    """;
+            MiniCWorkbenchViewModel viewModel = new MiniCWorkbenchViewModel();
+            MiniCDebugPane pane = new MiniCDebugPane(viewModel);
+            viewModel.loadSource("debug-expression-highlight.mc", source);
+            viewModel.startDebug();
+            viewModel.setDebugBreakpoint(5);
+            MiniCCodeEditor editor = editor(pane);
+
+            button(pane, "下个断点").fire();
+
+            int func1Start = source.lastIndexOf("func1()");
+            int func2Start = source.lastIndexOf("func2()");
+            int statementStart = source.indexOf("a = 1");
+            assertThat(styleAt(editor, func1Start)).contains("debug-execution-range");
+            assertThat(styleAt(editor, func2Start)).doesNotContain("debug-execution-range");
+
+            button(pane, "本层下一句").fire();
+
+            assertThat(styleAt(editor, func1Start)).doesNotContain("debug-execution-range");
+            assertThat(styleAt(editor, func2Start)).contains("debug-execution-range");
+
+            button(pane, "本层下一句").fire();
+
+            assertThat(styleAt(editor, statementStart)).contains("debug-execution-range");
+            assertThat(styleAt(editor, func1Start)).contains("debug-execution-range");
+            assertThat(styleAt(editor, func2Start)).contains("debug-execution-range");
+        });
+    }
+
     private static void runOnFxThread(Runnable action) {
         runOnFxThreadWithResult(() -> {
             action.run();
@@ -652,6 +694,45 @@ class MiniCDebugPaneTest {
             }
         }
         throw new AssertionError("did not return from inc call");
+    }
+
+    private static MiniCCodeEditor editor(javafx.scene.Node node) {
+        if (node instanceof MiniCCodeEditor editor) {
+            return editor;
+        }
+        if (node instanceof ScrollPane scrollPane) {
+            return editor(scrollPane.getContent());
+        }
+        if (node instanceof SplitPane splitPane) {
+            for (javafx.scene.Node item : splitPane.getItems()) {
+                MiniCCodeEditor found = editor(item);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        if (node instanceof Parent parent) {
+            for (javafx.scene.Node child : parent.getChildrenUnmodifiable()) {
+                MiniCCodeEditor found = editor(child);
+                if (found != null) {
+                    return found;
+                }
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.Collection<String> styleAt(MiniCCodeEditor editor, int position) {
+        try {
+            Field input = MiniCCodeEditor.class.getDeclaredField("input");
+            input.setAccessible(true);
+            Object area = input.get(editor);
+            return (java.util.Collection<String>) area.getClass().getMethod("getStyleOfChar", int.class)
+                    .invoke(area, position);
+        } catch (ReflectiveOperationException exception) {
+            throw new AssertionError(exception);
+        }
     }
 
     private static Label label(javafx.scene.Node node, String text) {

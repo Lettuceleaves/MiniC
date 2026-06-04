@@ -5,6 +5,7 @@ import javafx.scene.control.Button;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import minic.uiapi.UiSourceSpanDto;
 
 import java.util.List;
 import java.util.Objects;
@@ -156,6 +157,15 @@ public final class MiniCSourceLoaderView extends VBox {
      */
     public void setCurrentExecutionLine(int line) {
         sourceEditor.setCurrentExecutionLine(line);
+    }
+
+    /**
+     * 设置源码编辑器当前执行源码范围。
+     *
+     * @param range 源码范围；{@code null} 表示清除
+     */
+    public void setCurrentExecutionRange(UiSourceSpanDto range) {
+        sourceEditor.setCurrentExecutionRange(range);
     }
 
     private void submitRealtimeSource() {

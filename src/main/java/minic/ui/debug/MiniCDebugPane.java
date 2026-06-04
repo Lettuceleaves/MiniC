@@ -40,6 +40,7 @@ import minic.uiapi.UiDebugVariableDto;
 import minic.uiapi.UiDebugVisualElementDto;
 import minic.uiapi.UiDebugVisualStructureDto;
 import minic.uiapi.UiIrLineVisualDto;
+import minic.uiapi.UiSourceSpanDto;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -158,7 +159,10 @@ public final class MiniCDebugPane extends VBox {
     private Button button(String text, Runnable action, String tooltipText) {
         Button button = new Button(text);
         button.getStyleClass().add("control-secondary");
-        button.setOnAction(event -> action.run());
+        button.setOnAction(event -> {
+            action.run();
+            refresh();
+        });
         if (tooltipText != null && !tooltipText.isBlank()) {
             button.setTooltip(new Tooltip(tooltipText));
         }
@@ -200,6 +204,7 @@ public final class MiniCDebugPane extends VBox {
         if (!viewModel.debugStartedProperty().get() || viewModel.debugStateProperty().get() == null) {
             status.setText("Debug 未启动");
             sourceView.setCurrentExecutionLine(0);
+            sourceView.setCurrentExecutionRange(null);
             setPrimaryContent(scroll(""));
             setSplitContent(scroll(""));
             return;
@@ -209,6 +214,7 @@ public final class MiniCDebugPane extends VBox {
                 + " · step " + viewModel.debugStateProperty().get().currentSnapshot().visibleStepIndex()
                 + " · " + viewModel.debugStateProperty().get().currentSnapshot().functionName());
         sourceView.setCurrentExecutionLine(currentSourceLine());
+        sourceView.setCurrentExecutionRange(currentSourceRange());
         setPrimaryContent(contentFor(selectedViewId, false));
         if (splitVisible) {
             setSplitContent(contentFor(selectedSplitViewId, true));
@@ -1186,6 +1192,13 @@ public final class MiniCDebugPane extends VBox {
             return 0;
         }
         return viewModel.debugStateProperty().get().currentSnapshot().sourceRange().startLine();
+    }
+
+    private UiSourceSpanDto currentSourceRange() {
+        if (viewModel.debugStateProperty().get() == null) {
+            return null;
+        }
+        return viewModel.debugStateProperty().get().currentSnapshot().sourceRange();
     }
 
     private String visualElementText(UiDebugVisualElementDto element) {

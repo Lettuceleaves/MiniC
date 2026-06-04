@@ -307,6 +307,11 @@
     -fx-fill: {{text.body}};
 }
 
+.debug-execution-range {
+    -rtfx-background-color: {{background.running}};
+    -fx-fill: {{text.active}};
+}
+
 .diagnostic-layer {
     -fx-background-color: transparent;
 }
