@@ -23,11 +23,13 @@ public final class MiniCWebApplication {
 
     public MiniCWebServer start() {
         MiniCWebSessionRegistry registry = new MiniCWebSessionRegistry();
+        MiniCWebSocketHub webSocketHub = new MiniCWebSocketHub();
         Javalin app = Javalin.create(javalinConfig -> {
             MiniCWebErrorMapper.register(javalinConfig.routes);
             javalinConfig.routes.get("/api/health", ctx -> ctx.json(Map.of("status", "ok")));
-            new CompileSessionRoutes(registry).register(javalinConfig.routes);
-            new DebugSessionRoutes(registry).register(javalinConfig.routes);
+            javalinConfig.routes.ws("/ws", webSocketHub::register);
+            new CompileSessionRoutes(registry, webSocketHub).register(javalinConfig.routes);
+            new DebugSessionRoutes(registry, webSocketHub).register(javalinConfig.routes);
         });
 
         app.start(config.host(), config.port());

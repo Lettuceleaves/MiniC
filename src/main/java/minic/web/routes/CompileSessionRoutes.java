@@ -5,6 +5,7 @@ import io.javalin.router.JavalinDefaultRoutingApi;
 import minic.uiapi.MiniCObservationApi;
 import minic.uiapi.UiControlResultDto;
 import minic.web.MiniCWebSessionRegistry;
+import minic.web.MiniCWebSocketHub;
 import minic.web.dto.WebSessionDtos.CommandInputRequest;
 import minic.web.dto.WebSessionDtos.CompileSnapshotResponse;
 import minic.web.dto.WebSessionDtos.CreateSessionRequest;
@@ -18,9 +19,11 @@ public final class CompileSessionRoutes {
     private static final int RUN_TO_EXECUTION_GUARD = 10000;
 
     private final MiniCWebSessionRegistry registry;
+    private final MiniCWebSocketHub webSocketHub;
 
-    public CompileSessionRoutes(MiniCWebSessionRegistry registry) {
+    public CompileSessionRoutes(MiniCWebSessionRegistry registry, MiniCWebSocketHub webSocketHub) {
         this.registry = Objects.requireNonNull(registry, "registry");
+        this.webSocketHub = Objects.requireNonNull(webSocketHub, "webSocketHub");
     }
 
     public void register(JavalinDefaultRoutingApi routes) {
@@ -42,7 +45,10 @@ public final class CompileSessionRoutes {
     }
 
     private void closeSession(Context context) {
-        context.json(registry.closeCompileSession(sessionId(context)));
+        String sessionId = sessionId(context);
+        var closed = registry.closeCompileSession(sessionId);
+        webSocketHub.publish("session.closed", "compile", sessionId, closed.version());
+        context.json(closed);
     }
 
     private void updateSource(Context context) {
@@ -50,20 +56,24 @@ public final class CompileSessionRoutes {
         String sessionId = sessionId(context);
         registry.updateCompileSource(sessionId, request.sourceName(), request.sourceText());
         registry.startCompileSession(sessionId);
+        webSocketHub.publish("compile.state.changed", "compile", sessionId, registry.compileVersion(sessionId));
         context.json(snapshot(sessionId));
     }
 
     private void startSession(Context context) {
         String sessionId = sessionId(context);
         registry.startCompileSession(sessionId);
+        webSocketHub.publish("compile.state.changed", "compile", sessionId, registry.compileVersion(sessionId));
         context.json(snapshot(sessionId));
     }
 
     private void runCommand(Context context) {
         String command = context.pathParam("command");
         CommandInputRequest input = commandInput(context);
-        UiControlResultDto result = registry.commandCompileSession(sessionId(context),
+        String sessionId = sessionId(context);
+        UiControlResultDto result = registry.commandCompileSession(sessionId,
                 api -> runCompileCommand(api, command, input));
+        webSocketHub.publish("compile.state.changed", "compile", sessionId, registry.compileVersion(sessionId));
         context.json(result);
     }
 

@@ -5,6 +5,7 @@ import io.javalin.router.JavalinDefaultRoutingApi;
 import minic.uiapi.MiniCDebugApi;
 import minic.uiapi.UiDebugStateDto;
 import minic.web.MiniCWebSessionRegistry;
+import minic.web.MiniCWebSocketHub;
 import minic.web.dto.WebSessionDtos.BreakpointRequest;
 import minic.web.dto.WebSessionDtos.CreateSessionRequest;
 import minic.web.dto.WebSessionDtos.DebugSnapshotResponse;
@@ -16,9 +17,11 @@ import java.util.Objects;
  */
 public final class DebugSessionRoutes {
     private final MiniCWebSessionRegistry registry;
+    private final MiniCWebSocketHub webSocketHub;
 
-    public DebugSessionRoutes(MiniCWebSessionRegistry registry) {
+    public DebugSessionRoutes(MiniCWebSessionRegistry registry, MiniCWebSocketHub webSocketHub) {
         this.registry = Objects.requireNonNull(registry, "registry");
+        this.webSocketHub = Objects.requireNonNull(webSocketHub, "webSocketHub");
     }
 
     public void register(JavalinDefaultRoutingApi routes) {
@@ -64,7 +67,10 @@ public final class DebugSessionRoutes {
     }
 
     private void closeSession(Context context) {
-        context.json(registry.closeDebugSession(sessionId(context)));
+        String sessionId = sessionId(context);
+        var closed = registry.closeDebugSession(sessionId);
+        webSocketHub.publish("session.closed", "debug", sessionId, closed.version());
+        context.json(closed);
     }
 
     private void updateSource(Context context) {
@@ -72,12 +78,14 @@ public final class DebugSessionRoutes {
         String sessionId = sessionId(context);
         registry.updateDebugSource(sessionId, request.sourceName(), request.sourceText());
         registry.startDebugSession(sessionId);
+        webSocketHub.publish("debug.state.changed", "debug", sessionId, registry.debugVersion(sessionId));
         context.json(snapshot(sessionId));
     }
 
     private void startSession(Context context) {
         String sessionId = sessionId(context);
         registry.startDebugSession(sessionId);
+        webSocketHub.publish("debug.state.changed", "debug", sessionId, registry.debugVersion(sessionId));
         context.json(snapshot(sessionId));
     }
 
@@ -92,28 +100,36 @@ public final class DebugSessionRoutes {
 
     private void addBreakpoint(Context context, int requestedLine) {
         int line = requirePositiveLine(requestedLine);
-        UiDebugStateDto state = registry.commandDebugSession(sessionId(context), api -> api.setBreakpoint(line));
+        String sessionId = sessionId(context);
+        UiDebugStateDto state = registry.commandDebugSession(sessionId, api -> api.setBreakpoint(line));
+        webSocketHub.publish("debug.state.changed", "debug", sessionId, registry.debugVersion(sessionId));
         context.json(state);
     }
 
     private void removeBreakpoint(Context context) {
         int line = requirePositiveLine(parseLine(context.pathParam("line")));
-        UiDebugStateDto state = registry.commandDebugSession(sessionId(context), api -> api.clearBreakpoint(line));
+        String sessionId = sessionId(context);
+        UiDebugStateDto state = registry.commandDebugSession(sessionId, api -> api.clearBreakpoint(line));
+        webSocketHub.publish("debug.state.changed", "debug", sessionId, registry.debugVersion(sessionId));
         context.json(state);
     }
 
     private void runCommand(Context context) {
         String command = context.pathParam("command");
-        UiDebugStateDto state = registry.commandDebugSession(sessionId(context),
+        String sessionId = sessionId(context);
+        UiDebugStateDto state = registry.commandDebugSession(sessionId,
                 api -> runDebugCommand(api, command));
+        webSocketHub.publish("debug.state.changed", "debug", sessionId, registry.debugVersion(sessionId));
         context.json(state);
     }
 
     private void runCommandFromPathAlias(Context context) {
         String path = context.path();
         String command = path.substring(path.lastIndexOf('/') + 1);
-        UiDebugStateDto state = registry.commandDebugSession(sessionId(context),
+        String sessionId = sessionId(context);
+        UiDebugStateDto state = registry.commandDebugSession(sessionId,
                 api -> runDebugCommand(api, command));
+        webSocketHub.publish("debug.state.changed", "debug", sessionId, registry.debugVersion(sessionId));
         context.json(state);
     }
 
