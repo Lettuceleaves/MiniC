@@ -9,6 +9,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.ScrollEvent;
 import javafx.stage.Stage;
+import minic.color.ThemeCssGenerator;
 import minic.settings.MiniCSettings;
 import minic.settings.MiniCSettingsPane;
 import minic.ui.control.MiniCWorkbenchControlHub;
@@ -54,6 +55,11 @@ class MiniCSettingsInteractionRegressionTest {
             assertThat(MiniCSettings.uiScale()).isEqualTo(MiniCSettings.maxUiScale());
             MiniCSettings.setUiScale(MiniCSettings.minUiScale() / 4);
             assertThat(MiniCSettings.uiScale()).isEqualTo(MiniCSettings.minUiScale());
+
+            MiniCSettings.setUiScale(1.25);
+            assertThat(ThemeCssGenerator.generate())
+                    .contains("-fx-font-size: 16.25px")
+                    .contains("-fx-pref-width: 60px");
 
             MiniCSettings.setGraphZoomStep(MiniCSettings.maxGraphZoomStep() * 4);
             assertThat(MiniCSettings.graphZoomStep()).isEqualTo(MiniCSettings.maxGraphZoomStep());
@@ -256,8 +262,8 @@ class MiniCSettingsInteractionRegressionTest {
 
             assertThat(beforeStage.get()).isEqualTo("source");
             assertThat(afterStage.get()).isNotEqualTo("source");
-            assertThat(rootScale.get()).isEqualTo(1.25);
-            assertThat(rootScaleAfterChange.get()).isEqualTo(1.1);
+            assertThat(rootScale.get()).isEqualTo(1.0);
+            assertThat(rootScaleAfterChange.get()).isEqualTo(1.0);
         } finally {
             if (stageRef.get() != null) {
                 runFx(() -> stageRef.get().close());

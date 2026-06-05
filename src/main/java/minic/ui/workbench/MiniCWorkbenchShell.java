@@ -1,6 +1,4 @@
 package minic.ui;
-
-import javafx.application.Platform;
 import javafx.scene.Parent;
 import javafx.geometry.Point2D;
 import javafx.scene.control.Button;
@@ -42,9 +40,6 @@ import java.util.Objects;
  * MiniC Visual Workbench 的 VS Code 风格外壳。
  */
 public final class MiniCWorkbenchShell {
-    private static final double ACTIVITY_BAR_WIDTH = 48;
-    private static final double SIDEBAR_WIDTH = 260;
-    private static final double INSPECTOR_WIDTH = 360;
     private static final double TEXT_ZOOM_STEP = 1.0;
     private static final double VIEWPORT_KEY_SCROLL_DELTA = 48.0;
     private static final List<String> COMPILER_SHORTCUT_ACTIONS = List.of(
@@ -102,8 +97,6 @@ public final class MiniCWorkbenchShell {
         root.setLeft(activityBar());
         root.setCenter(sectionContent());
         root.setBottom(statusBar());
-        applyUiScale();
-        MiniCSettings.setUiScaleChangeListener(this::applyUiScale);
         root.addEventFilter(KeyEvent.KEY_PRESSED, this::handleKeyPressed);
         root.addEventFilter(KeyEvent.KEY_RELEASED, this::handleKeyReleased);
         root.addEventFilter(ScrollEvent.SCROLL, this::handleShortcut);
@@ -113,7 +106,6 @@ public final class MiniCWorkbenchShell {
     private VBox activityBar() {
         VBox activityBar = new VBox(6);
         activityBar.getStyleClass().add("activity-bar");
-        lockWidth(activityBar, ACTIVITY_BAR_WIDTH);
         activityBar.getChildren().addAll(
                 activityItem(ActivitySection.CODE),
                 activityItem(ActivitySection.DEBUG),
@@ -204,8 +196,6 @@ public final class MiniCWorkbenchShell {
         VBox sidebar = sidebar();
         editor = editorArea();
         VBox inspector = new MiniCInspectorView(viewModel, controlHub);
-        lockWidth(sidebar, SIDEBAR_WIDTH);
-        lockWidth(inspector, INSPECTOR_WIDTH);
         editor.setMinWidth(0);
         editor.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(editor, Priority.ALWAYS);
@@ -546,28 +536,6 @@ public final class MiniCWorkbenchShell {
         model.loadSource(path == null ? name : path.toString(), source);
         model.sourceNameProperty().addListener((observable, oldValue, newValue) -> refreshTabs());
         documents.add(new DocumentTab(name, path, model));
-    }
-
-    private void lockWidth(Region region, double width) {
-        region.setMinWidth(width);
-        region.setPrefWidth(width);
-        region.setMaxWidth(width);
-    }
-
-    private void applyUiScale() {
-        if (root == null) {
-            return;
-        }
-        Runnable apply = () -> {
-            double scale = MiniCSettings.uiScale();
-            root.setScaleX(scale);
-            root.setScaleY(scale);
-        };
-        if (Platform.isFxApplicationThread()) {
-            apply.run();
-        } else {
-            Platform.runLater(apply);
-        }
     }
 
     private void handleKeyPressed(KeyEvent event) {

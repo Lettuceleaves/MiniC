@@ -23,6 +23,7 @@ public final class ThemeManager {
         scene = target;
         ThemeRegistry.setRefreshCallback(ThemeManager::applyStylesheet);
         MiniCSettings.load();
+        MiniCSettings.setUiScaleChangeListener(ThemeManager::applyStylesheet);
         currentThemeName = MiniCSettings.theme();
         refresh();
     }
