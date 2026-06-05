@@ -59,6 +59,24 @@ $env:GRADLE_USER_HOME='E:\projects\MiniC\.gradle-home'
 
 `runUi` 是前台 JavaFX 进程，窗口未关闭前 Gradle 会一直显示 `:runUi EXECUTING`，这是正常状态；关闭 UI 窗口后任务才会结束。
 
+## 启动 Web Workbench
+
+生产模式由 Gradle 构建前端资源并从同一个 Javalin origin 提供 `/api`、`/ws` 和 Workbench 静态页面：
+
+```powershell
+$env:JAVA_HOME='E:\projects\MiniC\.local\tools\jdk-21.0.10+7'
+$env:PATH='E:\projects\MiniC\.local\tools\jdk-21.0.10+7\bin;' + $env:PATH
+$env:GRADLE_USER_HOME='E:\projects\MiniC\.gradle-home'
+.\gradlew.bat runWeb
+```
+
+前端开发模式使用 Vite 代理到 Java Web Adapter：
+
+```powershell
+cd web
+npm run dev
+```
+
 ## UI API 最小示例
 
 `0.2.0` 已提供不依赖 JavaFX 的 UI 门面：

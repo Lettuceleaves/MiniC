@@ -1,6 +1,7 @@
 package minic.web;
 
 import io.javalin.Javalin;
+import io.javalin.http.staticfiles.Location;
 import minic.web.routes.AnalysisRoutes;
 import minic.web.routes.CompileSessionRoutes;
 import minic.web.routes.DebugSessionRoutes;
@@ -27,6 +28,11 @@ public final class MiniCWebApplication {
         MiniCWebSessionRegistry registry = new MiniCWebSessionRegistry();
         MiniCWebSocketHub webSocketHub = new MiniCWebSocketHub();
         Javalin app = Javalin.create(javalinConfig -> {
+            javalinConfig.staticFiles.add(staticFiles -> {
+                staticFiles.directory = "/minic/web";
+                staticFiles.hostedPath = "/";
+                staticFiles.location = Location.CLASSPATH;
+            });
             MiniCWebErrorMapper.register(javalinConfig.routes);
             javalinConfig.routes.get("/api/health", ctx -> ctx.json(Map.of("status", "ok")));
             javalinConfig.routes.ws("/ws", webSocketHub::register);

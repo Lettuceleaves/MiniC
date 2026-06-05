@@ -36,6 +36,63 @@ tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
+def npmCommand = System.getProperty('os.name').toLowerCase(Locale.ROOT).contains('windows') ? 'npm.cmd' : 'npm'
+def webPackageLock = file('web/package-lock.json')
+def webInstallMarker = file('web/node_modules/.minic-gradle-install.sha256')
+
+def sha256File(File sourceFile) {
+    def digest = java.security.MessageDigest.getInstance('SHA-256')
+    sourceFile.withInputStream { input ->
+        byte[] buffer = new byte[8192]
+        int read
+        while ((read = input.read(buffer)) != -1) {
+            digest.update(buffer, 0, read)
+        }
+    }
+    digest.digest().collect { String.format('%02x', it & 0xff) }.join()
+}
+
+tasks.register('installWeb') {
+    group = 'build'
+    description = 'Install MiniC web frontend dependencies'
+    inputs.file webPackageLock
+    outputs.file webInstallMarker
+    onlyIf {
+        !webInstallMarker.exists() || webInstallMarker.text.trim() != sha256File(webPackageLock)
+    }
+    doLast {
+        exec {
+            workingDir = file('web')
+            commandLine npmCommand, 'ci', '--no-audit', '--progress=false'
+        }
+        webInstallMarker.parentFile.mkdirs()
+        webInstallMarker.text = sha256File(webPackageLock) + System.lineSeparator()
+    }
+}
+
+tasks.register('buildWeb', Exec) {
+    group = 'build'
+    description = 'Build MiniC web frontend assets'
+    dependsOn tasks.named('installWeb')
+    workingDir = file('web')
+    inputs.dir file('web/src')
+    inputs.file file('web/index.html')
+    inputs.file file('web/package-lock.json')
+    inputs.file file('web/package.json')
+    inputs.file file('web/tsconfig.json')
+    inputs.file file('web/tsconfig.node.json')
+    inputs.file file('web/vite.config.ts')
+    outputs.dir file('web/dist')
+    commandLine npmCommand, 'run', 'build'
+}
+
+tasks.named('processResources') {
+    dependsOn tasks.named('buildWeb')
+    from('web/dist') {
+        into 'minic/web'
+    }
+}
+
 application {
     mainClass = 'minic.Main'
 }
@@ -49,14 +106,16 @@ tasks.register('runUi', JavaExec) {
         languageVersion = JavaLanguageVersion.of(21)
     })
     jvmArgs = [
-            '--module-path', configurations.runtimeClasspath.asPath,
-            '--add-modules', javafx.modules.join(','),
             '-Dfile.encoding=UTF-8',
             '-Dsun.stdout.encoding=UTF-8',
             '-Dsun.stderr.encoding=UTF-8',
             '-Duser.language=en',
             '-Duser.country=US'
     ]
+    doFirst {
+        jvmArgs '--module-path', configurations.runtimeClasspath.asPath,
+                '--add-modules', javafx.modules.join(',')
+    }
 }
 
 tasks.register('runWeb', JavaExec) {

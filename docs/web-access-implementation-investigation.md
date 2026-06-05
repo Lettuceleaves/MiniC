@@ -12,6 +12,19 @@
 
 所以这里的 `uiapi` 是“UI 层可消费的 Java 门面和 DTO 边界”，不是网页/HTTP API。若后续要让网页访问 MiniC，应在 `minic.uiapi` 外新增一个独立 Web Adapter，把现有 facade 的命令和 DTO 包装成 HTTP/JSON、SSE 或 WebSocket 协议，而不是让网页直接接触 compiler、runtime、session 或 JavaFX。
 
+## 已实现状态（2026-06-06）
+
+网页访问层已按上述边界落地：
+
+- Java Web Adapter 位于 `minic.web`，通过 Javalin 提供 `/api` REST、`/ws` WebSocket 和生产静态资源服务。
+- Web Adapter 只调用 `minic.uiapi` 门面和 DTO；compiler、runtime、session、uiapi 不反向依赖 `minic.web`。
+- 编译观测、Debug、实时分析、设置读写和主题列表均已通过 HTTP/JSON 暴露。
+- WebSocket 负责 compile/debug/settings 状态变更通知；REST 命令仍是唯一状态变更入口。
+- TypeScript 前端位于 `web/`，使用 React、Vite、TanStack Query、Zustand、Radix、Monaco、React Flow 和 Playwright。
+- Gradle `buildWeb` 构建前端，`processResources` 把 `web/dist` 打入 classpath，`runWeb` 从同一 origin 提供 Workbench 和 API。
+
+当前实现仍保留本文后半部分的风险约束：会话生命周期、并发串行化、结构化错误、依赖方向扫描和截图验收都需要继续作为回归条件维护。
+
 ## 调查范围
 
 本次只读检查了这些区域：

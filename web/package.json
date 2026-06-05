@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint .",
     "test": "vitest run",
-    "test:e2e": "playwright test",
+    "test:e2e": "playwright test tests/workbench.e2e.ts",
+    "test:screenshots": "playwright test tests/screenshots.spec.ts",
     "generate:api": "openapi-typescript ../docs/api/minic-web-openapi.yaml -o src/api/generated/schema.d.ts"
   },
   "dependencies": {

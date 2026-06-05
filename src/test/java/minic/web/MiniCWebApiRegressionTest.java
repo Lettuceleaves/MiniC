@@ -32,6 +32,19 @@ class MiniCWebApiRegressionTest {
     }
 
     @Test
+    void servesBuiltWorkbenchAssetsFromSameOrigin() throws Exception {
+        try (MiniCWebServer server = MiniCWebApplication.create(MiniCWebConfig.testing()).start();
+             HttpClient client = HttpClient.newHttpClient()) {
+            HttpResponse<String> response = get(server, client, "/");
+
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.body())
+                    .contains("<title>MiniC Workbench</title>")
+                    .contains("/assets/");
+        }
+    }
+
+    @Test
     void servesRealtimeAnalysisAndSettingsRoutesWithoutStartingJavaFx() throws Exception {
         withSettingsFile("""
                 {
