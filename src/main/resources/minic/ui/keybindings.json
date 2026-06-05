@@ -99,6 +99,14 @@
     {
       "action": "settings.frameInterval.decrease",
       "keys": ["Ctrl+Alt+["]
+    },
+    {
+      "action": "settings.uiScale.increase",
+      "keys": []
+    },
+    {
+      "action": "settings.uiScale.decrease",
+      "keys": []
     }
   ]
 }

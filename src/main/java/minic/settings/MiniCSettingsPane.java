@@ -173,7 +173,12 @@ public final class MiniCSettingsPane extends VBox {
                 MiniCSettings::frameIntervalMillis,
                 MiniCSettings::minFrameInterval,
                 MiniCSettings::maxFrameInterval,
-                FRAME_INTERVAL_STEP
+                FRAME_INTERVAL_STEP,
+                MiniCSettings::setUiScale,
+                MiniCSettings::uiScale,
+                MiniCSettings::minUiScale,
+                MiniCSettings::maxUiScale,
+                UI_SCALE_STEP_BLOCK
         ));
     }
 

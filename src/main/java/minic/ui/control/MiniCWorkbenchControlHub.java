@@ -14,6 +14,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.DoubleConsumer;
+import java.util.function.DoubleSupplier;
 import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;
 
@@ -42,6 +44,8 @@ public final class MiniCWorkbenchControlHub {
     public static final String SETTINGS_FRAME_INTERVAL_SET = "settings.frameInterval.set";
     public static final String SETTINGS_FRAME_INTERVAL_INCREASE = "settings.frameInterval.increase";
     public static final String SETTINGS_FRAME_INTERVAL_DECREASE = "settings.frameInterval.decrease";
+    public static final String SETTINGS_UI_SCALE_INCREASE = "settings.uiScale.increase";
+    public static final String SETTINGS_UI_SCALE_DECREASE = "settings.uiScale.decrease";
     public static final String VIEWPORT_ZOOM_IN = "viewport.zoom.in";
     public static final String VIEWPORT_ZOOM_OUT = "viewport.zoom.out";
     public static final String VIEWPORT_SCROLL_UP = "viewport.scroll.up";
@@ -151,6 +155,18 @@ public final class MiniCWorkbenchControlHub {
                         commands.minFrameInterval(),
                         commands.maxFrameInterval()
                 )));
+        register(SETTINGS_UI_SCALE_INCREASE, "增加全局缩放", () -> true, () ->
+                commands.uiScaleSetter().accept(clamp(
+                        commands.currentUiScale().getAsDouble() + commands.uiScaleStep(),
+                        commands.minUiScale(),
+                        commands.maxUiScale()
+                )));
+        register(SETTINGS_UI_SCALE_DECREASE, "减少全局缩放", () -> true, () ->
+                commands.uiScaleSetter().accept(clamp(
+                        commands.currentUiScale().getAsDouble() - commands.uiScaleStep(),
+                        commands.minUiScale(),
+                        commands.maxUiScale()
+                )));
     }
 
     public boolean commandEnabled(String commandId) {
@@ -189,6 +205,14 @@ public final class MiniCWorkbenchControlHub {
 
     public boolean decreaseFrameInterval() {
         return execute(SETTINGS_FRAME_INTERVAL_DECREASE);
+    }
+
+    public boolean increaseUiScale() {
+        return execute(SETTINGS_UI_SCALE_INCREASE);
+    }
+
+    public boolean decreaseUiScale() {
+        return execute(SETTINGS_UI_SCALE_DECREASE);
     }
 
     public void handleZoom(Point2D localPoint, double delta) {
@@ -257,6 +281,12 @@ public final class MiniCWorkbenchControlHub {
     private static long clamp(long value, LongSupplier minSupplier, LongSupplier maxSupplier) {
         long min = minSupplier.getAsLong();
         long max = maxSupplier.getAsLong();
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static double clamp(double value, DoubleSupplier minSupplier, DoubleSupplier maxSupplier) {
+        double min = minSupplier.getAsDouble();
+        double max = maxSupplier.getAsDouble();
         return Math.max(min, Math.min(max, value));
     }
 
@@ -366,7 +396,12 @@ public final class MiniCWorkbenchControlHub {
             LongSupplier currentFrameInterval,
             LongSupplier minFrameInterval,
             LongSupplier maxFrameInterval,
-            long frameIntervalStep
+            long frameIntervalStep,
+            DoubleConsumer uiScaleSetter,
+            DoubleSupplier currentUiScale,
+            DoubleSupplier minUiScale,
+            DoubleSupplier maxUiScale,
+            double uiScaleStep
     ) {
         public SettingsCommands {
             Objects.requireNonNull(themeSetter, "themeSetter");
@@ -376,8 +411,15 @@ public final class MiniCWorkbenchControlHub {
             Objects.requireNonNull(currentFrameInterval, "currentFrameInterval");
             Objects.requireNonNull(minFrameInterval, "minFrameInterval");
             Objects.requireNonNull(maxFrameInterval, "maxFrameInterval");
+            Objects.requireNonNull(uiScaleSetter, "uiScaleSetter");
+            Objects.requireNonNull(currentUiScale, "currentUiScale");
+            Objects.requireNonNull(minUiScale, "minUiScale");
+            Objects.requireNonNull(maxUiScale, "maxUiScale");
             if (frameIntervalStep < 1) {
                 throw new IllegalArgumentException("frameIntervalStep must be positive");
+            }
+            if (uiScaleStep <= 0) {
+                throw new IllegalArgumentException("uiScaleStep must be positive");
             }
         }
     }

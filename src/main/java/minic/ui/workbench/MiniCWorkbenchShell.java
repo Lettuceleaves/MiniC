@@ -3,6 +3,7 @@ import javafx.scene.Parent;
 import javafx.geometry.Point2D;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
@@ -54,7 +55,9 @@ public final class MiniCWorkbenchShell {
             MiniCWorkbenchControlHub.SETTINGS_THEME_NEXT,
             MiniCWorkbenchControlHub.SETTINGS_THEME_PREVIOUS,
             MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_INCREASE,
-            MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_DECREASE
+            MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_DECREASE,
+            MiniCWorkbenchControlHub.SETTINGS_UI_SCALE_INCREASE,
+            MiniCWorkbenchControlHub.SETTINGS_UI_SCALE_DECREASE
     );
     private final ArrayList<DocumentTab> documents = new ArrayList<>();
     private final MiniCKeyBindingConfig keyBindings = MiniCKeyBindingConfig.loadDefault();
@@ -158,13 +161,22 @@ public final class MiniCWorkbenchShell {
             visualPane = null;
             sourcePane = null;
             mainContent = null;
-            return new MiniCSettingsPane();
+            return settingsPage();
         }
         body = null;
         visualPane = null;
         sourcePane = null;
         mainContent = null;
         return placeholderPage(activeSection);
+    }
+
+    private ScrollPane settingsPage() {
+        ScrollPane scroll = new ScrollPane(new MiniCSettingsPane());
+        scroll.getStyleClass().add("settings-scroll");
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.ALWAYS);
+        return scroll;
     }
 
     private VBox placeholderPage(ActivitySection section) {
@@ -697,7 +709,12 @@ public final class MiniCWorkbenchShell {
                 MiniCSettings::frameIntervalMillis,
                 MiniCSettings::minFrameInterval,
                 MiniCSettings::maxFrameInterval,
-                50
+                50,
+                MiniCSettings::setUiScale,
+                MiniCSettings::uiScale,
+                MiniCSettings::minUiScale,
+                MiniCSettings::maxUiScale,
+                0.05
         ));
     }
 

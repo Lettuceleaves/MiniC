@@ -449,6 +449,8 @@ public final class MiniCKeyBindingConfig {
         labels.put(MiniCWorkbenchControlHub.SETTINGS_THEME_PREVIOUS, "设置 · 上一个主题");
         labels.put(MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_INCREASE, "设置 · 增加帧间隔");
         labels.put(MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_DECREASE, "设置 · 减少帧间隔");
+        labels.put(MiniCWorkbenchControlHub.SETTINGS_UI_SCALE_INCREASE, "设置 · 放大全局界面");
+        labels.put(MiniCWorkbenchControlHub.SETTINGS_UI_SCALE_DECREASE, "设置 · 缩小全局界面");
         return labels;
     }
 
