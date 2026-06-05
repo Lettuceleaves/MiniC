@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
 
 :root {
   color: #e6e9ef;
@@ -34,6 +35,13 @@ button {
   overflow: hidden;
 }
 
+.workbench-tabs {
+  display: grid;
+  grid-template-rows: 36px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+}
+
 .activity-bar {
   grid-row: 1 / span 2;
   display: flex;
@@ -63,25 +71,69 @@ button {
 .activity-button:hover,
 .activity-button[data-active="true"],
 .icon-command:hover {
-  border-color: #4c7bd9;
+  border-color: #3fa7a0;
   color: #f4f7fb;
-  background: #283044;
+  background: #263d42;
 }
 
-.workbench-main {
-  display: grid;
-  grid-template-columns: minmax(360px, 1.2fr) minmax(320px, 0.8fr);
+.document-tabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 10px;
+  border-bottom: 1px solid #2f3339;
+  background: #24262b;
+}
+
+.document-tabs [role="tablist"] {
+  display: flex;
+  gap: 4px;
+}
+
+.document-tabs [role="tab"] {
+  height: 28px;
+  min-width: 84px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #aeb6c2;
+  cursor: pointer;
+}
+
+.document-tabs [role="tab"][data-state="active"] {
+  border-color: #3fa7a0;
+  color: #f4f7fb;
+  background: #1c3439;
+}
+
+.workbench-content {
   min-width: 0;
   min-height: 0;
 }
 
-.editor-region,
-.visual-region {
+.workbench-grid {
   display: grid;
-  grid-template-rows: 36px minmax(0, 1fr);
+  grid-template-columns: minmax(380px, 1.1fr) minmax(260px, 0.45fr) minmax(320px, 0.9fr);
+  grid-template-rows: minmax(0, 1fr) 150px;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.source-editor,
+.visual-renderer,
+.control-panel,
+.settings-pane {
   min-width: 0;
   min-height: 0;
   border-right: 1px solid #2f3339;
+}
+
+.source-editor,
+.visual-renderer {
+  display: grid;
+  grid-template-rows: 36px minmax(0, 1fr);
 }
 
 .panel-toolbar {
@@ -93,6 +145,20 @@ button {
   background: #202329;
   color: #cbd3df;
   font-size: 13px;
+}
+
+.source-textarea {
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border: 0;
+  outline: 0;
+  padding: 18px 20px;
+  background: #14161a;
+  color: #eef3f8;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .editor-canvas {
@@ -124,13 +190,127 @@ button {
   height: 32px;
 }
 
+.control-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: #1d2025;
+}
+
+.command-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 32px;
+  border: 1px solid #3a4048;
+  padding: 0 10px;
+  background: #252a31;
+  color: #e6e9ef;
+  cursor: pointer;
+}
+
+.command-button:hover:not(:disabled) {
+  border-color: #d4a64a;
+  background: #332d1e;
+}
+
+.command-button:disabled {
+  color: #6f7784;
+  cursor: not-allowed;
+}
+
+.inspector-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 7px 10px;
+  margin: 4px 0 0;
+  font-size: 13px;
+}
+
+.inspector-list dt {
+  color: #9ea8b6;
+}
+
+.inspector-list dd {
+  margin: 0;
+  color: #f1f4f8;
+  overflow-wrap: anywhere;
+}
+
+.visual-renderer {
+  background: #171b20;
+}
+
+.visual-list {
+  margin: 0;
+  padding: 14px 28px;
+  color: #dfe6ef;
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 13px;
+}
+
+.graph-canvas,
+.graph-fallback {
+  min-width: 0;
+  min-height: 0;
+}
+
+.graph-fallback,
+.empty-state {
+  display: grid;
+  place-items: center;
+  color: #aeb6c2;
+  background: #171b20;
+}
+
+.bottom-panel {
+  grid-column: 1 / -1;
+  overflow: auto;
+  border-top: 1px solid #2f3339;
+  background: #111316;
+  padding: 10px 12px;
+  color: #c8d1de;
+  font-size: 13px;
+}
+
+.number-field,
+.settings-grid label {
+  display: grid;
+  gap: 6px;
+  color: #aeb6c2;
+  font-size: 13px;
+}
+
+.number-field input,
+.settings-grid input,
+.settings-grid select {
+  min-height: 32px;
+  border: 1px solid #3a4048;
+  background: #15181d;
+  color: #eef3f8;
+  padding: 0 9px;
+}
+
+.settings-pane {
+  padding: 18px;
+  background: #1b1e23;
+}
+
+.settings-grid {
+  display: grid;
+  max-width: 520px;
+  gap: 14px;
+}
+
 .status-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 10px;
   border-top: 1px solid #2f3339;
-  background: #22426d;
+  background: #19504e;
   color: #f4f7fb;
   font-size: 12px;
 }
@@ -144,12 +324,13 @@ button {
 }
 
 @media (max-width: 820px) {
-  .workbench-main {
+  .workbench-grid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(320px, 1fr) minmax(260px, 0.75fr);
+    grid-template-rows: minmax(280px, 1fr) auto minmax(260px, 0.85fr) 140px;
   }
 
-  .visual-region {
+  .visual-renderer,
+  .control-panel {
     border-top: 1px solid #2f3339;
   }
 }

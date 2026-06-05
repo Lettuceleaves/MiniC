@@ -18,6 +18,7 @@ export type CompileCommandResponse = OperationResponse<operations["runCompileCom
 export type DebugSnapshotResponse = OperationResponse<operations["getDebugSnapshot"], 200>;
 export type DebugStateResponse = OperationResponse<operations["getDebugState"], 200>;
 export type DebugCommandResponse = OperationResponse<operations["runDebugCommand"], 200>;
+export type BreakpointRequest = OperationRequest<operations["addDebugBreakpoint"]>;
 export type RealtimeAnalysisRequest = OperationRequest<operations["analyzeRealtime"]>;
 export type RealtimeAnalysisResponse = OperationResponse<operations["analyzeRealtime"], 200>;
 export type SettingsSnapshot = OperationResponse<operations["getSettings"], 200>;
@@ -47,6 +48,8 @@ export type MiniCClient = {
   createDebugSession: (request: CreateSessionRequest) => Promise<SessionCreatedResponse>;
   updateDebugSource: (sessionId: string, request: CreateSessionRequest) => Promise<DebugSnapshotResponse>;
   startDebugSession: (sessionId: string) => Promise<DebugSnapshotResponse>;
+  addDebugBreakpoint: (sessionId: string, line: number) => Promise<DebugStateResponse>;
+  removeDebugBreakpoint: (sessionId: string, line: number) => Promise<DebugStateResponse>;
   runDebugCommand: (sessionId: string, command: string) => Promise<DebugCommandResponse>;
   getDebugState: (sessionId: string) => Promise<DebugStateResponse>;
   getDebugSnapshot: (sessionId: string) => Promise<DebugSnapshotResponse>;
@@ -129,6 +132,14 @@ export function createMiniCClient(options: { baseUrl?: string } = {}): MiniCClie
       }),
     startDebugSession: (sessionId) =>
       request<DebugSnapshotResponse>(`/api/debug-sessions/${encodePath(sessionId)}/start`, { method: "POST" }),
+    addDebugBreakpoint: (sessionId, line) =>
+      request<DebugStateResponse>(`/api/debug-sessions/${encodePath(sessionId)}/breakpoints/${String(line)}`, {
+        method: "POST",
+      }),
+    removeDebugBreakpoint: (sessionId, line) =>
+      request<DebugStateResponse>(`/api/debug-sessions/${encodePath(sessionId)}/breakpoints/${String(line)}`, {
+        method: "DELETE",
+      }),
     runDebugCommand: (sessionId, command) =>
       request<DebugCommandResponse>(`/api/debug-sessions/${encodePath(sessionId)}/${encodePath(command)}`, {
         method: "POST",

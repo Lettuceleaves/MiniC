@@ -1,6 +1,6 @@
 import { createRootRoute, createRoute, createRouter, Outlet, RouterProvider } from "@tanstack/react-router";
 
-import { WorkbenchShell } from "../app/App";
+import { WorkbenchLayout } from "../layouts/workbench/WorkbenchLayout";
 
 const rootRoute = createRootRoute({
   component: () => <Outlet />,
@@ -9,7 +9,7 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: WorkbenchShell,
+  component: WorkbenchLayout,
 });
 
 const routeTree = rootRoute.addChildren([indexRoute]);
