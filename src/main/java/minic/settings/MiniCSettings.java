@@ -13,6 +13,9 @@ public final class MiniCSettings {
     private static final long DEFAULT_FRAME_INTERVAL = 1000;
     private static final long MIN_FRAME_INTERVAL = 1;
     private static final long MAX_FRAME_INTERVAL = 1000;
+    private static final double DEFAULT_UI_SCALE = 1.0;
+    private static final double MIN_UI_SCALE = 0.75;
+    private static final double MAX_UI_SCALE = 1.5;
     private static final double DEFAULT_GRAPH_ZOOM_STEP = 0.025;
     private static final double MIN_GRAPH_ZOOM_STEP = 0.001;
     private static final double MAX_GRAPH_ZOOM_STEP = 0.25;
@@ -20,6 +23,7 @@ public final class MiniCSettings {
     private static final Map<String, String> DEFAULT_VALUES = defaultValues();
     private static final Map<String, String> values = new LinkedHashMap<>();
     private static Runnable frameIntervalChangeListener;
+    private static Runnable uiScaleChangeListener;
 
     private MiniCSettings() {}
 
@@ -83,6 +87,40 @@ public final class MiniCSettings {
 
     public static long maxFrameInterval() {
         return MAX_FRAME_INTERVAL;
+    }
+
+    public static double uiScale() {
+        String raw = values.get("uiScale");
+        if (raw == null) {
+            return DEFAULT_UI_SCALE;
+        }
+        try {
+            double value = Double.parseDouble(raw);
+            return Math.max(MIN_UI_SCALE, Math.min(MAX_UI_SCALE, value));
+        } catch (NumberFormatException exception) {
+            return DEFAULT_UI_SCALE;
+        }
+    }
+
+    public static void setUiScale(double scale) {
+        double clamped = Math.max(MIN_UI_SCALE, Math.min(MAX_UI_SCALE, scale));
+        values.put("uiScale", String.valueOf(clamped));
+        save();
+        if (uiScaleChangeListener != null) {
+            uiScaleChangeListener.run();
+        }
+    }
+
+    public static void setUiScaleChangeListener(Runnable listener) {
+        uiScaleChangeListener = listener;
+    }
+
+    public static double minUiScale() {
+        return MIN_UI_SCALE;
+    }
+
+    public static double maxUiScale() {
+        return MAX_UI_SCALE;
     }
 
     public static double graphZoomStep() {
@@ -165,6 +203,7 @@ public final class MiniCSettings {
         Map<String, String> defaults = new LinkedHashMap<>();
         defaults.put("theme", DEFAULT_THEME);
         defaults.put("frameInterval", String.valueOf(DEFAULT_FRAME_INTERVAL));
+        defaults.put("uiScale", String.valueOf(DEFAULT_UI_SCALE));
         defaults.put("graphZoomStep", String.valueOf(DEFAULT_GRAPH_ZOOM_STEP));
         defaults.put("graphZoomAnchor", DEFAULT_GRAPH_ZOOM_ANCHOR);
         return defaults;

@@ -1,6 +1,7 @@
 {
   "theme": "dark",
   "frameInterval": 1000,
+  "uiScale": 1.0,
   "graphZoomStep": 0.025,
   "graphZoomAnchor": "mouse"
 }

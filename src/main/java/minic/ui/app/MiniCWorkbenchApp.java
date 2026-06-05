@@ -5,6 +5,7 @@ import javafx.scene.Scene;
 import javafx.stage.Stage;
 
 import minic.color.ThemeManager;
+import minic.settings.MiniCSettings;
 
 /**
  * MiniC Visual Workbench 的 JavaFX 应用入口。
@@ -41,6 +42,7 @@ public final class MiniCWorkbenchApp extends Application {
      */
     @Override
     public void start(Stage stage) {
+        MiniCSettings.load();
         MiniCWorkbenchShell shell = new MiniCWorkbenchShell(new MiniCWorkbenchViewModel());
         Scene scene = new Scene(shell.createRoot(), DEFAULT_WIDTH, DEFAULT_HEIGHT);
         ThemeManager.bind(scene);

@@ -28,6 +28,7 @@ import java.util.Optional;
 public final class MiniCSettingsPane extends VBox {
     private static final long FRAME_INTERVAL_STEP = 50;
     private static final double GRAPH_ZOOM_STEP_BLOCK = 0.005;
+    private static final double UI_SCALE_STEP_BLOCK = 0.05;
     private final ObservableList<String> themeNames = FXCollections.observableArrayList();
     private final ComboBox<String> themeCombo = new ComboBox<>(themeNames);
     private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
@@ -88,6 +89,28 @@ public final class MiniCSettingsPane extends VBox {
 
         HBox intervalRow = new HBox(10, intervalSlider, intervalValue);
 
+        Label uiScaleLabel = new Label("全局缩放");
+        uiScaleLabel.getStyleClass().add("activity-placeholder-text");
+
+        Slider uiScaleSlider = new Slider(
+                MiniCSettings.minUiScale(),
+                MiniCSettings.maxUiScale(),
+                MiniCSettings.uiScale());
+        uiScaleSlider.setBlockIncrement(UI_SCALE_STEP_BLOCK);
+        uiScaleSlider.getStyleClass().add("control-secondary");
+        uiScaleSlider.setAccessibleText("setting:uiScale");
+
+        Label uiScaleValue = new Label(formatPercent(MiniCSettings.uiScale()));
+        uiScaleValue.getStyleClass().add("body-text");
+        uiScaleValue.setMinWidth(80);
+
+        uiScaleSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
+            MiniCSettings.setUiScale(roundUiScale(newVal.doubleValue()));
+            uiScaleValue.setText(formatPercent(MiniCSettings.uiScale()));
+        });
+
+        HBox uiScaleRow = new HBox(10, uiScaleSlider, uiScaleValue);
+
         Label zoomLabel = new Label("图形缩放灵敏度");
         zoomLabel.getStyleClass().add("activity-placeholder-text");
 
@@ -134,6 +157,7 @@ public final class MiniCSettingsPane extends VBox {
                 title,
                 themeLabel, themeRow,
                 intervalLabel, intervalRow,
+                uiScaleLabel, uiScaleRow,
                 zoomLabel, zoomRow,
                 zoomAnchorLabel, zoomAnchorCombo,
                 keyBindingLabel, keyBindingRows, keyBindingWarning
@@ -354,6 +378,14 @@ public final class MiniCSettingsPane extends VBox {
 
     private String formatZoomStep(double value) {
         return String.format(java.util.Locale.ROOT, "%.3f", value);
+    }
+
+    private static double roundUiScale(double value) {
+        return Math.round(value * 100.0) / 100.0;
+    }
+
+    private static String formatPercent(double value) {
+        return String.format(java.util.Locale.ROOT, "%.0f%%", value * 100.0);
     }
 
     private static boolean isModifier(KeyCode code) {

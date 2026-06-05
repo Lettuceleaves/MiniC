@@ -1,8 +1,10 @@
 package minic.ui;
 
 import javafx.application.Platform;
+import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.Slider;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.ScrollEvent;
@@ -40,11 +42,18 @@ class MiniCSettingsInteractionRegressionTest {
                     }
                     """, StandardCharsets.UTF_8);
             MiniCSettings.load();
+            assertThat(MiniCSettings.uiScale()).isEqualTo(1.0);
             assertThat(MiniCSettings.graphZoomStep()).isEqualTo(0.025);
             assertThat(MiniCSettings.graphZoomAnchor()).isEqualTo("mouse");
             assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
+                    .contains("\"uiScale\": 1.0")
                     .contains("\"graphZoomStep\": 0.025")
                     .contains("\"graphZoomAnchor\": \"mouse\"");
+
+            MiniCSettings.setUiScale(MiniCSettings.maxUiScale() * 4);
+            assertThat(MiniCSettings.uiScale()).isEqualTo(MiniCSettings.maxUiScale());
+            MiniCSettings.setUiScale(MiniCSettings.minUiScale() / 4);
+            assertThat(MiniCSettings.uiScale()).isEqualTo(MiniCSettings.minUiScale());
 
             MiniCSettings.setGraphZoomStep(MiniCSettings.maxGraphZoomStep() * 4);
             assertThat(MiniCSettings.graphZoomStep()).isEqualTo(MiniCSettings.maxGraphZoomStep());
@@ -112,9 +121,16 @@ class MiniCSettingsInteractionRegressionTest {
     @Test
     void settingsPaneCapturesOverridesAndRejectsConflicts() throws Exception {
         ensureFxStarted();
+        String originalSettings = backup(SETTINGS_FILE);
         String original = backup(KEY_BINDINGS_FILE);
         AtomicReference<Stage> stageRef = new AtomicReference<>();
         try {
+            Files.writeString(SETTINGS_FILE, """
+                    {
+                      "theme": "light"
+                    }
+                    """, StandardCharsets.UTF_8);
+            MiniCSettings.load();
             Files.deleteIfExists(KEY_BINDINGS_FILE);
             AtomicReference<MiniCSettingsPane> paneRef = new AtomicReference<>();
 
@@ -128,6 +144,11 @@ class MiniCSettingsInteractionRegressionTest {
             });
 
             Button zoomOut = lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT);
+            Slider uiScale = lookupSlider(paneRef.get(), "setting:uiScale");
+            assertThat(uiScale.getValue()).isEqualTo(1.0);
+            runFx(() -> uiScale.setValue(1.25));
+            assertThat(MiniCSettings.uiScale()).isEqualTo(1.25);
+            assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8)).contains("\"uiScale\": 1.25");
             assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.DEBUG_STEP_OVER)).isNotNull();
             assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.COMPILER_NEXT)).isNotNull();
             assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_INCREASE))
@@ -184,6 +205,8 @@ class MiniCSettingsInteractionRegressionTest {
                 runFx(() -> stageRef.get().close());
             }
             restore(KEY_BINDINGS_FILE, original);
+            restore(SETTINGS_FILE, originalSettings);
+            MiniCSettings.load();
             MiniCKeyBindingConfig.loadDefault();
         }
     }
@@ -191,25 +214,38 @@ class MiniCSettingsInteractionRegressionTest {
     @Test
     void workbenchShellRoutesConfiguredCompilerShortcutThroughControlHub() throws Exception {
         ensureFxStarted();
+        String originalSettings = backup(SETTINGS_FILE);
         String original = backup(KEY_BINDINGS_FILE);
         AtomicReference<Stage> stageRef = new AtomicReference<>();
         try {
+            Files.writeString(SETTINGS_FILE, """
+                    {
+                      "theme": "dark",
+                      "uiScale": 1.25
+                    }
+                    """, StandardCharsets.UTF_8);
+            MiniCSettings.load();
             Files.deleteIfExists(KEY_BINDINGS_FILE);
             MiniCKeyBindingConfig.loadDefault();
             MiniCKeyBindingConfig.setKeys(MiniCWorkbenchControlHub.COMPILER_NEXT, List.of("A+WheelDown"));
             AtomicReference<String> beforeStage = new AtomicReference<>();
             AtomicReference<String> afterStage = new AtomicReference<>();
+            AtomicReference<Double> rootScale = new AtomicReference<>();
+            AtomicReference<Double> rootScaleAfterChange = new AtomicReference<>();
 
             runFx(() -> {
                 MiniCWorkbenchViewModel model = new MiniCWorkbenchViewModel();
                 MiniCWorkbenchShell shell = new MiniCWorkbenchShell(model);
                 model.loadSource("shortcut.mc", "int main() { return 0; }");
                 model.startSession();
-                javafx.scene.Parent root = shell.createRoot();
+                Parent root = shell.createRoot();
                 Stage stage = new Stage();
                 stage.setScene(new Scene(root, 900, 640));
                 stage.show();
                 stageRef.set(stage);
+                rootScale.set(root.getScaleX());
+                MiniCSettings.setUiScale(1.1);
+                rootScaleAfterChange.set(root.getScaleX());
                 beforeStage.set(model.currentStateProperty().get().currentStage());
 
                 root.fireEvent(key(KeyCode.A, false, false, false));
@@ -220,11 +256,15 @@ class MiniCSettingsInteractionRegressionTest {
 
             assertThat(beforeStage.get()).isEqualTo("source");
             assertThat(afterStage.get()).isNotEqualTo("source");
+            assertThat(rootScale.get()).isEqualTo(1.25);
+            assertThat(rootScaleAfterChange.get()).isEqualTo(1.1);
         } finally {
             if (stageRef.get() != null) {
                 runFx(() -> stageRef.get().close());
             }
             restore(KEY_BINDINGS_FILE, original);
+            restore(SETTINGS_FILE, originalSettings);
+            MiniCSettings.load();
             MiniCKeyBindingConfig.loadDefault();
         }
     }
@@ -278,6 +318,15 @@ class MiniCSettingsInteractionRegressionTest {
                 .filter(Button.class::isInstance)
                 .map(Button.class::cast)
                 .filter(button -> accessibleText.equals(button.getAccessibleText()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static Slider lookupSlider(MiniCSettingsPane pane, String accessibleText) {
+        return pane.lookupAll(".slider").stream()
+                .filter(Slider.class::isInstance)
+                .map(Slider.class::cast)
+                .filter(slider -> accessibleText.equals(slider.getAccessibleText()))
                 .findFirst()
                 .orElseThrow();
     }

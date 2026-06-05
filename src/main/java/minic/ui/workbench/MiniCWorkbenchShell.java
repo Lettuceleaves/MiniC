@@ -1,5 +1,6 @@
 package minic.ui;
 
+import javafx.application.Platform;
 import javafx.scene.Parent;
 import javafx.geometry.Point2D;
 import javafx.scene.control.Button;
@@ -101,6 +102,8 @@ public final class MiniCWorkbenchShell {
         root.setLeft(activityBar());
         root.setCenter(sectionContent());
         root.setBottom(statusBar());
+        applyUiScale();
+        MiniCSettings.setUiScaleChangeListener(this::applyUiScale);
         root.addEventFilter(KeyEvent.KEY_PRESSED, this::handleKeyPressed);
         root.addEventFilter(KeyEvent.KEY_RELEASED, this::handleKeyReleased);
         root.addEventFilter(ScrollEvent.SCROLL, this::handleShortcut);
@@ -549,6 +552,22 @@ public final class MiniCWorkbenchShell {
         region.setMinWidth(width);
         region.setPrefWidth(width);
         region.setMaxWidth(width);
+    }
+
+    private void applyUiScale() {
+        if (root == null) {
+            return;
+        }
+        Runnable apply = () -> {
+            double scale = MiniCSettings.uiScale();
+            root.setScaleX(scale);
+            root.setScaleY(scale);
+        };
+        if (Platform.isFxApplicationThread()) {
+            apply.run();
+        } else {
+            Platform.runLater(apply);
+        }
     }
 
     private void handleKeyPressed(KeyEvent event) {
