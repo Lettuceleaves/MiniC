@@ -1370,6 +1370,31 @@
     -fx-background-color: {{background.hover}};
 }
 
+.key-binding-list {
+    -fx-spacing: 8px;
+}
+
+.key-binding-button {
+    -fx-min-width: 180px;
+    -fx-pref-width: 220px;
+    -fx-alignment: center-left;
+}
+
+.key-binding-capturing {
+    -fx-border-color: {{accent.blue}};
+}
+
+.key-binding-conflict {
+    -fx-text-fill: {{accent.error_border}};
+    -fx-border-color: {{accent.error_border}};
+    -fx-underline: true;
+}
+
+.key-binding-warning {
+    -fx-text-fill: {{accent.error_border}};
+    -fx-underline: true;
+}
+
 .status-bar {
     -fx-min-height: 22px;
     -fx-pref-height: 22px;

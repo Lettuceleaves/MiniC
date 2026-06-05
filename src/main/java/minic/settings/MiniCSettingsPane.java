@@ -6,22 +6,34 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import minic.color.ThemeManager;
+import minic.ui.MiniCKeyBindingConfig;
 import minic.ui.control.MiniCWorkbenchControlHub;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
+import java.util.Optional;
 
 public final class MiniCSettingsPane extends VBox {
     private static final long FRAME_INTERVAL_STEP = 50;
+    private static final double GRAPH_ZOOM_STEP_BLOCK = 0.005;
     private final ObservableList<String> themeNames = FXCollections.observableArrayList();
     private final ComboBox<String> themeCombo = new ComboBox<>(themeNames);
     private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
+    private final MiniCKeyBindingConfig keyBindingConfig = MiniCKeyBindingConfig.loadDefault();
+    private final Label keyBindingWarning = new Label("");
+    private String captureAction = "";
+    private Button captureButton;
+    private String pendingCombo = "";
 
     public MiniCSettingsPane() {
         registerSettingsCommands();
@@ -73,7 +85,56 @@ public final class MiniCSettingsPane extends VBox {
 
         HBox intervalRow = new HBox(10, intervalSlider, intervalValue);
 
-        getChildren().addAll(title, themeLabel, themeRow, intervalLabel, intervalRow);
+        Label zoomLabel = new Label("图形缩放灵敏度");
+        zoomLabel.getStyleClass().add("activity-placeholder-text");
+
+        Slider zoomSlider = new Slider(
+                MiniCSettings.minGraphZoomStep(),
+                MiniCSettings.maxGraphZoomStep(),
+                MiniCSettings.graphZoomStep());
+        zoomSlider.setBlockIncrement(GRAPH_ZOOM_STEP_BLOCK);
+        zoomSlider.getStyleClass().add("control-secondary");
+
+        Label zoomValue = new Label(formatZoomStep(MiniCSettings.graphZoomStep()));
+        zoomValue.getStyleClass().add("body-text");
+        zoomValue.setMinWidth(80);
+
+        zoomSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
+            MiniCSettings.setGraphZoomStep(newVal.doubleValue());
+            zoomValue.setText(formatZoomStep(MiniCSettings.graphZoomStep()));
+        });
+
+        HBox zoomRow = new HBox(10, zoomSlider, zoomValue);
+
+        Label zoomAnchorLabel = new Label("图形缩放中心");
+        zoomAnchorLabel.getStyleClass().add("activity-placeholder-text");
+
+        ComboBox<String> zoomAnchorCombo = new ComboBox<>(FXCollections.observableArrayList("mouse", "center"));
+        zoomAnchorCombo.getStyleClass().add("control-secondary");
+        zoomAnchorCombo.setValue(MiniCSettings.graphZoomAnchor());
+        zoomAnchorCombo.setOnAction(event -> {
+            String selected = zoomAnchorCombo.getValue();
+            if (selected != null) {
+                MiniCSettings.setGraphZoomAnchor(selected);
+            }
+        });
+
+        Label keyBindingLabel = new Label("键位绑定");
+        keyBindingLabel.getStyleClass().add("activity-placeholder-text");
+        keyBindingWarning.getStyleClass().addAll("body-text", "key-binding-warning");
+
+        VBox keyBindingRows = new VBox(8);
+        keyBindingRows.getStyleClass().add("key-binding-list");
+        keyBindingConfig.actions().forEach(action -> keyBindingRows.getChildren().add(keyBindingRow(action)));
+
+        getChildren().addAll(
+                title,
+                themeLabel, themeRow,
+                intervalLabel, intervalRow,
+                zoomLabel, zoomRow,
+                zoomAnchorLabel, zoomAnchorCombo,
+                keyBindingLabel, keyBindingRows, keyBindingWarning
+        );
     }
 
     private void registerSettingsCommands() {
@@ -111,5 +172,125 @@ public final class MiniCSettingsPane extends VBox {
         refreshThemeList();
         themeCombo.setValue(name);
         controlHub.setTheme(name);
+    }
+
+    private HBox keyBindingRow(String action) {
+        Label actionLabel = new Label(keyBindingConfig.labelFor(action));
+        actionLabel.getStyleClass().add("body-text");
+        actionLabel.setMinWidth(110);
+
+        Button binding = new Button(bindingText(action));
+        binding.getStyleClass().addAll("control-secondary", "key-binding-button");
+        binding.setAccessibleText("keybinding:" + action);
+        binding.setFocusTraversable(true);
+        binding.setOnAction(event -> beginCapture(action, binding));
+        binding.addEventFilter(KeyEvent.KEY_PRESSED, event -> handleCaptureKey(action, binding, event));
+        binding.addEventFilter(MouseEvent.MOUSE_CLICKED, event -> handleCaptureMouse(action, binding, event));
+
+        return new HBox(10, actionLabel, binding);
+    }
+
+    private String bindingText(String action) {
+        List<String> keys = keyBindingConfig.keysFor(action);
+        return keys.isEmpty() ? "(未绑定)" : String.join(" / ", keys);
+    }
+
+    private void beginCapture(String action, Button button) {
+        clearCaptureStyle();
+        captureAction = action;
+        captureButton = button;
+        pendingCombo = "";
+        button.getStyleClass().add("key-binding-capturing");
+        button.setText("输入组合后按 Enter");
+        keyBindingWarning.setText("");
+        button.requestFocus();
+    }
+
+    private void handleCaptureKey(String action, Button button, KeyEvent event) {
+        if (!isCapturing(action, button)) {
+            return;
+        }
+        if (event.getCode() == KeyCode.ENTER) {
+            confirmCapture();
+            event.consume();
+            return;
+        }
+        String combo = MiniCKeyBindingConfig.comboFrom(event);
+        if (!combo.isBlank()) {
+            pendingCombo = combo;
+            button.setText(combo + "  Enter 确认");
+            clearConflict(button);
+        }
+        event.consume();
+    }
+
+    private void handleCaptureMouse(String action, Button button, MouseEvent event) {
+        if (!isCapturing(action, button)) {
+            return;
+        }
+        String combo = MiniCKeyBindingConfig.comboFrom(event);
+        if (!combo.isBlank()) {
+            pendingCombo = combo;
+            button.setText(combo + "  Enter 确认");
+            clearConflict(button);
+            event.consume();
+        }
+    }
+
+    private boolean isCapturing(String action, Button button) {
+        return button == captureButton && action.equals(captureAction);
+    }
+
+    private void confirmCapture() {
+        if (captureButton == null || captureAction.isBlank()) {
+            return;
+        }
+        String normalizedCombo = MiniCKeyBindingConfig.normalizeCombo(pendingCombo);
+        if (normalizedCombo.isBlank()) {
+            showConflict("请输入包含普通按键或鼠标按键的组合。");
+            return;
+        }
+        if (MiniCKeyBindingConfig.isReserved(normalizedCombo)) {
+            showConflict("Enter 为保留键位，请重新输入组合。");
+            return;
+        }
+        Optional<String> conflict = MiniCKeyBindingConfig.conflictingAction(captureAction, normalizedCombo);
+        if (conflict.isPresent()) {
+            showConflict("键位冲突：" + keyBindingConfig.labelFor(conflict.get()) + " 已使用 " + normalizedCombo);
+            return;
+        }
+        MiniCKeyBindingConfig.setKeys(captureAction, List.of(normalizedCombo));
+        captureButton.setText(bindingText(captureAction));
+        clearCaptureStyle();
+        captureAction = "";
+        captureButton = null;
+        pendingCombo = "";
+        keyBindingWarning.setText("");
+    }
+
+    private void showConflict(String message) {
+        if (captureButton != null && !captureButton.getStyleClass().contains("key-binding-conflict")) {
+            captureButton.getStyleClass().add("key-binding-conflict");
+        }
+        keyBindingWarning.setText(message);
+    }
+
+    private void clearConflict(Button button) {
+        button.getStyleClass().remove("key-binding-conflict");
+        keyBindingWarning.setText("");
+    }
+
+    private void clearCaptureStyle() {
+        if (captureButton != null) {
+            captureButton.getStyleClass().remove("key-binding-capturing");
+            captureButton.getStyleClass().remove("key-binding-conflict");
+            if (!captureAction.isBlank()) {
+                captureButton.setText(bindingText(captureAction));
+            }
+        }
+    }
+
+    private String formatZoomStep(double value) {
+        return String.format(java.util.Locale.ROOT, "%.3f", value);
     }
 }

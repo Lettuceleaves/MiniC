@@ -56,13 +56,16 @@ public final class MiniCGraphViewportAdapter implements MiniCViewportAdapter {
 
     @Override
     public void zoomAt(Point2D localPoint, double delta) {
-        Point2D viewportPoint = localPoint == null ? Point2D.ZERO : localPoint;
+        Point2D graphPoint = localPoint == null ? Point2D.ZERO : localPoint;
         Bounds viewport = scrollPane.getViewportBounds();
         Bounds before = scrollContentBounds();
         if (viewport.getWidth() <= 0 || viewport.getHeight() <= 0) {
-            zoomCallback.accept(viewportPoint, delta);
+            zoomCallback.accept(graphPoint, delta);
             return;
         }
+        Node content = scrollContent();
+        Point2D beforeAnchor = toContentPoint(content, graphPoint);
+        Point2D sceneAnchor = graphContent.localToScene(graphPoint);
         double visibleMinX = visibleMin(
                 scrollPane.getHvalue(),
                 scrollPane.getHmin(),
@@ -79,16 +82,19 @@ public final class MiniCGraphViewportAdapter implements MiniCViewportAdapter {
                 before.getHeight(),
                 viewport.getHeight()
         );
-        double anchorX = visibleMinX + viewportPoint.getX();
-        double anchorY = visibleMinY + viewportPoint.getY();
+        Point2D viewportPoint = new Point2D(
+                beforeAnchor.getX() - visibleMinX,
+                beforeAnchor.getY() - visibleMinY
+        );
 
-        zoomCallback.accept(viewportPoint, delta);
+        zoomCallback.accept(graphPoint, delta);
         scrollPane.applyCss();
         scrollPane.layout();
 
         Bounds after = scrollContentBounds();
+        Point2D afterAnchor = toContentPoint(scrollContent(), graphPoint);
         setAxisToVisibleMin(
-                scaledVisibleMin(anchorX, before.getMinX(), before.getWidth(), after.getMinX(), after.getWidth(), viewportPoint.getX()),
+                afterAnchor.getX() - viewportPoint.getX(),
                 after.getMinX(),
                 after.getWidth(),
                 viewport.getWidth(),
@@ -97,7 +103,7 @@ public final class MiniCGraphViewportAdapter implements MiniCViewportAdapter {
                 scrollPane::setHvalue
         );
         setAxisToVisibleMin(
-                scaledVisibleMin(anchorY, before.getMinY(), before.getHeight(), after.getMinY(), after.getHeight(), viewportPoint.getY()),
+                afterAnchor.getY() - viewportPoint.getY(),
                 after.getMinY(),
                 after.getHeight(),
                 viewport.getHeight(),
@@ -105,22 +111,51 @@ public final class MiniCGraphViewportAdapter implements MiniCViewportAdapter {
                 scrollPane.getVmax(),
                 scrollPane::setVvalue
         );
+        scrollPane.applyCss();
+        scrollPane.layout();
+        compensateResidualTranslation(graphPoint, sceneAnchor);
     }
 
-    private double scaledVisibleMin(
-            double beforeAnchor,
-            double beforeContentMin,
-            double beforeContentSize,
-            double afterContentMin,
-            double afterContentSize,
-            double viewportOffset
-    ) {
-        if (beforeContentSize <= 0 || afterContentSize <= 0) {
-            return beforeAnchor - viewportOffset;
+    private Point2D toContentPoint(Node content, Point2D graphPoint) {
+        if (content == graphContent) {
+            return graphPoint;
         }
-        double relativeAnchor = beforeAnchor - beforeContentMin;
-        double scaledAnchor = afterContentMin + relativeAnchor * afterContentSize / beforeContentSize;
-        return scaledAnchor - viewportOffset;
+        return content.sceneToLocal(graphContent.localToScene(graphPoint));
+    }
+
+    private void compensateResidualTranslation(Point2D graphPoint, Point2D targetScenePoint) {
+        if (targetScenePoint == null || graphContent.getScene() == null) {
+            return;
+        }
+        Point2D afterScenePoint = graphContent.localToScene(graphPoint);
+        double sceneDeltaX = targetScenePoint.getX() - afterScenePoint.getX();
+        double sceneDeltaY = targetScenePoint.getY() - afterScenePoint.getY();
+        if (Math.abs(sceneDeltaX) < 0.01 && Math.abs(sceneDeltaY) < 0.01) {
+            return;
+        }
+        Node translationTarget = residualTranslationTarget();
+        Parent parent = translationTarget.getParent();
+        Point2D parentDelta;
+        if (parent == null || parent.getScene() == null) {
+            parentDelta = new Point2D(sceneDeltaX, sceneDeltaY);
+        } else {
+            Point2D targetParent = parent.sceneToLocal(targetScenePoint);
+            Point2D afterParent = parent.sceneToLocal(afterScenePoint);
+            parentDelta = targetParent.subtract(afterParent);
+        }
+        translationTarget.setTranslateX(translationTarget.getTranslateX() + parentDelta.getX());
+        translationTarget.setTranslateY(translationTarget.getTranslateY() + parentDelta.getY());
+        scrollPane.applyCss();
+        scrollPane.layout();
+    }
+
+    private Node residualTranslationTarget() {
+        Parent parent = graphContent.getParent();
+        Node content = scrollContent();
+        if (parent != null && parent != content) {
+            return parent;
+        }
+        return graphContent;
     }
 
     @Override

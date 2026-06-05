@@ -98,8 +98,28 @@ public final class MiniCSettings {
         }
     }
 
+    public static void setGraphZoomStep(double step) {
+        double clamped = Math.max(MIN_GRAPH_ZOOM_STEP, Math.min(MAX_GRAPH_ZOOM_STEP, step));
+        values.put("graphZoomStep", String.valueOf(clamped));
+        save();
+    }
+
+    public static double minGraphZoomStep() {
+        return MIN_GRAPH_ZOOM_STEP;
+    }
+
+    public static double maxGraphZoomStep() {
+        return MAX_GRAPH_ZOOM_STEP;
+    }
+
     public static String graphZoomAnchor() {
         return values.getOrDefault("graphZoomAnchor", DEFAULT_GRAPH_ZOOM_ANCHOR);
+    }
+
+    public static void setGraphZoomAnchor(String anchor) {
+        String normalized = "center".equalsIgnoreCase(anchor) ? "center" : DEFAULT_GRAPH_ZOOM_ANCHOR;
+        values.put("graphZoomAnchor", normalized);
+        save();
     }
 
     public static boolean graphZoomAnchoredAtMouse() {
