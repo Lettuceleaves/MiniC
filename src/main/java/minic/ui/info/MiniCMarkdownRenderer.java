@@ -6,9 +6,14 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextFlow;
+import minic.ui.text.MiniCSourceTextHighlighter;
+import minic.ui.text.MiniCStyledTextSegment;
+import minic.ui.text.MiniCTextFlowFactory;
+import minic.ui.text.MiniCTextStyleRole;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -16,23 +21,27 @@ final class MiniCMarkdownRenderer {
     private static final Pattern HEADING = Pattern.compile("^(#{1,3})\\s+(.+)$");
     private static final Pattern UNORDERED_LIST = Pattern.compile("^[-*]\\s+(.+)$");
     private static final Pattern ORDERED_LIST = Pattern.compile("^\\d+[.)]\\s+(.+)$");
+    private final MiniCSourceTextHighlighter sourceTextHighlighter = new MiniCSourceTextHighlighter();
 
     VBox render(String markdown) {
         VBox content = new VBox(10);
         content.getStyleClass().add("info-markdown");
         List<String> paragraph = new ArrayList<>();
         boolean inCodeBlock = false;
+        String codeLanguage = "";
         StringBuilder codeBlock = new StringBuilder();
         for (String rawLine : normalize(markdown).split("\n", -1)) {
             String line = rawLine.stripTrailing();
             String trimmed = line.stripLeading();
             if (trimmed.startsWith("```")) {
                 if (inCodeBlock) {
-                    addCodeBlock(content, codeBlock.toString());
+                    addCodeBlock(content, codeBlock.toString(), codeLanguage);
                     codeBlock.setLength(0);
+                    codeLanguage = "";
                     inCodeBlock = false;
                 } else {
                     flushParagraph(content, paragraph);
+                    codeLanguage = codeLanguage(trimmed);
                     inCodeBlock = true;
                 }
                 continue;
@@ -66,7 +75,7 @@ final class MiniCMarkdownRenderer {
             paragraph.add(trimmed);
         }
         if (inCodeBlock) {
-            addCodeBlock(content, codeBlock.toString());
+            addCodeBlock(content, codeBlock.toString(), codeLanguage);
         }
         flushParagraph(content, paragraph);
         return content;
@@ -84,12 +93,28 @@ final class MiniCMarkdownRenderer {
         content.getChildren().add(heading);
     }
 
-    private static void addCodeBlock(VBox content, String code) {
-        Label block = new Label(code.stripTrailing());
-        block.getStyleClass().add("info-code-block");
-        block.setWrapText(true);
+    private void addCodeBlock(VBox content, String code, String language) {
+        String normalized = code.stripTrailing();
+        List<MiniCStyledTextSegment> segments = isMiniCCode(language)
+                ? sourceTextHighlighter.highlight(normalized)
+                : List.of(new MiniCStyledTextSegment(normalized.isEmpty() ? " " : normalized, MiniCTextStyleRole.CODE_PLAIN));
+        TextFlow block = MiniCTextFlowFactory.textFlow(segments, "info-code-block", false);
         block.setMaxWidth(Double.MAX_VALUE);
         content.getChildren().add(block);
+    }
+
+    private static String codeLanguage(String fenceLine) {
+        String language = fenceLine.length() <= 3 ? "" : fenceLine.substring(3).strip().toLowerCase(Locale.ROOT);
+        int whitespace = language.indexOf(' ');
+        return whitespace < 0 ? language : language.substring(0, whitespace);
+    }
+
+    private static boolean isMiniCCode(String language) {
+        return language.isBlank()
+                || "c".equals(language)
+                || "h".equals(language)
+                || "mc".equals(language)
+                || "minic".equals(language);
     }
 
     private static void addListItem(VBox content, String marker, String text) {

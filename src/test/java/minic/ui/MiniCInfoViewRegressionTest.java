@@ -8,6 +8,8 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.VBox;
+import javafx.scene.text.TextFlow;
 import javafx.stage.Stage;
 import org.junit.jupiter.api.Test;
 
@@ -75,6 +77,28 @@ class MiniCInfoViewRegressionTest {
                 runFx(() -> stageRef.get().close());
             }
         }
+    }
+
+    @Test
+    void markdownCodeFenceReusesMiniCSourceSyntaxHighlighting() throws Exception {
+        ensureFxStarted();
+        AtomicReference<VBox> contentRef = new AtomicReference<>();
+        runFx(() -> contentRef.set(new MiniCMarkdownRenderer().render("""
+                # Guide
+
+                ```c
+                int main() {
+                    return 42;
+                }
+                ```
+                """)));
+
+        TextFlow codeBlock = (TextFlow) contentRef.get().lookup(".info-code-block");
+
+        assertThat(codeBlock).isNotNull();
+        assertThat(codeBlock.getChildren())
+                .anySatisfy(node -> assertThat(node.getStyleClass()).contains("mc-text-code-keyword", "token-keyword"))
+                .anySatisfy(node -> assertThat(node.getStyleClass()).contains("mc-text-code-literal", "token-literal"));
     }
 
     private static MouseEvent primaryClick() {
