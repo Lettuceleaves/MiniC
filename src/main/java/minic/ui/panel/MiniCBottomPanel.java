@@ -11,6 +11,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import minic.uiapi.UiSourceSpanDto;
+import minic.settings.MiniCSettings;
 
 import java.util.List;
 import java.util.Objects;
@@ -30,6 +31,7 @@ public final class MiniCBottomPanel extends VBox {
     private final Region resizeHandle = new Region();
     private final HBox body = new HBox(10);
     private final Button toggle = new Button("+");
+    private final Runnable uiScaleChangeListener = this::applyHeightOnFxThread;
     private double expandedHeight = DEFAULT_EXPANDED_HEIGHT;
     private boolean expanded;
 
@@ -80,6 +82,15 @@ public final class MiniCBottomPanel extends VBox {
         body.getStyleClass().add("bottom-body");
         getChildren().addAll(resizeHandle, header, body);
         inspector.contentProperty().addListener((observable, oldValue, newValue) -> render(newValue));
+        sceneProperty().addListener((observable, oldScene, newScene) -> {
+            if (oldScene != null) {
+                MiniCSettings.removeUiScaleChangeListener(uiScaleChangeListener);
+            }
+            if (newScene != null) {
+                MiniCSettings.addUiScaleChangeListener(uiScaleChangeListener);
+                applyHeight();
+            }
+        });
         render(inspector.contentProperty().get());
         setExpanded(false);
     }
@@ -224,7 +235,7 @@ public final class MiniCBottomPanel extends VBox {
             if (!(startY instanceof Number y) || !(startHeight instanceof Number height)) {
                 return;
             }
-            double delta = y.doubleValue() - event.getScreenY();
+            double delta = (y.doubleValue() - event.getScreenY()) / uiScale();
             expandedHeight = clampHeight(height.doubleValue() + delta);
             applyHeight();
             event.consume();
@@ -233,6 +244,8 @@ public final class MiniCBottomPanel extends VBox {
 
     private void setExpanded(boolean expanded) {
         this.expanded = expanded;
+        resizeHandle.setVisible(expanded);
+        resizeHandle.setManaged(expanded);
         body.setVisible(expanded);
         body.setManaged(expanded);
         toggle.setText(expanded ? "-" : "+");
@@ -243,13 +256,29 @@ public final class MiniCBottomPanel extends VBox {
     }
 
     private void applyHeight() {
-        double height = expanded ? expandedHeight : COLLAPSED_HEIGHT;
+        double height = scaled(expanded ? expandedHeight : COLLAPSED_HEIGHT);
         setMinHeight(height);
         setPrefHeight(height);
-        setMaxHeight(expanded ? Region.USE_COMPUTED_SIZE : COLLAPSED_HEIGHT);
+        setMaxHeight(expanded ? Region.USE_COMPUTED_SIZE : height);
     }
 
     private double clampHeight(double height) {
         return Math.max(MIN_EXPANDED_HEIGHT, Math.min(MAX_EXPANDED_HEIGHT, height));
+    }
+
+    private void applyHeightOnFxThread() {
+        if (Platform.isFxApplicationThread()) {
+            applyHeight();
+        } else {
+            Platform.runLater(this::applyHeight);
+        }
+    }
+
+    private double scaled(double value) {
+        return value * uiScale();
+    }
+
+    private double uiScale() {
+        return MiniCSettings.uiScale();
     }
 }

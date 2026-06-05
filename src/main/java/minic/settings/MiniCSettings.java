@@ -4,7 +4,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public final class MiniCSettings {
@@ -23,7 +25,7 @@ public final class MiniCSettings {
     private static final Map<String, String> DEFAULT_VALUES = defaultValues();
     private static final Map<String, String> values = new LinkedHashMap<>();
     private static Runnable frameIntervalChangeListener;
-    private static Runnable uiScaleChangeListener;
+    private static final List<Runnable> uiScaleChangeListeners = new ArrayList<>();
 
     private MiniCSettings() {}
 
@@ -106,13 +108,24 @@ public final class MiniCSettings {
         double clamped = Math.max(MIN_UI_SCALE, Math.min(MAX_UI_SCALE, scale));
         values.put("uiScale", String.valueOf(clamped));
         save();
-        if (uiScaleChangeListener != null) {
-            uiScaleChangeListener.run();
+        for (Runnable listener : List.copyOf(uiScaleChangeListeners)) {
+            listener.run();
         }
     }
 
     public static void setUiScaleChangeListener(Runnable listener) {
-        uiScaleChangeListener = listener;
+        uiScaleChangeListeners.clear();
+        addUiScaleChangeListener(listener);
+    }
+
+    public static void addUiScaleChangeListener(Runnable listener) {
+        if (listener != null && !uiScaleChangeListeners.contains(listener)) {
+            uiScaleChangeListeners.add(listener);
+        }
+    }
+
+    public static void removeUiScaleChangeListener(Runnable listener) {
+        uiScaleChangeListeners.remove(listener);
     }
 
     public static double minUiScale() {

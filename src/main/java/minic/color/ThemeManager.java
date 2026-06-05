@@ -13,6 +13,7 @@ import java.util.List;
 public final class ThemeManager {
     private static final Path THEMES_DIR = Path.of("config", "themes");
     private static final String DEFAULT_THEME = "dark";
+    private static final Runnable UI_SCALE_REFRESH = ThemeManager::applyStylesheet;
     private static String currentThemeName;
     private static Scene scene;
     private static Path cssFile;
@@ -23,7 +24,7 @@ public final class ThemeManager {
         scene = target;
         ThemeRegistry.setRefreshCallback(ThemeManager::applyStylesheet);
         MiniCSettings.load();
-        MiniCSettings.setUiScaleChangeListener(ThemeManager::applyStylesheet);
+        MiniCSettings.addUiScaleChangeListener(UI_SCALE_REFRESH);
         currentThemeName = MiniCSettings.theme();
         refresh();
     }
