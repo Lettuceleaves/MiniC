@@ -16,6 +16,9 @@ out/
 .local/
 .gradle-home/
 
+web/node_modules/
+web/dist/
+
 release/*
 !release/.gitkeep
 !release/launcher/
