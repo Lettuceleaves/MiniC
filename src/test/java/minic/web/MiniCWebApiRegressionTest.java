@@ -1,11 +1,15 @@
 package minic.web;
 
+import minic.settings.MiniCSettings;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -25,6 +29,65 @@ class MiniCWebApiRegressionTest {
             assertThat(response.statusCode()).isEqualTo(200);
             assertThat(response.body()).contains("\"status\":\"ok\"");
         }
+    }
+
+    @Test
+    void servesRealtimeAnalysisAndSettingsRoutesWithoutStartingJavaFx() throws Exception {
+        withSettingsFile("""
+                {
+                  "theme": "dark",
+                  "frameInterval": 1000,
+                  "uiScale": 1.0,
+                  "openFiles": []
+                }
+                """, () -> {
+            try (MiniCWebServer server = MiniCWebApplication.create(MiniCWebConfig.testing()).start();
+                 HttpClient client = HttpClient.newHttpClient()) {
+                HttpResponse<String> invalid = post(server, client, "/api/analysis/realtime",
+                        "{\"sourceName\":\"bad.mc\",\"sourceText\":\"int main( {\",\"version\":7}");
+                assertThat(invalid.statusCode()).isEqualTo(200);
+                assertThat(invalid.body())
+                        .contains("\"sourceName\":\"bad.mc\"")
+                        .contains("\"version\":7")
+                        .contains("\"diagnostics\":[{");
+
+                HttpResponse<String> valid = post(server, client, "/api/analysis/realtime",
+                        "{\"sourceName\":\"main.mc\",\"sourceText\":\"int main() { return 0; }\",\"version\":8}");
+                assertThat(valid.statusCode()).isEqualTo(200);
+                assertThat(valid.body())
+                        .contains("\"version\":8")
+                        .contains("\"diagnostics\":[]")
+                        .contains("\"tokens\":[{");
+
+                HttpResponse<String> settings = get(server, client, "/api/settings");
+                assertThat(settings.statusCode()).isEqualTo(200);
+                assertThat(settings.body())
+                        .contains("\"theme\":\"dark\"")
+                        .contains("\"frameIntervalMillis\":1000")
+                        .contains("\"uiScale\":1.0");
+
+                HttpResponse<String> themes = get(server, client, "/api/settings/themes");
+                assertThat(themes.statusCode()).isEqualTo(200);
+                assertThat(themes.body())
+                        .contains("\"currentTheme\":\"dark\"")
+                        .contains("\"dark\"")
+                        .contains("\"light\"");
+
+                HttpResponse<String> clampedLow = patch(server, client, "/api/settings",
+                        "{\"theme\":\"light\",\"frameIntervalMillis\":-10,\"uiScale\":9}");
+                assertThat(clampedLow.statusCode()).isEqualTo(200);
+                assertThat(clampedLow.body())
+                        .contains("\"theme\":\"light\"")
+                        .contains("\"frameIntervalMillis\":" + MiniCSettings.minFrameInterval())
+                        .contains("\"uiScale\":" + MiniCSettings.maxUiScale());
+
+                HttpResponse<String> clampedHigh = patch(server, client, "/api/settings",
+                        "{\"frameIntervalMillis\":100000}");
+                assertThat(clampedHigh.statusCode()).isEqualTo(200);
+                assertThat(clampedHigh.body())
+                        .contains("\"frameIntervalMillis\":" + MiniCSettings.maxFrameInterval());
+            }
+        });
     }
 
     @Test
@@ -276,6 +339,17 @@ class MiniCWebApiRegressionTest {
         return client.send(jsonRequest(server.uri(path)).DELETE().build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    private static HttpResponse<String> patch(
+            MiniCWebServer server,
+            HttpClient client,
+            String path,
+            String body
+    ) throws Exception {
+        return client.send(jsonRequest(server.uri(path))
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
+                .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
     private static void assertJsonOk(
             MiniCWebServer server,
             HttpClient client,
@@ -301,5 +375,30 @@ class MiniCWebApiRegressionTest {
         Matcher matcher = SNAPSHOT_ID_PATTERN.matcher(body);
         assertThat(matcher.find()).as(body).isTrue();
         return Long.parseLong(matcher.group(1));
+    }
+
+    private static void withSettingsFile(String temporarySettings, ThrowingRunnable action) throws Exception {
+        Path settingsFile = Path.of("config", "settings.json");
+        String previous = Files.exists(settingsFile)
+                ? Files.readString(settingsFile, StandardCharsets.UTF_8)
+                : null;
+        Files.createDirectories(settingsFile.getParent());
+        Files.writeString(settingsFile, temporarySettings, StandardCharsets.UTF_8);
+        MiniCSettings.load();
+        try {
+            action.run();
+        } finally {
+            if (previous == null) {
+                Files.deleteIfExists(settingsFile);
+            } else {
+                Files.writeString(settingsFile, previous, StandardCharsets.UTF_8);
+            }
+            MiniCSettings.load();
+        }
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 }

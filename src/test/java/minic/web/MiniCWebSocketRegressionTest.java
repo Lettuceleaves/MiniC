@@ -1,5 +1,6 @@
 package minic.web;
 
+import minic.settings.MiniCSettings;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
@@ -7,6 +8,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.WebSocket;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -67,6 +71,36 @@ class MiniCWebSocketRegressionTest {
         }
     }
 
+    @Test
+    void emitsSettingsChangedEvents() throws Exception {
+        withSettingsFile("""
+                {
+                  "theme": "dark",
+                  "frameInterval": 1000,
+                  "uiScale": 1.0,
+                  "openFiles": []
+                }
+                """, () -> {
+            try (MiniCWebServer server = MiniCWebApplication.create(MiniCWebConfig.testing()).start();
+                 HttpClient client = HttpClient.newHttpClient()) {
+                WebSocketMessages messages = new WebSocketMessages();
+                WebSocket socket = client.newWebSocketBuilder()
+                        .buildAsync(wsUri(server), messages)
+                        .join();
+
+                subscribe(socket, messages, "settings", "global");
+                assertThat(patch(server, client, "/api/settings", "{\"theme\":\"light\"}")
+                        .statusCode()).isEqualTo(200);
+                assertThat(messages.await("settings.changed"))
+                        .contains("\"scope\":\"settings\"")
+                        .contains("\"sessionId\":\"global\"")
+                        .contains("\"version\":");
+
+                socket.sendClose(WebSocket.NORMAL_CLOSURE, "test complete").join();
+            }
+        });
+    }
+
     private static void subscribe(
             WebSocket socket,
             WebSocketMessages messages,
@@ -97,6 +131,17 @@ class MiniCWebSocketRegressionTest {
         return client.send(jsonRequest(server.uri(path)).POST(bodyPublisher).build(), HttpResponse.BodyHandlers.ofString());
     }
 
+    private static HttpResponse<String> patch(
+            MiniCWebServer server,
+            HttpClient client,
+            String path,
+            String body
+    ) throws Exception {
+        return client.send(jsonRequest(server.uri(path))
+                .method("PATCH", HttpRequest.BodyPublishers.ofString(body))
+                .build(), HttpResponse.BodyHandlers.ofString());
+    }
+
     private static HttpResponse<String> delete(MiniCWebServer server, HttpClient client, String path) throws Exception {
         return client.send(jsonRequest(server.uri(path)).DELETE().build(), HttpResponse.BodyHandlers.ofString());
     }
@@ -109,6 +154,31 @@ class MiniCWebSocketRegressionTest {
         Matcher matcher = SESSION_ID_PATTERN.matcher(body);
         assertThat(matcher.find()).as(body).isTrue();
         return matcher.group(1);
+    }
+
+    private static void withSettingsFile(String temporarySettings, ThrowingRunnable action) throws Exception {
+        Path settingsFile = Path.of("config", "settings.json");
+        String previous = Files.exists(settingsFile)
+                ? Files.readString(settingsFile, StandardCharsets.UTF_8)
+                : null;
+        Files.createDirectories(settingsFile.getParent());
+        Files.writeString(settingsFile, temporarySettings, StandardCharsets.UTF_8);
+        MiniCSettings.load();
+        try {
+            action.run();
+        } finally {
+            if (previous == null) {
+                Files.deleteIfExists(settingsFile);
+            } else {
+                Files.writeString(settingsFile, previous, StandardCharsets.UTF_8);
+            }
+            MiniCSettings.load();
+        }
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 
     private static final class WebSocketMessages implements WebSocket.Listener {

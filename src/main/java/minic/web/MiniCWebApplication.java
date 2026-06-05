@@ -1,8 +1,10 @@
 package minic.web;
 
 import io.javalin.Javalin;
+import minic.web.routes.AnalysisRoutes;
 import minic.web.routes.CompileSessionRoutes;
 import minic.web.routes.DebugSessionRoutes;
+import minic.web.routes.SettingsRoutes;
 
 import java.util.Map;
 import java.util.Objects;
@@ -28,6 +30,8 @@ public final class MiniCWebApplication {
             MiniCWebErrorMapper.register(javalinConfig.routes);
             javalinConfig.routes.get("/api/health", ctx -> ctx.json(Map.of("status", "ok")));
             javalinConfig.routes.ws("/ws", webSocketHub::register);
+            new AnalysisRoutes().register(javalinConfig.routes);
+            new SettingsRoutes(webSocketHub).register(javalinConfig.routes);
             new CompileSessionRoutes(registry, webSocketHub).register(javalinConfig.routes);
             new DebugSessionRoutes(registry, webSocketHub).register(javalinConfig.routes);
         });
