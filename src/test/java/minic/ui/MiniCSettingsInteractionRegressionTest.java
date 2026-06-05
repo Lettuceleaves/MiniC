@@ -31,6 +31,9 @@ class MiniCSettingsInteractionRegressionTest {
         String originalSettings = backup(SETTINGS_FILE);
         String originalKeyBindings = backup(KEY_BINDINGS_FILE);
         try {
+            assertThat(staticDoubleField(MiniCVisualPane.class, "MIN_AST_ZOOM")).isEqualTo(0.05);
+            assertThat(staticDoubleField(MiniCDebugPane.class, "MIN_AST_ZOOM")).isEqualTo(0.05);
+
             Files.writeString(SETTINGS_FILE, """
                     {
                       "theme": "light"
@@ -281,6 +284,12 @@ class MiniCSettingsInteractionRegressionTest {
 
     private static KeyEvent key(KeyCode code, boolean control, boolean alt, boolean shift) {
         return new KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, shift, control, alt, false);
+    }
+
+    private static double staticDoubleField(Class<?> type, String name) throws Exception {
+        java.lang.reflect.Field field = type.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.getDouble(null);
     }
 
     private static ScrollEvent scroll(double deltaY, boolean control, boolean alt, boolean shift) {

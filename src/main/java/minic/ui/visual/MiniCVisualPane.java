@@ -56,7 +56,7 @@ import java.util.stream.Collectors;
 public final class MiniCVisualPane extends VBox {
     private static final String ACTIVE_CENTER_Y_KEY = "activeCenterY";
     private static final double DEFAULT_AST_ZOOM = 1.0;
-    private static final double MIN_AST_ZOOM = 0.001;
+    private static final double MIN_AST_ZOOM = 0.05;
     private static final double MAX_AST_ZOOM = 1.0;
     private static final double AST_ZOOM_STEP = 0.025;
     private static final String AST_DRAG_START_X_KEY = "astDragStartX";
