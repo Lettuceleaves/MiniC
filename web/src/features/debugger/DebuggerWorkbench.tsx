@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import type { DebugSnapshotResponse, MiniCClient } from "../../api/minicClient";
 import { SourceEditor } from "../editor/SourceEditor";
+import { useViewportStore } from "../viewport/viewportStore";
 import { VisualRenderer } from "../visual/VisualRenderer";
 
 export type DebuggerClient = Pick<
@@ -21,6 +22,7 @@ export function DebuggerWorkbench({ client, onStatusChange }: DebuggerWorkbenchP
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<DebugSnapshotResponse | null>(null);
   const [busy, setBusy] = useState(false);
+  const setBusinessTarget = useViewportStore((state) => state.setBusinessTarget);
 
   const startDebug = async () => {
     setBusy(true);
@@ -51,6 +53,7 @@ export function DebuggerWorkbench({ client, onStatusChange }: DebuggerWorkbenchP
     await client.runDebugCommand(sessionId, "step-over");
     const nextSnapshot = await client.getDebugSnapshot(sessionId);
     setSnapshot(nextSnapshot);
+    setBusinessTarget("source");
     onStatusChange?.(`Debug: ${nextSnapshot.state.executionState}`);
   };
 
@@ -93,6 +96,11 @@ export function DebuggerWorkbench({ client, onStatusChange }: DebuggerWorkbenchP
           <dt>Breakpoints</dt>
           <dd>{snapshot?.state.breakpoints.length ?? 0}</dd>
         </dl>
+        <div className="active-range" data-testid="active-source-range">
+          {snapshot?.state.currentSnapshot.sourceRange == null
+            ? "No active source range"
+            : `Line ${String(snapshot.state.currentSnapshot.sourceRange.startLine)}`}
+        </div>
       </section>
       <VisualRenderer mode="debugger" snapshot={snapshot} />
       <section className="bottom-panel" aria-label="Debug events">

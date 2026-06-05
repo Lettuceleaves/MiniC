@@ -253,6 +253,7 @@ button {
 
 .graph-canvas,
 .graph-fallback {
+  position: relative;
   min-width: 0;
   min-height: 0;
 }
@@ -263,6 +264,28 @@ button {
   place-items: center;
   color: #aeb6c2;
   background: #171b20;
+}
+
+.active-graph-node {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  max-width: calc(100% - 24px);
+  border: 1px solid #3fa7a0;
+  padding: 6px 8px;
+  background: #102b2d;
+  color: #ecfbf9;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.active-range {
+  border: 1px solid #384351;
+  padding: 7px 8px;
+  background: #15181d;
+  color: #c8d1de;
+  font-size: 12px;
 }
 
 .bottom-panel {

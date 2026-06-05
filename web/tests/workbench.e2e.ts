@@ -44,6 +44,8 @@ test("creates compile and debug sessions from the Workbench", async ({ page }) =
   await page.getByRole("button", { name: "Set breakpoint" }).click();
   await page.getByRole("button", { name: "Step over" }).click();
   await expect(page.getByTestId("debug-state")).toHaveText("RUNNING");
+  await expect(page.getByTestId("active-source-range")).toBeVisible();
+  await expect(page.getByTestId("active-graph-node")).toBeVisible();
 });
 
 function compileSnapshot(stage: string) {

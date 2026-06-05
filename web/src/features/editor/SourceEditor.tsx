@@ -1,6 +1,7 @@
 import { Suspense, lazy } from "react";
 
 import type { RealtimeAnalysisResponse } from "../../api/minicClient";
+import { useViewportTarget } from "../viewport/useViewportTarget";
 
 const MonacoEditor = lazy(() => import("@monaco-editor/react"));
 
@@ -13,9 +14,10 @@ type SourceEditorProps = {
 export function SourceEditor({ diagnostics = [], onSourceTextChange, sourceText }: SourceEditorProps) {
   const forceTextarea = new URLSearchParams(globalThis.location.search).get("editor") === "textarea";
   const useMonaco = !forceTextarea && typeof ResizeObserver !== "undefined" && typeof Worker !== "undefined";
+  const viewportTarget = useViewportTarget("source");
 
   return (
-    <section className="source-editor" aria-label="Source editor">
+    <section className="source-editor" aria-label="Source editor" tabIndex={0} {...viewportTarget}>
       <div className="panel-toolbar">
         <span>main.mc</span>
         <span>{diagnostics.length} diagnostics</span>

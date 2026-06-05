@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react";
 import type { Edge, Node } from "@xyflow/react";
 
 import type { CompileSnapshotResponse, DebugSnapshotResponse } from "../../api/minicClient";
+import { useViewportTarget } from "../viewport/useViewportTarget";
 
 const FlowCanvas = lazy(async () => {
   const { Background, Controls, ReactFlow } = await import("@xyflow/react");
@@ -67,6 +68,7 @@ export function VisualRenderer(props: VisualRendererProps) {
 
 function GraphView({ rootKind, rootLabel }: { rootKind: string; rootLabel: string }) {
   const canRenderFlow = typeof ResizeObserver !== "undefined";
+  const viewportTarget = useViewportTarget("graph");
   const nodes: Node[] = [
     {
       data: { label: `${rootKind}: ${rootLabel}` },
@@ -78,14 +80,31 @@ function GraphView({ rootKind, rootLabel }: { rootKind: string; rootLabel: strin
 
   if (!canRenderFlow) {
     return (
-      <div className="graph-fallback" data-testid="visual-graph">
-        {rootKind}: {rootLabel}
+      <div
+        className="graph-fallback"
+        data-testid="visual-graph"
+        role="img"
+        aria-label={`Graph node ${rootKind} ${rootLabel}`}
+        tabIndex={0}
+        {...viewportTarget}
+      >
+        <span data-testid="active-graph-node">{rootKind}: {rootLabel}</span>
       </div>
     );
   }
 
   return (
-    <div className="graph-canvas" data-testid="visual-graph">
+    <div
+      className="graph-canvas"
+      data-testid="visual-graph"
+      role="img"
+      aria-label={`Graph node ${rootKind} ${rootLabel}`}
+      tabIndex={0}
+      {...viewportTarget}
+    >
+      <div className="active-graph-node" data-testid="active-graph-node">
+        {rootKind}: {rootLabel}
+      </div>
       <Suspense fallback={<div className="graph-fallback">{rootLabel}</div>}>
         <FlowCanvas edges={edges} nodes={nodes} />
       </Suspense>
