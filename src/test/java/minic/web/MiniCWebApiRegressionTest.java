@@ -35,6 +35,11 @@ class MiniCWebApiRegressionTest {
             assertThat(created.statusCode()).isEqualTo(201);
             String sessionId = sessionId(created.body());
 
+            HttpResponse<String> sourceUpdated = post(server, client, "/api/compile/sessions/" + sessionId + "/source",
+                    "{\"sourceName\":\"updated.mc\",\"sourceText\":\"int main() { return 1; }\"}");
+            assertThat(sourceUpdated.statusCode()).isEqualTo(200);
+            assertThat(sourceUpdated.body()).contains("\"sourceName\":\"updated.mc\"").contains("\"state\"");
+
             HttpResponse<String> started = post(server, client, "/api/compile/sessions/" + sessionId + "/start", "");
             assertThat(started.statusCode()).isEqualTo(200);
             assertThat(started.body())
@@ -64,7 +69,7 @@ class MiniCWebApiRegressionTest {
 
             HttpResponse<String> visual = get(server, client, "/api/compile/sessions/" + sessionId + "/visual/current");
             assertThat(visual.statusCode()).isEqualTo(200);
-            assertThat(visual.body()).contains("\"visualType\":\"lexer\"").contains("\"lexerTokens\"");
+            assertThat(visual.body()).contains("\"visualType\":\"lexer\"").contains("\"lexerTokens\":[{");
 
             HttpResponse<String> snapshot = get(server, client, "/api/compile/sessions/" + sessionId + "/snapshot");
             assertThat(snapshot.statusCode()).isEqualTo(200);
@@ -84,6 +89,10 @@ class MiniCWebApiRegressionTest {
     void returnsStructuredErrorsForInvalidCompileRequests() throws Exception {
         try (MiniCWebServer server = MiniCWebApplication.create(MiniCWebConfig.testing()).start();
              HttpClient client = HttpClient.newHttpClient()) {
+            HttpResponse<String> missingBodyFields = post(server, client, "/api/compile/sessions", "{}");
+            assertThat(missingBodyFields.statusCode()).isEqualTo(400);
+            assertThat(missingBodyFields.body()).contains("\"code\":\"bad-request\"").doesNotContain("Exception");
+
             HttpResponse<String> missing = get(server, client, "/api/compile/sessions/missing/state");
             assertThat(missing.statusCode()).isEqualTo(404);
             assertThat(missing.body()).contains("\"code\":\"session-not-found\"").doesNotContain("Exception");
@@ -101,6 +110,22 @@ class MiniCWebApiRegressionTest {
                     "/api/compile/sessions/" + sessionId + "/commands/not-a-command", "");
             assertThat(unknownCommand.statusCode()).isEqualTo(400);
             assertThat(unknownCommand.body()).contains("\"code\":\"bad-request\"").doesNotContain("Exception");
+
+            HttpResponse<String> invalidSource = post(server, client, "/api/compile/sessions",
+                    "{\"sourceName\":\"bad.mc\",\"sourceText\":\"int main( {\"}");
+            String invalidSessionId = sessionId(invalidSource.body());
+            assertThat(post(server, client, "/api/compile/sessions/" + invalidSessionId + "/start", "").statusCode())
+                    .isEqualTo(200);
+
+            HttpResponse<String> blocked = post(server, client,
+                    "/api/compile/sessions/" + invalidSessionId + "/commands/run-to-execution", "");
+            assertThat(blocked.statusCode()).isEqualTo(200);
+            assertThat(blocked.body()).contains("\"outcome\":\"FAILED\"").contains("\"diagnostics\":[{");
+
+            HttpResponse<String> blockedState = get(server, client,
+                    "/api/compile/sessions/" + invalidSessionId + "/state");
+            assertThat(blockedState.statusCode()).isEqualTo(200);
+            assertThat(blockedState.body()).doesNotContain("\"currentStage\":\"execution\"");
         }
     }
 

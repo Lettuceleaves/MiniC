@@ -49,6 +49,7 @@ public final class CompileSessionRoutes {
         CreateSessionRequest request = context.bodyAsClass(CreateSessionRequest.class);
         String sessionId = sessionId(context);
         registry.updateCompileSource(sessionId, request.sourceName(), request.sourceText());
+        registry.startCompileSession(sessionId);
         context.json(snapshot(sessionId));
     }
 

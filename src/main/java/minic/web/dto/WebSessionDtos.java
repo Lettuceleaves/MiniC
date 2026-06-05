@@ -13,6 +13,14 @@ public final class WebSessionDtos {
     }
 
     public record CreateSessionRequest(String sourceName, String sourceText) {
+        public CreateSessionRequest {
+            if (sourceName == null || sourceName.isBlank()) {
+                throw new IllegalArgumentException("sourceName is required");
+            }
+            if (sourceText == null) {
+                throw new IllegalArgumentException("sourceText is required");
+            }
+        }
     }
 
     public record SessionCreatedResponse(String sessionId, long version) {
