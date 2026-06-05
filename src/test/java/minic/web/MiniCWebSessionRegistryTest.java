@@ -108,6 +108,37 @@ class MiniCWebSessionRegistryTest {
     }
 
     @Test
+    void closeWaitsForRunningCommandBeforeRemovingSession() throws Exception {
+        MiniCWebSessionRegistry registry = new MiniCWebSessionRegistry();
+        String sessionId = registry.createCompileSession("main.mc", "int main() { return 0; }").sessionId();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch commandEntered = new CountDownLatch(1);
+        CountDownLatch releaseCommand = new CountDownLatch(1);
+
+        try {
+            Future<Integer> command = executor.submit(() -> registry.commandCompileSession(sessionId, api -> {
+                commandEntered.countDown();
+                await(releaseCommand);
+                return 1;
+            }));
+            assertThat(commandEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<?> close = executor.submit(() -> registry.closeCompileSession(sessionId));
+            Thread.sleep(100);
+            assertThat(close.isDone()).isFalse();
+
+            releaseCommand.countDown();
+
+            assertThat(command.get(5, TimeUnit.SECONDS)).isEqualTo(1);
+            assertThat(close.get(5, TimeUnit.SECONDS)).isNotNull();
+            assertThatThrownBy(() -> registry.commandCompileSession(sessionId, api -> 2))
+                    .isInstanceOf(MiniCWebSessionRegistry.SessionNotFoundException.class);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void idleSessionsExpire() {
         AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-06-06T00:00:00Z"));
         MiniCWebSessionRegistry registry = new MiniCWebSessionRegistry(now::get);
@@ -121,6 +152,39 @@ class MiniCWebSessionRegistryTest {
                 .isInstanceOf(MiniCWebSessionRegistry.SessionNotFoundException.class);
         assertThatThrownBy(() -> registry.queryDebugSession(debugSessionId, api -> api))
                 .isInstanceOf(MiniCWebSessionRegistry.SessionNotFoundException.class);
+    }
+
+    @Test
+    void idleExpiryDoesNotRemoveRunningSession() throws Exception {
+        AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-06-06T00:00:00Z"));
+        MiniCWebSessionRegistry registry = new MiniCWebSessionRegistry(now::get);
+        String sessionId = registry.createCompileSession("main.mc", "int main() { return 0; }").sessionId();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch commandEntered = new CountDownLatch(1);
+        CountDownLatch releaseCommand = new CountDownLatch(1);
+
+        try {
+            now.set(Instant.parse("2026-06-06T01:00:00Z"));
+            Future<Integer> command = executor.submit(() -> registry.commandCompileSession(sessionId, api -> {
+                commandEntered.countDown();
+                await(releaseCommand);
+                return 1;
+            }));
+            assertThat(commandEntered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            Future<Integer> expired = executor.submit(() -> registry.expireIdleSessions(Duration.ofMinutes(30)));
+            Thread.sleep(100);
+            assertThat(expired.isDone()).isFalse();
+
+            releaseCommand.countDown();
+
+            assertThat(command.get(5, TimeUnit.SECONDS)).isEqualTo(1);
+            assertThat(expired.get(5, TimeUnit.SECONDS)).isZero();
+            Boolean sessionStillAvailable = registry.queryCompileSession(sessionId, api -> Boolean.TRUE);
+            assertThat(sessionStillAvailable).isTrue();
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

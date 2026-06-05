@@ -87,6 +87,7 @@ public final class MiniCWebSessionRegistry {
     public <T> T queryCompileSession(String sessionId, Function<MiniCObservationApi, T> action) {
         CompileEntry entry = requireCompileSession(sessionId);
         synchronized (entry.lock()) {
+            ensureActive(compileSessions, sessionId, entry);
             entry.touch(now());
             return action.apply(entry.api());
         }
@@ -95,6 +96,7 @@ public final class MiniCWebSessionRegistry {
     public <T> T commandCompileSession(String sessionId, Function<MiniCObservationApi, T> action) {
         CompileEntry entry = requireCompileSession(sessionId);
         synchronized (entry.lock()) {
+            ensureActive(compileSessions, sessionId, entry);
             entry.touch(now());
             T result = action.apply(entry.api());
             entry.incrementVersion();
@@ -106,6 +108,7 @@ public final class MiniCWebSessionRegistry {
     public <T> T queryDebugSession(String sessionId, Function<MiniCDebugApi, T> action) {
         DebugEntry entry = requireDebugSession(sessionId);
         synchronized (entry.lock()) {
+            ensureActive(debugSessions, sessionId, entry);
             entry.touch(now());
             return action.apply(entry.api());
         }
@@ -114,6 +117,7 @@ public final class MiniCWebSessionRegistry {
     public <T> T commandDebugSession(String sessionId, Function<MiniCDebugApi, T> action) {
         DebugEntry entry = requireDebugSession(sessionId);
         synchronized (entry.lock()) {
+            ensureActive(debugSessions, sessionId, entry);
             entry.touch(now());
             T result = action.apply(entry.api());
             entry.incrementVersion();
@@ -133,7 +137,8 @@ public final class MiniCWebSessionRegistry {
     public SessionClosedResponse closeCompileSession(String sessionId) {
         CompileEntry entry = requireCompileSession(sessionId);
         synchronized (entry.lock()) {
-            long version = entry.incrementVersion();
+            ensureActive(compileSessions, sessionId, entry);
+            long version = entry.close();
             compileSessions.remove(sessionId, entry);
             return new SessionClosedResponse(sessionId, version, true);
         }
@@ -142,7 +147,8 @@ public final class MiniCWebSessionRegistry {
     public SessionClosedResponse closeDebugSession(String sessionId) {
         DebugEntry entry = requireDebugSession(sessionId);
         synchronized (entry.lock()) {
-            long version = entry.incrementVersion();
+            ensureActive(debugSessions, sessionId, entry);
+            long version = entry.close();
             debugSessions.remove(sessionId, entry);
             return new SessionClosedResponse(sessionId, version, true);
         }
@@ -160,8 +166,15 @@ public final class MiniCWebSessionRegistry {
     private int expireIdleCompileSessions(Instant cutoff) {
         int expired = 0;
         for (CompileEntry entry : compileSessions.values()) {
-            if (!entry.lastAccess().isAfter(cutoff) && compileSessions.remove(entry.sessionId(), entry)) {
-                expired++;
+            synchronized (entry.lock()) {
+                if (compileSessions.get(entry.sessionId()) == entry
+                        && !entry.closed()
+                        && !entry.lastAccess().isAfter(cutoff)) {
+                    entry.close();
+                    if (compileSessions.remove(entry.sessionId(), entry)) {
+                        expired++;
+                    }
+                }
             }
         }
         return expired;
@@ -170,11 +183,28 @@ public final class MiniCWebSessionRegistry {
     private int expireIdleDebugSessions(Instant cutoff) {
         int expired = 0;
         for (DebugEntry entry : debugSessions.values()) {
-            if (!entry.lastAccess().isAfter(cutoff) && debugSessions.remove(entry.sessionId(), entry)) {
-                expired++;
+            synchronized (entry.lock()) {
+                if (debugSessions.get(entry.sessionId()) == entry
+                        && !entry.closed()
+                        && !entry.lastAccess().isAfter(cutoff)) {
+                    entry.close();
+                    if (debugSessions.remove(entry.sessionId(), entry)) {
+                        expired++;
+                    }
+                }
             }
         }
         return expired;
+    }
+
+    private static <T, E extends SessionEntry<T>> void ensureActive(
+            ConcurrentMap<String, E> sessions,
+            String sessionId,
+            E entry
+    ) {
+        if (entry.closed() || sessions.get(sessionId) != entry) {
+            throw new SessionNotFoundException(sessionId);
+        }
     }
 
     private CompileEntry requireCompileSession(String sessionId) {
@@ -226,6 +256,7 @@ public final class MiniCWebSessionRegistry {
         private final Object lock = new Object();
         private final AtomicLong version = new AtomicLong();
         private final AtomicReference<Instant> lastAccess;
+        private boolean closed;
 
         private SessionEntry(String sessionId, T api, Instant createdAt) {
             this.sessionId = Objects.requireNonNull(sessionId, "sessionId");
@@ -251,6 +282,15 @@ public final class MiniCWebSessionRegistry {
 
         final long incrementVersion() {
             return version.incrementAndGet();
+        }
+
+        final long close() {
+            closed = true;
+            return incrementVersion();
+        }
+
+        final boolean closed() {
+            return closed;
         }
 
         final Instant lastAccess() {
