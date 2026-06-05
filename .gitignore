@@ -9,6 +9,10 @@ out/
 *.iml
 .vscode/
 
+.claude/settings.local.json
+.superpowers/
+*.hprof
+
 .local/
 .gradle-home/
 
