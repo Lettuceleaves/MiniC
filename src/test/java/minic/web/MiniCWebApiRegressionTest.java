@@ -129,6 +129,90 @@ class MiniCWebApiRegressionTest {
         }
     }
 
+    @Test
+    void servesDebugSessionWorkflow() throws Exception {
+        try (MiniCWebServer server = MiniCWebApplication.create(MiniCWebConfig.testing()).start();
+             HttpClient client = HttpClient.newHttpClient()) {
+            HttpResponse<String> created = post(server, client, "/api/debug/sessions",
+                    "{\"sourceName\":\"debug.mc\",\"sourceText\":\"int main() { return 0; }\"}");
+            assertThat(created.statusCode()).isEqualTo(201);
+            String sessionId = sessionId(created.body());
+
+            HttpResponse<String> sourceUpdated = post(server, client, "/api/debug/sessions/" + sessionId + "/source",
+                    "{\"sourceName\":\"debug-updated.mc\",\"sourceText\":\"int main() { int x = 1; return x; }\"}");
+            assertThat(sourceUpdated.statusCode()).isEqualTo(200);
+            assertThat(sourceUpdated.body()).contains("\"state\"").contains("\"metadata\"");
+
+            HttpResponse<String> started = post(server, client, "/api/debug/sessions/" + sessionId + "/start", "");
+            assertThat(started.statusCode()).isEqualTo(200);
+            assertThat(started.body())
+                    .contains("\"state\"")
+                    .contains("\"metadata\"")
+                    .contains("\"ast\"")
+                    .contains("\"ir\"")
+                    .contains("\"asm\"")
+                    .contains("\"dataStructure\"");
+
+            HttpResponse<String> breakpoint = post(server, client,
+                    "/api/debug/sessions/" + sessionId + "/breakpoints", "{\"line\":1}");
+            assertThat(breakpoint.statusCode()).isEqualTo(200);
+            assertThat(breakpoint.body()).contains("\"breakpoints\"");
+
+            assertThat(post(server, client, "/api/debug/sessions/" + sessionId + "/commands/step-over", "")
+                    .statusCode()).isEqualTo(200);
+            assertThat(post(server, client, "/api/debug/sessions/" + sessionId + "/commands/step-back", "")
+                    .statusCode()).isEqualTo(200);
+
+            assertJsonOk(server, client, "/api/debug/sessions/" + sessionId + "/state", "\"executionState\"");
+            assertJsonOk(server, client, "/api/debug/sessions/" + sessionId + "/views/metadata", "\"timeline\"");
+            assertJsonOk(server, client, "/api/debug/sessions/" + sessionId + "/views/ast", "\"root\"");
+            assertJsonOk(server, client, "/api/debug/sessions/" + sessionId + "/views/ir", "\"lines\"");
+            assertJsonOk(server, client, "/api/debug/sessions/" + sessionId + "/views/asm", "\"lines\"");
+            assertJsonOk(server, client, "/api/debug/sessions/" + sessionId + "/views/data-structure", "\"processSpace\"");
+            assertJsonOk(server, client, "/api/debug/sessions/" + sessionId + "/snapshot", "\"dataStructure\"");
+
+            HttpResponse<String> removed = delete(server, client,
+                    "/api/debug/sessions/" + sessionId + "/breakpoints/1");
+            assertThat(removed.statusCode()).isEqualTo(200);
+
+            HttpResponse<String> closed = delete(server, client, "/api/debug/sessions/" + sessionId);
+            assertThat(closed.statusCode()).isEqualTo(200);
+            assertThat(closed.body()).contains("\"closed\":true");
+        }
+    }
+
+    @Test
+    void returnsStructuredErrorsForInvalidDebugRequests() throws Exception {
+        try (MiniCWebServer server = MiniCWebApplication.create(MiniCWebConfig.testing()).start();
+             HttpClient client = HttpClient.newHttpClient()) {
+            HttpResponse<String> missingBodyFields = post(server, client, "/api/debug/sessions", "{}");
+            assertThat(missingBodyFields.statusCode()).isEqualTo(400);
+            assertThat(missingBodyFields.body()).contains("\"code\":\"bad-request\"").doesNotContain("Exception");
+
+            HttpResponse<String> missing = get(server, client, "/api/debug/sessions/missing/state");
+            assertThat(missing.statusCode()).isEqualTo(404);
+            assertThat(missing.body()).contains("\"code\":\"session-not-found\"").doesNotContain("Exception");
+
+            HttpResponse<String> created = post(server, client, "/api/debug/sessions",
+                    "{\"sourceName\":\"debug.mc\",\"sourceText\":\"int main() { return 0; }\"}");
+            String sessionId = sessionId(created.body());
+
+            HttpResponse<String> invalidLine = post(server, client,
+                    "/api/debug/sessions/" + sessionId + "/breakpoints", "{\"line\":0}");
+            assertThat(invalidLine.statusCode()).isEqualTo(400);
+            assertThat(invalidLine.body()).contains("\"code\":\"bad-request\"").doesNotContain("Exception");
+
+            HttpResponse<String> invalidSource = post(server, client, "/api/debug/sessions",
+                    "{\"sourceName\":\"bad.mc\",\"sourceText\":\"int main( {\"}");
+            String invalidSessionId = sessionId(invalidSource.body());
+
+            HttpResponse<String> startInvalid = post(server, client,
+                    "/api/debug/sessions/" + invalidSessionId + "/start", "");
+            assertThat(startInvalid.statusCode()).isEqualTo(409);
+            assertThat(startInvalid.body()).contains("\"code\":\"session-conflict\"").doesNotContain("Exception");
+        }
+    }
+
     private static HttpResponse<String> get(MiniCWebServer server, HttpClient client, String path) throws Exception {
         return client.send(HttpRequest.newBuilder(server.uri(path)).GET().build(), HttpResponse.BodyHandlers.ofString());
     }
@@ -147,6 +231,17 @@ class MiniCWebApiRegressionTest {
 
     private static HttpResponse<String> delete(MiniCWebServer server, HttpClient client, String path) throws Exception {
         return client.send(jsonRequest(server.uri(path)).DELETE().build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private static void assertJsonOk(
+            MiniCWebServer server,
+            HttpClient client,
+            String path,
+            String expectedJsonFragment
+    ) throws Exception {
+        HttpResponse<String> response = get(server, client, path);
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()).contains(expectedJsonFragment);
     }
 
     private static HttpRequest.Builder jsonRequest(URI uri) {

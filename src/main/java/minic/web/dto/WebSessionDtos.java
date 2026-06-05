@@ -1,6 +1,12 @@
 package minic.web.dto;
 
 import minic.uiapi.UiCurrentStateDto;
+import minic.uiapi.UiDebugAsmViewDto;
+import minic.uiapi.UiDebugAstViewDto;
+import minic.uiapi.UiDebugDataStructureViewDto;
+import minic.uiapi.UiDebugIrViewDto;
+import minic.uiapi.UiDebugMetadataViewDto;
+import minic.uiapi.UiDebugStateDto;
 import minic.uiapi.UiGlobalDataDto;
 import minic.uiapi.UiStageDataDto;
 import minic.uiapi.UiStageVisualDto;
@@ -37,6 +43,19 @@ public final class WebSessionDtos {
             UiStageDataDto stage,
             UiGlobalDataDto global,
             UiStageVisualDto visual
+    ) {
+    }
+
+    public record BreakpointRequest(int line) {
+    }
+
+    public record DebugSnapshotResponse(
+            UiDebugStateDto state,
+            UiDebugMetadataViewDto metadata,
+            UiDebugAstViewDto ast,
+            UiDebugIrViewDto ir,
+            UiDebugAsmViewDto asm,
+            UiDebugDataStructureViewDto dataStructure
     ) {
     }
 }
