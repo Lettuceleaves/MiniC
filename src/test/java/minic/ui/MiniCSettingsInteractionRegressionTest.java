@@ -8,6 +8,7 @@ import javafx.scene.input.KeyEvent;
 import javafx.stage.Stage;
 import minic.settings.MiniCSettings;
 import minic.settings.MiniCSettingsPane;
+import minic.ui.control.MiniCWorkbenchControlHub;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -48,14 +49,44 @@ class MiniCSettingsInteractionRegressionTest {
 
             Files.deleteIfExists(KEY_BINDINGS_FILE);
             MiniCKeyBindingConfig config = MiniCKeyBindingConfig.loadDefault();
-            assertThat(MiniCKeyBindingConfig.conflictingAction("ast.zoom.out", "Ctrl+=")).contains("ast.zoom.in");
+            assertThat(config.actions()).contains(
+                    MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN,
+                    MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT,
+                    MiniCWorkbenchControlHub.VIEWPORT_SCROLL_UP,
+                    MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN,
+                    MiniCWorkbenchControlHub.VIEWPORT_SCROLL_LEFT,
+                    MiniCWorkbenchControlHub.VIEWPORT_SCROLL_RIGHT,
+                    MiniCWorkbenchControlHub.VIEWPORT_CENTER_ACTIVE,
+                    MiniCWorkbenchControlHub.DEBUG_START,
+                    MiniCWorkbenchControlHub.DEBUG_RUN_TO_END,
+                    MiniCWorkbenchControlHub.DEBUG_RUN_TO_BREAKPOINT,
+                    MiniCWorkbenchControlHub.DEBUG_STEP_OVER,
+                    MiniCWorkbenchControlHub.DEBUG_STEP_INTO,
+                    MiniCWorkbenchControlHub.DEBUG_BACK_TO_BREAKPOINT,
+                    MiniCWorkbenchControlHub.DEBUG_STEP_BACK_OVER,
+                    MiniCWorkbenchControlHub.DEBUG_STEP_BACK,
+                    MiniCWorkbenchControlHub.COMPILER_NEXT,
+                    MiniCWorkbenchControlHub.COMPILER_NEXT_STAGE,
+                    MiniCWorkbenchControlHub.COMPILER_RUN_TO_EXECUTION,
+                    MiniCWorkbenchControlHub.COMPILER_PLAY,
+                    MiniCWorkbenchControlHub.COMPILER_PLAY_FAST,
+                    MiniCWorkbenchControlHub.COMPILER_PAUSE,
+                    MiniCWorkbenchControlHub.SETTINGS_THEME_NEXT,
+                    MiniCWorkbenchControlHub.SETTINGS_THEME_PREVIOUS,
+                    MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_INCREASE,
+                    MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_DECREASE
+            );
+            assertThat(MiniCKeyBindingConfig.conflictingAction(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, "Ctrl+="))
+                    .contains(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN);
             assertThat(MiniCKeyBindingConfig.isReserved("Enter")).isTrue();
+            assertThat(MiniCKeyBindingConfig.isReserved("Esc")).isTrue();
             assertThat(MiniCKeyBindingConfig.normalizeCombo("Ctrl+Alt+MouseLeft")).isEqualTo("Ctrl+Alt+MouseLeft");
 
             MiniCKeyBindingConfig.setKeys("ast.zoom.out", List.of("Ctrl+Alt+M"));
+            assertThat(config.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, key(KeyCode.M, true, true, false))).isTrue();
             assertThat(config.matches("ast.zoom.out", key(KeyCode.M, true, true, false))).isTrue();
             assertThat(Files.readString(KEY_BINDINGS_FILE, StandardCharsets.UTF_8))
-                    .contains("\"action\": \"ast.zoom.out\"")
+                    .contains("\"action\": \"" + MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT + "\"")
                     .contains("\"Ctrl+Alt+M\"");
         } finally {
             restore(SETTINGS_FILE, originalSettings);
@@ -83,7 +114,11 @@ class MiniCSettingsInteractionRegressionTest {
                 stageRef.set(stage);
             });
 
-            Button zoomOut = lookupButton(paneRef.get(), "keybinding:ast.zoom.out");
+            Button zoomOut = lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT);
+            assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.DEBUG_STEP_OVER)).isNotNull();
+            assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.COMPILER_NEXT)).isNotNull();
+            assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_INCREASE))
+                    .isNotNull();
             runFx(() -> {
                 zoomOut.fire();
                 zoomOut.fireEvent(key(KeyCode.EQUALS, true, false, false));
@@ -96,7 +131,14 @@ class MiniCSettingsInteractionRegressionTest {
                     .anyMatch(text -> text.contains("键位冲突"))).isTrue();
             assertThat(Files.exists(KEY_BINDINGS_FILE)).isFalse();
 
+            runFx(() -> zoomOut.fireEvent(key(KeyCode.ESCAPE, false, false, false)));
+
+            assertThat(zoomOut.getStyleClass()).doesNotContain("key-binding-conflict", "key-binding-capturing");
+            assertThat(zoomOut.getText()).contains("Ctrl+-");
+            assertThat(Files.exists(KEY_BINDINGS_FILE)).isFalse();
+
             runFx(() -> {
+                zoomOut.fire();
                 zoomOut.fireEvent(key(KeyCode.CONTROL, true, false, false));
                 zoomOut.fireEvent(key(KeyCode.ENTER, false, false, false));
             });
@@ -113,6 +155,89 @@ class MiniCSettingsInteractionRegressionTest {
 
             assertThat(zoomOut.getStyleClass()).doesNotContain("key-binding-conflict");
             assertThat(Files.readString(KEY_BINDINGS_FILE, StandardCharsets.UTF_8)).contains("\"Ctrl+Alt+M\"");
+        } finally {
+            if (stageRef.get() != null) {
+                runFx(() -> stageRef.get().close());
+            }
+            restore(KEY_BINDINGS_FILE, original);
+            MiniCKeyBindingConfig.loadDefault();
+        }
+    }
+
+    @Test
+    void workbenchShellRoutesConfiguredCompilerShortcutThroughControlHub() throws Exception {
+        ensureFxStarted();
+        String original = backup(KEY_BINDINGS_FILE);
+        AtomicReference<Stage> stageRef = new AtomicReference<>();
+        try {
+            Files.deleteIfExists(KEY_BINDINGS_FILE);
+            MiniCKeyBindingConfig.loadDefault();
+            MiniCKeyBindingConfig.setKeys(MiniCWorkbenchControlHub.COMPILER_NEXT, List.of("Ctrl+Alt+N"));
+            AtomicReference<String> beforeStage = new AtomicReference<>();
+            AtomicReference<String> afterStage = new AtomicReference<>();
+
+            runFx(() -> {
+                MiniCWorkbenchViewModel model = new MiniCWorkbenchViewModel();
+                MiniCWorkbenchShell shell = new MiniCWorkbenchShell(model);
+                model.loadSource("shortcut.mc", "int main() { return 0; }");
+                model.startSession();
+                javafx.scene.Parent root = shell.createRoot();
+                Stage stage = new Stage();
+                stage.setScene(new Scene(root, 900, 640));
+                stage.show();
+                stageRef.set(stage);
+                beforeStage.set(model.currentStateProperty().get().currentStage());
+
+                root.fireEvent(key(KeyCode.N, true, true, false));
+
+                afterStage.set(model.currentStateProperty().get().currentStage());
+            });
+
+            assertThat(beforeStage.get()).isEqualTo("source");
+            assertThat(afterStage.get()).isNotEqualTo("source");
+        } finally {
+            if (stageRef.get() != null) {
+                runFx(() -> stageRef.get().close());
+            }
+            restore(KEY_BINDINGS_FILE, original);
+            MiniCKeyBindingConfig.loadDefault();
+        }
+    }
+
+    @Test
+    void debugPaneRoutesConfiguredDebuggerShortcutThroughControlHub() throws Exception {
+        ensureFxStarted();
+        String original = backup(KEY_BINDINGS_FILE);
+        AtomicReference<Stage> stageRef = new AtomicReference<>();
+        try {
+            Files.deleteIfExists(KEY_BINDINGS_FILE);
+            MiniCKeyBindingConfig.loadDefault();
+            MiniCKeyBindingConfig.setKeys(MiniCWorkbenchControlHub.DEBUG_STEP_INTO, List.of("Ctrl+Alt+I"));
+            AtomicReference<Long> beforeStep = new AtomicReference<>();
+            AtomicReference<Long> afterStep = new AtomicReference<>();
+
+            runFx(() -> {
+                MiniCWorkbenchViewModel model = new MiniCWorkbenchViewModel();
+                model.loadSource("debug-shortcut.mc", """
+                        int main() {
+                            int x = 1;
+                            return x;
+                        }
+                        """);
+                model.startDebug();
+                MiniCDebugPane pane = new MiniCDebugPane(model);
+                Stage stage = new Stage();
+                stage.setScene(new Scene(pane, 900, 640));
+                stage.show();
+                stageRef.set(stage);
+                beforeStep.set(model.debugStateProperty().get().currentSnapshot().visibleStepIndex());
+
+                pane.fireEvent(key(KeyCode.I, true, true, false));
+
+                afterStep.set(model.debugStateProperty().get().currentSnapshot().visibleStepIndex());
+            });
+
+            assertThat(afterStep.get()).isGreaterThan(beforeStep.get());
         } finally {
             if (stageRef.get() != null) {
                 runFx(() -> stageRef.get().close());
@@ -151,8 +276,12 @@ class MiniCSettingsInteractionRegressionTest {
     private static void ensureFxStarted() throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         try {
-            Platform.startup(latch::countDown);
+            Platform.startup(() -> {
+                Platform.setImplicitExit(false);
+                latch.countDown();
+            });
         } catch (IllegalStateException alreadyStarted) {
+            Platform.setImplicitExit(false);
             Platform.runLater(latch::countDown);
         }
         assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();

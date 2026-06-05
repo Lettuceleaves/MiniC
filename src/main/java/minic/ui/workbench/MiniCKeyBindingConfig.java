@@ -4,6 +4,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
+import minic.ui.control.MiniCWorkbenchControlHub;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -25,12 +26,15 @@ import java.util.regex.Pattern;
  */
 public final class MiniCKeyBindingConfig {
     private static final Path USER_BINDINGS_FILE = Path.of("config", "keybindings.json");
+    private static final String LEGACY_AST_ZOOM_IN = "ast.zoom.in";
+    private static final String LEGACY_AST_ZOOM_OUT = "ast.zoom.out";
     private static final Pattern BINDING_PATTERN = Pattern.compile(
             "\\{\\s*\"action\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"keys\"\\s*:\\s*\\[(.*?)]\\s*}",
             Pattern.DOTALL
     );
     private static final Pattern KEY_PATTERN = Pattern.compile("\"([^\"]+)\"");
-    private static final Map<String, String> ACTION_LABELS = actionLabels();
+    private static final LinkedHashMap<String, String> ACTION_LABELS = actionLabels();
+    private static final List<String> ACTION_ORDER = List.copyOf(ACTION_LABELS.keySet());
     private static volatile List<KeyBinding> activeBindings = loadBindings();
 
     /**
@@ -51,8 +55,9 @@ public final class MiniCKeyBindingConfig {
      * @return 是否匹配
      */
     public boolean matches(String action, KeyEvent event) {
+        String normalizedAction = normalizeAction(action);
         return activeBindings.stream()
-                .filter(binding -> binding.action().equals(action))
+                .filter(binding -> binding.action().equals(normalizedAction))
                 .anyMatch(binding -> binding.matches(event));
     }
 
@@ -64,32 +69,39 @@ public final class MiniCKeyBindingConfig {
      * @return 是否匹配
      */
     public boolean matches(String action, MouseEvent event) {
+        String normalizedAction = normalizeAction(action);
         return activeBindings.stream()
-                .filter(binding -> binding.action().equals(action))
+                .filter(binding -> binding.action().equals(normalizedAction))
                 .anyMatch(binding -> binding.matches(event));
     }
 
     public List<String> actions() {
-        return activeBindings.stream()
+        ArrayList<String> actions = new ArrayList<>(ACTION_ORDER);
+        activeBindings.stream()
                 .map(KeyBinding::action)
                 .distinct()
-                .toList();
+                .filter(action -> !actions.contains(action))
+                .forEach(actions::add);
+        return List.copyOf(actions);
     }
 
     public List<String> keysFor(String action) {
+        String normalizedAction = normalizeAction(action);
         return activeBindings.stream()
-                .filter(binding -> binding.action().equals(action))
+                .filter(binding -> binding.action().equals(normalizedAction))
                 .map(KeyBinding::key)
                 .toList();
     }
 
     public String labelFor(String action) {
-        return ACTION_LABELS.getOrDefault(action, action);
+        String normalizedAction = normalizeAction(action);
+        return ACTION_LABELS.getOrDefault(normalizedAction, normalizedAction);
     }
 
     public static void setKeys(String action, List<String> keys) {
         Objects.requireNonNull(action, "action");
         Objects.requireNonNull(keys, "keys");
+        String normalizedAction = normalizeAction(action);
         List<String> normalized = keys.stream()
                 .map(MiniCKeyBindingConfig::normalizeCombo)
                 .filter(key -> !key.isBlank())
@@ -99,18 +111,19 @@ public final class MiniCKeyBindingConfig {
             throw new IllegalArgumentException("keys must not be empty");
         }
         LinkedHashMap<String, List<String>> map = activeBindingsByAction();
-        map.put(action, normalized);
+        map.put(normalizedAction, normalized);
         activeBindings = bindingsFrom(map);
         save(map);
     }
 
     public static Optional<String> conflictingAction(String action, String key) {
+        String normalizedAction = normalizeAction(action);
         String normalized = normalizeCombo(key);
         if (normalized.isBlank()) {
             return Optional.empty();
         }
         return activeBindings.stream()
-                .filter(binding -> !binding.action().equals(action))
+                .filter(binding -> !binding.action().equals(normalizedAction))
                 .filter(binding -> normalizeCombo(binding.key()).equals(normalized))
                 .map(KeyBinding::action)
                 .findFirst();
@@ -118,7 +131,7 @@ public final class MiniCKeyBindingConfig {
 
     public static boolean isReserved(String key) {
         ParsedInput parsed = ParsedInput.parse(key);
-        return parsed.keyCode() == KeyCode.ENTER;
+        return parsed.keyCode() == KeyCode.ENTER || parsed.keyCode() == KeyCode.ESCAPE;
     }
 
     public static String comboFrom(KeyEvent event) {
@@ -165,7 +178,7 @@ public final class MiniCKeyBindingConfig {
         ArrayList<KeyBinding> bindings = new ArrayList<>();
         Matcher bindingMatcher = BINDING_PATTERN.matcher(json);
         while (bindingMatcher.find()) {
-            String action = bindingMatcher.group(1);
+            String action = normalizeAction(bindingMatcher.group(1));
             Matcher keyMatcher = KEY_PATTERN.matcher(bindingMatcher.group(2));
             while (keyMatcher.find()) {
                 String key = normalizeCombo(keyMatcher.group(1));
@@ -179,9 +192,9 @@ public final class MiniCKeyBindingConfig {
 
     private static List<KeyBinding> fallbackBindings() {
         return List.of(
-                new KeyBinding("ast.zoom.in", "Ctrl+="),
-                new KeyBinding("ast.zoom.in", "Ctrl++"),
-                new KeyBinding("ast.zoom.out", "Ctrl+-")
+                new KeyBinding(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, "Ctrl+="),
+                new KeyBinding(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, "Ctrl++"),
+                new KeyBinding(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, "Ctrl+-")
         );
     }
 
@@ -239,6 +252,14 @@ public final class MiniCKeyBindingConfig {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    private static String normalizeAction(String action) {
+        return switch (action) {
+            case LEGACY_AST_ZOOM_IN -> MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN;
+            case LEGACY_AST_ZOOM_OUT -> MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT;
+            default -> action;
+        };
+    }
+
     private static String combo(
             boolean control,
             boolean alt,
@@ -280,7 +301,11 @@ public final class MiniCKeyBindingConfig {
             case PLUS -> "+";
             case EQUALS -> "=";
             case MINUS -> "-";
+            case PERIOD -> "Period";
+            case OPEN_BRACKET -> "[";
+            case CLOSE_BRACKET -> "]";
             case ENTER -> "Enter";
+            case ESCAPE -> "Esc";
             default -> code.getName().isBlank() ? code.name() : code.getName();
         };
     }
@@ -296,10 +321,33 @@ public final class MiniCKeyBindingConfig {
         };
     }
 
-    private static Map<String, String> actionLabels() {
+    private static LinkedHashMap<String, String> actionLabels() {
         LinkedHashMap<String, String> labels = new LinkedHashMap<>();
-        labels.put("ast.zoom.in", "AST 放大");
-        labels.put("ast.zoom.out", "AST 缩小");
+        labels.put(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, "当前视口 · 放大");
+        labels.put(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, "当前视口 · 缩小");
+        labels.put(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_UP, "当前视口 · 向上滚动");
+        labels.put(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, "当前视口 · 向下滚动");
+        labels.put(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_LEFT, "当前视口 · 向左滚动");
+        labels.put(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_RIGHT, "当前视口 · 向右滚动");
+        labels.put(MiniCWorkbenchControlHub.VIEWPORT_CENTER_ACTIVE, "当前视口 · 居中高亮");
+        labels.put(MiniCWorkbenchControlHub.DEBUG_START, "调试 · 从头开始");
+        labels.put(MiniCWorkbenchControlHub.DEBUG_RUN_TO_END, "调试 · 运行到结束");
+        labels.put(MiniCWorkbenchControlHub.DEBUG_RUN_TO_BREAKPOINT, "调试 · 下个断点");
+        labels.put(MiniCWorkbenchControlHub.DEBUG_STEP_OVER, "调试 · 本层下一句");
+        labels.put(MiniCWorkbenchControlHub.DEBUG_STEP_INTO, "调试 · 下一句");
+        labels.put(MiniCWorkbenchControlHub.DEBUG_BACK_TO_BREAKPOINT, "调试 · 上个断点");
+        labels.put(MiniCWorkbenchControlHub.DEBUG_STEP_BACK_OVER, "调试 · 本层上一句");
+        labels.put(MiniCWorkbenchControlHub.DEBUG_STEP_BACK, "调试 · 上一句");
+        labels.put(MiniCWorkbenchControlHub.COMPILER_NEXT, "编译器 · 下一步");
+        labels.put(MiniCWorkbenchControlHub.COMPILER_NEXT_STAGE, "编译器 · 下一阶段");
+        labels.put(MiniCWorkbenchControlHub.COMPILER_RUN_TO_EXECUTION, "编译器 · 到执行");
+        labels.put(MiniCWorkbenchControlHub.COMPILER_PLAY, "编译器 · 播放");
+        labels.put(MiniCWorkbenchControlHub.COMPILER_PLAY_FAST, "编译器 · 2x");
+        labels.put(MiniCWorkbenchControlHub.COMPILER_PAUSE, "编译器 · 暂停");
+        labels.put(MiniCWorkbenchControlHub.SETTINGS_THEME_NEXT, "设置 · 下一个主题");
+        labels.put(MiniCWorkbenchControlHub.SETTINGS_THEME_PREVIOUS, "设置 · 上一个主题");
+        labels.put(MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_INCREASE, "设置 · 增加帧间隔");
+        labels.put(MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_DECREASE, "设置 · 减少帧间隔");
         return labels;
     }
 
@@ -386,6 +434,10 @@ public final class MiniCKeyBindingConfig {
                 case "+" -> KeyCode.PLUS;
                 case "=" -> KeyCode.EQUALS;
                 case "-" -> KeyCode.MINUS;
+                case ".", "Period" -> KeyCode.PERIOD;
+                case "[" -> KeyCode.OPEN_BRACKET;
+                case "]" -> KeyCode.CLOSE_BRACKET;
+                case "Esc", "Escape" -> KeyCode.ESCAPE;
                 default -> {
                     KeyCode code = KeyCode.getKeyCode(text);
                     if (code == null) {

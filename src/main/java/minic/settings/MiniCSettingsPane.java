@@ -140,12 +140,29 @@ public final class MiniCSettingsPane extends VBox {
     private void registerSettingsCommands() {
         controlHub.registerSettingsCommands(new MiniCWorkbenchControlHub.SettingsCommands(
                 ThemeManager::setTheme,
+                () -> shiftTheme(1),
+                () -> shiftTheme(-1),
                 MiniCSettings::setFrameIntervalMillis,
                 MiniCSettings::frameIntervalMillis,
                 MiniCSettings::minFrameInterval,
                 MiniCSettings::maxFrameInterval,
                 FRAME_INTERVAL_STEP
         ));
+    }
+
+    private void shiftTheme(int delta) {
+        if (themeNames.isEmpty()) {
+            refreshThemeList();
+        }
+        if (themeNames.isEmpty()) {
+            return;
+        }
+        String current = themeCombo.getValue();
+        int index = current == null ? -1 : themeNames.indexOf(current);
+        int nextIndex = Math.floorMod(index + delta, themeNames.size());
+        String next = themeNames.get(nextIndex);
+        themeCombo.setValue(next);
+        controlHub.setTheme(next);
     }
 
     private void refreshThemeList() {
@@ -210,6 +227,11 @@ public final class MiniCSettingsPane extends VBox {
         if (!isCapturing(action, button)) {
             return;
         }
+        if (event.getCode() == KeyCode.ESCAPE) {
+            cancelCapture();
+            event.consume();
+            return;
+        }
         if (event.getCode() == KeyCode.ENTER) {
             confirmCapture();
             event.consume();
@@ -261,6 +283,14 @@ public final class MiniCSettingsPane extends VBox {
         }
         MiniCKeyBindingConfig.setKeys(captureAction, List.of(normalizedCombo));
         captureButton.setText(bindingText(captureAction));
+        clearCaptureStyle();
+        captureAction = "";
+        captureButton = null;
+        pendingCombo = "";
+        keyBindingWarning.setText("");
+    }
+
+    private void cancelCapture() {
         clearCaptureStyle();
         captureAction = "";
         captureButton = null;

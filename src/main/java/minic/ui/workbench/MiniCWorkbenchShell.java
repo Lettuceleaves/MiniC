@@ -1,6 +1,7 @@
 package minic.ui;
 
 import javafx.scene.Parent;
+import javafx.geometry.Point2D;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
@@ -19,7 +20,10 @@ import minic.settings.MiniCSettingsPane;
 import javafx.scene.shape.SVGPath;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
+import minic.color.ThemeManager;
+import minic.settings.MiniCSettings;
 import minic.ui.control.MiniCActiveTrackingService;
+import minic.ui.control.MiniCControlTargetType;
 import minic.ui.control.MiniCViewportAdapter;
 import minic.ui.control.MiniCWorkbenchControlHub;
 
@@ -38,6 +42,22 @@ public final class MiniCWorkbenchShell {
     private static final double ACTIVITY_BAR_WIDTH = 48;
     private static final double SIDEBAR_WIDTH = 260;
     private static final double INSPECTOR_WIDTH = 360;
+    private static final double TEXT_ZOOM_STEP = 1.0;
+    private static final double VIEWPORT_KEY_SCROLL_DELTA = 48.0;
+    private static final List<String> COMPILER_SHORTCUT_ACTIONS = List.of(
+            MiniCWorkbenchControlHub.COMPILER_NEXT,
+            MiniCWorkbenchControlHub.COMPILER_NEXT_STAGE,
+            MiniCWorkbenchControlHub.COMPILER_RUN_TO_EXECUTION,
+            MiniCWorkbenchControlHub.COMPILER_PLAY,
+            MiniCWorkbenchControlHub.COMPILER_PLAY_FAST,
+            MiniCWorkbenchControlHub.COMPILER_PAUSE
+    );
+    private static final List<String> SETTINGS_SHORTCUT_ACTIONS = List.of(
+            MiniCWorkbenchControlHub.SETTINGS_THEME_NEXT,
+            MiniCWorkbenchControlHub.SETTINGS_THEME_PREVIOUS,
+            MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_INCREASE,
+            MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_DECREASE
+    );
     private final ArrayList<DocumentTab> documents = new ArrayList<>();
     private final MiniCKeyBindingConfig keyBindings = MiniCKeyBindingConfig.loadDefault();
     private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
@@ -64,6 +84,7 @@ public final class MiniCWorkbenchShell {
      */
     public MiniCWorkbenchShell(MiniCWorkbenchViewModel viewModel) {
         addDocument(nextUntitledName(), "", null, Objects.requireNonNull(viewModel, "viewModel"));
+        registerSettingsCommands();
     }
 
     /**
@@ -526,16 +547,95 @@ public final class MiniCWorkbenchShell {
     }
 
     private void handleShortcut(KeyEvent event) {
-        if (visualPane == null) {
+        if (event.isConsumed()) {
             return;
         }
-        if (keyBindings.matches("ast.zoom.in", event)) {
-            visualPane.zoomAstIn();
-            event.consume();
-        } else if (keyBindings.matches("ast.zoom.out", event)) {
-            visualPane.zoomAstOut();
-            event.consume();
+        if (handleCommandShortcut(event, COMPILER_SHORTCUT_ACTIONS)
+                || handleCommandShortcut(event, SETTINGS_SHORTCUT_ACTIONS)
+                || handleViewportShortcut(event)) {
+            return;
         }
+    }
+
+    private boolean handleCommandShortcut(KeyEvent event, List<String> actions) {
+        for (String action : actions) {
+            if (keyBindings.matches(action, event)) {
+                controlHub.execute(action);
+                event.consume();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean handleViewportShortcut(KeyEvent event) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, event)) {
+            controlHub.handleZoom(Point2D.ZERO, viewportZoomDelta(1.0));
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, event)) {
+            controlHub.handleZoom(Point2D.ZERO, viewportZoomDelta(-1.0));
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_UP, event)) {
+            controlHub.handleScrollVertical(-VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, event)) {
+            controlHub.handleScrollVertical(VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_LEFT, event)) {
+            controlHub.handleScrollHorizontal(-VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_RIGHT, event)) {
+            controlHub.handleScrollHorizontal(VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_CENTER_ACTIVE, event)) {
+            controlHub.handleCenterActive();
+            event.consume();
+            return true;
+        }
+        return false;
+    }
+
+    private double viewportZoomDelta(double direction) {
+        return direction * controlHub.viewportRegistry().currentTarget()
+                .filter(adapter -> adapter.type() == MiniCControlTargetType.TEXT)
+                .map(adapter -> TEXT_ZOOM_STEP)
+                .orElse(MiniCSettings.graphZoomStep());
+    }
+
+    private void registerSettingsCommands() {
+        controlHub.registerSettingsCommands(new MiniCWorkbenchControlHub.SettingsCommands(
+                ThemeManager::setTheme,
+                () -> shiftTheme(1),
+                () -> shiftTheme(-1),
+                MiniCSettings::setFrameIntervalMillis,
+                MiniCSettings::frameIntervalMillis,
+                MiniCSettings::minFrameInterval,
+                MiniCSettings::maxFrameInterval,
+                50
+        ));
+    }
+
+    private void shiftTheme(int delta) {
+        List<String> themes = ThemeManager.availableThemes();
+        if (themes.isEmpty()) {
+            return;
+        }
+        String current = ThemeManager.currentTheme();
+        int index = current == null ? -1 : themes.indexOf(current);
+        String next = themes.get(Math.floorMod(index + delta, themes.size()));
+        ThemeManager.setTheme(next);
     }
 
     private record DocumentTab(String name, Path path, MiniCWorkbenchViewModel viewModel) {

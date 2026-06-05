@@ -37,9 +37,18 @@ public final class MiniCWorkbenchControlHub {
     public static final String COMPILER_PLAY_FAST = "compiler.playFast";
     public static final String COMPILER_PAUSE = "compiler.pause";
     public static final String SETTINGS_THEME_SET = "settings.theme.set";
+    public static final String SETTINGS_THEME_NEXT = "settings.theme.next";
+    public static final String SETTINGS_THEME_PREVIOUS = "settings.theme.previous";
     public static final String SETTINGS_FRAME_INTERVAL_SET = "settings.frameInterval.set";
     public static final String SETTINGS_FRAME_INTERVAL_INCREASE = "settings.frameInterval.increase";
     public static final String SETTINGS_FRAME_INTERVAL_DECREASE = "settings.frameInterval.decrease";
+    public static final String VIEWPORT_ZOOM_IN = "viewport.zoom.in";
+    public static final String VIEWPORT_ZOOM_OUT = "viewport.zoom.out";
+    public static final String VIEWPORT_SCROLL_UP = "viewport.scroll.up";
+    public static final String VIEWPORT_SCROLL_DOWN = "viewport.scroll.down";
+    public static final String VIEWPORT_SCROLL_LEFT = "viewport.scroll.left";
+    public static final String VIEWPORT_SCROLL_RIGHT = "viewport.scroll.right";
+    public static final String VIEWPORT_CENTER_ACTIVE = "viewport.centerActive";
 
     private final MiniCCommandRegistry commandRegistry;
     private final MiniCViewportRegistry viewportRegistry;
@@ -122,6 +131,8 @@ public final class MiniCWorkbenchControlHub {
         Objects.requireNonNull(commands, "commands");
         register(SETTINGS_THEME_SET, "设置主题", () -> pendingThemeName != null, () ->
                 commands.themeSetter().accept(pendingThemeName));
+        register(SETTINGS_THEME_NEXT, "下一个主题", () -> true, commands.themeNext());
+        register(SETTINGS_THEME_PREVIOUS, "上一个主题", () -> true, commands.themePrevious());
         register(SETTINGS_FRAME_INTERVAL_SET, "设置帧间隔", () -> pendingFrameIntervalMillis != null, () ->
                 commands.frameIntervalSetter().accept(clamp(
                         pendingFrameIntervalMillis,
@@ -203,6 +214,10 @@ public final class MiniCWorkbenchControlHub {
         viewportRegistry.currentTarget()
                 .filter(MiniCViewportAdapter::canPan)
                 .ifPresent(adapter -> adapter.pan(deltaX, deltaY));
+    }
+
+    public void handleCenterActive() {
+        viewportRegistry.currentTarget().ifPresent(MiniCViewportAdapter::centerActive);
     }
 
     public void installViewportTarget(Node node, MiniCViewportAdapter adapter) {
@@ -345,6 +360,8 @@ public final class MiniCWorkbenchControlHub {
 
     public record SettingsCommands(
             Consumer<String> themeSetter,
+            Runnable themeNext,
+            Runnable themePrevious,
             LongConsumer frameIntervalSetter,
             LongSupplier currentFrameInterval,
             LongSupplier minFrameInterval,
@@ -353,6 +370,8 @@ public final class MiniCWorkbenchControlHub {
     ) {
         public SettingsCommands {
             Objects.requireNonNull(themeSetter, "themeSetter");
+            Objects.requireNonNull(themeNext, "themeNext");
+            Objects.requireNonNull(themePrevious, "themePrevious");
             Objects.requireNonNull(frameIntervalSetter, "frameIntervalSetter");
             Objects.requireNonNull(currentFrameInterval, "currentFrameInterval");
             Objects.requireNonNull(minFrameInterval, "minFrameInterval");

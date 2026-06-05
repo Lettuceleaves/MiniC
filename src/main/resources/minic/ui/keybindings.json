@@ -1,12 +1,104 @@
 {
   "bindings": [
     {
-      "action": "ast.zoom.in",
+      "action": "viewport.zoom.in",
       "keys": ["Ctrl+=", "Ctrl++", "Ctrl+Shift+="]
     },
     {
-      "action": "ast.zoom.out",
+      "action": "viewport.zoom.out",
       "keys": ["Ctrl+-"]
+    },
+    {
+      "action": "viewport.scroll.up",
+      "keys": []
+    },
+    {
+      "action": "viewport.scroll.down",
+      "keys": []
+    },
+    {
+      "action": "viewport.scroll.left",
+      "keys": []
+    },
+    {
+      "action": "viewport.scroll.right",
+      "keys": []
+    },
+    {
+      "action": "viewport.centerActive",
+      "keys": []
+    },
+    {
+      "action": "debug.start",
+      "keys": ["Ctrl+F5"]
+    },
+    {
+      "action": "debug.runToEnd",
+      "keys": ["Ctrl+Shift+F5"]
+    },
+    {
+      "action": "debug.runToBreakpoint",
+      "keys": ["F5"]
+    },
+    {
+      "action": "debug.stepOver",
+      "keys": ["F10"]
+    },
+    {
+      "action": "debug.stepInto",
+      "keys": ["F11"]
+    },
+    {
+      "action": "debug.backToBreakpoint",
+      "keys": ["Shift+F5"]
+    },
+    {
+      "action": "debug.stepBackOver",
+      "keys": ["Shift+F10"]
+    },
+    {
+      "action": "debug.stepBack",
+      "keys": ["Shift+F11"]
+    },
+    {
+      "action": "compiler.next",
+      "keys": ["F8"]
+    },
+    {
+      "action": "compiler.nextStage",
+      "keys": ["Shift+F8"]
+    },
+    {
+      "action": "compiler.runToExecution",
+      "keys": ["Ctrl+F8"]
+    },
+    {
+      "action": "compiler.play",
+      "keys": ["Ctrl+Alt+P"]
+    },
+    {
+      "action": "compiler.playFast",
+      "keys": ["Ctrl+Alt+Shift+P"]
+    },
+    {
+      "action": "compiler.pause",
+      "keys": ["Ctrl+Alt+Period"]
+    },
+    {
+      "action": "settings.theme.next",
+      "keys": ["Ctrl+Alt+T"]
+    },
+    {
+      "action": "settings.theme.previous",
+      "keys": ["Ctrl+Alt+Shift+T"]
+    },
+    {
+      "action": "settings.frameInterval.increase",
+      "keys": ["Ctrl+Alt+]"]
+    },
+    {
+      "action": "settings.frameInterval.decrease",
+      "keys": ["Ctrl+Alt+["]
     }
   ]
 }
