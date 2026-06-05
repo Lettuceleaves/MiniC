@@ -17,6 +17,7 @@ class MiniCWebContractTest {
                 .contains("/api/health")
                 .contains("/api/compile/sessions")
                 .contains("/api/debug/sessions")
+                .contains("/api/debug-sessions")
                 .contains("/api/analysis/realtime")
                 .contains("/api/settings")
                 .contains("/api/settings/themes");

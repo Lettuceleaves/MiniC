@@ -196,6 +196,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/debug-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["createDebugSessionSpecAlias"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/sessions/{sessionId}": {
         parameters: {
             query?: never;
@@ -212,6 +228,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/debug-sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["closeDebugSessionSpecAlias"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/sessions/{sessionId}/source": {
         parameters: {
             query?: never;
@@ -222,6 +254,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["updateDebugSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/debug-sessions/{sessionId}/source": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["updateDebugSourceSpecAlias"];
         delete?: never;
         options?: never;
         head?: never;
@@ -244,6 +292,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/debug-sessions/{sessionId}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["startDebugSessionSpecAlias"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/sessions/{sessionId}/breakpoints": {
         parameters: {
             query?: never;
@@ -255,6 +319,22 @@ export interface paths {
         put?: never;
         post: operations["addDebugBreakpoint"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/debug-sessions/{sessionId}/breakpoints/{line}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addDebugBreakpointSpecAlias"];
+        delete: operations["removeDebugBreakpointSpecAlias"];
         options?: never;
         head?: never;
         patch?: never;
@@ -292,6 +372,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/debug-sessions/{sessionId}/{command}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["runDebugCommandSpecAlias"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/sessions/{sessionId}/state": {
         parameters: {
             query?: never;
@@ -300,6 +396,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getDebugState"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/debug-sessions/{sessionId}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getDebugStateSpecAlias"];
         put?: never;
         post?: never;
         delete?: never;
@@ -324,6 +436,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/debug-sessions/{sessionId}/views/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getDebugMetadataViewSpecAlias"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/sessions/{sessionId}/views/ast": {
         parameters: {
             query?: never;
@@ -332,6 +460,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getDebugAstView"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/debug-sessions/{sessionId}/views/ast": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getDebugAstViewSpecAlias"];
         put?: never;
         post?: never;
         delete?: never;
@@ -356,6 +500,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/debug-sessions/{sessionId}/views/ir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getDebugIrViewSpecAlias"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/sessions/{sessionId}/views/asm": {
         parameters: {
             query?: never;
@@ -364,6 +524,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getDebugAsmView"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/debug-sessions/{sessionId}/views/asm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getDebugAsmViewSpecAlias"];
         put?: never;
         post?: never;
         delete?: never;
@@ -388,6 +564,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/debug-sessions/{sessionId}/views/data-structure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getDebugDataStructureViewSpecAlias"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/debug/sessions/{sessionId}/snapshot": {
         parameters: {
             query?: never;
@@ -396,6 +588,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getDebugSnapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/debug-sessions/{sessionId}/snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getDebugSnapshotSpecAlias"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1160,6 +1368,31 @@ export interface operations {
             400: components["responses"]["BadRequest"];
         };
     };
+    createDebugSessionSpecAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Debug session created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionCreatedResponse"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+        };
+    };
     closeDebugSession: {
         parameters: {
             query?: never;
@@ -1183,7 +1416,57 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    closeDebugSessionSpecAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug session closed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionClosedResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
     updateDebugSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSessionRequest"];
+            };
+        };
+        responses: {
+            /** @description Debug source updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebugSnapshotResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateDebugSourceSpecAlias: {
         parameters: {
             query?: never;
             header?: never;
@@ -1234,6 +1517,30 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    startDebugSessionSpecAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug session started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebugSnapshotResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     addDebugBreakpoint: {
         parameters: {
             query?: never;
@@ -1250,6 +1557,56 @@ export interface operations {
         };
         responses: {
             /** @description Debug breakpoint added */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiDebugStateDto"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    addDebugBreakpointSpecAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                line: components["parameters"]["Line"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug breakpoint added */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiDebugStateDto"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    removeDebugBreakpointSpecAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                line: components["parameters"]["Line"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug breakpoint removed */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -1313,7 +1670,56 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    runDebugCommandSpecAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+                command: components["parameters"]["Command"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug command result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiDebugStateDto"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     getDebugState: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiDebugStateDto"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDebugStateSpecAlias: {
         parameters: {
             query?: never;
             header?: never;
@@ -1359,7 +1765,53 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    getDebugMetadataViewSpecAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug metadata view */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiDebugMetadataViewDto"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
     getDebugAstView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug AST view */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiDebugAstViewDto"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDebugAstViewSpecAlias: {
         parameters: {
             query?: never;
             header?: never;
@@ -1405,7 +1857,53 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    getDebugIrViewSpecAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug IR view */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiDebugIrViewDto"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
     getDebugAsmView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug assembly view */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiDebugAsmViewDto"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDebugAsmViewSpecAlias: {
         parameters: {
             query?: never;
             header?: never;
@@ -1451,7 +1949,53 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    getDebugDataStructureViewSpecAlias: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Debug data-structure view */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UiDebugDataStructureViewDto"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
     getDebugSnapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Aggregate debug snapshot */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebugSnapshotResponse"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDebugSnapshotSpecAlias: {
         parameters: {
             query?: never;
             header?: never;

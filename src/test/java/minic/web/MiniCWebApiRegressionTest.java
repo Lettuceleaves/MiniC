@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MiniCWebApiRegressionTest {
     private static final Pattern SESSION_ID_PATTERN = Pattern.compile("\"sessionId\"\\s*:\\s*\"([^\"]+)\"");
+    private static final Pattern SNAPSHOT_ID_PATTERN = Pattern.compile("\"snapshotId\"\\s*:\\s*(\\d+)");
 
     @Test
     void servesHealthEndpointWithoutStartingJavaFx() throws Exception {
@@ -160,8 +161,13 @@ class MiniCWebApiRegressionTest {
 
             assertThat(post(server, client, "/api/debug/sessions/" + sessionId + "/commands/step-over", "")
                     .statusCode()).isEqualTo(200);
-            assertThat(post(server, client, "/api/debug/sessions/" + sessionId + "/commands/step-back", "")
-                    .statusCode()).isEqualTo(200);
+            long afterStepOverSnapshotId = firstSnapshotId(get(server, client,
+                    "/api/debug/sessions/" + sessionId + "/state").body());
+            HttpResponse<String> stepBack = post(server, client,
+                    "/api/debug/sessions/" + sessionId + "/commands/step-back", "");
+            assertThat(stepBack.statusCode()).isEqualTo(200);
+            long afterStepBackSnapshotId = firstSnapshotId(stepBack.body());
+            assertThat(afterStepBackSnapshotId).isLessThanOrEqualTo(afterStepOverSnapshotId);
 
             assertJsonOk(server, client, "/api/debug/sessions/" + sessionId + "/state", "\"executionState\"");
             assertJsonOk(server, client, "/api/debug/sessions/" + sessionId + "/views/metadata", "\"timeline\"");
@@ -178,6 +184,43 @@ class MiniCWebApiRegressionTest {
             HttpResponse<String> closed = delete(server, client, "/api/debug/sessions/" + sessionId);
             assertThat(closed.statusCode()).isEqualTo(200);
             assertThat(closed.body()).contains("\"closed\":true");
+        }
+    }
+
+    @Test
+    void supportsSpecDebugSessionAliasesAndBreakpointRunAssertions() throws Exception {
+        try (MiniCWebServer server = MiniCWebApplication.create(MiniCWebConfig.testing()).start();
+             HttpClient client = HttpClient.newHttpClient()) {
+            HttpResponse<String> created = post(server, client, "/api/debug-sessions",
+                    "{\"sourceName\":\"debug.mc\",\"sourceText\":\"int main() { int x = 1; x = x + 1; return x; }\"}");
+            assertThat(created.statusCode()).isEqualTo(201);
+            String sessionId = sessionId(created.body());
+
+            assertThat(post(server, client, "/api/debug-sessions/" + sessionId + "/start", "").statusCode())
+                    .isEqualTo(200);
+            assertThat(post(server, client, "/api/debug-sessions/" + sessionId + "/breakpoints/1", "").statusCode())
+                    .isEqualTo(200);
+
+            HttpResponse<String> breakpointRun = post(server, client,
+                    "/api/debug-sessions/" + sessionId + "/run-to-breakpoint", "");
+            assertThat(breakpointRun.statusCode()).isEqualTo(200);
+            assertThat(breakpointRun.body())
+                    .contains("\"currentSnapshot\"")
+                    .contains("\"sourceRange\"")
+                    .contains("\"startLine\":1");
+
+            long breakpointSnapshotId = firstSnapshotId(breakpointRun.body());
+            HttpResponse<String> stepOver = post(server, client,
+                    "/api/debug-sessions/" + sessionId + "/step-over", "");
+            assertThat(stepOver.statusCode()).isEqualTo(200);
+            long stepOverSnapshotId = firstSnapshotId(stepOver.body());
+            assertThat(stepOverSnapshotId).isGreaterThanOrEqualTo(breakpointSnapshotId);
+
+            HttpResponse<String> stepBack = post(server, client,
+                    "/api/debug-sessions/" + sessionId + "/step-back", "");
+            assertThat(stepBack.statusCode()).isEqualTo(200);
+            long stepBackSnapshotId = firstSnapshotId(stepBack.body());
+            assertThat(stepBackSnapshotId).isLessThanOrEqualTo(stepOverSnapshotId);
         }
     }
 
@@ -252,5 +295,11 @@ class MiniCWebApiRegressionTest {
         Matcher matcher = SESSION_ID_PATTERN.matcher(body);
         assertThat(matcher.find()).as(body).isTrue();
         return matcher.group(1);
+    }
+
+    private static long firstSnapshotId(String body) {
+        Matcher matcher = SNAPSHOT_ID_PATTERN.matcher(body);
+        assertThat(matcher.find()).as(body).isTrue();
+        return Long.parseLong(matcher.group(1));
     }
 }

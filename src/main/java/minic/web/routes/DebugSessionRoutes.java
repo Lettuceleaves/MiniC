@@ -36,6 +36,26 @@ public final class DebugSessionRoutes {
         routes.get("/api/debug/sessions/{id}/views/asm", this::asmView);
         routes.get("/api/debug/sessions/{id}/views/data-structure", this::dataStructureView);
         routes.get("/api/debug/sessions/{id}/snapshot", this::snapshot);
+        registerSpecAliasRoutes(routes);
+    }
+
+    private void registerSpecAliasRoutes(JavalinDefaultRoutingApi routes) {
+        routes.post("/api/debug-sessions", this::createSession);
+        routes.delete("/api/debug-sessions/{id}", this::closeSession);
+        routes.post("/api/debug-sessions/{id}/source", this::updateSource);
+        routes.post("/api/debug-sessions/{id}/start", this::startSession);
+        routes.post("/api/debug-sessions/{id}/breakpoints/{line}", this::addBreakpointFromPath);
+        routes.delete("/api/debug-sessions/{id}/breakpoints/{line}", this::removeBreakpoint);
+        routes.get("/api/debug-sessions/{id}/state", this::state);
+        routes.get("/api/debug-sessions/{id}/views/metadata", this::metadataView);
+        routes.get("/api/debug-sessions/{id}/views/ast", this::astView);
+        routes.get("/api/debug-sessions/{id}/views/ir", this::irView);
+        routes.get("/api/debug-sessions/{id}/views/asm", this::asmView);
+        routes.get("/api/debug-sessions/{id}/views/data-structure", this::dataStructureView);
+        routes.get("/api/debug-sessions/{id}/snapshot", this::snapshot);
+        for (String command : supportedCommands()) {
+            routes.post("/api/debug-sessions/{id}/" + command, this::runCommandFromPathAlias);
+        }
     }
 
     private void createSession(Context context) {
@@ -63,7 +83,15 @@ public final class DebugSessionRoutes {
 
     private void addBreakpoint(Context context) {
         BreakpointRequest request = context.bodyAsClass(BreakpointRequest.class);
-        int line = requirePositiveLine(request.line());
+        addBreakpoint(context, request.line());
+    }
+
+    private void addBreakpointFromPath(Context context) {
+        addBreakpoint(context, parseLine(context.pathParam("line")));
+    }
+
+    private void addBreakpoint(Context context, int requestedLine) {
+        int line = requirePositiveLine(requestedLine);
         UiDebugStateDto state = registry.commandDebugSession(sessionId(context), api -> api.setBreakpoint(line));
         context.json(state);
     }
@@ -76,6 +104,14 @@ public final class DebugSessionRoutes {
 
     private void runCommand(Context context) {
         String command = context.pathParam("command");
+        UiDebugStateDto state = registry.commandDebugSession(sessionId(context),
+                api -> runDebugCommand(api, command));
+        context.json(state);
+    }
+
+    private void runCommandFromPathAlias(Context context) {
+        String path = context.path();
+        String command = path.substring(path.lastIndexOf('/') + 1);
         UiDebugStateDto state = registry.commandDebugSession(sessionId(context),
                 api -> runDebugCommand(api, command));
         context.json(state);
@@ -136,6 +172,24 @@ public final class DebugSessionRoutes {
             case "back-to-breakpoint" -> api.backToBreakpoint();
             case "back-to-call-site" -> api.backToCallSite();
             default -> throw new IllegalArgumentException("unknown debug command: " + command);
+        };
+    }
+
+    private String[] supportedCommands() {
+        return new String[] {
+                "run-to-breakpoint",
+                "run-to-end",
+                "fast-forward",
+                "step-over",
+                "step-into",
+                "step-out",
+                "pause",
+                "restart",
+                "close",
+                "step-back",
+                "step-back-over",
+                "back-to-breakpoint",
+                "back-to-call-site"
         };
     }
 

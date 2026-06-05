@@ -197,6 +197,24 @@ paths:
                 $ref: "#/components/schemas/SessionCreatedResponse"
         "400":
           $ref: "#/components/responses/BadRequest"
+  /api/debug-sessions:
+    post:
+      operationId: createDebugSessionSpecAlias
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "201":
+          description: Debug session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionCreatedResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /api/debug/sessions/{sessionId}:
     delete:
       operationId: closeDebugSession
@@ -211,9 +229,43 @@ paths:
                 $ref: "#/components/schemas/SessionClosedResponse"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/debug-sessions/{sessionId}:
+    delete:
+      operationId: closeDebugSessionSpecAlias
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Debug session closed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionClosedResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/debug/sessions/{sessionId}/source:
     post:
       operationId: updateDebugSource
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSessionRequest"
+      responses:
+        "200":
+          description: Debug source updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebugSnapshotResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/debug-sessions/{sessionId}/source:
+    post:
+      operationId: updateDebugSourceSpecAlias
       parameters:
         - $ref: "#/components/parameters/SessionId"
       requestBody:
@@ -247,6 +299,22 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /api/debug-sessions/{sessionId}/start:
+    post:
+      operationId: startDebugSessionSpecAlias
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Debug session started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebugSnapshotResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /api/debug/sessions/{sessionId}/breakpoints:
     post:
       operationId: addDebugBreakpoint
@@ -261,6 +329,39 @@ paths:
       responses:
         "200":
           description: Debug breakpoint added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiDebugStateDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/debug-sessions/{sessionId}/breakpoints/{line}:
+    post:
+      operationId: addDebugBreakpointSpecAlias
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - $ref: "#/components/parameters/Line"
+      responses:
+        "200":
+          description: Debug breakpoint added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiDebugStateDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      operationId: removeDebugBreakpointSpecAlias
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - $ref: "#/components/parameters/Line"
+      responses:
+        "200":
+          description: Debug breakpoint removed
           content:
             application/json:
               schema:
@@ -305,9 +406,42 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/Conflict"
+  /api/debug-sessions/{sessionId}/{command}:
+    post:
+      operationId: runDebugCommandSpecAlias
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+        - $ref: "#/components/parameters/Command"
+      responses:
+        "200":
+          description: Debug command result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiDebugStateDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
   /api/debug/sessions/{sessionId}/state:
     get:
       operationId: getDebugState
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Debug state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiDebugStateDto"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/debug-sessions/{sessionId}/state:
+    get:
+      operationId: getDebugStateSpecAlias
       parameters:
         - $ref: "#/components/parameters/SessionId"
       responses:
@@ -333,9 +467,37 @@ paths:
                 $ref: "#/components/schemas/UiDebugMetadataViewDto"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/debug-sessions/{sessionId}/views/metadata:
+    get:
+      operationId: getDebugMetadataViewSpecAlias
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Debug metadata view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiDebugMetadataViewDto"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/debug/sessions/{sessionId}/views/ast:
     get:
       operationId: getDebugAstView
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Debug AST view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiDebugAstViewDto"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/debug-sessions/{sessionId}/views/ast:
+    get:
+      operationId: getDebugAstViewSpecAlias
       parameters:
         - $ref: "#/components/parameters/SessionId"
       responses:
@@ -361,9 +523,37 @@ paths:
                 $ref: "#/components/schemas/UiDebugIrViewDto"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/debug-sessions/{sessionId}/views/ir:
+    get:
+      operationId: getDebugIrViewSpecAlias
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Debug IR view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiDebugIrViewDto"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/debug/sessions/{sessionId}/views/asm:
     get:
       operationId: getDebugAsmView
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Debug assembly view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiDebugAsmViewDto"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/debug-sessions/{sessionId}/views/asm:
+    get:
+      operationId: getDebugAsmViewSpecAlias
       parameters:
         - $ref: "#/components/parameters/SessionId"
       responses:
@@ -389,9 +579,37 @@ paths:
                 $ref: "#/components/schemas/UiDebugDataStructureViewDto"
         "404":
           $ref: "#/components/responses/NotFound"
+  /api/debug-sessions/{sessionId}/views/data-structure:
+    get:
+      operationId: getDebugDataStructureViewSpecAlias
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Debug data-structure view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UiDebugDataStructureViewDto"
+        "404":
+          $ref: "#/components/responses/NotFound"
   /api/debug/sessions/{sessionId}/snapshot:
     get:
       operationId: getDebugSnapshot
+      parameters:
+        - $ref: "#/components/parameters/SessionId"
+      responses:
+        "200":
+          description: Aggregate debug snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DebugSnapshotResponse"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/debug-sessions/{sessionId}/snapshot:
+    get:
+      operationId: getDebugSnapshotSpecAlias
       parameters:
         - $ref: "#/components/parameters/SessionId"
       responses:
