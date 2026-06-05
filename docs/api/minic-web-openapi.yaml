@@ -720,32 +720,30 @@ components:
             $ref: "#/components/schemas/UiDiagnosticDto"
     UiStageVisualDto:
       type: object
-      required: [stage, title, summary, sourceText, ranges, tokens, astRoots, scopes, irLines, assemblyLines]
+      required: [stage, visualType, sourceText, genericItems, lexerTokens, semanticEdgesPointChildToParent, irLines, assemblyLines]
       properties:
         stage:
           type: string
-        title:
-          type: string
-        summary:
+        visualType:
           type: string
         sourceText:
           type: string
-        ranges:
+        genericItems:
           type: array
           items:
-            $ref: "#/components/schemas/UiSourceRangeDto"
-        tokens:
+            type: string
+        lexerTokens:
           type: array
           items:
             $ref: "#/components/schemas/UiLexerTokenVisualDto"
-        astRoots:
-          type: array
-          items:
-            $ref: "#/components/schemas/UiAstNodeVisualDto"
-        scopes:
-          type: array
-          items:
-            $ref: "#/components/schemas/UiSemanticScopeVisualDto"
+        astRoot:
+          nullable: true
+          $ref: "#/components/schemas/UiAstNodeVisualDto"
+        semanticRoot:
+          nullable: true
+          $ref: "#/components/schemas/UiSemanticScopeVisualDto"
+        semanticEdgesPointChildToParent:
+          type: boolean
         irLines:
           type: array
           items:
@@ -756,19 +754,54 @@ components:
             $ref: "#/components/schemas/UiAssemblyLineVisualDto"
     UiGlobalDataDto:
       type: object
-      required: [stageOrder, currentStage, globalStepIndex, playbackMode]
+      required: [source, stageSummaries, diagnostics, preprocessSummary, tokenSummary, astSummary, semanticSummary, irSummary, assemblySummary, artifactSummary, executionInputSummary, executionOutputSummary]
       properties:
-        stageOrder:
+        source:
+          type: string
+        stageSummaries:
           type: array
           items:
             type: string
-        currentStage:
-          type: string
-        globalStepIndex:
-          type: integer
-          format: int64
-        playbackMode:
-          type: string
+        diagnostics:
+          type: array
+          items:
+            $ref: "#/components/schemas/UiDiagnosticDto"
+        preprocessSummary:
+          type: array
+          items:
+            type: string
+        tokenSummary:
+          type: array
+          items:
+            type: string
+        astSummary:
+          type: array
+          items:
+            type: string
+        semanticSummary:
+          type: array
+          items:
+            type: string
+        irSummary:
+          type: array
+          items:
+            type: string
+        assemblySummary:
+          type: array
+          items:
+            type: string
+        artifactSummary:
+          type: array
+          items:
+            type: string
+        executionInputSummary:
+          type: array
+          items:
+            type: string
+        executionOutputSummary:
+          type: array
+          items:
+            type: string
     UiRealtimeAnalysisDto:
       type: object
       required: [sourceName, sourceText, diagnostics, tokens, version]
@@ -790,11 +823,15 @@ components:
           format: int64
     UiDiagnosticDto:
       type: object
-      required: [severity, message, startOffset, endOffset]
+      required: [code, severity, message, sourceName, startOffset, endOffset]
       properties:
+        code:
+          type: string
         severity:
           type: string
         message:
+          type: string
+        sourceName:
           type: string
         startOffset:
           type: integer
@@ -840,14 +877,33 @@ components:
           format: int32
     UiLexerTokenVisualDto:
       type: object
-      required: [kind, lexeme, range, active]
+      required: [kind, text, startOffset, endOffset, startLine, startColumn, endLine, endColumn, active]
       properties:
         kind:
           type: string
-        lexeme:
+        text:
           type: string
         range:
-          $ref: "#/components/schemas/UiSourceRangeDto"
+          nullable: true
+          $ref: "#/components/schemas/UiSourceSpanDto"
+        startOffset:
+          type: integer
+          format: int32
+        endOffset:
+          type: integer
+          format: int32
+        startLine:
+          type: integer
+          format: int32
+        startColumn:
+          type: integer
+          format: int32
+        endLine:
+          type: integer
+          format: int32
+        endColumn:
+          type: integer
+          format: int32
         active:
           type: boolean
     UiAstNodeVisualDto:
@@ -862,7 +918,7 @@ components:
           type: string
         range:
           nullable: true
-          $ref: "#/components/schemas/UiSourceRangeDto"
+          $ref: "#/components/schemas/UiSourceSpanDto"
         children:
           type: array
           items:
@@ -881,6 +937,9 @@ components:
           type: array
           items:
             type: string
+        range:
+          nullable: true
+          $ref: "#/components/schemas/UiSourceSpanDto"
         children:
           type: array
           items:
@@ -903,15 +962,22 @@ components:
           type: boolean
     UiAssemblyLineVisualDto:
       type: object
-      required: [lineNumber, text, section, active]
+      required: [lineNumber, text, kind, section, label, active]
       properties:
         lineNumber:
           type: integer
           format: int32
         text:
           type: string
+        kind:
+          type: string
         section:
           type: string
+        label:
+          type: string
+        range:
+          nullable: true
+          $ref: "#/components/schemas/UiSourceSpanDto"
         active:
           type: boolean
     UiDebugStateDto:
@@ -938,23 +1004,33 @@ components:
             $ref: "#/components/schemas/UiDebugBreakpointDto"
     UiDebugSnapshotDto:
       type: object
-      required: [id, functionName, sourceRange, frames, variables]
+      required: [snapshotId, visibleStepIndex, functionName, blockLabel, instructionId, callStackSummary, processSpace, breakpointHit, stopReason]
       properties:
-        id:
-          type: string
+        snapshotId:
+          type: integer
+          format: int64
+        visibleStepIndex:
+          type: integer
+          format: int64
         functionName:
+          type: string
+        blockLabel:
+          type: string
+        instructionId:
           type: string
         sourceRange:
           nullable: true
           $ref: "#/components/schemas/UiSourceSpanDto"
-        frames:
+        callStackSummary:
           type: array
           items:
-            $ref: "#/components/schemas/UiDebugFrameDto"
-        variables:
-          type: array
-          items:
-            $ref: "#/components/schemas/UiDebugVariableDto"
+            type: string
+        processSpace:
+          $ref: "#/components/schemas/UiDebugProcessSpaceDto"
+        breakpointHit:
+          type: boolean
+        stopReason:
+          type: string
     UiDebugBreakpointDto:
       type: object
       required: [line, enabled]
@@ -966,36 +1042,78 @@ components:
           type: boolean
     UiDebugEventDto:
       type: object
-      required: [kind, message, snapshotId]
+      required: [eventId, snapshotId, type, title, description, affectedValueRefs]
       properties:
-        kind:
-          type: string
-        message:
-          type: string
-        snapshotId:
-          type: string
-    UiDebugFrameDto:
-      type: object
-      required: [index, functionName, sourceRange]
-      properties:
-        index:
+        eventId:
           type: integer
-          format: int32
-        functionName:
+          format: int64
+        snapshotId:
+          type: integer
+          format: int64
+        type:
+          type: string
+        title:
+          type: string
+        description:
           type: string
         sourceRange:
           nullable: true
           $ref: "#/components/schemas/UiSourceSpanDto"
+        affectedValueRefs:
+          type: array
+          items:
+            type: string
+    UiDebugFrameDto:
+      type: object
+      required: [frameId, functionName, parameters, locals]
+      properties:
+        frameId:
+          type: string
+        functionName:
+          type: string
+        parameters:
+          type: array
+          items:
+            $ref: "#/components/schemas/UiDebugVariableDto"
+        locals:
+          type: array
+          items:
+            $ref: "#/components/schemas/UiDebugVariableDto"
+        returnTarget:
+          type: string
+        activeRange:
+          nullable: true
+          $ref: "#/components/schemas/UiSourceSpanDto"
     UiDebugVariableDto:
       type: object
-      required: [name, type, value]
+      required: [name, address, typeName, valueKind, valueSummary, pointerTarget, typeShape, highlightedChange, explanation, fields, elements]
       properties:
         name:
           type: string
-        type:
+        address:
           type: string
-        value:
+        typeName:
           type: string
+        valueKind:
+          type: string
+        valueSummary:
+          type: string
+        pointerTarget:
+          type: string
+        typeShape:
+          type: string
+        highlightedChange:
+          type: boolean
+        explanation:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/UiDebugVariableDto"
+        elements:
+          type: array
+          items:
+            $ref: "#/components/schemas/UiDebugVariableDto"
     UiDebugMetadataViewDto:
       type: object
       required: [executionState, stopReason, currentFunction, callStack, variables, stdout, stderr, breakpoints, events, timeline]
@@ -1052,13 +1170,18 @@ components:
             type: string
     UiDebugAstNodeDetailDto:
       type: object
-      required: [id, kind, label]
+      required: [nodeId, kind, label, explanation]
       properties:
-        id:
+        nodeId:
           type: string
         kind:
           type: string
         label:
+          type: string
+        sourceRange:
+          nullable: true
+          $ref: "#/components/schemas/UiSourceSpanDto"
+        explanation:
           type: string
     UiDebugIrViewDto:
       type: object
@@ -1081,11 +1204,15 @@ components:
             $ref: "#/components/schemas/UiDebugIrOperandDto"
     UiDebugIrOperandDto:
       type: object
-      required: [name, value]
+      required: [name, typeName, valueSummary, valueRef]
       properties:
         name:
           type: string
-        value:
+        typeName:
+          type: string
+        valueSummary:
+          type: string
+        valueRef:
           type: string
     UiDebugAsmViewDto:
       type: object
@@ -1117,21 +1244,51 @@ components:
             type: string
     UiDebugProcessSpaceDto:
       type: object
-      required: [segments]
+      required: [currentFunctionName, currentInstructionId, functions, staticValues, stackFrames, heapValues, stdin, stdout, stderr]
       properties:
-        segments:
+        currentFunctionName:
+          type: string
+        currentInstructionId:
+          type: string
+        functions:
           type: array
           items:
             type: string
+        staticValues:
+          type: array
+          items:
+            $ref: "#/components/schemas/UiDebugVariableDto"
+        stackFrames:
+          type: array
+          items:
+            $ref: "#/components/schemas/UiDebugFrameDto"
+        heapValues:
+          type: array
+          items:
+            $ref: "#/components/schemas/UiDebugVariableDto"
+        stdin:
+          type: string
+        stdout:
+          type: string
+        stderr:
+          type: string
     UiDebugVisualStructureDto:
       type: object
-      required: [id, kind, label, elements]
+      required: [id, name, type, kind, layoutHint, summary, explanation, elements]
       properties:
         id:
           type: string
+        name:
+          type: string
+        type:
+          type: string
         kind:
           type: string
-        label:
+        layoutHint:
+          type: string
+        summary:
+          type: string
+        explanation:
           type: string
         elements:
           type: array
@@ -1139,21 +1296,32 @@ components:
             $ref: "#/components/schemas/UiDebugVisualElementDto"
     UiDebugVisualElementDto:
       type: object
-      required: [id, label, value]
+      required: [id, kind, label, metadata]
       properties:
         id:
           type: string
+        kind:
+          type: string
         label:
           type: string
-        value:
-          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
     UiDebugTimelineItemDto:
       type: object
-      required: [snapshotId, label, active]
+      required: [snapshotId, visibleStepIndex, stopReason, breakpointHit]
       properties:
         snapshotId:
+          type: integer
+          format: int64
+        visibleStepIndex:
+          type: integer
+          format: int64
+        stopReason:
           type: string
-        label:
-          type: string
-        active:
+        breakpointHit:
           type: boolean
+        sourceRange:
+          nullable: true
+          $ref: "#/components/schemas/UiSourceSpanDto"

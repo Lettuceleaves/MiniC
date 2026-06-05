@@ -569,22 +569,29 @@ export interface components {
         };
         UiStageVisualDto: {
             stage: string;
-            title: string;
-            summary: string;
+            visualType: string;
             sourceText: string;
-            ranges: components["schemas"]["UiSourceRangeDto"][];
-            tokens: components["schemas"]["UiLexerTokenVisualDto"][];
-            astRoots: components["schemas"]["UiAstNodeVisualDto"][];
-            scopes: components["schemas"]["UiSemanticScopeVisualDto"][];
+            genericItems: string[];
+            lexerTokens: components["schemas"]["UiLexerTokenVisualDto"][];
+            astRoot?: components["schemas"]["UiAstNodeVisualDto"];
+            semanticRoot?: components["schemas"]["UiSemanticScopeVisualDto"];
+            semanticEdgesPointChildToParent: boolean;
             irLines: components["schemas"]["UiIrLineVisualDto"][];
             assemblyLines: components["schemas"]["UiAssemblyLineVisualDto"][];
         };
         UiGlobalDataDto: {
-            stageOrder: string[];
-            currentStage: string;
-            /** Format: int64 */
-            globalStepIndex: number;
-            playbackMode: string;
+            source: string;
+            stageSummaries: string[];
+            diagnostics: components["schemas"]["UiDiagnosticDto"][];
+            preprocessSummary: string[];
+            tokenSummary: string[];
+            astSummary: string[];
+            semanticSummary: string[];
+            irSummary: string[];
+            assemblySummary: string[];
+            artifactSummary: string[];
+            executionInputSummary: string[];
+            executionOutputSummary: string[];
         };
         UiRealtimeAnalysisDto: {
             sourceName: string;
@@ -595,8 +602,10 @@ export interface components {
             version: number;
         };
         UiDiagnosticDto: {
+            code: string;
             severity: string;
             message: string;
+            sourceName: string;
             /** Format: int32 */
             startOffset: number;
             /** Format: int32 */
@@ -626,15 +635,27 @@ export interface components {
         };
         UiLexerTokenVisualDto: {
             kind: string;
-            lexeme: string;
-            range: components["schemas"]["UiSourceRangeDto"];
+            text: string;
+            range?: components["schemas"]["UiSourceSpanDto"];
+            /** Format: int32 */
+            startOffset: number;
+            /** Format: int32 */
+            endOffset: number;
+            /** Format: int32 */
+            startLine: number;
+            /** Format: int32 */
+            startColumn: number;
+            /** Format: int32 */
+            endLine: number;
+            /** Format: int32 */
+            endColumn: number;
             active: boolean;
         };
         UiAstNodeVisualDto: {
             id: string;
             kind: string;
             label: string;
-            range?: components["schemas"]["UiSourceRangeDto"];
+            range?: components["schemas"]["UiSourceSpanDto"];
             children: components["schemas"]["UiAstNodeVisualDto"][];
             active: boolean;
         };
@@ -642,6 +663,7 @@ export interface components {
             id: string;
             label: string;
             symbols: string[];
+            range?: components["schemas"]["UiSourceSpanDto"];
             children: components["schemas"]["UiSemanticScopeVisualDto"][];
             active: boolean;
         };
@@ -656,7 +678,10 @@ export interface components {
             /** Format: int32 */
             lineNumber: number;
             text: string;
+            kind: string;
             section: string;
+            label: string;
+            range?: components["schemas"]["UiSourceSpanDto"];
             active: boolean;
         };
         UiDebugStateDto: {
@@ -668,11 +693,18 @@ export interface components {
             breakpoints: components["schemas"]["UiDebugBreakpointDto"][];
         };
         UiDebugSnapshotDto: {
-            id: string;
+            /** Format: int64 */
+            snapshotId: number;
+            /** Format: int64 */
+            visibleStepIndex: number;
             functionName: string;
-            sourceRange: components["schemas"]["UiSourceSpanDto"];
-            frames: components["schemas"]["UiDebugFrameDto"][];
-            variables: components["schemas"]["UiDebugVariableDto"][];
+            blockLabel: string;
+            instructionId: string;
+            sourceRange?: components["schemas"]["UiSourceSpanDto"];
+            callStackSummary: string[];
+            processSpace: components["schemas"]["UiDebugProcessSpaceDto"];
+            breakpointHit: boolean;
+            stopReason: string;
         };
         UiDebugBreakpointDto: {
             /** Format: int32 */
@@ -680,20 +712,36 @@ export interface components {
             enabled: boolean;
         };
         UiDebugEventDto: {
-            kind: string;
-            message: string;
-            snapshotId: string;
+            /** Format: int64 */
+            eventId: number;
+            /** Format: int64 */
+            snapshotId: number;
+            type: string;
+            title: string;
+            description: string;
+            sourceRange?: components["schemas"]["UiSourceSpanDto"];
+            affectedValueRefs: string[];
         };
         UiDebugFrameDto: {
-            /** Format: int32 */
-            index: number;
+            frameId: string;
             functionName: string;
-            sourceRange: components["schemas"]["UiSourceSpanDto"];
+            parameters: components["schemas"]["UiDebugVariableDto"][];
+            locals: components["schemas"]["UiDebugVariableDto"][];
+            returnTarget?: string;
+            activeRange?: components["schemas"]["UiSourceSpanDto"];
         };
         UiDebugVariableDto: {
             name: string;
-            type: string;
-            value: string;
+            address: string;
+            typeName: string;
+            valueKind: string;
+            valueSummary: string;
+            pointerTarget: string;
+            typeShape: string;
+            highlightedChange: boolean;
+            explanation: string;
+            fields: components["schemas"]["UiDebugVariableDto"][];
+            elements: components["schemas"]["UiDebugVariableDto"][];
         };
         UiDebugMetadataViewDto: {
             executionState: string;
@@ -715,9 +763,11 @@ export interface components {
             relatedAsmIds: string[];
         };
         UiDebugAstNodeDetailDto: {
-            id: string;
+            nodeId: string;
             kind: string;
             label: string;
+            sourceRange?: components["schemas"]["UiSourceSpanDto"];
+            explanation: string;
         };
         UiDebugIrViewDto: {
             lines: components["schemas"]["UiIrLineVisualDto"][];
@@ -728,7 +778,9 @@ export interface components {
         };
         UiDebugIrOperandDto: {
             name: string;
-            value: string;
+            typeName: string;
+            valueSummary: string;
+            valueRef: string;
         };
         UiDebugAsmViewDto: {
             lines: components["schemas"]["UiAssemblyLineVisualDto"][];
@@ -741,23 +793,42 @@ export interface components {
             warnings: string[];
         };
         UiDebugProcessSpaceDto: {
-            segments: string[];
+            currentFunctionName: string;
+            currentInstructionId: string;
+            functions: string[];
+            staticValues: components["schemas"]["UiDebugVariableDto"][];
+            stackFrames: components["schemas"]["UiDebugFrameDto"][];
+            heapValues: components["schemas"]["UiDebugVariableDto"][];
+            stdin: string;
+            stdout: string;
+            stderr: string;
         };
         UiDebugVisualStructureDto: {
             id: string;
+            name: string;
+            type: string;
             kind: string;
-            label: string;
+            layoutHint: string;
+            summary: string;
+            explanation: string;
             elements: components["schemas"]["UiDebugVisualElementDto"][];
         };
         UiDebugVisualElementDto: {
             id: string;
+            kind: string;
             label: string;
-            value: string;
+            metadata: {
+                [key: string]: string;
+            };
         };
         UiDebugTimelineItemDto: {
-            snapshotId: string;
-            label: string;
-            active: boolean;
+            /** Format: int64 */
+            snapshotId: number;
+            /** Format: int64 */
+            visibleStepIndex: number;
+            stopReason: string;
+            breakpointHit: boolean;
+            sourceRange?: components["schemas"]["UiSourceSpanDto"];
         };
     };
     responses: {
