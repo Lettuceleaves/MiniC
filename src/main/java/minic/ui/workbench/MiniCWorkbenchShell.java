@@ -163,6 +163,13 @@ public final class MiniCWorkbenchShell {
             mainContent = null;
             return settingsPage();
         }
+        if (activeSection == ActivitySection.INFO) {
+            body = null;
+            visualPane = null;
+            sourcePane = null;
+            mainContent = null;
+            return new MiniCInfoView();
+        }
         body = null;
         visualPane = null;
         sourcePane = null;

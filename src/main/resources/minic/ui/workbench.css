@@ -622,11 +622,92 @@
     -fx-background-color: {{background.primary}};
 }
 
+.info-scroll {
+    -fx-background-color: {{background.primary}};
+    -fx-background: {{background.primary}};
+    -fx-padding: 0;
+}
+
+.info-scroll .viewport {
+    -fx-background-color: {{background.primary}};
+}
+
+.info-markdown {
+    -fx-padding: 24px 32px 32px 32px;
+    -fx-background-color: {{background.primary}};
+}
+
+.info-heading-1 {
+    -fx-text-fill: {{text.active}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+}
+
+.info-heading-2 {
+    -fx-text-fill: {{text.active}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+}
+
+.info-heading-3 {
+    -fx-text-fill: {{text.active}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.info-paragraph {
+    -fx-line-spacing: 4px;
+}
+
+.info-text {
+    -fx-fill: {{text.body}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 13px;
+}
+
+.info-strong {
+    -fx-fill: {{text.active}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.info-inline-code {
+    -fx-fill: {{accent.green}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.info-list-item {
+    -fx-alignment: top-left;
+}
+
+.info-list-marker {
+    -fx-min-width: 16px;
+    -fx-pref-width: 16px;
+    -fx-text-fill: {{accent.blue}};
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.info-code-block {
+    -fx-padding: 10px 12px;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px;
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
 .source-editor-scroll .scroll-bar:vertical,
 .debug-source-editor-scroll .scroll-bar:vertical,
 .pipeline-source-editor-scroll .scroll-bar:vertical,
 .stage-flow-scroll .scroll-bar:vertical,
 .settings-scroll .scroll-bar:vertical,
+.info-scroll .scroll-bar:vertical,
 .visual-scroll .scroll-bar:vertical {
     -fx-min-width: 12px;
     -fx-pref-width: 12px;
@@ -640,6 +721,7 @@
 .pipeline-source-editor-scroll .scroll-bar:vertical .track,
 .stage-flow-scroll .scroll-bar:vertical .track,
 .settings-scroll .scroll-bar:vertical .track,
+.info-scroll .scroll-bar:vertical .track,
 .visual-scroll .scroll-bar:vertical .track {
     -fx-background-color: {{background.tertiary}};
 }
@@ -649,6 +731,7 @@
 .pipeline-source-editor-scroll .scroll-bar:vertical .thumb,
 .stage-flow-scroll .scroll-bar:vertical .thumb,
 .settings-scroll .scroll-bar:vertical .thumb,
+.info-scroll .scroll-bar:vertical .thumb,
 .visual-scroll .scroll-bar:vertical .thumb {
     -fx-background-color: {{accent.blue}};
     -fx-background-insets: 2px;
