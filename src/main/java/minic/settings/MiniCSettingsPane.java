@@ -9,6 +9,7 @@ import javafx.scene.control.Slider;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
@@ -20,6 +21,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -34,6 +36,7 @@ public final class MiniCSettingsPane extends VBox {
     private String captureAction = "";
     private Button captureButton;
     private String pendingCombo = "";
+    private final LinkedHashSet<KeyCode> captureKeys = new LinkedHashSet<>();
 
     public MiniCSettingsPane() {
         registerSettingsCommands();
@@ -202,7 +205,9 @@ public final class MiniCSettingsPane extends VBox {
         binding.setFocusTraversable(true);
         binding.setOnAction(event -> beginCapture(action, binding));
         binding.addEventFilter(KeyEvent.KEY_PRESSED, event -> handleCaptureKey(action, binding, event));
+        binding.addEventFilter(KeyEvent.KEY_RELEASED, event -> handleCaptureKeyRelease(action, binding, event));
         binding.addEventFilter(MouseEvent.MOUSE_CLICKED, event -> handleCaptureMouse(action, binding, event));
+        binding.addEventFilter(ScrollEvent.SCROLL, event -> handleCaptureScroll(action, binding, event));
 
         return new HBox(10, actionLabel, binding);
     }
@@ -217,6 +222,7 @@ public final class MiniCSettingsPane extends VBox {
         captureAction = action;
         captureButton = button;
         pendingCombo = "";
+        captureKeys.clear();
         button.getStyleClass().add("key-binding-capturing");
         button.setText("输入组合后按 Enter");
         keyBindingWarning.setText("");
@@ -237,6 +243,9 @@ public final class MiniCSettingsPane extends VBox {
             event.consume();
             return;
         }
+        if (!isModifier(event.getCode())) {
+            captureKeys.add(event.getCode());
+        }
         String combo = MiniCKeyBindingConfig.comboFrom(event);
         if (!combo.isBlank()) {
             pendingCombo = combo;
@@ -246,11 +255,32 @@ public final class MiniCSettingsPane extends VBox {
         event.consume();
     }
 
+    private void handleCaptureKeyRelease(String action, Button button, KeyEvent event) {
+        if (!isCapturing(action, button) || isModifier(event.getCode())) {
+            return;
+        }
+        captureKeys.remove(event.getCode());
+        event.consume();
+    }
+
     private void handleCaptureMouse(String action, Button button, MouseEvent event) {
         if (!isCapturing(action, button)) {
             return;
         }
-        String combo = MiniCKeyBindingConfig.comboFrom(event);
+        String combo = MiniCKeyBindingConfig.comboFrom(event, captureKeys);
+        if (!combo.isBlank()) {
+            pendingCombo = combo;
+            button.setText(combo + "  Enter 确认");
+            clearConflict(button);
+            event.consume();
+        }
+    }
+
+    private void handleCaptureScroll(String action, Button button, ScrollEvent event) {
+        if (!isCapturing(action, button)) {
+            return;
+        }
+        String combo = MiniCKeyBindingConfig.comboFrom(event, captureKeys);
         if (!combo.isBlank()) {
             pendingCombo = combo;
             button.setText(combo + "  Enter 确认");
@@ -273,7 +303,7 @@ public final class MiniCSettingsPane extends VBox {
             return;
         }
         if (MiniCKeyBindingConfig.isReserved(normalizedCombo)) {
-            showConflict("Enter 为保留键位，请重新输入组合。");
+            showConflict("Enter/Esc 为保留键位，请重新输入组合。");
             return;
         }
         Optional<String> conflict = MiniCKeyBindingConfig.conflictingAction(captureAction, normalizedCombo);
@@ -287,6 +317,7 @@ public final class MiniCSettingsPane extends VBox {
         captureAction = "";
         captureButton = null;
         pendingCombo = "";
+        captureKeys.clear();
         keyBindingWarning.setText("");
     }
 
@@ -295,6 +326,7 @@ public final class MiniCSettingsPane extends VBox {
         captureAction = "";
         captureButton = null;
         pendingCombo = "";
+        captureKeys.clear();
         keyBindingWarning.setText("");
     }
 
@@ -322,5 +354,12 @@ public final class MiniCSettingsPane extends VBox {
 
     private String formatZoomStep(double value) {
         return String.format(java.util.Locale.ROOT, "%.3f", value);
+    }
+
+    private static boolean isModifier(KeyCode code) {
+        return code == KeyCode.CONTROL
+                || code == KeyCode.ALT
+                || code == KeyCode.SHIFT
+                || code == KeyCode.META;
     }
 }

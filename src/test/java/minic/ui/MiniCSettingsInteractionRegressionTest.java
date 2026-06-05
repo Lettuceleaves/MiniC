@@ -5,6 +5,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.ScrollEvent;
 import javafx.stage.Stage;
 import minic.settings.MiniCSettings;
 import minic.settings.MiniCSettingsPane;
@@ -81,13 +82,22 @@ class MiniCSettingsInteractionRegressionTest {
             assertThat(MiniCKeyBindingConfig.isReserved("Enter")).isTrue();
             assertThat(MiniCKeyBindingConfig.isReserved("Esc")).isTrue();
             assertThat(MiniCKeyBindingConfig.normalizeCombo("Ctrl+Alt+MouseLeft")).isEqualTo("Ctrl+Alt+MouseLeft");
+            assertThat(MiniCKeyBindingConfig.normalizeCombo("Shift+WheelDown")).isEqualTo("Shift+WheelDown");
+            assertThat(MiniCKeyBindingConfig.normalizeCombo("A+Shift+WheelDown")).isEqualTo("Shift+A+WheelDown");
+            assertThat(MiniCKeyBindingConfig.normalizeCombo("Control+Alt+WheelUp")).isEqualTo("Ctrl+Alt+WheelUp");
 
             MiniCKeyBindingConfig.setKeys("ast.zoom.out", List.of("Ctrl+Alt+M"));
             assertThat(config.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, key(KeyCode.M, true, true, false))).isTrue();
             assertThat(config.matches("ast.zoom.out", key(KeyCode.M, true, true, false))).isTrue();
+
+            MiniCKeyBindingConfig.setKeys(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, List.of("A+Shift+WheelDown"));
+            assertThat(config.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, scroll(-120, false, false, true), java.util.Set.of(KeyCode.A))).isTrue();
+            assertThat(config.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, scroll(-120, false, false, true))).isFalse();
+            assertThat(config.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, scroll(120, false, false, true), java.util.Set.of(KeyCode.A))).isFalse();
             assertThat(Files.readString(KEY_BINDINGS_FILE, StandardCharsets.UTF_8))
                     .contains("\"action\": \"" + MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT + "\"")
-                    .contains("\"Ctrl+Alt+M\"");
+                    .contains("\"Ctrl+Alt+M\"")
+                    .contains("\"Shift+A+WheelDown\"");
         } finally {
             restore(SETTINGS_FILE, originalSettings);
             restore(KEY_BINDINGS_FILE, originalKeyBindings);
@@ -155,6 +165,17 @@ class MiniCSettingsInteractionRegressionTest {
 
             assertThat(zoomOut.getStyleClass()).doesNotContain("key-binding-conflict");
             assertThat(Files.readString(KEY_BINDINGS_FILE, StandardCharsets.UTF_8)).contains("\"Ctrl+Alt+M\"");
+
+            runFx(() -> {
+                zoomOut.fire();
+                zoomOut.fireEvent(key(KeyCode.A, true, false, true));
+                zoomOut.fireEvent(scroll(-120, true, false, true));
+                zoomOut.fireEvent(key(KeyCode.ENTER, false, false, false));
+            });
+
+            assertThat(zoomOut.getStyleClass()).doesNotContain("key-binding-conflict");
+            assertThat(zoomOut.getText()).contains("Ctrl+Shift+A+WheelDown");
+            assertThat(Files.readString(KEY_BINDINGS_FILE, StandardCharsets.UTF_8)).contains("\"Ctrl+Shift+A+WheelDown\"");
         } finally {
             if (stageRef.get() != null) {
                 runFx(() -> stageRef.get().close());
@@ -172,7 +193,7 @@ class MiniCSettingsInteractionRegressionTest {
         try {
             Files.deleteIfExists(KEY_BINDINGS_FILE);
             MiniCKeyBindingConfig.loadDefault();
-            MiniCKeyBindingConfig.setKeys(MiniCWorkbenchControlHub.COMPILER_NEXT, List.of("Ctrl+Alt+N"));
+            MiniCKeyBindingConfig.setKeys(MiniCWorkbenchControlHub.COMPILER_NEXT, List.of("A+WheelDown"));
             AtomicReference<String> beforeStage = new AtomicReference<>();
             AtomicReference<String> afterStage = new AtomicReference<>();
 
@@ -188,7 +209,8 @@ class MiniCSettingsInteractionRegressionTest {
                 stageRef.set(stage);
                 beforeStage.set(model.currentStateProperty().get().currentStage());
 
-                root.fireEvent(key(KeyCode.N, true, true, false));
+                root.fireEvent(key(KeyCode.A, false, false, false));
+                root.fireEvent(scroll(-120, false, false, false));
 
                 afterStage.set(model.currentStateProperty().get().currentStage());
             });
@@ -212,7 +234,7 @@ class MiniCSettingsInteractionRegressionTest {
         try {
             Files.deleteIfExists(KEY_BINDINGS_FILE);
             MiniCKeyBindingConfig.loadDefault();
-            MiniCKeyBindingConfig.setKeys(MiniCWorkbenchControlHub.DEBUG_STEP_INTO, List.of("Ctrl+Alt+I"));
+            MiniCKeyBindingConfig.setKeys(MiniCWorkbenchControlHub.DEBUG_STEP_INTO, List.of("Ctrl+A+WheelUp"));
             AtomicReference<Long> beforeStep = new AtomicReference<>();
             AtomicReference<Long> afterStep = new AtomicReference<>();
 
@@ -232,7 +254,8 @@ class MiniCSettingsInteractionRegressionTest {
                 stageRef.set(stage);
                 beforeStep.set(model.debugStateProperty().get().currentSnapshot().visibleStepIndex());
 
-                pane.fireEvent(key(KeyCode.I, true, true, false));
+                pane.fireEvent(key(KeyCode.A, true, false, false));
+                pane.fireEvent(scroll(120, true, false, false));
 
                 afterStep.set(model.debugStateProperty().get().currentSnapshot().visibleStepIndex());
             });
@@ -258,6 +281,32 @@ class MiniCSettingsInteractionRegressionTest {
 
     private static KeyEvent key(KeyCode code, boolean control, boolean alt, boolean shift) {
         return new KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, shift, control, alt, false);
+    }
+
+    private static ScrollEvent scroll(double deltaY, boolean control, boolean alt, boolean shift) {
+        return new ScrollEvent(
+                ScrollEvent.SCROLL,
+                0,
+                0,
+                0,
+                0,
+                shift,
+                control,
+                alt,
+                false,
+                false,
+                false,
+                0,
+                deltaY,
+                0,
+                deltaY,
+                ScrollEvent.HorizontalTextScrollUnits.NONE,
+                0,
+                ScrollEvent.VerticalTextScrollUnits.NONE,
+                0,
+                0,
+                null
+        );
     }
 
     private static String backup(Path path) throws Exception {

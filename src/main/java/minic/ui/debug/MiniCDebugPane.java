@@ -14,6 +14,7 @@ import javafx.geometry.Pos;
 import javafx.geometry.Point2D;
 import javafx.scene.Node;
 import javafx.scene.Group;
+import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
@@ -58,6 +59,7 @@ import minic.uiapi.UiIrLineVisualDto;
 import minic.uiapi.UiSourceSpanDto;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -120,6 +122,7 @@ public final class MiniCDebugPane extends VBox {
     private final MiniCIrTextHighlighter irTextHighlighter = new MiniCIrTextHighlighter();
     private final MiniCAssemblyTextHighlighter assemblyTextHighlighter = new MiniCAssemblyTextHighlighter();
     private final MiniCKeyBindingConfig keyBindings = MiniCKeyBindingConfig.loadDefault();
+    private final LinkedHashSet<KeyCode> pressedKeys = new LinkedHashSet<>();
     private final Slider astZoom = new Slider(MIN_AST_ZOOM, MAX_AST_ZOOM, DEFAULT_AST_ZOOM);
     private final Label status = label("", "body-text");
     private String selectedViewId = "metadata";
@@ -155,7 +158,9 @@ public final class MiniCDebugPane extends VBox {
         getChildren().addAll(controls, status, debugBody);
         VBox.setVgrow(debugBody, Priority.ALWAYS);
         viewModel.debugAsmViewProperty().addListener((observable, oldValue, newValue) -> refresh());
-        addEventFilter(KeyEvent.KEY_PRESSED, this::handleShortcut);
+        addEventFilter(KeyEvent.KEY_PRESSED, this::handleKeyPressed);
+        addEventFilter(KeyEvent.KEY_RELEASED, this::handleKeyReleased);
+        addEventFilter(ScrollEvent.SCROLL, this::handleShortcut);
         refresh();
     }
 
@@ -1332,6 +1337,19 @@ public final class MiniCDebugPane extends VBox {
         astZoom.setValue(Math.max(MIN_AST_ZOOM, Math.min(MAX_AST_ZOOM, value)));
     }
 
+    private void handleKeyPressed(KeyEvent event) {
+        if (!isModifier(event.getCode())) {
+            pressedKeys.add(event.getCode());
+        }
+        handleShortcut(event);
+    }
+
+    private void handleKeyReleased(KeyEvent event) {
+        if (!isModifier(event.getCode())) {
+            pressedKeys.remove(event.getCode());
+        }
+    }
+
     private void handleShortcut(KeyEvent event) {
         if (event.isConsumed()) {
             return;
@@ -1343,7 +1361,7 @@ public final class MiniCDebugPane extends VBox {
 
     private boolean handleDebugCommandShortcut(KeyEvent event) {
         for (String action : DEBUG_SHORTCUT_ACTIONS) {
-            if (keyBindings.matches(action, event)) {
+            if (keyBindings.matches(action, event, pressedKeys)) {
                 controlHub.execute(action);
                 refresh();
                 event.consume();
@@ -1354,37 +1372,98 @@ public final class MiniCDebugPane extends VBox {
     }
 
     private boolean handleViewportShortcut(KeyEvent event) {
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, event, pressedKeys)) {
             controlHub.handleZoom(Point2D.ZERO, viewportZoomDelta(1.0));
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, event, pressedKeys)) {
             controlHub.handleZoom(Point2D.ZERO, viewportZoomDelta(-1.0));
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_UP, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_UP, event, pressedKeys)) {
             controlHub.handleScrollVertical(-VIEWPORT_KEY_SCROLL_DELTA);
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, event, pressedKeys)) {
             controlHub.handleScrollVertical(VIEWPORT_KEY_SCROLL_DELTA);
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_LEFT, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_LEFT, event, pressedKeys)) {
             controlHub.handleScrollHorizontal(-VIEWPORT_KEY_SCROLL_DELTA);
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_RIGHT, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_RIGHT, event, pressedKeys)) {
             controlHub.handleScrollHorizontal(VIEWPORT_KEY_SCROLL_DELTA);
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_CENTER_ACTIVE, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_CENTER_ACTIVE, event, pressedKeys)) {
+            controlHub.handleCenterActive();
+            event.consume();
+            return true;
+        }
+        return false;
+    }
+
+    private void handleShortcut(ScrollEvent event) {
+        if (event.isConsumed()) {
+            return;
+        }
+        if (handleDebugCommandShortcut(event) || handleViewportShortcut(event)) {
+            return;
+        }
+    }
+
+    private boolean handleDebugCommandShortcut(ScrollEvent event) {
+        for (String action : DEBUG_SHORTCUT_ACTIONS) {
+            if (keyBindings.matches(action, event, pressedKeys)) {
+                controlHub.execute(action);
+                refresh();
+                event.consume();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean handleViewportShortcut(ScrollEvent event) {
+        Point2D point = new Point2D(event.getX(), event.getY());
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, event, pressedKeys)) {
+            controlHub.handleZoom(point, viewportZoomDelta(1.0));
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, event, pressedKeys)) {
+            controlHub.handleZoom(point, viewportZoomDelta(-1.0));
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_UP, event, pressedKeys)) {
+            controlHub.handleScrollVertical(-VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, event, pressedKeys)) {
+            controlHub.handleScrollVertical(VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_LEFT, event, pressedKeys)) {
+            controlHub.handleScrollHorizontal(-VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_RIGHT, event, pressedKeys)) {
+            controlHub.handleScrollHorizontal(VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_CENTER_ACTIVE, event, pressedKeys)) {
             controlHub.handleCenterActive();
             event.consume();
             return true;
@@ -1397,6 +1476,13 @@ public final class MiniCDebugPane extends VBox {
                 .filter(adapter -> adapter.type() == MiniCControlTargetType.TEXT)
                 .map(adapter -> TEXT_ZOOM_STEP)
                 .orElse(graphZoomStep());
+    }
+
+    private static boolean isModifier(KeyCode code) {
+        return code == KeyCode.CONTROL
+                || code == KeyCode.ALT
+                || code == KeyCode.SHIFT
+                || code == KeyCode.META;
     }
 
     private void configureAstWheelZoom(Pane graphViewport) {

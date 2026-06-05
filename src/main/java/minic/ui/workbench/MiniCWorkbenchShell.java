@@ -10,6 +10,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -32,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 
@@ -61,6 +63,7 @@ public final class MiniCWorkbenchShell {
     private final ArrayList<DocumentTab> documents = new ArrayList<>();
     private final MiniCKeyBindingConfig keyBindings = MiniCKeyBindingConfig.loadDefault();
     private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
+    private final LinkedHashSet<KeyCode> pressedKeys = new LinkedHashSet<>();
     private BorderPane root;
     private HBox body;
     private HBox tabs;
@@ -98,7 +101,9 @@ public final class MiniCWorkbenchShell {
         root.setLeft(activityBar());
         root.setCenter(sectionContent());
         root.setBottom(statusBar());
-        root.addEventFilter(KeyEvent.KEY_PRESSED, this::handleShortcut);
+        root.addEventFilter(KeyEvent.KEY_PRESSED, this::handleKeyPressed);
+        root.addEventFilter(KeyEvent.KEY_RELEASED, this::handleKeyReleased);
+        root.addEventFilter(ScrollEvent.SCROLL, this::handleShortcut);
         return root;
     }
 
@@ -546,6 +551,19 @@ public final class MiniCWorkbenchShell {
         region.setMaxWidth(width);
     }
 
+    private void handleKeyPressed(KeyEvent event) {
+        if (!isModifier(event.getCode())) {
+            pressedKeys.add(event.getCode());
+        }
+        handleShortcut(event);
+    }
+
+    private void handleKeyReleased(KeyEvent event) {
+        if (!isModifier(event.getCode())) {
+            pressedKeys.remove(event.getCode());
+        }
+    }
+
     private void handleShortcut(KeyEvent event) {
         if (event.isConsumed()) {
             return;
@@ -559,7 +577,7 @@ public final class MiniCWorkbenchShell {
 
     private boolean handleCommandShortcut(KeyEvent event, List<String> actions) {
         for (String action : actions) {
-            if (keyBindings.matches(action, event)) {
+            if (keyBindings.matches(action, event, pressedKeys)) {
                 controlHub.execute(action);
                 event.consume();
                 return true;
@@ -569,37 +587,99 @@ public final class MiniCWorkbenchShell {
     }
 
     private boolean handleViewportShortcut(KeyEvent event) {
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, event, pressedKeys)) {
             controlHub.handleZoom(Point2D.ZERO, viewportZoomDelta(1.0));
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, event, pressedKeys)) {
             controlHub.handleZoom(Point2D.ZERO, viewportZoomDelta(-1.0));
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_UP, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_UP, event, pressedKeys)) {
             controlHub.handleScrollVertical(-VIEWPORT_KEY_SCROLL_DELTA);
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, event, pressedKeys)) {
             controlHub.handleScrollVertical(VIEWPORT_KEY_SCROLL_DELTA);
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_LEFT, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_LEFT, event, pressedKeys)) {
             controlHub.handleScrollHorizontal(-VIEWPORT_KEY_SCROLL_DELTA);
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_RIGHT, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_RIGHT, event, pressedKeys)) {
             controlHub.handleScrollHorizontal(VIEWPORT_KEY_SCROLL_DELTA);
             event.consume();
             return true;
         }
-        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_CENTER_ACTIVE, event)) {
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_CENTER_ACTIVE, event, pressedKeys)) {
+            controlHub.handleCenterActive();
+            event.consume();
+            return true;
+        }
+        return false;
+    }
+
+    private void handleShortcut(ScrollEvent event) {
+        if (event.isConsumed()) {
+            return;
+        }
+        if (handleCommandShortcut(event, COMPILER_SHORTCUT_ACTIONS)
+                || handleCommandShortcut(event, SETTINGS_SHORTCUT_ACTIONS)
+                || handleViewportShortcut(event)) {
+            return;
+        }
+    }
+
+    private boolean handleCommandShortcut(ScrollEvent event, List<String> actions) {
+        for (String action : actions) {
+            if (keyBindings.matches(action, event, pressedKeys)) {
+                controlHub.execute(action);
+                event.consume();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean handleViewportShortcut(ScrollEvent event) {
+        Point2D point = new Point2D(event.getX(), event.getY());
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, event, pressedKeys)) {
+            controlHub.handleZoom(point, viewportZoomDelta(1.0));
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, event, pressedKeys)) {
+            controlHub.handleZoom(point, viewportZoomDelta(-1.0));
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_UP, event, pressedKeys)) {
+            controlHub.handleScrollVertical(-VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, event, pressedKeys)) {
+            controlHub.handleScrollVertical(VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_LEFT, event, pressedKeys)) {
+            controlHub.handleScrollHorizontal(-VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_RIGHT, event, pressedKeys)) {
+            controlHub.handleScrollHorizontal(VIEWPORT_KEY_SCROLL_DELTA);
+            event.consume();
+            return true;
+        }
+        if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_CENTER_ACTIVE, event, pressedKeys)) {
             controlHub.handleCenterActive();
             event.consume();
             return true;
@@ -612,6 +692,13 @@ public final class MiniCWorkbenchShell {
                 .filter(adapter -> adapter.type() == MiniCControlTargetType.TEXT)
                 .map(adapter -> TEXT_ZOOM_STEP)
                 .orElse(MiniCSettings.graphZoomStep());
+    }
+
+    private static boolean isModifier(KeyCode code) {
+        return code == KeyCode.CONTROL
+                || code == KeyCode.ALT
+                || code == KeyCode.SHIFT
+                || code == KeyCode.META;
     }
 
     private void registerSettingsCommands() {

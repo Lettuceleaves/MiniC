@@ -4,6 +4,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.input.ScrollEvent;
 import minic.ui.control.MiniCWorkbenchControlHub;
 
 import java.io.IOException;
@@ -12,12 +13,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -55,10 +59,14 @@ public final class MiniCKeyBindingConfig {
      * @return 是否匹配
      */
     public boolean matches(String action, KeyEvent event) {
+        return matches(action, event, Set.of());
+    }
+
+    public boolean matches(String action, KeyEvent event, Set<KeyCode> heldKeys) {
         String normalizedAction = normalizeAction(action);
         return activeBindings.stream()
                 .filter(binding -> binding.action().equals(normalizedAction))
-                .anyMatch(binding -> binding.matches(event));
+                .anyMatch(binding -> binding.matches(event, heldKeys));
     }
 
     /**
@@ -69,10 +77,25 @@ public final class MiniCKeyBindingConfig {
      * @return 是否匹配
      */
     public boolean matches(String action, MouseEvent event) {
+        return matches(action, event, Set.of());
+    }
+
+    public boolean matches(String action, MouseEvent event, Set<KeyCode> heldKeys) {
         String normalizedAction = normalizeAction(action);
         return activeBindings.stream()
                 .filter(binding -> binding.action().equals(normalizedAction))
-                .anyMatch(binding -> binding.matches(event));
+                .anyMatch(binding -> binding.matches(event, heldKeys));
+    }
+
+    public boolean matches(String action, ScrollEvent event) {
+        return matches(action, event, Set.of());
+    }
+
+    public boolean matches(String action, ScrollEvent event, Set<KeyCode> heldKeys) {
+        String normalizedAction = normalizeAction(action);
+        return activeBindings.stream()
+                .filter(binding -> binding.action().equals(normalizedAction))
+                .anyMatch(binding -> binding.matches(event, heldKeys));
     }
 
     public List<String> actions() {
@@ -131,23 +154,67 @@ public final class MiniCKeyBindingConfig {
 
     public static boolean isReserved(String key) {
         ParsedInput parsed = ParsedInput.parse(key);
-        return parsed.keyCode() == KeyCode.ENTER || parsed.keyCode() == KeyCode.ESCAPE;
+        return parsed.keys().contains(KeyCode.ENTER) || parsed.keys().contains(KeyCode.ESCAPE);
     }
 
     public static String comboFrom(KeyEvent event) {
-        return combo(event.isControlDown(), event.isAltDown(), event.isShiftDown(), event.isMetaDown(), event.getCode(), null);
+        return combo(
+                event.isControlDown(),
+                event.isAltDown(),
+                event.isShiftDown(),
+                event.isMetaDown(),
+                List.of(event.getCode()),
+                null,
+                null
+        );
     }
 
     public static String comboFrom(MouseEvent event) {
-        return combo(event.isControlDown(), event.isAltDown(), event.isShiftDown(), event.isMetaDown(), null, event.getButton());
+        return comboFrom(event, Set.of());
+    }
+
+    public static String comboFrom(MouseEvent event, Set<KeyCode> heldKeys) {
+        return combo(
+                event.isControlDown(),
+                event.isAltDown(),
+                event.isShiftDown(),
+                event.isMetaDown(),
+                heldKeys,
+                event.getButton(),
+                null
+        );
+    }
+
+    public static String comboFrom(ScrollEvent event) {
+        return comboFrom(event, Set.of());
+    }
+
+    public static String comboFrom(ScrollEvent event, Set<KeyCode> heldKeys) {
+        return combo(
+                event.isControlDown(),
+                event.isAltDown(),
+                event.isShiftDown(),
+                event.isMetaDown(),
+                heldKeys,
+                null,
+                wheelDirection(event)
+        );
     }
 
     public static String normalizeCombo(String key) {
         ParsedInput parsed = ParsedInput.parse(key);
-        if (parsed.keyCode() == KeyCode.UNDEFINED && parsed.mouseButton() == null) {
+        if (parsed.keys().isEmpty() && parsed.mouseButton() == null && parsed.wheelDirection() == null) {
             return "";
         }
-        return combo(parsed.control(), parsed.alt(), parsed.shift(), parsed.meta(), parsed.keyCode(), parsed.mouseButton());
+        return combo(
+                parsed.control(),
+                parsed.alt(),
+                parsed.shift(),
+                parsed.meta(),
+                parsed.keys(),
+                parsed.mouseButton(),
+                parsed.wheelDirection()
+        );
     }
 
     private static List<KeyBinding> loadBindings() {
@@ -265,8 +332,9 @@ public final class MiniCKeyBindingConfig {
             boolean alt,
             boolean shift,
             boolean meta,
-            KeyCode keyCode,
-            MouseButton mouseButton
+            Collection<KeyCode> keyCodes,
+            MouseButton mouseButton,
+            WheelDirection wheelDirection
     ) {
         ArrayList<String> parts = new ArrayList<>();
         if (control) {
@@ -281,12 +349,24 @@ public final class MiniCKeyBindingConfig {
         if (meta) {
             parts.add("Meta");
         }
+        orderedKeys(keyCodes).forEach(code -> parts.add(keyName(code)));
         if (mouseButton != null && mouseButton != MouseButton.NONE) {
             parts.add(mouseName(mouseButton));
-        } else if (keyCode != null && keyCode != KeyCode.UNDEFINED && !isModifier(keyCode)) {
-            parts.add(keyName(keyCode));
+        } else if (wheelDirection != null) {
+            parts.add(wheelName(wheelDirection));
         }
         return String.join("+", parts);
+    }
+
+    private static List<KeyCode> orderedKeys(Collection<KeyCode> keyCodes) {
+        if (keyCodes == null) {
+            return List.of();
+        }
+        return keyCodes.stream()
+                .filter(code -> code != null && code != KeyCode.UNDEFINED && !isModifier(code))
+                .distinct()
+                .sorted(Comparator.comparing(MiniCKeyBindingConfig::keyName))
+                .toList();
     }
 
     private static boolean isModifier(KeyCode code) {
@@ -319,6 +399,27 @@ public final class MiniCKeyBindingConfig {
             case FORWARD -> "MouseForward";
             default -> "";
         };
+    }
+
+    private static String wheelName(WheelDirection direction) {
+        return switch (direction) {
+            case UP -> "WheelUp";
+            case DOWN -> "WheelDown";
+            case LEFT -> "WheelLeft";
+            case RIGHT -> "WheelRight";
+        };
+    }
+
+    private static WheelDirection wheelDirection(ScrollEvent event) {
+        double deltaX = event.getDeltaX();
+        double deltaY = event.getDeltaY();
+        if (Math.abs(deltaY) >= Math.abs(deltaX) && deltaY != 0) {
+            return deltaY > 0 ? WheelDirection.UP : WheelDirection.DOWN;
+        }
+        if (deltaX != 0) {
+            return deltaX > 0 ? WheelDirection.RIGHT : WheelDirection.LEFT;
+        }
+        return null;
     }
 
     private static LinkedHashMap<String, String> actionLabels() {
@@ -357,25 +458,56 @@ public final class MiniCKeyBindingConfig {
             Objects.requireNonNull(key, "key");
         }
 
-        private boolean matches(KeyEvent event) {
+        private boolean matches(KeyEvent event, Set<KeyCode> heldKeys) {
             ParsedInput parsed = ParsedInput.parse(key);
             return parsed.mouseButton() == null
-                    && event.isControlDown() == parsed.control()
-                    && event.isAltDown() == parsed.alt()
-                    && event.isShiftDown() == parsed.shift()
-                    && event.isMetaDown() == parsed.meta()
-                    && event.getCode() == parsed.keyCode();
+                    && parsed.wheelDirection() == null
+                    && modifiersMatch(parsed, event.isControlDown(), event.isAltDown(), event.isShiftDown(), event.isMetaDown())
+                    && keysMatch(parsed.keys(), heldKeys, event.getCode());
         }
 
-        private boolean matches(MouseEvent event) {
+        private boolean matches(MouseEvent event, Set<KeyCode> heldKeys) {
             ParsedInput parsed = ParsedInput.parse(key);
             return parsed.mouseButton() != null
-                    && event.isControlDown() == parsed.control()
-                    && event.isAltDown() == parsed.alt()
-                    && event.isShiftDown() == parsed.shift()
-                    && event.isMetaDown() == parsed.meta()
+                    && parsed.wheelDirection() == null
+                    && modifiersMatch(parsed, event.isControlDown(), event.isAltDown(), event.isShiftDown(), event.isMetaDown())
+                    && keysMatch(parsed.keys(), heldKeys)
                     && event.getButton() == parsed.mouseButton();
         }
+
+        private boolean matches(ScrollEvent event, Set<KeyCode> heldKeys) {
+            ParsedInput parsed = ParsedInput.parse(key);
+            return parsed.mouseButton() == null
+                    && parsed.wheelDirection() != null
+                    && modifiersMatch(parsed, event.isControlDown(), event.isAltDown(), event.isShiftDown(), event.isMetaDown())
+                    && keysMatch(parsed.keys(), heldKeys)
+                    && wheelDirection(event) == parsed.wheelDirection();
+        }
+    }
+
+    private static boolean modifiersMatch(
+            ParsedInput parsed,
+            boolean control,
+            boolean alt,
+            boolean shift,
+            boolean meta
+    ) {
+        return control == parsed.control()
+                && alt == parsed.alt()
+                && shift == parsed.shift()
+                && meta == parsed.meta();
+    }
+
+    private static boolean keysMatch(List<KeyCode> expected, Set<KeyCode> heldKeys, KeyCode eventCode) {
+        ArrayList<KeyCode> actual = new ArrayList<>(heldKeys == null ? Set.of() : heldKeys);
+        if (eventCode != null && eventCode != KeyCode.UNDEFINED && !isModifier(eventCode)) {
+            actual.add(eventCode);
+        }
+        return orderedKeys(expected).equals(orderedKeys(actual));
+    }
+
+    private static boolean keysMatch(List<KeyCode> expected, Set<KeyCode> heldKeys) {
+        return orderedKeys(expected).equals(orderedKeys(heldKeys == null ? Set.of() : heldKeys));
     }
 
     private record ParsedInput(
@@ -383,21 +515,23 @@ public final class MiniCKeyBindingConfig {
             boolean alt,
             boolean shift,
             boolean meta,
-            KeyCode keyCode,
-            MouseButton mouseButton
+            List<KeyCode> keys,
+            MouseButton mouseButton,
+            WheelDirection wheelDirection
     ) {
         private static ParsedInput parse(String key) {
             boolean control = false;
             boolean alt = false;
             boolean shift = false;
             boolean meta = false;
-            KeyCode code = KeyCode.UNDEFINED;
+            ArrayList<KeyCode> keys = new ArrayList<>();
             MouseButton mouse = null;
+            WheelDirection wheel = null;
             String[] parts = key.split("\\+", -1);
             for (int i = 0; i < parts.length; i++) {
                 String normalized = parts[i].trim();
                 if (normalized.isEmpty() && i == parts.length - 1 && key.endsWith("+")) {
-                    code = KeyCode.PLUS;
+                    addKey(keys, KeyCode.PLUS);
                 } else if (normalized.equalsIgnoreCase("Ctrl") || normalized.equalsIgnoreCase("Control")) {
                     control = true;
                 } else if (normalized.equalsIgnoreCase("Alt")) {
@@ -411,11 +545,22 @@ public final class MiniCKeyBindingConfig {
                     if (parsedMouse != null) {
                         mouse = parsedMouse;
                     } else {
-                        code = keyCode(normalized);
+                        WheelDirection parsedWheel = wheelDirection(normalized);
+                        if (parsedWheel != null) {
+                            wheel = parsedWheel;
+                        } else {
+                            addKey(keys, keyCode(normalized));
+                        }
                     }
                 }
             }
-            return new ParsedInput(control, alt, shift, meta, code, mouse);
+            return new ParsedInput(control, alt, shift, meta, List.copyOf(keys), mouse, wheel);
+        }
+
+        private static void addKey(List<KeyCode> keys, KeyCode code) {
+            if (code != null && code != KeyCode.UNDEFINED && !isModifier(code) && !keys.contains(code)) {
+                keys.add(code);
+            }
         }
 
         private static MouseButton mouseButton(String text) {
@@ -425,6 +570,16 @@ public final class MiniCKeyBindingConfig {
                 case "mouseright", "rightclick", "secondaryclick" -> MouseButton.SECONDARY;
                 case "mouseback", "backclick" -> MouseButton.BACK;
                 case "mouseforward", "forwardclick" -> MouseButton.FORWARD;
+                default -> null;
+            };
+        }
+
+        private static WheelDirection wheelDirection(String text) {
+            return switch (text.toLowerCase(Locale.ROOT)) {
+                case "wheelup", "scrollup" -> WheelDirection.UP;
+                case "wheeldown", "scrolldown" -> WheelDirection.DOWN;
+                case "wheelleft", "scrollleft" -> WheelDirection.LEFT;
+                case "wheelright", "scrollright" -> WheelDirection.RIGHT;
                 default -> null;
             };
         }
@@ -447,5 +602,12 @@ public final class MiniCKeyBindingConfig {
                 }
             };
         }
+    }
+
+    private enum WheelDirection {
+        UP,
+        DOWN,
+        LEFT,
+        RIGHT
     }
 }
