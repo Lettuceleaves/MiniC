@@ -1,0 +1,13 @@
+{
+  "name": "minic-web-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate:api": "openapi-typescript ../docs/api/minic-web-openapi.yaml -o src/api/generated/schema.d.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.8.0",
+    "typescript": "^5.8.0"
+  }
+}
