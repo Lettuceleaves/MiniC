@@ -11,8 +11,12 @@ import type { MiniCViewportAdapter } from "../control/MiniCViewportAdapter";
 import { MiniCCompletionSuggester } from "./MiniCCompletionSuggester";
 import { MiniCEditorFormatter } from "./MiniCEditorFormatter";
 import { MiniCEditorTyping, type MiniCEditResult } from "./MiniCEditorTyping";
+import { MiniCSyntaxTextStyleMapper } from "../text/MiniCSyntaxTextStyleMapper";
+import { MiniCTextStyleRole } from "../text/MiniCTextStyleRole";
+import { MiniCTextStyleState } from "../text/MiniCTextStyleState";
+import { MiniCTextStyles } from "../text/MiniCTextStyles";
 import type { JavaMirrorFile } from "../translation/javaMirror";
-import type { UiDiagnosticDto, UiRealtimeAnalysisDto, UiSourceSpanDto } from "../translation/uiTypes";
+import type { UiDiagnosticDto, UiLexerTokenVisualDto, UiRealtimeAnalysisDto, UiSourceSpanDto } from "../translation/uiTypes";
 import { clampNumber, sourcePosition } from "../translation/uiTypes";
 
 export const miniCCodeEditorMirror = {
@@ -454,6 +458,25 @@ interface ExecutionViewport {
   readonly bottomY: number;
 }
 
+interface EditorToken {
+  readonly kind: string;
+  readonly startOffset: number;
+  readonly endOffset: number;
+}
+
+interface EditorLineSegment {
+  readonly text: string;
+  readonly className: string;
+}
+
+interface EditorLine {
+  readonly lineNumber: number;
+  readonly startOffset: number;
+  readonly endOffset: number;
+  readonly text: string;
+  readonly segments: readonly EditorLineSegment[];
+}
+
 export interface MiniCCodeEditorProps {
   readonly value?: string;
   readonly initialText?: string;
@@ -812,11 +835,19 @@ function MiniCCodeEditorComponent({
   const [localText, setLocalText] = useState(value ?? initialText);
   const [suggestions, setSuggestions] = useState<readonly string[]>([]);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const model = useMemo(() => new MiniCCodeEditorModel(), []);
+  const syntaxMapper = useMemo(() => new MiniCSyntaxTextStyleMapper(), []);
   const text = controlled ? value : localText;
-  const lines = useMemo(() => text.split("\n"), [text]);
   const diagnostics = analysis?.sourceText === text ? analysis.diagnostics : [];
+  const lineHeight = model.fontSize() * 1.5;
+  const editorLines = useMemo(
+    () => renderLines(text, analysis, diagnostics, currentExecutionRange, syntaxMapper),
+    [analysis, currentExecutionRange, diagnostics, syntaxMapper, text],
+  );
+  const breakpointSet = useMemo(() => new Set(breakpoints), [breakpoints]);
 
   useEffect(() => {
     model.setText(text);
@@ -936,39 +967,77 @@ function MiniCCodeEditorComponent({
   return (
     <section className={`code-editor ${className}`.trim()} data-java-source={miniCCodeEditorMirror.javaPath}>
       <div className="source-editor-scroll">
-        <div className="editor-gutter" aria-hidden="true">
-          {lines.map((_, index) => {
-            const line = index + 1;
-            const active = breakpoints.includes(line);
-            const current = currentExecutionLine === line;
-            return (
-              <button
-                className={`breakpoint-gutter${active ? " active" : ""}${current ? " current-execution" : ""}`}
-                key={line}
-                onClick={() => toggleBreakpoint(line)}
-                tabIndex={-1}
-                type="button"
-              >
-                <span className="execution-gutter">{current ? ">" : ""}</span>
-                <span>{active ? "●" : ""}</span>
-                <span>{line}</span>
-              </button>
-            );
-          })}
+        <div className="editor-gutter-column">
+          <div className="editor-gutter-column-inner" style={{ transform: `translateY(${-scrollTop}px)` }}>
+            {editorLines.map((lineModel) => {
+              const line = lineModel.lineNumber;
+              const active = breakpointSet.has(line);
+              const current = currentExecutionLine === line;
+              return (
+                <div
+                  className={`editor-gutter${current ? " current-execution" : ""}`}
+                  key={line}
+                  style={{ height: `${lineHeight}px`, minHeight: `${lineHeight}px`, maxHeight: `${lineHeight}px` }}
+                >
+                  <span className="execution-gutter">{current ? "▶" : ""}</span>
+                  <button
+                    aria-label={`${active ? "清除" : "设置"}第 ${line} 行断点`}
+                    className={`breakpoint-gutter${active ? " active" : ""}`}
+                    onClick={() => toggleBreakpoint(line)}
+                    tabIndex={-1}
+                    type="button"
+                  >
+                    ●
+                  </button>
+                  <span className="lineno">{line}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
-        <textarea
-          aria-label={ariaLabel}
-          className="source-editor"
-          onChange={onChange}
-          onClick={() => updateCompletion(false)}
-          onKeyDown={onKeyDown}
-          onSelect={() => updateCompletion(false)}
-          readOnly={readOnly}
-          ref={textareaRef}
-          spellCheck={false}
-          style={{ fontSize: `${model.fontSize()}px` }}
-          value={text}
-        />
+        <div className="source-editor-viewport">
+          <div
+            aria-hidden="true"
+            className="source-editor-render"
+            style={{
+              fontSize: `${model.fontSize()}px`,
+              lineHeight: `${lineHeight}px`,
+              transform: `translate(${-scrollLeft}px, ${-scrollTop}px)`,
+            }}
+          >
+            {editorLines.map((lineModel) => (
+              <div
+                className={`source-editor-render-line${currentExecutionLine === lineModel.lineNumber ? " current-execution" : ""}`}
+                key={`${lineModel.lineNumber}-${lineModel.startOffset}`}
+                style={{ height: `${lineHeight}px`, minHeight: `${lineHeight}px`, maxHeight: `${lineHeight}px` }}
+              >
+                {lineModel.segments.map((segment, index) => (
+                  <span className={segment.className} key={`${lineModel.lineNumber}-${index}`}>
+                    {segment.text}
+                  </span>
+                ))}
+              </div>
+            ))}
+          </div>
+          <textarea
+            aria-label={ariaLabel}
+            className="source-editor source-editor-input"
+            onChange={onChange}
+            onClick={() => updateCompletion(false)}
+            onKeyDown={onKeyDown}
+            onScroll={(event) => {
+              setScrollTop(event.currentTarget.scrollTop);
+              setScrollLeft(event.currentTarget.scrollLeft);
+            }}
+            onSelect={() => updateCompletion(false)}
+            readOnly={readOnly}
+            ref={textareaRef}
+            spellCheck={false}
+            style={{ fontSize: `${model.fontSize()}px`, lineHeight: `${lineHeight}px` }}
+            value={text}
+            wrap="off"
+          />
+        </div>
       </div>
       {suggestions.length > 0 && (
         <ol className="completion-list">
@@ -995,6 +1064,225 @@ function MiniCCodeEditorComponent({
       )}
     </section>
   );
+}
+
+function renderLines(
+  source: string,
+  analysis: UiRealtimeAnalysisDto | null,
+  diagnostics: readonly UiDiagnosticDto[],
+  currentExecutionRange: UiSourceSpanDto | null,
+  syntaxMapper: MiniCSyntaxTextStyleMapper,
+): readonly EditorLine[] {
+  const tokens = tokensForSource(source, analysis);
+  return sourceLines(source).map((line) => ({
+    ...line,
+    segments: segmentsForLine(line, tokens, diagnostics, currentExecutionRange, syntaxMapper),
+  }));
+}
+
+function sourceLines(source: string): readonly Omit<EditorLine, "segments">[] {
+  const lines: Array<Omit<EditorLine, "segments">> = [];
+  let start = 0;
+  let lineNumber = 1;
+  for (let index = 0; index <= source.length; index += 1) {
+    if (index === source.length || source[index] === "\n") {
+      lines.push({
+        lineNumber,
+        startOffset: start,
+        endOffset: index,
+        text: source.slice(start, index),
+      });
+      start = index + 1;
+      lineNumber += 1;
+    }
+  }
+  return lines.length > 0 ? lines : [{ lineNumber: 1, startOffset: 0, endOffset: 0, text: "" }];
+}
+
+function tokensForSource(source: string, analysis: UiRealtimeAnalysisDto | null): readonly EditorToken[] {
+  if (analysis !== null && analysis.sourceText === source && analysis.tokens.length > 0) {
+    return analysis.tokens
+      .filter((token) => token.startOffset >= 0 && token.endOffset > token.startOffset)
+      .map((token) => tokenFromAnalysis(token))
+      .sort((left, right) => left.startOffset - right.startOffset);
+  }
+  return fallbackTokens(source);
+}
+
+function tokenFromAnalysis(token: UiLexerTokenVisualDto): EditorToken {
+  return {
+    kind: token.kind,
+    startOffset: token.startOffset,
+    endOffset: token.endOffset,
+  };
+}
+
+function segmentsForLine(
+  line: Omit<EditorLine, "segments">,
+  tokens: readonly EditorToken[],
+  diagnostics: readonly UiDiagnosticDto[],
+  currentExecutionRange: UiSourceSpanDto | null,
+  syntaxMapper: MiniCSyntaxTextStyleMapper,
+): readonly EditorLineSegment[] {
+  if (line.startOffset === line.endOffset) {
+    return [{ text: "\u00a0", className: MiniCTextStyles.className(MiniCTextStyleRole.CODE_PLAIN) }];
+  }
+  const boundaries = new Set([line.startOffset, line.endOffset]);
+  for (const token of tokens) {
+    if (rangesOverlap(line.startOffset, line.endOffset, token.startOffset, token.endOffset)) {
+      boundaries.add(clampNumber(token.startOffset, line.startOffset, line.endOffset));
+      boundaries.add(clampNumber(token.endOffset, line.startOffset, line.endOffset));
+    }
+  }
+  for (const diagnostic of diagnostics) {
+    if (rangesOverlap(line.startOffset, line.endOffset, diagnostic.startOffset, diagnostic.endOffset)) {
+      boundaries.add(clampNumber(diagnostic.startOffset, line.startOffset, line.endOffset));
+      boundaries.add(clampNumber(diagnostic.endOffset, line.startOffset, line.endOffset));
+    }
+  }
+  if (currentExecutionRange && rangesOverlap(line.startOffset, line.endOffset, currentExecutionRange.startOffset, currentExecutionRange.endOffset)) {
+    boundaries.add(clampNumber(currentExecutionRange.startOffset, line.startOffset, line.endOffset));
+    boundaries.add(clampNumber(currentExecutionRange.endOffset, line.startOffset, line.endOffset));
+  }
+  const sorted = [...boundaries].sort((left, right) => left - right);
+  const segments: EditorLineSegment[] = [];
+  for (let index = 0; index < sorted.length - 1; index += 1) {
+    const start = sorted[index];
+    const end = sorted[index + 1];
+    if (end <= start) {
+      continue;
+    }
+    const text = line.text.slice(start - line.startOffset, end - line.startOffset);
+    segments.push({
+      text,
+      className: classesForRange(start, end, tokens, diagnostics, currentExecutionRange, syntaxMapper),
+    });
+  }
+  return segments;
+}
+
+function classesForRange(
+  start: number,
+  end: number,
+  tokens: readonly EditorToken[],
+  diagnostics: readonly UiDiagnosticDto[],
+  currentExecutionRange: UiSourceSpanDto | null,
+  syntaxMapper: MiniCSyntaxTextStyleMapper,
+): string {
+  const token = tokens.find((candidate) => candidate.startOffset <= start && candidate.endOffset >= end);
+  const diagnostic = diagnostics.some((candidate) => rangesOverlap(start, end, candidate.startOffset, candidate.endOffset));
+  const baseClasses =
+    token === undefined
+      ? MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN, ...(diagnostic ? [MiniCTextStyleState.DIAGNOSTIC] : []))
+      : tokenStyleClasses(token.kind, diagnostic, syntaxMapper);
+  const executionClasses =
+    currentExecutionRange && rangesOverlap(start, end, currentExecutionRange.startOffset, currentExecutionRange.endOffset)
+      ? MiniCTextStyles.stateClasses(MiniCTextStyleState.DEBUG_EXECUTION)
+      : [];
+  return [...baseClasses, ...executionClasses].join(" ");
+}
+
+function tokenStyleClasses(kind: string, diagnostic: boolean, syntaxMapper: MiniCSyntaxTextStyleMapper): readonly string[] {
+  if (kind === "COMMENT") {
+    return MiniCTextStyles.classes(MiniCTextStyleRole.CODE_COMMENT, ...(diagnostic ? [MiniCTextStyleState.DIAGNOSTIC] : []));
+  }
+  return syntaxMapper.styleClassesFor(kind, diagnostic);
+}
+
+function rangesOverlap(leftStart: number, leftEnd: number, rightStart: number, rightEnd: number): boolean {
+  return Math.max(leftStart, rightStart) < Math.min(leftEnd, rightEnd);
+}
+
+const FALLBACK_KEYWORDS = new Map<string, string>([
+  ["bool", "BOOL"],
+  ["char", "CHAR"],
+  ["int", "INT"],
+  ["long", "LONG"],
+  ["float", "FLOAT"],
+  ["double", "DOUBLE"],
+  ["extern", "EXTERN"],
+  ["struct", "STRUCT"],
+  ["return", "RETURN"],
+  ["if", "IF"],
+  ["else", "ELSE"],
+  ["while", "WHILE"],
+  ["for", "FOR"],
+  ["break", "BREAK"],
+  ["continue", "CONTINUE"],
+  ["true", "BOOL_LITERAL"],
+  ["false", "BOOL_LITERAL"],
+  ["NULL", "NULL_LITERAL"],
+]);
+
+function fallbackTokens(source: string): readonly EditorToken[] {
+  const tokens: EditorToken[] = [];
+  let index = 0;
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (/\s/u.test(char)) {
+      index += 1;
+      continue;
+    }
+    if (char === "/" && next === "/") {
+      const start = index;
+      while (index < source.length && source[index] !== "\n") {
+        index += 1;
+      }
+      tokens.push({ kind: "COMMENT", startOffset: start, endOffset: index });
+      continue;
+    }
+    if (char === "/" && next === "*") {
+      const start = index;
+      index += 2;
+      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
+        index += 1;
+      }
+      index = Math.min(source.length, index + 2);
+      tokens.push({ kind: "COMMENT", startOffset: start, endOffset: index });
+      continue;
+    }
+    if (char === "\"" || char === "'") {
+      const quote = char;
+      const start = index;
+      index += 1;
+      while (index < source.length) {
+        if (source[index] === "\\") {
+          index += 2;
+          continue;
+        }
+        if (source[index] === quote) {
+          index += 1;
+          break;
+        }
+        index += 1;
+      }
+      tokens.push({ kind: quote === "\"" ? "STRING_LITERAL" : "CHAR_LITERAL", startOffset: start, endOffset: index });
+      continue;
+    }
+    if (/[A-Za-z_]/u.test(char)) {
+      const start = index;
+      index += 1;
+      while (index < source.length && /[A-Za-z0-9_]/u.test(source[index])) {
+        index += 1;
+      }
+      const text = source.slice(start, index);
+      tokens.push({ kind: FALLBACK_KEYWORDS.get(text) ?? "IDENTIFIER", startOffset: start, endOffset: index });
+      continue;
+    }
+    if (/[0-9]/u.test(char)) {
+      const start = index;
+      index += 1;
+      while (index < source.length && /[0-9A-Fa-f_xXuUlL.]/u.test(source[index])) {
+        index += 1;
+      }
+      tokens.push({ kind: source.slice(start, index).includes(".") ? "DOUBLE_LITERAL" : "INTEGER_LITERAL", startOffset: start, endOffset: index });
+      continue;
+    }
+    tokens.push({ kind: "OPERATOR", startOffset: index, endOffset: index + 1 });
+    index += 1;
+  }
+  return tokens;
 }
 
 function requireNumber(value: number | undefined, name: string): number {
