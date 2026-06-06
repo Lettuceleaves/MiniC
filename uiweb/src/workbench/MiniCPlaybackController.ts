@@ -85,13 +85,11 @@ export class MiniCPlaybackController {
   }
 
   play(): void {
-    void this.viewModel.play();
-    this.restartTimeline();
+    void this.startPlayback(() => this.viewModel.play());
   }
 
   playFast(): void {
-    void this.viewModel.playFast();
-    this.restartTimeline();
+    void this.startPlayback(() => this.viewModel.playFast());
   }
 
   pause(): void {
@@ -135,10 +133,20 @@ export class MiniCPlaybackController {
     if (!this.timelineEnabled) {
       return;
     }
-    const interval = this.viewModel.currentStateProperty().get()?.frameIntervalMillis ?? 1000;
+    const state = this.viewModel.currentStateProperty().get();
+    if (state === null || state.playbackMode === "PAUSED" || !state.canNext) {
+      return;
+    }
+    const interval = state.frameIntervalMillis;
     this.timer = window.setInterval(() => {
       void this.tickOnce();
     }, interval);
+  }
+
+  private async startPlayback(start: () => Promise<UiControlResultDto>): Promise<void> {
+    this.stopTimeline();
+    await start();
+    this.restartTimeline();
   }
 
   private stopTimeline(): void {

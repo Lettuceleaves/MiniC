@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JavaMirrorFile } from "../translation/javaMirror";
+import type { MiniCPlaybackController } from "../workbench/MiniCPlaybackController";
 import type { MiniCWorkbenchSnapshot, MiniCWorkbenchViewModel } from "../workbench/MiniCWorkbenchViewModel";
 import { MiniCInspectorModelFactory } from "./MiniCInspectorModelFactory";
 
@@ -124,9 +125,10 @@ export const miniCInspectorViewMirror = {
 
 export interface MiniCInspectorViewProps {
   readonly viewModel: MiniCWorkbenchViewModel;
+  readonly playbackController: MiniCPlaybackController;
 }
 
-export function MiniCInspectorView({ viewModel }: MiniCInspectorViewProps) {
+export function MiniCInspectorView({ viewModel, playbackController }: MiniCInspectorViewProps) {
   const snapshot = useInspectorSnapshot(viewModel);
   const modelFactory = useMemo(() => new MiniCInspectorModelFactory(), []);
   const model = modelFactory.create(snapshot.currentState, snapshot.currentStageData, snapshot.globalData);
@@ -134,7 +136,7 @@ export function MiniCInspectorView({ viewModel }: MiniCInspectorViewProps) {
   return (
     <aside className="inspector" data-java-source={miniCInspectorViewMirror.javaPath}>
       {label("MiniC 观测", "panel-title")}
-      {controls(viewModel, snapshot)}
+      {controls(viewModel, snapshot, playbackController)}
       {label("当前状态", "section-label")}
       {body(model.currentState)}
       {label("当前项", "section-label")}
@@ -147,18 +149,22 @@ export function MiniCInspectorView({ viewModel }: MiniCInspectorViewProps) {
 
 MiniCInspectorView.mirror = miniCInspectorViewMirror;
 
-export function controls(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWorkbenchSnapshot) {
+export function controls(
+  viewModel: MiniCWorkbenchViewModel,
+  snapshot: MiniCWorkbenchSnapshot,
+  playbackController: MiniCPlaybackController,
+) {
   return (
     <div className="controls inspector-controls">
       <div className="inspector-control-row">
         {control("下一步", true, () => void viewModel.next(), snapshot.currentState?.canNext ?? false)}
-        {control("下一阶段", false, () => void viewModel.nextStage(), snapshot.currentState !== null)}
+        {control("下一阶段", false, () => void playbackController.nextStage(), snapshot.currentState !== null)}
         {control("到执行", false, () => void viewModel.runToExecution(), snapshot.currentState !== null)}
       </div>
       <div className="inspector-control-row">
-        {control("播放", false, () => void viewModel.play(), snapshot.currentState?.canPlay ?? false)}
-        {control("2x", false, () => void viewModel.playFast(), snapshot.currentState?.canPlayFast ?? false)}
-        {control("暂停", false, () => void viewModel.pause(), snapshot.currentState?.canPause ?? false)}
+        {control("播放", false, () => playbackController.play(), snapshot.currentState?.canPlay ?? false)}
+        {control("2x", false, () => playbackController.playFast(), snapshot.currentState?.canPlayFast ?? false)}
+        {control("暂停", false, () => playbackController.pause(), snapshot.currentState?.canPause ?? false)}
       </div>
     </div>
   );
@@ -185,25 +191,29 @@ export function label(text: string, styleClass: string) {
   return <h2 className={styleClass}>{text}</h2>;
 }
 
-export function execute(commandId: string, viewModel: MiniCWorkbenchViewModel): void {
+export function execute(
+  commandId: string,
+  viewModel: MiniCWorkbenchViewModel,
+  playbackController: MiniCPlaybackController,
+): void {
   switch (commandId) {
     case "compiler.next":
       void viewModel.next();
       break;
     case "compiler.nextStage":
-      void viewModel.nextStage();
+      void playbackController.nextStage();
       break;
     case "compiler.runToExecution":
       void viewModel.runToExecution();
       break;
     case "compiler.play":
-      void viewModel.play();
+      playbackController.play();
       break;
     case "compiler.playFast":
-      void viewModel.playFast();
+      playbackController.playFast();
       break;
     case "compiler.pause":
-      void viewModel.pause();
+      playbackController.pause();
       break;
   }
 }

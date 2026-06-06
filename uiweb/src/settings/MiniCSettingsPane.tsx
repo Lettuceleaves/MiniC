@@ -71,9 +71,14 @@ interface CaptureState {
   readonly pendingCombo: string;
 }
 
-export function MiniCSettingsPane() {
+export interface MiniCSettingsPaneProps {
+  readonly controlHub?: MiniCWorkbenchControlHub;
+}
+
+export function MiniCSettingsPane({ controlHub: sharedControlHub }: MiniCSettingsPaneProps = {}) {
   const keyBindingConfig = useMemo(() => MiniCKeyBindingConfig.loadDefault(), []);
-  const controlHub = useMemo(() => new MiniCWorkbenchControlHub(), []);
+  const fallbackControlHub = useMemo(() => new MiniCWorkbenchControlHub(), []);
+  const controlHub = sharedControlHub ?? fallbackControlHub;
   const heldKeys = useRef(new Set<string>());
   const fileInput = useRef<HTMLInputElement | null>(null);
   const [themeNames, setThemeNames] = useState<readonly string[]>(() => ThemeManager.availableThemes());

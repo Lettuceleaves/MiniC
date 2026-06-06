@@ -14,6 +14,10 @@ const requiredApiHits = [
   "POST /api/observation/*/start",
   "POST /api/observation/*/next",
   "POST /api/observation/*/next-stage",
+  "POST /api/observation/*/play",
+  "POST /api/observation/*/play-fast",
+  "POST /api/observation/*/tick",
+  "POST /api/observation/*/pause",
   "GET /api/observation/*/visual/lexer",
   "GET /api/observation/*/visual/ast",
   "GET /api/observation/*/visual/semantic",
@@ -101,7 +105,15 @@ async function main() {
   const failedRequests = [];
   try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-    await context.addInitScript(() => window.localStorage.clear());
+    await context.addInitScript(() => {
+      window.localStorage.clear();
+      const originalSetInterval = window.setInterval.bind(window);
+      window.__minicIntervalDelays = [];
+      window.setInterval = (handler, timeout, ...args) => {
+        window.__minicIntervalDelays.push(Number(timeout));
+        return originalSetInterval(handler, timeout, ...args);
+      };
+    });
     const page = await context.newPage();
     page.on("console", (message) => {
       if (message.type() === "error") {
@@ -228,6 +240,8 @@ async function verifyEditor(page, baseUrl) {
 }
 
 async function verifyCompilerPipeline(page, baseUrl) {
+  await assignKeyBinding(page, "编译器 · 下一步", "Control+Alt+Shift+KeyK", "Ctrl+Alt+Shift+K");
+  await page.getByRole("button", { name: "代码区", exact: true }).click();
   await Promise.all([
     waitForApiResponse(page, baseUrl, "POST", ["/api/observation/", "/start"]),
     page.getByRole("button", { name: "开始", exact: true }).click(),
@@ -235,8 +249,13 @@ async function verifyCompilerPipeline(page, baseUrl) {
   await waitForApiResponse(page, baseUrl, "GET", ["/api/observation/", "/visual/lexer"]);
   await page.locator(".inspector").waitFor({ state: "visible" });
 
+  await Promise.all([
+    waitForApiResponse(page, baseUrl, "POST", ["/api/observation/", "/next"]),
+    page.keyboard.press("Control+Alt+Shift+KeyK"),
+  ]);
   await clickControlForApi(page, baseUrl, ".inspector", "下一步", "POST", ["/api/observation/", "/next"]);
   await page.locator(".visual-canvas").waitFor({ state: "visible" });
+  await verifyPlaybackControls(page, baseUrl);
   await clickControlForApi(page, baseUrl, ".inspector", "下一阶段", "POST", ["/api/observation/", "/next-stage"]);
   await clickControlForApi(page, baseUrl, ".inspector", "到执行", "POST", ["/api/observation/", "/next-stage"], 90_000);
   await page.waitForFunction(() => {
@@ -278,6 +297,34 @@ async function verifyCompilerPipeline(page, baseUrl) {
   }
 }
 
+async function verifyPlaybackControls(page, baseUrl) {
+  const playIntervalStart = await intervalDelayCount(page);
+  await clickControlForApi(page, baseUrl, ".inspector", "播放", "POST", ["/api/observation/", "/play"]);
+  await waitForApiResponse(page, baseUrl, "POST", ["/api/observation/", "/tick"], 5_000);
+  const playIntervals = await intervalDelaysSince(page, playIntervalStart);
+  assert(playIntervals.length > 0, "play control should start a playback timer");
+  await clickControlForApi(page, baseUrl, ".inspector", "暂停", "POST", ["/api/observation/", "/pause"]);
+
+  const fastIntervalStart = await intervalDelayCount(page);
+  await clickControlForApi(page, baseUrl, ".inspector", "2x", "POST", ["/api/observation/", "/play-fast"]);
+  await waitForApiResponse(page, baseUrl, "POST", ["/api/observation/", "/tick"], 5_000);
+  const fastIntervals = await intervalDelaysSince(page, fastIntervalStart);
+  assert(fastIntervals.length > 0, "2x control should start a playback timer");
+  assert(
+    Math.min(...fastIntervals) < Math.min(...playIntervals),
+    `2x timer should be faster than play timer, got play=${playIntervals.join(",")} fast=${fastIntervals.join(",")}`,
+  );
+  await clickControlForApi(page, baseUrl, ".inspector", "暂停", "POST", ["/api/observation/", "/pause"]);
+}
+
+async function intervalDelayCount(page) {
+  return page.evaluate(() => window.__minicIntervalDelays.length);
+}
+
+async function intervalDelaysSince(page, start) {
+  return page.evaluate((index) => window.__minicIntervalDelays.slice(index), start);
+}
+
 async function verifySemanticScopePane(page) {
   const scopePaneText = await page.locator(".stage-flow-column").nth(1).innerText();
   assert(!scopePaneText.includes("^ "), `semantic scope pane should show active scope symbols, not the whole scope tree:\n${scopePaneText}`);
@@ -291,6 +338,7 @@ async function verifySemanticScopePane(page) {
 }
 
 async function verifyDebugger(page, baseUrl) {
+  await assignKeyBinding(page, "调试 · 下一句", "Control+Alt+Shift+KeyJ", "Ctrl+Alt+Shift+J");
   await page.getByRole("button", { name: "调试", exact: true }).click();
   await page.locator(".debug-pane").waitFor({ state: "visible" });
   const breakpoint = page.locator('button[aria-label="设置第 12 行断点"]').first();
@@ -312,7 +360,10 @@ async function verifyDebugger(page, baseUrl) {
   const status = await page.locator(".debug-status").innerText();
   assert(!status.includes("未启动"), `debug status should be started, got: ${status}`);
 
-  await clickControlForApi(page, baseUrl, ".debug-pane", "下一句", "POST", ["/api/debug/", "/step-into"]);
+  await Promise.all([
+    waitForApiResponse(page, baseUrl, "POST", ["/api/debug/", "/step-into"]),
+    page.keyboard.press("Control+Alt+Shift+KeyJ"),
+  ]);
   await clickControlForApi(page, baseUrl, ".debug-pane", "本层下一句", "POST", ["/api/debug/", "/step-over"]);
   await clickControlForApi(page, baseUrl, ".debug-pane", "下个断点", "POST", ["/api/debug/", "/run-to-breakpoint"]);
   await clickControlForApi(page, baseUrl, ".debug-pane", "上一句", "POST", ["/api/debug/", "/step-back"]);
@@ -370,12 +421,44 @@ async function verifySettingsAndInfo(page, baseUrl) {
   await page.locator("#minic-theme").waitFor({ state: "visible" });
   await page.locator(".key-binding-button").first().waitFor({ state: "visible" });
   await verifyKeyBindingCapture(page);
+  await verifySettingsShortcutExecution(page);
 
   const tokenizeWait = waitForApiResponse(page, baseUrl, "POST", ["/api/realtime/tokenize"], 30_000);
   await page.getByRole("button", { name: "信息", exact: true }).click();
   await page.locator(".info-scroll").waitFor({ state: "visible" });
   await tokenizeWait;
   await page.locator(".info-code-block .token-keyword").first().waitFor({ state: "visible" });
+}
+
+async function verifySettingsShortcutExecution(page) {
+  await assignKeyBinding(page, "设置 · 减少帧间隔", "Control+Alt+Shift+KeyY", "Ctrl+Alt+Shift+Y");
+  const frameIntervalText = page.locator(".settings-value").filter({ hasText: /ms/ }).first();
+  const before = parseNumericPrefix(await frameIntervalText.innerText());
+  await page.locator(".activity-placeholder-title", { hasText: "设置" }).click();
+  await page.keyboard.press("Control+Alt+Shift+KeyY");
+  try {
+    await page.waitForFunction(
+      (previous) => {
+        const valueText = [...document.querySelectorAll(".settings-value")]
+          .map((node) => node.textContent ?? "")
+          .find((text) => text.includes("ms")) ?? "";
+        const persisted = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}").frameInterval;
+        return Number.parseFloat(valueText) < previous && Number(persisted) < previous;
+      },
+      before,
+    );
+  } catch (error) {
+    const diagnostic = await page.evaluate(() => ({
+      activeElement: document.activeElement?.className ?? document.activeElement?.tagName ?? "",
+      frameInput: document.querySelector("#minic-frame-interval") instanceof HTMLInputElement
+        ? document.querySelector("#minic-frame-interval").value
+        : "",
+      frameText: [...document.querySelectorAll(".settings-value")].map((node) => node.textContent ?? ""),
+      keybindings: window.localStorage.getItem("minic.uiweb.keybindings"),
+      settings: window.localStorage.getItem("minic.uiweb.settings"),
+    }));
+    throw new Error(`settings shortcut did not update frame interval from ${before}: ${JSON.stringify(diagnostic)}\n${error}`);
+  }
 }
 
 async function verifyKeyBindingCapture(page) {
@@ -408,6 +491,25 @@ async function verifyKeyBindingCapture(page) {
   await page.waitForFunction(
     (node) => node.textContent?.trim() === "Ctrl+MouseRight",
     await mouseButton.elementHandle(),
+  );
+}
+
+async function assignKeyBinding(page, actionLabel, shortcut, expectedText) {
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  await page.locator(".settings-scroll").waitFor({ state: "visible" });
+  const row = page.locator(".key-binding-row").filter({ hasText: actionLabel }).first();
+  await row.waitFor({ state: "visible" });
+  const button = row.locator(".key-binding-button").first();
+  await button.click();
+  await page.keyboard.press(shortcut);
+  await page.waitForFunction(
+    ([node, text]) => node.textContent?.includes(text) ?? false,
+    [await button.elementHandle(), expectedText],
+  );
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    ([node, text]) => node.textContent?.trim() === text,
+    [await button.elementHandle(), expectedText],
   );
 }
 
@@ -484,6 +586,12 @@ function assert(condition, message) {
 
 function exactText(text) {
   return new RegExp(`^\\s*${escapeRegExp(text)}\\s*$`);
+}
+
+function parseNumericPrefix(text) {
+  const value = Number.parseFloat(text);
+  assert(Number.isFinite(value), `expected numeric prefix in "${text}"`);
+  return value;
 }
 
 function escapeRegExp(text) {

@@ -1,15 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { createMiniCWorkbenchViewModel } from "../api/createMiniCWorkbenchViewModel";
+import { MiniCControlTargetType } from "../control/MiniCControlTargetType";
+import { MiniCWorkbenchControlHub } from "../control/MiniCWorkbenchControlHub";
 import MiniCDebugPane from "../debug/MiniCDebugPane";
 import MiniCInfoView from "../info/MiniCInfoView";
 import MiniCBottomPanel from "../panel/MiniCBottomPanel";
 import { MiniCHoverInspector } from "../panel/MiniCHoverInspector";
 import MiniCInspectorView from "../panel/MiniCInspectorView";
+import { MiniCSettings, ThemeManager } from "../settings";
 import MiniCSettingsPane from "../settings/MiniCSettingsPane";
 import MiniCSourceLoaderView from "../source/MiniCSourceLoaderView";
 import type { JavaMirrorFile } from "../translation/javaMirror";
 import MiniCVisualPane from "../visual/MiniCVisualPane";
 import { MiniCSamplePrograms } from "../editor/MiniCSamplePrograms";
+import { MiniCKeyBindingConfig, type MiniCInputEvent } from "./MiniCKeyBindingConfig";
+import { MiniCPlaybackController } from "./MiniCPlaybackController";
 import { MiniCSidebarView } from "./MiniCSidebarView";
 import type { MiniCWorkbenchSnapshot, MiniCWorkbenchViewModel } from "./MiniCWorkbenchViewModel";
 
@@ -449,6 +454,34 @@ const ACTIVITY_SECTIONS: readonly ActivitySection[] = [
 ];
 
 const DOCUMENTS_STORAGE_KEY = "minic.uiweb.documents";
+const TEXT_ZOOM_STEP = 1.0;
+const VIEWPORT_KEY_SCROLL_DELTA = 48.0;
+const COMPILER_SHORTCUT_ACTIONS = [
+  MiniCWorkbenchControlHub.COMPILER_NEXT,
+  MiniCWorkbenchControlHub.COMPILER_NEXT_STAGE,
+  MiniCWorkbenchControlHub.COMPILER_RUN_TO_EXECUTION,
+  MiniCWorkbenchControlHub.COMPILER_PLAY,
+  MiniCWorkbenchControlHub.COMPILER_PLAY_FAST,
+  MiniCWorkbenchControlHub.COMPILER_PAUSE,
+] as const;
+const DEBUG_SHORTCUT_ACTIONS = [
+  MiniCWorkbenchControlHub.DEBUG_START,
+  MiniCWorkbenchControlHub.DEBUG_RUN_TO_END,
+  MiniCWorkbenchControlHub.DEBUG_RUN_TO_BREAKPOINT,
+  MiniCWorkbenchControlHub.DEBUG_STEP_OVER,
+  MiniCWorkbenchControlHub.DEBUG_STEP_INTO,
+  MiniCWorkbenchControlHub.DEBUG_BACK_TO_BREAKPOINT,
+  MiniCWorkbenchControlHub.DEBUG_STEP_BACK_OVER,
+  MiniCWorkbenchControlHub.DEBUG_STEP_BACK,
+] as const;
+const SETTINGS_SHORTCUT_ACTIONS = [
+  MiniCWorkbenchControlHub.SETTINGS_THEME_NEXT,
+  MiniCWorkbenchControlHub.SETTINGS_THEME_PREVIOUS,
+  MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_INCREASE,
+  MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_DECREASE,
+  MiniCWorkbenchControlHub.SETTINGS_UI_SCALE_INCREASE,
+  MiniCWorkbenchControlHub.SETTINGS_UI_SCALE_DECREASE,
+] as const;
 
 export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenchShellProps) {
   const [activeSection, setActiveSection] = useState<ActivitySectionId>("CODE");
@@ -456,14 +489,41 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   const [activeDocumentIndex, setActiveDocumentIndex] = useState(0);
   const [editingTabIndex, setEditingTabIndex] = useState<number | null>(null);
   const [editingTabName, setEditingTabName] = useState("");
+  const controlHub = useMemo(() => new MiniCWorkbenchControlHub(), []);
+  const keyBindings = useMemo(() => MiniCKeyBindingConfig.loadDefault(), []);
+  const pressedKeys = useRef(new Set<string>());
   const [hoverInspector] = useState(() => new MiniCHoverInspector());
   const activeDocument = documents[Math.min(activeDocumentIndex, Math.max(0, documents.length - 1))] ?? documents[0];
   const activeModel = activeDocument.viewModel;
+  const activePlaybackController = useMemo(() => new MiniCPlaybackController(activeModel), [activeModel]);
   const activeSnapshot = useWorkbenchShellSnapshot(activeModel);
+  const activeModelRef = useRef(activeModel);
+  const activePlaybackControllerRef = useRef(activePlaybackController);
+  const activeSnapshotRef = useRef(activeSnapshot);
+  const activeSectionRef = useRef(activeSection);
 
   useEffect(() => {
     persistOpenDocuments(documents);
   }, [documents]);
+
+  useEffect(() => {
+    activeModelRef.current = activeModel;
+    activeSnapshotRef.current = activeSnapshot;
+    activeSectionRef.current = activeSection;
+  }, [activeModel, activeSection, activeSnapshot]);
+
+  useEffect(() => {
+    activePlaybackControllerRef.current = activePlaybackController;
+    return () => activePlaybackController.dispose();
+  }, [activePlaybackController]);
+
+  useEffect(() => {
+    registerWorkbenchCommands(controlHub, activeModelRef, activePlaybackControllerRef);
+  }, [controlHub]);
+
+  useEffect(() => {
+    return installShortcutDispatch(controlHub, keyBindings, pressedKeys);
+  }, [controlHub, keyBindings]);
 
   const switchDocument = (index: number): void => {
     if (index >= 0 && index < documents.length) {
@@ -537,7 +597,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   return (
     <section className="workbench-root" data-java-source={miniCWorkbenchShellMirror.javaPath} aria-label={title}>
       {activityBar(activeSection, setActiveSection)}
-      {sectionContent(activeSection, activeModel, activeSnapshot, hoverInspector, {
+      {sectionContent(activeSection, activeModel, activePlaybackController, activeSnapshot, hoverInspector, controlHub, {
         activeDocument,
         activeDocumentIndex,
         documents,
@@ -601,17 +661,19 @@ function activityBar(activeSection: ActivitySectionId, selectActivitySection: (s
 function sectionContent(
   section: ActivitySectionId,
   viewModel: MiniCWorkbenchViewModel,
+  playbackController: MiniCPlaybackController,
   snapshot: MiniCWorkbenchSnapshot,
   hoverInspector: MiniCHoverInspector,
+  controlHub: MiniCWorkbenchControlHub,
   actions: ShellActions,
 ) {
   switch (section) {
     case "CODE":
-      return workbenchBody(viewModel, snapshot, hoverInspector, actions);
+      return workbenchBody(viewModel, playbackController, snapshot, hoverInspector, actions);
     case "DEBUG":
       return <MiniCDebugPane viewModel={viewModel} />;
     case "SETTINGS":
-      return settingsPage();
+      return settingsPage(controlHub);
     case "INFO":
       return <MiniCInfoView />;
   }
@@ -619,6 +681,7 @@ function sectionContent(
 
 function workbenchBody(
   viewModel: MiniCWorkbenchViewModel,
+  playbackController: MiniCPlaybackController,
   snapshot: MiniCWorkbenchSnapshot,
   hoverInspector: MiniCHoverInspector,
   actions: ShellActions,
@@ -646,7 +709,7 @@ function workbenchBody(
         </div>
         <MiniCBottomPanel inspector={hoverInspector} viewModel={viewModel} />
       </section>
-      <MiniCInspectorView viewModel={viewModel} />
+      <MiniCInspectorView playbackController={playbackController} viewModel={viewModel} />
     </main>
   );
 }
@@ -719,10 +782,10 @@ function tabs(actions: ShellActions) {
   );
 }
 
-function settingsPage() {
+function settingsPage(controlHub: MiniCWorkbenchControlHub) {
   return (
     <main className="settings-scroll">
-      <MiniCSettingsPane />
+      <MiniCSettingsPane controlHub={controlHub} />
     </main>
   );
 }
@@ -798,6 +861,218 @@ function nextUntitledName(documents: readonly DocumentTab[]): string {
 
 function renumberDocumentOrders(documents: readonly DocumentTab[]): readonly DocumentTab[] {
   return documents.map((document, index) => ({ ...document, order: index + 1 }));
+}
+
+function registerWorkbenchCommands(
+  controlHub: MiniCWorkbenchControlHub,
+  activeModelRef: MutableRefObject<MiniCWorkbenchViewModel>,
+  activePlaybackControllerRef: MutableRefObject<MiniCPlaybackController>,
+): void {
+  const model = () => activeModelRef.current;
+  const playbackController = () => activePlaybackControllerRef.current;
+  controlHub.registerCompilerCommands({
+    canNext: () => model().canNextControl(),
+    next: () => void model().next(),
+    canNextStage: () => model().canNextStageControl(),
+    nextStage: () => void playbackController().nextStage(),
+    canRunToExecution: () => model().canRunToExecutionControl(),
+    runToExecution: () => void model().runToExecution(),
+    canPlay: () => model().canPlayControl(),
+    play: () => playbackController().play(),
+    canPlayFast: () => model().canPlayFastControl(),
+    playFast: () => playbackController().playFast(),
+    canPause: () => model().snapshot().currentState?.canPause ?? false,
+    pause: () => playbackController().pause(),
+  });
+  controlHub.registerDebuggerCommands({
+    canStart: () => true,
+    start: () => void model().startDebug(),
+    canRunToEnd: () => model().snapshot().debugStarted,
+    runToEnd: () => void model().debugRunToEnd(),
+    canRunToBreakpoint: () => model().snapshot().debugStarted,
+    runToBreakpoint: () => void model().debugRunToBreakpoint(),
+    canStepOver: () => model().snapshot().debugStarted,
+    stepOver: () => void model().debugStepOver(),
+    canStepInto: () => model().snapshot().debugStarted,
+    stepInto: () => void model().debugStepInto(),
+    canBackToBreakpoint: () => model().snapshot().debugStarted,
+    backToBreakpoint: () => void model().debugBackToBreakpoint(),
+    canStepBackOver: () => model().snapshot().debugStarted,
+    stepBackOver: () => void model().debugStepBackOver(),
+    canStepBack: () => model().snapshot().debugStarted,
+    stepBack: () => void model().debugStepBack(),
+  });
+  controlHub.registerSettingsCommands({
+    themeSetter: ThemeManager.setTheme,
+    themeNext: () => shiftTheme(1),
+    themePrevious: () => shiftTheme(-1),
+    frameIntervalSetter: MiniCSettings.setFrameIntervalMillis,
+    currentFrameInterval: MiniCSettings.frameIntervalMillis,
+    minFrameInterval: MiniCSettings.minFrameInterval,
+    maxFrameInterval: MiniCSettings.maxFrameInterval,
+    frameIntervalStep: 50,
+    uiScaleSetter: (value) => MiniCSettings.setUiScale(roundUiScale(value)),
+    currentUiScale: MiniCSettings.uiScale,
+    minUiScale: MiniCSettings.minUiScale,
+    maxUiScale: MiniCSettings.maxUiScale,
+    uiScaleStep: 0.05,
+  });
+}
+
+function installShortcutDispatch(
+  controlHub: MiniCWorkbenchControlHub,
+  keyBindings: MiniCKeyBindingConfig,
+  pressedKeys: MutableRefObject<Set<string>>,
+): () => void {
+  const handleKeyDown = (event: KeyboardEvent): void => {
+    if (isKeyBindingCaptureTarget(event.target)) {
+      return;
+    }
+    if (!isModifierKey(event.key)) {
+      pressedKeys.current.add(event.key);
+    }
+    if (handleShortcut(controlHub, keyBindings, event, pressedKeys.current)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+  const handleKeyUp = (event: KeyboardEvent): void => {
+    if (!isModifierKey(event.key)) {
+      pressedKeys.current.delete(event.key);
+    }
+  };
+  const handleMouseDown = (event: MouseEvent): void => {
+    if (isKeyBindingCaptureTarget(event.target)) {
+      return;
+    }
+    if (handleShortcut(controlHub, keyBindings, event, pressedKeys.current)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+  const handleWheel = (event: WheelEvent): void => {
+    if (isKeyBindingCaptureTarget(event.target)) {
+      return;
+    }
+    if (handleShortcut(controlHub, keyBindings, event, pressedKeys.current)) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  };
+  window.addEventListener("keydown", handleKeyDown, { capture: true });
+  window.addEventListener("keyup", handleKeyUp, { capture: true });
+  window.addEventListener("mousedown", handleMouseDown, { capture: true });
+  window.addEventListener("wheel", handleWheel, { capture: true, passive: false });
+  return () => {
+    window.removeEventListener("keydown", handleKeyDown, { capture: true });
+    window.removeEventListener("keyup", handleKeyUp, { capture: true });
+    window.removeEventListener("mousedown", handleMouseDown, { capture: true });
+    window.removeEventListener("wheel", handleWheel, { capture: true });
+    pressedKeys.current.clear();
+  };
+}
+
+function handleShortcut(
+  controlHub: MiniCWorkbenchControlHub,
+  keyBindings: MiniCKeyBindingConfig,
+  event: MiniCInputEvent,
+  pressedKeys: ReadonlySet<string>,
+): boolean {
+  return (
+    handleCommandShortcut(controlHub, keyBindings, event, pressedKeys, COMPILER_SHORTCUT_ACTIONS)
+    || handleCommandShortcut(controlHub, keyBindings, event, pressedKeys, DEBUG_SHORTCUT_ACTIONS)
+    || handleCommandShortcut(controlHub, keyBindings, event, pressedKeys, SETTINGS_SHORTCUT_ACTIONS)
+    || handleViewportShortcut(controlHub, keyBindings, event, pressedKeys)
+  );
+}
+
+function handleCommandShortcut(
+  controlHub: MiniCWorkbenchControlHub,
+  keyBindings: MiniCKeyBindingConfig,
+  event: MiniCInputEvent,
+  pressedKeys: ReadonlySet<string>,
+  actions: readonly string[],
+): boolean {
+  for (const action of actions) {
+    if (keyBindings.matches(action, event, pressedKeys) && controlHub.execute(action)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function handleViewportShortcut(
+  controlHub: MiniCWorkbenchControlHub,
+  keyBindings: MiniCKeyBindingConfig,
+  event: MiniCInputEvent,
+  pressedKeys: ReadonlySet<string>,
+): boolean {
+  const point = event instanceof MouseEvent || event instanceof WheelEvent
+    ? { x: event.offsetX, y: event.offsetY }
+    : { x: 0, y: 0 };
+  if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_IN, event, pressedKeys)) {
+    controlHub.handleZoom(point, viewportZoomDelta(controlHub, 1.0));
+    return true;
+  }
+  if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT, event, pressedKeys)) {
+    controlHub.handleZoom(point, viewportZoomDelta(controlHub, -1.0));
+    return true;
+  }
+  if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_UP, event, pressedKeys)) {
+    controlHub.handleScrollVertical(-VIEWPORT_KEY_SCROLL_DELTA);
+    return true;
+  }
+  if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_DOWN, event, pressedKeys)) {
+    controlHub.handleScrollVertical(VIEWPORT_KEY_SCROLL_DELTA);
+    return true;
+  }
+  if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_LEFT, event, pressedKeys)) {
+    controlHub.handleScrollHorizontal(-VIEWPORT_KEY_SCROLL_DELTA);
+    return true;
+  }
+  if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_SCROLL_RIGHT, event, pressedKeys)) {
+    controlHub.handleScrollHorizontal(VIEWPORT_KEY_SCROLL_DELTA);
+    return true;
+  }
+  if (keyBindings.matches(MiniCWorkbenchControlHub.VIEWPORT_CENTER_ACTIVE, event, pressedKeys)) {
+    controlHub.handleCenterActive();
+    return true;
+  }
+  return false;
+}
+
+function viewportZoomDelta(controlHub: MiniCWorkbenchControlHub, direction: number): number {
+  const target = controlHub.viewportRegistry().currentTarget();
+  return direction * (target?.type() === MiniCControlTargetType.TEXT ? TEXT_ZOOM_STEP : MiniCSettings.graphZoomStep());
+}
+
+function shiftTheme(delta: number): void {
+  const themes = ThemeManager.availableThemes();
+  if (themes.length === 0) {
+    return;
+  }
+  const current = ThemeManager.currentTheme();
+  const index = current === null ? -1 : themes.indexOf(current);
+  const next = themes[floorMod(index + delta, themes.length)];
+  if (next !== undefined) {
+    ThemeManager.setTheme(next);
+  }
+}
+
+function isModifierKey(key: string): boolean {
+  return key === "Control" || key === "Ctrl" || key === "Alt" || key === "Shift" || key === "Meta";
+}
+
+function isKeyBindingCaptureTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(".key-binding-capturing") !== null;
+}
+
+function floorMod(value: number, divisor: number): number {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+function roundUiScale(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 export default MiniCWorkbenchShell;
