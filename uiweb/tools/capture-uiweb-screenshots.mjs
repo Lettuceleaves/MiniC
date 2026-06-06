@@ -35,7 +35,7 @@ export const matrixStates = [
   { id: "debug-metadata", title: "Debugger 元数据", required: [".debug-pane", ".debug-metadata", ".debug-summary-grid"] },
   { id: "debug-source", title: "Debugger 源码与断点", required: [".debug-pane", ".debug-source-panel", ".debug-source-editor-scroll", ".editor-gutter.current-execution", ".breakpoint-gutter.active"] },
   { id: "debug-data-structure", title: "Debugger 数据结构", required: [".debug-pane", ".debug-data-space", ".debug-process-section"] },
-  { id: "debug-visual-diagram", title: "Debugger 数据结构图", required: [".debug-pane", ".debug-data-space", ".debug-visuals", ".debug-visual-diagram"] },
+  { id: "debug-visual-diagram", title: "Debugger 数据结构图", required: [".debug-pane", ".debug-data-space", ".debug-visuals", ".debug-visual-diagram", ".debug-graph-node"] },
   { id: "debug-ast", title: "Debugger AST", required: [".debug-pane", ".debug-ast-view", ".debug-section-title"] },
   { id: "debug-ir", title: "Debugger IR", required: [".debug-pane", ".debug-code-view", ".debug-code-row"] },
   { id: "debug-asm", title: "Debugger ASM", required: [".debug-pane", ".debug-code-view", ".debug-code-row"] },

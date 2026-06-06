@@ -469,6 +469,11 @@ interface EditorLineSegment {
   readonly className: string;
 }
 
+interface EditorSelectionRange {
+  readonly startOffset: number;
+  readonly endOffset: number;
+}
+
 interface EditorLine {
   readonly lineNumber: number;
   readonly startOffset: number;
@@ -837,17 +842,18 @@ function MiniCCodeEditorComponent({
   const [localText, setLocalText] = useState(value ?? initialText);
   const [suggestions, setSuggestions] = useState<readonly string[]>([]);
   const [selectedSuggestion, setSelectedSuggestion] = useState(0);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [scrollLeft, setScrollLeft] = useState(0);
+  const [selectionRange, setSelectionRange] = useState<EditorSelectionRange>({ startOffset: 0, endOffset: 0 });
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const gutterInnerRef = useRef<HTMLDivElement | null>(null);
+  const renderLayerRef = useRef<HTMLDivElement | null>(null);
   const model = useMemo(() => new MiniCCodeEditorModel(), []);
   const syntaxMapper = useMemo(() => new MiniCSyntaxTextStyleMapper(), []);
   const text = controlled ? value : localText;
   const diagnostics = analysis?.sourceText === text ? analysis.diagnostics : [];
   const lineHeight = model.fontSize() * 1.5;
   const editorLines = useMemo(
-    () => renderLines(text, analysis, diagnostics, currentExecutionRange, syntaxMapper),
-    [analysis, currentExecutionRange, diagnostics, syntaxMapper, text],
+    () => renderLines(text, analysis, diagnostics, currentExecutionRange, selectionRange, syntaxMapper),
+    [analysis, currentExecutionRange, diagnostics, selectionRange, syntaxMapper, text],
   );
   const breakpointSet = useMemo(() => new Set(breakpoints), [breakpoints]);
 
@@ -858,6 +864,10 @@ function MiniCCodeEditorComponent({
     model.setCurrentExecutionRange(currentExecutionRange);
     model.render(analysis);
   }, [analysis, breakpoints, currentExecutionLine, currentExecutionRange, model, text]);
+
+  useEffect(() => {
+    syncScrollPosition();
+  });
 
   const publishText = (nextText: string): void => {
     if (!controlled) {
@@ -871,9 +881,40 @@ function MiniCCodeEditorComponent({
   const applyEdit = (result: MiniCEditResult): void => {
     publishText(result.source);
     window.requestAnimationFrame(() => {
-      textareaRef.current?.setSelectionRange(result.selectionStart, result.selectionEnd);
+      const textarea = textareaRef.current;
+      textarea?.setSelectionRange(result.selectionStart, result.selectionEnd);
+      syncSelection(textarea);
+      syncScrollPosition(textarea);
       updateCompletion(false);
     });
+  };
+
+  const syncScrollPosition = (textarea: HTMLTextAreaElement | null = textareaRef.current): void => {
+    if (!textarea) {
+      return;
+    }
+    const scrollTop = textarea.scrollTop;
+    const scrollLeft = textarea.scrollLeft;
+    if (gutterInnerRef.current) {
+      gutterInnerRef.current.style.transform = `translateY(${-scrollTop}px)`;
+    }
+    if (renderLayerRef.current) {
+      renderLayerRef.current.style.transform = `translate(${-scrollLeft}px, ${-scrollTop}px)`;
+    }
+  };
+
+  const syncSelection = (textarea: HTMLTextAreaElement | null = textareaRef.current): void => {
+    if (!textarea) {
+      setSelectionRange({ startOffset: 0, endOffset: 0 });
+      return;
+    }
+    const startOffset = Math.min(textarea.selectionStart, textarea.selectionEnd);
+    const endOffset = Math.max(textarea.selectionStart, textarea.selectionEnd);
+    setSelectionRange((current) => (
+      current.startOffset === startOffset && current.endOffset === endOffset
+        ? current
+        : { startOffset, endOffset }
+    ));
   };
 
   const updateCompletion = (force: boolean): void => {
@@ -911,6 +952,8 @@ function MiniCCodeEditorComponent({
 
   const onChange = (event: ChangeEvent<HTMLTextAreaElement>): void => {
     publishText(event.target.value);
+    syncSelection(event.target);
+    syncScrollPosition(event.target);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -970,7 +1013,7 @@ function MiniCCodeEditorComponent({
     <section className={`code-editor ${className}`.trim()} data-java-source={miniCCodeEditorMirror.javaPath}>
       <div className={`source-editor-scroll ${scrollContainerClassName}`.trim()}>
         <div className="editor-gutter-column">
-          <div className="editor-gutter-column-inner" style={{ transform: `translateY(${-scrollTop}px)` }}>
+          <div className="editor-gutter-column-inner" ref={gutterInnerRef}>
             {editorLines.map((lineModel) => {
               const line = lineModel.lineNumber;
               const active = breakpointSet.has(line);
@@ -1001,10 +1044,10 @@ function MiniCCodeEditorComponent({
           <div
             aria-hidden="true"
             className="source-editor-render"
+            ref={renderLayerRef}
             style={{
               fontSize: `${model.fontSize()}px`,
               lineHeight: `${lineHeight}px`,
-              transform: `translate(${-scrollLeft}px, ${-scrollTop}px)`,
             }}
           >
             {editorLines.map((lineModel) => (
@@ -1025,13 +1068,18 @@ function MiniCCodeEditorComponent({
             aria-label={ariaLabel}
             className="source-editor source-editor-input"
             onChange={onChange}
-            onClick={() => updateCompletion(false)}
+            onClick={(event) => {
+              syncSelection(event.currentTarget);
+              updateCompletion(false);
+            }}
             onKeyDown={onKeyDown}
             onScroll={(event) => {
-              setScrollTop(event.currentTarget.scrollTop);
-              setScrollLeft(event.currentTarget.scrollLeft);
+              syncScrollPosition(event.currentTarget);
             }}
-            onSelect={() => updateCompletion(false)}
+            onSelect={(event) => {
+              syncSelection(event.currentTarget);
+              updateCompletion(false);
+            }}
             readOnly={readOnly}
             ref={textareaRef}
             spellCheck={false}
@@ -1073,12 +1121,13 @@ function renderLines(
   analysis: UiRealtimeAnalysisDto | null,
   diagnostics: readonly UiDiagnosticDto[],
   currentExecutionRange: UiSourceSpanDto | null,
+  selectionRange: EditorSelectionRange,
   syntaxMapper: MiniCSyntaxTextStyleMapper,
 ): readonly EditorLine[] {
   const tokens = tokensForSource(source, analysis);
   return sourceLines(source).map((line) => ({
     ...line,
-    segments: segmentsForLine(line, tokens, diagnostics, currentExecutionRange, syntaxMapper),
+    segments: segmentsForLine(line, tokens, diagnostics, currentExecutionRange, selectionRange, syntaxMapper),
   }));
 }
 
@@ -1124,10 +1173,14 @@ function segmentsForLine(
   tokens: readonly EditorToken[],
   diagnostics: readonly UiDiagnosticDto[],
   currentExecutionRange: UiSourceSpanDto | null,
+  selectionRange: EditorSelectionRange,
   syntaxMapper: MiniCSyntaxTextStyleMapper,
 ): readonly EditorLineSegment[] {
   if (line.startOffset === line.endOffset) {
-    return [{ text: "\u00a0", className: MiniCTextStyles.className(MiniCTextStyleRole.CODE_PLAIN) }];
+    const selected = hasSelection(selectionRange)
+      && selectionRange.startOffset <= line.startOffset
+      && selectionRange.endOffset > line.startOffset;
+    return [{ text: "\u00a0", className: [MiniCTextStyles.className(MiniCTextStyleRole.CODE_PLAIN), selected ? "selection" : ""].filter(Boolean).join(" ") }];
   }
   const boundaries = new Set([line.startOffset, line.endOffset]);
   for (const token of tokens) {
@@ -1146,6 +1199,10 @@ function segmentsForLine(
     boundaries.add(clampNumber(currentExecutionRange.startOffset, line.startOffset, line.endOffset));
     boundaries.add(clampNumber(currentExecutionRange.endOffset, line.startOffset, line.endOffset));
   }
+  if (hasSelection(selectionRange) && rangesOverlap(line.startOffset, line.endOffset, selectionRange.startOffset, selectionRange.endOffset)) {
+    boundaries.add(clampNumber(selectionRange.startOffset, line.startOffset, line.endOffset));
+    boundaries.add(clampNumber(selectionRange.endOffset, line.startOffset, line.endOffset));
+  }
   const sorted = [...boundaries].sort((left, right) => left - right);
   const segments: EditorLineSegment[] = [];
   for (let index = 0; index < sorted.length - 1; index += 1) {
@@ -1157,7 +1214,7 @@ function segmentsForLine(
     const text = line.text.slice(start - line.startOffset, end - line.startOffset);
     segments.push({
       text,
-      className: classesForRange(start, end, tokens, diagnostics, currentExecutionRange, syntaxMapper),
+      className: classesForRange(start, end, tokens, diagnostics, currentExecutionRange, selectionRange, syntaxMapper),
     });
   }
   return segments;
@@ -1169,6 +1226,7 @@ function classesForRange(
   tokens: readonly EditorToken[],
   diagnostics: readonly UiDiagnosticDto[],
   currentExecutionRange: UiSourceSpanDto | null,
+  selectionRange: EditorSelectionRange,
   syntaxMapper: MiniCSyntaxTextStyleMapper,
 ): string {
   const token = tokens.find((candidate) => candidate.startOffset <= start && candidate.endOffset >= end);
@@ -1181,7 +1239,14 @@ function classesForRange(
     currentExecutionRange && rangesOverlap(start, end, currentExecutionRange.startOffset, currentExecutionRange.endOffset)
       ? MiniCTextStyles.stateClasses(MiniCTextStyleState.DEBUG_EXECUTION)
       : [];
-  return [...baseClasses, ...executionClasses].join(" ");
+  const selectionClasses = hasSelection(selectionRange) && rangesOverlap(start, end, selectionRange.startOffset, selectionRange.endOffset)
+    ? ["selection"]
+    : [];
+  return [...baseClasses, ...executionClasses, ...selectionClasses].join(" ");
+}
+
+function hasSelection(selectionRange: EditorSelectionRange): boolean {
+  return selectionRange.endOffset > selectionRange.startOffset;
 }
 
 function rangesOverlap(leftStart: number, leftEnd: number, rightStart: number, rightEnd: number): boolean {

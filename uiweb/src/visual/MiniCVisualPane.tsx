@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JavaMirrorFile } from "../translation/javaMirror";
-import type { ReactElement } from "react";
-import type { UiAssemblyLineVisualDto, UiIrLineVisualDto, UiSemanticScopeVisualDto, UiStageVisualDto } from "../translation/uiapi";
+import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, ReactElement } from "react";
+import type {
+  UiAssemblyLineVisualDto,
+  UiAstNodeVisualDto,
+  UiIrLineVisualDto,
+  UiLexerTokenVisualDto,
+  UiSemanticScopeVisualDto,
+  UiSourceSpanDto,
+  UiStageVisualDto,
+} from "../translation/uiapi";
+import { MiniCHoverInspector } from "../panel/MiniCHoverInspector";
+import { MiniCHoverInspectorContent } from "../panel/MiniCHoverInspectorContent";
 import { MiniCAssemblyTextHighlighter } from "../text/MiniCAssemblyTextHighlighter";
 import { MiniCIrTextHighlighter } from "../text/MiniCIrTextHighlighter";
 import { textFlow } from "../text/MiniCTextFlowFactory";
@@ -11,6 +21,7 @@ import type { MiniCAssemblyTextLine } from "./MiniCAssemblyTextLine";
 import { MiniCSemanticScopeTreeModelFactory } from "./MiniCSemanticScopeTreeModelFactory";
 import type { MiniCSemanticScopeTreeLine } from "./MiniCSemanticScopeTreeLine";
 import { MiniCVisualAstGraphRenderer } from "./MiniCVisualAstGraphRenderer";
+import { MiniCVisualExplanationFormatter } from "./MiniCVisualExplanationFormatter";
 import { MiniCVisualModelFactory } from "./MiniCVisualModelFactory";
 import { MiniCVisualSourceRows } from "./MiniCVisualSourceRows";
 
@@ -471,6 +482,7 @@ export const miniCVisualPaneMirror = {
 
 export interface MiniCVisualPaneProps {
   readonly viewModel: MiniCWorkbenchViewModel;
+  readonly inspector?: MiniCHoverInspector;
 }
 
 const DEFAULT_AST_ZOOM = 1;
@@ -478,14 +490,20 @@ const MIN_AST_ZOOM = 0.05;
 const MAX_AST_ZOOM = 1;
 const AST_ZOOM_STEP = 0.025;
 
-export function MiniCVisualPane({ viewModel }: MiniCVisualPaneProps) {
+export function MiniCVisualPane({ viewModel, inspector }: MiniCVisualPaneProps) {
   const snapshot = useVisualSnapshot(viewModel);
   const [astZoom, setAstZoomState] = useState(DEFAULT_AST_ZOOM);
+  const localInspector = useMemo(() => inspector ?? new MiniCHoverInspector(), [inspector]);
   const modelFactory = useMemo(() => new MiniCVisualModelFactory(), []);
   const semanticScopeTreeModelFactory = useMemo(() => new MiniCSemanticScopeTreeModelFactory(), []);
   const assemblyTextModelFactory = useMemo(() => new MiniCAssemblyTextModelFactory(), []);
   const irTextHighlighter = useMemo(() => new MiniCIrTextHighlighter(), []);
   const assemblyTextHighlighter = useMemo(() => new MiniCAssemblyTextHighlighter(), []);
+  const inspectorContext = useMemo<VisualInspectorContext>(() => ({
+    formatter: new MiniCVisualExplanationFormatter((range) => sourceSnippetForRange(range, null, snapshot)),
+    inspector: localInspector,
+    snapshot,
+  }), [localInspector, snapshot]);
   const currentStage = snapshot.currentStageData?.stage ?? "pending";
   const stage = snapshot.selectedVisualStage.length > 0 ? snapshot.selectedVisualStage : currentStage;
   const visual = visualForStage(stage, snapshot);
@@ -505,6 +523,7 @@ export function MiniCVisualPane({ viewModel }: MiniCVisualPaneProps) {
     assemblyTextModelFactory,
     irTextHighlighter,
     assemblyTextHighlighter,
+    inspectorContext,
   );
 
   return (
@@ -611,6 +630,7 @@ function stageColumns(
   assemblyTextModelFactory: MiniCAssemblyTextModelFactory,
   irTextHighlighter: MiniCIrTextHighlighter,
   assemblyTextHighlighter: MiniCAssemblyTextHighlighter,
+  inspectorContext: VisualInspectorContext,
 ): StageColumns {
   if (!visual) {
     return {
@@ -634,28 +654,28 @@ function stageColumns(
         leftTitle: "预处理后产物",
         left: sourceRows(visual),
         rightTitle: "Token",
-        right: tokenRows(visual),
+        right: tokenRows(visual, inspectorContext),
       };
     case "parser":
       return {
         leftTitle: "Token",
-        left: tokenRows(snapshot.lexerVisualData),
+        left: tokenRows(snapshot.lexerVisualData, inspectorContext),
         rightTitle: "AST",
-        right: astGraph(visual, astZoom, setAstZoom, false),
+        right: astGraph(visual, astZoom, setAstZoom, false, inspectorContext),
       };
     case "semantic":
       return {
         leftTitle: "AST",
-        left: astGraph(visual, astZoom, setAstZoom, true),
+        left: astGraph(visual, astZoom, setAstZoom, true, inspectorContext),
         rightTitle: "作用域",
         right: activeScopeRows(visual, semanticScopeTreeModelFactory),
       };
     case "codegen":
       return {
         leftTitle: "IR",
-        left: codegenIrRows(visual, irTextHighlighter),
+        left: codegenIrRows(visual, irTextHighlighter, inspectorContext),
         rightTitle: "汇编",
-        right: assemblyRows(visual, assemblyTextModelFactory, assemblyTextHighlighter),
+        right: assemblyRows(visual, assemblyTextModelFactory, assemblyTextHighlighter, inspectorContext),
       };
     case "source":
       return {
@@ -667,14 +687,14 @@ function stageColumns(
     case "ir":
       return {
         leftTitle: "AST",
-        left: astGraph(visual, astZoom, setAstZoom, true),
+        left: astGraph(visual, astZoom, setAstZoom, true, inspectorContext),
         rightTitle: "IR",
         right: globalRows("ir", snapshot),
       };
     case "toolchain":
       return {
         leftTitle: "汇编",
-        left: assemblyRows(snapshot.codegenVisualData, assemblyTextModelFactory, assemblyTextHighlighter),
+        left: assemblyRows(snapshot.codegenVisualData, assemblyTextModelFactory, assemblyTextHighlighter, inspectorContext),
         rightTitle: "工具链",
         right: globalRows("toolchain", snapshot),
       };
@@ -700,6 +720,7 @@ function astGraph(
   astZoom: number,
   setAstZoom: (value: number) => void,
   semanticMasks: boolean,
+  inspectorContext: VisualInspectorContext,
 ) {
   return (
     <div className="ast-zoom-box">
@@ -716,7 +737,18 @@ function astGraph(
         />
         <span className="ast-zoom-value">{astZoomPercent(astZoom)}</span>
       </div>
-      <MiniCVisualAstGraphRenderer semanticMasks={semanticMasks} visual={visual} zoom={astZoom} />
+      <MiniCVisualAstGraphRenderer
+        onAstNodeSelect={(node) => inspectorContext.inspector.show(astNodeContent(node, visual, inspectorContext))}
+        onSemanticScopeSelect={(scopeId) => {
+          const scope = scopeById(visual.semanticRoot, scopeId);
+          if (scope) {
+            inspectorContext.inspector.show(semanticScopeContent(scope, scopeDepth(visual.semanticRoot, scopeId), visual, inspectorContext));
+          }
+        }}
+        semanticMasks={semanticMasks}
+        visual={visual}
+        zoom={astZoom}
+      />
     </div>
   );
 }
@@ -745,16 +777,40 @@ function executionOutputRows(snapshot: MiniCWorkbenchSnapshot) {
   return monoRows(rows.length > 0 ? rows : ["执行输出会显示在这里。"]);
 }
 
-export function codegenIrRows(visual: UiStageVisualDto | null, highlighter = new MiniCIrTextHighlighter()) {
+export function codegenIrRows(
+  visual: UiStageVisualDto | null,
+  highlighter = new MiniCIrTextHighlighter(),
+  inspectorContext?: VisualInspectorContext,
+) {
   if (!visual || visual.irLines.length === 0) {
     return <div>{textRow("IR 暂无输出。", "assembly-row", "assembly-text")}</div>;
   }
-  return <div>{visual.irLines.map((line) => irRow(line, highlighter))}</div>;
+  return <div>{visual.irLines.map((line) => irRow(line, highlighter, visual, inspectorContext))}</div>;
 }
 
-export function irRow(line: UiIrLineVisualDto, highlighter = new MiniCIrTextHighlighter()) {
+export function irRow(
+  line: UiIrLineVisualDto,
+  highlighter = new MiniCIrTextHighlighter(),
+  visual?: UiStageVisualDto | null,
+  inspectorContext?: VisualInspectorContext,
+) {
+  const inspectProps = visual && inspectorContext
+    ? attachInspectorClick(inspectorContent(
+      `IR 行 ${line.lineNumber}`,
+      [
+        "类型: IR",
+        `行号: ${line.lineNumber}`,
+        `文本: ${line.text}`,
+        inspectorContext.formatter.rangeLine(line.range),
+      ],
+      line.range,
+      inspectorContext.formatter.explainIrLine(line),
+      visual,
+      inspectorContext,
+    ), inspectorContext)
+    : {};
   return (
-    <div className={`assembly-row${line.active ? " active" : ""}`} key={line.lineNumber}>
+    <div {...inspectProps} className={`assembly-row${line.active ? " active" : ""}`} key={line.lineNumber}>
       <span className={`assembly-line-number${line.active ? " active" : ""}`}>{line.lineNumber}</span>
       {textFlow(highlighter.highlight(line.text), `assembly-text${line.active ? " active" : ""}`, line.active)}
     </div>
@@ -765,17 +821,40 @@ export function assemblyRows(
   visual: UiStageVisualDto | null,
   modelFactory = new MiniCAssemblyTextModelFactory(),
   highlighter = new MiniCAssemblyTextHighlighter(),
+  inspectorContext?: VisualInspectorContext,
 ) {
   const lines = modelFactory.create(visual);
   if (lines.length === 0) {
     return <div>{textRow("汇编尚未就绪", "assembly-row", "assembly-text")}</div>;
   }
-  return <div>{lines.map((line) => assemblyRow(line, highlighter))}</div>;
+  return <div>{lines.map((line) => assemblyRow(line, highlighter, visual, inspectorContext))}</div>;
 }
 
-export function assemblyRow(line: UiAssemblyLineVisualDto | MiniCAssemblyTextLine, highlighter = new MiniCAssemblyTextHighlighter()) {
+export function assemblyRow(
+  line: UiAssemblyLineVisualDto | MiniCAssemblyTextLine,
+  highlighter = new MiniCAssemblyTextHighlighter(),
+  visual?: UiStageVisualDto | null,
+  inspectorContext?: VisualInspectorContext,
+) {
+  const inspectProps = visual && inspectorContext
+    ? attachInspectorClick(inspectorContent(
+      `汇编行 ${line.lineNumber}`,
+      [
+        `类型: ${line.kind}`,
+        `行号: ${line.lineNumber}`,
+        `段: ${inspectorContext.formatter.blankValue(line.section)}`,
+        `标签: ${inspectorContext.formatter.blankValue(line.label)}`,
+        `文本: ${line.text}`,
+        inspectorContext.formatter.rangeLine(line.range),
+      ],
+      line.range,
+      inspectorContext.formatter.explainAssemblyLine(line as MiniCAssemblyTextLine),
+      visual,
+      inspectorContext,
+    ), inspectorContext)
+    : {};
   return (
-    <div className="assembly-row" key={line.lineNumber}>
+    <div {...inspectProps} className="assembly-row" key={line.lineNumber}>
       <span className={`assembly-line-number${line.active ? " active" : ""}`}>{line.lineNumber}</span>
       {textFlow(highlighter.highlight(line.text), `assembly-text${line.active ? " active" : ""}`, line.active)}
     </div>
@@ -803,21 +882,266 @@ function semanticRow(line: MiniCSemanticScopeTreeLine, index: number) {
   );
 }
 
-export function tokenRows(visual: UiStageVisualDto | null) {
+export interface VisualInspectorContext {
+  readonly formatter: MiniCVisualExplanationFormatter;
+  readonly inspector: MiniCHoverInspector;
+  readonly snapshot: MiniCWorkbenchSnapshot;
+}
+
+export function astNodeContent(
+  node: UiAstNodeVisualDto | null,
+  visual: UiStageVisualDto,
+  inspectorContext: VisualInspectorContext,
+): MiniCHoverInspectorContent {
+  if (node === null) {
+    return MiniCHoverInspectorContent.empty();
+  }
+  return inspectorContent(
+    `AST 节点 ${node.kind}`,
+    [
+      `id: ${node.id}`,
+      `类型: ${node.kind}`,
+      `标签: ${node.label}`,
+      `子节点数: ${node.children.length}`,
+      `当前节点: ${inspectorContext.formatter.yesNo(node.active)}`,
+      inspectorContext.formatter.rangeLine(node.range),
+    ],
+    node.range,
+    inspectorContext.formatter.explainAstNode(node),
+    visual,
+    inspectorContext,
+  );
+}
+
+export function semanticScopeContent(
+  scope: UiSemanticScopeVisualDto | null,
+  depth: number,
+  visual: UiStageVisualDto,
+  inspectorContext: VisualInspectorContext,
+): MiniCHoverInspectorContent {
+  if (scope === null) {
+    return MiniCHoverInspectorContent.empty();
+  }
+  return inspectorContent(
+    `语义作用域 ${scope.label}`,
+    [
+      `id: ${scope.id}`,
+      `深度: ${depth}`,
+      `当前作用域: ${inspectorContext.formatter.yesNo(scope.active)}`,
+      `符号数: ${scope.symbols.length}`,
+      inspectorContext.formatter.rangeLine(scope.range),
+    ],
+    scope.range,
+    "语义阶段右侧已经展示该作用域内的变量和符号，这里只显示作用域元数据与源码位置。",
+    visual,
+    inspectorContext,
+  );
+}
+
+export function inspectorContent(
+  title: string,
+  metadata: readonly string[],
+  range: UiSourceSpanDto | null,
+  explanation: string,
+  visual: UiStageVisualDto | null,
+  inspectorContext: VisualInspectorContext,
+): MiniCHoverInspectorContent {
+  return new MiniCHoverInspectorContent(
+    title,
+    metadata,
+    sourceTextForRange(range, visual, inspectorContext.snapshot),
+    range,
+    explanation,
+  );
+}
+
+export function attachInspectorClick(
+  content: MiniCHoverInspectorContent,
+  inspectorContext: VisualInspectorContext,
+) {
+  const show = (): void => {
+    inspectorContext.inspector.show(content);
+  };
+  return {
+    onClick: (event: ReactMouseEvent<HTMLElement>) => {
+      show();
+      event.stopPropagation();
+    },
+    onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        show();
+      }
+    },
+    role: "button",
+    tabIndex: 0,
+  };
+}
+
+export function sourceTextForRange(
+  range: UiSourceSpanDto | null,
+  preferredVisual: UiStageVisualDto | null,
+  snapshot: MiniCWorkbenchSnapshot,
+): string {
+  const preferredSource = sourceTextFromVisual(range, preferredVisual);
+  if (preferredSource.trim().length > 0) {
+    return preferredSource;
+  }
+  const visuals = [
+    snapshot.currentStageVisualData,
+    snapshot.semanticVisualData,
+    snapshot.astVisualData,
+    snapshot.lexerVisualData,
+    snapshot.codegenVisualData,
+  ];
+  for (const visual of visuals) {
+    const source = sourceTextFromVisual(range, visual);
+    if (source.trim().length > 0) {
+      return source;
+    }
+  }
+  return snapshot.sourceText;
+}
+
+export function sourceSnippetForRange(
+  range: UiSourceSpanDto | null,
+  preferredVisual: UiStageVisualDto | null,
+  snapshot: MiniCWorkbenchSnapshot,
+): string {
+  if (range === null) {
+    return "<暂无源码片段>";
+  }
+  const source = sourceTextForRange(range, preferredVisual, snapshot);
+  if (source.trim().length === 0) {
+    return "<暂无源码片段>";
+  }
+  const start = Math.max(0, Math.min(range.startOffset, source.length));
+  const end = Math.max(start, Math.min(range.endOffset, source.length));
+  const snippet = source.slice(start, end).trim();
+  if (snippet.length === 0) {
+    return "<暂无源码片段>";
+  }
+  return snippet
+    .replaceAll("\r\n", "\n")
+    .replaceAll("\r", "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join(" ");
+}
+
+export function sourceTextFromVisual(range: UiSourceSpanDto | null, visual: UiStageVisualDto | null): string {
+  if (visual === null || visual.sourceText.trim().length === 0) {
+    return "";
+  }
+  if (range === null || visualContainsSourceName(visual, range.sourceName)) {
+    return visual.sourceText;
+  }
+  return "";
+}
+
+export function visualContainsSourceName(visual: UiStageVisualDto, sourceName: string): boolean {
+  if (sourceName.trim().length === 0) {
+    return true;
+  }
+  return visual.lexerTokens.some((token) => sameSource(token.range, sourceName))
+    || astContainsSourceName(visual.astRoot, sourceName)
+    || scopeContainsSourceName(visual.semanticRoot, sourceName)
+    || visual.irLines.some((line) => sameSource(line.range, sourceName))
+    || visual.assemblyLines.some((line) => sameSource(line.range, sourceName));
+}
+
+export function astContainsSourceName(node: UiAstNodeVisualDto | null, sourceName: string): boolean {
+  if (node === null) {
+    return false;
+  }
+  return sameSource(node.range, sourceName) || node.children.some((child) => astContainsSourceName(child, sourceName));
+}
+
+export function scopeContainsSourceName(scope: UiSemanticScopeVisualDto | null, sourceName: string): boolean {
+  if (scope === null) {
+    return false;
+  }
+  return sameSource(scope.range, sourceName) || scope.children.some((child) => scopeContainsSourceName(child, sourceName));
+}
+
+export function sameSource(range: UiSourceSpanDto | null, sourceName: string): boolean {
+  return range !== null && range.sourceName === sourceName;
+}
+
+export function scopeById(scope: UiSemanticScopeVisualDto | null, id: string): UiSemanticScopeVisualDto | null {
+  if (scope === null) {
+    return null;
+  }
+  if (scope.id === id) {
+    return scope;
+  }
+  for (const child of scope.children) {
+    const found = scopeById(child, id);
+    if (found !== null) {
+      return found;
+    }
+  }
+  return null;
+}
+
+export function scopeDepth(scope: UiSemanticScopeVisualDto | null, id: string, depth = 0): number {
+  if (scope === null) {
+    return 0;
+  }
+  if (scope.id === id) {
+    return depth;
+  }
+  for (const child of scope.children) {
+    const childDepth = scopeDepth(child, id, depth + 1);
+    if (childDepth > 0 || child.id === id) {
+      return childDepth;
+    }
+  }
+  return 0;
+}
+
+export function tokenRows(visual: UiStageVisualDto | null, inspectorContext?: VisualInspectorContext) {
   if (!visual || visual.lexerTokens.length === 0) {
     return <div>{textRow("Token 尚未就绪", "token-row", "token-text")}</div>;
   }
   return (
     <div>
-      {visual.lexerTokens.map((token, index) => (
-        <div className="token-row" key={`${token.text}-${index}`}>
-          <span className={`token-kind${token.active ? " active" : ""}`}>{token.kind}</span>
-          <span className={`token-text${token.active ? " active" : ""}`}>{token.text}</span>
-          <span className={`token-range${token.active ? " active" : ""}`}>
-            {token.range ? `${token.range.startOffset}-${token.range.endOffset}` : "-"}
-          </span>
-        </div>
-      ))}
+      {visual.lexerTokens.map((token, index) => tokenRow(token, visual, index, inspectorContext))}
+    </div>
+  );
+}
+
+export function tokenRow(
+  token: UiLexerTokenVisualDto,
+  visual: UiStageVisualDto,
+  index: number,
+  inspectorContext?: VisualInspectorContext,
+) {
+  const inspectProps = inspectorContext
+    ? attachInspectorClick(inspectorContent(
+      `Token ${token.kind}`,
+      [
+        `类型: ${token.kind}`,
+        `文本: ${inspectorContext.formatter.displayTokenText(token)}`,
+        token.range ? `offset: ${token.range.startOffset}..${token.range.endOffset}` : "offset: 不可用",
+        token.range
+          ? `位置: ${token.range.startLine}:${token.range.startColumn} - ${token.range.endLine}:${token.range.endColumn}`
+          : "位置: 不可用",
+      ],
+      token.range,
+      inspectorContext.formatter.explainToken(token),
+      visual,
+      inspectorContext,
+    ), inspectorContext)
+    : {};
+  return (
+    <div {...inspectProps} className={`token-row${token.active ? " active" : ""}`} key={`${token.text}-${index}`}>
+      <span className={`token-kind${token.active ? " active" : ""}`}>{token.kind}</span>
+      <span className={`token-text${token.active ? " active" : ""}`}>{token.text.length > 0 ? token.text : "<EOF>"}</span>
+      <span className={`token-range${token.active ? " active" : ""}`}>
+        {token.range ? `${token.range.startOffset}-${token.range.endOffset}` : "-"}
+      </span>
     </div>
   );
 }

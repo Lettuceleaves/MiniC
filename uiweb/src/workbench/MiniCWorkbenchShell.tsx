@@ -3,6 +3,7 @@ import { createMiniCWorkbenchViewModel } from "../api/createMiniCWorkbenchViewMo
 import MiniCDebugPane from "../debug/MiniCDebugPane";
 import MiniCInfoView from "../info/MiniCInfoView";
 import MiniCBottomPanel from "../panel/MiniCBottomPanel";
+import { MiniCHoverInspector } from "../panel/MiniCHoverInspector";
 import MiniCInspectorView from "../panel/MiniCInspectorView";
 import MiniCSettingsPane from "../settings/MiniCSettingsPane";
 import MiniCSourceLoaderView from "../source/MiniCSourceLoaderView";
@@ -455,6 +456,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   const [activeDocumentIndex, setActiveDocumentIndex] = useState(0);
   const [editingTabIndex, setEditingTabIndex] = useState<number | null>(null);
   const [editingTabName, setEditingTabName] = useState("");
+  const [hoverInspector] = useState(() => new MiniCHoverInspector());
   const activeDocument = documents[Math.min(activeDocumentIndex, Math.max(0, documents.length - 1))] ?? documents[0];
   const activeModel = activeDocument.viewModel;
   const activeSnapshot = useWorkbenchShellSnapshot(activeModel);
@@ -535,7 +537,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   return (
     <section className="workbench-root" data-java-source={miniCWorkbenchShellMirror.javaPath} aria-label={title}>
       {activityBar(activeSection, setActiveSection)}
-      {sectionContent(activeSection, activeModel, activeSnapshot, {
+      {sectionContent(activeSection, activeModel, activeSnapshot, hoverInspector, {
         activeDocument,
         activeDocumentIndex,
         documents,
@@ -600,11 +602,12 @@ function sectionContent(
   section: ActivitySectionId,
   viewModel: MiniCWorkbenchViewModel,
   snapshot: MiniCWorkbenchSnapshot,
+  hoverInspector: MiniCHoverInspector,
   actions: ShellActions,
 ) {
   switch (section) {
     case "CODE":
-      return workbenchBody(viewModel, snapshot, actions);
+      return workbenchBody(viewModel, snapshot, hoverInspector, actions);
     case "DEBUG":
       return <MiniCDebugPane viewModel={viewModel} />;
     case "SETTINGS":
@@ -614,7 +617,12 @@ function sectionContent(
   }
 }
 
-function workbenchBody(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWorkbenchSnapshot, actions: ShellActions) {
+function workbenchBody(
+  viewModel: MiniCWorkbenchViewModel,
+  snapshot: MiniCWorkbenchSnapshot,
+  hoverInspector: MiniCHoverInspector,
+  actions: ShellActions,
+) {
   const sourceVisible = sourceMode(snapshot);
   return (
     <main className="workbench-body">
@@ -632,11 +640,11 @@ function workbenchBody(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWorkbe
             </div>
           ) : (
             <div className="main-content">
-              <MiniCVisualPane viewModel={viewModel} />
+              <MiniCVisualPane inspector={hoverInspector} viewModel={viewModel} />
             </div>
           )}
         </div>
-        <MiniCBottomPanel viewModel={viewModel} />
+        <MiniCBottomPanel inspector={hoverInspector} viewModel={viewModel} />
       </section>
       <MiniCInspectorView viewModel={viewModel} />
     </main>

@@ -177,6 +177,23 @@ async function verifyEditor(page, baseUrl) {
   await page.waitForFunction(() => document.querySelectorAll(".source-editor-render .token-keyword").length > 0);
   const lineCount = await page.locator(".editor-gutter .lineno").count();
   assert(lineCount >= 40, `source editor should expose JavaFX-like line numbers, got ${lineCount}`);
+  const editorMetrics = await page.evaluate(() => {
+    const lineNumber = document.querySelector(".editor-gutter .lineno")?.getBoundingClientRect();
+    const renderLine = document.querySelector(".source-editor-render-line")?.getBoundingClientRect();
+    const breakpoint = document.querySelector(".breakpoint-gutter")?.getBoundingClientRect();
+    return lineNumber && renderLine && breakpoint
+      ? {
+          breakpointWidth: breakpoint.width,
+          gapToLineNumber: lineNumber.left - breakpoint.right,
+          lineCenterY: lineNumber.top + lineNumber.height / 2,
+          renderCenterY: renderLine.top + renderLine.height / 2,
+        }
+      : null;
+  });
+  assert(editorMetrics !== null, "source editor should expose gutter and rendered line metrics");
+  assert(Math.abs(editorMetrics.lineCenterY - editorMetrics.renderCenterY) <= 1.5, `line number and text should align vertically (${JSON.stringify(editorMetrics)})`);
+  assert(editorMetrics.breakpointWidth >= 22, `breakpoint gutter should be large enough, got ${editorMetrics.breakpointWidth}`);
+  assert(editorMetrics.gapToLineNumber <= 4, `breakpoint should sit next to line number, got gap ${editorMetrics.gapToLineNumber}`);
   const initialScrollTop = await editor.evaluate((node) => node.scrollTop);
   await editor.evaluate((node) => {
     node.scrollTop = 420;
@@ -188,6 +205,18 @@ async function verifyEditor(page, baseUrl) {
   );
   const scrolledTop = await editor.evaluate((node) => node.scrollTop);
   assert(scrolledTop > initialScrollTop, `source editor should scroll vertically (${initialScrollTop} -> ${scrolledTop})`);
+  await page.waitForFunction(() => {
+    const transform = window.getComputedStyle(document.querySelector(".source-editor-render")).transform;
+    return transform !== "none" && transform.includes("-");
+  });
+  await editor.focus();
+  await page.keyboard.press("Control+A");
+  await page.waitForFunction(() => document.querySelectorAll(".source-editor-render .selection").length > 0);
+  const nativeSelectionBackground = await editor.evaluate((node) => window.getComputedStyle(node, "::selection").backgroundColor);
+  assert(
+    nativeSelectionBackground === "rgba(0, 0, 0, 0)" || nativeSelectionBackground === "transparent",
+    `native textarea selection should be hidden, got ${nativeSelectionBackground}`,
+  );
   const keywordCount = await page.locator(".source-editor-render .token-keyword").count();
   assert(keywordCount > 0, "source editor should render UIAPI token highlighting");
 }
@@ -227,6 +256,12 @@ async function verifyCompilerPipeline(page, baseUrl) {
     await page.locator(".pane-head", { hasText: stageTitle }).waitFor({ state: "visible" });
     const visualText = await page.locator(".visual-canvas").innerText();
     assert(visualText.trim().length > stageTitle.length, `stage ${stageId} should render non-empty visual content`);
+    if (stageId === "lexer") {
+      await verifyPipelineInspector(page, ".token-row[role='button']", "Token");
+    }
+    if (stageId === "parser") {
+      await verifyPipelineInspector(page, ".ast-graph g[role='button']", "AST 节点");
+    }
   }
 }
 
@@ -273,7 +308,23 @@ async function verifyDebugger(page, baseUrl) {
     );
     const viewText = await page.locator(".debug-view-content").innerText();
     assert(viewText.trim().length > expectedText.length, `debug view ${viewName} should render real DTO content`);
+    if (viewName === "数据结构" && !viewText.includes("(empty)")) {
+      const diagramElements = await page.locator(".debug-visual-diagram .debug-graph-node, .debug-visual-diagram .debug-array-cell, .debug-visual-diagram .debug-null-node").count();
+      assert(diagramElements > 0, "debug data structure view should render SVG graph or array elements");
+    }
   }
+}
+
+async function verifyPipelineInspector(page, selector, expectedTitle) {
+  const target = page.locator(selector).first();
+  await target.waitFor({ state: "visible" });
+  await target.click({ force: true });
+  await page.locator(".bottom-panel.expanded").waitFor({ state: "visible" });
+  await page.locator(".bottom-panel.expanded .hover-inspector-title", { hasText: expectedTitle }).first().waitFor({ state: "visible" });
+  const bottomText = await page.locator(".bottom-panel.expanded").innerText();
+  assert(bottomText.includes("说明"), `bottom inspector should include explanation area after clicking ${selector}`);
+  assert(bottomText.includes("源码范围") || bottomText.includes("offset"), `bottom inspector should include source/range details after clicking ${selector}`);
+  assert((await page.locator(".bottom-panel.expanded .hover-source-row").count()) > 0, `bottom inspector should render source rows after clicking ${selector}`);
 }
 
 async function verifySettingsAndInfo(page, baseUrl) {

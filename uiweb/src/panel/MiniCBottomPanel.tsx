@@ -218,6 +218,12 @@ export function MiniCBottomPanel({ viewModel: _viewModel, inspector }: MiniCBott
   const [expanded, setExpanded] = useState(false);
   const [expandedHeight, setExpandedHeight] = useState(DEFAULT_EXPANDED_HEIGHT);
 
+  useEffect(() => {
+    if (!hoverContent.emptyContent()) {
+      setExpanded(true);
+    }
+  }, [hoverContent]);
+
   const startResize = (event: ReactMouseEvent<HTMLDivElement>): void => {
     event.preventDefault();
     const startY = event.clientY;

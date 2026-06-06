@@ -138,6 +138,35 @@ export class MiniCVisualExplanationFormatter {
         return "字面量直接提供源代码中的常量值。";
       case "STRING_LITERAL":
         return "字符串字面量提供字符序列常量。";
+      case "PLUS":
+      case "MINUS":
+      case "STAR":
+      case "SLASH":
+      case "PERCENT":
+      case "EQUAL":
+      case "PLUS_EQUAL":
+      case "MINUS_EQUAL":
+      case "PLUS_PLUS":
+      case "MINUS_MINUS":
+      case "EQUAL_EQUAL":
+      case "BANG_EQUAL":
+      case "LESS":
+      case "LESS_EQUAL":
+      case "GREATER":
+      case "GREATER_EQUAL":
+      case "AMPERSAND":
+      case "BANG":
+      case "DOT":
+        return "运算符连接表达式中的操作数并产生计算或比较动作。";
+      case "LEFT_PAREN":
+      case "RIGHT_PAREN":
+      case "LEFT_BRACE":
+      case "RIGHT_BRACE":
+      case "LEFT_BRACKET":
+      case "RIGHT_BRACKET":
+      case "COMMA":
+      case "SEMICOLON":
+        return "分隔符划分语法结构的边界。";
       case "EOF":
         return "EOF 标记输入结束。";
       default:
@@ -153,10 +182,14 @@ export class MiniCVisualExplanationFormatter {
     return ["RETURN", "IF", "ELSE", "WHILE", "FOR", "BREAK", "CONTINUE"].includes(kind);
   }
 
+  displayTokenText(token: UiLexerTokenVisualDto): string {
+    return token.text === "" ? "<EOF>" : token.text;
+  }
+
   tokenVariables(token: UiLexerTokenVisualDto): Map<string, string> {
     const variables = new Map<string, string>();
     variables.set("kind", token.kind);
-    variables.set("text", token.text === "" ? "<EOF>" : token.text);
+    variables.set("text", this.displayTokenText(token));
     variables.set("source", this.sourceSnippetProvider(token.range));
     variables.set("range", this.rangeValue(token.range));
     variables.set("active", this.yesNo(token.active));

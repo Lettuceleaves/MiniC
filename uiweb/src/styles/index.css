@@ -352,6 +352,12 @@ button:disabled {
   border-style: solid;
 }
 
+.debug-visual-diagram {
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+}
+
 .debug-section-title,
 .debug-process-title {
   display: flex;
@@ -409,6 +415,8 @@ button:disabled {
   font-family: Consolas, "Courier New", monospace;
   pointer-events: none;
   white-space: pre;
+  transform: translate(0, 0);
+  will-change: transform;
 }
 
 .source-editor-render-line {
@@ -442,7 +450,12 @@ button:disabled {
 
 .code-editor textarea.source-editor-input::selection {
   color: transparent;
-  background: var(--minic-background-selection);
+  background: transparent;
+}
+
+.code-editor textarea.source-editor-input::-moz-selection {
+  color: transparent;
+  background: transparent;
 }
 
 .visual-canvas {
@@ -489,6 +502,11 @@ button:disabled {
   border-style: solid;
   border-radius: 0;
   text-align: left;
+}
+
+.token-row[role="button"],
+.assembly-row[role="button"] {
+  cursor: pointer;
 }
 
 .stage-top {
@@ -546,6 +564,10 @@ button:disabled {
 .editor-gutter-column-inner {
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  padding-top: 7px;
+  transform: translateY(0);
+  will-change: transform;
 }
 
 .editor-gutter {
@@ -559,16 +581,17 @@ button:disabled {
 
 .breakpoint-gutter {
   display: flex;
-  flex: 0 0 18px;
+  flex: 0 0 22px;
   align-items: center;
   justify-content: center;
-  width: 18px;
+  width: 22px;
   height: 18px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   line-height: 18px;
+  font-size: 16px;
   text-align: center;
 }
 
@@ -581,10 +604,10 @@ button:disabled {
 
 .lineno {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 32px;
   align-items: center;
   justify-content: flex-end;
-  padding: 0 12px 0 0;
+  padding: 0 6px 0 0;
 }
 
 .source-editor-render .token-plain,
@@ -612,6 +635,11 @@ button:disabled {
 
 .source-editor-render .debug-execution-range {
   background: var(--minic-background-running);
+  color: var(--minic-text-active);
+}
+
+.source-editor-render .selection {
+  background: var(--minic-background-selection-rgba);
   color: var(--minic-text-active);
 }
 
