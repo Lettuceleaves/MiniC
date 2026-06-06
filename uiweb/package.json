@@ -6,9 +6,14 @@
   "scripts": {
     "generate:mirror": "node tools/generate-uiweb.mjs",
     "verify:mirror": "node tools/verify-uiweb-mirror.mjs",
+    "verify:mirror-signatures": "node tools/verify-uiweb-mirror-signatures.mjs",
+    "verify:adapter-completeness": "node tools/verify-uiapi-adapter-completeness.mjs",
     "verify:placeholders": "node tools/verify-no-mirror-placeholders.mjs",
+    "verify:no-runtime-downgrade": "node tools/verify-no-uiweb-runtime-downgrade.mjs",
     "verify:editor-scroll": "node tools/verify-editor-scroll.mjs",
     "verify:parity": "npm run verify:mirror && npm run verify:placeholders && npm run verify:editor-scroll && npm run typecheck && npm run build",
+    "verify:strict-parity": "npm run verify:mirror && npm run verify:mirror-signatures && npm run verify:placeholders && npm run verify:no-runtime-downgrade && npm run verify:adapter-completeness && npm run verify:editor-scroll && npm run typecheck && npm run build",
+    "verify:strict-final": "npm run verify:strict-parity",
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "dev": "vite --host 127.0.0.1"
