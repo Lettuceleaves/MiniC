@@ -181,11 +181,15 @@ async function verifyEditor(page, baseUrl) {
     const lineNumber = document.querySelector(".editor-gutter .lineno")?.getBoundingClientRect();
     const renderLine = document.querySelector(".source-editor-render-line")?.getBoundingClientRect();
     const breakpoint = document.querySelector(".breakpoint-gutter")?.getBoundingClientRect();
+    const gutterUserSelect = window.getComputedStyle(document.querySelector(".editor-gutter-column")).userSelect;
+    const lineNumberUserSelect = window.getComputedStyle(document.querySelector(".editor-gutter .lineno")).userSelect;
     return lineNumber && renderLine && breakpoint
       ? {
           breakpointWidth: breakpoint.width,
           gapToLineNumber: lineNumber.left - breakpoint.right,
+          gutterUserSelect,
           lineCenterY: lineNumber.top + lineNumber.height / 2,
+          lineNumberUserSelect,
           renderCenterY: renderLine.top + renderLine.height / 2,
         }
       : null;
@@ -194,6 +198,8 @@ async function verifyEditor(page, baseUrl) {
   assert(Math.abs(editorMetrics.lineCenterY - editorMetrics.renderCenterY) <= 1.5, `line number and text should align vertically (${JSON.stringify(editorMetrics)})`);
   assert(editorMetrics.breakpointWidth >= 22, `breakpoint gutter should be large enough, got ${editorMetrics.breakpointWidth}`);
   assert(editorMetrics.gapToLineNumber <= 4, `breakpoint should sit next to line number, got gap ${editorMetrics.gapToLineNumber}`);
+  assert(editorMetrics.gutterUserSelect === "none", `editor gutter must not be selectable, got ${editorMetrics.gutterUserSelect}`);
+  assert(editorMetrics.lineNumberUserSelect === "none", `line numbers must not be selectable, got ${editorMetrics.lineNumberUserSelect}`);
   const initialScrollTop = await editor.evaluate((node) => node.scrollTop);
   await editor.evaluate((node) => {
     node.scrollTop = 420;
@@ -257,6 +263,10 @@ async function verifyCompilerPipeline(page, baseUrl) {
     const visualText = await page.locator(".visual-canvas").innerText();
     assert(visualText.trim().length > stageTitle.length, `stage ${stageId} should render non-empty visual content`);
     if (stageId === "lexer") {
+      assert(
+        (await page.locator(".source-flow-text .token-keyword, .source-flow-text .mc-text-code-keyword").count()) > 0,
+        "pipeline source flow should syntax-highlight source tokens",
+      );
       await verifyPipelineInspector(page, ".token-row[role='button']", "Token");
     }
     if (stageId === "parser") {
@@ -312,6 +322,10 @@ async function verifyDebugger(page, baseUrl) {
       const diagramElements = await page.locator(".debug-visual-diagram .debug-graph-node, .debug-visual-diagram .debug-array-cell, .debug-visual-diagram .debug-null-node").count();
       assert(diagramElements > 0, "debug data structure view should render SVG graph or array elements");
     }
+    if (viewName === "IR" || viewName === "ASM") {
+      const highlightedSegments = await page.locator(".debug-code-row .debug-code-text [class*='mc-text-code'], .debug-code-row .debug-code-text .token-keyword").count();
+      assert(highlightedSegments > 0, `debug ${viewName} view should syntax-highlight code rows`);
+    }
   }
 }
 
@@ -325,6 +339,14 @@ async function verifyPipelineInspector(page, selector, expectedTitle) {
   assert(bottomText.includes("说明"), `bottom inspector should include explanation area after clicking ${selector}`);
   assert(bottomText.includes("源码范围") || bottomText.includes("offset"), `bottom inspector should include source/range details after clicking ${selector}`);
   assert((await page.locator(".bottom-panel.expanded .hover-source-row").count()) > 0, `bottom inspector should render source rows after clicking ${selector}`);
+  assert(
+    (await page.locator(".bottom-panel.expanded .hover-inspector-meta [class*='mc-text-code'], .bottom-panel.expanded .hover-inspector-meta .token-keyword").count()) > 0,
+    `bottom inspector metadata should render highlighted text after clicking ${selector}`,
+  );
+  assert(
+    (await page.locator(".bottom-panel.expanded .hover-explanation-scroll [class*='mc-text-code'], .bottom-panel.expanded .hover-explanation-scroll .token-keyword").count()) > 0,
+    `bottom inspector explanation should render highlighted text after clicking ${selector}`,
+  );
 }
 
 async function verifySettingsAndInfo(page, baseUrl) {
@@ -332,12 +354,46 @@ async function verifySettingsAndInfo(page, baseUrl) {
   await page.locator(".settings-scroll").waitFor({ state: "visible" });
   await page.locator("#minic-theme").waitFor({ state: "visible" });
   await page.locator(".key-binding-button").first().waitFor({ state: "visible" });
+  await verifyKeyBindingCapture(page);
 
   const tokenizeWait = waitForApiResponse(page, baseUrl, "POST", ["/api/realtime/tokenize"], 30_000);
   await page.getByRole("button", { name: "信息", exact: true }).click();
   await page.locator(".info-scroll").waitFor({ state: "visible" });
   await tokenizeWait;
   await page.locator(".info-code-block .token-keyword").first().waitFor({ state: "visible" });
+}
+
+async function verifyKeyBindingCapture(page) {
+  const bindingButtons = page.locator(".key-binding-button");
+  const keyboardButton = bindingButtons.nth(0);
+  await keyboardButton.click();
+  await page.keyboard.press("Control+Shift+KeyK");
+  await page.waitForFunction(
+    (node) => node.textContent?.includes("Ctrl+Shift+K") ?? false,
+    await keyboardButton.elementHandle(),
+  );
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    (node) => node.textContent?.trim() === "Ctrl+Shift+K",
+    await keyboardButton.elementHandle(),
+  );
+
+  const mouseButton = bindingButtons.nth(1);
+  await mouseButton.click();
+  const box = await mouseButton.boundingBox();
+  assert(box !== null, "second key-binding button should have a bounding box");
+  await page.keyboard.down("Control");
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "right" });
+  await page.keyboard.up("Control");
+  await page.waitForFunction(
+    (node) => node.textContent?.includes("Ctrl+MouseRight") ?? false,
+    await mouseButton.elementHandle(),
+  );
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    (node) => node.textContent?.trim() === "Ctrl+MouseRight",
+    await mouseButton.elementHandle(),
+  );
 }
 
 async function verifyNoForbiddenPageText(page) {

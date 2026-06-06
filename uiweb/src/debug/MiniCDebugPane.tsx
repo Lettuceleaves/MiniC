@@ -19,6 +19,9 @@ import type {
   UiSourceSpanDto,
 } from "../translation/uiapi";
 import type { MiniCWorkbenchSnapshot, MiniCWorkbenchViewModel } from "../workbench/MiniCWorkbenchViewModel";
+import { MiniCAssemblyTextHighlighter } from "../text/MiniCAssemblyTextHighlighter";
+import { MiniCIrTextHighlighter } from "../text/MiniCIrTextHighlighter";
+import { textFlow } from "../text/MiniCTextFlowFactory";
 import { MiniCDebugAstGraphRenderer } from "./MiniCDebugAstGraphRenderer";
 import { MiniCDebugTextFormatter } from "./MiniCDebugTextFormatter";
 import { MiniCDebugVisualDiagramRenderer } from "./MiniCDebugVisualDiagramRenderer";
@@ -455,6 +458,9 @@ export const miniCDebugPaneMirror = {
   ]
 } as const satisfies JavaMirrorFile;
 
+const irTextHighlighter = new MiniCIrTextHighlighter();
+const assemblyTextHighlighter = new MiniCAssemblyTextHighlighter();
+
 export interface MiniCDebugPaneProps {
   readonly viewModel: MiniCWorkbenchViewModel;
   readonly sourceView?: ReactNode;
@@ -711,7 +717,7 @@ export function irLineRow(line: UiIrLineVisualDto) {
   return (
     <div className={`debug-code-row${line.active ? " active" : ""}`} key={line.lineNumber}>
       <span className="debug-code-line-number">{line.lineNumber}</span>
-      <code className="debug-code-text">{line.text}</code>
+      {textFlow(irTextHighlighter.highlight(line.text), "debug-code-text", line.active)}
     </div>
   );
 }
@@ -736,7 +742,7 @@ export function asmLineRow(line: UiAssemblyLineVisualDto) {
   return (
     <div className={`debug-code-row${line.active ? " active" : ""}`} key={line.lineNumber}>
       <span className="debug-code-line-number">{line.lineNumber}</span>
-      <code className="debug-code-text">{line.text}</code>
+      {textFlow(assemblyTextHighlighter.highlight(line.text), "debug-code-text", line.active)}
     </div>
   );
 }

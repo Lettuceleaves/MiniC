@@ -420,12 +420,14 @@
     font-family: Consolas, "Courier New", monospace;
     font-size: 12px;
     padding: 0 6px 0 0;
+    user-select: none;
 }
 
 .editor-gutter {
     background-color: var(--minic-background-primary);
     align-items: center;
     justify-content: flex-start;
+    user-select: none;
 }
 
 .editor-gutter.current-execution {
@@ -452,6 +454,7 @@
     font-family: Consolas, "Courier New", monospace;
     font-size: 16px;
     cursor: pointer;
+    user-select: none;
 }
 
 .breakpoint-gutter:hover {

@@ -302,7 +302,7 @@ export function lines(rows: readonly string[], styleClass: string) {
     <div className={styleClass}>
       {rows.map((row, index) => (
         <p className="hover-inspector-line" key={`${row}-${index}`}>
-          {row && row.trim().length > 0 ? row : " "}
+          {row && row.trim().length > 0 ? textFlow(explanationTextHighlighter.highlight(row), "hover-inspector-line-flow", false) : " "}
         </p>
       ))}
     </div>

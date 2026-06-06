@@ -322,7 +322,9 @@ function keyBindingRow(
   heldKeys: MutableRefObject<Set<string>>,
 ) {
   const capturing = capture?.action === action;
-  const text = capturing && capture.pendingCombo !== "" ? `${capture.pendingCombo}  Enter 确认` : bindingText(keyBindingConfig, action);
+  const text = capturing
+    ? (capture.pendingCombo !== "" ? `${capture.pendingCombo}  Enter 确认` : "输入组合后按 Enter")
+    : bindingText(keyBindingConfig, action);
   return (
     <div className="settings-row key-binding-row" key={action}>
       <span className="body-text key-binding-action">{keyBindingConfig.labelFor(action)}</span>
@@ -362,6 +364,11 @@ function keyBindingRow(
           }
           updatePendingCombo(action, MiniCKeyBindingConfig.comboFrom(event.nativeEvent, heldKeys.current));
           event.preventDefault();
+        }}
+        onContextMenu={(event) => {
+          if (capturing) {
+            event.preventDefault();
+          }
         }}
         onWheel={(event) => {
           if (!capturing) {

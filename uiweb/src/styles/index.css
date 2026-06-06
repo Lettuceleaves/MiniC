@@ -414,6 +414,7 @@ button:disabled {
   color: var(--minic-text-body);
   font-family: Consolas, "Courier New", monospace;
   pointer-events: none;
+  user-select: none;
   white-space: pre;
   transform: translate(0, 0);
   will-change: transform;
@@ -559,6 +560,7 @@ button:disabled {
   min-height: 0;
   overflow: hidden;
   background: var(--minic-background-primary);
+  user-select: none;
 }
 
 .editor-gutter-column-inner {
@@ -567,6 +569,7 @@ button:disabled {
   box-sizing: border-box;
   padding-top: 7px;
   transform: translateY(0);
+  user-select: none;
   will-change: transform;
 }
 
@@ -577,6 +580,7 @@ button:disabled {
   justify-content: flex-start;
   min-width: 82px;
   overflow: hidden;
+  user-select: none;
 }
 
 .breakpoint-gutter {
@@ -593,6 +597,7 @@ button:disabled {
   line-height: 18px;
   font-size: 16px;
   text-align: center;
+  user-select: none;
 }
 
 .execution-gutter {
@@ -600,6 +605,7 @@ button:disabled {
   flex: 0 0 16px;
   align-items: center;
   justify-content: center;
+  user-select: none;
 }
 
 .lineno {
@@ -608,6 +614,25 @@ button:disabled {
   align-items: center;
   justify-content: flex-end;
   padding: 0 6px 0 0;
+  user-select: none;
+}
+
+.source-flow-text .token-plain,
+.source-flow-text .token-identifier,
+.source-flow-text .token-operator {
+  color: var(--minic-text-body);
+}
+
+.source-flow-text .token-keyword {
+  color: var(--minic-syntax-keyword);
+}
+
+.source-flow-text .token-string {
+  color: var(--minic-syntax-string);
+}
+
+.source-flow-text .token-literal {
+  color: var(--minic-syntax-literal);
 }
 
 .source-editor-render .token-plain,

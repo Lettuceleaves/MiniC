@@ -1,6 +1,9 @@
 import type { ReactElement } from "react";
 import type { JavaMirrorFile } from "../translation/javaMirror";
 import type { UiLexerTokenVisualDto, UiStageVisualDto } from "../translation/uiapi";
+import { MiniCSyntaxTextStyleMapper } from "../text/MiniCSyntaxTextStyleMapper";
+import { MiniCTextStyleRole } from "../text/MiniCTextStyleRole";
+import { MiniCTextStyles } from "../text/MiniCTextStyles";
 
 export const miniCVisualSourceRowsMirror = {
   "javaPath": "src/main/java/minic/uilocal/visual/MiniCVisualSourceRows.java",
@@ -50,6 +53,7 @@ MiniCVisualSourceRows.mirror = miniCVisualSourceRowsMirror;
 export function rows(visual: UiStageVisualDto | null): readonly ReactElement[] {
   const source = visual?.sourceText ?? "";
   const activeToken = activeSourceToken(visual);
+  const tokenStyles = sourceTokenStyles(visual);
   const sourceRows: ReactElement[] = [];
   let lineStart = 0;
   let lineNumber = 1;
@@ -59,7 +63,7 @@ export function rows(visual: UiStageVisualDto | null): readonly ReactElement[] {
       sourceRows.push(
         <div className="source-flow-line" key={`${lineNumber}-${lineStart}`}>
           <span className="line-number">{lineNumber}</span>
-          {sourceLineFlow(line, lineStart, activeToken)}
+          {sourceLineFlow(line, lineStart, activeToken, tokenStyles)}
         </div>,
       );
       lineNumber += 1;
@@ -80,20 +84,53 @@ export function lineSeparatorLength(source: string, separatorOffset: number): nu
   return source[separatorOffset] === "\r" || source[separatorOffset] === "\n" ? 1 : 0;
 }
 
-export function sourceLineFlow(line: string, lineStartOffset: number, activeToken: UiLexerTokenVisualDto | null) {
+interface SourceTokenStyle {
+  readonly startOffset: number;
+  readonly endOffset: number;
+  readonly styleClasses: readonly string[];
+}
+
+const syntaxTextStyleMapper = new MiniCSyntaxTextStyleMapper();
+
+export function sourceTokenStyles(visual: UiStageVisualDto | null | undefined): readonly SourceTokenStyle[] {
+  return (visual?.lexerTokens ?? [])
+    .filter((token) => token.range !== null && token.range.endOffset > token.range.startOffset)
+    .map((token) => ({
+      startOffset: token.range?.startOffset ?? 0,
+      endOffset: token.range?.endOffset ?? 0,
+      styleClasses: syntaxTextStyleMapper.styleClassesFor(token.kind, false),
+    }))
+    .sort((left, right) => left.startOffset - right.startOffset);
+}
+
+export function sourceLineFlow(
+  line: string,
+  lineStartOffset: number,
+  activeToken: UiLexerTokenVisualDto | null,
+  tokenStyles: readonly SourceTokenStyle[] = [],
+) {
   const text = line.length === 0 ? " " : line;
   return (
     <span className="source-flow-text">
       {Array.from(text).map((char, index) => {
         const offset = lineStartOffset + index;
+        const styleClasses = sourceStyleClasses(offset, tokenStyles);
         return (
-          <span className={isMaskedSourceOffset(offset, activeToken) ? "source-token-mask" : ""} key={`${offset}-${char}`}>
+          <span
+            className={[...styleClasses, isMaskedSourceOffset(offset, activeToken) ? "source-token-mask" : ""].filter(Boolean).join(" ")}
+            key={`${offset}-${char}`}
+          >
             {char === " " ? "\u00a0" : char}
           </span>
         );
       })}
     </span>
   );
+}
+
+export function sourceStyleClasses(absoluteOffset: number, tokenStyles: readonly SourceTokenStyle[]): readonly string[] {
+  return tokenStyles.find((style) => absoluteOffset >= style.startOffset && absoluteOffset < style.endOffset)?.styleClasses
+    ?? MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN);
 }
 
 export function isMaskedSourceOffset(offset: number, activeToken: UiLexerTokenVisualDto | null): boolean {
