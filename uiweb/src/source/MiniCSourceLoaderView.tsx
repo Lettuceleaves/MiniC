@@ -120,6 +120,7 @@ export interface MiniCSourceLoaderViewProps {
   readonly onOpenDocument?: (name: string, source: string) => void;
   readonly onSaveDocument?: (name: string, source: string) => void;
   readonly className?: string;
+  readonly showControls?: boolean;
 }
 
 export function MiniCSourceLoaderView({
@@ -127,6 +128,7 @@ export function MiniCSourceLoaderView({
   onOpenDocument,
   onSaveDocument,
   className = "",
+  showControls = true,
 }: MiniCSourceLoaderViewProps) {
   const snapshot = useSourceLoaderSnapshot(viewModel);
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -176,21 +178,23 @@ export function MiniCSourceLoaderView({
 
   return (
     <section className={`source-loader ${className}`.trim()} data-java-source={miniCSourceLoaderViewMirror.javaPath}>
-      <div className="loader-controls">
-        <button className="control-primary" type="button" onClick={startSession}>
-          开始
-        </button>
-        <button className="control-secondary" type="button" onClick={openAction}>
-          打开
-        </button>
-        <button className="control-secondary" type="button" onClick={saveAction}>
-          保存
-        </button>
-        <button className="control-secondary" type="button" onClick={saveAsAction}>
-          另存为
-        </button>
-        <input accept=".mc,.mh,.c,.h,text/*" hidden onChange={handleFile} ref={fileInput} type="file" />
-      </div>
+      {showControls && (
+        <div className="loader-controls">
+          <button className="control-primary" type="button" onClick={startSession}>
+            开始
+          </button>
+          <button className="control-secondary" type="button" onClick={openAction}>
+            打开
+          </button>
+          <button className="control-secondary" type="button" onClick={saveAction}>
+            保存
+          </button>
+          <button className="control-secondary" type="button" onClick={saveAsAction}>
+            另存为
+          </button>
+          <input accept=".mc,.mh,.c,.h,text/*" hidden onChange={handleFile} ref={fileInput} type="file" />
+        </div>
+      )}
       <MiniCCodeEditor
         analysis={toEditorAnalysis(snapshot.realtimeAnalysis)}
         breakpoints={snapshot.debugBreakpointLines}

@@ -133,10 +133,14 @@ export function MiniCInspectorView({ viewModel }: MiniCInspectorViewProps) {
 
   return (
     <aside className="inspector" data-java-source={miniCInspectorViewMirror.javaPath}>
+      {label("MiniC 观测", "panel-title")}
       {controls(viewModel, snapshot)}
-      {body("当前状态", model.currentState)}
-      {body("当前项", model.currentItem)}
-      {body("累计输出", model.accumulatedOutput)}
+      {label("当前状态", "section-label")}
+      {body(model.currentState)}
+      {label("当前项", "section-label")}
+      {body(model.currentItem)}
+      {label("累计输出", "section-label")}
+      {body(model.accumulatedOutput)}
     </aside>
   );
 }
@@ -152,7 +156,7 @@ export function controls(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWork
         {control("到执行", false, () => viewModel.runToExecution(), snapshot.currentState !== null)}
       </div>
       <div className="inspector-control-row">
-        {control("播放", true, () => viewModel.play(), snapshot.currentState?.canPlay ?? false)}
+        {control("播放", false, () => viewModel.play(), snapshot.currentState?.canPlay ?? false)}
         {control("2x", false, () => viewModel.playFast(), snapshot.currentState?.canPlayFast ?? false)}
         {control("暂停", false, () => viewModel.pause(), snapshot.currentState?.canPause ?? false)}
       </div>
@@ -173,13 +177,8 @@ export function control(text: string, primary: boolean, action: () => void, enab
   );
 }
 
-export function body(title: string, text: string) {
-  return (
-    <section className="debug-section">
-      {label(title, "debug-section-title")}
-      <pre className="body-text">{text}</pre>
-    </section>
-  );
+export function body(text: string) {
+  return <pre className="body-text">{text}</pre>;
 }
 
 export function label(text: string, styleClass: string) {

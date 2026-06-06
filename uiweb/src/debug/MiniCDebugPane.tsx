@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import MiniCSourceView from "../source/MiniCSourceView";
+import MiniCSourceLoaderView from "../source/MiniCSourceLoaderView";
 import type { JavaMirrorFile } from "../translation/javaMirror";
 import type {
   UiAssemblyLineVisualDto,
@@ -452,53 +452,38 @@ export interface MiniCDebugPaneProps {
   readonly sourceView?: ReactNode;
 }
 
-type DebugViewId = "metadata" | "data" | "ast" | "ir" | "asm" | "source";
+type DebugViewId = "metadata" | "data" | "ast" | "ir" | "asm";
 
 const DEBUG_VIEWS: readonly { readonly id: DebugViewId; readonly title: string }[] = [
   { id: "metadata", title: "元数据" },
-  { id: "data", title: "数据" },
+  { id: "data", title: "数据结构" },
   { id: "ast", title: "AST" },
   { id: "ir", title: "IR" },
   { id: "asm", title: "ASM" },
-  { id: "source", title: "源码" },
 ];
 
 export function MiniCDebugPane({ viewModel, sourceView }: MiniCDebugPaneProps) {
   const snapshot = useDebugSnapshot(viewModel);
   const formatter = useMemo(() => new MiniCDebugTextFormatter(), []);
   const [selectedViewId, setSelectedViewId] = useState<DebugViewId>("metadata");
-  const [splitVisible, setSplitVisible] = useState(false);
-  const [selectedSplitViewId, setSelectedSplitViewId] = useState<DebugViewId>("source");
+  const debugSourceView = sourceView ?? (
+    <MiniCSourceLoaderView className="debug-source-view" showControls={false} viewModel={viewModel} />
+  );
 
   return (
     <section className="debug-pane" data-java-source={miniCDebugPaneMirror.javaPath}>
       {controls(viewModel, snapshot)}
+      <div className="body-text debug-status">{statusText(snapshot)}</div>
       <div className="debug-workspace">
         <nav className="debug-view-selector">
           {DEBUG_VIEWS.map((view) => viewButton(view, selectedViewId, setSelectedViewId))}
-          <button className="debug-view-button" onClick={() => setSplitVisible((current) => !current)} type="button">
-            {splitVisible ? "合并" : "分屏"}
-          </button>
         </nav>
-        <div className="debug-view-content">
-          {contentFor(selectedViewId, snapshot, formatter, sourceView)}
-        </div>
-        {splitVisible && (
-          <div className="debug-view-content">
-            <select
-              className="control-secondary"
-              onChange={(event) => setSelectedSplitViewId(event.target.value as DebugViewId)}
-              value={selectedSplitViewId}
-            >
-              {DEBUG_VIEWS.map((view) => (
-                <option key={view.id} value={view.id}>
-                  {view.title}
-                </option>
-              ))}
-            </select>
-            {contentFor(selectedSplitViewId, snapshot, formatter, sourceView)}
+        <div className="debug-workspace-split">
+          <div className="debug-source-panel">{debugSourceView}</div>
+          <div className="debug-view-split">
+            <div className="debug-view-content">{contentFor(selectedViewId, snapshot, formatter)}</div>
           </div>
-        )}
+        </div>
       </div>
     </section>
   );
@@ -510,21 +495,27 @@ export function controls(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWork
   const started = snapshot.debugStarted;
   return (
     <div className="controls debug-controls">
-      {button("从头开始", () => viewModel.startDebug(), true)}
-      {button("运行到结束", () => viewModel.debugRunToEnd(), started)}
-      {button("下个断点", () => viewModel.debugRunToBreakpoint(), started)}
-      {button("本层下一句", () => viewModel.debugStepOver(), started)}
-      {button("下一句", () => viewModel.debugStepInto(), started)}
-      {button("上个断点", () => viewModel.debugBackToBreakpoint(), started)}
-      {button("本层上一句", () => viewModel.debugStepBackOver(), started)}
-      {button("上一句", () => viewModel.debugStepBack(), started)}
+      <div className="debug-paired-controls">
+        <div className="debug-paired-row">
+          {button("从头开始", () => viewModel.startDebug(), true, "debug-control-single-button")}
+          {button("下个断点", () => viewModel.debugRunToBreakpoint(), started, "debug-control-paired-button")}
+          {button("本层下一句", () => viewModel.debugStepOver(), started, "debug-control-paired-button")}
+          {button("下一句", () => viewModel.debugStepInto(), started, "debug-control-paired-button")}
+        </div>
+        <div className="debug-paired-row">
+          {button("运行到结束", () => viewModel.debugRunToEnd(), started, "debug-control-single-button")}
+          {button("上个断点", () => viewModel.debugBackToBreakpoint(), started, "debug-control-paired-button")}
+          {button("本层上一句", () => viewModel.debugStepBackOver(), started, "debug-control-paired-button")}
+          {button("上一句", () => viewModel.debugStepBack(), started, "debug-control-paired-button")}
+        </div>
+      </div>
     </div>
   );
 }
 
-export function button(text: string, action: () => void, enabled: boolean) {
+export function button(text: string, action: () => void, enabled: boolean, styleClass = "debug-control-single-button") {
   return (
-    <button className="debug-control-single-button control-secondary" disabled={!enabled} onClick={action} type="button">
+    <button className={`${styleClass} control-secondary`} disabled={!enabled} onClick={action} type="button">
       {text}
     </button>
   );
@@ -555,14 +546,24 @@ export function contentFor(
   viewId: DebugViewId,
   snapshot: MiniCWorkbenchSnapshot,
   formatter: MiniCDebugTextFormatter,
-  sourceView?: ReactNode,
 ) {
+  if (!snapshot.debugStarted || snapshot.debugState === null) return emptyDebugContent();
   if (viewId === "metadata") return metadataContent(snapshot.debugMetadataView);
   if (viewId === "data") return dataContent(snapshot.debugDataStructureView);
   if (viewId === "ast") return astContent(snapshot.debugAstView);
   if (viewId === "ir") return irContent(snapshot.debugIrView);
-  if (viewId === "asm") return asmContent(snapshot.debugAsmView);
-  return sourceView ?? <MiniCSourceView source={snapshot.sourceText} currentState={snapshot.currentState} />;
+  return asmContent(snapshot.debugAsmView);
+}
+
+export function statusText(snapshot: MiniCWorkbenchSnapshot): string {
+  if (!snapshot.debugStarted || snapshot.debugState === null) {
+    return "Debug 未启动";
+  }
+  return `Debug ${snapshot.debugState.playbackMode} · line ${snapshot.debugState.currentLine}`;
+}
+
+export function emptyDebugContent() {
+  return <div className="visual-scroll debug-empty-content" />;
 }
 
 export function metadataContent(view: UiDebugMetadataViewDto | null) {

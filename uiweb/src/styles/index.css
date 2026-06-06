@@ -86,17 +86,40 @@ button:disabled {
   overflow: auto;
 }
 
+.debug-pane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .status-bar {
   grid-column: 2;
   grid-row: 2;
   display: flex;
 }
 
+.status-spacer {
+  flex: 1 1 auto;
+}
+
 .sidebar,
 .inspector {
   flex: 0 0 auto;
   min-height: 0;
+  border-style: solid;
   overflow: auto;
+}
+
+.inspector {
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-title,
+.section-label {
+  display: flex;
+  flex: 0 0 auto;
+  margin: 0;
 }
 
 .editor-area {
@@ -201,10 +224,102 @@ button:disabled {
   display: flex;
 }
 
+.controls {
+  flex: 0 0 auto;
+  border-style: solid;
+}
+
+.inspector-controls {
+  flex-direction: column;
+}
+
+.debug-paired-controls {
+  flex-direction: column;
+  gap: 4px;
+}
+
+.debug-control-single-button,
+.debug-control-paired-button {
+  display: flex;
+  flex: 0 0 auto;
+  border-style: solid;
+}
+
+.inspector-control-button {
+  display: flex;
+  flex: 0 0 78px;
+  width: 78px;
+  height: 28px;
+  min-width: 78px;
+  max-width: 78px;
+  min-height: 28px;
+  max-height: 28px;
+  border-style: solid;
+}
+
 .loader-controls {
   flex: 0 0 auto;
   gap: 8px;
   align-items: center;
+}
+
+.debug-status {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.debug-workspace {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.debug-view-selector {
+  display: flex;
+  flex: 0 0 88px;
+  flex-direction: column;
+  gap: 4px;
+  border-style: solid;
+}
+
+.debug-view-button {
+  display: flex;
+  flex: 0 0 auto;
+  border-style: solid;
+}
+
+.debug-workspace-split {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.debug-source-panel {
+  display: flex;
+  flex: 0 0 50%;
+  min-width: 0;
+  min-height: 0;
+  border-right: 4px solid var(--minic-background-tertiary);
+}
+
+.debug-source-view {
+  flex: 1 1 auto;
+}
+
+.debug-view-split,
+.debug-view-content,
+.debug-empty-content {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.debug-view-content {
+  overflow: auto;
 }
 
 .source-editor,

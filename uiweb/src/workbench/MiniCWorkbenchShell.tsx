@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import MiniCDebugPane from "../debug/MiniCDebugPane";
 import MiniCInfoView from "../info/MiniCInfoView";
 import MiniCBottomPanel from "../panel/MiniCBottomPanel";
+import MiniCInspectorView from "../panel/MiniCInspectorView";
 import MiniCSettingsPane from "../settings/MiniCSettingsPane";
 import MiniCSourceLoaderView from "../source/MiniCSourceLoaderView";
 import type { JavaMirrorFile } from "../translation/javaMirror";
@@ -550,7 +551,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
         saveDocument,
         addDocument,
       })}
-      {statusBar(activeDocument, activeSnapshot)}
+      {statusBar()}
     </section>
   );
 }
@@ -605,7 +606,7 @@ function sectionContent(
     case "CODE":
       return workbenchBody(viewModel, snapshot, actions);
     case "DEBUG":
-      return <MiniCDebugPane viewModel={viewModel} sourceView={<MiniCSourceLoaderView viewModel={viewModel} />} />;
+      return <MiniCDebugPane viewModel={viewModel} />;
     case "SETTINGS":
       return settingsPage();
     case "INFO":
@@ -620,7 +621,7 @@ function workbenchBody(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWorkbe
       <MiniCSidebarView viewModel={viewModel} />
       <section className="editor-area">
         {tabs(actions)}
-        <div className={`workbench-main ${sourceVisible ? "source-mode" : "visual-mode"}`}>
+        <div className={`split workbench-main ${sourceVisible ? "source-mode" : "visual-mode"}`}>
           {sourceVisible ? (
             <div className="source-area">
               <MiniCSourceLoaderView
@@ -637,6 +638,7 @@ function workbenchBody(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWorkbe
         </div>
         <MiniCBottomPanel viewModel={viewModel} />
       </section>
+      <MiniCInspectorView viewModel={viewModel} />
     </main>
   );
 }
@@ -717,12 +719,12 @@ function settingsPage() {
   );
 }
 
-function statusBar(document: DocumentTab, snapshot: MiniCWorkbenchSnapshot) {
+function statusBar() {
   return (
     <footer className="status-bar">
-      <span>
-        {document.name} · {snapshot.currentState?.title ?? "源码"} · {snapshot.lastOutcome || "就绪"}
-      </span>
+      <span className="label">MiniC 可视化工作台</span>
+      <span className="status-spacer" />
+      <span className="label">C030 · 工作台</span>
     </footer>
   );
 }
