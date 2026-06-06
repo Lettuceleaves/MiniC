@@ -2,22 +2,17 @@ import type { JavaMirrorFile } from "../translation/javaMirror";
 import type {
   MiniCPlaybackMode,
   MiniCStageId,
-  UiAssemblyLineVisualDto,
   UiControlResultDto,
   UiCurrentStateDto,
+  UiDiagnosticDto,
+  UiGlobalDataDto,
+  UiRealtimeAnalysisDto,
   UiDebugAsmViewDto,
   UiDebugAstViewDto,
   UiDebugDataStructureViewDto,
   UiDebugIrViewDto,
   UiDebugMetadataViewDto,
   UiDebugStateDto,
-  UiDiagnosticDto,
-  UiGlobalDataDto,
-  UiIrLineVisualDto,
-  UiLexerTokenVisualDto,
-  UiRealtimeAnalysisDto,
-  UiSemanticScopeVisualDto,
-  UiSourceRangeDto,
   UiStageDataDto,
   UiStageVisualDto,
 } from "../translation/uiapi";
@@ -484,10 +479,68 @@ export const miniCWorkbenchViewModelMirror = {
   ]
 } as const satisfies JavaMirrorFile;
 
+export interface MiniCObservationApiAdapter {
+  loadSource(name: string, source: string): void;
+  startSession(): void;
+  next(): UiControlResultDto;
+  nextStage(): UiControlResultDto;
+  play(): UiControlResultDto;
+  playFast(): UiControlResultDto;
+  tick(): UiControlResultDto;
+  pause(): UiControlResultDto;
+  confirmExecutionInput(standardInput: string): UiControlResultDto;
+  currentState(): UiCurrentStateDto | null;
+  currentStageData(): UiStageDataDto | null;
+  currentStageVisualData(): UiStageVisualDto | null;
+  stageVisualData(stage: MiniCStageId): UiStageVisualDto | null;
+  globalData(): UiGlobalDataDto | null;
+}
+
+export interface MiniCDebugApiAdapter {
+  loadSource(name: string, source: string): void;
+  startDebug(): void;
+  setBreakpoint(line: number): void;
+  clearBreakpoint(line: number): void;
+  runToBreakpoint(): void;
+  runToEnd(): void;
+  fastForward(): void;
+  stepOver(): void;
+  stepInto(): void;
+  stepOut(): void;
+  pause(): void;
+  restart(): void;
+  close(): void;
+  stepBack(): void;
+  stepBackOver(): void;
+  backToBreakpoint(): void;
+  state(): UiDebugStateDto | null;
+  metadataView(): UiDebugMetadataViewDto | null;
+  dataStructureView(): UiDebugDataStructureViewDto | null;
+  astView(): UiDebugAstViewDto | null;
+  irView(): UiDebugIrViewDto | null;
+  asmView(): UiDebugAsmViewDto | null;
+}
+
+export interface MiniCRealtimeAnalyzerAdapter {
+  submit(name: string, source: string): UiRealtimeAnalysisDto | null;
+}
+
+export interface MiniCWorkbenchViewModelAdapters {
+  readonly observationApi?: MiniCObservationApiAdapter | null;
+  readonly debugApi?: MiniCDebugApiAdapter | null;
+  readonly realtimeAnalyzer?: MiniCRealtimeAnalyzerAdapter | null;
+}
+
 export class MiniCWorkbenchViewModel {
   static readonly mirror = miniCWorkbenchViewModelMirror;
 
   readonly mirror = miniCWorkbenchViewModelMirror;
+
+  private readonly api: MiniCObservationApiAdapter | null;
+
+  private readonly debugApi: MiniCDebugApiAdapter | null;
+
+  private readonly realtimeAnalyzer: MiniCRealtimeAnalyzerAdapter | null;
 
   private readonly listeners = new Set<() => void>();
 
@@ -578,21 +631,26 @@ export class MiniCWorkbenchViewModel {
 
   private executionInputDraftText = "";
 
-  private realtimeVersion = 0;
-
-  constructor(initialSourceName = "", initialSourceText = "") {
+  constructor(initialSourceName = "", initialSourceText = "", adapters: MiniCWorkbenchViewModelAdapters = {}) {
+    this.api = adapters.observationApi ?? null;
+    this.debugApi = adapters.debugApi ?? null;
+    this.realtimeAnalyzer = adapters.realtimeAnalyzer ?? null;
     if (initialSourceName !== "" || initialSourceText !== "") {
       this.loadSource(initialSourceName, initialSourceText);
     }
   }
 
   loadSource(name: string, source: string): void {
+    this.api?.loadSource(name, source);
+    this.debugApi?.loadSource(name, source);
     this.sourceNameStore.set(name);
     this.sourceTextStore.set(source);
     this.clearSessionState();
   }
 
   renameSource(name: string): void {
+    this.api?.loadSource(name, this.sourceTextStore.get());
+    this.debugApi?.loadSource(name, this.sourceTextStore.get());
     this.sourceNameStore.set(name);
     this.clearSessionState();
   }
@@ -600,97 +658,142 @@ export class MiniCWorkbenchViewModel {
   submitRealtimeSource(name: string, source: string): void {
     this.sourceNameStore.set(name);
     this.sourceTextStore.set(source);
-    this.realtimeAnalysisStore.set(createRealtimeAnalysis(name, source, ++this.realtimeVersion));
+    const result = this.realtimeAnalyzer?.submit(name, source) ?? null;
+    this.realtimeAnalysisStore.set(result);
   }
 
   startSession(): void {
+    if (this.api === null) {
+      this.applyControlResult(noApiResult("source", "无法启动", "UIWeb 尚未连接 MiniCObservationApi 适配器。"));
+      return;
+    }
+    this.api.startSession();
     this.sessionStartedStore.set(true);
     this.selectedVisualStageStore.set("");
-    this.applyStage("source", 1, "PAUSED", controlResult("OK", "source", "会话已启动", "源码已加载。"));
+    this.refreshAll();
   }
 
   next(): UiControlResultDto {
+    if (this.api === null) {
+      const result = noApiResult(this.currentStateStore.get()?.currentStage ?? "source", "无法前进", "UIWeb 尚未连接 MiniCObservationApi 适配器。");
+      this.applyControlResult(result);
+      return result;
+    }
     this.autoConfirmExecutionInput();
-    const state = this.currentStateStore.get();
-    if (state === null) {
-      const result = controlResult("CANNOT_ADVANCE", "source", "尚未启动", "请先启动观测会话。");
-      this.applyControlResult(result);
-      return result;
-    }
-    if (!state.canNext) {
-      const result = controlResult("CANNOT_ADVANCE", state.currentStage, "无法前进", "当前阶段已经没有下一步。");
-      this.applyControlResult(result);
-      return result;
-    }
-    const definition = stageDefinition(state.currentStage);
-    const nextStep = Math.min(definition.totalSteps, state.stageStepIndex + 1);
-    if (nextStep > state.stageStepIndex || state.currentStage === "execution") {
-      const result = controlResult("OK", state.currentStage, "下一步", definition.item(nextStep));
-      this.applyStage(state.currentStage, nextStep, state.playbackMode, result);
-      return result;
-    }
-    return this.nextStage();
+    const result = this.api.next();
+    this.applyControlResult(result);
+    this.refreshAll();
+    return result;
   }
 
   nextStage(): UiControlResultDto {
+    if (this.api === null) {
+      const result = noApiResult(this.currentStateStore.get()?.currentStage ?? "source", "无法跳转", "UIWeb 尚未连接 MiniCObservationApi 适配器。");
+      this.applyControlResult(result);
+      return result;
+    }
     this.autoConfirmExecutionInput();
-    const state = this.currentStateStore.get();
-    if (state === null) {
-      const result = controlResult("CANNOT_ADVANCE", "source", "尚未启动", "请先启动观测会话。");
-      this.applyControlResult(result);
-      return result;
-    }
-    const nextStage = stageAfter(state.currentStage);
-    if (nextStage === null) {
-      const result = controlResult("CANNOT_ADVANCE", state.currentStage, "已到末尾", "当前已经位于最后阶段。");
-      this.applyControlResult(result);
-      return result;
-    }
-    const result = controlResult("OK", nextStage.id, "下一阶段", nextStage.item(0));
     this.selectedVisualStageStore.set("");
-    this.applyStage(nextStage.id, 0, state.playbackMode, result);
+    const state = this.currentStateStore.get();
+    const result = state !== null && state.currentStage === "execution" && state.canNext ? this.api.next() : this.api.nextStage();
+    this.applyControlResult(result);
+    this.refreshAll();
     return result;
   }
 
   runToExecution(): UiControlResultDto {
-    const state = this.currentStateStore.get();
-    if (state !== null && state.currentStage === "execution") {
-      const result = controlResult("CANNOT_ADVANCE", "execution", "已在执行阶段", "当前已经位于执行阶段入口。");
+    if (this.api === null) {
+      const result = noApiResult(this.currentStateStore.get()?.currentStage ?? "source", "无法推进", "UIWeb 尚未连接 MiniCObservationApi 适配器。");
       this.applyControlResult(result);
       return result;
     }
-    const result = controlResult("OK", "execution", "到执行", "已定位到执行阶段入口。");
     this.selectedVisualStageStore.set("");
-    this.applyStage("execution", 0, "PAUSED", result);
+    let result: UiControlResultDto | null = null;
+    let guard = 0;
+    while (
+      this.currentStateStore.get() !== null &&
+      this.currentStateStore.get()?.currentStage !== "execution" &&
+      this.currentStateStore.get()?.canNext === true &&
+      guard < 1000
+    ) {
+      guard += 1;
+      result = this.api.nextStage();
+      this.applyControlResult(result);
+      this.refreshAll();
+      if (result.outcome === "FAILED" || result.outcome === "CANNOT_ADVANCE") {
+        return result;
+      }
+    }
+    if (result === null) {
+      result = noApiResult("execution", "已在执行阶段", "当前已经位于执行阶段入口。");
+      this.applyControlResult(result);
+    }
+    this.refreshAll();
     return result;
   }
 
   play(): UiControlResultDto {
-    return this.setPlaybackMode("PLAYING", "播放", "自动播放已开始。");
+    if (this.api === null) {
+      const result = noApiResult(this.currentStateStore.get()?.currentStage ?? "source", "无法播放", "UIWeb 尚未连接 MiniCObservationApi 适配器。");
+      this.applyControlResult(result);
+      return result;
+    }
+    this.selectedVisualStageStore.set("");
+    this.autoConfirmExecutionInput();
+    const result = this.api.play();
+    this.applyControlResult(result);
+    this.refreshAll();
+    return result;
   }
 
   playFast(): UiControlResultDto {
-    return this.setPlaybackMode("FAST_PLAYING", "2x", "快速播放已开始。");
+    if (this.api === null) {
+      const result = noApiResult(this.currentStateStore.get()?.currentStage ?? "source", "无法快放", "UIWeb 尚未连接 MiniCObservationApi 适配器。");
+      this.applyControlResult(result);
+      return result;
+    }
+    this.selectedVisualStageStore.set("");
+    this.autoConfirmExecutionInput();
+    const result = this.api.playFast();
+    this.applyControlResult(result);
+    this.refreshAll();
+    return result;
   }
 
   tick(): UiControlResultDto {
-    const result = this.next();
-    const state = this.currentStateStore.get();
-    if (state !== null && !state.canNext) {
-      this.applyStage(state.currentStage, state.stageStepIndex, "PAUSED", result);
+    if (this.api === null) {
+      const result = noApiResult(this.currentStateStore.get()?.currentStage ?? "source", "无法 tick", "UIWeb 尚未连接 MiniCObservationApi 适配器。");
+      this.applyControlResult(result);
+      return result;
     }
+    this.autoConfirmExecutionInput();
+    const result = this.api.tick();
+    this.applyControlResult(result);
+    this.refreshAll();
     return result;
   }
 
   pause(): UiControlResultDto {
-    return this.setPlaybackMode("PAUSED", "暂停", "播放已暂停。");
+    if (this.api === null) {
+      const result = noApiResult(this.currentStateStore.get()?.currentStage ?? "source", "无法暂停", "UIWeb 尚未连接 MiniCObservationApi 适配器。");
+      this.applyControlResult(result);
+      return result;
+    }
+    const result = this.api.pause();
+    this.applyControlResult(result);
+    this.refreshAll();
+    return result;
   }
 
   confirmExecutionInput(standardInput: string): UiControlResultDto {
+    if (this.api === null) {
+      const result = noApiResult("execution", "无法确认输入", "UIWeb 尚未连接 MiniCObservationApi 适配器。");
+      this.applyControlResult(result);
+      return result;
+    }
     this.selectedVisualStageStore.set("");
     this.executionInputDraftText = standardInput ?? "";
-    const stage = this.currentStateStore.get()?.currentStage ?? "execution";
-    const result = controlResult("OK", stage, "输入已确认", "执行阶段标准输入已确认。");
+    const result = this.api.confirmExecutionInput(standardInput);
     this.applyControlResult(result);
     this.refreshAll();
     return result;
@@ -734,10 +837,17 @@ export class MiniCWorkbenchViewModel {
     if (stage !== "" && state !== null && state.playbackMode !== "PAUSED") {
       this.pause();
     }
-    this.refreshVisualData();
+    this.refreshVisualDataFromApi();
   }
 
   startDebug(): void {
+    if (this.debugApi === null) {
+      this.applyControlResult(noApiResult("source", "无法调试", "UIWeb 尚未连接 MiniCDebugApi 适配器。"));
+      return;
+    }
+    const name = this.sourceNameStore.get().trim() === "" ? "untitled.mc" : this.sourceNameStore.get();
+    this.debugApi.loadSource(name, this.sourceTextStore.get());
+    this.debugApi.startDebug();
     this.debugStartedStore.set(true);
     this.refreshDebug();
   }
@@ -748,124 +858,123 @@ export class MiniCWorkbenchViewModel {
   }
 
   syncDebugBreakpoints(): void {
-    if (this.debugStartedStore.get()) {
-      this.refreshDebug();
+    if (!this.debugStartedStore.get() || this.debugApi === null) {
+      return;
     }
+    this.debugBreakpointLinesStore.get().forEach((line) => this.debugApi?.setBreakpoint(line));
+    this.refreshDebug();
   }
 
   setDebugBreakpoint(line: number): void {
     this.ensureDebugStarted();
     this.debugBreakpointLinesStore.set(normalizeBreakpoints([...this.debugBreakpointLinesStore.get(), line]));
+    this.debugApi?.setBreakpoint(line);
     this.refreshDebug();
   }
 
   clearDebugBreakpoint(line: number): void {
     this.ensureDebugStarted();
     this.debugBreakpointLinesStore.set(this.debugBreakpointLinesStore.get().filter((item) => item !== line));
+    this.debugApi?.clearBreakpoint(line);
     this.refreshDebug();
   }
 
   debugRunToBreakpoint(): void {
     this.ensureDebugStarted();
-    this.refreshDebug(`运行到断点 ${this.debugBreakpointLinesStore.get()[0] ?? "-"}`);
+    this.debugApi?.runToBreakpoint();
+    this.refreshDebug();
   }
 
   debugRunToEnd(): void {
     this.ensureDebugStarted();
-    this.refreshDebug("运行到结束");
+    this.debugApi?.runToEnd();
+    this.refreshDebug();
   }
 
   debugFastForward(): void {
     this.ensureDebugStarted();
-    this.refreshDebug("快进");
+    this.debugApi?.fastForward();
+    this.refreshDebug();
   }
 
   debugStepOver(): void {
     this.ensureDebugStarted();
-    this.refreshDebug("本层下一句");
+    this.debugApi?.stepOver();
+    this.refreshDebug();
   }
 
   debugStepInto(): void {
     this.ensureDebugStarted();
-    this.refreshDebug("下一句");
+    this.debugApi?.stepInto();
+    this.refreshDebug();
   }
 
   debugStepOut(): void {
     this.ensureDebugStarted();
-    this.refreshDebug("步出");
+    this.debugApi?.stepOut();
+    this.refreshDebug();
   }
 
   debugPause(): void {
     this.ensureDebugStarted();
-    this.refreshDebug("暂停");
+    this.debugApi?.pause();
+    this.refreshDebug();
   }
 
   debugRestart(): void {
     this.ensureDebugStarted();
-    this.refreshDebug("重启");
+    this.debugApi?.restart();
+    this.refreshDebug();
   }
 
   debugClose(): void {
-    this.debugStartedStore.set(false);
-    this.clearDebugState();
+    this.ensureDebugStarted();
+    this.debugApi?.close();
+    this.refreshDebug();
   }
 
   debugStepBack(): void {
     this.ensureDebugStarted();
-    this.refreshDebug("上一句");
+    this.debugApi?.stepBack();
+    this.refreshDebug();
   }
 
   debugStepBackOver(): void {
     this.ensureDebugStarted();
-    this.refreshDebug("本层上一句");
+    this.debugApi?.stepBackOver();
+    this.refreshDebug();
   }
 
   debugBackToBreakpoint(): void {
     this.ensureDebugStarted();
-    this.refreshDebug("上个断点");
+    this.debugApi?.backToBreakpoint();
+    this.refreshDebug();
   }
 
   debugBackToCallSite(): void {
-    this.ensureDebugStarted();
-    this.refreshDebug("返回调用处");
+    this.debugStepBackOver();
   }
 
-  refreshDebug(message = "debug ready"): void {
-    if (!this.debugStartedStore.get()) {
+  refreshDebug(): void {
+    if (!this.debugStartedStore.get() || this.debugApi === null) {
       return;
     }
-    const state = this.currentStateStore.get();
-    const currentLine = state?.sourceRange === null || state?.sourceRange === undefined ? 1 : 1;
-    const breakpoints = this.debugBreakpointLinesStore
-      .get()
-      .map((line) => ({ line, enabled: true }));
-    this.debugStateStore.set({
-      sourceName: this.sourceNameStore.get(),
-      playbackMode: "PAUSED",
-      currentLine,
-      breakpoints,
-      timeline: [message],
-    });
-    this.debugMetadataViewStore.set({
-      rows: [`源码: ${this.sourceNameStore.get() || "untitled.mc"}`, `断点: ${breakpoints.length}`],
-    });
-    this.debugDataStructureViewStore.set({
-      title: "Debug 数据结构",
-      rows: ["本地前端骨架暂未连接 runtime。"],
-    });
-    this.debugAstViewStore.set({ root: null, details: ["AST debug view pending runtime data."] });
-    this.debugIrViewStore.set({ lines: [] });
-    this.debugAsmViewStore.set({ lines: [] });
+    this.debugStateStore.set(this.debugApi.state());
+    this.debugMetadataViewStore.set(this.debugApi.metadataView());
+    this.debugDataStructureViewStore.set(this.debugApi.dataStructureView());
+    this.debugAstViewStore.set(this.debugApi.astView());
+    this.debugIrViewStore.set(this.debugApi.irView());
+    this.debugAsmViewStore.set(this.debugApi.asmView());
   }
 
   refreshAll(): void {
-    if (!this.sessionStartedStore.get()) {
+    if (!this.sessionStartedStore.get() || this.api === null) {
       return;
     }
-    const state = this.currentStateStore.get();
-    if (state !== null) {
-      this.applyStage(state.currentStage, state.stageStepIndex, state.playbackMode);
-    }
+    this.currentStateStore.set(this.api.currentState());
+    this.currentStageDataStore.set(this.api.currentStageData());
+    this.globalDataStore.set(this.api.globalData());
+    this.refreshVisualDataFromApi();
   }
 
   sourceNameProperty(): MiniCReadonlyProperty<string> {
@@ -988,6 +1097,11 @@ export class MiniCWorkbenchViewModel {
       selectedVisualStage: this.selectedVisualStageStore.get(),
       debugStarted: this.debugStartedStore.get(),
       debugState: this.debugStateStore.get(),
+      debugMetadataView: this.debugMetadataViewStore.get(),
+      debugDataStructureView: this.debugDataStructureViewStore.get(),
+      debugAstView: this.debugAstViewStore.get(),
+      debugIrView: this.debugIrViewStore.get(),
+      debugAsmView: this.debugAsmViewStore.get(),
       debugBreakpointLines: this.debugBreakpointLinesStore.get(),
       executionInputDraft: this.executionInputDraftText,
     };
@@ -1002,15 +1116,6 @@ export class MiniCWorkbenchViewModel {
 
   summary(): string {
     return `MiniCWorkbenchViewModel: ${this.mirror.methods.length} methods, ${this.mirror.fields.length} fields`;
-  }
-
-  private setPlaybackMode(mode: MiniCPlaybackMode, title: string, description: string): UiControlResultDto {
-    const state = this.currentStateStore.get();
-    const stage = state?.currentStage ?? "source";
-    const step = state?.stageStepIndex ?? 0;
-    const result = controlResult("OK", stage, title, description);
-    this.applyStage(stage, step, mode, result);
-    return result;
   }
 
   private clearSessionState(): void {
@@ -1041,55 +1146,18 @@ export class MiniCWorkbenchViewModel {
     this.debugAsmViewStore.set(null);
   }
 
-  private applyStage(
-    stage: MiniCStageId,
-    completedSteps: number,
-    playbackMode: MiniCPlaybackMode,
-    control?: UiControlResultDto,
-  ): void {
-    const definition = stageDefinition(stage);
-    const safeCompleted = Math.max(0, Math.min(definition.totalSteps, Math.trunc(completedSteps)));
-    const stageData = createStageData(stage, safeCompleted, this.sourceTextStore.get());
-    const globalData = createGlobalData(
-      this.sourceTextStore.get(),
-      stage,
-      stageData.completed,
-      this.executionInputDraftText,
-    );
-    const state = createCurrentState(
-      this.sourceNameStore.get(),
-      stage,
-      safeCompleted,
-      playbackMode,
-      stageData.diagnostics,
-    );
-    this.currentStateStore.set(state);
-    this.currentStageDataStore.set(stageData);
-    this.globalDataStore.set(globalData);
-    this.refreshVisualData();
-    if (control !== undefined) {
-      this.applyControlResult(control);
-    }
-  }
-
-  private refreshVisualData(): void {
-    const state = this.currentStateStore.get();
-    const stageData = this.currentStageDataStore.get();
-    if (state === null || stageData === null) {
+  private refreshVisualDataFromApi(): void {
+    if (this.api === null) {
       return;
     }
-    const source = this.sourceTextStore.get();
-    const lexer = createStageVisual("lexer", source, stageData);
-    const ast = createStageVisual("parser", source, stageData);
-    const semantic = createStageVisual("semantic", source, stageData);
-    const codegen = createStageVisual("codegen", source, stageData);
+    const state = this.currentStateStore.get();
     const selected = this.selectedVisualStageStore.get();
-    const currentStage = selected === "" ? state.currentStage : normalizeStageId(selected);
-    this.lexerVisualDataStore.set(lexer);
-    this.astVisualDataStore.set(ast);
-    this.semanticVisualDataStore.set(semantic);
-    this.codegenVisualDataStore.set(codegen);
-    this.currentStageVisualDataStore.set(createStageVisual(currentStage, source, stageData));
+    const currentStage = selected === "" ? state?.currentStage ?? "source" : toStageId(selected);
+    this.lexerVisualDataStore.set(this.api.stageVisualData("lexer"));
+    this.astVisualDataStore.set(this.api.stageVisualData("parser"));
+    this.semanticVisualDataStore.set(this.api.stageVisualData("semantic"));
+    this.codegenVisualDataStore.set(this.api.stageVisualData("codegen"));
+    this.currentStageVisualDataStore.set(selected === "" ? this.api.currentStageVisualData() : this.api.stageVisualData(currentStage));
   }
 
   private applyControlResult(result: UiControlResultDto): void {
@@ -1098,11 +1166,12 @@ export class MiniCWorkbenchViewModel {
   }
 
   private autoConfirmExecutionInput(): void {
-    if (!this.executionAwaitingInput()) {
+    if (!this.sessionStartedStore.get() || this.api === null || !this.executionAwaitingInput()) {
       return;
     }
-    const result = controlResult("OK", "execution", "输入已确认", "使用当前标准输入草稿继续执行。");
+    const result = this.api.confirmExecutionInput(this.executionInputDraftText);
     this.applyControlResult(result);
+    this.refreshAll();
   }
 
   private executionAwaitingInput(): boolean {
@@ -1150,6 +1219,11 @@ export interface MiniCWorkbenchSnapshot {
   readonly selectedVisualStage: string;
   readonly debugStarted: boolean;
   readonly debugState: UiDebugStateDto | null;
+  readonly debugMetadataView: UiDebugMetadataViewDto | null;
+  readonly debugDataStructureView: UiDebugDataStructureViewDto | null;
+  readonly debugAstView: UiDebugAstViewDto | null;
+  readonly debugIrView: UiDebugIrViewDto | null;
+  readonly debugAsmView: UiDebugAsmViewDto | null;
   readonly debugBreakpointLines: readonly number[];
   readonly executionInputDraft: string;
 }
@@ -1193,269 +1267,20 @@ class MiniCWritableProperty<T> implements MiniCReadonlyProperty<T> {
   }
 }
 
-interface StageDefinition {
-  readonly id: MiniCStageId;
-  readonly title: string;
-  readonly totalSteps: number;
-  readonly item: (step: number) => string;
+const STAGE_IDS: readonly MiniCStageId[] = ["source", "preprocess", "lexer", "parser", "semantic", "ir", "codegen", "toolchain", "execution"];
+
+function toStageId(stage: string): MiniCStageId {
+  return STAGE_IDS.includes(stage as MiniCStageId) ? (stage as MiniCStageId) : "source";
 }
 
-const LOCAL_STAGES: readonly StageDefinition[] = [
-  { id: "source", title: "源码", totalSteps: 1, item: () => "源码已加载" },
-  { id: "preprocess", title: "预编译", totalSteps: 2, item: (step) => `预处理步骤 ${step}` },
-  { id: "lexer", title: "词法分析", totalSteps: 4, item: (step) => `扫描 token ${step}` },
-  { id: "parser", title: "语法分析", totalSteps: 3, item: (step) => `构建 AST ${step}` },
-  { id: "semantic", title: "语义分析", totalSteps: 3, item: (step) => `检查语义 ${step}` },
-  { id: "ir", title: "IR 降级", totalSteps: 3, item: (step) => `生成 IR ${step}` },
-  { id: "codegen", title: "代码生成", totalSteps: 3, item: (step) => `生成汇编 ${step}` },
-  { id: "toolchain", title: "工具链", totalSteps: 2, item: (step) => `工具链产物 ${step}` },
-  { id: "execution", title: "执行", totalSteps: 2, item: (step) => (step === 0 ? "等待输入" : `执行步骤 ${step}`) },
-];
-
-function stageDefinition(stage: MiniCStageId): StageDefinition {
-  return LOCAL_STAGES.find((definition) => definition.id === stage) ?? LOCAL_STAGES[0];
-}
-
-function stageAfter(stage: MiniCStageId): StageDefinition | null {
-  const index = LOCAL_STAGES.findIndex((definition) => definition.id === stage);
-  return index < 0 || index + 1 >= LOCAL_STAGES.length ? null : LOCAL_STAGES[index + 1];
-}
-
-function normalizeStageId(stage: string): MiniCStageId {
-  return LOCAL_STAGES.find((definition) => definition.id === stage)?.id ?? "source";
-}
-
-function createStageData(stage: MiniCStageId, completedSteps: number, source: string): UiStageDataDto {
-  const definition = stageDefinition(stage);
-  const completed = completedSteps >= definition.totalSteps;
+function noApiResult(stage: MiniCStageId, title: string, description: string): UiControlResultDto {
   return {
+    outcome: "CANNOT_ADVANCE",
     stage,
-    completedSteps,
-    totalSteps: definition.totalSteps,
-    completed,
-    inputSummary: stage === "source" ? [`${source.length} chars`] : [],
-    currentItem: definition.item(completedSteps),
-    accumulatedOutput: accumulatedOutput(stage, completedSteps, source),
+    title,
+    description,
     diagnostics: [],
   };
-}
-
-function createCurrentState(
-  sourceName: string,
-  stage: MiniCStageId,
-  stageStepIndex: number,
-  playbackMode: MiniCPlaybackMode,
-  diagnostics: readonly UiDiagnosticDto[],
-): UiCurrentStateDto {
-  const definition = stageDefinition(stage);
-  const atEnd = stage === "execution" && stageStepIndex >= definition.totalSteps;
-  return {
-    sourceName,
-    currentStage: stage,
-    globalStepIndex: globalStepIndex(stage, stageStepIndex),
-    stageStepIndex,
-    playbackMode,
-    frameIntervalMillis: playbackMode === "FAST_PLAYING" ? 250 : 500,
-    sourceRange: null,
-    title: definition.title,
-    description: definition.item(stageStepIndex),
-    diagnostics,
-    canNext: !atEnd,
-    canPrevious: stageStepIndex > 0 || stage !== "source",
-    canPlay: playbackMode === "PAUSED" && !atEnd,
-    canPlayFast: playbackMode === "PAUSED" && !atEnd,
-    canPause: playbackMode !== "PAUSED",
-    canReversePlay: false,
-  };
-}
-
-function createGlobalData(
-  source: string,
-  currentStage: MiniCStageId,
-  activeCompleted: boolean,
-  executionInputDraft: string,
-): UiGlobalDataDto {
-  const reached = (stage: MiniCStageId): boolean => {
-    const currentIndex = LOCAL_STAGES.findIndex((definition) => definition.id === currentStage);
-    const targetIndex = LOCAL_STAGES.findIndex((definition) => definition.id === stage);
-    return currentIndex > targetIndex || (currentIndex === targetIndex && activeCompleted);
-  };
-  const tokenSummary = reached("lexer") ? tokenTexts(source) : [];
-  const executionInputSummary =
-    currentStage === "execution" && executionInputDraft.trim() === "" ? ["stdin pending"] : ["stdin confirmed"];
-  return {
-    source,
-    stageSummaries: LOCAL_STAGES.map((stage) => stage.title),
-    diagnostics: [],
-    preprocessSummary: reached("preprocess") ? ["预处理产物已生成"] : [],
-    tokenSummary,
-    astSummary: reached("parser") ? ["Program", "FunctionDecl main"] : [],
-    semanticSummary: reached("semantic") ? ["global scope", "symbol main"] : [],
-    irSummary: reached("ir") ? ["function main", "return"] : [],
-    assemblySummary: reached("codegen") ? ["main:", "  ret"] : [],
-    artifactSummary: reached("toolchain") ? ["minic.exe"] : [],
-    executionInputSummary,
-    executionOutputSummary: reached("execution") ? ["program exited with code 0"] : [],
-  };
-}
-
-function createStageVisual(stage: MiniCStageId, source: string, activeData: UiStageDataDto): UiStageVisualDto {
-  if (stage === "lexer") {
-    return {
-      ...emptyStageVisual(stage, "lexer", source),
-      lexerTokens: tokensFromSource(source),
-    };
-  }
-  if (stage === "parser") {
-    return {
-      ...emptyStageVisual(stage, "ast", source),
-      astRoot: {
-        id: "ast-root",
-        label: "Program",
-        kind: "Program",
-        range: null,
-        active: activeData.stage === "parser",
-        children: tokenTexts(source).slice(0, 8).map((text, index) => ({
-          id: `ast-${index}`,
-          label: text,
-          kind: "Token",
-          range: null,
-          active: false,
-          children: [],
-        })),
-      },
-    };
-  }
-  if (stage === "semantic") {
-    return {
-      ...emptyStageVisual(stage, "semantic-scope", source),
-      semanticRoot: semanticRoot(source, activeData.stage === "semantic"),
-      semanticEdgesPointChildToParent: true,
-    };
-  }
-  if (stage === "codegen") {
-    return {
-      ...emptyStageVisual(stage, "assembly", source),
-      irLines: irLines(),
-      assemblyLines: assemblyLines(),
-    };
-  }
-  return {
-    ...emptyStageVisual(stage, "generic", source),
-    genericItems: accumulatedOutput(stage, activeData.completedSteps, source),
-  };
-}
-
-function emptyStageVisual(stage: MiniCStageId, visualType: string, sourceText: string): UiStageVisualDto {
-  return {
-    stage,
-    visualType,
-    sourceText,
-    genericItems: [],
-    lexerTokens: [],
-    astRoot: null,
-    semanticRoot: null,
-    semanticEdgesPointChildToParent: false,
-    irLines: [],
-    assemblyLines: [],
-  };
-}
-
-function createRealtimeAnalysis(sourceName: string, sourceText: string, version: number): UiRealtimeAnalysisDto {
-  return {
-    sourceName,
-    sourceText,
-    diagnostics: [],
-    tokens: tokensFromSource(sourceText),
-    version,
-  };
-}
-
-function accumulatedOutput(stage: MiniCStageId, completedSteps: number, source: string): readonly string[] {
-  if (completedSteps <= 0) {
-    return [];
-  }
-  if (stage === "lexer") {
-    return tokenTexts(source).slice(0, completedSteps);
-  }
-  return Array.from({ length: completedSteps }, (_value, index) => `${stage} output ${index + 1}`);
-}
-
-function tokenTexts(source: string): readonly string[] {
-  const matches = source.match(/[A-Za-z_][A-Za-z0-9_]*|\d+|==|!=|<=|>=|[{}()[\];,+\-*/=<>]/g);
-  return matches ?? [];
-}
-
-function tokensFromSource(source: string): readonly UiLexerTokenVisualDto[] {
-  const tokens: UiLexerTokenVisualDto[] = [];
-  const pattern = /[A-Za-z_][A-Za-z0-9_]*|\d+|==|!=|<=|>=|[{}()[\];,+\-*/=<>]/g;
-  let match: RegExpExecArray | null = pattern.exec(source);
-  while (match !== null) {
-    tokens.push({
-      kind: tokenKind(match[0]),
-      text: match[0],
-      range: null,
-      active: tokens.length === 0,
-    });
-    match = pattern.exec(source);
-  }
-  return tokens;
-}
-
-function tokenKind(text: string): string {
-  if (/^\d+$/.test(text)) {
-    return "NUMBER";
-  }
-  if (/^[A-Za-z_]/.test(text)) {
-    return "IDENTIFIER";
-  }
-  return "PUNCTUATION";
-}
-
-function semanticRoot(source: string, active: boolean): UiSemanticScopeVisualDto {
-  const symbols = tokenTexts(source)
-    .filter((token) => /^[A-Za-z_]/.test(token))
-    .slice(0, 8);
-  return {
-    id: "scope-global",
-    label: "global scope",
-    symbols,
-    range: null,
-    active,
-    children: [],
-  };
-}
-
-function irLines(): readonly UiIrLineVisualDto[] {
-  return [
-    { lineNumber: 1, text: "function main", range: null, active: true },
-    { lineNumber: 2, text: "  return 0", range: null, active: false },
-  ];
-}
-
-function assemblyLines(): readonly UiAssemblyLineVisualDto[] {
-  return [
-    { lineNumber: 1, text: "main:", kind: "LABEL", section: ".text", label: "main", range: null, active: false },
-    { lineNumber: 2, text: "  ret", kind: "INSTRUCTION", section: ".text", label: "", range: null, active: true },
-  ];
-}
-
-function globalStepIndex(stage: MiniCStageId, stageStepIndex: number): number {
-  const previous = LOCAL_STAGES.slice(0, LOCAL_STAGES.findIndex((definition) => definition.id === stage)).reduce(
-    (sum, definition) => sum + definition.totalSteps,
-    0,
-  );
-  return previous + stageStepIndex;
-}
-
-function controlResult(
-  outcome: string,
-  stage: MiniCStageId,
-  title: string,
-  description: string,
-  diagnostics: readonly UiDiagnosticDto[] = [],
-): UiControlResultDto {
-  return { outcome, stage, title, description, diagnostics };
 }
 
 function normalizeBreakpoints(lines: readonly number[]): readonly number[] {

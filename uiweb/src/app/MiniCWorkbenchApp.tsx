@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { MiniCSettings, ThemeManager } from "../settings";
 import type { JavaMirrorFile } from "../translation/javaMirror";
 import MiniCWorkbenchShell from "../workbench/MiniCWorkbenchShell";
 
@@ -41,6 +43,11 @@ export const miniCWorkbenchAppMirror = {
 } as const satisfies JavaMirrorFile;
 
 export function MiniCWorkbenchApp() {
+  useEffect(() => {
+    MiniCSettings.load();
+    ThemeManager.bind();
+  }, []);
+
   return <MiniCWorkbenchShell title={MiniCWorkbenchApp.TITLE} />;
 }
 

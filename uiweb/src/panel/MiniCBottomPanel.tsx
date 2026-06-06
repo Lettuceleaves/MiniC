@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { JavaMirrorFile } from "../translation/javaMirror";
 import type { UiSourceSpanDto } from "../translation/uiapi";
-import type { MiniCWorkbenchSnapshot, MiniCWorkbenchViewModel } from "../workbench/MiniCWorkbenchViewModel";
-import { MiniCBottomPanelModelFactory } from "./MiniCBottomPanelModelFactory";
+import { MiniCSettings } from "../settings/MiniCSettings";
+import { MiniCExplanationTextHighlighter } from "../text/MiniCExplanationTextHighlighter";
+import { textFlow } from "../text/MiniCTextFlowFactory";
+import { MiniCTextStyleRole } from "../text/MiniCTextStyleRole";
+import { MiniCTextStyles } from "../text/MiniCTextStyles";
+import type { MiniCWorkbenchViewModel } from "../workbench/MiniCWorkbenchViewModel";
 import { MiniCHoverInspector } from "./MiniCHoverInspector";
 import { MiniCHoverInspectorContent } from "./MiniCHoverInspectorContent";
 
@@ -196,19 +200,14 @@ export interface MiniCBottomPanelProps {
 }
 
 const COLLAPSED_HEIGHT = 24;
-const DEFAULT_EXPANDED_HEIGHT = 220;
+const DEFAULT_EXPANDED_HEIGHT = 212;
 const MIN_EXPANDED_HEIGHT = 120;
 const MAX_EXPANDED_HEIGHT = 520;
+const explanationTextHighlighter = new MiniCExplanationTextHighlighter();
 
-export function MiniCBottomPanel({ viewModel, inspector }: MiniCBottomPanelProps) {
-  const snapshot = useBottomPanelSnapshot(viewModel);
+export function MiniCBottomPanel({ viewModel: _viewModel, inspector }: MiniCBottomPanelProps) {
   const localInspector = useMemo(() => inspector ?? new MiniCHoverInspector(), [inspector]);
   const hoverContent = useHoverContent(localInspector);
-  const factory = useMemo(() => new MiniCBottomPanelModelFactory(), []);
-  const model = useMemo(
-    () => factory.create(snapshot.currentStageData, snapshot.globalData, snapshot.realtimeAnalysis),
-    [factory, snapshot.currentStageData, snapshot.globalData, snapshot.realtimeAnalysis],
-  );
   const [expanded, setExpanded] = useState(false);
   const [expandedHeight, setExpandedHeight] = useState(DEFAULT_EXPANDED_HEIGHT);
 
@@ -228,7 +227,6 @@ export function MiniCBottomPanel({ viewModel, inspector }: MiniCBottomPanelProps
     window.addEventListener("mouseup", up);
   };
 
-  const emptyHover = hoverContent.emptyContent();
   const panelHeight = expanded ? expandedHeight : COLLAPSED_HEIGHT;
 
   return (
@@ -240,24 +238,17 @@ export function MiniCBottomPanel({ viewModel, inspector }: MiniCBottomPanelProps
       <div className="bottom-resize-handle" onMouseDown={startResize} role="separator" aria-orientation="horizontal" />
       <div className="bottom-bar">
         <button className="bottom-toggle" onClick={() => setExpanded((current) => !current)} type="button">
-          {expanded ? "v" : "^"}
+          {expanded ? "-" : "+"}
         </button>
-        <span className="panel-title">{emptyHover ? "输出" : hoverContent.title}</span>
       </div>
       {expanded && (
         <div className="bottom-body">
-          {emptyHover ? (
-            <div className="hover-inspector-left">
-              {lines(["Problems", ...model.problems], "hover-inspector-line")}
-              {lines(["Output", ...model.output], "hover-inspector-line")}
-              {lines(["Terminal", ...model.terminal], "hover-inspector-line")}
-            </div>
-          ) : (
+          {!hoverContent.emptyContent() ? (
             <>
               {leftContent(hoverContent)}
               {rightContent(hoverContent)}
             </>
-          )}
+          ) : null}
         </div>
       )}
     </section>
@@ -269,9 +260,13 @@ MiniCBottomPanel.mirror = miniCBottomPanelMirror;
 export function leftContent(content: MiniCHoverInspectorContent) {
   return (
     <section className="hover-inspector-left">
-      <h2 className="hover-inspector-title">{content.title}</h2>
-      <div className="hover-inspector-meta">{lines(content.metadata, "hover-inspector-line")}</div>
-      <div className="hover-explanation-scroll">{explanationText(content.explanation)}</div>
+      <div className="hover-left-scroll">
+        <div className="hover-left-content">
+          <h2 className="hover-inspector-title">{content.title}</h2>
+          {lines(content.metadata, "hover-inspector-meta")}
+          {sourceLines(content.source, content.range)}
+        </div>
+      </div>
     </section>
   );
 }
@@ -279,22 +274,22 @@ export function leftContent(content: MiniCHoverInspectorContent) {
 export function rightContent(content: MiniCHoverInspectorContent) {
   return (
     <section className="hover-inspector-right">
-      <h2 className="hover-inspector-title">源码</h2>
-      {sourceLines(content.source, content.range)}
+      <h2 className="hover-inspector-title">说明</h2>
+      <div className="hover-explanation-scroll">{explanationText(content.explanation.length > 0 ? content.explanation : "暂无说明。")}</div>
     </section>
   );
 }
 
 export function explanationText(text: string) {
-  return <p className="hover-inspector-explanation">{text || "无解释文本"}</p>;
+  return textFlow(explanationTextHighlighter.highlight(text), "hover-inspector-explanation", false);
 }
 
 export function lines(rows: readonly string[], styleClass: string) {
   return (
-    <div>
+    <div className={styleClass}>
       {rows.map((row, index) => (
-        <p className={styleClass} key={`${row}-${index}`}>
-          {row}
+        <p className="hover-inspector-line" key={`${row}-${index}`}>
+          {row && row.trim().length > 0 ? row : " "}
         </p>
       ))}
     </div>
@@ -303,6 +298,7 @@ export function lines(rows: readonly string[], styleClass: string) {
 
 export function sourceLines(source: string, range: UiSourceSpanDto | null) {
   const rows = source.split(/\r?\n/);
+  const tokenStyles = sourceTokenStyles(source);
   let offset = 0;
   return (
     <div className="hover-source">
@@ -313,7 +309,7 @@ export function sourceLines(source: string, range: UiSourceSpanDto | null) {
         return (
           <div className="hover-source-row" key={`${index}-${row}`}>
             <span className="hover-source-line-number">{index + 1}</span>
-            <span className="hover-source-text-flow">{sourceLineText(row, lineStart, range)}</span>
+            <span className="hover-source-text-flow">{sourceLineText(row, lineStart, range, tokenStyles)}</span>
           </div>
         );
       })}
@@ -321,27 +317,61 @@ export function sourceLines(source: string, range: UiSourceSpanDto | null) {
   );
 }
 
-export function sourceLineText(line: string, lineStartOffset: number, range: UiSourceSpanDto | null) {
+export function sourceLineText(
+  line: string,
+  lineStartOffset: number,
+  range: UiSourceSpanDto | null,
+  tokenStyles: readonly SourceTokenStyle[] = [],
+) {
   return Array.from(line.length === 0 ? " " : line).map((char, index) => {
     const absolute = lineStartOffset + index;
     const masked = range !== null && absolute >= range.startOffset && absolute < range.endOffset;
+    const styleClasses = sourceStyleClasses(absolute, tokenStyles);
     return (
-      <span className={`hover-source-text${masked ? " masked" : ""}`} key={`${absolute}-${char}`}>
+      <span className={["hover-source-text", ...styleClasses, masked ? "masked" : ""].filter(Boolean).join(" ")} key={`${absolute}-${char}`}>
         {char === " " ? "\u00a0" : char}
       </span>
     );
   });
 }
 
+interface SourceTokenStyle {
+  readonly startOffset: number;
+  readonly endOffset: number;
+  readonly styleClasses: readonly string[];
+}
+
+export function sourceTokenStyles(source: string | null | undefined): readonly SourceTokenStyle[] {
+  if (source === null || source === undefined || source.trim().length === 0) {
+    return [];
+  }
+  return [];
+}
+
+export function sourceStyleClasses(absoluteOffset: number, tokenStyles: readonly SourceTokenStyle[]): readonly string[] {
+  return tokenStyles.find((style) => absoluteOffset >= style.startOffset && absoluteOffset < style.endOffset)?.styleClasses
+    ?? MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN);
+}
+
 export function lineSeparatorLength(source: string, separatorOffset: number): number {
+  if (separatorOffset >= source.length) {
+    return 0;
+  }
   if (source[separatorOffset] === "\r" && source[separatorOffset + 1] === "\n") {
     return 2;
   }
-  return source[separatorOffset] === "\n" || source[separatorOffset] === "\r" ? 1 : 0;
+  return 1;
 }
 
-export function centerSourceRangeLater(): void {
-  return undefined;
+export function centerSourceRangeLater(scrollPane: HTMLElement | null, range: UiSourceSpanDto | null, lineCount: number): void {
+  if (scrollPane === null || range === null || lineCount <= 0) {
+    return;
+  }
+  window.requestAnimationFrame(() => {
+    const lineHeight = scrollPane.scrollHeight / lineCount;
+    const targetTop = Math.max(0, (range.startLine - 1) * lineHeight - scrollPane.clientHeight / 2);
+    scrollPane.scrollTop = Math.min(targetTop, Math.max(0, scrollPane.scrollHeight - scrollPane.clientHeight));
+  });
 }
 
 export function clampHeight(height: number): number {
@@ -349,24 +379,11 @@ export function clampHeight(height: number): number {
 }
 
 export function scaled(value: number): number {
-  return value;
+  return value * uiScale();
 }
 
 export function uiScale(): number {
-  return 1;
-}
-
-function useBottomPanelSnapshot(viewModel: MiniCWorkbenchViewModel): MiniCWorkbenchSnapshot {
-  const [snapshot, setSnapshot] = useState(() => viewModel.snapshot());
-
-  useEffect(() => {
-    setSnapshot(viewModel.snapshot());
-    return viewModel.subscribe(() => {
-      setSnapshot(viewModel.snapshot());
-    });
-  }, [viewModel]);
-
-  return snapshot;
+  return MiniCSettings.uiScale();
 }
 
 function useHoverContent(inspector: MiniCHoverInspector): MiniCHoverInspectorContent {

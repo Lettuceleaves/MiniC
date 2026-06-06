@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import MiniCDebugPane from "../debug/MiniCDebugPane";
 import MiniCInfoView from "../info/MiniCInfoView";
 import MiniCBottomPanel from "../panel/MiniCBottomPanel";
+import MiniCSettingsPane from "../settings/MiniCSettingsPane";
 import MiniCSourceLoaderView from "../source/MiniCSourceLoaderView";
 import type { JavaMirrorFile } from "../translation/javaMirror";
 import MiniCVisualPane from "../visual/MiniCVisualPane";
@@ -410,7 +411,6 @@ interface ActivitySection {
   readonly id: ActivitySectionId;
   readonly iconPath: string;
   readonly title: string;
-  readonly placeholder: string;
 }
 
 interface DocumentTab {
@@ -425,27 +425,23 @@ const ACTIVITY_SECTIONS: readonly ActivitySection[] = [
     id: "CODE",
     iconPath: "M6 2 L14 2 L20 8 L20 22 L6 22 Z M14 2 L14 8 L20 8 M9 13 L17 13 M9 17 L17 17",
     title: "代码区",
-    placeholder: "在这里编辑 MiniC 源码并启动可视化管线。",
   },
   {
     id: "DEBUG",
     iconPath:
       "M8 9 A4 4 0 0 1 16 9 L16 17 A4 4 0 0 1 8 17 Z M9.2 5 L14.8 5 M10 5 L8 2 M14 5 L16 2 M4 11 L8 11 M16 11 L20 11 M4 15 L8 15 M16 15 L20 15 M6 20 L8.5 17.5 M15.5 17.5 L18 20",
     title: "调试",
-    placeholder: "调试视图",
   },
   {
     id: "SETTINGS",
     iconPath:
       "M9.7 3 L14.3 3 L14.9 4.8 L16.5 5.5 L18.2 4.7 L20.5 8.7 L19.1 9.9 L19.1 11.8 L20.5 13 L18.2 17 L16.5 16.5 L14.9 17.2 L14.3 19 L9.7 19 L9.1 17.2 L7.5 16.5 L5.8 17 L3.5 13 L4.9 11.8 L4.9 9.9 L3.5 8.7 L5.8 4.7 L7.5 5.5 L9.1 4.8 Z M12 7.6 A3.4 3.4 0 1 0 12 14.4 A3.4 3.4 0 1 0 12 7.6",
     title: "设置",
-    placeholder: "设置视图",
   },
   {
     id: "INFO",
     iconPath: "M12 2 A10 10 0 1 0 12 22 A10 10 0 1 0 12 2 M12 10 L12 17 M12 7 L12 7.1",
     title: "信息",
-    placeholder: "信息视图",
   },
 ];
 
@@ -457,17 +453,12 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   const [activeDocumentIndex, setActiveDocumentIndex] = useState(0);
   const [editingTabIndex, setEditingTabIndex] = useState<number | null>(null);
   const [editingTabName, setEditingTabName] = useState("");
-  const [uiScale, setUiScale] = useState(1);
   const activeDocument = documents[Math.min(activeDocumentIndex, Math.max(0, documents.length - 1))] ?? documents[0];
   const activeModel = activeDocument.viewModel;
 
   useEffect(() => {
     persistOpenDocuments(documents);
   }, [documents]);
-
-  useEffect(() => {
-    document.documentElement.style.setProperty("--minic-ui-scale", String(uiScale));
-  }, [uiScale]);
 
   const switchDocument = (index: number): void => {
     if (index >= 0 && index < documents.length) {
@@ -557,8 +548,6 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
         reorderDocumentTab,
         saveDocument,
         addDocument,
-        uiScale,
-        setUiScale,
       })}
       {statusBar(activeDocument, activeModel)}
     </section>
@@ -582,8 +571,6 @@ interface ShellActions {
   readonly reorderDocumentTab: (fromIndex: number, toIndex: number) => void;
   readonly saveDocument: (name?: string, source?: string) => void;
   readonly addDocument: (name: string, source: string, path?: string | null) => void;
-  readonly uiScale: number;
-  readonly setUiScale: (scale: number) => void;
 }
 
 function activityBar(activeSection: ActivitySectionId, selectActivitySection: (section: ActivitySectionId) => void) {
@@ -608,19 +595,16 @@ function activityBar(activeSection: ActivitySectionId, selectActivitySection: (s
 }
 
 function sectionContent(section: ActivitySectionId, viewModel: MiniCWorkbenchViewModel, actions: ShellActions) {
-  if (section === "CODE") {
-    return workbenchBody(viewModel, actions);
+  switch (section) {
+    case "CODE":
+      return workbenchBody(viewModel, actions);
+    case "DEBUG":
+      return <MiniCDebugPane viewModel={viewModel} sourceView={<MiniCSourceLoaderView viewModel={viewModel} />} />;
+    case "SETTINGS":
+      return settingsPage();
+    case "INFO":
+      return <MiniCInfoView />;
   }
-  if (section === "DEBUG") {
-    return <MiniCDebugPane viewModel={viewModel} sourceView={<MiniCSourceLoaderView viewModel={viewModel} />} />;
-  }
-  if (section === "SETTINGS") {
-    return settingsPage(actions);
-  }
-  if (section === "INFO") {
-    return <MiniCInfoView />;
-  }
-  return placeholderPage(ACTIVITY_SECTIONS.find((candidate) => candidate.id === section) ?? ACTIVITY_SECTIONS[0]);
 }
 
 function workbenchBody(viewModel: MiniCWorkbenchViewModel, actions: ShellActions) {
@@ -704,35 +688,10 @@ function tabs(actions: ShellActions) {
   );
 }
 
-function settingsPage(actions: ShellActions) {
+function settingsPage() {
   return (
     <main className="settings-scroll">
-      <section className="activity-placeholder">
-        <h1 className="activity-placeholder-title">设置</h1>
-        <label className="activity-placeholder-text">
-          界面比例
-          <input
-            max="1.6"
-            min="0.8"
-            onChange={(event) => actions.setUiScale(Number(event.target.value))}
-            step="0.05"
-            type="range"
-            value={actions.uiScale}
-          />
-        </label>
-        <button className="control-secondary" onClick={() => actions.setUiScale(1)} type="button">
-          重置比例
-        </button>
-      </section>
-    </main>
-  );
-}
-
-function placeholderPage(section: ActivitySection) {
-  return (
-    <main className="activity-placeholder">
-      <h1 className="activity-placeholder-title">{section.title}</h1>
-      <p className="activity-placeholder-text">{section.placeholder}</p>
+      <MiniCSettingsPane />
     </main>
   );
 }

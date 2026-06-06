@@ -481,7 +481,7 @@ export class MiniCCodeEditorModel {
   private source = "";
   private readonly localBreakpointLines = new Set<number>();
   private viewport = new MiniCTextViewportAdapter(this);
-  private breakpointChangeAction = (): void => undefined;
+  private breakpointChangeAction: (() => void) | null = null;
   private currentExecutionLine = 0;
   private currentExecutionRangeStart = -1;
   private currentExecutionRangeEnd = -1;
@@ -489,6 +489,11 @@ export class MiniCCodeEditorModel {
   private requestedScrollY = 0;
   private latestAnalysis: UiRealtimeAnalysisDto | null = null;
   private latestDiagnostics: readonly UiDiagnosticDto[] = [];
+  private horizontalScrollBarPolicy = "AS_NEEDED";
+  private verticalScrollBarPolicy = "AS_NEEDED";
+  private readonly scrollContainerStyleClasses = new Set<string>();
+  private selectionStart = 0;
+  private selectionEnd = 0;
 
   textProperty(): string {
     return this.source;
@@ -505,12 +510,16 @@ export class MiniCCodeEditorModel {
     return this.viewport;
   }
 
-  setScrollBarPolicies(): void {
-    return undefined;
+  setScrollBarPolicies(horizontalPolicy = "AS_NEEDED", verticalPolicy = "AS_NEEDED"): void {
+    this.horizontalScrollBarPolicy = horizontalPolicy;
+    this.verticalScrollBarPolicy = verticalPolicy;
   }
 
-  addScrollContainerStyleClass(): void {
-    return undefined;
+  addScrollContainerStyleClass(styleClass: string): void {
+    const trimmed = styleClass.trim();
+    if (trimmed.length > 0) {
+      this.scrollContainerStyleClasses.add(trimmed);
+    }
   }
 
   getText(): string {
@@ -521,8 +530,21 @@ export class MiniCCodeEditorModel {
     return this.source.length;
   }
 
-  selectRange(): void {
-    return undefined;
+  selectRange(start = 0, end = start): void {
+    this.selectionStart = this.safeOffset(start);
+    this.selectionEnd = this.safeOffset(end);
+  }
+
+  scrollBarPolicies(): readonly [string, string] {
+    return [this.horizontalScrollBarPolicy, this.verticalScrollBarPolicy];
+  }
+
+  scrollContainerStyleClassNames(): readonly string[] {
+    return [...this.scrollContainerStyleClasses];
+  }
+
+  selectedRange(): readonly [number, number] {
+    return [this.selectionStart, this.selectionEnd];
   }
 
   breakpointLines(): readonly number[] {
@@ -538,7 +560,7 @@ export class MiniCCodeEditorModel {
     } else {
       this.localBreakpointLines.delete(line);
     }
-    this.breakpointChangeAction();
+    this.breakpointChangeAction?.();
   }
 
   replaceBreakpoints(lines: readonly number[]): void {
@@ -559,7 +581,7 @@ export class MiniCCodeEditorModel {
     } else {
       this.localBreakpointLines.add(line);
     }
-    this.breakpointChangeAction();
+    this.breakpointChangeAction?.();
   }
 
   setBreakpointChangeAction(breakpointChangeAction: () => void): void {

@@ -510,16 +510,14 @@ export function controls(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWork
   const started = snapshot.debugStarted;
   return (
     <div className="controls debug-controls">
-      {button("开始", () => viewModel.startDebug(), true)}
-      {button("断点", () => viewModel.debugRunToBreakpoint(), started)}
-      {button("运行", () => viewModel.debugRunToEnd(), started)}
-      {button("快进", () => viewModel.debugFastForward(), started)}
-      {button("步过", () => viewModel.debugStepOver(), started)}
-      {button("步入", () => viewModel.debugStepInto(), started)}
-      {button("步出", () => viewModel.debugStepOut(), started)}
-      {button("暂停", () => viewModel.debugPause(), started)}
-      {button("重启", () => viewModel.debugRestart(), started)}
-      {button("关闭", () => viewModel.debugClose(), started)}
+      {button("从头开始", () => viewModel.startDebug(), true)}
+      {button("运行到结束", () => viewModel.debugRunToEnd(), started)}
+      {button("下个断点", () => viewModel.debugRunToBreakpoint(), started)}
+      {button("本层下一句", () => viewModel.debugStepOver(), started)}
+      {button("下一句", () => viewModel.debugStepInto(), started)}
+      {button("上个断点", () => viewModel.debugBackToBreakpoint(), started)}
+      {button("本层上一句", () => viewModel.debugStepBackOver(), started)}
+      {button("上一句", () => viewModel.debugStepBack(), started)}
     </div>
   );
 }
@@ -559,11 +557,11 @@ export function contentFor(
   formatter: MiniCDebugTextFormatter,
   sourceView?: ReactNode,
 ) {
-  if (viewId === "metadata") return metadataContent(snapshot.debugState ? metadataView(snapshot) : null);
-  if (viewId === "data") return dataContent(snapshot.debugState ? dataView(snapshot) : null);
-  if (viewId === "ast") return astContent(snapshot.debugState ? astView(snapshot) : null);
-  if (viewId === "ir") return irContent(snapshot.debugState ? irView(snapshot) : null);
-  if (viewId === "asm") return asmContent(snapshot.debugState ? asmView(snapshot) : null);
+  if (viewId === "metadata") return metadataContent(snapshot.debugMetadataView);
+  if (viewId === "data") return dataContent(snapshot.debugDataStructureView);
+  if (viewId === "ast") return astContent(snapshot.debugAstView);
+  if (viewId === "ir") return irContent(snapshot.debugIrView);
+  if (viewId === "asm") return asmContent(snapshot.debugAsmView);
   return sourceView ?? <MiniCSourceView source={snapshot.sourceText} currentState={snapshot.currentState} />;
 }
 
@@ -656,43 +654,6 @@ export function label(text: string, styleClass: string) {
       {text}
     </p>
   );
-}
-
-function metadataView(snapshot: MiniCWorkbenchSnapshot): UiDebugMetadataViewDto {
-  return {
-    rows: [
-      `source: ${snapshot.sourceName}`,
-      `line: ${snapshot.debugState?.currentLine ?? 0}`,
-      `mode: ${snapshot.debugState?.playbackMode ?? "PAUSED"}`,
-      ...((snapshot.debugState?.timeline ?? []) as readonly string[]),
-    ],
-  };
-}
-
-function dataView(snapshot: MiniCWorkbenchSnapshot): UiDebugDataStructureViewDto {
-  return {
-    title: "Process Space",
-    rows: snapshot.globalData?.executionOutputSummary ?? [],
-  };
-}
-
-function astView(snapshot: MiniCWorkbenchSnapshot): UiDebugAstViewDto {
-  return {
-    root: snapshot.astVisualData?.astRoot ?? null,
-    details: snapshot.globalData?.astSummary ?? [],
-  };
-}
-
-function irView(snapshot: MiniCWorkbenchSnapshot): UiDebugIrViewDto {
-  return {
-    lines: snapshot.codegenVisualData?.irLines ?? [],
-  };
-}
-
-function asmView(snapshot: MiniCWorkbenchSnapshot): UiDebugAsmViewDto {
-  return {
-    lines: snapshot.codegenVisualData?.assemblyLines ?? [],
-  };
 }
 
 function useDebugSnapshot(viewModel: MiniCWorkbenchViewModel): MiniCWorkbenchSnapshot {

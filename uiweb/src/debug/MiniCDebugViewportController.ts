@@ -1,4 +1,10 @@
 import type { JavaMirrorFile } from "../translation/javaMirror";
+import { MiniCGraphViewportAdapter } from "../control/MiniCGraphViewportAdapter";
+import { MiniCScrollPaneViewportAdapter } from "../control/MiniCScrollPaneViewportAdapter";
+import type { MiniCViewportAdapter } from "../control/MiniCViewportAdapter";
+import { MiniCWorkbenchControlHub } from "../control/MiniCWorkbenchControlHub";
+import { MiniCSettings } from "../settings/MiniCSettings";
+import type { ViewportPoint } from "../translation/uiTypes";
 
 export const miniCDebugViewportControllerMirror = {
   "javaPath": "src/main/java/minic/uilocal/debug/MiniCDebugViewportController.java",
@@ -138,9 +144,195 @@ export class MiniCDebugViewportController {
 
   readonly mirror = miniCDebugViewportControllerMirror;
 
-  summary(): string {
-    return `MiniCDebugViewportController: ${this.mirror.methods.length} methods, ${this.mirror.fields.length} fields`;
+  private readonly graphAdapters = new WeakMap<HTMLElement, MiniCGraphViewportAdapter>();
+  private readonly scrollAdapters = new WeakMap<HTMLElement, MiniCScrollPaneViewportAdapter>();
+  private astZoomValue: number;
+
+  constructor(
+    private readonly controlHub = new MiniCWorkbenchControlHub(),
+    astZoom = 1,
+  ) {
+    this.astZoomValue = astZoom;
+  }
+
+  configureAstGraphViewport(graphViewport: HTMLElement, zoomContent: HTMLElement, baseWidth: number, baseHeight: number): void {
+    graphZoomContentMap.set(graphViewport, zoomContent);
+    this.resizeGraphViewport(graphViewport, baseWidth, baseHeight, this.astZoomValue);
+    this.configureAstWheelZoom(graphViewport);
+    this.configureAstDrag(graphViewport);
+    this.installGraphAdapterLater(graphViewport);
+  }
+
+  configureAstWheelZoom(graphViewport: HTMLElement): void {
+    graphViewport.addEventListener("wheel", (event) => {
+      if (event.deltaY === 0) {
+        return;
+      }
+      const delta = event.deltaY < 0 ? this.graphZoomStep() : -this.graphZoomStep();
+      const adapter = this.graphViewportAdapter(graphViewport);
+      if (adapter === null) {
+        this.setAstZoom(this.astZoomValue + delta);
+      } else {
+        this.controlHub.viewportRegistry().businessActive(adapter);
+        adapter.zoomAt(this.graphZoomPoint(graphViewport, event.offsetX, event.offsetY), delta);
+      }
+      event.preventDefault();
+    });
+  }
+
+  configureAstDrag(graphViewport: HTMLElement): void {
+    let start: { readonly x: number; readonly y: number } | null = null;
+    graphViewport.addEventListener("mousedown", (event) => {
+      if (event.button !== 2) {
+        return;
+      }
+      start = { x: event.screenX, y: event.screenY };
+      event.preventDefault();
+    });
+    graphViewport.addEventListener("mousemove", (event) => {
+      if (start === null || event.buttons !== 2) {
+        return;
+      }
+      const adapter = this.graphViewportAdapter(graphViewport);
+      if (adapter !== null) {
+        this.controlHub.viewportRegistry().businessActive(adapter);
+        adapter.pan(start.x - event.screenX, start.y - event.screenY);
+      }
+      start = { x: event.screenX, y: event.screenY };
+      event.preventDefault();
+    });
+  }
+
+  installGraphAdapterLater(graphViewport: HTMLElement): void {
+    window.requestAnimationFrame(() => this.graphViewportAdapter(graphViewport));
+  }
+
+  graphViewportAdapter(graphViewport: HTMLElement): MiniCGraphViewportAdapter | null {
+    const existing = this.graphAdapters.get(graphViewport);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const scrollPane = this.nearestScrollPane(graphViewport);
+    if (scrollPane === null) {
+      return null;
+    }
+    const adapter = new MiniCGraphViewportAdapter(scrollPane, this.graphZoomContent(graphViewport), (_point, delta) => {
+      this.setAstZoom(this.astZoomValue + delta);
+    });
+    this.graphAdapters.set(graphViewport, adapter);
+    this.controlHub.installViewportTarget(graphViewport, adapter);
+    return adapter;
+  }
+
+  installScrollViewportTarget(scrollPane: HTMLElement): void {
+    const adapter = this.scrollPaneViewportAdapter(scrollPane);
+    this.controlHub.installViewportTarget(scrollPane, adapter);
+  }
+
+  scrollPaneViewportAdapter(scrollPane: HTMLElement): MiniCScrollPaneViewportAdapter {
+    const existing = this.scrollAdapters.get(scrollPane);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const adapter = new MiniCScrollPaneViewportAdapter(scrollPane);
+    this.scrollAdapters.set(scrollPane, adapter);
+    return adapter;
+  }
+
+  activeViewportAdapters(root: HTMLElement, sourceAdapter: MiniCViewportAdapter): readonly MiniCViewportAdapter[] {
+    const adapters: MiniCViewportAdapter[] = [sourceAdapter];
+    this.collectScrollViewportAdapters(root, adapters);
+    this.collectGraphViewportAdapters(root, adapters);
+    return adapters;
+  }
+
+  collectScrollViewportAdapters(node: HTMLElement, adapters: MiniCViewportAdapter[]): void {
+    const adapter = this.scrollAdapters.get(node);
+    if (adapter !== undefined) {
+      adapters.push(adapter);
+    }
+    node.querySelectorAll<HTMLElement>("*").forEach((child) => {
+      const childAdapter = this.scrollAdapters.get(child);
+      if (childAdapter !== undefined) {
+        adapters.push(childAdapter);
+      }
+    });
+  }
+
+  collectGraphViewportAdapters(node: HTMLElement, adapters: MiniCViewportAdapter[]): void {
+    const adapter = this.graphAdapters.get(node);
+    if (adapter !== undefined) {
+      adapters.push(adapter);
+    }
+    node.querySelectorAll<HTMLElement>("*").forEach((child) => {
+      const childAdapter = this.graphAdapters.get(child);
+      if (childAdapter !== undefined) {
+        adapters.push(childAdapter);
+      }
+    });
+  }
+
+  nearestScrollPane(node: HTMLElement): HTMLElement | null {
+    let parent = node.parentElement;
+    while (parent !== null) {
+      if (parent.scrollHeight > parent.clientHeight || parent.scrollWidth > parent.clientWidth) {
+        return parent;
+      }
+      parent = parent.parentElement;
+    }
+    return null;
+  }
+
+  graphZoomPoint(graphViewport: HTMLElement, localX: number, localY: number): ViewportPoint {
+    if (MiniCSettings.graphZoomAnchoredAtMouse()) {
+      return { x: localX, y: localY };
+    }
+    const scrollPane = this.nearestScrollPane(graphViewport);
+    if (scrollPane === null) {
+      return { x: localX, y: localY };
+    }
+    return this.graphLocalPointFromViewportPoint(this.graphZoomContent(graphViewport), scrollPane, {
+      x: scrollPane.clientWidth / 2,
+      y: scrollPane.clientHeight / 2,
+    });
+  }
+
+  graphLocalPointFromViewportPoint(zoomContent: HTMLElement, scrollPane: HTMLElement, viewportPoint: ViewportPoint): ViewportPoint {
+    const contentRect = zoomContent.getBoundingClientRect();
+    const scrollRect = scrollPane.getBoundingClientRect();
+    return {
+      x: scrollPane.scrollLeft + viewportPoint.x + scrollRect.left - contentRect.left,
+      y: scrollPane.scrollTop + viewportPoint.y + scrollRect.top - contentRect.top,
+    };
+  }
+
+  graphZoomContent(graphViewport: HTMLElement): HTMLElement {
+    return graphZoomContentMap.get(graphViewport) ?? graphViewport;
+  }
+
+  resizeGraphViewport(graphViewport: HTMLElement, baseWidth: number, baseHeight: number, zoom: number): void {
+    graphViewport.style.minWidth = `${Math.max(1, baseWidth * zoom)}px`;
+    graphViewport.style.minHeight = `${Math.max(1, baseHeight * zoom)}px`;
+  }
+
+  setAstZoom(value: number): void {
+    this.astZoomValue = Math.max(0.05, Math.min(1, value));
+  }
+
+  graphZoomStep(): number {
+    return MiniCSettings.graphZoomStep();
+  }
+
+  visibleMin(value: number, min: number, max: number, contentMin: number, contentSize: number, viewportSize: number): number {
+    const maxOffset = Math.max(0, contentSize - viewportSize);
+    return max <= min ? contentMin : contentMin + this.clamp((value - min) / (max - min)) * maxOffset;
+  }
+
+  clamp(value: number): number {
+    return Math.max(0, Math.min(1, value));
   }
 }
+
+const graphZoomContentMap = new WeakMap<HTMLElement, HTMLElement>();
 
 export default MiniCDebugViewportController;

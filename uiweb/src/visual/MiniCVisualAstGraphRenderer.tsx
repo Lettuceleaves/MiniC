@@ -1,6 +1,8 @@
 import type { JavaMirrorFile } from "../translation/javaMirror";
 import type { UiAstNodeVisualDto, UiSemanticScopeVisualDto, UiStageVisualDto } from "../translation/uiapi";
+import type { MiniCAstGraphModel } from "./MiniCAstGraphModel";
 import { MiniCAstGraphModelFactory } from "./MiniCAstGraphModelFactory";
+import type { MiniCAstGraphNode } from "./MiniCAstGraphNode";
 
 export const miniCVisualAstGraphRendererMirror = {
   "javaPath": "src/main/java/minic/uilocal/visual/MiniCVisualAstGraphRenderer.java",
@@ -240,9 +242,11 @@ export function MiniCVisualAstGraphRenderer({
   semanticMasks = false,
   zoom = 1,
   onAstNodeSelect,
+  selectedSemanticScopeId,
+  onSemanticScopeSelect,
 }: MiniCVisualAstGraphRendererProps) {
   if (!visual?.astRoot) {
-    return emptyPane("暂无 AST 图");
+    return emptyPane("AST 尚未就绪");
   }
   const root = visual.astRoot;
   const model = astGraphModelFactory.create(visual);
@@ -256,10 +260,12 @@ export function MiniCVisualAstGraphRenderer({
         role="img"
         aria-label="MiniC AST graph"
       >
-        {semanticMasks && visual.semanticRoot ? addSemanticScopeMasks(visual.semanticRoot) : null}
+        {semanticMasks && visual.semanticRoot
+          ? addSemanticScopeMasks(visual.semanticRoot, model, root, selectedSemanticScopeId, onSemanticScopeSelect)
+          : null}
         {model.edges.map((edge) => (
           <line
-            className={`ast-edge${edge.hot ? " active" : ""}`}
+            className={`ast-edge${edge.hot ? " hot" : ""}`}
             key={`${edge.fromId}-${edge.toId}`}
             x1={edge.fromX}
             x2={edge.toX}
@@ -275,7 +281,7 @@ export function MiniCVisualAstGraphRenderer({
                 className={`ast-graph-node${node.root ? " root" : ""}${node.leaf ? " leaf" : ""}${node.active ? " active" : ""}`}
                 cx={node.x}
                 cy={node.y}
-                r={28}
+                r={node.root ? 30 : node.leaf ? 22 : 26}
               />
               <text className="ast-graph-label" textAnchor="middle" x={node.x} y={node.y + 4}>
                 {shortLabel(node.label)}
@@ -298,26 +304,50 @@ export function semanticAstGraph(visual: UiStageVisualDto | null) {
   return <MiniCVisualAstGraphRenderer semanticMasks visual={visual} />;
 }
 
-export function addSemanticScopeMasks(root: UiSemanticScopeVisualDto) {
-  const scopes = flattenScopes(root).slice(0, 4);
-  return scopes.map((entry, index) => (
-    <rect
-      className={`semantic-graph-scope-mask-${index % 4}${entry.scope.active ? " active-scope-mask" : ""}`}
-      height={42 + entry.depth * 16}
-      key={entry.scope.id}
-      width={160 + entry.depth * 24}
-      x={24 + index * 26}
-      y={24 + index * 20}
-    />
-  ));
+export function addSemanticScopeMasks(
+  root: UiSemanticScopeVisualDto,
+  graph: MiniCAstGraphModel,
+  astRoot: UiAstNodeVisualDto,
+  selectedSemanticScopeId?: string,
+  onSemanticScopeSelect?: (scopeId: string) => void,
+) {
+  return flattenScopes(root).map((entry) => {
+    if (!entry.scope.range) {
+      return null;
+    }
+    const bounds = scopeBounds(entry.scope.range, graph, astRoot);
+    if (!bounds) {
+      return null;
+    }
+    const className = [
+      `semantic-graph-scope-mask-${entry.depth % 4}`,
+      entry.scope.active ? "active-scope-mask" : "",
+      entry.scope.id === selectedSemanticScopeId ? "selected-scope-mask" : "",
+    ].filter(Boolean).join(" ");
+    return (
+      <rect
+        className={className}
+        height={bounds.height + 68}
+        key={entry.scope.id}
+        onClick={(event) => {
+          onSemanticScopeSelect?.(entry.scope.id);
+          event.stopPropagation();
+        }}
+        width={bounds.width + 68}
+        x={bounds.x - 34}
+        y={bounds.y - 34}
+      />
+    );
+  });
 }
 
 export function emptyPane(message: string) {
-  return <div className="visual-canvas">{message}</div>;
+  return <div className="ast-graph"><span className="body-text">{message}</span></div>;
 }
 
 export function shortLabel(label: string): string {
-  return label.length <= 18 ? label : `${label.slice(0, 15)}...`;
+  const compact = label.replaceAll("\n", " ").trim();
+  return compact.length <= 10 ? compact : `${compact.slice(0, 9)}...`;
 }
 
 interface ScopeEntry {
@@ -335,8 +365,52 @@ export function flattenScopes(root: UiSemanticScopeVisualDto): readonly ScopeEnt
   return scopes;
 }
 
-export function contains(outer: { startOffset: number; endOffset: number }, inner: { startOffset: number; endOffset: number }): boolean {
-  return outer.startOffset <= inner.startOffset && outer.endOffset >= inner.endOffset;
+interface BoundsBox {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export function scopeBounds(
+  scopeRange: { sourceName: string; startOffset: number; endOffset: number },
+  graph: MiniCAstGraphModel,
+  root: UiAstNodeVisualDto,
+): BoundsBox | null {
+  const covered: MiniCAstGraphNode[] = [];
+  collectCoveredGraphNodes(scopeRange, root, graph, covered);
+  if (covered.length === 0) {
+    return null;
+  }
+  const minX = Math.min(...covered.map((node) => node.x));
+  const maxX = Math.max(...covered.map((node) => node.x));
+  const minY = Math.min(...covered.map((node) => node.y));
+  const maxY = Math.max(...covered.map((node) => node.y));
+  return { x: minX, y: minY, width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY) };
+}
+
+export function collectCoveredGraphNodes(
+  scopeRange: { sourceName: string; startOffset: number; endOffset: number },
+  astNode: UiAstNodeVisualDto,
+  graph: MiniCAstGraphModel,
+  covered: MiniCAstGraphNode[],
+): void {
+  if (astNode.range && contains(scopeRange, astNode.range)) {
+    const graphNode = graph.nodes.find((node) => node.id === astNode.id);
+    if (graphNode) {
+      covered.push(graphNode);
+    }
+  }
+  astNode.children.forEach((child) => collectCoveredGraphNodes(scopeRange, child, graph, covered));
+}
+
+export function contains(
+  outer: { sourceName: string; startOffset: number; endOffset: number },
+  inner: { sourceName: string; startOffset: number; endOffset: number },
+): boolean {
+  return outer.sourceName === inner.sourceName
+    && outer.startOffset <= inner.startOffset
+    && outer.endOffset >= inner.endOffset;
 }
 
 export function astNodeById(node: UiAstNodeVisualDto, id: string): UiAstNodeVisualDto | null {

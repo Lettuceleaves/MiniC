@@ -277,7 +277,7 @@ export const miniCKeyBindingConfigMirror = {
 export class MiniCKeyBindingConfig {
   static readonly mirror = miniCKeyBindingConfigMirror;
 
-  static activeBindings: readonly KeyBinding[] = loadBindings();
+  static activeBindings: readonly KeyBinding[] = [];
 
   readonly mirror = miniCKeyBindingConfigMirror;
 
@@ -876,5 +876,7 @@ function isWheelEvent(event: MiniCInputEvent): event is WheelEvent {
 function listEquals(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
+
+MiniCKeyBindingConfig.activeBindings = loadBindings();
 
 export default MiniCKeyBindingConfig;

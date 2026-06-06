@@ -1,5 +1,6 @@
 import type { JavaMirrorFile } from "../translation/javaMirror";
 import type { UiControlResultDto } from "../translation/uiapi";
+import { MiniCSamplePrograms } from "../editor/MiniCSamplePrograms";
 import type { MiniCWorkbenchViewModel } from "./MiniCWorkbenchViewModel";
 
 export const miniCWorkbenchControllerMirror = {
@@ -42,7 +43,8 @@ export class MiniCWorkbenchController {
   constructor(private readonly viewModel: MiniCWorkbenchViewModel) {}
 
   startDefaultSession(): void {
-    this.viewModel.loadSource(DEFAULT_SAMPLE.name, DEFAULT_SAMPLE.source);
+    const sample = MiniCSamplePrograms.defaultSample();
+    this.viewModel.loadSource(sample.name, sample.source);
     this.viewModel.startSession();
   }
 
@@ -58,10 +60,5 @@ export class MiniCWorkbenchController {
     return `MiniCWorkbenchController: ${this.mirror.methods.length} methods, ${this.mirror.fields.length} fields`;
   }
 }
-
-const DEFAULT_SAMPLE = {
-  name: "hello.mc",
-  source: ["int main() {", "  return 0;", "}"].join("\n"),
-} as const;
 
 export default MiniCWorkbenchController;

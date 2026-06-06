@@ -67,7 +67,7 @@ export class MiniCAstGraphModelFactory {
       for (const child of node.children) {
         const childPosition = positionedById.get(child.id);
         if (!childPosition) {
-          continue;
+          throw new Error(`missing AST graph position for node ${child.id}`);
         }
         edges.push(new MiniCAstGraphEdge(
           node.id,
@@ -76,7 +76,7 @@ export class MiniCAstGraphModelFactory {
           positionedNode.y + NODE_RADIUS,
           childPosition.x,
           childPosition.y - NODE_RADIUS,
-          this.containsActive(child),
+          false,
         ));
       }
     }
@@ -120,10 +120,6 @@ export class MiniCAstGraphModelFactory {
     const right = LEFT_PAD + (nextLeaf.value - 1) * X_GAP;
     positioned.push({ node, depth, x: (left + right) / 2, y: TOP_PAD + depth * Y_GAP });
     return leaves;
-  }
-
-  private containsActive(node: UiAstNodeVisualDto): boolean {
-    return node.active || node.children.some((child) => this.containsActive(child));
   }
 }
 

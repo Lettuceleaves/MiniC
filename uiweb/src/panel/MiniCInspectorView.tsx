@@ -143,10 +143,6 @@ export function MiniCInspectorView({ viewModel }: MiniCInspectorViewProps) {
 
 MiniCInspectorView.mirror = miniCInspectorViewMirror;
 
-export function refresh(): void {
-  return undefined;
-}
-
 export function controls(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWorkbenchSnapshot) {
   return (
     <div className="controls inspector-controls">
@@ -184,10 +180,6 @@ export function body(title: string, text: string) {
       <pre className="body-text">{text}</pre>
     </section>
   );
-}
-
-export function setBody(): void {
-  return undefined;
 }
 
 export function label(text: string, styleClass: string) {

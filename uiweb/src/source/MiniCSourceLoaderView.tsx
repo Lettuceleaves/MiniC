@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { MiniCCodeEditor } from "../editor/MiniCCodeEditor";
-import type { MiniCViewportAdapter } from "../control/MiniCViewportAdapter";
-import type { MiniCWorkbenchControlHub } from "../control/MiniCWorkbenchControlHub";
 import type { JavaMirrorFile } from "../translation/javaMirror";
-import type { UiSourceSpanDto } from "../translation/uiapi";
 import type { UiRealtimeAnalysisDto as EditorRealtimeAnalysisDto } from "../translation/uiTypes";
 import type { MiniCWorkbenchSnapshot, MiniCWorkbenchViewModel } from "../workbench/MiniCWorkbenchViewModel";
 
@@ -181,7 +178,7 @@ export function MiniCSourceLoaderView({
     <section className={`source-loader ${className}`.trim()} data-java-source={miniCSourceLoaderViewMirror.javaPath}>
       <div className="loader-controls">
         <button className="control-primary" type="button" onClick={startSession}>
-          启动
+          开始
         </button>
         <button className="control-secondary" type="button" onClick={openAction}>
           打开
@@ -227,26 +224,6 @@ export function setBreakpoint(viewModel: MiniCWorkbenchViewModel, line: number, 
   } else {
     viewModel.clearDebugBreakpoint(line);
   }
-}
-
-export function setCurrentExecutionLine(): void {
-  return undefined;
-}
-
-export function setCurrentExecutionRange(_range: UiSourceSpanDto | null): void {
-  return undefined;
-}
-
-export function viewportAdapter(): MiniCViewportAdapter | null {
-  return null;
-}
-
-export function installViewportTarget(_controlHub: MiniCWorkbenchControlHub): void {
-  return undefined;
-}
-
-export function usePersistentEditorScrollBars(_scrollStyleClass: string): void {
-  return undefined;
 }
 
 export function submitRealtimeSource(viewModel: MiniCWorkbenchViewModel): void {
