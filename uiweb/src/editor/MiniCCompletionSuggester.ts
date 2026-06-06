@@ -8,36 +8,36 @@ export const miniCCompletionSuggesterMirror = {
   "exportName": "MiniCCompletionSuggester",
   "kind": "class",
   "imports": [
-    "minic.uiapi.UiLexerTokenVisualDto",
     "java.util.LinkedHashSet",
     "java.util.List",
     "java.util.Locale",
     "java.util.Set",
     "java.util.regex.Matcher",
-    "java.util.regex.Pattern"
+    "java.util.regex.Pattern",
+    "minic.uiapi.UiLexerTokenVisualDto"
   ],
   "fields": [
     {
-      "name": "KEYWORDS",
-      "signature": "private static final List<String> KEYWORDS ="
-    },
-    {
       "name": "COMMON_EXTERNALS",
-      "signature": "private static final List<String> COMMON_EXTERNALS ="
-    },
-    {
-      "name": "IDENTIFIER_PATTERN",
-      "signature": "private static final Pattern IDENTIFIER_PATTERN ="
+      "signature": "private static final List<String>COMMON_EXTERNALS="
     },
     {
       "name": "DECLARED_NAME_PATTERN",
-      "signature": "private static final Pattern DECLARED_NAME_PATTERN ="
+      "signature": "private static final Pattern DECLARED_NAME_PATTERN="
+    },
+    {
+      "name": "IDENTIFIER_PATTERN",
+      "signature": "private static final Pattern IDENTIFIER_PATTERN="
+    },
+    {
+      "name": "KEYWORDS",
+      "signature": "private static final List<String>KEYWORDS="
     }
   ],
   "methods": [
     {
       "name": "extractDeclaredNames",
-      "signature": "extractDeclaredNames(String source, List<UiLexerTokenVisualDto> tokens)"
+      "signature": "extractDeclaredNames(String source,List<UiLexerTokenVisualDto>tokens)"
     }
   ]
 } as const satisfies JavaMirrorFile;

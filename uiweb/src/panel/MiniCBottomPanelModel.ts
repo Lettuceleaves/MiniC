@@ -11,12 +11,7 @@ export const miniCBottomPanelModelMirror = {
     "java.util.Objects"
   ],
   "fields": [],
-  "methods": [
-    {
-      "name": "MiniCBottomPanelModel",
-      "signature": "MiniCBottomPanelModel(List<String> problems, List<String> output, List<String> terminal)"
-    }
-  ]
+  "methods": []
 } as const satisfies JavaMirrorFile;
 
 export class MiniCBottomPanelModel {

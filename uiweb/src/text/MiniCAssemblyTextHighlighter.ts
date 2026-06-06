@@ -11,13 +11,47 @@ export const miniCAssemblyTextHighlighterMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCAssemblyTextHighlighter",
   kind: "class",
-  imports: ["java.util.ArrayList", "java.util.List", "java.util.Set"],
-  fields: [
-    { name: "MNEMONICS", signature: "private static final Set<String> MNEMONICS =" },
-    { name: "REGISTERS", signature: "private static final Set<String> REGISTERS =" },
-    { name: "DIRECTIVES", signature: "private static final Set<String> DIRECTIVES =" },
+  imports: [
+    "java.util.ArrayList",
+    "java.util.List",
+    "java.util.Set"
   ],
-  methods: [{ name: "highlight", signature: "highlight(String line)" }],
+  fields: [
+    {
+      "name": "DIRECTIVES",
+      "signature": "private static final Set<String>DIRECTIVES="
+    },
+    {
+      "name": "MNEMONICS",
+      "signature": "private static final Set<String>MNEMONICS="
+    },
+    {
+      "name": "REGISTERS",
+      "signature": "private static final Set<String>REGISTERS="
+    }
+  ],
+  methods: [
+    {
+      "name": "highlight",
+      "signature": "highlight(String line)"
+    },
+    {
+      "name": "isIdentifier",
+      "signature": "isIdentifier(String token)"
+    },
+    {
+      "name": "isNumber",
+      "signature": "isNumber(String token)"
+    },
+    {
+      "name": "roleFor",
+      "signature": "roleFor(String token,int startOffset,String fullLine)"
+    },
+    {
+      "name": "startsLabel",
+      "signature": "startsLabel(String token,int startOffset,String fullLine)"
+    }
+  ],
 } as const satisfies JavaMirrorFile;
 
 const MNEMONICS = new Set([

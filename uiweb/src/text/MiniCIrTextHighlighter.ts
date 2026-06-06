@@ -11,9 +11,34 @@ export const miniCIrTextHighlighterMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCIrTextHighlighter",
   kind: "class",
-  imports: ["java.util.List", "java.util.Set"],
-  fields: [{ name: "KEYWORDS", signature: "private static final Set<String> KEYWORDS =" }],
-  methods: [{ name: "highlight", signature: "highlight(String line)" }],
+  imports: [
+    "java.util.List",
+    "java.util.Set"
+  ],
+  fields: [
+    {
+      "name": "KEYWORDS",
+      "signature": "private static final Set<String>KEYWORDS="
+    }
+  ],
+  methods: [
+    {
+      "name": "highlight",
+      "signature": "highlight(String line)"
+    },
+    {
+      "name": "isIdentifier",
+      "signature": "isIdentifier(String token)"
+    },
+    {
+      "name": "isNumber",
+      "signature": "isNumber(String token)"
+    },
+    {
+      "name": "roleFor",
+      "signature": "roleFor(String token,int startOffset,String fullLine)"
+    }
+  ],
 } as const satisfies JavaMirrorFile;
 
 const KEYWORDS = new Set([

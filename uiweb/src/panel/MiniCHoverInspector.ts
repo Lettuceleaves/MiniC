@@ -8,18 +8,22 @@ export const miniCHoverInspectorMirror = {
   "exportName": "MiniCHoverInspector",
   "kind": "class",
   "imports": [
+    "java.util.Objects",
     "javafx.beans.property.ObjectProperty",
     "javafx.beans.property.ReadOnlyObjectProperty",
-    "javafx.beans.property.SimpleObjectProperty",
-    "java.util.Objects"
+    "javafx.beans.property.SimpleObjectProperty"
   ],
   "fields": [
     {
       "name": "content",
-      "signature": "private final ObjectProperty<MiniCHoverInspectorContent> content ="
+      "signature": "private final ObjectProperty<MiniCHoverInspectorContent>content="
     }
   ],
   "methods": [
+    {
+      "name": "clear",
+      "signature": "clear()"
+    },
     {
       "name": "contentProperty",
       "signature": "contentProperty()"
@@ -27,10 +31,6 @@ export const miniCHoverInspectorMirror = {
     {
       "name": "show",
       "signature": "show(MiniCHoverInspectorContent content)"
-    },
-    {
-      "name": "clear",
-      "signature": "clear()"
     }
   ]
 } as const satisfies JavaMirrorFile;

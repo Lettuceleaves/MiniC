@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { MiniCRealtimeAnalysisHttpAdapter } from "../api/MiniCRealtimeAnalysisHttpAdapter";
 import type { JavaMirrorFile } from "../translation/javaMirror";
-import type { UiSourceSpanDto } from "../translation/uiapi";
+import type { UiLexerTokenVisualDto, UiSourceSpanDto } from "../translation/uiapi";
 import { MiniCSettings } from "../settings/MiniCSettings";
 import { MiniCExplanationTextHighlighter } from "../text/MiniCExplanationTextHighlighter";
+import { MiniCSyntaxTextStyleMapper } from "../text/MiniCSyntaxTextStyleMapper";
 import { textFlow } from "../text/MiniCTextFlowFactory";
 import { MiniCTextStyleRole } from "../text/MiniCTextStyleRole";
 import { MiniCTextStyles } from "../text/MiniCTextStyles";
@@ -17,6 +19,11 @@ export const miniCBottomPanelMirror = {
   "exportName": "MiniCBottomPanel",
   "kind": "component",
   "imports": [
+    "java.util.ArrayList",
+    "java.util.Collection",
+    "java.util.Comparator",
+    "java.util.List",
+    "java.util.Objects",
     "javafx.application.Platform",
     "javafx.scene.Cursor",
     "javafx.scene.control.Button",
@@ -28,164 +35,162 @@ export const miniCBottomPanelMirror = {
     "javafx.scene.layout.Region",
     "javafx.scene.layout.VBox",
     "javafx.scene.text.TextFlow",
-    "minic.compiler.lexer.Lexer",
-    "minic.compiler.lexer.Token",
+    "minic.settings.MiniCSettings",
+    "minic.uiapi.MiniCRealtimeAnalysisApi",
+    "minic.uiapi.UiLexerTokenVisualDto",
+    "minic.uiapi.UiSourceSpanDto",
     "minic.uilocal.text.MiniCExplanationTextHighlighter",
     "minic.uilocal.text.MiniCSyntaxTextStyleMapper",
     "minic.uilocal.text.MiniCTextFlowFactory",
     "minic.uilocal.text.MiniCTextStyleRole",
-    "minic.uilocal.text.MiniCTextStyles",
-    "minic.uiapi.UiSourceSpanDto",
-    "minic.source.SourceFile",
-    "minic.settings.MiniCSettings",
-    "java.util.ArrayList",
-    "java.util.Collection",
-    "java.util.Comparator",
-    "java.util.List",
-    "java.util.Objects"
+    "minic.uilocal.text.MiniCTextStyles"
   ],
   "fields": [
     {
+      "name": "body",
+      "signature": "private final HBox body="
+    },
+    {
       "name": "COLLAPSED_HEIGHT",
-      "signature": "private static final double COLLAPSED_HEIGHT ="
+      "signature": "private static final double COLLAPSED_HEIGHT="
     },
     {
       "name": "DEFAULT_EXPANDED_HEIGHT",
-      "signature": "private static final double DEFAULT_EXPANDED_HEIGHT ="
-    },
-    {
-      "name": "MIN_EXPANDED_HEIGHT",
-      "signature": "private static final double MIN_EXPANDED_HEIGHT ="
-    },
-    {
-      "name": "MAX_EXPANDED_HEIGHT",
-      "signature": "private static final double MAX_EXPANDED_HEIGHT ="
-    },
-    {
-      "name": "DRAG_START_Y_KEY",
-      "signature": "private static final String DRAG_START_Y_KEY ="
+      "signature": "private static final double DEFAULT_EXPANDED_HEIGHT="
     },
     {
       "name": "DRAG_START_HEIGHT_KEY",
-      "signature": "private static final String DRAG_START_HEIGHT_KEY ="
+      "signature": "private static final String DRAG_START_HEIGHT_KEY="
     },
     {
-      "name": "inspector",
-      "signature": "private final MiniCHoverInspector inspector;"
-    },
-    {
-      "name": "explanationTextHighlighter",
-      "signature": "private final MiniCExplanationTextHighlighter explanationTextHighlighter ="
-    },
-    {
-      "name": "syntaxTextStyleMapper",
-      "signature": "private final MiniCSyntaxTextStyleMapper syntaxTextStyleMapper ="
-    },
-    {
-      "name": "resizeHandle",
-      "signature": "private final Region resizeHandle ="
-    },
-    {
-      "name": "body",
-      "signature": "private final HBox body ="
-    },
-    {
-      "name": "toggle",
-      "signature": "private final Button toggle ="
-    },
-    {
-      "name": "uiScaleChangeListener",
-      "signature": "private final Runnable uiScaleChangeListener ="
-    },
-    {
-      "name": "expandedHeight",
-      "signature": "private double expandedHeight ="
+      "name": "DRAG_START_Y_KEY",
+      "signature": "private static final String DRAG_START_Y_KEY="
     },
     {
       "name": "expanded",
-      "signature": "private boolean expanded;"
+      "signature": "private boolean expanded"
+    },
+    {
+      "name": "expandedHeight",
+      "signature": "private double expandedHeight="
+    },
+    {
+      "name": "explanationTextHighlighter",
+      "signature": "private final MiniCExplanationTextHighlighter explanationTextHighlighter="
+    },
+    {
+      "name": "inspector",
+      "signature": "private final MiniCHoverInspector inspector"
+    },
+    {
+      "name": "MAX_EXPANDED_HEIGHT",
+      "signature": "private static final double MAX_EXPANDED_HEIGHT="
+    },
+    {
+      "name": "MIN_EXPANDED_HEIGHT",
+      "signature": "private static final double MIN_EXPANDED_HEIGHT="
+    },
+    {
+      "name": "realtimeAnalysisApi",
+      "signature": "private final MiniCRealtimeAnalysisApi realtimeAnalysisApi="
+    },
+    {
+      "name": "resizeHandle",
+      "signature": "private final Region resizeHandle="
+    },
+    {
+      "name": "syntaxTextStyleMapper",
+      "signature": "private final MiniCSyntaxTextStyleMapper syntaxTextStyleMapper="
+    },
+    {
+      "name": "toggle",
+      "signature": "private final Button toggle="
+    },
+    {
+      "name": "uiScaleChangeListener",
+      "signature": "private final Runnable uiScaleChangeListener="
     }
   ],
   "methods": [
     {
-      "name": "render",
-      "signature": "render(MiniCHoverInspectorContent content)"
-    },
-    {
-      "name": "leftContent",
-      "signature": "leftContent(MiniCHoverInspectorContent content)"
-    },
-    {
-      "name": "rightContent",
-      "signature": "rightContent(MiniCHoverInspectorContent content)"
-    },
-    {
-      "name": "explanationText",
-      "signature": "explanationText(String text)"
-    },
-    {
-      "name": "lines",
-      "signature": "lines(List<String> rows, String styleClass)"
-    },
-    {
-      "name": "sourceLines",
-      "signature": "sourceLines(String source, UiSourceSpanDto range)"
-    },
-    {
-      "name": "sourceLineText",
-      "signature": "sourceLineText(String line, int lineStartOffset, UiSourceSpanDto range, List<SourceTokenStyle> tokenStyles)"
-    },
-    {
-      "name": "sourceChar",
-      "signature": "sourceChar(String text, Collection<String> textStyleClasses)"
-    },
-    {
-      "name": "sourceTokenStyles",
-      "signature": "sourceTokenStyles(String source)"
-    },
-    {
-      "name": "sourceTokenStyle",
-      "signature": "sourceTokenStyle(Token token)"
-    },
-    {
-      "name": "sourceStyleClasses",
-      "signature": "sourceStyleClasses(int absoluteOffset, List<SourceTokenStyle> tokenStyles)"
-    },
-    {
-      "name": "SourceTokenStyle",
-      "signature": "SourceTokenStyle(int startOffset, int endOffset, Collection<String> styleClasses)"
-    },
-    {
-      "name": "lineSeparatorLength",
-      "signature": "lineSeparatorLength(String source, int separatorOffset)"
-    },
-    {
-      "name": "centerSourceRangeLater",
-      "signature": "centerSourceRangeLater(ScrollPane scrollPane, UiSourceSpanDto range, int lineCount)"
-    },
-    {
-      "name": "configureResizeHandle",
-      "signature": "configureResizeHandle()"
-    },
-    {
-      "name": "setExpanded",
-      "signature": "setExpanded(boolean expanded)"
-    },
-    {
       "name": "applyHeight",
       "signature": "applyHeight()"
-    },
-    {
-      "name": "clampHeight",
-      "signature": "clampHeight(double height)"
     },
     {
       "name": "applyHeightOnFxThread",
       "signature": "applyHeightOnFxThread()"
     },
     {
+      "name": "centerSourceRangeLater",
+      "signature": "centerSourceRangeLater(ScrollPane scrollPane,UiSourceSpanDto range,int lineCount)"
+    },
+    {
+      "name": "clampHeight",
+      "signature": "clampHeight(double height)"
+    },
+    {
+      "name": "configureResizeHandle",
+      "signature": "configureResizeHandle()"
+    },
+    {
+      "name": "explanationText",
+      "signature": "explanationText(String text)"
+    },
+    {
+      "name": "leftContent",
+      "signature": "leftContent(MiniCHoverInspectorContent content)"
+    },
+    {
+      "name": "lines",
+      "signature": "lines(List<String>rows,String styleClass)"
+    },
+    {
+      "name": "lineSeparatorLength",
+      "signature": "lineSeparatorLength(String source,int separatorOffset)"
+    },
+    {
+      "name": "render",
+      "signature": "render(MiniCHoverInspectorContent content)"
+    },
+    {
+      "name": "rightContent",
+      "signature": "rightContent(MiniCHoverInspectorContent content)"
+    },
+    {
       "name": "scaled",
       "signature": "scaled(double value)"
+    },
+    {
+      "name": "setExpanded",
+      "signature": "setExpanded(boolean expanded)"
+    },
+    {
+      "name": "sourceChar",
+      "signature": "sourceChar(String text,Collection<String>textStyleClasses)"
+    },
+    {
+      "name": "sourceLines",
+      "signature": "sourceLines(String source,UiSourceSpanDto range)"
+    },
+    {
+      "name": "sourceLineText",
+      "signature": "sourceLineText(String line,int lineStartOffset,UiSourceSpanDto range,List<SourceTokenStyle>tokenStyles)"
+    },
+    {
+      "name": "sourceStyleClasses",
+      "signature": "sourceStyleClasses(int absoluteOffset,List<SourceTokenStyle>tokenStyles)"
+    },
+    {
+      "name": "sourceTokenStyle",
+      "signature": "sourceTokenStyle(UiLexerTokenVisualDto token)"
+    },
+    {
+      "name": "SourceTokenStyle",
+      "signature": "SourceTokenStyle(int startOffset,int endOffset,Collection<String>styleClasses)"
+    },
+    {
+      "name": "sourceTokenStyles",
+      "signature": "sourceTokenStyles(String source)"
     },
     {
       "name": "uiScale",
@@ -204,6 +209,8 @@ const DEFAULT_EXPANDED_HEIGHT = 212;
 const MIN_EXPANDED_HEIGHT = 120;
 const MAX_EXPANDED_HEIGHT = 520;
 const explanationTextHighlighter = new MiniCExplanationTextHighlighter();
+const syntaxTextStyleMapper = new MiniCSyntaxTextStyleMapper();
+const realtimeAnalysisApi = new MiniCRealtimeAnalysisHttpAdapter();
 
 export function MiniCBottomPanel({ viewModel: _viewModel, inspector }: MiniCBottomPanelProps) {
   const localInspector = useMemo(() => inspector ?? new MiniCHoverInspector(), [inspector]);
@@ -297,8 +304,31 @@ export function lines(rows: readonly string[], styleClass: string) {
 }
 
 export function sourceLines(source: string, range: UiSourceSpanDto | null) {
+  return <SourceLines source={source} range={range} />;
+}
+
+function SourceLines({ source, range }: { readonly source: string; readonly range: UiSourceSpanDto | null }) {
   const rows = source.split(/\r?\n/);
-  const tokenStyles = sourceTokenStyles(source);
+  const [tokenStyles, setTokenStyles] = useState<readonly SourceTokenStyle[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    if (source.trim().length === 0) {
+      setTokenStyles([]);
+      return () => {
+        active = false;
+      };
+    }
+    void realtimeAnalysisApi.tokenize("hover-inspector-source.mc", source).then((tokens) => {
+      if (active) {
+        setTokenStyles(sourceTokenStyles(tokens));
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [source]);
+
   let offset = 0;
   return (
     <div className="hover-source">
@@ -341,11 +371,28 @@ interface SourceTokenStyle {
   readonly styleClasses: readonly string[];
 }
 
-export function sourceTokenStyles(source: string | null | undefined): readonly SourceTokenStyle[] {
-  if (source === null || source === undefined || source.trim().length === 0) {
-    return [];
+export function sourceTokenStyles(tokens: readonly UiLexerTokenVisualDto[]): readonly SourceTokenStyle[] {
+  return tokens
+    .filter((token) => token.kind !== "EOF" && token.range !== null)
+    .filter((token) => token.range !== null && token.range.endOffset > token.range.startOffset)
+    .map(sourceTokenStyle)
+    .sort((left, right) => left.startOffset - right.startOffset);
+}
+
+export function sourceTokenStyle(token: UiLexerTokenVisualDto): SourceTokenStyle {
+  const range = token.range;
+  if (range === null) {
+    return {
+      startOffset: 0,
+      endOffset: 0,
+      styleClasses: MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN),
+    };
   }
-  return [];
+  return {
+    startOffset: range.startOffset,
+    endOffset: range.endOffset,
+    styleClasses: syntaxTextStyleMapper.styleClassesFor(token.kind, false),
+  };
 }
 
 export function sourceStyleClasses(absoluteOffset: number, tokenStyles: readonly SourceTokenStyle[]): readonly string[] {

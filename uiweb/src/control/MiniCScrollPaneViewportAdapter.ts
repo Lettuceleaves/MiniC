@@ -11,66 +11,66 @@ export const miniCScrollPaneViewportAdapterMirror = {
   "exportName": "MiniCScrollPaneViewportAdapter",
   "kind": "class",
   "imports": [
+    "java.util.Objects",
+    "java.util.function.DoubleConsumer",
     "javafx.geometry.Bounds",
     "javafx.scene.Node",
-    "javafx.scene.control.ScrollPane",
-    "java.util.Objects",
-    "java.util.function.DoubleConsumer"
+    "javafx.scene.control.ScrollPane"
   ],
   "fields": [
     {
       "name": "ADAPTER_PROPERTY",
-      "signature": "public static final String ADAPTER_PROPERTY ="
+      "signature": "public static final String ADAPTER_PROPERTY="
     },
     {
       "name": "scrollPane",
-      "signature": "private final ScrollPane scrollPane;"
+      "signature": "private final ScrollPane scrollPane"
     }
   ],
   "methods": [
     {
-      "name": "type",
-      "signature": "type()"
-    },
-    {
-      "name": "canScrollVertical",
-      "signature": "canScrollVertical()"
-    },
-    {
-      "name": "scrollVertical",
-      "signature": "scrollVertical(double delta)"
+      "name": "canPan",
+      "signature": "canPan()"
     },
     {
       "name": "canScrollHorizontal",
       "signature": "canScrollHorizontal()"
     },
     {
-      "name": "scrollHorizontal",
-      "signature": "scrollHorizontal(double delta)"
-    },
-    {
-      "name": "canPan",
-      "signature": "canPan()"
-    },
-    {
-      "name": "pan",
-      "signature": "pan(double deltaX, double deltaY)"
-    },
-    {
-      "name": "scrollBy",
-      "signature": "scrollBy(double delta, boolean horizontal)"
-    },
-    {
-      "name": "setAxisByDelta",
-      "signature": "setAxisByDelta(double value, double delta, double contentSize, double viewportSize, double min, double max, DoubleConsumer setter)"
-    },
-    {
-      "name": "normalized",
-      "signature": "normalized(double value, double min, double max)"
+      "name": "canScrollVertical",
+      "signature": "canScrollVertical()"
     },
     {
       "name": "clamp",
       "signature": "clamp(double value)"
+    },
+    {
+      "name": "normalized",
+      "signature": "normalized(double value,double min,double max)"
+    },
+    {
+      "name": "pan",
+      "signature": "pan(double deltaX,double deltaY)"
+    },
+    {
+      "name": "scrollBy",
+      "signature": "scrollBy(double delta,boolean horizontal)"
+    },
+    {
+      "name": "scrollHorizontal",
+      "signature": "scrollHorizontal(double delta)"
+    },
+    {
+      "name": "scrollVertical",
+      "signature": "scrollVertical(double delta)"
+    },
+    {
+      "name": "setAxisByDelta",
+      "signature": "setAxisByDelta(double value,double delta,double contentSize,double viewportSize,double min,double max,DoubleConsumer setter)"
+    },
+    {
+      "name": "type",
+      "signature": "type()"
     }
   ]
 } as const satisfies JavaMirrorFile;

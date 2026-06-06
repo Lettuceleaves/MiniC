@@ -11,6 +11,8 @@ export const miniCSourceLoaderViewMirror = {
   "exportName": "MiniCSourceLoaderView",
   "kind": "component",
   "imports": [
+    "java.util.List",
+    "java.util.Objects",
     "javafx.application.Platform",
     "javafx.geometry.Point2D",
     "javafx.scene.control.Button",
@@ -19,70 +21,72 @@ export const miniCSourceLoaderViewMirror = {
     "javafx.scene.layout.HBox",
     "javafx.scene.layout.Priority",
     "javafx.scene.layout.VBox",
-    "minic.uilocal.control.MiniCViewportAdapter",
-    "minic.uilocal.control.MiniCWorkbenchControlHub",
     "minic.uiapi.UiSourceSpanDto",
-    "java.util.List",
-    "java.util.Objects"
+    "minic.uilocal.control.MiniCViewportAdapter",
+    "minic.uilocal.control.MiniCWorkbenchControlHub"
   ],
   "fields": [
     {
       "name": "CONTROL_SCROLL_FILTER_INSTALLED_KEY",
-      "signature": "private static final String CONTROL_SCROLL_FILTER_INSTALLED_KEY ="
-    },
-    {
-      "name": "viewModel",
-      "signature": "private final MiniCWorkbenchViewModel viewModel;"
-    },
-    {
-      "name": "sourceEditor",
-      "signature": "private final MiniCCodeEditor sourceEditor ="
-    },
-    {
-      "name": "startButton",
-      "signature": "private final Button startButton ="
-    },
-    {
-      "name": "openButton",
-      "signature": "private final Button openButton ="
-    },
-    {
-      "name": "saveButton",
-      "signature": "private final Button saveButton ="
-    },
-    {
-      "name": "saveAsButton",
-      "signature": "private final Button saveAsButton ="
+      "signature": "private static final String CONTROL_SCROLL_FILTER_INSTALLED_KEY="
     },
     {
       "name": "openAction",
-      "signature": "private final Runnable openAction;"
+      "signature": "private final Runnable openAction"
+    },
+    {
+      "name": "openButton",
+      "signature": "private final Button openButton="
     },
     {
       "name": "saveAction",
-      "signature": "private final Runnable saveAction;"
+      "signature": "private final Runnable saveAction"
     },
     {
       "name": "saveAsAction",
-      "signature": "private final Runnable saveAsAction;"
+      "signature": "private final Runnable saveAsAction"
+    },
+    {
+      "name": "saveAsButton",
+      "signature": "private final Button saveAsButton="
+    },
+    {
+      "name": "saveButton",
+      "signature": "private final Button saveButton="
+    },
+    {
+      "name": "sourceEditor",
+      "signature": "private final MiniCCodeEditor sourceEditor="
+    },
+    {
+      "name": "startButton",
+      "signature": "private final Button startButton="
+    },
+    {
+      "name": "viewModel",
+      "signature": "private final MiniCWorkbenchViewModel viewModel"
     }
   ],
   "methods": [
     {
-      "name": "startSession",
-      "signature": "startSession()"
+      "name": "breakpointLines",
+      "signature": "breakpointLines()"
+    },
+    {
+      "name": "fallbackSourceName",
+      "signature": "fallbackSourceName()"
+    },
+    {
+      "name": "installViewportTarget",
+      "signature": "installViewportTarget(MiniCWorkbenchControlHub controlHub)"
     },
     {
       "name": "loadCurrentSource",
       "signature": "loadCurrentSource()"
     },
     {
-      "name": "breakpointLines",
-      "signature": "breakpointLines()"
-    },
-    {
       "name": "setBreakpoint",
-      "signature": "setBreakpoint(int line, boolean enabled)"
+      "signature": "setBreakpoint(int line,boolean enabled)"
     },
     {
       "name": "setCurrentExecutionLine",
@@ -93,24 +97,20 @@ export const miniCSourceLoaderViewMirror = {
       "signature": "setCurrentExecutionRange(UiSourceSpanDto range)"
     },
     {
-      "name": "viewportAdapter",
-      "signature": "viewportAdapter()"
-    },
-    {
-      "name": "installViewportTarget",
-      "signature": "installViewportTarget(MiniCWorkbenchControlHub controlHub)"
-    },
-    {
-      "name": "usePersistentEditorScrollBars",
-      "signature": "usePersistentEditorScrollBars(String scrollStyleClass)"
+      "name": "startSession",
+      "signature": "startSession()"
     },
     {
       "name": "submitRealtimeSource",
       "signature": "submitRealtimeSource()"
     },
     {
-      "name": "fallbackSourceName",
-      "signature": "fallbackSourceName()"
+      "name": "usePersistentEditorScrollBars",
+      "signature": "usePersistentEditorScrollBars(String scrollStyleClass)"
+    },
+    {
+      "name": "viewportAdapter",
+      "signature": "viewportAdapter()"
     }
   ]
 } as const satisfies JavaMirrorFile;
@@ -142,14 +142,14 @@ export function MiniCSourceLoaderView({
 
   const sourceName = snapshot.sourceName || fallbackSourceName();
 
-  const loadCurrentSource = (): void => {
-    viewModel.loadSource(sourceName, editorText);
-    viewModel.submitRealtimeSource(sourceName, editorText);
+  const loadCurrentSource = async (): Promise<void> => {
+    await viewModel.loadSource(sourceName, editorText);
+    await viewModel.submitRealtimeSource(sourceName, editorText);
   };
 
-  const startSession = (): void => {
-    loadCurrentSource();
-    viewModel.startSession();
+  const startSession = async (): Promise<void> => {
+    await loadCurrentSource();
+    await viewModel.startSession();
   };
 
   const openAction = (): void => {
@@ -173,8 +173,8 @@ export function MiniCSourceLoaderView({
       return;
     }
     const source = await file.text();
-    viewModel.loadSource(file.name, source);
-    viewModel.submitRealtimeSource(file.name, source);
+    await viewModel.loadSource(file.name, source);
+    await viewModel.submitRealtimeSource(file.name, source);
     onOpenDocument?.(file.name, source);
   };
 
@@ -182,7 +182,7 @@ export function MiniCSourceLoaderView({
     <section className={`source-loader ${className}`.trim()} data-java-source={miniCSourceLoaderViewMirror.javaPath}>
       {showControls && (
         <div className="loader-controls">
-          <button className="control-primary" type="button" onClick={startSession}>
+          <button className="control-primary" type="button" onClick={() => void startSession()}>
             开始
           </button>
           <button className="control-secondary" type="button" onClick={openAction}>
@@ -205,7 +205,7 @@ export function MiniCSourceLoaderView({
         currentExecutionRange={snapshot.debugState?.currentSnapshot.sourceRange ?? null}
         initialText={snapshot.sourceText}
         onBreakpointsChange={(lines) => viewModel.setDebugBreakpoints(lines)}
-        onSubmitRealtimeSource={(name, source) => viewModel.submitRealtimeSource(name, source)}
+        onSubmitRealtimeSource={(name, source) => void viewModel.submitRealtimeSource(name, source)}
         onTextChange={setEditorText}
         scrollContainerClassName={editorScrollClassName}
         sourceName={sourceName}
@@ -227,14 +227,14 @@ export function breakpointLines(snapshot: MiniCWorkbenchSnapshot): readonly numb
 
 export function setBreakpoint(viewModel: MiniCWorkbenchViewModel, line: number, enabled: boolean): void {
   if (enabled) {
-    viewModel.setDebugBreakpoint(line);
+    void viewModel.setDebugBreakpoint(line);
   } else {
-    viewModel.clearDebugBreakpoint(line);
+    void viewModel.clearDebugBreakpoint(line);
   }
 }
 
 export function submitRealtimeSource(viewModel: MiniCWorkbenchViewModel): void {
-  viewModel.submitRealtimeSource(viewModel.sourceNameProperty().get(), viewModel.sourceTextProperty().get());
+  void viewModel.submitRealtimeSource(viewModel.sourceNameProperty().get(), viewModel.sourceTextProperty().get());
 }
 
 function useSourceLoaderSnapshot(viewModel: MiniCWorkbenchViewModel): MiniCWorkbenchSnapshot {

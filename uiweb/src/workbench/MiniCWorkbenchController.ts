@@ -10,20 +10,16 @@ export const miniCWorkbenchControllerMirror = {
   "exportName": "MiniCWorkbenchController",
   "kind": "class",
   "imports": [
-    "minic.uiapi.UiControlResultDto",
-    "java.util.Objects"
+    "java.util.Objects",
+    "minic.uiapi.UiControlResultDto"
   ],
   "fields": [
     {
       "name": "viewModel",
-      "signature": "private final MiniCWorkbenchViewModel viewModel;"
+      "signature": "private final MiniCWorkbenchViewModel viewModel"
     }
   ],
   "methods": [
-    {
-      "name": "startDefaultSession",
-      "signature": "startDefaultSession()"
-    },
     {
       "name": "next",
       "signature": "next()"
@@ -31,6 +27,10 @@ export const miniCWorkbenchControllerMirror = {
     {
       "name": "nextStage",
       "signature": "nextStage()"
+    },
+    {
+      "name": "startDefaultSession",
+      "signature": "startDefaultSession()"
     }
   ]
 } as const satisfies JavaMirrorFile;
@@ -44,15 +44,15 @@ export class MiniCWorkbenchController {
 
   startDefaultSession(): void {
     const sample = MiniCSamplePrograms.defaultSample();
-    this.viewModel.loadSource(sample.name, sample.source);
-    this.viewModel.startSession();
+    void this.viewModel.loadSource(sample.name, sample.source)
+      .then(() => this.viewModel.startSession());
   }
 
-  next(): UiControlResultDto {
+  next(): Promise<UiControlResultDto> {
     return this.viewModel.next();
   }
 
-  nextStage(): UiControlResultDto {
+  nextStage(): Promise<UiControlResultDto> {
     return this.viewModel.nextStage();
   }
 

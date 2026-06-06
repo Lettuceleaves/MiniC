@@ -6,19 +6,48 @@ export const miniCTextStyleStateMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCTextStyleState",
   kind: "enum",
-  imports: ["java.util.List"],
+  imports: [
+    "java.util.List"
+  ],
   fields: [
-    { name: "themeId", signature: "private final String themeId;" },
-    { name: "fallbackColorKey", signature: "private final String fallbackColorKey;" },
-    { name: "fallbackBackgroundKey", signature: "private final String fallbackBackgroundKey;" },
-    { name: "legacyClasses", signature: "private final List<String> legacyClasses;" },
+    {
+      "name": "fallbackBackgroundKey",
+      "signature": "private final String fallbackBackgroundKey"
+    },
+    {
+      "name": "fallbackColorKey",
+      "signature": "private final String fallbackColorKey"
+    },
+    {
+      "name": "legacyClasses",
+      "signature": "private final List<String>legacyClasses"
+    },
+    {
+      "name": "themeId",
+      "signature": "private final String themeId"
+    }
   ],
   methods: [
-    { name: "themeId", signature: "themeId()" },
-    { name: "cssClass", signature: "cssClass()" },
-    { name: "fallbackColorKey", signature: "fallbackColorKey()" },
-    { name: "fallbackBackgroundKey", signature: "fallbackBackgroundKey()" },
-    { name: "legacyClasses", signature: "legacyClasses()" },
+    {
+      "name": "cssClass",
+      "signature": "cssClass()"
+    },
+    {
+      "name": "fallbackBackgroundKey",
+      "signature": "fallbackBackgroundKey()"
+    },
+    {
+      "name": "fallbackColorKey",
+      "signature": "fallbackColorKey()"
+    },
+    {
+      "name": "legacyClasses",
+      "signature": "legacyClasses()"
+    },
+    {
+      "name": "themeId",
+      "signature": "themeId()"
+    }
   ],
 } as const satisfies JavaMirrorFile;
 

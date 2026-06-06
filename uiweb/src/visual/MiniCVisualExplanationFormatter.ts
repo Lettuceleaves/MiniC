@@ -14,37 +14,25 @@ export const miniCVisualExplanationFormatterMirror = {
   "exportName": "MiniCVisualExplanationFormatter",
   "kind": "class",
   "imports": [
+    "java.util.LinkedHashMap",
+    "java.util.Map",
+    "java.util.function.Function",
     "minic.uiapi.ExplanationTemplates",
     "minic.uiapi.UiAstNodeVisualDto",
     "minic.uiapi.UiIrLineVisualDto",
     "minic.uiapi.UiLexerTokenVisualDto",
-    "minic.uiapi.UiSourceSpanDto",
-    "java.util.LinkedHashMap",
-    "java.util.Map",
-    "java.util.function.Function"
+    "minic.uiapi.UiSourceSpanDto"
   ],
   "fields": [
     {
       "name": "sourceSnippetProvider",
-      "signature": "private final Function<UiSourceSpanDto, String> sourceSnippetProvider;"
+      "signature": "private final Function<UiSourceSpanDto,String>sourceSnippetProvider"
     }
   ],
   "methods": [
     {
-      "name": "tokenRole",
-      "signature": "tokenRole(String kind, Map<String, String> variables)"
-    },
-    {
-      "name": "isTypeKeyword",
-      "signature": "isTypeKeyword(String kind)"
-    },
-    {
-      "name": "isControlKeyword",
-      "signature": "isControlKeyword(String kind)"
-    },
-    {
-      "name": "tokenVariables",
-      "signature": "tokenVariables(UiLexerTokenVisualDto token)"
+      "name": "assemblyVariables",
+      "signature": "assemblyVariables(MiniCAssemblyTextLine line)"
     },
     {
       "name": "astVariables",
@@ -55,12 +43,24 @@ export const miniCVisualExplanationFormatterMirror = {
       "signature": "irVariables(UiIrLineVisualDto line)"
     },
     {
-      "name": "assemblyVariables",
-      "signature": "assemblyVariables(MiniCAssemblyTextLine line)"
+      "name": "isControlKeyword",
+      "signature": "isControlKeyword(String kind)"
+    },
+    {
+      "name": "isTypeKeyword",
+      "signature": "isTypeKeyword(String kind)"
     },
     {
       "name": "rangeValue",
       "signature": "rangeValue(UiSourceSpanDto range)"
+    },
+    {
+      "name": "tokenRole",
+      "signature": "tokenRole(String kind,Map<String,String>variables)"
+    },
+    {
+      "name": "tokenVariables",
+      "signature": "tokenVariables(UiLexerTokenVisualDto token)"
     }
   ]
 } as const satisfies JavaMirrorFile;

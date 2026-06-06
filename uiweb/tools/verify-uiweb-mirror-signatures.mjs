@@ -55,11 +55,44 @@ function methodsFromJava(source) {
 }
 
 function mirrorArray(source, propertyName) {
-  const match = source.match(new RegExp(`"${propertyName}"\\s*:\\s*\\[(?<body>[\\s\\S]*?)\\]\\s*,\\s*"`, "m"));
-  if (!match?.groups?.body) {
+  const match = source.match(new RegExp(`(?:"${propertyName}"|${propertyName})\\s*:\\s*\\[`, "m"));
+  if (!match) {
     return null;
   }
-  return match.groups.body;
+  const openBracket = match.index + match[0].lastIndexOf("[");
+  let depth = 0;
+  let inString = false;
+  let quote = "";
+  let escaped = false;
+  for (let index = openBracket; index < source.length; index++) {
+    const character = source[index];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        inString = false;
+      }
+      continue;
+    }
+    if (character === "\"" || character === "'") {
+      inString = true;
+      quote = character;
+      continue;
+    }
+    if (character === "[") {
+      depth += 1;
+      continue;
+    }
+    if (character === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return source.slice(openBracket + 1, index);
+      }
+    }
+  }
+  return null;
 }
 
 function importsFromMirror(source) {

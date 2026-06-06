@@ -11,12 +11,7 @@ export const miniCSourceLineMirror = {
     "java.util.Objects"
   ],
   "fields": [],
-  "methods": [
-    {
-      "name": "MiniCSourceLine",
-      "signature": "MiniCSourceLine(int lineNumber, String text, boolean focused)"
-    }
-  ]
+  "methods": []
 } as const satisfies JavaMirrorFile;
 
 export class MiniCSourceLine {

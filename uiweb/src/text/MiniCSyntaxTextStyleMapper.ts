@@ -12,12 +12,29 @@ export const miniCSyntaxTextStyleMapperMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCSyntaxTextStyleMapper",
   kind: "class",
-  imports: ["java.util.Collection", "java.util.List"],
-  fields: [{ name: "resolver", signature: "private final MiniCTextStyleResolver resolver;" }],
+  imports: [
+    "java.util.Collection",
+    "java.util.List"
+  ],
+  fields: [
+    {
+      "name": "resolver",
+      "signature": "private final MiniCTextStyleResolver resolver"
+    }
+  ],
   methods: [
-    { name: "roleFor", signature: "roleFor(String tokenKind)" },
-    { name: "statesFor", signature: "statesFor(boolean diagnostic)" },
-    { name: "styleClassesFor", signature: "styleClassesFor(String tokenKind, boolean diagnostic)" },
+    {
+      "name": "roleFor",
+      "signature": "roleFor(String tokenKind)"
+    },
+    {
+      "name": "statesFor",
+      "signature": "statesFor(boolean diagnostic)"
+    },
+    {
+      "name": "styleClassesFor",
+      "signature": "styleClassesFor(String tokenKind,boolean diagnostic)"
+    }
   ],
 } as const satisfies JavaMirrorFile;
 

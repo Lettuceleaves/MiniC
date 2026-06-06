@@ -9,12 +9,12 @@ export const miniCVisualSourceRowsMirror = {
   "exportName": "MiniCVisualSourceRows",
   "kind": "component",
   "imports": [
+    "java.util.ArrayList",
+    "java.util.List",
     "javafx.scene.control.Label",
     "javafx.scene.layout.HBox",
     "minic.uiapi.UiLexerTokenVisualDto",
-    "minic.uiapi.UiStageVisualDto",
-    "java.util.ArrayList",
-    "java.util.List"
+    "minic.uiapi.UiStageVisualDto"
   ],
   "fields": [],
   "methods": [
@@ -23,16 +23,16 @@ export const miniCVisualSourceRowsMirror = {
       "signature": "activeSourceToken(UiStageVisualDto visual)"
     },
     {
+      "name": "isMaskedSourceOffset",
+      "signature": "isMaskedSourceOffset(int offset,UiLexerTokenVisualDto activeToken)"
+    },
+    {
       "name": "lineSeparatorLength",
-      "signature": "lineSeparatorLength(String source, int separatorOffset)"
+      "signature": "lineSeparatorLength(String source,int separatorOffset)"
     },
     {
       "name": "sourceLineFlow",
-      "signature": "sourceLineFlow(String line, int lineStartOffset, UiLexerTokenVisualDto activeToken)"
-    },
-    {
-      "name": "isMaskedSourceOffset",
-      "signature": "isMaskedSourceOffset(int offset, UiLexerTokenVisualDto activeToken)"
+      "signature": "sourceLineFlow(String line,int lineStartOffset,UiLexerTokenVisualDto activeToken)"
     }
   ]
 } as const satisfies JavaMirrorFile;

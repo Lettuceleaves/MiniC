@@ -13,7 +13,7 @@ export const miniCSampleProgramsMirror = {
   "fields": [
     {
       "name": "SAMPLES",
-      "signature": "private static final List<MiniCSampleProgram> SAMPLES ="
+      "signature": "private static final List<MiniCSampleProgram>SAMPLES="
     }
   ],
   "methods": [

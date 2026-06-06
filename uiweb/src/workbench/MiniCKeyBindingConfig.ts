@@ -8,12 +8,6 @@ export const miniCKeyBindingConfigMirror = {
   "exportName": "MiniCKeyBindingConfig",
   "kind": "class",
   "imports": [
-    "javafx.scene.input.KeyCode",
-    "javafx.scene.input.KeyEvent",
-    "javafx.scene.input.MouseButton",
-    "javafx.scene.input.MouseEvent",
-    "javafx.scene.input.ScrollEvent",
-    "minic.uilocal.control.MiniCWorkbenchControlHub",
     "java.io.IOException",
     "java.io.InputStream",
     "java.nio.charset.StandardCharsets",
@@ -30,94 +24,76 @@ export const miniCKeyBindingConfigMirror = {
     "java.util.Optional",
     "java.util.Set",
     "java.util.regex.Matcher",
-    "java.util.regex.Pattern"
+    "java.util.regex.Pattern",
+    "javafx.scene.input.KeyCode",
+    "javafx.scene.input.KeyEvent",
+    "javafx.scene.input.MouseButton",
+    "javafx.scene.input.MouseEvent",
+    "javafx.scene.input.ScrollEvent",
+    "minic.uilocal.control.MiniCWorkbenchControlHub"
   ],
   "fields": [
     {
-      "name": "USER_BINDINGS_FILE",
-      "signature": "private static final Path USER_BINDINGS_FILE ="
-    },
-    {
-      "name": "LEGACY_AST_ZOOM_IN",
-      "signature": "private static final String LEGACY_AST_ZOOM_IN ="
-    },
-    {
-      "name": "LEGACY_AST_ZOOM_OUT",
-      "signature": "private static final String LEGACY_AST_ZOOM_OUT ="
-    },
-    {
-      "name": "BINDING_PATTERN",
-      "signature": "private static final Pattern BINDING_PATTERN ="
-    },
-    {
-      "name": "KEY_PATTERN",
-      "signature": "private static final Pattern KEY_PATTERN ="
-    },
-    {
       "name": "ACTION_LABELS",
-      "signature": "private static final LinkedHashMap<String, String> ACTION_LABELS ="
+      "signature": "private static final LinkedHashMap<String,String>ACTION_LABELS="
     },
     {
       "name": "ACTION_ORDER",
-      "signature": "private static final List<String> ACTION_ORDER ="
+      "signature": "private static final List<String>ACTION_ORDER="
     },
     {
       "name": "activeBindings",
-      "signature": "private static volatile List<KeyBinding> activeBindings ="
+      "signature": "private static volatile List<KeyBinding>activeBindings="
+    },
+    {
+      "name": "BINDING_PATTERN",
+      "signature": "private static final Pattern BINDING_PATTERN="
+    },
+    {
+      "name": "KEY_PATTERN",
+      "signature": "private static final Pattern KEY_PATTERN="
+    },
+    {
+      "name": "LEGACY_AST_ZOOM_IN",
+      "signature": "private static final String LEGACY_AST_ZOOM_IN="
+    },
+    {
+      "name": "LEGACY_AST_ZOOM_OUT",
+      "signature": "private static final String LEGACY_AST_ZOOM_OUT="
+    },
+    {
+      "name": "USER_BINDINGS_FILE",
+      "signature": "private static final Path USER_BINDINGS_FILE="
     }
   ],
   "methods": [
     {
-      "name": "loadDefault",
-      "signature": "loadDefault()"
-    },
-    {
-      "name": "matches",
-      "signature": "matches(String action, KeyEvent event)"
-    },
-    {
-      "name": "matches",
-      "signature": "matches(String action, KeyEvent event, Set<KeyCode> heldKeys)"
-    },
-    {
-      "name": "matches",
-      "signature": "matches(String action, MouseEvent event)"
-    },
-    {
-      "name": "matches",
-      "signature": "matches(String action, MouseEvent event, Set<KeyCode> heldKeys)"
-    },
-    {
-      "name": "matches",
-      "signature": "matches(String action, ScrollEvent event)"
-    },
-    {
-      "name": "matches",
-      "signature": "matches(String action, ScrollEvent event, Set<KeyCode> heldKeys)"
+      "name": "actionLabels",
+      "signature": "actionLabels()"
     },
     {
       "name": "actions",
       "signature": "actions()"
     },
     {
-      "name": "keysFor",
-      "signature": "keysFor(String action)"
+      "name": "activeBindingsByAction",
+      "signature": "activeBindingsByAction()"
     },
     {
-      "name": "labelFor",
-      "signature": "labelFor(String action)"
+      "name": "addKey",
+      "signature": "addKey(List<KeyCode>keys,KeyCode code)"
     },
     {
-      "name": "setKeys",
-      "signature": "setKeys(String action, List<String> keys)"
+      "name": "bindingsByAction",
+      "signature": "bindingsByAction(List<KeyBinding>bindings)"
     },
     {
-      "name": "conflictingAction",
-      "signature": "conflictingAction(String action, String key)"
+      "name": "bindingsFrom",
+      "signature": "bindingsFrom(Map<String,List<String>>map)"
     },
     {
-      "name": "isReserved",
-      "signature": "isReserved(String key)"
+      "name": "combo",
+      "signature": "combo(boolean control,boolean alt,boolean shift,boolean meta,Collection<KeyCode>keyCodes,MouseButton mouseButton,WheelDirection wheelDirection)"
     },
     {
       "name": "comboFrom",
@@ -125,151 +101,175 @@ export const miniCKeyBindingConfigMirror = {
     },
     {
       "name": "comboFrom",
+      "signature": "comboFrom(MouseEvent event,Set<KeyCode>heldKeys)"
+    },
+    {
+      "name": "comboFrom",
       "signature": "comboFrom(MouseEvent event)"
     },
     {
       "name": "comboFrom",
-      "signature": "comboFrom(MouseEvent event, Set<KeyCode> heldKeys)"
+      "signature": "comboFrom(ScrollEvent event,Set<KeyCode>heldKeys)"
     },
     {
       "name": "comboFrom",
       "signature": "comboFrom(ScrollEvent event)"
     },
     {
-      "name": "comboFrom",
-      "signature": "comboFrom(ScrollEvent event, Set<KeyCode> heldKeys)"
-    },
-    {
-      "name": "normalizeCombo",
-      "signature": "normalizeCombo(String key)"
-    },
-    {
-      "name": "loadBindings",
-      "signature": "loadBindings()"
+      "name": "conflictingAction",
+      "signature": "conflictingAction(String action,String key)"
     },
     {
       "name": "defaultBindings",
       "signature": "defaultBindings()"
     },
     {
-      "name": "parse",
-      "signature": "parse(String json)"
+      "name": "escape",
+      "signature": "escape(String value)"
     },
     {
       "name": "fallbackBindings",
       "signature": "fallbackBindings()"
     },
     {
-      "name": "activeBindingsByAction",
-      "signature": "activeBindingsByAction()"
+      "name": "isModifier",
+      "signature": "isModifier(KeyCode code)"
     },
     {
-      "name": "bindingsByAction",
-      "signature": "bindingsByAction(List<KeyBinding> bindings)"
-    },
-    {
-      "name": "bindingsFrom",
-      "signature": "bindingsFrom(Map<String, List<String>> map)"
-    },
-    {
-      "name": "save",
-      "signature": "save(Map<String, List<String>> map)"
+      "name": "isReserved",
+      "signature": "isReserved(String key)"
     },
     {
       "name": "json",
-      "signature": "json(Map<String, List<String>> map)"
+      "signature": "json(Map<String,List<String>>map)"
     },
     {
-      "name": "escape",
-      "signature": "escape(String value)"
+      "name": "KeyBinding",
+      "signature": "KeyBinding(String action,String key)"
     },
     {
-      "name": "normalizeAction",
-      "signature": "normalizeAction(String action)"
-    },
-    {
-      "name": "combo",
-      "signature": "combo(boolean control, boolean alt, boolean shift, boolean meta, Collection<KeyCode> keyCodes, MouseButton mouseButton, WheelDirection wheelDirection)"
-    },
-    {
-      "name": "orderedKeys",
-      "signature": "orderedKeys(Collection<KeyCode> keyCodes)"
-    },
-    {
-      "name": "isModifier",
-      "signature": "isModifier(KeyCode code)"
+      "name": "keyCode",
+      "signature": "keyCode(String text)"
     },
     {
       "name": "keyName",
       "signature": "keyName(KeyCode code)"
     },
     {
-      "name": "mouseName",
-      "signature": "mouseName(MouseButton button)"
+      "name": "keysFor",
+      "signature": "keysFor(String action)"
     },
     {
-      "name": "wheelName",
-      "signature": "wheelName(WheelDirection direction)"
+      "name": "keysMatch",
+      "signature": "keysMatch(List<KeyCode>expected,Set<KeyCode>heldKeys,KeyCode eventCode)"
     },
     {
-      "name": "wheelDirection",
-      "signature": "wheelDirection(ScrollEvent event)"
+      "name": "keysMatch",
+      "signature": "keysMatch(List<KeyCode>expected,Set<KeyCode>heldKeys)"
     },
     {
-      "name": "actionLabels",
-      "signature": "actionLabels()"
+      "name": "labelFor",
+      "signature": "labelFor(String action)"
     },
     {
-      "name": "KeyBinding",
-      "signature": "KeyBinding(String action, String key)"
+      "name": "loadBindings",
+      "signature": "loadBindings()"
     },
     {
-      "name": "matches",
-      "signature": "matches(KeyEvent event, Set<KeyCode> heldKeys)"
-    },
-    {
-      "name": "matches",
-      "signature": "matches(MouseEvent event, Set<KeyCode> heldKeys)"
+      "name": "loadDefault",
+      "signature": "loadDefault()"
     },
     {
       "name": "matches",
-      "signature": "matches(ScrollEvent event, Set<KeyCode> heldKeys)"
+      "signature": "matches(KeyEvent event,Set<KeyCode>heldKeys)"
+    },
+    {
+      "name": "matches",
+      "signature": "matches(MouseEvent event,Set<KeyCode>heldKeys)"
+    },
+    {
+      "name": "matches",
+      "signature": "matches(ScrollEvent event,Set<KeyCode>heldKeys)"
+    },
+    {
+      "name": "matches",
+      "signature": "matches(String action,KeyEvent event,Set<KeyCode>heldKeys)"
+    },
+    {
+      "name": "matches",
+      "signature": "matches(String action,KeyEvent event)"
+    },
+    {
+      "name": "matches",
+      "signature": "matches(String action,MouseEvent event,Set<KeyCode>heldKeys)"
+    },
+    {
+      "name": "matches",
+      "signature": "matches(String action,MouseEvent event)"
+    },
+    {
+      "name": "matches",
+      "signature": "matches(String action,ScrollEvent event,Set<KeyCode>heldKeys)"
+    },
+    {
+      "name": "matches",
+      "signature": "matches(String action,ScrollEvent event)"
     },
     {
       "name": "modifiersMatch",
-      "signature": "modifiersMatch(ParsedInput parsed, boolean control, boolean alt, boolean shift, boolean meta)"
-    },
-    {
-      "name": "keysMatch",
-      "signature": "keysMatch(List<KeyCode> expected, Set<KeyCode> heldKeys, KeyCode eventCode)"
-    },
-    {
-      "name": "keysMatch",
-      "signature": "keysMatch(List<KeyCode> expected, Set<KeyCode> heldKeys)"
-    },
-    {
-      "name": "ParsedInput",
-      "signature": "ParsedInput(boolean control, boolean alt, boolean shift, boolean meta, List<KeyCode> keys, MouseButton mouseButton, WheelDirection wheelDirection)"
-    },
-    {
-      "name": "parse",
-      "signature": "parse(String key)"
-    },
-    {
-      "name": "addKey",
-      "signature": "addKey(List<KeyCode> keys, KeyCode code)"
+      "signature": "modifiersMatch(ParsedInput parsed,boolean control,boolean alt,boolean shift,boolean meta)"
     },
     {
       "name": "mouseButton",
       "signature": "mouseButton(String text)"
     },
     {
+      "name": "mouseName",
+      "signature": "mouseName(MouseButton button)"
+    },
+    {
+      "name": "normalizeAction",
+      "signature": "normalizeAction(String action)"
+    },
+    {
+      "name": "normalizeCombo",
+      "signature": "normalizeCombo(String key)"
+    },
+    {
+      "name": "orderedKeys",
+      "signature": "orderedKeys(Collection<KeyCode>keyCodes)"
+    },
+    {
+      "name": "parse",
+      "signature": "parse(String json)"
+    },
+    {
+      "name": "parse",
+      "signature": "parse(String key)"
+    },
+    {
+      "name": "ParsedInput",
+      "signature": "ParsedInput(boolean control,boolean alt,boolean shift,boolean meta,List<KeyCode>keys,MouseButton mouseButton,WheelDirection wheelDirection)"
+    },
+    {
+      "name": "save",
+      "signature": "save(Map<String,List<String>>map)"
+    },
+    {
+      "name": "setKeys",
+      "signature": "setKeys(String action,List<String>keys)"
+    },
+    {
+      "name": "wheelDirection",
+      "signature": "wheelDirection(ScrollEvent event)"
+    },
+    {
       "name": "wheelDirection",
       "signature": "wheelDirection(String text)"
     },
     {
-      "name": "keyCode",
-      "signature": "keyCode(String text)"
+      "name": "wheelName",
+      "signature": "wheelName(WheelDirection direction)"
     }
   ]
 } as const satisfies JavaMirrorFile;

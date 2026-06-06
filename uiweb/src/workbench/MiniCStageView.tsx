@@ -11,12 +11,7 @@ export const miniCStageViewMirror = {
     "java.util.Objects"
   ],
   "fields": [],
-  "methods": [
-    {
-      "name": "MiniCStageView",
-      "signature": "MiniCStageView(String id, String title, String state, String detail, int progressPercent)"
-    }
-  ]
+  "methods": []
 } as const satisfies JavaMirrorFile;
 
 export type MiniCStageState = "queued" | "running" | "done" | "error";

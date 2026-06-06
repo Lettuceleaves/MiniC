@@ -8,11 +8,22 @@ export const miniCVisualModelFactoryMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCVisualModelFactory",
   kind: "class",
-  imports: ["minic.uiapi.UiGlobalDataDto", "minic.uiapi.UiStageDataDto", "java.util.List"],
+  imports: [
+    "java.util.ArrayList",
+    "java.util.List",
+    "minic.uiapi.UiGlobalDataDto",
+    "minic.uiapi.UiStageDataDto"
+  ],
   fields: [],
   methods: [
-    { name: "create", signature: "create(UiStageDataDto stageData, UiGlobalDataDto globalData)" },
-    { name: "sourceFor", signature: "sourceFor(String stage, UiStageDataDto stageData, UiGlobalDataDto globalData)" },
+    {
+      "name": "create",
+      "signature": "create(UiStageDataDto stageData,UiGlobalDataDto globalData)"
+    },
+    {
+      "name": "sourceFor",
+      "signature": "sourceFor(String stage,UiStageDataDto stageData,UiGlobalDataDto globalData)"
+    }
   ],
 } as const satisfies JavaMirrorFile;
 

@@ -26,14 +26,22 @@ export const miniCCodeEditorMirror = {
   "exportName": "MiniCCodeEditor",
   "kind": "component",
   "imports": [
+    "java.util.ArrayList",
+    "java.util.Collection",
+    "java.util.Comparator",
+    "java.util.LinkedHashSet",
+    "java.util.List",
+    "java.util.Objects",
+    "java.util.Set",
+    "java.util.function.IntFunction",
     "javafx.application.Platform",
     "javafx.beans.value.ObservableValue",
-    "javafx.geometry.Pos",
     "javafx.geometry.Bounds",
+    "javafx.geometry.Pos",
     "javafx.scene.Node",
+    "javafx.scene.control.Label",
     "javafx.scene.control.ListCell",
     "javafx.scene.control.ListView",
-    "javafx.scene.control.Label",
     "javafx.scene.control.ScrollPane",
     "javafx.scene.input.KeyCode",
     "javafx.scene.input.KeyEvent",
@@ -42,166 +50,318 @@ export const miniCCodeEditorMirror = {
     "javafx.scene.layout.Pane",
     "javafx.scene.layout.StackPane",
     "javafx.scene.layout.VBox",
-    "minic.color.ThemeRegistry",
     "javafx.scene.shape.Polyline",
+    "minic.color.ThemeRegistry",
+    "minic.uiapi.UiDiagnosticDto",
+    "minic.uiapi.UiLexerTokenVisualDto",
+    "minic.uiapi.UiRealtimeAnalysisDto",
+    "minic.uiapi.UiSourceSpanDto",
     "minic.uilocal.control.MiniCTextViewportAdapter",
     "minic.uilocal.control.MiniCViewportAdapter",
     "minic.uilocal.text.MiniCSyntaxTextStyleMapper",
     "minic.uilocal.text.MiniCTextStyleRole",
     "minic.uilocal.text.MiniCTextStyleState",
     "minic.uilocal.text.MiniCTextStyles",
-    "minic.uiapi.UiDiagnosticDto",
-    "minic.uiapi.UiLexerTokenVisualDto",
-    "minic.uiapi.UiRealtimeAnalysisDto",
-    "minic.uiapi.UiSourceSpanDto",
     "org.fxmisc.flowless.VirtualizedScrollPane",
     "org.fxmisc.richtext.LineNumberFactory",
     "org.fxmisc.richtext.StyleClassedTextArea",
     "org.fxmisc.richtext.model.StyleSpans",
-    "org.fxmisc.richtext.model.StyleSpansBuilder",
-    "java.util.Collection",
-    "java.util.Comparator",
-    "java.util.LinkedHashSet",
-    "java.util.List",
-    "java.util.ArrayList",
-    "java.util.Objects",
-    "java.util.function.IntFunction",
-    "java.util.Set"
+    "org.fxmisc.richtext.model.StyleSpansBuilder"
   ],
   "fields": [
     {
-      "name": "DEFAULT_EDITOR_FONT_SIZE",
-      "signature": "private static final double DEFAULT_EDITOR_FONT_SIZE ="
-    },
-    {
-      "name": "MIN_EDITOR_FONT_SIZE",
-      "signature": "private static final double MIN_EDITOR_FONT_SIZE ="
-    },
-    {
-      "name": "MAX_EDITOR_FONT_SIZE",
-      "signature": "private static final double MAX_EDITOR_FONT_SIZE ="
-    },
-    {
-      "name": "input",
-      "signature": "private final StyleClassedTextArea input ="
-    },
-    {
-      "name": "scrollPane",
-      "signature": "private final VirtualizedScrollPane<StyleClassedTextArea> scrollPane ="
-    },
-    {
-      "name": "lineNumberFactory",
-      "signature": "private final IntFunction<Node> lineNumberFactory ="
+      "name": "breakpointChangeAction",
+      "signature": "private Runnable breakpointChangeAction="
     },
     {
       "name": "breakpointLines",
-      "signature": "private final Set<Integer> breakpointLines ="
-    },
-    {
-      "name": "diagnosticLayer",
-      "signature": "private final Pane diagnosticLayer ="
-    },
-    {
-      "name": "diagnosticDetails",
-      "signature": "private final VBox diagnosticDetails ="
+      "signature": "private final Set<Integer>breakpointLines="
     },
     {
       "name": "completionList",
-      "signature": "private final ListView<String> completionList ="
-    },
-    {
-      "name": "viewportAdapter",
-      "signature": "private final MiniCViewportAdapter viewportAdapter ="
-    },
-    {
-      "name": "syntaxTextStyleMapper",
-      "signature": "private final MiniCSyntaxTextStyleMapper syntaxTextStyleMapper ="
-    },
-    {
-      "name": "formatter",
-      "signature": "private final MiniCEditorFormatter formatter ="
-    },
-    {
-      "name": "latestAnalysis",
-      "signature": "private UiRealtimeAnalysisDto latestAnalysis;"
-    },
-    {
-      "name": "latestDiagnostics",
-      "signature": "private List<UiDiagnosticDto> latestDiagnostics ="
-    },
-    {
-      "name": "breakpointChangeAction",
-      "signature": "private Runnable breakpointChangeAction ="
+      "signature": "private final ListView<String>completionList="
     },
     {
       "name": "currentExecutionLine",
-      "signature": "private int currentExecutionLine;"
-    },
-    {
-      "name": "currentExecutionRangeStart",
-      "signature": "private int currentExecutionRangeStart ="
+      "signature": "private int currentExecutionLine"
     },
     {
       "name": "currentExecutionRangeEnd",
-      "signature": "private int currentExecutionRangeEnd ="
+      "signature": "private int currentExecutionRangeEnd="
+    },
+    {
+      "name": "currentExecutionRangeStart",
+      "signature": "private int currentExecutionRangeStart="
+    },
+    {
+      "name": "DEFAULT_EDITOR_FONT_SIZE",
+      "signature": "private static final double DEFAULT_EDITOR_FONT_SIZE="
+    },
+    {
+      "name": "diagnosticDetails",
+      "signature": "private final VBox diagnosticDetails="
+    },
+    {
+      "name": "diagnosticLayer",
+      "signature": "private final Pane diagnosticLayer="
     },
     {
       "name": "editorFontSize",
-      "signature": "private double editorFontSize ="
+      "signature": "private double editorFontSize="
+    },
+    {
+      "name": "formatter",
+      "signature": "private final MiniCEditorFormatter formatter="
+    },
+    {
+      "name": "input",
+      "signature": "private final StyleClassedTextArea input="
+    },
+    {
+      "name": "latestAnalysis",
+      "signature": "private UiRealtimeAnalysisDto latestAnalysis"
+    },
+    {
+      "name": "latestDiagnostics",
+      "signature": "private List<UiDiagnosticDto>latestDiagnostics="
+    },
+    {
+      "name": "lineNumberFactory",
+      "signature": "private final IntFunction<Node>lineNumberFactory="
+    },
+    {
+      "name": "MAX_EDITOR_FONT_SIZE",
+      "signature": "private static final double MAX_EDITOR_FONT_SIZE="
+    },
+    {
+      "name": "MIN_EDITOR_FONT_SIZE",
+      "signature": "private static final double MIN_EDITOR_FONT_SIZE="
     },
     {
       "name": "requestedScrollY",
-      "signature": "private double requestedScrollY;"
+      "signature": "private double requestedScrollY"
+    },
+    {
+      "name": "scrollPane",
+      "signature": "private final VirtualizedScrollPane<StyleClassedTextArea>scrollPane="
+    },
+    {
+      "name": "syntaxTextStyleMapper",
+      "signature": "private final MiniCSyntaxTextStyleMapper syntaxTextStyleMapper="
+    },
+    {
+      "name": "viewportAdapter",
+      "signature": "private final MiniCViewportAdapter viewportAdapter="
     }
   ],
   "methods": [
     {
-      "name": "textProperty",
-      "signature": "textProperty()"
-    },
-    {
-      "name": "setText",
-      "signature": "setText(String text)"
-    },
-    {
-      "name": "viewportAdapter",
-      "signature": "viewportAdapter()"
-    },
-    {
-      "name": "setScrollBarPolicies",
-      "signature": "setScrollBarPolicies(ScrollPane.ScrollBarPolicy horizontalPolicy, ScrollPane.ScrollBarPolicy verticalPolicy)"
+      "name": "addDiagnosticWave",
+      "signature": "addDiagnosticWave(Bounds bounds)"
     },
     {
       "name": "addScrollContainerStyleClass",
       "signature": "addScrollContainerStyleClass(String styleClass)"
     },
     {
-      "name": "getText",
-      "signature": "getText()"
+      "name": "addStyledRange",
+      "signature": "addStyledRange(StyleSpansBuilder<Collection<String>>builder,String source,int start,int end,Collection<String>baseStyles)"
     },
     {
-      "name": "getLength",
-      "signature": "getLength()"
+      "name": "adjustEditorFontSize",
+      "signature": "adjustEditorFontSize(double delta)"
     },
     {
-      "name": "selectRange",
-      "signature": "selectRange(int start, int end)"
+      "name": "applyCompletion",
+      "signature": "applyCompletion(String suggestion)"
+    },
+    {
+      "name": "applyEditorFontSize",
+      "signature": "applyEditorFontSize()"
+    },
+    {
+      "name": "applyGutterSize",
+      "signature": "applyGutterSize(Label label)"
+    },
+    {
+      "name": "applySelectedCompletion",
+      "signature": "applySelectedCompletion()"
+    },
+    {
+      "name": "boundsForRange",
+      "signature": "boundsForRange(String source,int start,int end)"
     },
     {
       "name": "breakpointLines",
       "signature": "breakpointLines()"
     },
     {
-      "name": "setBreakpoint",
-      "signature": "setBreakpoint(int line, boolean enabled)"
+      "name": "centerCurrentExecution",
+      "signature": "centerCurrentExecution()"
+    },
+    {
+      "name": "centerCurrentExecutionIfNeeded",
+      "signature": "centerCurrentExecutionIfNeeded()"
+    },
+    {
+      "name": "centerY",
+      "signature": "centerY()"
+    },
+    {
+      "name": "clampScrollY",
+      "signature": "clampScrollY(double scrollY)"
+    },
+    {
+      "name": "clearCurrentExecutionRange",
+      "signature": "clearCurrentExecutionRange()"
+    },
+    {
+      "name": "configureCompletionList",
+      "signature": "configureCompletionList()"
+    },
+    {
+      "name": "currentExecutionViewport",
+      "signature": "currentExecutionViewport()"
+    },
+    {
+      "name": "diagnosticDetail",
+      "signature": "diagnosticDetail(String source,UiDiagnosticDto diagnostic)"
+    },
+    {
+      "name": "diagnosticDetailsHeight",
+      "signature": "diagnosticDetailsHeight()"
+    },
+    {
+      "name": "documentHeight",
+      "signature": "documentHeight()"
+    },
+    {
+      "name": "drawDiagnostics",
+      "signature": "drawDiagnostics()"
+    },
+    {
+      "name": "editorLineHeight",
+      "signature": "editorLineHeight()"
+    },
+    {
+      "name": "estimatedScrollY",
+      "signature": "estimatedScrollY()"
+    },
+    {
+      "name": "executionViewport",
+      "signature": "executionViewport(int startLine,int endLine)"
+    },
+    {
+      "name": "ExecutionViewport",
+      "signature": "ExecutionViewport(int startLine,double topY,double bottomY)"
+    },
+    {
+      "name": "getLength",
+      "signature": "getLength()"
+    },
+    {
+      "name": "getText",
+      "signature": "getText()"
+    },
+    {
+      "name": "handleCompletionKeys",
+      "signature": "handleCompletionKeys(KeyEvent event)"
+    },
+    {
+      "name": "handleFontZoomKey",
+      "signature": "handleFontZoomKey(KeyEvent event)"
+    },
+    {
+      "name": "hideCompletion",
+      "signature": "hideCompletion()"
+    },
+    {
+      "name": "isCompletionShowing",
+      "signature": "isCompletionShowing()"
+    },
+    {
+      "name": "isCurrentExecutionFullyVisible",
+      "signature": "isCurrentExecutionFullyVisible()"
+    },
+    {
+      "name": "isExecutionViewportFullyVisible",
+      "signature": "isExecutionViewportFullyVisible(ExecutionViewport viewport)"
+    },
+    {
+      "name": "isIdentifierPart",
+      "signature": "isIdentifierPart(char value)"
+    },
+    {
+      "name": "layoutCompletionList",
+      "signature": "layoutCompletionList()"
+    },
+    {
+      "name": "layoutDiagnosticDetails",
+      "signature": "layoutDiagnosticDetails()"
+    },
+    {
+      "name": "lineCount",
+      "signature": "lineCount()"
+    },
+    {
+      "name": "lineForOffset",
+      "signature": "lineForOffset(String source,int offset)"
+    },
+    {
+      "name": "maxScrollY",
+      "signature": "maxScrollY()"
+    },
+    {
+      "name": "overlapsDiagnostic",
+      "signature": "overlapsDiagnostic(int start,int end,List<UiDiagnosticDto>diagnostics)"
+    },
+    {
+      "name": "paragraphGraphic",
+      "signature": "paragraphGraphic(int paragraphIndex)"
+    },
+    {
+      "name": "Prefix",
+      "signature": "Prefix(String text,int startOffset,int endOffset)"
+    },
+    {
+      "name": "prefixAtCaret",
+      "signature": "prefixAtCaret()"
+    },
+    {
+      "name": "refreshParagraphGraphics",
+      "signature": "refreshParagraphGraphics()"
+    },
+    {
+      "name": "render",
+      "signature": "render(UiRealtimeAnalysisDto analysis)"
     },
     {
       "name": "replaceBreakpoints",
-      "signature": "replaceBreakpoints(List<Integer> lines)"
+      "signature": "replaceBreakpoints(List<Integer>lines)"
     },
     {
-      "name": "toggleBreakpoint",
-      "signature": "toggleBreakpoint(int line)"
+      "name": "safeOffset",
+      "signature": "safeOffset(String source,int offset)"
+    },
+    {
+      "name": "scrollVerticalBy",
+      "signature": "scrollVerticalBy(double pixels)"
+    },
+    {
+      "name": "scrollYToPixel",
+      "signature": "scrollYToPixel(double scrollY)"
+    },
+    {
+      "name": "selectCompletionOffset",
+      "signature": "selectCompletionOffset(int offset)"
+    },
+    {
+      "name": "selectRange",
+      "signature": "selectRange(int start,int end)"
+    },
+    {
+      "name": "setBreakpoint",
+      "signature": "setBreakpoint(int line,boolean enabled)"
     },
     {
       "name": "setBreakpointChangeAction",
@@ -213,235 +373,75 @@ export const miniCCodeEditorMirror = {
     },
     {
       "name": "setCurrentExecutionRange",
-      "signature": "setCurrentExecutionRange(UiSourceSpanDto range)"
+      "signature": "setCurrentExecutionRange(int startOffset,int endOffset)"
     },
     {
       "name": "setCurrentExecutionRange",
-      "signature": "setCurrentExecutionRange(int startOffset, int endOffset)"
+      "signature": "setCurrentExecutionRange(UiSourceSpanDto range)"
     },
     {
-      "name": "zoomFontBy",
-      "signature": "zoomFontBy(double delta)"
+      "name": "setScrollBarPolicies",
+      "signature": "setScrollBarPolicies(ScrollPane.ScrollBarPolicy horizontalPolicy,ScrollPane.ScrollBarPolicy verticalPolicy)"
     },
     {
-      "name": "scrollVerticalBy",
-      "signature": "scrollVerticalBy(double pixels)"
-    },
-    {
-      "name": "isCurrentExecutionFullyVisible",
-      "signature": "isCurrentExecutionFullyVisible()"
-    },
-    {
-      "name": "centerCurrentExecutionIfNeeded",
-      "signature": "centerCurrentExecutionIfNeeded()"
-    },
-    {
-      "name": "centerCurrentExecution",
-      "signature": "centerCurrentExecution()"
-    },
-    {
-      "name": "render",
-      "signature": "render(UiRealtimeAnalysisDto analysis)"
-    },
-    {
-      "name": "styleSpans",
-      "signature": "styleSpans(String source, UiRealtimeAnalysisDto analysis)"
-    },
-    {
-      "name": "paragraphGraphic",
-      "signature": "paragraphGraphic(int paragraphIndex)"
-    },
-    {
-      "name": "refreshParagraphGraphics",
-      "signature": "refreshParagraphGraphics()"
-    },
-    {
-      "name": "tokenStyles",
-      "signature": "tokenStyles(String kind, boolean diagnostic)"
-    },
-    {
-      "name": "addStyledRange",
-      "signature": "addStyledRange(StyleSpansBuilder<Collection<String>> builder, String source, int start, int end, Collection<String> baseStyles)"
-    },
-    {
-      "name": "withDebugExecutionRange",
-      "signature": "withDebugExecutionRange(Collection<String> baseStyles)"
-    },
-    {
-      "name": "clearCurrentExecutionRange",
-      "signature": "clearCurrentExecutionRange()"
-    },
-    {
-      "name": "handleCompletionKeys",
-      "signature": "handleCompletionKeys(KeyEvent event)"
-    },
-    {
-      "name": "handleFontZoomKey",
-      "signature": "handleFontZoomKey(KeyEvent event)"
-    },
-    {
-      "name": "adjustEditorFontSize",
-      "signature": "adjustEditorFontSize(double delta)"
-    },
-    {
-      "name": "estimatedScrollY",
-      "signature": "estimatedScrollY()"
-    },
-    {
-      "name": "scrollYToPixel",
-      "signature": "scrollYToPixel(double scrollY)"
-    },
-    {
-      "name": "clampScrollY",
-      "signature": "clampScrollY(double scrollY)"
-    },
-    {
-      "name": "maxScrollY",
-      "signature": "maxScrollY()"
-    },
-    {
-      "name": "documentHeight",
-      "signature": "documentHeight()"
-    },
-    {
-      "name": "visibleViewportHeight",
-      "signature": "visibleViewportHeight()"
-    },
-    {
-      "name": "isExecutionViewportFullyVisible",
-      "signature": "isExecutionViewportFullyVisible(ExecutionViewport viewport)"
-    },
-    {
-      "name": "currentExecutionViewport",
-      "signature": "currentExecutionViewport()"
-    },
-    {
-      "name": "executionViewport",
-      "signature": "executionViewport(int startLine, int endLine)"
-    },
-    {
-      "name": "lineForOffset",
-      "signature": "lineForOffset(String source, int offset)"
-    },
-    {
-      "name": "lineCount",
-      "signature": "lineCount()"
-    },
-    {
-      "name": "applyEditorFontSize",
-      "signature": "applyEditorFontSize()"
-    },
-    {
-      "name": "applyGutterSize",
-      "signature": "applyGutterSize(Label label)"
-    },
-    {
-      "name": "editorLineHeight",
-      "signature": "editorLineHeight()"
-    },
-    {
-      "name": "updateCompletion",
-      "signature": "updateCompletion(boolean force)"
-    },
-    {
-      "name": "configureCompletionList",
-      "signature": "configureCompletionList()"
-    },
-    {
-      "name": "updateItem",
-      "signature": "updateItem(String item, boolean empty)"
+      "name": "setText",
+      "signature": "setText(String text)"
     },
     {
       "name": "showCompletion",
       "signature": "showCompletion()"
     },
     {
-      "name": "hideCompletion",
-      "signature": "hideCompletion()"
+      "name": "sourcePosition",
+      "signature": "sourcePosition(String source,int offset)"
     },
     {
-      "name": "drawDiagnostics",
-      "signature": "drawDiagnostics()"
+      "name": "SourcePosition",
+      "signature": "SourcePosition(int line,int byteOffsetInLine)"
     },
     {
-      "name": "boundsForRange",
-      "signature": "boundsForRange(String source, int start, int end)"
+      "name": "styleSpans",
+      "signature": "styleSpans(String source,UiRealtimeAnalysisDto analysis)"
     },
     {
-      "name": "addDiagnosticWave",
-      "signature": "addDiagnosticWave(Bounds bounds)"
+      "name": "textProperty",
+      "signature": "textProperty()"
     },
     {
-      "name": "isCompletionShowing",
-      "signature": "isCompletionShowing()"
+      "name": "toggleBreakpoint",
+      "signature": "toggleBreakpoint(int line)"
     },
     {
-      "name": "layoutCompletionList",
-      "signature": "layoutCompletionList()"
+      "name": "tokenStyles",
+      "signature": "tokenStyles(String kind,boolean diagnostic)"
+    },
+    {
+      "name": "updateCompletion",
+      "signature": "updateCompletion(boolean force)"
     },
     {
       "name": "updateDiagnosticDetails",
       "signature": "updateDiagnosticDetails()"
     },
     {
-      "name": "diagnosticDetail",
-      "signature": "diagnosticDetail(String source, UiDiagnosticDto diagnostic)"
+      "name": "updateItem",
+      "signature": "updateItem(String item,boolean empty)"
     },
     {
-      "name": "layoutDiagnosticDetails",
-      "signature": "layoutDiagnosticDetails()"
+      "name": "viewportAdapter",
+      "signature": "viewportAdapter()"
     },
     {
-      "name": "diagnosticDetailsHeight",
-      "signature": "diagnosticDetailsHeight()"
+      "name": "visibleViewportHeight",
+      "signature": "visibleViewportHeight()"
     },
     {
-      "name": "selectCompletionOffset",
-      "signature": "selectCompletionOffset(int offset)"
+      "name": "withDebugExecutionRange",
+      "signature": "withDebugExecutionRange(Collection<String>baseStyles)"
     },
     {
-      "name": "applySelectedCompletion",
-      "signature": "applySelectedCompletion()"
-    },
-    {
-      "name": "applyCompletion",
-      "signature": "applyCompletion(String suggestion)"
-    },
-    {
-      "name": "prefixAtCaret",
-      "signature": "prefixAtCaret()"
-    },
-    {
-      "name": "isIdentifierPart",
-      "signature": "isIdentifierPart(char value)"
-    },
-    {
-      "name": "overlapsDiagnostic",
-      "signature": "overlapsDiagnostic(int start, int end, List<UiDiagnosticDto> diagnostics)"
-    },
-    {
-      "name": "safeOffset",
-      "signature": "safeOffset(String source, int offset)"
-    },
-    {
-      "name": "sourcePosition",
-      "signature": "sourcePosition(String source, int offset)"
-    },
-    {
-      "name": "Prefix",
-      "signature": "Prefix(String text, int startOffset, int endOffset)"
-    },
-    {
-      "name": "SourcePosition",
-      "signature": "SourcePosition(int line, int byteOffsetInLine)"
-    },
-    {
-      "name": "ExecutionViewport",
-      "signature": "ExecutionViewport(int startLine, double topY, double bottomY)"
-    },
-    {
-      "name": "centerY",
-      "signature": "centerY()"
+      "name": "zoomFontBy",
+      "signature": "zoomFontBy(double delta)"
     }
   ]
 } as const satisfies JavaMirrorFile;

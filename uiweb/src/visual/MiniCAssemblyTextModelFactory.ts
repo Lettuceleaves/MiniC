@@ -8,9 +8,17 @@ export const miniCAssemblyTextModelFactoryMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCAssemblyTextModelFactory",
   kind: "class",
-  imports: ["minic.uiapi.UiStageVisualDto", "java.util.List"],
+  imports: [
+    "java.util.List",
+    "minic.uiapi.UiStageVisualDto"
+  ],
   fields: [],
-  methods: [{ name: "create", signature: "create(UiStageVisualDto visual)" }],
+  methods: [
+    {
+      "name": "create",
+      "signature": "create(UiStageVisualDto visual)"
+    }
+  ],
 } as const satisfies JavaMirrorFile;
 
 export class MiniCAssemblyTextModelFactory {

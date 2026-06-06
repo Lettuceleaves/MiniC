@@ -8,6 +8,14 @@ export const miniCDebugVisualDiagramRendererMirror = {
   "exportName": "MiniCDebugVisualDiagramRenderer",
   "kind": "component",
   "imports": [
+    "java.util.ArrayList",
+    "java.util.Comparator",
+    "java.util.HashSet",
+    "java.util.LinkedHashMap",
+    "java.util.List",
+    "java.util.Map",
+    "java.util.function.BiConsumer",
+    "java.util.stream.Collectors",
     "javafx.scene.Node",
     "javafx.scene.layout.Pane",
     "javafx.scene.shape.Circle",
@@ -17,126 +25,118 @@ export const miniCDebugVisualDiagramRendererMirror = {
     "javafx.scene.text.Text",
     "minic.color.ThemeRegistry",
     "minic.uiapi.UiDebugVisualElementDto",
-    "minic.uiapi.UiDebugVisualStructureDto",
-    "java.util.ArrayList",
-    "java.util.Comparator",
-    "java.util.HashSet",
-    "java.util.LinkedHashMap",
-    "java.util.List",
-    "java.util.Map",
-    "java.util.function.BiConsumer",
-    "java.util.stream.Collectors"
+    "minic.uiapi.UiDebugVisualStructureDto"
   ],
   "fields": [
     {
-      "name": "VISUAL_CELL_SIZE",
-      "signature": "private static final double VISUAL_CELL_SIZE ="
-    },
-    {
-      "name": "VISUAL_NODE_RADIUS",
-      "signature": "private static final double VISUAL_NODE_RADIUS ="
-    },
-    {
-      "name": "VISUAL_NULL_SIZE",
-      "signature": "private static final double VISUAL_NULL_SIZE ="
-    },
-    {
-      "name": "VISUAL_GRID_GAP",
-      "signature": "private static final double VISUAL_GRID_GAP ="
-    },
-    {
-      "name": "VISUAL_MARGIN",
-      "signature": "private static final double VISUAL_MARGIN ="
+      "name": "nextLeafX",
+      "signature": "private double nextLeafX="
     },
     {
       "name": "tooltipInstaller",
-      "signature": "private final BiConsumer<Node, UiDebugVisualElementDto> tooltipInstaller;"
+      "signature": "private final BiConsumer<Node,UiDebugVisualElementDto>tooltipInstaller"
     },
     {
-      "name": "nextLeafX",
-      "signature": "private double nextLeafX ="
+      "name": "VISUAL_CELL_SIZE",
+      "signature": "private static final double VISUAL_CELL_SIZE="
+    },
+    {
+      "name": "VISUAL_GRID_GAP",
+      "signature": "private static final double VISUAL_GRID_GAP="
+    },
+    {
+      "name": "VISUAL_MARGIN",
+      "signature": "private static final double VISUAL_MARGIN="
+    },
+    {
+      "name": "VISUAL_NODE_RADIUS",
+      "signature": "private static final double VISUAL_NODE_RADIUS="
+    },
+    {
+      "name": "VISUAL_NULL_SIZE",
+      "signature": "private static final double VISUAL_NULL_SIZE="
     }
   ],
   "methods": [
     {
       "name": "arrayDiagram",
-      "signature": "arrayDiagram(List<UiDebugVisualElementDto> cells)"
+      "signature": "arrayDiagram(List<UiDebugVisualElementDto>cells)"
+    },
+    {
+      "name": "arrow",
+      "signature": "arrow(VisualPoint from,VisualPoint to,boolean nullTarget)"
+    },
+    {
+      "name": "bucketedPositions",
+      "signature": "bucketedPositions(List<UiDebugVisualElementDto>nodes)"
     },
     {
       "name": "graphDiagram",
-      "signature": "graphDiagram(String kind, String layoutHint, List<UiDebugVisualElementDto> nodes, List<UiDebugVisualElementDto> edges)"
+      "signature": "graphDiagram(String kind,String layoutHint,List<UiDebugVisualElementDto>nodes,List<UiDebugVisualElementDto>edges)"
+    },
+    {
+      "name": "graphPositions",
+      "signature": "graphPositions(String kind,String layoutHint,List<UiDebugVisualElementDto>nodes,List<UiDebugVisualElementDto>edges)"
+    },
+    {
+      "name": "isBucketedLayout",
+      "signature": "isBucketedLayout(String kind,String layoutHint)"
     },
     {
       "name": "isNullNode",
-      "signature": "isNullNode(Map<String, UiDebugVisualElementDto> nodesById, String id)"
+      "signature": "isNullNode(Map<String,UiDebugVisualElementDto>nodesById,String id)"
     },
     {
       "name": "isNullNode",
       "signature": "isNullNode(UiDebugVisualElementDto node)"
     },
     {
-      "name": "visibleGraphNodes",
-      "signature": "visibleGraphNodes(String kind, String layoutHint, List<UiDebugVisualElementDto> nodes, List<UiDebugVisualElementDto> edges)"
-    },
-    {
-      "name": "graphPositions",
-      "signature": "graphPositions(String kind, String layoutHint, List<UiDebugVisualElementDto> nodes, List<UiDebugVisualElementDto> edges)"
-    },
-    {
       "name": "isTreeLayout",
-      "signature": "isTreeLayout(String kind, String layoutHint)"
-    },
-    {
-      "name": "isBucketedLayout",
-      "signature": "isBucketedLayout(String kind, String layoutHint)"
-    },
-    {
-      "name": "bucketedPositions",
-      "signature": "bucketedPositions(List<UiDebugVisualElementDto> nodes)"
-    },
-    {
-      "name": "metadataInt",
-      "signature": "metadataInt(UiDebugVisualElementDto element, String key, int fallback)"
-    },
-    {
-      "name": "treePositions",
-      "signature": "treePositions(List<UiDebugVisualElementDto> nodes, List<UiDebugVisualElementDto> edges)"
-    },
-    {
-      "name": "orderedTreeEdges",
-      "signature": "orderedTreeEdges(List<UiDebugVisualElementDto> edges)"
-    },
-    {
-      "name": "treeEdgeOrder",
-      "signature": "treeEdgeOrder(String key)"
+      "signature": "isTreeLayout(String kind,String layoutHint)"
     },
     {
       "name": "layoutTree",
-      "signature": "layoutTree(String nodeId, int depth, Map<String, ArrayList<String>> childrenById, Map<String, VisualPoint> positions, java.util.Set<String> visiting, TreeLayoutCursor cursor)"
+      "signature": "layoutTree(String nodeId,int depth,Map<String,ArrayList<String>>childrenById,Map<String,VisualPoint>positions,java.util.Set<String>visiting,TreeLayoutCursor cursor)"
     },
     {
-      "name": "treeY",
-      "signature": "treeY(int depth)"
+      "name": "metadataInt",
+      "signature": "metadataInt(UiDebugVisualElementDto element,String key,int fallback)"
     },
     {
-      "name": "arrow",
-      "signature": "arrow(VisualPoint from, VisualPoint to, boolean nullTarget)"
-    },
-    {
-      "name": "visualText",
-      "signature": "visualText(String label, double x, double y, double width)"
-    },
-    {
-      "name": "simpleVisualId",
-      "signature": "simpleVisualId(UiDebugVisualElementDto element)"
+      "name": "orderedTreeEdges",
+      "signature": "orderedTreeEdges(List<UiDebugVisualElementDto>edges)"
     },
     {
       "name": "shortLabel",
       "signature": "shortLabel(String label)"
     },
     {
+      "name": "simpleVisualId",
+      "signature": "simpleVisualId(UiDebugVisualElementDto element)"
+    },
+    {
+      "name": "treeEdgeOrder",
+      "signature": "treeEdgeOrder(String key)"
+    },
+    {
+      "name": "treePositions",
+      "signature": "treePositions(List<UiDebugVisualElementDto>nodes,List<UiDebugVisualElementDto>edges)"
+    },
+    {
+      "name": "treeY",
+      "signature": "treeY(int depth)"
+    },
+    {
+      "name": "visibleGraphNodes",
+      "signature": "visibleGraphNodes(String kind,String layoutHint,List<UiDebugVisualElementDto>nodes,List<UiDebugVisualElementDto>edges)"
+    },
+    {
       "name": "VisualPoint",
-      "signature": "VisualPoint(double x, double y)"
+      "signature": "VisualPoint(double x,double y)"
+    },
+    {
+      "name": "visualText",
+      "signature": "visualText(String label,double x,double y,double width)"
     }
   ]
 } as const satisfies JavaMirrorFile;

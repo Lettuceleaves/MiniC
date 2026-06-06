@@ -11,9 +11,18 @@ export const miniCTextFlowFactoryMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCTextFlowFactory",
   kind: "component",
-  imports: ["javafx.scene.text.Text", "javafx.scene.text.TextFlow", "java.util.List"],
+  imports: [
+    "java.util.List",
+    "javafx.scene.text.Text",
+    "javafx.scene.text.TextFlow"
+  ],
   fields: [],
-  methods: [{ name: "textFlow", signature: "textFlow(List<MiniCStyledTextSegment> segments, String flowStyleClass, boolean active)" }],
+  methods: [
+    {
+      "name": "textFlow",
+      "signature": "textFlow(List<MiniCStyledTextSegment>segments,String flowStyleClass,boolean active)"
+    }
+  ],
 } as const satisfies JavaMirrorFile;
 
 export interface MiniCTextFlowFactoryProps {

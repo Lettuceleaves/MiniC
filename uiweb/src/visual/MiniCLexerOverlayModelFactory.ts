@@ -8,9 +8,23 @@ export const miniCLexerOverlayModelFactoryMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCLexerOverlayModelFactory",
   kind: "class",
-  imports: ["minic.uiapi.UiLexerTokenVisualDto", "minic.uiapi.UiStageVisualDto", "java.util.List"],
+  imports: [
+    "java.util.ArrayList",
+    "java.util.List",
+    "minic.uiapi.UiLexerTokenVisualDto",
+    "minic.uiapi.UiStageVisualDto"
+  ],
   fields: [],
-  methods: [{ name: "create", signature: "create(String source, UiStageVisualDto visual)" }],
+  methods: [
+    {
+      "name": "create",
+      "signature": "create(String source,UiStageVisualDto visual)"
+    },
+    {
+      "name": "segments",
+      "signature": "segments(String source,int lineStart,int lineEnd,UiLexerTokenVisualDto activeToken)"
+    }
+  ],
 } as const satisfies JavaMirrorFile;
 
 export class MiniCLexerOverlayModelFactory {

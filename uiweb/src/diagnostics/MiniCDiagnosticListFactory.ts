@@ -14,38 +14,38 @@ export const miniCDiagnosticListFactoryMirror = {
   "exportName": "MiniCDiagnosticListFactory",
   "kind": "class",
   "imports": [
+    "java.util.List",
     "minic.uiapi.UiDiagnosticDto",
     "minic.uiapi.UiGlobalDataDto",
     "minic.uiapi.UiRealtimeAnalysisDto",
     "minic.uiapi.UiSourceRangeDto",
-    "minic.uiapi.UiStageDataDto",
-    "java.util.List"
+    "minic.uiapi.UiStageDataDto"
   ],
   "fields": [],
   "methods": [
     {
       "name": "create",
-      "signature": "create(UiStageDataDto stageData, UiGlobalDataDto globalData)"
+      "signature": "create(UiStageDataDto stageData,UiGlobalDataDto globalData,UiRealtimeAnalysisDto realtimeAnalysis)"
     },
     {
       "name": "create",
-      "signature": "create(UiStageDataDto stageData, UiGlobalDataDto globalData, UiRealtimeAnalysisDto realtimeAnalysis)"
+      "signature": "create(UiStageDataDto stageData,UiGlobalDataDto globalData)"
+    },
+    {
+      "name": "from",
+      "signature": "from(UiDiagnosticDto diagnostic,UiRealtimeAnalysisDto analysis)"
     },
     {
       "name": "from",
       "signature": "from(UiDiagnosticDto diagnostic)"
     },
     {
-      "name": "from",
-      "signature": "from(UiDiagnosticDto diagnostic, UiRealtimeAnalysisDto analysis)"
-    },
-    {
       "name": "locationAt",
-      "signature": "locationAt(String source, int offset)"
+      "signature": "locationAt(String source,int offset)"
     },
     {
       "name": "SourceLocation",
-      "signature": "SourceLocation(int line, int column)"
+      "signature": "SourceLocation(int line,int column)"
     }
   ]
 } as const satisfies JavaMirrorFile;

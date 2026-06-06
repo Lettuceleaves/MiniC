@@ -14,12 +14,12 @@ export const miniCEditorFormatterMirror = {
   ],
   "fields": [
     {
-      "name": "TAB_TEXT",
-      "signature": "private static final String TAB_TEXT ="
+      "name": "input",
+      "signature": "private final StyleClassedTextArea input"
     },
     {
-      "name": "input",
-      "signature": "private final StyleClassedTextArea input;"
+      "name": "TAB_TEXT",
+      "signature": "private static final String TAB_TEXT="
     }
   ],
   "methods": [
@@ -29,7 +29,11 @@ export const miniCEditorFormatterMirror = {
     },
     {
       "name": "braceBalancedAfter",
-      "signature": "braceBalancedAfter(String source, int from)"
+      "signature": "braceBalancedAfter(String source,int from)"
+    },
+    {
+      "name": "formatCodeSegment",
+      "signature": "formatCodeSegment(String content)"
     },
     {
       "name": "formatLine",
@@ -38,10 +42,6 @@ export const miniCEditorFormatterMirror = {
     {
       "name": "formatOutsideLiterals",
       "signature": "formatOutsideLiterals(String text)"
-    },
-    {
-      "name": "formatCodeSegment",
-      "signature": "formatCodeSegment(String content)"
     },
     {
       "name": "leadingWhitespace",

@@ -9,28 +9,36 @@ export const miniCPlaybackControllerMirror = {
   "exportName": "MiniCPlaybackController",
   "kind": "class",
   "imports": [
+    "java.util.Objects",
     "javafx.animation.KeyFrame",
     "javafx.animation.Timeline",
     "javafx.util.Duration",
     "minic.settings.MiniCSettings",
-    "minic.uiapi.UiControlResultDto",
-    "java.util.Objects"
+    "minic.uiapi.UiControlResultDto"
   ],
   "fields": [
     {
-      "name": "viewModel",
-      "signature": "private final MiniCWorkbenchViewModel viewModel;"
+      "name": "timeline",
+      "signature": "private Timeline timeline"
     },
     {
       "name": "timelineEnabled",
-      "signature": "private final boolean timelineEnabled;"
+      "signature": "private final boolean timelineEnabled"
     },
     {
-      "name": "timeline",
-      "signature": "private Timeline timeline;"
+      "name": "viewModel",
+      "signature": "private final MiniCWorkbenchViewModel viewModel"
     }
   ],
   "methods": [
+    {
+      "name": "nextStage",
+      "signature": "nextStage()"
+    },
+    {
+      "name": "pause",
+      "signature": "pause()"
+    },
     {
       "name": "play",
       "signature": "play()"
@@ -40,28 +48,20 @@ export const miniCPlaybackControllerMirror = {
       "signature": "playFast()"
     },
     {
-      "name": "pause",
-      "signature": "pause()"
-    },
-    {
-      "name": "nextStage",
-      "signature": "nextStage()"
-    },
-    {
-      "name": "tickOnce",
-      "signature": "tickOnce()"
+      "name": "restartTimeline",
+      "signature": "restartTimeline()"
     },
     {
       "name": "running",
       "signature": "running()"
     },
     {
-      "name": "restartTimeline",
-      "signature": "restartTimeline()"
-    },
-    {
       "name": "stopTimeline",
       "signature": "stopTimeline()"
+    },
+    {
+      "name": "tickOnce",
+      "signature": "tickOnce()"
     }
   ]
 } as const satisfies JavaMirrorFile;
@@ -85,32 +85,32 @@ export class MiniCPlaybackController {
   }
 
   play(): void {
-    this.viewModel.play();
+    void this.viewModel.play();
     this.restartTimeline();
   }
 
   playFast(): void {
-    this.viewModel.playFast();
+    void this.viewModel.playFast();
     this.restartTimeline();
   }
 
   pause(): void {
     this.stopTimeline();
-    this.viewModel.pause();
+    void this.viewModel.pause();
   }
 
-  nextStage(): UiControlResultDto {
+  nextStage(): Promise<UiControlResultDto> {
     this.stopTimeline();
     return this.viewModel.nextStage();
   }
 
-  tickOnce(): UiControlResultDto | null {
+  async tickOnce(): Promise<UiControlResultDto | null> {
     const state = this.viewModel.currentStateProperty().get();
     if (state !== null && state.playbackMode === "PAUSED") {
       this.stopTimeline();
       return null;
     }
-    const result = this.viewModel.tick();
+    const result = await this.viewModel.tick();
     const nextState = this.viewModel.currentStateProperty().get();
     if (nextState !== null && !nextState.canNext) {
       this.stopTimeline();
@@ -137,7 +137,7 @@ export class MiniCPlaybackController {
     }
     const interval = this.viewModel.currentStateProperty().get()?.frameIntervalMillis ?? 1000;
     this.timer = window.setInterval(() => {
-      this.tickOnce();
+      void this.tickOnce();
     }, interval);
   }
 

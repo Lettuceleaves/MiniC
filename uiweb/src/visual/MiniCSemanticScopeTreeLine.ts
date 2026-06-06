@@ -6,9 +6,12 @@ export const miniCSemanticScopeTreeLineMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCSemanticScopeTreeLine",
   kind: "record",
-  imports: ["java.util.List", "java.util.Objects"],
+  imports: [
+    "java.util.List",
+    "java.util.Objects"
+  ],
   fields: [],
-  methods: [{ name: "MiniCSemanticScopeTreeLine", signature: "MiniCSemanticScopeTreeLine(String label, int depth, List<String> symbols, boolean active, boolean onActivePath, String arrowDirection)" }],
+  methods: [],
 } as const satisfies JavaMirrorFile;
 
 export type MiniCSemanticScopeArrowDirection = "child-to-parent" | "parent-to-child";

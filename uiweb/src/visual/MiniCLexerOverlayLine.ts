@@ -7,9 +7,11 @@ export const miniCLexerOverlayLineMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCLexerOverlayLine",
   kind: "record",
-  imports: ["java.util.List"],
+  imports: [
+    "java.util.List"
+  ],
   fields: [],
-  methods: [{ name: "MiniCLexerOverlayLine", signature: "MiniCLexerOverlayLine(int lineNumber, List<MiniCLexerOverlaySegment> segments)" }],
+  methods: [],
 } as const satisfies JavaMirrorFile;
 
 export class MiniCLexerOverlayLine {

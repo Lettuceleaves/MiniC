@@ -11,26 +11,30 @@ export const miniCSidebarViewMirror = {
   "exportName": "MiniCSidebarView",
   "kind": "component",
   "imports": [
-    "javafx.scene.control.Label",
-    "javafx.scene.layout.VBox",
     "java.util.List",
-    "java.util.Objects"
+    "java.util.Objects",
+    "javafx.scene.control.Label",
+    "javafx.scene.layout.VBox"
   ],
   "fields": [
     {
-      "name": "viewModel",
-      "signature": "private final MiniCWorkbenchViewModel viewModel;"
+      "name": "stageList",
+      "signature": "private final VBox stageList="
     },
     {
       "name": "stageListFactory",
-      "signature": "private final MiniCStageListFactory stageListFactory;"
+      "signature": "private final MiniCStageListFactory stageListFactory"
     },
     {
-      "name": "stageList",
-      "signature": "private final VBox stageList ="
+      "name": "viewModel",
+      "signature": "private final MiniCWorkbenchViewModel viewModel"
     }
   ],
   "methods": [
+    {
+      "name": "label",
+      "signature": "label(String text,String styleClass)"
+    },
     {
       "name": "refresh",
       "signature": "refresh()"
@@ -38,10 +42,6 @@ export const miniCSidebarViewMirror = {
     {
       "name": "stageCard",
       "signature": "stageCard(MiniCStageView stage)"
-    },
-    {
-      "name": "label",
-      "signature": "label(String text, String styleClass)"
     }
   ]
 } as const satisfies JavaMirrorFile;
@@ -66,7 +66,7 @@ export function MiniCSidebarView({ viewModel }: MiniCSidebarViewProps) {
             key={stage.id}
             stage={stage}
             selected={stage.id === snapshot.selectedVisualStage}
-            onSelect={(stageId) => viewModel.selectVisualStage(stageId)}
+            onSelect={(stageId) => void viewModel.selectVisualStage(stageId)}
           />
         ))}
       </div>

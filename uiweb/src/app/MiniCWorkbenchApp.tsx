@@ -18,16 +18,16 @@ export const miniCWorkbenchAppMirror = {
   ],
   "fields": [
     {
-      "name": "TITLE",
-      "signature": "public static final String TITLE ="
+      "name": "DEFAULT_HEIGHT",
+      "signature": "public static final double DEFAULT_HEIGHT="
     },
     {
       "name": "DEFAULT_WIDTH",
-      "signature": "public static final double DEFAULT_WIDTH ="
+      "signature": "public static final double DEFAULT_WIDTH="
     },
     {
-      "name": "DEFAULT_HEIGHT",
-      "signature": "public static final double DEFAULT_HEIGHT ="
+      "name": "TITLE",
+      "signature": "public static final String TITLE="
     }
   ],
   "methods": [

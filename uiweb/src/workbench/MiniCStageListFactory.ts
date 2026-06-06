@@ -9,30 +9,26 @@ export const miniCStageListFactoryMirror = {
   "exportName": "MiniCStageListFactory",
   "kind": "class",
   "imports": [
+    "java.util.ArrayList",
+    "java.util.List",
     "minic.uiapi.UiCurrentStateDto",
     "minic.uiapi.UiGlobalDataDto",
-    "minic.uiapi.UiStageDataDto",
-    "java.util.ArrayList",
-    "java.util.List"
+    "minic.uiapi.UiStageDataDto"
   ],
   "fields": [
     {
       "name": "STAGES",
-      "signature": "private static final List<StageInfo> STAGES ="
+      "signature": "private static final List<StageInfo>STAGES="
     }
   ],
   "methods": [
     {
       "name": "create",
-      "signature": "create(UiCurrentStateDto currentState, UiStageDataDto currentStageData, UiGlobalDataDto globalData)"
+      "signature": "create(UiCurrentStateDto currentState,UiStageDataDto currentStageData,UiGlobalDataDto globalData)"
     },
     {
-      "name": "stageIndex",
-      "signature": "stageIndex(String id)"
-    },
-    {
-      "name": "state",
-      "signature": "state(boolean active, boolean done, UiGlobalDataDto globalData)"
+      "name": "detail",
+      "signature": "detail(String stage,boolean active,UiStageDataDto currentStageData,UiGlobalDataDto globalData)"
     },
     {
       "name": "hasErrors",
@@ -40,15 +36,19 @@ export const miniCStageListFactoryMirror = {
     },
     {
       "name": "progress",
-      "signature": "progress(String stage, boolean active, boolean done, UiCurrentStateDto currentState, UiStageDataDto currentStageData)"
+      "signature": "progress(String stage,boolean active,boolean done,UiCurrentStateDto currentState,UiStageDataDto currentStageData)"
     },
     {
-      "name": "detail",
-      "signature": "detail(String stage, boolean active, UiStageDataDto currentStageData, UiGlobalDataDto globalData)"
+      "name": "stageIndex",
+      "signature": "stageIndex(String id)"
     },
     {
       "name": "StageInfo",
-      "signature": "StageInfo(String id, String title)"
+      "signature": "StageInfo(String id,String title)"
+    },
+    {
+      "name": "state",
+      "signature": "state(boolean active,boolean done,UiGlobalDataDto globalData)"
     }
   ]
 } as const satisfies JavaMirrorFile;

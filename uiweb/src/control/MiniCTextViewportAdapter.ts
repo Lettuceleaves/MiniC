@@ -11,48 +11,48 @@ export const miniCTextViewportAdapterMirror = {
   "exportName": "MiniCTextViewportAdapter",
   "kind": "class",
   "imports": [
+    "java.util.Objects",
     "javafx.geometry.Point2D",
-    "minic.uilocal.MiniCCodeEditor",
-    "java.util.Objects"
+    "minic.uilocal.MiniCCodeEditor"
   ],
   "fields": [
     {
       "name": "editor",
-      "signature": "private final MiniCCodeEditor editor;"
+      "signature": "private final MiniCCodeEditor editor"
     }
   ],
   "methods": [
     {
-      "name": "type",
-      "signature": "type()"
+      "name": "canScrollVertical",
+      "signature": "canScrollVertical()"
     },
     {
       "name": "canZoom",
       "signature": "canZoom()"
     },
     {
-      "name": "zoomAt",
-      "signature": "zoomAt(Point2D localPoint, double delta)"
-    },
-    {
-      "name": "canScrollVertical",
-      "signature": "canScrollVertical()"
-    },
-    {
-      "name": "scrollVertical",
-      "signature": "scrollVertical(double delta)"
-    },
-    {
-      "name": "isActiveFullyVisible",
-      "signature": "isActiveFullyVisible()"
+      "name": "centerActive",
+      "signature": "centerActive()"
     },
     {
       "name": "centerActiveIfNeeded",
       "signature": "centerActiveIfNeeded()"
     },
     {
-      "name": "centerActive",
-      "signature": "centerActive()"
+      "name": "isActiveFullyVisible",
+      "signature": "isActiveFullyVisible()"
+    },
+    {
+      "name": "scrollVertical",
+      "signature": "scrollVertical(double delta)"
+    },
+    {
+      "name": "type",
+      "signature": "type()"
+    },
+    {
+      "name": "zoomAt",
+      "signature": "zoomAt(Point2D localPoint,double delta)"
     }
   ]
 } as const satisfies JavaMirrorFile;

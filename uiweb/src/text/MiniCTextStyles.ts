@@ -10,14 +10,45 @@ export const miniCTextStylesMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCTextStyles",
   kind: "class",
-  imports: ["javafx.scene.Node", "java.util.Collection"],
-  fields: [{ name: "DEFAULT_RESOLVER", signature: "private static final MiniCTextStyleResolver DEFAULT_RESOLVER =" }],
+  imports: [
+    "java.util.ArrayList",
+    "java.util.Arrays",
+    "java.util.Collection",
+    "java.util.LinkedHashSet",
+    "java.util.List",
+    "javafx.scene.Node"
+  ],
+  fields: [
+    {
+      "name": "DEFAULT_RESOLVER",
+      "signature": "private static final MiniCTextStyleResolver DEFAULT_RESOLVER="
+    }
+  ],
   methods: [
-    { name: "defaultResolver", signature: "defaultResolver()" },
-    { name: "classes", signature: "classes(MiniCTextStyleRole role, MiniCTextStyleState... states)" },
-    { name: "stateClasses", signature: "stateClasses(MiniCTextStyleState... states)" },
-    { name: "addStateClasses", signature: "addStateClasses(Collection<String> target, MiniCTextStyleState... states)" },
-    { name: "apply", signature: "apply(Node node, MiniCTextStyleRole role, MiniCTextStyleState... states)" },
+    {
+      "name": "addStateClasses",
+      "signature": "addStateClasses(Collection<String>target,MiniCTextStyleState... states)"
+    },
+    {
+      "name": "apply",
+      "signature": "apply(Node node,MiniCTextStyleRole role,MiniCTextStyleState... states)"
+    },
+    {
+      "name": "classes",
+      "signature": "classes(MiniCTextStyleRole role,MiniCTextStyleState... states)"
+    },
+    {
+      "name": "defaultResolver",
+      "signature": "defaultResolver()"
+    },
+    {
+      "name": "stateClasses",
+      "signature": "stateClasses(MiniCTextStyleState... states)"
+    },
+    {
+      "name": "styleClasses",
+      "signature": "styleClasses(MiniCTextStyleRole role,Collection<MiniCTextStyleState>states)"
+    }
   ],
 } as const satisfies JavaMirrorFile;
 

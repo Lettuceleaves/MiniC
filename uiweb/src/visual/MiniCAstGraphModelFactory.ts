@@ -10,15 +10,53 @@ export const miniCAstGraphModelFactoryMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCAstGraphModelFactory",
   kind: "class",
-  imports: ["minic.uiapi.UiAstNodeVisualDto", "minic.uiapi.UiStageVisualDto", "java.util.ArrayList"],
+  imports: [
+    "java.util.ArrayList",
+    "java.util.HashMap",
+    "java.util.List",
+    "java.util.Map",
+    "minic.uiapi.UiAstNodeVisualDto",
+    "minic.uiapi.UiStageVisualDto"
+  ],
   fields: [
-    { name: "NODE_RADIUS", signature: "private static final double NODE_RADIUS =" },
-    { name: "X_GAP", signature: "private static final double X_GAP =" },
-    { name: "Y_GAP", signature: "private static final double Y_GAP =" },
+    {
+      "name": "LEFT_PAD",
+      "signature": "private static final double LEFT_PAD="
+    },
+    {
+      "name": "NODE_RADIUS",
+      "signature": "private static final double NODE_RADIUS="
+    },
+    {
+      "name": "TOP_PAD",
+      "signature": "private static final double TOP_PAD="
+    },
+    {
+      "name": "X_GAP",
+      "signature": "private static final double X_GAP="
+    },
+    {
+      "name": "Y_GAP",
+      "signature": "private static final double Y_GAP="
+    }
   ],
   methods: [
-    { name: "create", signature: "create(UiStageVisualDto visual)" },
-    { name: "create", signature: "create(UiAstNodeVisualDto root)" },
+    {
+      "name": "assignPositions",
+      "signature": "assignPositions(UiAstNodeVisualDto node,int depth,int[] nextLeaf,ArrayList<PositionedNode>positioned)"
+    },
+    {
+      "name": "create",
+      "signature": "create(UiAstNodeVisualDto root)"
+    },
+    {
+      "name": "create",
+      "signature": "create(UiStageVisualDto visual)"
+    },
+    {
+      "name": "PositionedNode",
+      "signature": "PositionedNode(UiAstNodeVisualDto node,int depth,double x,double y)"
+    }
   ],
 } as const satisfies JavaMirrorFile;
 

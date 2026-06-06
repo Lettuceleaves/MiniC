@@ -14,25 +14,25 @@ export const miniCBottomPanelModelFactoryMirror = {
   "exportName": "MiniCBottomPanelModelFactory",
   "kind": "class",
   "imports": [
+    "java.util.List",
     "minic.uiapi.UiDiagnosticDto",
     "minic.uiapi.UiGlobalDataDto",
     "minic.uiapi.UiRealtimeAnalysisDto",
-    "minic.uiapi.UiStageDataDto",
-    "java.util.List"
+    "minic.uiapi.UiStageDataDto"
   ],
   "fields": [],
   "methods": [
     {
       "name": "create",
-      "signature": "create(UiStageDataDto stageData, UiGlobalDataDto globalData)"
+      "signature": "create(UiStageDataDto stageData,UiGlobalDataDto globalData,UiRealtimeAnalysisDto realtimeAnalysis)"
     },
     {
       "name": "create",
-      "signature": "create(UiStageDataDto stageData, UiGlobalDataDto globalData, UiRealtimeAnalysisDto realtimeAnalysis)"
+      "signature": "create(UiStageDataDto stageData,UiGlobalDataDto globalData)"
     },
     {
       "name": "problems",
-      "signature": "problems(UiStageDataDto stageData, UiGlobalDataDto globalData, UiRealtimeAnalysisDto realtimeAnalysis)"
+      "signature": "problems(UiStageDataDto stageData,UiGlobalDataDto globalData,UiRealtimeAnalysisDto realtimeAnalysis)"
     },
     {
       "name": "terminal",

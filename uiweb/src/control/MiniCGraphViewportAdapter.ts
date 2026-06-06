@@ -11,117 +11,41 @@ export const miniCGraphViewportAdapterMirror = {
   "exportName": "MiniCGraphViewportAdapter",
   "kind": "class",
   "imports": [
+    "java.util.Objects",
+    "java.util.Optional",
+    "java.util.function.BiConsumer",
+    "java.util.function.DoubleConsumer",
     "javafx.geometry.Bounds",
     "javafx.geometry.Point2D",
     "javafx.scene.Node",
     "javafx.scene.Parent",
     "javafx.scene.control.ScrollPane",
     "javafx.scene.shape.Circle",
-    "javafx.scene.shape.Rectangle",
-    "java.util.Objects",
-    "java.util.Optional",
-    "java.util.function.BiConsumer",
-    "java.util.function.DoubleConsumer"
+    "javafx.scene.shape.Rectangle"
   ],
   "fields": [
     {
       "name": "ADAPTER_PROPERTY",
-      "signature": "public static final String ADAPTER_PROPERTY ="
-    },
-    {
-      "name": "VISIBILITY_EPSILON",
-      "signature": "private static final double VISIBILITY_EPSILON ="
-    },
-    {
-      "name": "scrollPane",
-      "signature": "private final ScrollPane scrollPane;"
+      "signature": "public static final String ADAPTER_PROPERTY="
     },
     {
       "name": "graphContent",
-      "signature": "private final Node graphContent;"
+      "signature": "private final Node graphContent"
+    },
+    {
+      "name": "scrollPane",
+      "signature": "private final ScrollPane scrollPane"
+    },
+    {
+      "name": "VISIBILITY_EPSILON",
+      "signature": "private static final double VISIBILITY_EPSILON="
     },
     {
       "name": "zoomCallback",
-      "signature": "private final BiConsumer<Point2D, Double> zoomCallback;"
+      "signature": "private final BiConsumer<Point2D,Double>zoomCallback"
     }
   ],
   "methods": [
-    {
-      "name": "type",
-      "signature": "type()"
-    },
-    {
-      "name": "canZoom",
-      "signature": "canZoom()"
-    },
-    {
-      "name": "zoomAt",
-      "signature": "zoomAt(Point2D localPoint, double delta)"
-    },
-    {
-      "name": "toContentPoint",
-      "signature": "toContentPoint(Node content, Point2D graphPoint)"
-    },
-    {
-      "name": "compensateResidualTranslation",
-      "signature": "compensateResidualTranslation(Point2D graphPoint, Point2D targetScenePoint)"
-    },
-    {
-      "name": "residualTranslationTarget",
-      "signature": "residualTranslationTarget()"
-    },
-    {
-      "name": "canScrollVertical",
-      "signature": "canScrollVertical()"
-    },
-    {
-      "name": "scrollVertical",
-      "signature": "scrollVertical(double delta)"
-    },
-    {
-      "name": "canScrollHorizontal",
-      "signature": "canScrollHorizontal()"
-    },
-    {
-      "name": "scrollHorizontal",
-      "signature": "scrollHorizontal(double delta)"
-    },
-    {
-      "name": "canPan",
-      "signature": "canPan()"
-    },
-    {
-      "name": "pan",
-      "signature": "pan(double deltaX, double deltaY)"
-    },
-    {
-      "name": "isActiveFullyVisible",
-      "signature": "isActiveFullyVisible()"
-    },
-    {
-      "name": "centerActive",
-      "signature": "centerActive()"
-    },
-    {
-      "name": "scrollBy",
-      "signature": "scrollBy(double delta, Orientation orientation)"
-    },
-    {
-      "name": "setAxisByDelta",
-      "signature": "setAxisByDelta(double value, double delta, double contentSize, double viewportSize, double min, double max, DoubleConsumer setter)"
-    },
-    {
-      "name": "centerAxis",
-      "signature": "centerAxis(double activeCenter, double contentMin, double contentSize, double viewportSize, double min, double max, DoubleConsumer setter)"
-    },
-    {
-      "name": "setAxisToVisibleMin",
-      "signature": "setAxisToVisibleMin(double targetVisibleMin, double contentMin, double contentSize, double viewportSize, double min, double max, DoubleConsumer setter)"
-    },
-    {
-      "name": "visibleMin",
-      "signature": "visibleMin(double value, double min, double max, double contentMin, double contentSize, double viewportSize)"
-    },
     {
       "name": "activeBoundsInScrollContent",
       "signature": "activeBoundsInScrollContent()"
@@ -131,16 +55,68 @@ export const miniCGraphViewportAdapterMirror = {
       "signature": "activeShape(Node node)"
     },
     {
-      "name": "isTrackedShape",
-      "signature": "isTrackedShape(Node node)"
+      "name": "boundsInAncestor",
+      "signature": "boundsInAncestor(Node node,Node ancestor)"
+    },
+    {
+      "name": "canPan",
+      "signature": "canPan()"
+    },
+    {
+      "name": "canScrollHorizontal",
+      "signature": "canScrollHorizontal()"
+    },
+    {
+      "name": "canScrollVertical",
+      "signature": "canScrollVertical()"
+    },
+    {
+      "name": "canZoom",
+      "signature": "canZoom()"
+    },
+    {
+      "name": "centerActive",
+      "signature": "centerActive()"
+    },
+    {
+      "name": "centerAxis",
+      "signature": "centerAxis(double activeCenter,double contentMin,double contentSize,double viewportSize,double min,double max,DoubleConsumer setter)"
+    },
+    {
+      "name": "clamp",
+      "signature": "clamp(double value)"
+    },
+    {
+      "name": "compensateResidualTranslation",
+      "signature": "compensateResidualTranslation(Point2D graphPoint,Point2D targetScenePoint)"
     },
     {
       "name": "isActive",
       "signature": "isActive(Node node)"
     },
     {
-      "name": "boundsInAncestor",
-      "signature": "boundsInAncestor(Node node, Node ancestor)"
+      "name": "isActiveFullyVisible",
+      "signature": "isActiveFullyVisible()"
+    },
+    {
+      "name": "isTrackedShape",
+      "signature": "isTrackedShape(Node node)"
+    },
+    {
+      "name": "normalized",
+      "signature": "normalized(double value,double min,double max)"
+    },
+    {
+      "name": "pan",
+      "signature": "pan(double deltaX,double deltaY)"
+    },
+    {
+      "name": "residualTranslationTarget",
+      "signature": "residualTranslationTarget()"
+    },
+    {
+      "name": "scrollBy",
+      "signature": "scrollBy(double delta,Orientation orientation)"
     },
     {
       "name": "scrollContent",
@@ -151,12 +127,36 @@ export const miniCGraphViewportAdapterMirror = {
       "signature": "scrollContentBounds()"
     },
     {
-      "name": "normalized",
-      "signature": "normalized(double value, double min, double max)"
+      "name": "scrollHorizontal",
+      "signature": "scrollHorizontal(double delta)"
     },
     {
-      "name": "clamp",
-      "signature": "clamp(double value)"
+      "name": "scrollVertical",
+      "signature": "scrollVertical(double delta)"
+    },
+    {
+      "name": "setAxisByDelta",
+      "signature": "setAxisByDelta(double value,double delta,double contentSize,double viewportSize,double min,double max,DoubleConsumer setter)"
+    },
+    {
+      "name": "setAxisToVisibleMin",
+      "signature": "setAxisToVisibleMin(double targetVisibleMin,double contentMin,double contentSize,double viewportSize,double min,double max,DoubleConsumer setter)"
+    },
+    {
+      "name": "toContentPoint",
+      "signature": "toContentPoint(Node content,Point2D graphPoint)"
+    },
+    {
+      "name": "type",
+      "signature": "type()"
+    },
+    {
+      "name": "visibleMin",
+      "signature": "visibleMin(double value,double min,double max,double contentMin,double contentSize,double viewportSize)"
+    },
+    {
+      "name": "zoomAt",
+      "signature": "zoomAt(Point2D localPoint,double delta)"
     }
   ]
 } as const satisfies JavaMirrorFile;

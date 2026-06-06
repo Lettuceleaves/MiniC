@@ -16,7 +16,7 @@ export const miniCDiagnosticSelectionMirror = {
   "fields": [
     {
       "name": "selectedRange",
-      "signature": "private final ReadOnlyObjectWrapper<UiSourceRangeDto> selectedRange ="
+      "signature": "private final ReadOnlyObjectWrapper<UiSourceRangeDto>selectedRange="
     }
   ],
   "methods": [

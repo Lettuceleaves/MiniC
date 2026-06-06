@@ -9,12 +9,19 @@ export const miniCLineTokenHighlighterMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCLineTokenHighlighter",
   kind: "class",
-  imports: ["java.util.ArrayList", "java.util.List", "java.util.regex.Pattern"],
-  fields: [{ name: "TOKEN", signature: "private static final Pattern TOKEN =" }],
-  methods: [
-    { name: "highlight", signature: "highlight(String line, TokenClassifier classifier)" },
-    { name: "add", signature: "add(List<MiniCStyledTextSegment> segments, String text, MiniCTextStyleRole role)" },
+  imports: [
+    "java.util.ArrayList",
+    "java.util.List",
+    "java.util.regex.Matcher",
+    "java.util.regex.Pattern"
   ],
+  fields: [
+    {
+      "name": "TOKEN",
+      "signature": "private static final Pattern TOKEN="
+    }
+  ],
+  methods: [],
 } as const satisfies JavaMirrorFile;
 
 export interface MiniCTokenClassifier {

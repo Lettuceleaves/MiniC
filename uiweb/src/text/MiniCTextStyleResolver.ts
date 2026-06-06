@@ -8,9 +8,11 @@ export const miniCTextStyleResolverMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCTextStyleResolver",
   kind: "interface",
-  imports: ["java.util.Collection"],
+  imports: [
+    "java.util.Collection"
+  ],
   fields: [],
-  methods: [{ name: "styleClasses", signature: "styleClasses(MiniCTextStyleRole role, Collection<MiniCTextStyleState> states)" }],
+  methods: [],
 } as const satisfies JavaMirrorFile;
 
 export interface MiniCResolvedTextStyle {

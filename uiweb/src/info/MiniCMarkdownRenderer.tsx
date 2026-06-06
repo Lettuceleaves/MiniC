@@ -1,5 +1,7 @@
-import { Fragment, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { MiniCRealtimeAnalysisHttpAdapter } from "../api/MiniCRealtimeAnalysisHttpAdapter";
 import type { JavaMirrorFile } from "../translation/javaMirror";
+import type { UiLexerTokenVisualDto } from "../translation/uiapi";
 import { MiniCSourceTextHighlighter } from "../text/MiniCSourceTextHighlighter";
 
 export const miniCMarkdownRendererMirror = {
@@ -9,6 +11,11 @@ export const miniCMarkdownRendererMirror = {
   "exportName": "MiniCMarkdownRenderer",
   "kind": "component",
   "imports": [
+    "java.util.ArrayList",
+    "java.util.List",
+    "java.util.Locale",
+    "java.util.regex.Matcher",
+    "java.util.regex.Pattern",
     "javafx.scene.control.Label",
     "javafx.scene.layout.HBox",
     "javafx.scene.layout.Priority",
@@ -18,75 +25,70 @@ export const miniCMarkdownRendererMirror = {
     "minic.uilocal.text.MiniCSourceTextHighlighter",
     "minic.uilocal.text.MiniCStyledTextSegment",
     "minic.uilocal.text.MiniCTextFlowFactory",
-    "minic.uilocal.text.MiniCTextStyleRole",
-    "java.util.ArrayList",
-    "java.util.List",
-    "java.util.Locale",
-    "java.util.regex.Matcher",
-    "java.util.regex.Pattern"
+    "minic.uilocal.text.MiniCTextStyleRole"
   ],
   "fields": [
     {
       "name": "HEADING",
-      "signature": "private static final Pattern HEADING ="
-    },
-    {
-      "name": "UNORDERED_LIST",
-      "signature": "private static final Pattern UNORDERED_LIST ="
+      "signature": "private static final Pattern HEADING="
     },
     {
       "name": "ORDERED_LIST",
-      "signature": "private static final Pattern ORDERED_LIST ="
+      "signature": "private static final Pattern ORDERED_LIST="
     },
     {
       "name": "sourceTextHighlighter",
-      "signature": "private final MiniCSourceTextHighlighter sourceTextHighlighter ="
+      "signature": "private final MiniCSourceTextHighlighter sourceTextHighlighter="
+    },
+    {
+      "name": "UNORDERED_LIST",
+      "signature": "private static final Pattern UNORDERED_LIST="
     }
   ],
   "methods": [
     {
-      "name": "normalize",
-      "signature": "normalize(String markdown)"
+      "name": "addCodeBlock",
+      "signature": "addCodeBlock(VBox content,String code,String language)"
     },
     {
       "name": "addHeading",
-      "signature": "addHeading(VBox content, int level, String text)"
+      "signature": "addHeading(VBox content,int level,String text)"
     },
     {
-      "name": "addCodeBlock",
-      "signature": "addCodeBlock(VBox content, String code, String language)"
+      "name": "addListItem",
+      "signature": "addListItem(VBox content,String marker,String text)"
+    },
+    {
+      "name": "addText",
+      "signature": "addText(TextFlow flow,String value,String styleClass)"
     },
     {
       "name": "codeLanguage",
       "signature": "codeLanguage(String fenceLine)"
     },
     {
-      "name": "isMiniCCode",
-      "signature": "isMiniCCode(String language)"
-    },
-    {
-      "name": "addListItem",
-      "signature": "addListItem(VBox content, String marker, String text)"
-    },
-    {
       "name": "flushParagraph",
-      "signature": "flushParagraph(VBox content, List<String> paragraph)"
+      "signature": "flushParagraph(VBox content,List<String>paragraph)"
     },
     {
       "name": "inlineFlow",
       "signature": "inlineFlow(String markdown)"
     },
     {
-      "name": "nextToken",
-      "signature": "nextToken(String markdown, int from)"
-    },
-    {
-      "name": "addText",
-      "signature": "addText(TextFlow flow, String value, String styleClass)"
-    },
-    {
       "name": "InlineToken",
-      "signature": "InlineToken(int start, int end, String value, String styleClass)"
+      "signature": "InlineToken(int start,int end,String value,String styleClass)"
+    },
+    {
+      "name": "isMiniCCode",
+      "signature": "isMiniCCode(String language)"
+    },
+    {
+      "name": "nextToken",
+      "signature": "nextToken(String markdown,int from)"
+    },
+    {
+      "name": "normalize",
+      "signature": "normalize(String markdown)"
     }
   ]
 } as const satisfies JavaMirrorFile;
@@ -192,21 +194,40 @@ export function addHeading(level: number, text: string, key: number): ReactNode 
 export function addCodeBlock(code: string, language: string, key: number): ReactNode {
   const normalized = code.trimEnd();
   if (isMiniCCode(language)) {
-    const highlighter = new MiniCSourceTextHighlighter();
-    const segments = highlighter.highlight(normalized);
-    return (
-      <pre className="info-code-block" key={`code-${key}`}>
-        {segments.map((segment, index) => (
-          <span className={segment.role.legacyClasses.join(" ") || segment.role.cssClass} key={`${segment.text}-${index}`}>
-            {segment.text}
-          </span>
-        ))}
-      </pre>
-    );
+    return <MiniCCodeBlock code={normalized} key={`code-${key}`} />;
   }
   return (
     <pre className="info-code-block" key={`code-${key}`}>
       {normalized.length === 0 ? " " : normalized}
+    </pre>
+  );
+}
+
+function MiniCCodeBlock({ code }: { readonly code: string }) {
+  const highlighter = useMemo(() => new MiniCSourceTextHighlighter(), []);
+  const realtimeApi = useMemo(() => new MiniCRealtimeAnalysisHttpAdapter(), []);
+  const [tokens, setTokens] = useState<readonly UiLexerTokenVisualDto[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    void realtimeApi.tokenize("guide-code.mc", code).then((result) => {
+      if (active) {
+        setTokens(result);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [code, realtimeApi]);
+
+  const segments = highlighter.highlight(code, tokens);
+  return (
+    <pre className="info-code-block">
+      {segments.map((segment, index) => (
+        <span className={segment.role.legacyClasses.join(" ") || segment.role.cssClass} key={`${segment.text}-${index}`}>
+          {segment.text}
+        </span>
+      ))}
     </pre>
   );
 }

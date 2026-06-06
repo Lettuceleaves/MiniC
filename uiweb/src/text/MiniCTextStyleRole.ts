@@ -6,23 +6,64 @@ export const miniCTextStyleRoleMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCTextStyleRole",
   kind: "enum",
-  imports: ["java.util.List"],
+  imports: [
+    "java.util.List"
+  ],
   fields: [
-    { name: "themeId", signature: "private final String themeId;" },
-    { name: "fallbackColorKey", signature: "private final String fallbackColorKey;" },
-    { name: "fallbackFontFamily", signature: "private final String fallbackFontFamily;" },
-    { name: "fallbackFontWeight", signature: "private final String fallbackFontWeight;" },
-    { name: "fallbackFontStyle", signature: "private final String fallbackFontStyle;" },
-    { name: "legacyClasses", signature: "private final List<String> legacyClasses;" },
+    {
+      "name": "fallbackColorKey",
+      "signature": "private final String fallbackColorKey"
+    },
+    {
+      "name": "fallbackFontFamily",
+      "signature": "private final String fallbackFontFamily"
+    },
+    {
+      "name": "fallbackFontStyle",
+      "signature": "private final String fallbackFontStyle"
+    },
+    {
+      "name": "fallbackFontWeight",
+      "signature": "private final String fallbackFontWeight"
+    },
+    {
+      "name": "legacyClasses",
+      "signature": "private final List<String>legacyClasses"
+    },
+    {
+      "name": "themeId",
+      "signature": "private final String themeId"
+    }
   ],
   methods: [
-    { name: "themeId", signature: "themeId()" },
-    { name: "cssClass", signature: "cssClass()" },
-    { name: "fallbackColorKey", signature: "fallbackColorKey()" },
-    { name: "fallbackFontFamily", signature: "fallbackFontFamily()" },
-    { name: "fallbackFontWeight", signature: "fallbackFontWeight()" },
-    { name: "fallbackFontStyle", signature: "fallbackFontStyle()" },
-    { name: "legacyClasses", signature: "legacyClasses()" },
+    {
+      "name": "cssClass",
+      "signature": "cssClass()"
+    },
+    {
+      "name": "fallbackColorKey",
+      "signature": "fallbackColorKey()"
+    },
+    {
+      "name": "fallbackFontFamily",
+      "signature": "fallbackFontFamily()"
+    },
+    {
+      "name": "fallbackFontStyle",
+      "signature": "fallbackFontStyle()"
+    },
+    {
+      "name": "fallbackFontWeight",
+      "signature": "fallbackFontWeight()"
+    },
+    {
+      "name": "legacyClasses",
+      "signature": "legacyClasses()"
+    },
+    {
+      "name": "themeId",
+      "signature": "themeId()"
+    }
   ],
 } as const satisfies JavaMirrorFile;
 

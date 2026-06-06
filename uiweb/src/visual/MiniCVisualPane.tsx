@@ -21,6 +21,10 @@ export const miniCVisualPaneMirror = {
   "exportName": "MiniCVisualPane",
   "kind": "component",
   "imports": [
+    "java.util.ArrayList",
+    "java.util.List",
+    "java.util.Objects",
+    "java.util.stream.Collectors",
     "javafx.application.Platform",
     "javafx.geometry.BoundingBox",
     "javafx.geometry.Bounds",
@@ -38,205 +42,233 @@ export const miniCVisualPaneMirror = {
     "javafx.scene.layout.Priority",
     "javafx.scene.layout.VBox",
     "javafx.scene.text.TextFlow",
+    "minic.uiapi.UiAssemblyLineVisualDto",
+    "minic.uiapi.UiAstNodeVisualDto",
+    "minic.uiapi.UiIrLineVisualDto",
+    "minic.uiapi.UiSemanticScopeVisualDto",
+    "minic.uiapi.UiSourceSpanDto",
+    "minic.uiapi.UiStageVisualDto",
     "minic.uilocal.control.MiniCControlTargetType",
     "minic.uilocal.control.MiniCViewportAdapter",
     "minic.uilocal.control.MiniCWorkbenchControlHub",
     "minic.uilocal.text.MiniCAssemblyTextHighlighter",
     "minic.uilocal.text.MiniCIrTextHighlighter",
-    "minic.uilocal.text.MiniCTextFlowFactory",
-    "minic.uiapi.UiAstNodeVisualDto",
-    "minic.uiapi.UiAssemblyLineVisualDto",
-    "minic.uiapi.UiIrLineVisualDto",
-    "minic.uiapi.UiSemanticScopeVisualDto",
-    "minic.uiapi.UiSourceSpanDto",
-    "minic.uiapi.UiStageVisualDto",
-    "java.util.ArrayList",
-    "java.util.List",
-    "java.util.Objects",
-    "java.util.stream.Collectors"
+    "minic.uilocal.text.MiniCTextFlowFactory"
   ],
   "fields": [
     {
       "name": "ACTIVE_CENTER_Y_KEY",
-      "signature": "private static final String ACTIVE_CENTER_Y_KEY ="
-    },
-    {
-      "name": "DEFAULT_AST_ZOOM",
-      "signature": "private static final double DEFAULT_AST_ZOOM ="
-    },
-    {
-      "name": "MIN_AST_ZOOM",
-      "signature": "private static final double MIN_AST_ZOOM ="
-    },
-    {
-      "name": "MAX_AST_ZOOM",
-      "signature": "private static final double MAX_AST_ZOOM ="
-    },
-    {
-      "name": "AST_ZOOM_STEP",
-      "signature": "private static final double AST_ZOOM_STEP ="
-    },
-    {
-      "name": "STAGE_SCROLL_FILTER_INSTALLED_KEY",
-      "signature": "private static final String STAGE_SCROLL_FILTER_INSTALLED_KEY ="
-    },
-    {
-      "name": "viewModel",
-      "signature": "private final MiniCWorkbenchViewModel viewModel;"
-    },
-    {
-      "name": "hoverInspector",
-      "signature": "private final MiniCHoverInspector hoverInspector;"
-    },
-    {
-      "name": "modelFactory",
-      "signature": "private final MiniCVisualModelFactory modelFactory ="
-    },
-    {
-      "name": "semanticScopeTreeModelFactory",
-      "signature": "private final MiniCSemanticScopeTreeModelFactory semanticScopeTreeModelFactory ="
-    },
-    {
-      "name": "assemblyTextModelFactory",
-      "signature": "private final MiniCAssemblyTextModelFactory assemblyTextModelFactory ="
-    },
-    {
-      "name": "irTextHighlighter",
-      "signature": "private final MiniCIrTextHighlighter irTextHighlighter ="
-    },
-    {
-      "name": "assemblyTextHighlighter",
-      "signature": "private final MiniCAssemblyTextHighlighter assemblyTextHighlighter ="
-    },
-    {
-      "name": "explanationFormatter",
-      "signature": "private final MiniCVisualExplanationFormatter explanationFormatter;"
-    },
-    {
-      "name": "astGraphRenderer",
-      "signature": "private final MiniCVisualAstGraphRenderer astGraphRenderer;"
-    },
-    {
-      "name": "header",
-      "signature": "private final Label header ="
-    },
-    {
-      "name": "splitPane",
-      "signature": "private final SplitPane splitPane ="
-    },
-    {
-      "name": "leftColumn",
-      "signature": "private final StageColumn leftColumn ="
-    },
-    {
-      "name": "rightColumn",
-      "signature": "private final StageColumn rightColumn ="
-    },
-    {
-      "name": "astZoom",
-      "signature": "private final Slider astZoom ="
-    },
-    {
-      "name": "executionStdin",
-      "signature": "private final TextArea executionStdin ="
-    },
-    {
-      "name": "controlHub",
-      "signature": "private MiniCWorkbenchControlHub controlHub;"
-    },
-    {
-      "name": "selectedSemanticScopeId",
-      "signature": "private String selectedSemanticScopeId ="
-    },
-    {
-      "name": "refreshScheduled",
-      "signature": "private boolean refreshScheduled;"
+      "signature": "private static final String ACTIVE_CENTER_Y_KEY="
     },
     {
       "name": "activeVisualStage",
-      "signature": "private String activeVisualStage ="
+      "signature": "private String activeVisualStage="
     },
     {
-      "name": "columnId",
-      "signature": "private final String columnId;"
+      "name": "assemblyTextHighlighter",
+      "signature": "private final MiniCAssemblyTextHighlighter assemblyTextHighlighter="
     },
     {
-      "name": "root",
-      "signature": "private final VBox root ="
+      "name": "assemblyTextModelFactory",
+      "signature": "private final MiniCAssemblyTextModelFactory assemblyTextModelFactory="
     },
     {
-      "name": "title",
-      "signature": "private final Label title ="
+      "name": "AST_ZOOM_STEP",
+      "signature": "private static final double AST_ZOOM_STEP="
     },
     {
-      "name": "body",
-      "signature": "private final VBox body ="
+      "name": "astGraphRenderer",
+      "signature": "private final MiniCVisualAstGraphRenderer astGraphRenderer"
     },
     {
-      "name": "scrollPane",
-      "signature": "private final ScrollPane scrollPane ="
-    },
-    {
-      "name": "viewportAdapter",
-      "signature": "private final MiniCViewportAdapter viewportAdapter ="
+      "name": "astZoom",
+      "signature": "private final Slider astZoom="
     },
     {
       "name": "autoCenter",
-      "signature": "private final boolean autoCenter;"
+      "signature": "private final boolean autoCenter"
     },
     {
-      "name": "viewportKey",
-      "signature": "private String viewportKey ="
+      "name": "body",
+      "signature": "private final VBox body="
     },
     {
-      "name": "restoringViewport",
-      "signature": "private boolean restoringViewport;"
+      "name": "columnId",
+      "signature": "private final String columnId"
+    },
+    {
+      "name": "controlHub",
+      "signature": "private MiniCWorkbenchControlHub controlHub"
+    },
+    {
+      "name": "DEFAULT_AST_ZOOM",
+      "signature": "private static final double DEFAULT_AST_ZOOM="
+    },
+    {
+      "name": "executionStdin",
+      "signature": "private final TextArea executionStdin="
+    },
+    {
+      "name": "explanationFormatter",
+      "signature": "private final MiniCVisualExplanationFormatter explanationFormatter"
     },
     {
       "name": "hasSavedViewport",
-      "signature": "private boolean hasSavedViewport;"
+      "signature": "private boolean hasSavedViewport"
+    },
+    {
+      "name": "header",
+      "signature": "private final Label header="
+    },
+    {
+      "name": "hoverInspector",
+      "signature": "private final MiniCHoverInspector hoverInspector"
+    },
+    {
+      "name": "irTextHighlighter",
+      "signature": "private final MiniCIrTextHighlighter irTextHighlighter="
+    },
+    {
+      "name": "leftColumn",
+      "signature": "private final StageColumn leftColumn="
+    },
+    {
+      "name": "MAX_AST_ZOOM",
+      "signature": "private static final double MAX_AST_ZOOM="
+    },
+    {
+      "name": "MIN_AST_ZOOM",
+      "signature": "private static final double MIN_AST_ZOOM="
+    },
+    {
+      "name": "modelFactory",
+      "signature": "private final MiniCVisualModelFactory modelFactory="
+    },
+    {
+      "name": "refreshScheduled",
+      "signature": "private boolean refreshScheduled"
+    },
+    {
+      "name": "restoringViewport",
+      "signature": "private boolean restoringViewport"
+    },
+    {
+      "name": "rightColumn",
+      "signature": "private final StageColumn rightColumn="
+    },
+    {
+      "name": "root",
+      "signature": "private final VBox root="
+    },
+    {
+      "name": "scrollPane",
+      "signature": "private final ScrollPane scrollPane="
+    },
+    {
+      "name": "selectedSemanticScopeId",
+      "signature": "private String selectedSemanticScopeId="
+    },
+    {
+      "name": "semanticScopeTreeModelFactory",
+      "signature": "private final MiniCSemanticScopeTreeModelFactory semanticScopeTreeModelFactory="
+    },
+    {
+      "name": "splitPane",
+      "signature": "private final SplitPane splitPane="
+    },
+    {
+      "name": "STAGE_SCROLL_FILTER_INSTALLED_KEY",
+      "signature": "private static final String STAGE_SCROLL_FILTER_INSTALLED_KEY="
+    },
+    {
+      "name": "title",
+      "signature": "private final Label title="
+    },
+    {
+      "name": "viewModel",
+      "signature": "private final MiniCWorkbenchViewModel viewModel"
+    },
+    {
+      "name": "viewportAdapter",
+      "signature": "private final MiniCViewportAdapter viewportAdapter="
+    },
+    {
+      "name": "viewportKey",
+      "signature": "private String viewportKey="
     }
   ],
   "methods": [
     {
-      "name": "requestRefresh",
-      "signature": "requestRefresh()"
+      "name": "activeBounds",
+      "signature": "activeBounds()"
     },
     {
-      "name": "refresh",
-      "signature": "refresh()"
+      "name": "activeCenterY",
+      "signature": "activeCenterY()"
     },
     {
-      "name": "visualForStage",
-      "signature": "visualForStage(String stage)"
+      "name": "activeNode",
+      "signature": "activeNode(Node node)"
     },
     {
-      "name": "stageName",
-      "signature": "stageName(String stage)"
+      "name": "activeScope",
+      "signature": "activeScope(UiSemanticScopeVisualDto scope)"
     },
     {
-      "name": "zoomAstIn",
-      "signature": "zoomAstIn()"
-    },
-    {
-      "name": "zoomAstOut",
-      "signature": "zoomAstOut()"
-    },
-    {
-      "name": "installViewportTargets",
-      "signature": "installViewportTargets(MiniCWorkbenchControlHub controlHub)"
+      "name": "activeScopeRows",
+      "signature": "activeScopeRows(UiStageVisualDto visual)"
     },
     {
       "name": "activeViewportAdapters",
       "signature": "activeViewportAdapters()"
     },
     {
-      "name": "setAstZoom",
-      "signature": "setAstZoom(double value)"
+      "name": "assemblyRow",
+      "signature": "assemblyRow(MiniCAssemblyTextLine line,UiStageVisualDto visual)"
+    },
+    {
+      "name": "assemblyRows",
+      "signature": "assemblyRows(UiStageVisualDto visual)"
+    },
+    {
+      "name": "astContainsSourceName",
+      "signature": "astContainsSourceName(UiAstNodeVisualDto node,String sourceName)"
+    },
+    {
+      "name": "astNodeContent",
+      "signature": "astNodeContent(UiAstNodeVisualDto node,UiStageVisualDto visual)"
     },
     {
       "name": "astScopeInput",
       "signature": "astScopeInput()"
+    },
+    {
+      "name": "attachInspectorClick",
+      "signature": "attachInspectorClick(Node node,MiniCHoverInspectorContent content)"
+    },
+    {
+      "name": "canScrollHorizontal",
+      "signature": "canScrollHorizontal()"
+    },
+    {
+      "name": "canScrollVertical",
+      "signature": "canScrollVertical()"
+    },
+    {
+      "name": "centerActive",
+      "signature": "centerActive()"
+    },
+    {
+      "name": "centerActive",
+      "signature": "centerActive()"
+    },
+    {
+      "name": "centerActiveLater",
+      "signature": "centerActiveLater()"
+    },
+    {
+      "name": "codegenIrRows",
+      "signature": "codegenIrRows(UiStageVisualDto codegenVisual)"
     },
     {
       "name": "configureExecutionInputControls",
@@ -251,216 +283,188 @@ export const miniCVisualPaneMirror = {
       "signature": "executionOutputRows()"
     },
     {
-      "name": "globalRows",
-      "signature": "globalRows(String stage)"
-    },
-    {
-      "name": "preprocessRows",
-      "signature": "preprocessRows()"
-    },
-    {
-      "name": "codegenIrRows",
-      "signature": "codegenIrRows(UiStageVisualDto codegenVisual)"
-    },
-    {
-      "name": "irRow",
-      "signature": "irRow(UiIrLineVisualDto line, UiStageVisualDto visual)"
-    },
-    {
-      "name": "monoLabel",
-      "signature": "monoLabel(String text)"
-    },
-    {
-      "name": "section",
-      "signature": "section(String title, List<? extends Node> rows)"
-    },
-    {
-      "name": "sourceRows",
-      "signature": "sourceRows(UiStageVisualDto visual)"
-    },
-    {
       "name": "fallbackRows",
       "signature": "fallbackRows()"
     },
     {
-      "name": "node",
-      "signature": "node(MiniCVisualItem item)"
-    },
-    {
-      "name": "assemblyRows",
-      "signature": "assemblyRows(UiStageVisualDto visual)"
-    },
-    {
-      "name": "assemblyRow",
-      "signature": "assemblyRow(MiniCAssemblyTextLine line, UiStageVisualDto visual)"
-    },
-    {
-      "name": "semanticRows",
-      "signature": "semanticRows(UiStageVisualDto visual)"
-    },
-    {
-      "name": "activeScopeRows",
-      "signature": "activeScopeRows(UiStageVisualDto visual)"
-    },
-    {
-      "name": "selectedScope",
-      "signature": "selectedScope(UiSemanticScopeVisualDto root)"
-    },
-    {
-      "name": "scopeById",
-      "signature": "scopeById(UiSemanticScopeVisualDto scope, String id)"
-    },
-    {
-      "name": "activeScope",
-      "signature": "activeScope(UiSemanticScopeVisualDto scope)"
-    },
-    {
-      "name": "astNodeContent",
-      "signature": "astNodeContent(UiAstNodeVisualDto node, UiStageVisualDto visual)"
-    },
-    {
-      "name": "semanticScopeContent",
-      "signature": "semanticScopeContent(UiSemanticScopeVisualDto scope, int depth, UiStageVisualDto visual)"
-    },
-    {
-      "name": "inspectorContent",
-      "signature": "inspectorContent(String title, List<String> metadata, UiSourceSpanDto range, String explanation)"
-    },
-    {
-      "name": "inspectorContent",
-      "signature": "inspectorContent(String title, List<String> metadata, UiSourceSpanDto range, String explanation, UiStageVisualDto visual)"
-    },
-    {
-      "name": "sourceTextForRange",
-      "signature": "sourceTextForRange(UiSourceSpanDto range, UiStageVisualDto preferredVisual)"
-    },
-    {
-      "name": "sourceSnippetForRange",
-      "signature": "sourceSnippetForRange(UiSourceSpanDto range, UiStageVisualDto preferredVisual)"
-    },
-    {
-      "name": "sourceTextFromVisual",
-      "signature": "sourceTextFromVisual(UiSourceSpanDto range, UiStageVisualDto visual)"
-    },
-    {
-      "name": "visualContainsSourceName",
-      "signature": "visualContainsSourceName(UiStageVisualDto visual, String sourceName)"
-    },
-    {
-      "name": "astContainsSourceName",
-      "signature": "astContainsSourceName(UiAstNodeVisualDto node, String sourceName)"
-    },
-    {
-      "name": "scopeContainsSourceName",
-      "signature": "scopeContainsSourceName(UiSemanticScopeVisualDto scope, String sourceName)"
-    },
-    {
-      "name": "sameSource",
-      "signature": "sameSource(UiSourceSpanDto range, String sourceName)"
-    },
-    {
-      "name": "attachInspectorClick",
-      "signature": "attachInspectorClick(Node node, MiniCHoverInspectorContent content)"
-    },
-    {
-      "name": "semanticRow",
-      "signature": "semanticRow(MiniCSemanticScopeTreeLine line)"
-    },
-    {
-      "name": "tokenRows",
-      "signature": "tokenRows(UiStageVisualDto visual)"
-    },
-    {
-      "name": "textRow",
-      "signature": "textRow(String text, String rowStyle, String textStyle)"
-    },
-    {
-      "name": "installViewportTarget",
-      "signature": "installViewportTarget(MiniCWorkbenchControlHub controlHub)"
-    },
-    {
-      "name": "setContent",
-      "signature": "setContent(String titleText, List<? extends Node> rows)"
-    },
-    {
-      "name": "hasSavedViewport",
-      "signature": "hasSavedViewport(String key)"
-    },
-    {
-      "name": "restoreViewportLater",
-      "signature": "restoreViewportLater()"
-    },
-    {
-      "name": "saveViewport",
-      "signature": "saveViewport()"
-    },
-    {
-      "name": "centerActiveLater",
-      "signature": "centerActiveLater()"
-    },
-    {
-      "name": "centerActive",
-      "signature": "centerActive()"
-    },
-    {
-      "name": "isActiveFullyVisible",
-      "signature": "isActiveFullyVisible()"
-    },
-    {
-      "name": "activeBounds",
-      "signature": "activeBounds()"
-    },
-    {
-      "name": "activeNode",
-      "signature": "activeNode(Node node)"
-    },
-    {
-      "name": "activeCenterY",
-      "signature": "activeCenterY()"
+      "name": "globalRows",
+      "signature": "globalRows(String stage)"
     },
     {
       "name": "hasActiveStyle",
       "signature": "hasActiveStyle(Node node)"
     },
     {
-      "name": "scrollVertical",
-      "signature": "scrollVertical(double delta)"
+      "name": "hasSavedViewport",
+      "signature": "hasSavedViewport(String key)"
     },
     {
-      "name": "scrollHorizontal",
-      "signature": "scrollHorizontal(double delta)"
+      "name": "inspectorContent",
+      "signature": "inspectorContent(String title,List<String>metadata,UiSourceSpanDto range,String explanation,UiStageVisualDto visual)"
     },
     {
-      "name": "scrollAxis",
-      "signature": "scrollAxis(double delta, boolean horizontal)"
+      "name": "inspectorContent",
+      "signature": "inspectorContent(String title,List<String>metadata,UiSourceSpanDto range,String explanation)"
     },
     {
-      "name": "type",
-      "signature": "type()"
+      "name": "installViewportTarget",
+      "signature": "installViewportTarget(MiniCWorkbenchControlHub controlHub)"
     },
     {
-      "name": "canScrollVertical",
-      "signature": "canScrollVertical()"
+      "name": "installViewportTargets",
+      "signature": "installViewportTargets(MiniCWorkbenchControlHub controlHub)"
     },
     {
-      "name": "scrollVertical",
-      "signature": "scrollVertical(double delta)"
-    },
-    {
-      "name": "canScrollHorizontal",
-      "signature": "canScrollHorizontal()"
-    },
-    {
-      "name": "scrollHorizontal",
-      "signature": "scrollHorizontal(double delta)"
+      "name": "irRow",
+      "signature": "irRow(UiIrLineVisualDto line,UiStageVisualDto visual)"
     },
     {
       "name": "isActiveFullyVisible",
       "signature": "isActiveFullyVisible()"
     },
     {
-      "name": "centerActive",
-      "signature": "centerActive()"
+      "name": "isActiveFullyVisible",
+      "signature": "isActiveFullyVisible()"
+    },
+    {
+      "name": "monoLabel",
+      "signature": "monoLabel(String text)"
+    },
+    {
+      "name": "node",
+      "signature": "node(MiniCVisualItem item)"
+    },
+    {
+      "name": "preprocessRows",
+      "signature": "preprocessRows()"
+    },
+    {
+      "name": "refresh",
+      "signature": "refresh()"
+    },
+    {
+      "name": "requestRefresh",
+      "signature": "requestRefresh()"
+    },
+    {
+      "name": "restoreViewportLater",
+      "signature": "restoreViewportLater()"
+    },
+    {
+      "name": "sameSource",
+      "signature": "sameSource(UiSourceSpanDto range,String sourceName)"
+    },
+    {
+      "name": "saveViewport",
+      "signature": "saveViewport()"
+    },
+    {
+      "name": "scopeById",
+      "signature": "scopeById(UiSemanticScopeVisualDto scope,String id)"
+    },
+    {
+      "name": "scopeContainsSourceName",
+      "signature": "scopeContainsSourceName(UiSemanticScopeVisualDto scope,String sourceName)"
+    },
+    {
+      "name": "scrollAxis",
+      "signature": "scrollAxis(double delta,boolean horizontal)"
+    },
+    {
+      "name": "scrollHorizontal",
+      "signature": "scrollHorizontal(double delta)"
+    },
+    {
+      "name": "scrollHorizontal",
+      "signature": "scrollHorizontal(double delta)"
+    },
+    {
+      "name": "scrollVertical",
+      "signature": "scrollVertical(double delta)"
+    },
+    {
+      "name": "scrollVertical",
+      "signature": "scrollVertical(double delta)"
+    },
+    {
+      "name": "section",
+      "signature": "section(String title,List<? extends Node>rows)"
+    },
+    {
+      "name": "selectedScope",
+      "signature": "selectedScope(UiSemanticScopeVisualDto root)"
+    },
+    {
+      "name": "semanticRow",
+      "signature": "semanticRow(MiniCSemanticScopeTreeLine line)"
+    },
+    {
+      "name": "semanticRows",
+      "signature": "semanticRows(UiStageVisualDto visual)"
+    },
+    {
+      "name": "semanticScopeContent",
+      "signature": "semanticScopeContent(UiSemanticScopeVisualDto scope,int depth,UiStageVisualDto visual)"
+    },
+    {
+      "name": "setAstZoom",
+      "signature": "setAstZoom(double value)"
+    },
+    {
+      "name": "setContent",
+      "signature": "setContent(String titleText,List<? extends Node>rows)"
+    },
+    {
+      "name": "sourceRows",
+      "signature": "sourceRows(UiStageVisualDto visual)"
+    },
+    {
+      "name": "sourceSnippetForRange",
+      "signature": "sourceSnippetForRange(UiSourceSpanDto range,UiStageVisualDto preferredVisual)"
+    },
+    {
+      "name": "sourceTextForRange",
+      "signature": "sourceTextForRange(UiSourceSpanDto range,UiStageVisualDto preferredVisual)"
+    },
+    {
+      "name": "sourceTextFromVisual",
+      "signature": "sourceTextFromVisual(UiSourceSpanDto range,UiStageVisualDto visual)"
+    },
+    {
+      "name": "StageColumn",
+      "signature": "StageColumn(String columnId,boolean autoCenter)"
+    },
+    {
+      "name": "stageName",
+      "signature": "stageName(String stage)"
+    },
+    {
+      "name": "textRow",
+      "signature": "textRow(String text,String rowStyle,String textStyle)"
+    },
+    {
+      "name": "tokenRows",
+      "signature": "tokenRows(UiStageVisualDto visual)"
+    },
+    {
+      "name": "type",
+      "signature": "type()"
+    },
+    {
+      "name": "visualContainsSourceName",
+      "signature": "visualContainsSourceName(UiStageVisualDto visual,String sourceName)"
+    },
+    {
+      "name": "visualForStage",
+      "signature": "visualForStage(String stage)"
+    },
+    {
+      "name": "zoomAstIn",
+      "signature": "zoomAstIn()"
+    },
+    {
+      "name": "zoomAstOut",
+      "signature": "zoomAstOut()"
     }
   ]
 } as const satisfies JavaMirrorFile;

@@ -11,6 +11,12 @@ export const miniCVisualAstGraphRendererMirror = {
   "exportName": "MiniCVisualAstGraphRenderer",
   "kind": "component",
   "imports": [
+    "java.util.ArrayList",
+    "java.util.List",
+    "java.util.function.BiConsumer",
+    "java.util.function.BiFunction",
+    "java.util.function.Consumer",
+    "java.util.function.Supplier",
     "javafx.application.Platform",
     "javafx.geometry.BoundingBox",
     "javafx.geometry.Bounds",
@@ -34,170 +40,120 @@ export const miniCVisualAstGraphRendererMirror = {
     "javafx.scene.text.Text",
     "minic.color.ThemeRegistry",
     "minic.settings.MiniCSettings",
-    "minic.uilocal.control.MiniCGraphViewportAdapter",
-    "minic.uilocal.control.MiniCViewportAdapter",
-    "minic.uilocal.control.MiniCWorkbenchControlHub",
     "minic.uiapi.UiAstNodeVisualDto",
     "minic.uiapi.UiSemanticScopeVisualDto",
     "minic.uiapi.UiSourceSpanDto",
     "minic.uiapi.UiStageVisualDto",
-    "java.util.ArrayList",
-    "java.util.List",
-    "java.util.function.BiConsumer",
-    "java.util.function.BiFunction",
-    "java.util.function.Consumer",
-    "java.util.function.Supplier"
+    "minic.uilocal.control.MiniCGraphViewportAdapter",
+    "minic.uilocal.control.MiniCViewportAdapter",
+    "minic.uilocal.control.MiniCWorkbenchControlHub"
   ],
   "fields": [
     {
       "name": "ACTIVE_CENTER_Y_KEY",
-      "signature": "private static final String ACTIVE_CENTER_Y_KEY ="
-    },
-    {
-      "name": "AST_DRAG_START_X_KEY",
-      "signature": "private static final String AST_DRAG_START_X_KEY ="
-    },
-    {
-      "name": "AST_DRAG_START_Y_KEY",
-      "signature": "private static final String AST_DRAG_START_Y_KEY ="
+      "signature": "private static final String ACTIVE_CENTER_Y_KEY="
     },
     {
       "name": "AST_DRAG_START_H_KEY",
-      "signature": "private static final String AST_DRAG_START_H_KEY ="
+      "signature": "private static final String AST_DRAG_START_H_KEY="
     },
     {
       "name": "AST_DRAG_START_V_KEY",
-      "signature": "private static final String AST_DRAG_START_V_KEY ="
+      "signature": "private static final String AST_DRAG_START_V_KEY="
+    },
+    {
+      "name": "AST_DRAG_START_X_KEY",
+      "signature": "private static final String AST_DRAG_START_X_KEY="
+    },
+    {
+      "name": "AST_DRAG_START_Y_KEY",
+      "signature": "private static final String AST_DRAG_START_Y_KEY="
     },
     {
       "name": "AST_GRAPH_ZOOM_CONTENT_KEY",
-      "signature": "private static final String AST_GRAPH_ZOOM_CONTENT_KEY ="
-    },
-    {
-      "name": "astGraphModelFactory",
-      "signature": "private final MiniCAstGraphModelFactory astGraphModelFactory ="
-    },
-    {
-      "name": "astZoom",
-      "signature": "private final Slider astZoom;"
-    },
-    {
-      "name": "controlHubSupplier",
-      "signature": "private final Supplier<MiniCWorkbenchControlHub> controlHubSupplier;"
-    },
-    {
-      "name": "selectedSemanticScopeId",
-      "signature": "private final Supplier<String> selectedSemanticScopeId;"
-    },
-    {
-      "name": "semanticScopeSelector",
-      "signature": "private final Consumer<String> semanticScopeSelector;"
-    },
-    {
-      "name": "refreshAction",
-      "signature": "private final Runnable refreshAction;"
+      "signature": "private static final String AST_GRAPH_ZOOM_CONTENT_KEY="
     },
     {
       "name": "astContentFactory",
-      "signature": "private final BiFunction<UiAstNodeVisualDto, UiStageVisualDto, MiniCHoverInspectorContent> astContentFactory;"
+      "signature": "private final BiFunction<UiAstNodeVisualDto,UiStageVisualDto,MiniCHoverInspectorContent>astContentFactory"
     },
     {
-      "name": "semanticScopeContentFactory",
-      "signature": "private final SemanticScopeContentFactory semanticScopeContentFactory;"
+      "name": "astGraphModelFactory",
+      "signature": "private final MiniCAstGraphModelFactory astGraphModelFactory="
+    },
+    {
+      "name": "astZoom",
+      "signature": "private final Slider astZoom"
+    },
+    {
+      "name": "controlHubSupplier",
+      "signature": "private final Supplier<MiniCWorkbenchControlHub>controlHubSupplier"
     },
     {
       "name": "inspectorAttacher",
-      "signature": "private final BiConsumer<Node, MiniCHoverInspectorContent> inspectorAttacher;"
+      "signature": "private final BiConsumer<Node,MiniCHoverInspectorContent>inspectorAttacher"
+    },
+    {
+      "name": "refreshAction",
+      "signature": "private final Runnable refreshAction"
+    },
+    {
+      "name": "selectedSemanticScopeId",
+      "signature": "private final Supplier<String>selectedSemanticScopeId"
+    },
+    {
+      "name": "semanticScopeContentFactory",
+      "signature": "private final SemanticScopeContentFactory semanticScopeContentFactory"
+    },
+    {
+      "name": "semanticScopeSelector",
+      "signature": "private final Consumer<String>semanticScopeSelector"
     }
   ],
   "methods": [
+    {
+      "name": "addAstNode",
+      "signature": "addAstNode(Pane pane,UiStageVisualDto visual,MiniCAstGraphNode node)"
+    },
+    {
+      "name": "addSemanticScopeMasks",
+      "signature": "addSemanticScopeMasks(Pane pane,MiniCAstGraphModel graph,UiStageVisualDto visual)"
+    },
     {
       "name": "astGraph",
       "signature": "astGraph(UiStageVisualDto visual)"
     },
     {
-      "name": "semanticAstGraph",
-      "signature": "semanticAstGraph(UiStageVisualDto visual)"
+      "name": "astNodeById",
+      "signature": "astNodeById(UiAstNodeVisualDto node,String id)"
     },
     {
-      "name": "addAstNode",
-      "signature": "addAstNode(Pane pane, UiStageVisualDto visual, MiniCAstGraphNode node)"
-    },
-    {
-      "name": "addSemanticScopeMasks",
-      "signature": "addSemanticScopeMasks(Pane pane, MiniCAstGraphModel graph, UiStageVisualDto visual)"
-    },
-    {
-      "name": "scopeBounds",
-      "signature": "scopeBounds(UiSourceSpanDto scopeRange, MiniCAstGraphModel graph, UiAstNodeVisualDto root)"
-    },
-    {
-      "name": "collectCoveredGraphNodes",
-      "signature": "collectCoveredGraphNodes(UiSourceSpanDto scopeRange, UiAstNodeVisualDto astNode, MiniCAstGraphModel graph, ArrayList<MiniCAstGraphNode> covered)"
-    },
-    {
-      "name": "zoomableAstGraph",
-      "signature": "zoomableAstGraph(UiStageVisualDto visual, boolean semanticMasks)"
-    },
-    {
-      "name": "configureAstGraphWheelZoom",
-      "signature": "configureAstGraphWheelZoom(Pane graphViewport)"
-    },
-    {
-      "name": "configureAstGraphDrag",
-      "signature": "configureAstGraphDrag(Pane graphViewport)"
-    },
-    {
-      "name": "installGraphAdapterLater",
-      "signature": "installGraphAdapterLater(Pane graphViewport)"
-    },
-    {
-      "name": "graphViewportAdapter",
-      "signature": "graphViewportAdapter(Pane graphViewport)"
-    },
-    {
-      "name": "nearestScrollPane",
-      "signature": "nearestScrollPane(Node node)"
-    },
-    {
-      "name": "graphZoomPoint",
-      "signature": "graphZoomPoint(Pane graphViewport, double localX, double localY)"
-    },
-    {
-      "name": "graphLocalPointFromViewportPoint",
-      "signature": "graphLocalPointFromViewportPoint(Node zoomContent, ScrollPane scrollPane, Point2D viewportPoint)"
-    },
-    {
-      "name": "graphZoomContent",
-      "signature": "graphZoomContent(Pane graphViewport)"
-    },
-    {
-      "name": "resizeGraphViewport",
-      "signature": "resizeGraphViewport(Pane graphViewport, double baseWidth, double baseHeight, double zoom)"
-    },
-    {
-      "name": "setAstZoom",
-      "signature": "setAstZoom(double value)"
-    },
-    {
-      "name": "visibleMin",
-      "signature": "visibleMin(double value, double min, double max, double contentMin, double contentSize, double viewportSize)"
+      "name": "BoundsBox",
+      "signature": "BoundsBox(double x,double y,double width,double height)"
     },
     {
       "name": "clamp",
       "signature": "clamp(double value)"
     },
     {
-      "name": "updateZoomedActiveMarker",
-      "signature": "updateZoomedActiveMarker(VBox box, Pane graph, double zoom)"
+      "name": "collectCoveredGraphNodes",
+      "signature": "collectCoveredGraphNodes(UiSourceSpanDto scopeRange,UiAstNodeVisualDto astNode,MiniCAstGraphModel graph,ArrayList<MiniCAstGraphNode>covered)"
+    },
+    {
+      "name": "configureAstGraphDrag",
+      "signature": "configureAstGraphDrag(Pane graphViewport)"
+    },
+    {
+      "name": "configureAstGraphWheelZoom",
+      "signature": "configureAstGraphWheelZoom(Pane graphViewport)"
+    },
+    {
+      "name": "contains",
+      "signature": "contains(UiSourceSpanDto outer,UiSourceSpanDto inner)"
     },
     {
       "name": "emptyPane",
       "signature": "emptyPane(String message)"
-    },
-    {
-      "name": "shortLabel",
-      "signature": "shortLabel(String label)"
     },
     {
       "name": "flattenScopes",
@@ -205,23 +161,67 @@ export const miniCVisualAstGraphRendererMirror = {
     },
     {
       "name": "flattenScopes",
-      "signature": "flattenScopes(UiSemanticScopeVisualDto scope, int depth, ArrayList<ScopeEntry> scopes)"
+      "signature": "flattenScopes(UiSemanticScopeVisualDto scope,int depth,ArrayList<ScopeEntry>scopes)"
     },
     {
-      "name": "contains",
-      "signature": "contains(UiSourceSpanDto outer, UiSourceSpanDto inner)"
+      "name": "graphLocalPointFromViewportPoint",
+      "signature": "graphLocalPointFromViewportPoint(Node zoomContent,ScrollPane scrollPane,Point2D viewportPoint)"
     },
     {
-      "name": "astNodeById",
-      "signature": "astNodeById(UiAstNodeVisualDto node, String id)"
+      "name": "graphViewportAdapter",
+      "signature": "graphViewportAdapter(Pane graphViewport)"
+    },
+    {
+      "name": "graphZoomContent",
+      "signature": "graphZoomContent(Pane graphViewport)"
+    },
+    {
+      "name": "graphZoomPoint",
+      "signature": "graphZoomPoint(Pane graphViewport,double localX,double localY)"
+    },
+    {
+      "name": "installGraphAdapterLater",
+      "signature": "installGraphAdapterLater(Pane graphViewport)"
+    },
+    {
+      "name": "nearestScrollPane",
+      "signature": "nearestScrollPane(Node node)"
+    },
+    {
+      "name": "resizeGraphViewport",
+      "signature": "resizeGraphViewport(Pane graphViewport,double baseWidth,double baseHeight,double zoom)"
+    },
+    {
+      "name": "scopeBounds",
+      "signature": "scopeBounds(UiSourceSpanDto scopeRange,MiniCAstGraphModel graph,UiAstNodeVisualDto root)"
     },
     {
       "name": "ScopeEntry",
-      "signature": "ScopeEntry(UiSemanticScopeVisualDto scope, int depth)"
+      "signature": "ScopeEntry(UiSemanticScopeVisualDto scope,int depth)"
     },
     {
-      "name": "BoundsBox",
-      "signature": "BoundsBox(double x, double y, double width, double height)"
+      "name": "semanticAstGraph",
+      "signature": "semanticAstGraph(UiStageVisualDto visual)"
+    },
+    {
+      "name": "setAstZoom",
+      "signature": "setAstZoom(double value)"
+    },
+    {
+      "name": "shortLabel",
+      "signature": "shortLabel(String label)"
+    },
+    {
+      "name": "updateZoomedActiveMarker",
+      "signature": "updateZoomedActiveMarker(VBox box,Pane graph,double zoom)"
+    },
+    {
+      "name": "visibleMin",
+      "signature": "visibleMin(double value,double min,double max,double contentMin,double contentSize,double viewportSize)"
+    },
+    {
+      "name": "zoomableAstGraph",
+      "signature": "zoomableAstGraph(UiStageVisualDto visual,boolean semanticMasks)"
     }
   ]
 } as const satisfies JavaMirrorFile;

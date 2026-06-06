@@ -9,23 +9,23 @@ export const miniCSourceLineFactoryMirror = {
   "exportName": "MiniCSourceLineFactory",
   "kind": "class",
   "imports": [
-    "minic.uiapi.UiSourceRangeDto",
     "java.util.ArrayList",
-    "java.util.List"
+    "java.util.List",
+    "minic.uiapi.UiSourceRangeDto"
   ],
   "fields": [],
   "methods": [
     {
       "name": "create",
-      "signature": "create(String source, UiSourceRangeDto range)"
+      "signature": "create(String source,UiSourceRangeDto range)"
     },
     {
       "name": "intersects",
-      "signature": "intersects(int lineStart, int lineEnd, UiSourceRangeDto range)"
+      "signature": "intersects(int lineStart,int lineEnd,UiSourceRangeDto range)"
     },
     {
       "name": "newlineWidth",
-      "signature": "newlineWidth(String source, int lineEnd)"
+      "signature": "newlineWidth(String source,int lineEnd)"
     }
   ]
 } as const satisfies JavaMirrorFile;

@@ -9,45 +9,45 @@ export const miniCSourceViewMirror = {
   "exportName": "MiniCSourceView",
   "kind": "component",
   "imports": [
+    "java.util.List",
+    "java.util.Objects",
     "javafx.scene.control.Label",
     "javafx.scene.layout.GridPane",
     "javafx.scene.layout.Priority",
     "javafx.scene.layout.VBox",
     "minic.uiapi.UiCurrentStateDto",
-    "minic.uiapi.UiSourceRangeDto",
-    "java.util.List",
-    "java.util.Objects"
+    "minic.uiapi.UiSourceRangeDto"
   ],
   "fields": [
     {
-      "name": "viewModel",
-      "signature": "private final MiniCWorkbenchViewModel viewModel;"
-    },
-    {
-      "name": "lineFactory",
-      "signature": "private final MiniCSourceLineFactory lineFactory ="
-    },
-    {
       "name": "diagnosticSelection",
-      "signature": "private final MiniCDiagnosticSelection diagnosticSelection;"
+      "signature": "private final MiniCDiagnosticSelection diagnosticSelection"
     },
     {
       "name": "header",
-      "signature": "private final Label header ="
+      "signature": "private final Label header="
+    },
+    {
+      "name": "lineFactory",
+      "signature": "private final MiniCSourceLineFactory lineFactory="
     },
     {
       "name": "lines",
-      "signature": "private final GridPane lines ="
+      "signature": "private final GridPane lines="
+    },
+    {
+      "name": "viewModel",
+      "signature": "private final MiniCWorkbenchViewModel viewModel"
     }
   ],
   "methods": [
     {
-      "name": "refresh",
-      "signature": "refresh()"
-    },
-    {
       "name": "headerText",
       "signature": "headerText(UiSourceRangeDto range)"
+    },
+    {
+      "name": "refresh",
+      "signature": "refresh()"
     }
   ]
 } as const satisfies JavaMirrorFile;

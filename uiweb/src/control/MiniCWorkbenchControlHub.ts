@@ -20,13 +20,8 @@ export const miniCWorkbenchControlHubMirror = {
   "exportName": "MiniCWorkbenchControlHub",
   "kind": "class",
   "imports": [
-    "javafx.application.Platform",
-    "javafx.geometry.Point2D",
-    "javafx.scene.Node",
-    "javafx.scene.input.MouseButton",
-    "javafx.scene.input.MouseEvent",
-    "java.util.Collections",
     "java.util.ArrayList",
+    "java.util.Collections",
     "java.util.LinkedHashSet",
     "java.util.List",
     "java.util.Objects",
@@ -36,174 +31,267 @@ export const miniCWorkbenchControlHubMirror = {
     "java.util.function.DoubleConsumer",
     "java.util.function.DoubleSupplier",
     "java.util.function.LongConsumer",
-    "java.util.function.LongSupplier"
+    "java.util.function.LongSupplier",
+    "javafx.application.Platform",
+    "javafx.geometry.Point2D",
+    "javafx.scene.Node",
+    "javafx.scene.input.MouseButton",
+    "javafx.scene.input.MouseEvent"
   ],
   "fields": [
     {
-      "name": "VIEWPORT_TARGET_PROPERTY",
-      "signature": "private static final String VIEWPORT_TARGET_PROPERTY ="
-    },
-    {
-      "name": "DEBUG_START",
-      "signature": "public static final String DEBUG_START ="
-    },
-    {
-      "name": "DEBUG_RUN_TO_END",
-      "signature": "public static final String DEBUG_RUN_TO_END ="
-    },
-    {
-      "name": "DEBUG_RUN_TO_BREAKPOINT",
-      "signature": "public static final String DEBUG_RUN_TO_BREAKPOINT ="
-    },
-    {
-      "name": "DEBUG_STEP_OVER",
-      "signature": "public static final String DEBUG_STEP_OVER ="
-    },
-    {
-      "name": "DEBUG_STEP_INTO",
-      "signature": "public static final String DEBUG_STEP_INTO ="
-    },
-    {
-      "name": "DEBUG_BACK_TO_BREAKPOINT",
-      "signature": "public static final String DEBUG_BACK_TO_BREAKPOINT ="
-    },
-    {
-      "name": "DEBUG_STEP_BACK_OVER",
-      "signature": "public static final String DEBUG_STEP_BACK_OVER ="
-    },
-    {
-      "name": "DEBUG_STEP_BACK",
-      "signature": "public static final String DEBUG_STEP_BACK ="
-    },
-    {
-      "name": "COMPILER_NEXT",
-      "signature": "public static final String COMPILER_NEXT ="
-    },
-    {
-      "name": "COMPILER_NEXT_STAGE",
-      "signature": "public static final String COMPILER_NEXT_STAGE ="
-    },
-    {
-      "name": "COMPILER_RUN_TO_EXECUTION",
-      "signature": "public static final String COMPILER_RUN_TO_EXECUTION ="
-    },
-    {
-      "name": "COMPILER_PLAY",
-      "signature": "public static final String COMPILER_PLAY ="
-    },
-    {
-      "name": "COMPILER_PLAY_FAST",
-      "signature": "public static final String COMPILER_PLAY_FAST ="
-    },
-    {
-      "name": "COMPILER_PAUSE",
-      "signature": "public static final String COMPILER_PAUSE ="
-    },
-    {
-      "name": "SETTINGS_THEME_SET",
-      "signature": "public static final String SETTINGS_THEME_SET ="
-    },
-    {
-      "name": "SETTINGS_THEME_NEXT",
-      "signature": "public static final String SETTINGS_THEME_NEXT ="
-    },
-    {
-      "name": "SETTINGS_THEME_PREVIOUS",
-      "signature": "public static final String SETTINGS_THEME_PREVIOUS ="
-    },
-    {
-      "name": "SETTINGS_FRAME_INTERVAL_SET",
-      "signature": "public static final String SETTINGS_FRAME_INTERVAL_SET ="
-    },
-    {
-      "name": "SETTINGS_FRAME_INTERVAL_INCREASE",
-      "signature": "public static final String SETTINGS_FRAME_INTERVAL_INCREASE ="
-    },
-    {
-      "name": "SETTINGS_FRAME_INTERVAL_DECREASE",
-      "signature": "public static final String SETTINGS_FRAME_INTERVAL_DECREASE ="
-    },
-    {
-      "name": "SETTINGS_UI_SCALE_INCREASE",
-      "signature": "public static final String SETTINGS_UI_SCALE_INCREASE ="
-    },
-    {
-      "name": "SETTINGS_UI_SCALE_DECREASE",
-      "signature": "public static final String SETTINGS_UI_SCALE_DECREASE ="
-    },
-    {
-      "name": "VIEWPORT_ZOOM_IN",
-      "signature": "public static final String VIEWPORT_ZOOM_IN ="
-    },
-    {
-      "name": "VIEWPORT_ZOOM_OUT",
-      "signature": "public static final String VIEWPORT_ZOOM_OUT ="
-    },
-    {
-      "name": "VIEWPORT_SCROLL_UP",
-      "signature": "public static final String VIEWPORT_SCROLL_UP ="
-    },
-    {
-      "name": "VIEWPORT_SCROLL_DOWN",
-      "signature": "public static final String VIEWPORT_SCROLL_DOWN ="
-    },
-    {
-      "name": "VIEWPORT_SCROLL_LEFT",
-      "signature": "public static final String VIEWPORT_SCROLL_LEFT ="
-    },
-    {
-      "name": "VIEWPORT_SCROLL_RIGHT",
-      "signature": "public static final String VIEWPORT_SCROLL_RIGHT ="
-    },
-    {
-      "name": "VIEWPORT_CENTER_ACTIVE",
-      "signature": "public static final String VIEWPORT_CENTER_ACTIVE ="
-    },
-    {
-      "name": "commandRegistry",
-      "signature": "private final MiniCCommandRegistry commandRegistry;"
-    },
-    {
-      "name": "viewportRegistry",
-      "signature": "private final MiniCViewportRegistry viewportRegistry;"
-    },
-    {
-      "name": "commandIds",
-      "signature": "private final Set<String> commandIds ="
-    },
-    {
-      "name": "additionalActiveTrackingActions",
-      "signature": "private final List<Runnable> additionalActiveTrackingActions ="
-    },
-    {
       "name": "activeTrackingAction",
-      "signature": "private Runnable activeTrackingAction ="
+      "signature": "private Runnable activeTrackingAction="
     },
     {
       "name": "activeTrackingScheduler",
-      "signature": "private Consumer<Runnable> activeTrackingScheduler ="
+      "signature": "private Consumer<Runnable>activeTrackingScheduler="
     },
     {
-      "name": "pendingThemeName",
-      "signature": "private String pendingThemeName;"
+      "name": "additionalActiveTrackingActions",
+      "signature": "private final List<Runnable>additionalActiveTrackingActions="
+    },
+    {
+      "name": "commandIds",
+      "signature": "private final Set<String>commandIds="
+    },
+    {
+      "name": "commandRegistry",
+      "signature": "private final MiniCCommandRegistry commandRegistry"
+    },
+    {
+      "name": "COMPILER_NEXT",
+      "signature": "public static final String COMPILER_NEXT="
+    },
+    {
+      "name": "COMPILER_NEXT_STAGE",
+      "signature": "public static final String COMPILER_NEXT_STAGE="
+    },
+    {
+      "name": "COMPILER_PAUSE",
+      "signature": "public static final String COMPILER_PAUSE="
+    },
+    {
+      "name": "COMPILER_PLAY",
+      "signature": "public static final String COMPILER_PLAY="
+    },
+    {
+      "name": "COMPILER_PLAY_FAST",
+      "signature": "public static final String COMPILER_PLAY_FAST="
+    },
+    {
+      "name": "COMPILER_RUN_TO_EXECUTION",
+      "signature": "public static final String COMPILER_RUN_TO_EXECUTION="
+    },
+    {
+      "name": "DEBUG_BACK_TO_BREAKPOINT",
+      "signature": "public static final String DEBUG_BACK_TO_BREAKPOINT="
+    },
+    {
+      "name": "DEBUG_RUN_TO_BREAKPOINT",
+      "signature": "public static final String DEBUG_RUN_TO_BREAKPOINT="
+    },
+    {
+      "name": "DEBUG_RUN_TO_END",
+      "signature": "public static final String DEBUG_RUN_TO_END="
+    },
+    {
+      "name": "DEBUG_START",
+      "signature": "public static final String DEBUG_START="
+    },
+    {
+      "name": "DEBUG_STEP_BACK",
+      "signature": "public static final String DEBUG_STEP_BACK="
+    },
+    {
+      "name": "DEBUG_STEP_BACK_OVER",
+      "signature": "public static final String DEBUG_STEP_BACK_OVER="
+    },
+    {
+      "name": "DEBUG_STEP_INTO",
+      "signature": "public static final String DEBUG_STEP_INTO="
+    },
+    {
+      "name": "DEBUG_STEP_OVER",
+      "signature": "public static final String DEBUG_STEP_OVER="
     },
     {
       "name": "pendingFrameIntervalMillis",
-      "signature": "private Long pendingFrameIntervalMillis;"
+      "signature": "private Long pendingFrameIntervalMillis"
+    },
+    {
+      "name": "pendingThemeName",
+      "signature": "private String pendingThemeName"
+    },
+    {
+      "name": "SETTINGS_FRAME_INTERVAL_DECREASE",
+      "signature": "public static final String SETTINGS_FRAME_INTERVAL_DECREASE="
+    },
+    {
+      "name": "SETTINGS_FRAME_INTERVAL_INCREASE",
+      "signature": "public static final String SETTINGS_FRAME_INTERVAL_INCREASE="
+    },
+    {
+      "name": "SETTINGS_FRAME_INTERVAL_SET",
+      "signature": "public static final String SETTINGS_FRAME_INTERVAL_SET="
+    },
+    {
+      "name": "SETTINGS_THEME_NEXT",
+      "signature": "public static final String SETTINGS_THEME_NEXT="
+    },
+    {
+      "name": "SETTINGS_THEME_PREVIOUS",
+      "signature": "public static final String SETTINGS_THEME_PREVIOUS="
+    },
+    {
+      "name": "SETTINGS_THEME_SET",
+      "signature": "public static final String SETTINGS_THEME_SET="
+    },
+    {
+      "name": "SETTINGS_UI_SCALE_DECREASE",
+      "signature": "public static final String SETTINGS_UI_SCALE_DECREASE="
+    },
+    {
+      "name": "SETTINGS_UI_SCALE_INCREASE",
+      "signature": "public static final String SETTINGS_UI_SCALE_INCREASE="
+    },
+    {
+      "name": "VIEWPORT_CENTER_ACTIVE",
+      "signature": "public static final String VIEWPORT_CENTER_ACTIVE="
+    },
+    {
+      "name": "VIEWPORT_SCROLL_DOWN",
+      "signature": "public static final String VIEWPORT_SCROLL_DOWN="
+    },
+    {
+      "name": "VIEWPORT_SCROLL_LEFT",
+      "signature": "public static final String VIEWPORT_SCROLL_LEFT="
+    },
+    {
+      "name": "VIEWPORT_SCROLL_RIGHT",
+      "signature": "public static final String VIEWPORT_SCROLL_RIGHT="
+    },
+    {
+      "name": "VIEWPORT_SCROLL_UP",
+      "signature": "public static final String VIEWPORT_SCROLL_UP="
+    },
+    {
+      "name": "VIEWPORT_TARGET_PROPERTY",
+      "signature": "private static final String VIEWPORT_TARGET_PROPERTY="
+    },
+    {
+      "name": "VIEWPORT_ZOOM_IN",
+      "signature": "public static final String VIEWPORT_ZOOM_IN="
+    },
+    {
+      "name": "VIEWPORT_ZOOM_OUT",
+      "signature": "public static final String VIEWPORT_ZOOM_OUT="
+    },
+    {
+      "name": "viewportRegistry",
+      "signature": "private final MiniCViewportRegistry viewportRegistry"
     }
   ],
   "methods": [
+    {
+      "name": "addActiveTrackingAction",
+      "signature": "addActiveTrackingAction(Runnable activeTrackingAction)"
+    },
+    {
+      "name": "clamp",
+      "signature": "clamp(double value,DoubleSupplier minSupplier,DoubleSupplier maxSupplier)"
+    },
+    {
+      "name": "clamp",
+      "signature": "clamp(long value,LongSupplier minSupplier,LongSupplier maxSupplier)"
+    },
+    {
+      "name": "commandEnabled",
+      "signature": "commandEnabled(String commandId)"
+    },
+    {
+      "name": "commandIds",
+      "signature": "commandIds()"
+    },
     {
       "name": "commandRegistry",
       "signature": "commandRegistry()"
     },
     {
-      "name": "viewportRegistry",
-      "signature": "viewportRegistry()"
+      "name": "CompilerCommands",
+      "signature": "CompilerCommands(BooleanSupplier canNext,Runnable next,BooleanSupplier canNextStage,Runnable nextStage,BooleanSupplier canRunToExecution,Runnable runToExecution,BooleanSupplier canPlay,Runnable play,BooleanSupplier canPlayFast,Runnable playFast,BooleanSupplier canPause,Runnable pause)"
     },
     {
-      "name": "commandIds",
-      "signature": "commandIds()"
+      "name": "DebuggerCommands",
+      "signature": "DebuggerCommands(BooleanSupplier canStart,Runnable start,BooleanSupplier canRunToEnd,Runnable runToEnd,BooleanSupplier canRunToBreakpoint,Runnable runToBreakpoint,BooleanSupplier canStepOver,Runnable stepOver,BooleanSupplier canStepInto,Runnable stepInto,BooleanSupplier canBackToBreakpoint,Runnable backToBreakpoint,BooleanSupplier canStepBackOver,Runnable stepBackOver,BooleanSupplier canStepBack,Runnable stepBack)"
+    },
+    {
+      "name": "DebuggerCommands",
+      "signature": "DebuggerCommands(Runnable start,Runnable runToEnd,Runnable runToBreakpoint,Runnable stepOver,Runnable stepInto,Runnable backToBreakpoint,Runnable stepBackOver,Runnable stepBack)"
+    },
+    {
+      "name": "decreaseFrameInterval",
+      "signature": "decreaseFrameInterval()"
+    },
+    {
+      "name": "decreaseUiScale",
+      "signature": "decreaseUiScale()"
+    },
+    {
+      "name": "execute",
+      "signature": "execute(String commandId)"
+    },
+    {
+      "name": "handleCenterActive",
+      "signature": "handleCenterActive()"
+    },
+    {
+      "name": "handlePan",
+      "signature": "handlePan(double deltaX,double deltaY)"
+    },
+    {
+      "name": "handleScrollHorizontal",
+      "signature": "handleScrollHorizontal(double delta)"
+    },
+    {
+      "name": "handleScrollVertical",
+      "signature": "handleScrollVertical(double delta)"
+    },
+    {
+      "name": "handleZoom",
+      "signature": "handleZoom(Point2D localPoint,double delta)"
+    },
+    {
+      "name": "increaseFrameInterval",
+      "signature": "increaseFrameInterval()"
+    },
+    {
+      "name": "increaseUiScale",
+      "signature": "increaseUiScale()"
+    },
+    {
+      "name": "installViewportTarget",
+      "signature": "installViewportTarget(Node node,MiniCViewportAdapter adapter)"
+    },
+    {
+      "name": "register",
+      "signature": "register(String id,String label,BooleanSupplier enabled,Runnable action)"
+    },
+    {
+      "name": "registerCompilerCommands",
+      "signature": "registerCompilerCommands(CompilerCommands commands)"
+    },
+    {
+      "name": "registerDebuggerCommands",
+      "signature": "registerDebuggerCommands(DebuggerCommands commands)"
+    },
+    {
+      "name": "registerSettingsCommands",
+      "signature": "registerSettingsCommands(SettingsCommands commands)"
+    },
+    {
+      "name": "runLaterIfPossible",
+      "signature": "runLaterIfPossible(Runnable action)"
     },
     {
       "name": "setActiveTrackingAction",
@@ -211,111 +299,27 @@ export const miniCWorkbenchControlHubMirror = {
     },
     {
       "name": "setActiveTrackingScheduler",
-      "signature": "setActiveTrackingScheduler(Consumer<Runnable> activeTrackingScheduler)"
-    },
-    {
-      "name": "addActiveTrackingAction",
-      "signature": "addActiveTrackingAction(Runnable activeTrackingAction)"
-    },
-    {
-      "name": "registerDebuggerCommands",
-      "signature": "registerDebuggerCommands(DebuggerCommands commands)"
-    },
-    {
-      "name": "registerCompilerCommands",
-      "signature": "registerCompilerCommands(CompilerCommands commands)"
-    },
-    {
-      "name": "registerSettingsCommands",
-      "signature": "registerSettingsCommands(SettingsCommands commands)"
-    },
-    {
-      "name": "commandEnabled",
-      "signature": "commandEnabled(String commandId)"
-    },
-    {
-      "name": "execute",
-      "signature": "execute(String commandId)"
-    },
-    {
-      "name": "setTheme",
-      "signature": "setTheme(String themeName)"
+      "signature": "setActiveTrackingScheduler(Consumer<Runnable>activeTrackingScheduler)"
     },
     {
       "name": "setFrameIntervalMillis",
       "signature": "setFrameIntervalMillis(long millis)"
     },
     {
-      "name": "increaseFrameInterval",
-      "signature": "increaseFrameInterval()"
+      "name": "setTheme",
+      "signature": "setTheme(String themeName)"
     },
     {
-      "name": "decreaseFrameInterval",
-      "signature": "decreaseFrameInterval()"
-    },
-    {
-      "name": "increaseUiScale",
-      "signature": "increaseUiScale()"
-    },
-    {
-      "name": "decreaseUiScale",
-      "signature": "decreaseUiScale()"
-    },
-    {
-      "name": "handleZoom",
-      "signature": "handleZoom(Point2D localPoint, double delta)"
-    },
-    {
-      "name": "handleScrollVertical",
-      "signature": "handleScrollVertical(double delta)"
-    },
-    {
-      "name": "handleScrollHorizontal",
-      "signature": "handleScrollHorizontal(double delta)"
-    },
-    {
-      "name": "handlePan",
-      "signature": "handlePan(double deltaX, double deltaY)"
-    },
-    {
-      "name": "handleCenterActive",
-      "signature": "handleCenterActive()"
-    },
-    {
-      "name": "installViewportTarget",
-      "signature": "installViewportTarget(Node node, MiniCViewportAdapter adapter)"
-    },
-    {
-      "name": "register",
-      "signature": "register(String id, String label, BooleanSupplier enabled, Runnable action)"
+      "name": "SettingsCommands",
+      "signature": "SettingsCommands(Consumer<String>themeSetter,Runnable themeNext,Runnable themePrevious,LongConsumer frameIntervalSetter,LongSupplier currentFrameInterval,LongSupplier minFrameInterval,LongSupplier maxFrameInterval,long frameIntervalStep,DoubleConsumer uiScaleSetter,DoubleSupplier currentUiScale,DoubleSupplier minUiScale,DoubleSupplier maxUiScale,double uiScaleStep)"
     },
     {
       "name": "trackActiveViews",
       "signature": "trackActiveViews()"
     },
     {
-      "name": "runLaterIfPossible",
-      "signature": "runLaterIfPossible(Runnable action)"
-    },
-    {
-      "name": "clamp",
-      "signature": "clamp(long value, LongSupplier minSupplier, LongSupplier maxSupplier)"
-    },
-    {
-      "name": "clamp",
-      "signature": "clamp(double value, DoubleSupplier minSupplier, DoubleSupplier maxSupplier)"
-    },
-    {
-      "name": "DebuggerCommands",
-      "signature": "DebuggerCommands(BooleanSupplier canStart, Runnable start, BooleanSupplier canRunToEnd, Runnable runToEnd, BooleanSupplier canRunToBreakpoint, Runnable runToBreakpoint, BooleanSupplier canStepOver, Runnable stepOver, BooleanSupplier canStepInto, Runnable stepInto, BooleanSupplier canBackToBreakpoint, Runnable backToBreakpoint, BooleanSupplier canStepBackOver, Runnable stepBackOver, BooleanSupplier canStepBack, Runnable stepBack)"
-    },
-    {
-      "name": "CompilerCommands",
-      "signature": "CompilerCommands(BooleanSupplier canNext, Runnable next, BooleanSupplier canNextStage, Runnable nextStage, BooleanSupplier canRunToExecution, Runnable runToExecution, BooleanSupplier canPlay, Runnable play, BooleanSupplier canPlayFast, Runnable playFast, BooleanSupplier canPause, Runnable pause)"
-    },
-    {
-      "name": "SettingsCommands",
-      "signature": "SettingsCommands(Consumer<String> themeSetter, Runnable themeNext, Runnable themePrevious, LongConsumer frameIntervalSetter, LongSupplier currentFrameInterval, LongSupplier minFrameInterval, LongSupplier maxFrameInterval, long frameIntervalStep, DoubleConsumer uiScaleSetter, DoubleSupplier currentUiScale, DoubleSupplier minUiScale, DoubleSupplier maxUiScale, double uiScaleStep)"
+      "name": "viewportRegistry",
+      "signature": "viewportRegistry()"
     }
   ]
 } as const satisfies JavaMirrorFile;

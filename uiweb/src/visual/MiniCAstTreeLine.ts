@@ -6,9 +6,12 @@ export const miniCAstTreeLineMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCAstTreeLine",
   kind: "record",
-  imports: ["minic.uiapi.UiSourceSpanDto"],
+  imports: [
+    "java.util.Objects",
+    "minic.uiapi.UiSourceSpanDto"
+  ],
   fields: [],
-  methods: [{ name: "MiniCAstTreeLine", signature: "MiniCAstTreeLine(String label, int depth, boolean active, UiSourceSpanDto range)" }],
+  methods: [],
 } as const satisfies JavaMirrorFile;
 
 export class MiniCAstTreeLine {

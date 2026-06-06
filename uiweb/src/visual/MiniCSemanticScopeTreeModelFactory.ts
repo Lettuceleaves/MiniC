@@ -9,11 +9,22 @@ export const miniCSemanticScopeTreeModelFactoryMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCSemanticScopeTreeModelFactory",
   kind: "class",
-  imports: ["minic.uiapi.UiSemanticScopeVisualDto", "minic.uiapi.UiStageVisualDto", "java.util.List"],
+  imports: [
+    "java.util.ArrayList",
+    "java.util.List",
+    "minic.uiapi.UiSemanticScopeVisualDto",
+    "minic.uiapi.UiStageVisualDto"
+  ],
   fields: [],
   methods: [
-    { name: "create", signature: "create(UiStageVisualDto visual)" },
-    { name: "append", signature: "append(UiSemanticScopeVisualDto node, int depth, boolean childToParent, ArrayList<MiniCSemanticScopeTreeLine> lines)" },
+    {
+      "name": "append",
+      "signature": "append(UiSemanticScopeVisualDto node,int depth,boolean childToParent,ArrayList<MiniCSemanticScopeTreeLine>lines)"
+    },
+    {
+      "name": "create",
+      "signature": "create(UiStageVisualDto visual)"
+    }
   ],
 } as const satisfies JavaMirrorFile;
 

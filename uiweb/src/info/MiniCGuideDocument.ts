@@ -18,22 +18,14 @@ export const miniCGuideDocumentMirror = {
   "fields": [
     {
       "name": "DEFAULT_GUIDE",
-      "signature": "private static final Path DEFAULT_GUIDE ="
+      "signature": "private static final Path DEFAULT_GUIDE="
     },
     {
       "name": "DEFAULT_VERSION",
-      "signature": "private static final String DEFAULT_VERSION ="
+      "signature": "private static final String DEFAULT_VERSION="
     }
   ],
   "methods": [
-    {
-      "name": "readGuide",
-      "signature": "readGuide(Path guidePath)"
-    },
-    {
-      "name": "runtimeVariables",
-      "signature": "runtimeVariables()"
-    },
     {
       "name": "appVersion",
       "signature": "appVersion()"
@@ -41,6 +33,14 @@ export const miniCGuideDocumentMirror = {
     {
       "name": "property",
       "signature": "property(String key)"
+    },
+    {
+      "name": "readGuide",
+      "signature": "readGuide(Path guidePath)"
+    },
+    {
+      "name": "runtimeVariables",
+      "signature": "runtimeVariables()"
     }
   ]
 } as const satisfies JavaMirrorFile;

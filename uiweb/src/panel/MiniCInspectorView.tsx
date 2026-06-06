@@ -10,6 +10,7 @@ export const miniCInspectorViewMirror = {
   "exportName": "MiniCInspectorView",
   "kind": "component",
   "imports": [
+    "java.util.Objects",
     "javafx.scene.control.Button",
     "javafx.scene.control.Label",
     "javafx.scene.layout.HBox",
@@ -17,76 +18,95 @@ export const miniCInspectorViewMirror = {
     "javafx.scene.text.TextFlow",
     "minic.uilocal.control.MiniCWorkbenchControlHub",
     "minic.uilocal.text.MiniCExplanationTextHighlighter",
-    "minic.uilocal.text.MiniCTextFlowFactory",
-    "java.util.Objects"
+    "minic.uilocal.text.MiniCTextFlowFactory"
   ],
   "fields": [
     {
-      "name": "INSPECTOR_BUTTON_WIDTH",
-      "signature": "private static final double INSPECTOR_BUTTON_WIDTH ="
-    },
-    {
-      "name": "INSPECTOR_BUTTON_HEIGHT",
-      "signature": "private static final double INSPECTOR_BUTTON_HEIGHT ="
-    },
-    {
-      "name": "viewModel",
-      "signature": "private final MiniCWorkbenchViewModel viewModel;"
-    },
-    {
-      "name": "modelFactory",
-      "signature": "private final MiniCInspectorModelFactory modelFactory ="
-    },
-    {
-      "name": "playbackController",
-      "signature": "private final MiniCPlaybackController playbackController;"
+      "name": "accumulatedOutput",
+      "signature": "private final TextFlow accumulatedOutput="
     },
     {
       "name": "controlHub",
-      "signature": "private final MiniCWorkbenchControlHub controlHub;"
-    },
-    {
-      "name": "explanationTextHighlighter",
-      "signature": "private final MiniCExplanationTextHighlighter explanationTextHighlighter ="
-    },
-    {
-      "name": "currentState",
-      "signature": "private final TextFlow currentState ="
+      "signature": "private final MiniCWorkbenchControlHub controlHub"
     },
     {
       "name": "currentItem",
-      "signature": "private final TextFlow currentItem ="
+      "signature": "private final TextFlow currentItem="
     },
     {
-      "name": "accumulatedOutput",
-      "signature": "private final TextFlow accumulatedOutput ="
+      "name": "currentState",
+      "signature": "private final TextFlow currentState="
+    },
+    {
+      "name": "explanationTextHighlighter",
+      "signature": "private final MiniCExplanationTextHighlighter explanationTextHighlighter="
+    },
+    {
+      "name": "INSPECTOR_BUTTON_HEIGHT",
+      "signature": "private static final double INSPECTOR_BUTTON_HEIGHT="
+    },
+    {
+      "name": "INSPECTOR_BUTTON_WIDTH",
+      "signature": "private static final double INSPECTOR_BUTTON_WIDTH="
+    },
+    {
+      "name": "modelFactory",
+      "signature": "private final MiniCInspectorModelFactory modelFactory="
     },
     {
       "name": "nextButton",
-      "signature": "private final Button nextButton ="
+      "signature": "private final Button nextButton="
     },
     {
       "name": "nextStageButton",
-      "signature": "private final Button nextStageButton ="
-    },
-    {
-      "name": "runToExecutionButton",
-      "signature": "private final Button runToExecutionButton ="
-    },
-    {
-      "name": "playButton",
-      "signature": "private final Button playButton ="
-    },
-    {
-      "name": "playFastButton",
-      "signature": "private final Button playFastButton ="
+      "signature": "private final Button nextStageButton="
     },
     {
       "name": "pauseButton",
-      "signature": "private final Button pauseButton ="
+      "signature": "private final Button pauseButton="
+    },
+    {
+      "name": "playbackController",
+      "signature": "private final MiniCPlaybackController playbackController"
+    },
+    {
+      "name": "playButton",
+      "signature": "private final Button playButton="
+    },
+    {
+      "name": "playFastButton",
+      "signature": "private final Button playFastButton="
+    },
+    {
+      "name": "runToExecutionButton",
+      "signature": "private final Button runToExecutionButton="
+    },
+    {
+      "name": "viewModel",
+      "signature": "private final MiniCWorkbenchViewModel viewModel"
     }
   ],
   "methods": [
+    {
+      "name": "body",
+      "signature": "body(String text)"
+    },
+    {
+      "name": "control",
+      "signature": "control(String text,boolean primary)"
+    },
+    {
+      "name": "controls",
+      "signature": "controls()"
+    },
+    {
+      "name": "execute",
+      "signature": "execute(String commandId)"
+    },
+    {
+      "name": "label",
+      "signature": "label(String text,String styleClass)"
+    },
     {
       "name": "refresh",
       "signature": "refresh()"
@@ -96,28 +116,8 @@ export const miniCInspectorViewMirror = {
       "signature": "registerCompilerCommands()"
     },
     {
-      "name": "execute",
-      "signature": "execute(String commandId)"
-    },
-    {
-      "name": "controls",
-      "signature": "controls()"
-    },
-    {
-      "name": "control",
-      "signature": "control(String text, boolean primary)"
-    },
-    {
-      "name": "body",
-      "signature": "body(String text)"
-    },
-    {
       "name": "setBody",
-      "signature": "setBody(TextFlow target, String text)"
-    },
-    {
-      "name": "label",
-      "signature": "label(String text, String styleClass)"
+      "signature": "setBody(TextFlow target,String text)"
     }
   ]
 } as const satisfies JavaMirrorFile;
@@ -151,14 +151,14 @@ export function controls(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWork
   return (
     <div className="controls inspector-controls">
       <div className="inspector-control-row">
-        {control("下一步", true, () => viewModel.next(), snapshot.currentState?.canNext ?? false)}
-        {control("下一阶段", false, () => viewModel.nextStage(), snapshot.currentState !== null)}
-        {control("到执行", false, () => viewModel.runToExecution(), snapshot.currentState !== null)}
+        {control("下一步", true, () => void viewModel.next(), snapshot.currentState?.canNext ?? false)}
+        {control("下一阶段", false, () => void viewModel.nextStage(), snapshot.currentState !== null)}
+        {control("到执行", false, () => void viewModel.runToExecution(), snapshot.currentState !== null)}
       </div>
       <div className="inspector-control-row">
-        {control("播放", false, () => viewModel.play(), snapshot.currentState?.canPlay ?? false)}
-        {control("2x", false, () => viewModel.playFast(), snapshot.currentState?.canPlayFast ?? false)}
-        {control("暂停", false, () => viewModel.pause(), snapshot.currentState?.canPause ?? false)}
+        {control("播放", false, () => void viewModel.play(), snapshot.currentState?.canPlay ?? false)}
+        {control("2x", false, () => void viewModel.playFast(), snapshot.currentState?.canPlayFast ?? false)}
+        {control("暂停", false, () => void viewModel.pause(), snapshot.currentState?.canPause ?? false)}
       </div>
     </div>
   );
@@ -188,22 +188,22 @@ export function label(text: string, styleClass: string) {
 export function execute(commandId: string, viewModel: MiniCWorkbenchViewModel): void {
   switch (commandId) {
     case "compiler.next":
-      viewModel.next();
+      void viewModel.next();
       break;
     case "compiler.nextStage":
-      viewModel.nextStage();
+      void viewModel.nextStage();
       break;
     case "compiler.runToExecution":
-      viewModel.runToExecution();
+      void viewModel.runToExecution();
       break;
     case "compiler.play":
-      viewModel.play();
+      void viewModel.play();
       break;
     case "compiler.playFast":
-      viewModel.playFast();
+      void viewModel.playFast();
       break;
     case "compiler.pause":
-      viewModel.pause();
+      void viewModel.pause();
       break;
   }
 }

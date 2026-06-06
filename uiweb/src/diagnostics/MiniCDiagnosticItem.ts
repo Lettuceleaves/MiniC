@@ -8,15 +8,11 @@ export const miniCDiagnosticItemMirror = {
   "exportName": "MiniCDiagnosticItem",
   "kind": "record",
   "imports": [
-    "minic.uiapi.UiSourceRangeDto",
-    "java.util.Objects"
+    "java.util.Objects",
+    "minic.uiapi.UiSourceRangeDto"
   ],
   "fields": [],
   "methods": [
-    {
-      "name": "MiniCDiagnosticItem",
-      "signature": "MiniCDiagnosticItem(String code, String severity, String message, UiSourceRangeDto range, int line, int column)"
-    },
     {
       "name": "displayText",
       "signature": "displayText()"

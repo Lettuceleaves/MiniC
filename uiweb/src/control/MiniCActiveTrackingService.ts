@@ -16,7 +16,7 @@ export const miniCActiveTrackingServiceMirror = {
   "fields": [
     {
       "name": "activeAdapters",
-      "signature": "private final Supplier<? extends Collection<? extends MiniCViewportAdapter>> activeAdapters;"
+      "signature": "private final Supplier<? extends Collection<? extends MiniCViewportAdapter>>activeAdapters"
     }
   ],
   "methods": [

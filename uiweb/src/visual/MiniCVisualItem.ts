@@ -6,9 +6,11 @@ export const miniCVisualItemMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCVisualItem",
   kind: "record",
-  imports: ["java.util.Objects"],
+  imports: [
+    "java.util.Objects"
+  ],
   fields: [],
-  methods: [{ name: "MiniCVisualItem", signature: "MiniCVisualItem(String label, boolean hot)" }],
+  methods: [],
 } as const satisfies JavaMirrorFile;
 
 export class MiniCVisualItem {

@@ -7,9 +7,23 @@ export const miniCAstTreeModelFactoryMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCAstTreeModelFactory",
   kind: "class",
-  imports: ["minic.uiapi.UiAstNodeVisualDto", "minic.uiapi.UiStageVisualDto", "java.util.List"],
+  imports: [
+    "java.util.ArrayList",
+    "java.util.List",
+    "minic.uiapi.UiAstNodeVisualDto",
+    "minic.uiapi.UiStageVisualDto"
+  ],
   fields: [],
-  methods: [{ name: "create", signature: "create(UiStageVisualDto visual)" }],
+  methods: [
+    {
+      "name": "append",
+      "signature": "append(UiAstNodeVisualDto node,int depth,ArrayList<MiniCAstTreeLine>lines)"
+    },
+    {
+      "name": "create",
+      "signature": "create(UiStageVisualDto visual)"
+    }
+  ],
 } as const satisfies JavaMirrorFile;
 
 export class MiniCAstTreeModelFactory {

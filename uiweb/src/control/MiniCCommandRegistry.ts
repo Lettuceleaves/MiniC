@@ -17,14 +17,10 @@ export const miniCCommandRegistryMirror = {
   "fields": [
     {
       "name": "commands",
-      "signature": "private final Map<String, MiniCControlCommand> commands ="
+      "signature": "private final Map<String,MiniCControlCommand>commands="
     }
   ],
   "methods": [
-    {
-      "name": "register",
-      "signature": "register(MiniCControlCommand command)"
-    },
     {
       "name": "command",
       "signature": "command(String id)"
@@ -36,6 +32,10 @@ export const miniCCommandRegistryMirror = {
     {
       "name": "execute",
       "signature": "execute(String id)"
+    },
+    {
+      "name": "register",
+      "signature": "register(MiniCControlCommand command)"
     }
   ]
 } as const satisfies JavaMirrorFile;

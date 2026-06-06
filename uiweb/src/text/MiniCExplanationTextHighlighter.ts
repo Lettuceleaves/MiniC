@@ -10,9 +10,101 @@ export const miniCExplanationTextHighlighterMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCExplanationTextHighlighter",
   kind: "class",
-  imports: ["java.util.Locale", "java.util.List", "java.util.Set", "java.util.regex.Pattern"],
-  fields: [{ name: "TOKEN", signature: "private static final Pattern TOKEN =" }],
-  methods: [{ name: "highlight", signature: "highlight(String explanation)" }],
+  imports: [
+    "java.util.List",
+    "java.util.Locale",
+    "java.util.Set",
+    "java.util.regex.Matcher",
+    "java.util.regex.Pattern"
+  ],
+  fields: [
+    {
+      "name": "ASM_MNEMONICS",
+      "signature": "private static final Set<String>ASM_MNEMONICS="
+    },
+    {
+      "name": "ASM_REGISTERS",
+      "signature": "private static final Set<String>ASM_REGISTERS="
+    },
+    {
+      "name": "C_KEYWORDS",
+      "signature": "private static final Set<String>C_KEYWORDS="
+    },
+    {
+      "name": "IDENTIFIER",
+      "signature": "private static final Pattern IDENTIFIER="
+    },
+    {
+      "name": "IR_KEYWORDS",
+      "signature": "private static final Set<String>IR_KEYWORDS="
+    },
+    {
+      "name": "LITERALS",
+      "signature": "private static final Set<String>LITERALS="
+    },
+    {
+      "name": "NUMBER",
+      "signature": "private static final Pattern NUMBER="
+    },
+    {
+      "name": "OPERATOR",
+      "signature": "private static final Pattern OPERATOR="
+    },
+    {
+      "name": "PREFIXED_IDENTIFIER",
+      "signature": "private static final Pattern PREFIXED_IDENTIFIER="
+    },
+    {
+      "name": "TOKEN",
+      "signature": "private static final Pattern TOKEN="
+    },
+    {
+      "name": "TYPE_NAMES",
+      "signature": "private static final Set<String>TYPE_NAMES="
+    }
+  ],
+  methods: [
+    {
+      "name": "containsDigit",
+      "signature": "containsDigit(String token)"
+    },
+    {
+      "name": "highlight",
+      "signature": "highlight(String explanation)"
+    },
+    {
+      "name": "isIdentifierBoundary",
+      "signature": "isIdentifierBoundary(char value)"
+    },
+    {
+      "name": "isLabel",
+      "signature": "isLabel(String token,int startOffset,String fullText)"
+    },
+    {
+      "name": "isLikelyCodeIdentifier",
+      "signature": "isLikelyCodeIdentifier(String token,int startOffset,String fullText)"
+    },
+    {
+      "name": "isPrefixedIdentifier",
+      "signature": "isPrefixedIdentifier(String token)"
+    },
+    {
+      "name": "isQuoted",
+      "signature": "isQuoted(String token)"
+    },
+    {
+      "name": "nextNonWhitespace",
+      "signature": "nextNonWhitespace(String text,int index)"
+    },
+    {
+      "name": "previousNonWhitespace",
+      "signature": "previousNonWhitespace(String text,int index)"
+    },
+    {
+      "name": "roleFor",
+      "signature": "roleFor(String token,int startOffset,String fullText)"
+    }
+  ],
 } as const satisfies JavaMirrorFile;
 
 const TOKEN =

@@ -8,9 +8,11 @@ export const miniCStyledTextSegmentMirror = {
   packageName: "minic.uilocal.text",
   exportName: "MiniCStyledTextSegment",
   kind: "record",
-  imports: ["java.util.Objects"],
+  imports: [
+    "java.util.Objects"
+  ],
   fields: [],
-  methods: [{ name: "MiniCStyledTextSegment", signature: "MiniCStyledTextSegment(String text, MiniCTextStyleRole role)" }],
+  methods: [],
 } as const satisfies JavaMirrorFile;
 
 export class MiniCStyledTextSegment {

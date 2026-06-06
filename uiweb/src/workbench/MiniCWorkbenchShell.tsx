@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createMiniCWorkbenchViewModel } from "../api/createMiniCWorkbenchViewModel";
 import MiniCDebugPane from "../debug/MiniCDebugPane";
 import MiniCInfoView from "../info/MiniCInfoView";
 import MiniCBottomPanel from "../panel/MiniCBottomPanel";
@@ -9,7 +10,7 @@ import type { JavaMirrorFile } from "../translation/javaMirror";
 import MiniCVisualPane from "../visual/MiniCVisualPane";
 import { MiniCSamplePrograms } from "../editor/MiniCSamplePrograms";
 import { MiniCSidebarView } from "./MiniCSidebarView";
-import { MiniCWorkbenchViewModel, type MiniCWorkbenchSnapshot } from "./MiniCWorkbenchViewModel";
+import type { MiniCWorkbenchSnapshot, MiniCWorkbenchViewModel } from "./MiniCWorkbenchViewModel";
 
 export const miniCWorkbenchShellMirror = {
   "javaPath": "src/main/java/minic/uilocal/workbench/MiniCWorkbenchShell.java",
@@ -18,8 +19,17 @@ export const miniCWorkbenchShellMirror = {
   "exportName": "MiniCWorkbenchShell",
   "kind": "component",
   "imports": [
-    "javafx.scene.Parent",
+    "java.io.IOException",
+    "java.math.BigDecimal",
+    "java.nio.charset.StandardCharsets",
+    "java.nio.file.Files",
+    "java.nio.file.Path",
+    "java.util.ArrayList",
+    "java.util.LinkedHashSet",
+    "java.util.List",
+    "java.util.Objects",
     "javafx.geometry.Point2D",
+    "javafx.scene.Parent",
     "javafx.scene.control.Button",
     "javafx.scene.control.Label",
     "javafx.scene.control.ScrollPane",
@@ -36,300 +46,187 @@ export const miniCWorkbenchShellMirror = {
     "javafx.scene.layout.Region",
     "javafx.scene.layout.StackPane",
     "javafx.scene.layout.VBox",
-    "minic.settings.MiniCSettingsPane",
     "javafx.scene.shape.SVGPath",
     "javafx.stage.FileChooser",
     "javafx.stage.Window",
     "minic.color.ThemeManager",
     "minic.settings.MiniCSettings",
+    "minic.settings.MiniCSettingsPane",
     "minic.uilocal.control.MiniCActiveTrackingService",
     "minic.uilocal.control.MiniCControlTargetType",
     "minic.uilocal.control.MiniCViewportAdapter",
-    "minic.uilocal.control.MiniCWorkbenchControlHub",
-    "java.io.IOException",
-    "java.math.BigDecimal",
-    "java.nio.charset.StandardCharsets",
-    "java.nio.file.Files",
-    "java.nio.file.Path",
-    "java.util.ArrayList",
-    "java.util.LinkedHashSet",
-    "java.util.List",
-    "java.util.Objects"
+    "minic.uilocal.control.MiniCWorkbenchControlHub"
   ],
   "fields": [
     {
-      "name": "TEXT_ZOOM_STEP",
-      "signature": "private static final double TEXT_ZOOM_STEP ="
-    },
-    {
-      "name": "VIEWPORT_KEY_SCROLL_DELTA",
-      "signature": "private static final double VIEWPORT_KEY_SCROLL_DELTA ="
-    },
-    {
-      "name": "COMPILER_SHORTCUT_ACTIONS",
-      "signature": "private static final List<String> COMPILER_SHORTCUT_ACTIONS ="
-    },
-    {
-      "name": "SETTINGS_SHORTCUT_ACTIONS",
-      "signature": "private static final List<String> SETTINGS_SHORTCUT_ACTIONS ="
-    },
-    {
-      "name": "documents",
-      "signature": "private final ArrayList<DocumentTab> documents ="
-    },
-    {
-      "name": "keyBindings",
-      "signature": "private final MiniCKeyBindingConfig keyBindings ="
-    },
-    {
-      "name": "controlHub",
-      "signature": "private final MiniCWorkbenchControlHub controlHub ="
-    },
-    {
-      "name": "pressedKeys",
-      "signature": "private final LinkedHashSet<KeyCode> pressedKeys ="
-    },
-    {
-      "name": "root",
-      "signature": "private BorderPane root;"
-    },
-    {
-      "name": "body",
-      "signature": "private HBox body;"
-    },
-    {
-      "name": "tabs",
-      "signature": "private HBox tabs;"
-    },
-    {
-      "name": "editor",
-      "signature": "private VBox editor;"
-    },
-    {
-      "name": "viewModel",
-      "signature": "private MiniCWorkbenchViewModel viewModel;"
-    },
-    {
-      "name": "visualPane",
-      "signature": "private MiniCVisualPane visualPane;"
-    },
-    {
-      "name": "sourceLoader",
-      "signature": "private MiniCSourceLoaderView sourceLoader;"
-    },
-    {
-      "name": "sourcePane",
-      "signature": "private VBox sourcePane;"
-    },
-    {
-      "name": "mainContent",
-      "signature": "private StackPane mainContent;"
-    },
-    {
-      "name": "hoverInspector",
-      "signature": "private MiniCHoverInspector hoverInspector;"
+      "name": "activeDocumentIndex",
+      "signature": "private int activeDocumentIndex"
     },
     {
       "name": "activeSection",
-      "signature": "private ActivitySection activeSection ="
+      "signature": "private ActivitySection activeSection="
     },
     {
-      "name": "editingTabField",
-      "signature": "private TextField editingTabField;"
+      "name": "body",
+      "signature": "private HBox body"
     },
     {
-      "name": "activeDocumentIndex",
-      "signature": "private int activeDocumentIndex;"
+      "name": "COMPILER_SHORTCUT_ACTIONS",
+      "signature": "private static final List<String>COMPILER_SHORTCUT_ACTIONS="
     },
     {
-      "name": "nextUntitledIndex",
-      "signature": "private int nextUntitledIndex ="
+      "name": "controlHub",
+      "signature": "private final MiniCWorkbenchControlHub controlHub="
+    },
+    {
+      "name": "documents",
+      "signature": "private final ArrayList<DocumentTab>documents="
     },
     {
       "name": "draggedTabIndex",
-      "signature": "private int draggedTabIndex ="
+      "signature": "private int draggedTabIndex="
+    },
+    {
+      "name": "editingTabField",
+      "signature": "private TextField editingTabField"
+    },
+    {
+      "name": "editor",
+      "signature": "private VBox editor"
+    },
+    {
+      "name": "hoverInspector",
+      "signature": "private MiniCHoverInspector hoverInspector"
     },
     {
       "name": "iconPath",
-      "signature": "private final String iconPath;"
+      "signature": "private final String iconPath"
     },
     {
-      "name": "title",
-      "signature": "private final String title;"
+      "name": "keyBindings",
+      "signature": "private final MiniCKeyBindingConfig keyBindings="
+    },
+    {
+      "name": "mainContent",
+      "signature": "private StackPane mainContent"
+    },
+    {
+      "name": "nextUntitledIndex",
+      "signature": "private int nextUntitledIndex="
     },
     {
       "name": "placeholder",
-      "signature": "private final String placeholder;"
+      "signature": "private final String placeholder"
+    },
+    {
+      "name": "pressedKeys",
+      "signature": "private final LinkedHashSet<KeyCode>pressedKeys="
+    },
+    {
+      "name": "root",
+      "signature": "private BorderPane root"
+    },
+    {
+      "name": "SETTINGS_SHORTCUT_ACTIONS",
+      "signature": "private static final List<String>SETTINGS_SHORTCUT_ACTIONS="
+    },
+    {
+      "name": "sourceLoader",
+      "signature": "private MiniCSourceLoaderView sourceLoader"
+    },
+    {
+      "name": "sourcePane",
+      "signature": "private VBox sourcePane"
+    },
+    {
+      "name": "tabs",
+      "signature": "private HBox tabs"
+    },
+    {
+      "name": "TEXT_ZOOM_STEP",
+      "signature": "private static final double TEXT_ZOOM_STEP="
+    },
+    {
+      "name": "title",
+      "signature": "private final String title"
+    },
+    {
+      "name": "viewModel",
+      "signature": "private MiniCWorkbenchViewModel viewModel"
+    },
+    {
+      "name": "VIEWPORT_KEY_SCROLL_DELTA",
+      "signature": "private static final double VIEWPORT_KEY_SCROLL_DELTA="
+    },
+    {
+      "name": "visualPane",
+      "signature": "private MiniCVisualPane visualPane"
     }
   ],
   "methods": [
     {
-      "name": "createRoot",
-      "signature": "createRoot()"
+      "name": "activeViewportAdapters",
+      "signature": "activeViewportAdapters()"
     },
     {
       "name": "activityBar",
       "signature": "activityBar()"
     },
     {
-      "name": "activityItem",
-      "signature": "activityItem(ActivitySection section)"
-    },
-    {
       "name": "activityIcon",
       "signature": "activityIcon(ActivitySection section)"
     },
     {
-      "name": "selectActivitySection",
-      "signature": "selectActivitySection(ActivitySection section)"
-    },
-    {
-      "name": "sectionContent",
-      "signature": "sectionContent()"
-    },
-    {
-      "name": "settingsPage",
-      "signature": "settingsPage()"
-    },
-    {
-      "name": "placeholderPage",
-      "signature": "placeholderPage(ActivitySection section)"
-    },
-    {
-      "name": "workbenchBody",
-      "signature": "workbenchBody()"
-    },
-    {
-      "name": "rebuildWorkbenchBody",
-      "signature": "rebuildWorkbenchBody()"
-    },
-    {
-      "name": "sidebar",
-      "signature": "sidebar()"
-    },
-    {
-      "name": "editorArea",
-      "signature": "editorArea()"
-    },
-    {
-      "name": "updateMainContent",
-      "signature": "updateMainContent()"
-    },
-    {
-      "name": "sourceMode",
-      "signature": "sourceMode()"
-    },
-    {
-      "name": "sourceArea",
-      "signature": "sourceArea()"
-    },
-    {
-      "name": "activeViewportAdapters",
-      "signature": "activeViewportAdapters()"
-    },
-    {
-      "name": "statusBar",
-      "signature": "statusBar()"
-    },
-    {
-      "name": "refreshTabs",
-      "signature": "refreshTabs()"
-    },
-    {
-      "name": "toolbarButton",
-      "signature": "toolbarButton(String text, String tooltip, Runnable action)"
-    },
-    {
-      "name": "switchDocument",
-      "signature": "switchDocument(int index)"
-    },
-    {
-      "name": "closeDocument",
-      "signature": "closeDocument(int index)"
-    },
-    {
-      "name": "newDocument",
-      "signature": "newDocument()"
-    },
-    {
-      "name": "beginRenameDocument",
-      "signature": "beginRenameDocument(int index, HBox tab, Label title)"
-    },
-    {
-      "name": "commitRenameDocument",
-      "signature": "commitRenameDocument(int index, String rawName)"
-    },
-    {
-      "name": "nextUntitledName",
-      "signature": "nextUntitledName()"
-    },
-    {
-      "name": "reorderDraggedTab",
-      "signature": "reorderDraggedTab(int targetIndex)"
-    },
-    {
-      "name": "reorderDocumentTab",
-      "signature": "reorderDocumentTab(int fromIndex, int toIndex)"
-    },
-    {
-      "name": "openDocument",
-      "signature": "openDocument()"
-    },
-    {
-      "name": "saveDocument",
-      "signature": "saveDocument()"
-    },
-    {
-      "name": "saveDocumentAs",
-      "signature": "saveDocumentAs()"
-    },
-    {
-      "name": "saveDocumentAs",
-      "signature": "saveDocumentAs(Path rawPath)"
-    },
-    {
-      "name": "window",
-      "signature": "window()"
-    },
-    {
-      "name": "restorePersistedDocuments",
-      "signature": "restorePersistedDocuments(MiniCWorkbenchViewModel initialModel)"
+      "name": "activityItem",
+      "signature": "activityItem(ActivitySection section)"
     },
     {
       "name": "addDocument",
-      "signature": "addDocument(String name, String source, Path path, BigDecimal order, MiniCWorkbenchViewModel model, boolean persist)"
-    },
-    {
-      "name": "persistOpenDocuments",
-      "signature": "persistOpenDocuments()"
-    },
-    {
-      "name": "syncActiveEditorToModel",
-      "signature": "syncActiveEditorToModel()"
+      "signature": "addDocument(String name,String source,Path path,BigDecimal order,MiniCWorkbenchViewModel model,boolean persist)"
     },
     {
       "name": "applyRememberedDirectory",
       "signature": "applyRememberedDirectory(FileChooser chooser)"
     },
     {
-      "name": "nextDocumentOrder",
-      "signature": "nextDocumentOrder()"
+      "name": "beginRenameDocument",
+      "signature": "beginRenameDocument(int index,HBox tab,Label title)"
     },
     {
-      "name": "orderForIndex",
-      "signature": "orderForIndex(int index)"
+      "name": "closeDocument",
+      "signature": "closeDocument(int index)"
     },
     {
-      "name": "renumberDocumentOrders",
-      "signature": "renumberDocumentOrders()"
+      "name": "commitRenameDocument",
+      "signature": "commitRenameDocument(int index,String rawName)"
+    },
+    {
+      "name": "createRoot",
+      "signature": "createRoot()"
+    },
+    {
+      "name": "displayName",
+      "signature": "displayName()"
     },
     {
       "name": "documentIndex",
       "signature": "documentIndex(Path path)"
     },
     {
-      "name": "normalizePath",
-      "signature": "normalizePath(Path path)"
+      "name": "DocumentTab",
+      "signature": "DocumentTab(String name,Path path,BigDecimal order,MiniCWorkbenchViewModel viewModel)"
+    },
+    {
+      "name": "editorArea",
+      "signature": "editorArea()"
+    },
+    {
+      "name": "handleCommandShortcut",
+      "signature": "handleCommandShortcut(KeyEvent event,List<String>actions)"
+    },
+    {
+      "name": "handleCommandShortcut",
+      "signature": "handleCommandShortcut(ScrollEvent event,List<String>actions)"
     },
     {
       "name": "handleKeyPressed",
@@ -344,52 +241,148 @@ export const miniCWorkbenchShellMirror = {
       "signature": "handleShortcut(KeyEvent event)"
     },
     {
-      "name": "handleCommandShortcut",
-      "signature": "handleCommandShortcut(KeyEvent event, List<String> actions)"
+      "name": "handleShortcut",
+      "signature": "handleShortcut(ScrollEvent event)"
     },
     {
       "name": "handleViewportShortcut",
       "signature": "handleViewportShortcut(KeyEvent event)"
     },
     {
-      "name": "handleShortcut",
-      "signature": "handleShortcut(ScrollEvent event)"
-    },
-    {
-      "name": "handleCommandShortcut",
-      "signature": "handleCommandShortcut(ScrollEvent event, List<String> actions)"
-    },
-    {
       "name": "handleViewportShortcut",
       "signature": "handleViewportShortcut(ScrollEvent event)"
-    },
-    {
-      "name": "viewportZoomDelta",
-      "signature": "viewportZoomDelta(double direction)"
     },
     {
       "name": "isModifier",
       "signature": "isModifier(KeyCode code)"
     },
     {
+      "name": "newDocument",
+      "signature": "newDocument()"
+    },
+    {
+      "name": "nextDocumentOrder",
+      "signature": "nextDocumentOrder()"
+    },
+    {
+      "name": "nextUntitledName",
+      "signature": "nextUntitledName()"
+    },
+    {
+      "name": "normalizePath",
+      "signature": "normalizePath(Path path)"
+    },
+    {
+      "name": "openDocument",
+      "signature": "openDocument()"
+    },
+    {
+      "name": "orderForIndex",
+      "signature": "orderForIndex(int index)"
+    },
+    {
+      "name": "persistOpenDocuments",
+      "signature": "persistOpenDocuments()"
+    },
+    {
+      "name": "placeholderPage",
+      "signature": "placeholderPage(ActivitySection section)"
+    },
+    {
+      "name": "rebuildWorkbenchBody",
+      "signature": "rebuildWorkbenchBody()"
+    },
+    {
+      "name": "refreshTabs",
+      "signature": "refreshTabs()"
+    },
+    {
       "name": "registerSettingsCommands",
       "signature": "registerSettingsCommands()"
+    },
+    {
+      "name": "renumberDocumentOrders",
+      "signature": "renumberDocumentOrders()"
+    },
+    {
+      "name": "reorderDocumentTab",
+      "signature": "reorderDocumentTab(int fromIndex,int toIndex)"
+    },
+    {
+      "name": "reorderDraggedTab",
+      "signature": "reorderDraggedTab(int targetIndex)"
+    },
+    {
+      "name": "restorePersistedDocuments",
+      "signature": "restorePersistedDocuments(MiniCWorkbenchViewModel initialModel)"
+    },
+    {
+      "name": "saveDocument",
+      "signature": "saveDocument()"
+    },
+    {
+      "name": "saveDocumentAs",
+      "signature": "saveDocumentAs()"
+    },
+    {
+      "name": "saveDocumentAs",
+      "signature": "saveDocumentAs(Path rawPath)"
+    },
+    {
+      "name": "sectionContent",
+      "signature": "sectionContent()"
+    },
+    {
+      "name": "selectActivitySection",
+      "signature": "selectActivitySection(ActivitySection section)"
+    },
+    {
+      "name": "settingsPage",
+      "signature": "settingsPage()"
     },
     {
       "name": "shiftTheme",
       "signature": "shiftTheme(int delta)"
     },
     {
-      "name": "DocumentTab",
-      "signature": "DocumentTab(String name, Path path, BigDecimal order, MiniCWorkbenchViewModel viewModel)"
+      "name": "sidebar",
+      "signature": "sidebar()"
     },
     {
-      "name": "displayName",
-      "signature": "displayName()"
+      "name": "sourceArea",
+      "signature": "sourceArea()"
     },
     {
-      "name": "withPath",
-      "signature": "withPath(Path path)"
+      "name": "sourceMode",
+      "signature": "sourceMode()"
+    },
+    {
+      "name": "statusBar",
+      "signature": "statusBar()"
+    },
+    {
+      "name": "switchDocument",
+      "signature": "switchDocument(int index)"
+    },
+    {
+      "name": "syncActiveEditorToModel",
+      "signature": "syncActiveEditorToModel()"
+    },
+    {
+      "name": "toolbarButton",
+      "signature": "toolbarButton(String text,String tooltip,Runnable action)"
+    },
+    {
+      "name": "updateMainContent",
+      "signature": "updateMainContent()"
+    },
+    {
+      "name": "viewportZoomDelta",
+      "signature": "viewportZoomDelta(double direction)"
+    },
+    {
+      "name": "window",
+      "signature": "window()"
     },
     {
       "name": "withName",
@@ -398,6 +391,14 @@ export const miniCWorkbenchShellMirror = {
     {
       "name": "withOrder",
       "signature": "withOrder(BigDecimal order)"
+    },
+    {
+      "name": "withPath",
+      "signature": "withPath(Path path)"
+    },
+    {
+      "name": "workbenchBody",
+      "signature": "workbenchBody()"
     }
   ]
 } as const satisfies JavaMirrorFile;
@@ -469,8 +470,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   };
 
   const addDocument = (name: string, source: string, path: string | null = null): void => {
-    const viewModel = new MiniCWorkbenchViewModel(name, source);
-    viewModel.submitRealtimeSource(name, source);
+    const viewModel = createMiniCWorkbenchViewModel(name, source);
     setDocuments((current) => [...current, { name, path, order: nextDocumentOrder(current), viewModel }]);
     setActiveDocumentIndex(documents.length);
   };
@@ -482,7 +482,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   const closeDocument = (index: number): void => {
     if (documents.length <= 1) {
       const sample = MiniCSamplePrograms.defaultSample();
-      const viewModel = new MiniCWorkbenchViewModel(sample.name, sample.source);
+      const viewModel = createMiniCWorkbenchViewModel(sample.name, sample.source);
       setDocuments([{ name: sample.name, path: null, order: 1, viewModel }]);
       setActiveDocumentIndex(0);
       return;
@@ -502,7 +502,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
         if (currentIndex !== index) {
           return document;
         }
-        document.viewModel.renameSource(name);
+        void document.viewModel.renameSource(name);
         return { ...document, name };
       }),
     );
@@ -513,7 +513,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
     setDocuments((current) =>
       current.map((document, index) => (index === activeDocumentIndex ? { ...document, name } : document)),
     );
-    activeModel.renameSource(name);
+    void activeModel.renameSource(name);
   };
 
   const reorderDocumentTab = (fromIndex: number, toIndex: number): void => {
@@ -744,7 +744,7 @@ function useWorkbenchShellSnapshot(viewModel: MiniCWorkbenchViewModel): MiniCWor
 
 function restorePersistedDocuments(): readonly DocumentTab[] {
   const sample = MiniCSamplePrograms.defaultSample();
-  const fallback = [{ name: sample.name, path: null, order: 1, viewModel: new MiniCWorkbenchViewModel(sample.name, sample.source) }];
+  const fallback = [{ name: sample.name, path: null, order: 1, viewModel: createMiniCWorkbenchViewModel(sample.name, sample.source) }];
   try {
     const raw = window.localStorage.getItem(DOCUMENTS_STORAGE_KEY);
     if (!raw) {
@@ -758,7 +758,7 @@ function restorePersistedDocuments(): readonly DocumentTab[] {
       name: typeof entry.name === "string" && entry.name.length > 0 ? entry.name : nextUntitledName([]),
       path: typeof entry.path === "string" ? entry.path : null,
       order: Number.isFinite(entry.order) ? entry.order : index + 1,
-      viewModel: new MiniCWorkbenchViewModel(entry.name, typeof entry.source === "string" ? entry.source : ""),
+      viewModel: createMiniCWorkbenchViewModel(entry.name, typeof entry.source === "string" ? entry.source : ""),
     }));
   } catch {
     return fallback;

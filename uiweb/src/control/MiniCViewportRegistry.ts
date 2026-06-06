@@ -15,58 +15,58 @@ export const miniCViewportRegistryMirror = {
   ],
   "fields": [
     {
+      "name": "businessActiveTarget",
+      "signature": "private MiniCViewportAdapter businessActiveTarget"
+    },
+    {
       "name": "hoverTarget",
-      "signature": "private MiniCViewportAdapter hoverTarget;"
+      "signature": "private MiniCViewportAdapter hoverTarget"
     },
     {
       "name": "pinnedTarget",
-      "signature": "private MiniCViewportAdapter pinnedTarget;"
-    },
-    {
-      "name": "businessActiveTarget",
-      "signature": "private MiniCViewportAdapter businessActiveTarget;"
+      "signature": "private MiniCViewportAdapter pinnedTarget"
     }
   ],
   "methods": [
-    {
-      "name": "hover",
-      "signature": "hover(MiniCViewportAdapter target)"
-    },
-    {
-      "name": "clearHover",
-      "signature": "clearHover(MiniCViewportAdapter target)"
-    },
-    {
-      "name": "pin",
-      "signature": "pin(MiniCViewportAdapter target)"
-    },
-    {
-      "name": "clearPinned",
-      "signature": "clearPinned(MiniCViewportAdapter target)"
-    },
-    {
-      "name": "clearPinned",
-      "signature": "clearPinned()"
-    },
     {
       "name": "businessActive",
       "signature": "businessActive(MiniCViewportAdapter target)"
     },
     {
       "name": "clearBusinessActive",
-      "signature": "clearBusinessActive(MiniCViewportAdapter target)"
+      "signature": "clearBusinessActive()"
     },
     {
       "name": "clearBusinessActive",
-      "signature": "clearBusinessActive()"
+      "signature": "clearBusinessActive(MiniCViewportAdapter target)"
+    },
+    {
+      "name": "clearHover",
+      "signature": "clearHover(MiniCViewportAdapter target)"
+    },
+    {
+      "name": "clearPinned",
+      "signature": "clearPinned()"
+    },
+    {
+      "name": "clearPinned",
+      "signature": "clearPinned(MiniCViewportAdapter target)"
     },
     {
       "name": "currentTarget",
       "signature": "currentTarget()"
     },
     {
+      "name": "hover",
+      "signature": "hover(MiniCViewportAdapter target)"
+    },
+    {
       "name": "isControllable",
       "signature": "isControllable(MiniCViewportAdapter target)"
+    },
+    {
+      "name": "pin",
+      "signature": "pin(MiniCViewportAdapter target)"
     }
   ]
 } as const satisfies JavaMirrorFile;

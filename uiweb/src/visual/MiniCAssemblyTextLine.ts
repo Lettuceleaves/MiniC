@@ -6,9 +6,12 @@ export const miniCAssemblyTextLineMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCAssemblyTextLine",
   kind: "record",
-  imports: ["minic.uiapi.UiSourceSpanDto", "java.util.Objects"],
+  imports: [
+    "java.util.Objects",
+    "minic.uiapi.UiSourceSpanDto"
+  ],
   fields: [],
-  methods: [{ name: "MiniCAssemblyTextLine", signature: "MiniCAssemblyTextLine(int lineNumber, String text, String section, String label, String kind, UiSourceSpanDto range, boolean active)" }],
+  methods: [],
 } as const satisfies JavaMirrorFile;
 
 export class MiniCAssemblyTextLine {

@@ -9,25 +9,25 @@ export const miniCViewportPointMapperMirror = {
   "exportName": "MiniCViewportPointMapper",
   "kind": "class",
   "imports": [
+    "java.util.Objects",
     "javafx.geometry.Bounds",
     "javafx.geometry.Point2D",
     "javafx.scene.Node",
-    "javafx.scene.control.ScrollPane",
-    "java.util.Objects"
+    "javafx.scene.control.ScrollPane"
   ],
   "fields": [],
   "methods": [
     {
+      "name": "normalized",
+      "signature": "normalized(double value,double min,double max)"
+    },
+    {
       "name": "toViewportPoint",
-      "signature": "toViewportPoint(Node localNode, double localX, double localY, ScrollPane scrollPane)"
+      "signature": "toViewportPoint(Node localNode,double localX,double localY,ScrollPane scrollPane)"
     },
     {
       "name": "visibleMin",
-      "signature": "visibleMin(double value, double min, double max, double contentMin, double contentSize, double viewportSize)"
-    },
-    {
-      "name": "normalized",
-      "signature": "normalized(double value, double min, double max)"
+      "signature": "visibleMin(double value,double min,double max,double contentMin,double contentSize,double viewportSize)"
     }
   ]
 } as const satisfies JavaMirrorFile;

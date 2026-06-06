@@ -8,9 +8,11 @@ export const miniCAstGraphModelMirror = {
   packageName: "minic.uilocal.visual",
   exportName: "MiniCAstGraphModel",
   kind: "record",
-  imports: ["java.util.List"],
+  imports: [
+    "java.util.List"
+  ],
   fields: [],
-  methods: [{ name: "MiniCAstGraphModel", signature: "MiniCAstGraphModel(List<MiniCAstGraphNode> nodes, List<MiniCAstGraphEdge> edges, double width, double height)" }],
+  methods: [],
 } as const satisfies JavaMirrorFile;
 
 export class MiniCAstGraphModel {

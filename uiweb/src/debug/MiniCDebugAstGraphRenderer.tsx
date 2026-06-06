@@ -27,37 +27,37 @@ export const miniCDebugAstGraphRendererMirror = {
   "fields": [
     {
       "name": "astGraphModelFactory",
-      "signature": "private final MiniCAstGraphModelFactory astGraphModelFactory ="
+      "signature": "private final MiniCAstGraphModelFactory astGraphModelFactory="
     },
     {
       "name": "astZoom",
-      "signature": "private final Slider astZoom;"
+      "signature": "private final Slider astZoom"
     },
     {
       "name": "viewportController",
-      "signature": "private final MiniCDebugViewportController viewportController;"
+      "signature": "private final MiniCDebugViewportController viewportController"
     }
   ],
   "methods": [
+    {
+      "name": "astNodeById",
+      "signature": "astNodeById(UiAstNodeVisualDto node,String id)"
+    },
     {
       "name": "emptyAstPane",
       "signature": "emptyAstPane(String message)"
     },
     {
-      "name": "astNodeById",
-      "signature": "astNodeById(UiAstNodeVisualDto node, String id)"
-    },
-    {
-      "name": "shortLabel",
-      "signature": "shortLabel(String label)"
+      "name": "label",
+      "signature": "label(String text,String styleClass)"
     },
     {
       "name": "rangeText",
       "signature": "rangeText(UiSourceSpanDto range)"
     },
     {
-      "name": "label",
-      "signature": "label(String text, String styleClass)"
+      "name": "shortLabel",
+      "signature": "shortLabel(String label)"
     }
   ]
 } as const satisfies JavaMirrorFile;

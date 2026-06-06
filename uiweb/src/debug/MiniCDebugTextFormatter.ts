@@ -16,26 +16,26 @@ export const miniCDebugTextFormatterMirror = {
   "exportName": "MiniCDebugTextFormatter",
   "kind": "class",
   "imports": [
+    "java.util.ArrayList",
+    "java.util.List",
+    "java.util.Map",
     "minic.uiapi.UiDebugBreakpointDto",
     "minic.uiapi.UiDebugEventDto",
     "minic.uiapi.UiDebugFrameDto",
     "minic.uiapi.UiDebugTimelineItemDto",
     "minic.uiapi.UiDebugVariableDto",
     "minic.uiapi.UiDebugVisualElementDto",
-    "minic.uiapi.UiSourceSpanDto",
-    "java.util.ArrayList",
-    "java.util.List",
-    "java.util.Map"
+    "minic.uiapi.UiSourceSpanDto"
   ],
   "fields": [],
   "methods": [
     {
       "name": "addVariableLines",
-      "signature": "addVariableLines(List<String> lines, UiDebugVariableDto variable, int depth)"
+      "signature": "addVariableLines(List<String>lines,UiDebugVariableDto variable,int depth)"
     },
     {
       "name": "variableTreeText",
-      "signature": "variableTreeText(List<UiDebugVariableDto> variables)"
+      "signature": "variableTreeText(List<UiDebugVariableDto>variables)"
     }
   ]
 } as const satisfies JavaMirrorFile;

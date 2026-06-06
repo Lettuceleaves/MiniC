@@ -10,12 +10,7 @@ export const miniCInspectorModelMirror = {
     "java.util.Objects"
   ],
   "fields": [],
-  "methods": [
-    {
-      "name": "MiniCInspectorModel",
-      "signature": "MiniCInspectorModel(String currentState, String currentItem, String accumulatedOutput)"
-    }
-  ]
+  "methods": []
 } as const satisfies JavaMirrorFile;
 
 export class MiniCInspectorModel {

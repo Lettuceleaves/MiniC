@@ -11,24 +11,24 @@ export const miniCEditorTypingMirror = {
   "fields": [],
   "methods": [
     {
-      "name": "wrapOrInsert",
-      "signature": "wrapOrInsert(String source, int start, int end, String opening, String closing)"
-    },
-    {
-      "name": "skipOrInsert",
-      "signature": "skipOrInsert(String source, int start, int end, String closing)"
+      "name": "isEmptyPair",
+      "signature": "isEmptyPair(char opening,char closing)"
     },
     {
       "name": "quoteOrSkip",
-      "signature": "quoteOrSkip(String source, int start, int end, String quote)"
+      "signature": "quoteOrSkip(String source,int start,int end,String quote)"
     },
     {
       "name": "replace",
-      "signature": "replace(String source, int start, int end, String replacement, int caret)"
+      "signature": "replace(String source,int start,int end,String replacement,int caret)"
     },
     {
-      "name": "isEmptyPair",
-      "signature": "isEmptyPair(char opening, char closing)"
+      "name": "skipOrInsert",
+      "signature": "skipOrInsert(String source,int start,int end,String closing)"
+    },
+    {
+      "name": "wrapOrInsert",
+      "signature": "wrapOrInsert(String source,int start,int end,String opening,String closing)"
     }
   ]
 } as const satisfies JavaMirrorFile;

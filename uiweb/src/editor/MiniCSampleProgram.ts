@@ -11,12 +11,7 @@ export const miniCSampleProgramMirror = {
     "java.util.Objects"
   ],
   "fields": [],
-  "methods": [
-    {
-      "name": "MiniCSampleProgram",
-      "signature": "MiniCSampleProgram(String name, String source)"
-    }
-  ]
+  "methods": []
 } as const satisfies JavaMirrorFile;
 
 export class MiniCSampleProgram {

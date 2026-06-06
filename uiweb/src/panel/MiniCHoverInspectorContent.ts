@@ -8,16 +8,12 @@ export const miniCHoverInspectorContentMirror = {
   "exportName": "MiniCHoverInspectorContent",
   "kind": "record",
   "imports": [
-    "minic.uiapi.UiSourceSpanDto",
     "java.util.List",
-    "java.util.Objects"
+    "java.util.Objects",
+    "minic.uiapi.UiSourceSpanDto"
   ],
   "fields": [],
   "methods": [
-    {
-      "name": "MiniCHoverInspectorContent",
-      "signature": "MiniCHoverInspectorContent(String title, List<String> metadata, String source, UiSourceSpanDto range, String explanation)"
-    },
     {
       "name": "empty",
       "signature": "empty()"

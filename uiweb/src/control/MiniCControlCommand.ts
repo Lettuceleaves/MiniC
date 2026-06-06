@@ -13,12 +13,7 @@ export const miniCControlCommandMirror = {
     "java.util.function.BooleanSupplier"
   ],
   "fields": [],
-  "methods": [
-    {
-      "name": "MiniCControlCommand",
-      "signature": "MiniCControlCommand(String id, String label, BooleanSupplier enabled, Runnable action)"
-    }
-  ]
+  "methods": []
 } as const satisfies JavaMirrorFile;
 
 export class MiniCControlCommand {
