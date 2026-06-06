@@ -471,7 +471,7 @@ git commit -m "test(uiweb): add full screenshot parity matrix"
 - Modify: `uiweb/package.json`
 - Modify: `docs/uiweb-parity/strict-acceptance.md`
 
-- [ ] Create one command for final acceptance.
+- [x] Create one command for final acceptance.
 
 Required command:
 
@@ -505,13 +505,13 @@ Acceptance:
 - A single blank pipeline stage fails.
 - A single local TS compiler/debugger emulation path fails.
 
-- [ ] Run the final acceptance pipeline.
+- [x] Run the final acceptance pipeline.
 
 Expected:
 - All commands pass.
 - The report includes exact command output and screenshot matrix results.
 
-- [ ] Commit Task 7 only.
+- [x] Commit Task 7 only.
 
 Commit message:
 
