@@ -55,3 +55,19 @@ tasks.register('runUi', JavaExec) {
             '-Duser.country=US'
     ]
 }
+
+tasks.register('runUiApi', JavaExec) {
+    group = 'application'
+    description = '启动 MiniC UIAPI HTTP 服务'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'minic.uiapi.web.MiniCUiApiServerLauncher'
+    args = [String.valueOf(project.findProperty('uiApiPort') ?: '18080')]
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    })
+    jvmArgs = [
+            '-Dfile.encoding=UTF-8',
+            '-Dsun.stdout.encoding=UTF-8',
+            '-Dsun.stderr.encoding=UTF-8'
+    ]
+}

@@ -12,6 +12,7 @@
     "verify:no-runtime-downgrade": "node tools/verify-no-uiweb-runtime-downgrade.mjs",
     "verify:editor-scroll": "node tools/verify-editor-scroll.mjs",
     "verify:snapshot-parity": "node tools/verify-uiapi-snapshot-parity.mjs",
+    "verify:runtime-workflows": "node tools/verify-uiweb-runtime-workflows.mjs",
     "verify:parity": "npm run verify:mirror && npm run verify:placeholders && npm run verify:editor-scroll && npm run typecheck && npm run build",
     "verify:strict-parity": "npm run verify:mirror && npm run verify:mirror-signatures && npm run verify:placeholders && npm run verify:no-runtime-downgrade && npm run verify:adapter-completeness && npm run verify:editor-scroll && npm run typecheck && npm run build",
     "verify:strict-final": "npm run verify:strict-parity",
@@ -31,6 +32,7 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.2",

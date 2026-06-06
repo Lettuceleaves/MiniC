@@ -341,14 +341,14 @@ git commit -m "test(uiweb): verify uiapi dto snapshot parity"
 - Create: `uiweb/tools/verify-uiweb-runtime-workflows.mjs`
 - Modify: `uiweb/package.json`
 
-- [ ] Add a script that starts the Java UIAPI HTTP service and Vite app together.
+- [x] Add a script that starts the Java UIAPI HTTP service and Vite app together.
 
 Acceptance:
 - It fails if the UIAPI server is not healthy.
 - It fails if Vite is not serving UIWeb.
 - It tears both processes down reliably.
 
-- [ ] Add workflow tests.
+- [x] Add workflow tests.
 
 Required workflows:
 - Open source page, edit source, verify realtime diagnostics/tokens arrive from `/api/realtime/analyze`.
@@ -375,7 +375,7 @@ npm run verify:runtime-workflows
 Expected:
 - All workflows pass.
 
-- [ ] Commit Task 5 only.
+- [x] Commit Task 5 only.
 
 Commit message:
 

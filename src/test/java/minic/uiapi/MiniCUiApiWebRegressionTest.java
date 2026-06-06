@@ -13,6 +13,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,6 +32,24 @@ class MiniCUiApiWebRegressionTest {
                 int a = 1;
                 int b = add(a);
                 return b;
+            }
+            """;
+    private static final String CONCURRENT_VISUAL_SOURCE = """
+            int add(int a, int b) {
+                return a + b;
+            }
+
+            int main() {
+                int x = 0;
+                x = add(x, 1);
+                x = add(x, 2);
+                x = add(x, 3);
+                x = add(x, 4);
+                x = add(x, 5);
+                x = add(x, 6);
+                x = add(x, 7);
+                x = add(x, 8);
+                return x;
             }
             """;
 
@@ -105,6 +125,49 @@ class MiniCUiApiWebRegressionTest {
                 .isEqualTo(direct.previous());
         assertThat(post("/api/observation/" + sessionId + "/reverse-play", Map.of(), UiControlResultDto.class))
                 .isEqualTo(direct.reversePlay());
+    }
+
+    @Test
+    void observationSessionSerializesConcurrentVisualQueriesWithoutCorruptingStageState() throws Exception {
+        String sessionId = post("/api/observation/sessions", Map.of(), MiniCUiApiRouter.SessionResponse.class)
+                .sessionId();
+        post("/api/observation/" + sessionId + "/source",
+                sourceBody("concurrent-visual.mc", CONCURRENT_VISUAL_SOURCE),
+                MiniCUiApiRouter.StatusResponse.class);
+        post("/api/observation/" + sessionId + "/start", Map.of(), UiCurrentStateDto.class);
+        post("/api/observation/" + sessionId + "/next", Map.of(), UiControlResultDto.class);
+        post("/api/observation/" + sessionId + "/next-stage", Map.of(), UiControlResultDto.class);
+
+        List<String> concurrentPaths = List.of(
+                "/state",
+                "/stage-data",
+                "/global",
+                "/visual/current",
+                "/visual/lexer",
+                "/visual/ast",
+                "/visual/semantic",
+                "/visual/codegen"
+        );
+        List<CompletableFuture<HttpResponse<String>>> futures = IntStream.range(0, 10)
+                .boxed()
+                .flatMap(_iteration -> concurrentPaths.stream())
+                .map(path -> rawAsync("GET", "/api/observation/" + sessionId + path, null))
+                .toList();
+
+        CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new)).join();
+        for (CompletableFuture<HttpResponse<String>> future : futures) {
+            HttpResponse<String> response = future.join();
+            assertThat(response.statusCode()).isBetween(200, 299);
+        }
+
+        UiCurrentStateDto state = get("/api/observation/" + sessionId + "/state", UiCurrentStateDto.class);
+        for (int guard = 0; !"execution".equals(state.currentStage()) && guard < 20; guard++) {
+            post("/api/observation/" + sessionId + "/next-stage", Map.of(), UiControlResultDto.class);
+            state = get("/api/observation/" + sessionId + "/state", UiCurrentStateDto.class);
+        }
+
+        assertThat(state.currentStage()).isEqualTo("execution");
+        assertThat(get("/api/observation/" + sessionId + "/global", UiGlobalDataDto.class).diagnostics()).isEmpty();
     }
 
     @Test
@@ -228,5 +291,16 @@ class MiniCUiApiWebRegressionTest {
                 .header("Content-Type", "application/json")
                 .build();
         return client.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private CompletableFuture<HttpResponse<String>> rawAsync(String method, String path, String body) {
+        HttpRequest.BodyPublisher publisher = body == null
+                ? HttpRequest.BodyPublishers.noBody()
+                : HttpRequest.BodyPublishers.ofString(body);
+        HttpRequest request = HttpRequest.newBuilder(server.baseUri().resolve(URI.create(path)))
+                .method(method, publisher)
+                .header("Content-Type", "application/json")
+                .build();
+        return client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
     }
 }

@@ -42,7 +42,7 @@ public final class MiniCDebugApi {
      * @param sourceName 源码名称
      * @param source 源码文本
      */
-    public void loadSource(String sourceName, String source) {
+    public synchronized void loadSource(String sourceName, String source) {
         loadSource(new SourceFile(sourceName, source));
     }
 
@@ -51,7 +51,7 @@ public final class MiniCDebugApi {
      *
      * @param sourceFile 源码文件
      */
-    public void loadSource(SourceFile sourceFile) {
+    public synchronized void loadSource(SourceFile sourceFile) {
         this.sourceFile = Objects.requireNonNull(sourceFile, "sourceFile");
         session = null;
         lowered = null;
@@ -62,7 +62,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto startDebug() {
+    public synchronized UiDebugStateDto startDebug() {
         ensureSourceLoaded();
         session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
         session.control(DebugCommand.RESTART);
@@ -75,7 +75,7 @@ public final class MiniCDebugApi {
      * @param line 一基源码行号
      * @return Debug 状态
      */
-    public UiDebugStateDto setBreakpoint(int line) {
+    public synchronized UiDebugStateDto setBreakpoint(int line) {
         requireSession().setBreakpoint(line);
         return currentState();
     }
@@ -86,7 +86,7 @@ public final class MiniCDebugApi {
      * @param line 一基源码行号
      * @return Debug 状态
      */
-    public UiDebugStateDto clearBreakpoint(int line) {
+    public synchronized UiDebugStateDto clearBreakpoint(int line) {
         requireSession().clearBreakpoint(line);
         return currentState();
     }
@@ -96,7 +96,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto runToBreakpoint() {
+    public synchronized UiDebugStateDto runToBreakpoint() {
         requireSession().control(DebugCommand.RUN_TO_BREAKPOINT);
         return currentState();
     }
@@ -106,7 +106,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto runToEnd() {
+    public synchronized UiDebugStateDto runToEnd() {
         requireSession().control(DebugCommand.RUN_TO_END);
         return currentState();
     }
@@ -116,7 +116,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto fastForward() {
+    public synchronized UiDebugStateDto fastForward() {
         requireSession().control(DebugCommand.FAST_FORWARD);
         return currentState();
     }
@@ -126,7 +126,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto stepOver() {
+    public synchronized UiDebugStateDto stepOver() {
         requireSession().control(DebugCommand.STEP_OVER);
         return currentState();
     }
@@ -136,7 +136,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto stepInto() {
+    public synchronized UiDebugStateDto stepInto() {
         requireSession().control(DebugCommand.STEP_INTO);
         return currentState();
     }
@@ -146,7 +146,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto stepOut() {
+    public synchronized UiDebugStateDto stepOut() {
         requireSession().control(DebugCommand.STEP_OUT);
         return currentState();
     }
@@ -156,7 +156,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto pause() {
+    public synchronized UiDebugStateDto pause() {
         requireSession().control(DebugCommand.PAUSE);
         return currentState();
     }
@@ -166,7 +166,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto restart() {
+    public synchronized UiDebugStateDto restart() {
         requireSession().control(DebugCommand.RESTART);
         return currentState();
     }
@@ -176,7 +176,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto close() {
+    public synchronized UiDebugStateDto close() {
         requireSession().control(DebugCommand.CLOSE);
         return currentState();
     }
@@ -186,7 +186,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto stepBack() {
+    public synchronized UiDebugStateDto stepBack() {
         requireSession().control(DebugCommand.STEP_BACK);
         return currentState();
     }
@@ -196,7 +196,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto stepBackOver() {
+    public synchronized UiDebugStateDto stepBackOver() {
         requireSession().control(DebugCommand.STEP_BACK_OVER);
         return currentState();
     }
@@ -206,7 +206,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto backToBreakpoint() {
+    public synchronized UiDebugStateDto backToBreakpoint() {
         requireSession().control(DebugCommand.BACK_TO_BREAKPOINT);
         return currentState();
     }
@@ -216,7 +216,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto backToCallSite() {
+    public synchronized UiDebugStateDto backToCallSite() {
         requireSession().control(DebugCommand.BACK_TO_CALL_SITE);
         return currentState();
     }
@@ -226,7 +226,7 @@ public final class MiniCDebugApi {
      *
      * @return Debug 状态
      */
-    public UiDebugStateDto currentState() {
+    public synchronized UiDebugStateDto currentState() {
         return UiDebugDtoMapper.state(requireSession());
     }
 
@@ -235,7 +235,7 @@ public final class MiniCDebugApi {
      *
      * @return 元数据视图模型
      */
-    public UiDebugMetadataViewDto metadataView() {
+    public synchronized UiDebugMetadataViewDto metadataView() {
         return new UiDebugMetadataViewBuilder().build(currentState());
     }
 
@@ -244,7 +244,7 @@ public final class MiniCDebugApi {
      *
      * @return AST Debug 视图模型
      */
-    public UiDebugAstViewDto astDebugView() {
+    public synchronized UiDebugAstViewDto astDebugView() {
         Lowered lowered = lowerWithProgram(requireSourceFile());
         return new UiDebugAstViewBuilder().build(
                 lowered.program(),
@@ -258,7 +258,7 @@ public final class MiniCDebugApi {
      *
      * @return IR Debug 视图模型
      */
-    public UiDebugIrViewDto irDebugView() {
+    public synchronized UiDebugIrViewDto irDebugView() {
         Lowered lowered = lowerWithProgram(requireSourceFile());
         return new UiDebugIrViewBuilder().build(lowered.module(), currentState());
     }
@@ -268,7 +268,7 @@ public final class MiniCDebugApi {
      *
      * @return ASM Debug 视图模型
      */
-    public UiDebugAsmViewDto asmDebugView() {
+    public synchronized UiDebugAsmViewDto asmDebugView() {
         Lowered lowered = lowerWithProgram(requireSourceFile());
         return new UiDebugAsmViewBuilder().build(lowered.module(), currentState());
     }
@@ -278,7 +278,7 @@ public final class MiniCDebugApi {
      *
      * @return 数据结构 Debug 视图模型
      */
-    public UiDebugDataStructureViewDto dataStructureDebugView() {
+    public synchronized UiDebugDataStructureViewDto dataStructureDebugView() {
         return new UiDebugDataStructureViewBuilder().build(
                 requireSourceFile(),
                 currentState(),

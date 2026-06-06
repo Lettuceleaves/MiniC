@@ -20,7 +20,7 @@ public final class MiniCObservationApi {
      * @param sourceName 源码名称
      * @param source 源码文本
      */
-    public void loadSource(String sourceName, String source) {
+    public synchronized void loadSource(String sourceName, String source) {
         loadSource(new SourceFile(sourceName, source));
     }
 
@@ -29,7 +29,7 @@ public final class MiniCObservationApi {
      *
      * @param sourceFile 源码文件
      */
-    public void loadSource(SourceFile sourceFile) {
+    public synchronized void loadSource(SourceFile sourceFile) {
         this.sourceFile = Objects.requireNonNull(sourceFile, "sourceFile");
         session = null;
     }
@@ -37,7 +37,7 @@ public final class MiniCObservationApi {
     /**
      * 开始编译观测会话。
      */
-    public void startSession() {
+    public synchronized void startSession() {
         ensureSourceLoaded();
         session = CompileObservationSession.fromSource(sourceFile);
     }
@@ -47,7 +47,7 @@ public final class MiniCObservationApi {
      *
      * @return 单步结果
      */
-    public UiControlResultDto next() {
+    public synchronized UiControlResultDto next() {
         return UiControlResultDto.from(requireSession().next());
     }
 
@@ -56,7 +56,7 @@ public final class MiniCObservationApi {
      *
      * @return 控制结果
      */
-    public UiControlResultDto nextStage() {
+    public synchronized UiControlResultDto nextStage() {
         return UiControlResultDto.from(requireSession().nextStage());
     }
 
@@ -65,7 +65,7 @@ public final class MiniCObservationApi {
      *
      * @return 控制结果
      */
-    public UiControlResultDto play() {
+    public synchronized UiControlResultDto play() {
         return UiControlResultDto.from(requireSession().play());
     }
 
@@ -74,7 +74,7 @@ public final class MiniCObservationApi {
      *
      * @return 控制结果
      */
-    public UiControlResultDto playFast() {
+    public synchronized UiControlResultDto playFast() {
         return UiControlResultDto.from(requireSession().playFast());
     }
 
@@ -83,7 +83,7 @@ public final class MiniCObservationApi {
      *
      * @return 单步结果
      */
-    public UiControlResultDto tick() {
+    public synchronized UiControlResultDto tick() {
         return UiControlResultDto.from(requireSession().tick());
     }
 
@@ -92,7 +92,7 @@ public final class MiniCObservationApi {
      *
      * @return 控制结果
      */
-    public UiControlResultDto pause() {
+    public synchronized UiControlResultDto pause() {
         return UiControlResultDto.from(requireSession().pause());
     }
 
@@ -102,7 +102,7 @@ public final class MiniCObservationApi {
      * @param standardInput 标准输入文本
      * @return 控制结果
      */
-    public UiControlResultDto confirmExecutionInput(String standardInput) {
+    public synchronized UiControlResultDto confirmExecutionInput(String standardInput) {
         return UiControlResultDto.from(requireSession().confirmExecutionInput(standardInput));
     }
 
@@ -111,7 +111,7 @@ public final class MiniCObservationApi {
      *
      * @return unsupported 结果
      */
-    public UiControlResultDto previous() {
+    public synchronized UiControlResultDto previous() {
         return UiControlResultDto.from(requireSession().previous());
     }
 
@@ -120,7 +120,7 @@ public final class MiniCObservationApi {
      *
      * @return unsupported 结果
      */
-    public UiControlResultDto reversePlay() {
+    public synchronized UiControlResultDto reversePlay() {
         return UiControlResultDto.from(requireSession().reversePlay());
     }
 
@@ -129,7 +129,7 @@ public final class MiniCObservationApi {
      *
      * @return 当前状态数据
      */
-    public UiCurrentStateDto currentState() {
+    public synchronized UiCurrentStateDto currentState() {
         return UiCurrentStateDto.from(requireSession().currentState());
     }
 
@@ -138,7 +138,7 @@ public final class MiniCObservationApi {
      *
      * @return 当前阶段数据
      */
-    public UiStageDataDto currentStageData() {
+    public synchronized UiStageDataDto currentStageData() {
         return UiStageDataDto.from(requireSession().currentStageData());
     }
 
@@ -147,7 +147,7 @@ public final class MiniCObservationApi {
      *
      * @return 当前阶段图形化数据
      */
-    public UiStageVisualDto currentStageVisualData() {
+    public synchronized UiStageVisualDto currentStageVisualData() {
         CompileObservationSession currentSession = requireSession();
         if (currentSession.currentStepper() instanceof minic.runtime.step.PreprocessStageStepper) {
             return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
@@ -202,7 +202,7 @@ public final class MiniCObservationApi {
      *
      * @return token 可视化数据
      */
-    public UiStageVisualDto lexerVisualData() {
+    public synchronized UiStageVisualDto lexerVisualData() {
         CompileObservationSession currentSession = requireSession();
         minic.compiler.lexer.LexResult cachedLexResult = currentSession.lexResult().orElse(null);
         if (cachedLexResult != null) {
@@ -228,7 +228,7 @@ public final class MiniCObservationApi {
      *
      * @return AST 可视化数据
      */
-    public UiStageVisualDto astVisualData() {
+    public synchronized UiStageVisualDto astVisualData() {
         CompileObservationSession currentSession = requireSession();
         minic.compiler.parser.ParseResult cachedParseResult = currentSession.parseResult().orElse(null);
         if (cachedParseResult != null) {
@@ -254,7 +254,7 @@ public final class MiniCObservationApi {
      *
      * @return 作用域可视化数据
      */
-    public UiStageVisualDto semanticVisualData() {
+    public synchronized UiStageVisualDto semanticVisualData() {
         CompileObservationSession currentSession = requireSession();
         minic.compiler.semantic.SemanticResult cachedSemanticResult = currentSession.semanticResult().orElse(null);
         if (cachedSemanticResult != null) {
@@ -283,7 +283,7 @@ public final class MiniCObservationApi {
      *
      * @return 汇编可视化数据
      */
-    public UiStageVisualDto codegenVisualData() {
+    public synchronized UiStageVisualDto codegenVisualData() {
         CompileObservationSession currentSession = requireSession();
         minic.compiler.codegen.AssemblySource cachedAssemblySource = currentSession.assemblySource().orElse(null);
         if (cachedAssemblySource != null) {
@@ -309,7 +309,7 @@ public final class MiniCObservationApi {
      *
      * @return 全局数据
      */
-    public UiGlobalDataDto globalData() {
+    public synchronized UiGlobalDataDto globalData() {
         return UiGlobalDataDto.from(requireSession().globalData());
     }
 

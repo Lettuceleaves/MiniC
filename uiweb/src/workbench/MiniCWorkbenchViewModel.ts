@@ -823,6 +823,7 @@ export class MiniCWorkbenchViewModel {
     await this.debugApi.loadSource(name, this.sourceTextStore.get());
     this.debugStateStore.set(await this.debugApi.startDebug());
     this.debugStartedStore.set(true);
+    await this.applyPendingDebugBreakpoints();
     await this.refreshDebug();
   }
 
@@ -835,9 +836,7 @@ export class MiniCWorkbenchViewModel {
     if (!this.debugStartedStore.get()) {
       return;
     }
-    for (const line of this.debugBreakpointLinesStore.get()) {
-      await this.debugApi.setBreakpoint(line);
-    }
+    await this.applyPendingDebugBreakpoints();
     await this.refreshDebug();
   }
 
@@ -1210,6 +1209,19 @@ export class MiniCWorkbenchViewModel {
   private async ensureDebugStarted(): Promise<void> {
     if (!this.debugStartedStore.get()) {
       await this.startDebug();
+    }
+  }
+
+  private async applyPendingDebugBreakpoints(): Promise<void> {
+    let state = this.debugStateStore.get();
+    for (const breakpoint of state?.breakpoints ?? []) {
+      state = await this.debugApi.clearBreakpoint(breakpoint.line);
+    }
+    for (const line of this.debugBreakpointLinesStore.get()) {
+      state = await this.debugApi.setBreakpoint(line);
+    }
+    if (state !== null) {
+      this.debugStateStore.set(state);
     }
   }
 
