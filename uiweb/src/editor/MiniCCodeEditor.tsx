@@ -1106,7 +1106,7 @@ function tokensForSource(source: string, analysis: UiRealtimeAnalysisDto | null)
       .map((token) => tokenFromAnalysis(token))
       .sort((left, right) => left.startOffset - right.startOffset);
   }
-  return fallbackTokens(source);
+  return [];
 }
 
 function tokenFromAnalysis(token: UiLexerTokenVisualDto): EditorToken {
@@ -1174,7 +1174,7 @@ function classesForRange(
   const baseClasses =
     token === undefined
       ? MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN, ...(diagnostic ? [MiniCTextStyleState.DIAGNOSTIC] : []))
-      : tokenStyleClasses(token.kind, diagnostic, syntaxMapper);
+      : syntaxMapper.styleClassesFor(token.kind, diagnostic);
   const executionClasses =
     currentExecutionRange && rangesOverlap(start, end, currentExecutionRange.startOffset, currentExecutionRange.endOffset)
       ? MiniCTextStyles.stateClasses(MiniCTextStyleState.DEBUG_EXECUTION)
@@ -1182,107 +1182,8 @@ function classesForRange(
   return [...baseClasses, ...executionClasses].join(" ");
 }
 
-function tokenStyleClasses(kind: string, diagnostic: boolean, syntaxMapper: MiniCSyntaxTextStyleMapper): readonly string[] {
-  if (kind === "COMMENT") {
-    return MiniCTextStyles.classes(MiniCTextStyleRole.CODE_COMMENT, ...(diagnostic ? [MiniCTextStyleState.DIAGNOSTIC] : []));
-  }
-  return syntaxMapper.styleClassesFor(kind, diagnostic);
-}
-
 function rangesOverlap(leftStart: number, leftEnd: number, rightStart: number, rightEnd: number): boolean {
   return Math.max(leftStart, rightStart) < Math.min(leftEnd, rightEnd);
-}
-
-const FALLBACK_KEYWORDS = new Map<string, string>([
-  ["bool", "BOOL"],
-  ["char", "CHAR"],
-  ["int", "INT"],
-  ["long", "LONG"],
-  ["float", "FLOAT"],
-  ["double", "DOUBLE"],
-  ["extern", "EXTERN"],
-  ["struct", "STRUCT"],
-  ["return", "RETURN"],
-  ["if", "IF"],
-  ["else", "ELSE"],
-  ["while", "WHILE"],
-  ["for", "FOR"],
-  ["break", "BREAK"],
-  ["continue", "CONTINUE"],
-  ["true", "BOOL_LITERAL"],
-  ["false", "BOOL_LITERAL"],
-  ["NULL", "NULL_LITERAL"],
-]);
-
-function fallbackTokens(source: string): readonly EditorToken[] {
-  const tokens: EditorToken[] = [];
-  let index = 0;
-  while (index < source.length) {
-    const char = source[index];
-    const next = source[index + 1];
-    if (/\s/u.test(char)) {
-      index += 1;
-      continue;
-    }
-    if (char === "/" && next === "/") {
-      const start = index;
-      while (index < source.length && source[index] !== "\n") {
-        index += 1;
-      }
-      tokens.push({ kind: "COMMENT", startOffset: start, endOffset: index });
-      continue;
-    }
-    if (char === "/" && next === "*") {
-      const start = index;
-      index += 2;
-      while (index < source.length && !(source[index] === "*" && source[index + 1] === "/")) {
-        index += 1;
-      }
-      index = Math.min(source.length, index + 2);
-      tokens.push({ kind: "COMMENT", startOffset: start, endOffset: index });
-      continue;
-    }
-    if (char === "\"" || char === "'") {
-      const quote = char;
-      const start = index;
-      index += 1;
-      while (index < source.length) {
-        if (source[index] === "\\") {
-          index += 2;
-          continue;
-        }
-        if (source[index] === quote) {
-          index += 1;
-          break;
-        }
-        index += 1;
-      }
-      tokens.push({ kind: quote === "\"" ? "STRING_LITERAL" : "CHAR_LITERAL", startOffset: start, endOffset: index });
-      continue;
-    }
-    if (/[A-Za-z_]/u.test(char)) {
-      const start = index;
-      index += 1;
-      while (index < source.length && /[A-Za-z0-9_]/u.test(source[index])) {
-        index += 1;
-      }
-      const text = source.slice(start, index);
-      tokens.push({ kind: FALLBACK_KEYWORDS.get(text) ?? "IDENTIFIER", startOffset: start, endOffset: index });
-      continue;
-    }
-    if (/[0-9]/u.test(char)) {
-      const start = index;
-      index += 1;
-      while (index < source.length && /[0-9A-Fa-f_xXuUlL.]/u.test(source[index])) {
-        index += 1;
-      }
-      tokens.push({ kind: source.slice(start, index).includes(".") ? "DOUBLE_LITERAL" : "INTEGER_LITERAL", startOffset: start, endOffset: index });
-      continue;
-    }
-    tokens.push({ kind: "OPERATOR", startOffset: index, endOffset: index + 1 });
-    index += 1;
-  }
-  return tokens;
 }
 
 function requireNumber(value: number | undefined, name: string): number {

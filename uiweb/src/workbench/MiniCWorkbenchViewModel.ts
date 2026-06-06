@@ -1,4 +1,5 @@
 import type { JavaMirrorFile } from "../translation/javaMirror";
+import { MiniCRealtimeAnalyzer } from "../editor/MiniCRealtimeAnalyzer";
 import type {
   MiniCPlaybackMode,
   MiniCStageId,
@@ -522,7 +523,8 @@ export interface MiniCDebugApiAdapter {
 }
 
 export interface MiniCRealtimeAnalyzerAdapter {
-  submit(name: string, source: string): UiRealtimeAnalysisDto | null;
+  submit(name: string, source: string): UiRealtimeAnalysisDto | void;
+  close?(): void;
 }
 
 export interface MiniCWorkbenchViewModelAdapters {
@@ -540,7 +542,7 @@ export class MiniCWorkbenchViewModel {
 
   private readonly debugApi: MiniCDebugApiAdapter | null;
 
-  private readonly realtimeAnalyzer: MiniCRealtimeAnalyzerAdapter | null;
+  private readonly realtimeAnalyzer: MiniCRealtimeAnalyzerAdapter;
 
   private readonly listeners = new Set<() => void>();
 
@@ -634,9 +636,10 @@ export class MiniCWorkbenchViewModel {
   constructor(initialSourceName = "", initialSourceText = "", adapters: MiniCWorkbenchViewModelAdapters = {}) {
     this.api = adapters.observationApi ?? null;
     this.debugApi = adapters.debugApi ?? null;
-    this.realtimeAnalyzer = adapters.realtimeAnalyzer ?? null;
+    this.realtimeAnalyzer = adapters.realtimeAnalyzer ?? new MiniCRealtimeAnalyzer((result) => this.applyRealtimeAnalysis(result));
     if (initialSourceName !== "" || initialSourceText !== "") {
       this.loadSource(initialSourceName, initialSourceText);
+      this.submitRealtimeSource(initialSourceName, initialSourceText);
     }
   }
 
@@ -658,8 +661,10 @@ export class MiniCWorkbenchViewModel {
   submitRealtimeSource(name: string, source: string): void {
     this.sourceNameStore.set(name);
     this.sourceTextStore.set(source);
-    const result = this.realtimeAnalyzer?.submit(name, source) ?? null;
-    this.realtimeAnalysisStore.set(result);
+    const result = this.realtimeAnalyzer.submit(name, source);
+    if (result !== undefined) {
+      this.applyRealtimeAnalysis(result);
+    }
   }
 
   startSession(): void {
@@ -1183,6 +1188,12 @@ export class MiniCWorkbenchViewModel {
       state.currentStage === "execution" &&
       data.executionInputSummary.includes("stdin pending")
     );
+  }
+
+  private applyRealtimeAnalysis(result: UiRealtimeAnalysisDto): void {
+    if (this.sourceNameStore.get() === result.sourceName && this.sourceTextStore.get() === result.sourceText) {
+      this.realtimeAnalysisStore.set(result);
+    }
   }
 
   private ensureDebugStarted(): void {
