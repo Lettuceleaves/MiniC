@@ -493,6 +493,7 @@ const AST_ZOOM_STEP = 0.025;
 export function MiniCVisualPane({ viewModel, inspector }: MiniCVisualPaneProps) {
   const snapshot = useVisualSnapshot(viewModel);
   const [astZoom, setAstZoomState] = useState(DEFAULT_AST_ZOOM);
+  const [selectedSemanticScopeId, setSelectedSemanticScopeId] = useState("");
   const localInspector = useMemo(() => inspector ?? new MiniCHoverInspector(), [inspector]);
   const modelFactory = useMemo(() => new MiniCVisualModelFactory(), []);
   const semanticScopeTreeModelFactory = useMemo(() => new MiniCSemanticScopeTreeModelFactory(), []);
@@ -507,6 +508,12 @@ export function MiniCVisualPane({ viewModel, inspector }: MiniCVisualPaneProps) 
   const currentStage = snapshot.currentStageData?.stage ?? "pending";
   const stage = snapshot.selectedVisualStage.length > 0 ? snapshot.selectedVisualStage : currentStage;
   const visual = visualForStage(stage, snapshot);
+
+  useEffect(() => {
+    if (stage !== "semantic" && stage !== "ir") {
+      setSelectedSemanticScopeId("");
+    }
+  }, [stage]);
 
   const setAstZoom = (value: number): void => {
     setAstZoomState(Math.max(MIN_AST_ZOOM, Math.min(MAX_AST_ZOOM, value)));
@@ -524,6 +531,8 @@ export function MiniCVisualPane({ viewModel, inspector }: MiniCVisualPaneProps) 
     irTextHighlighter,
     assemblyTextHighlighter,
     inspectorContext,
+    selectedSemanticScopeId,
+    setSelectedSemanticScopeId,
   );
 
   return (
@@ -631,6 +640,8 @@ function stageColumns(
   irTextHighlighter: MiniCIrTextHighlighter,
   assemblyTextHighlighter: MiniCAssemblyTextHighlighter,
   inspectorContext: VisualInspectorContext,
+  selectedSemanticScopeId: string,
+  setSelectedSemanticScopeId: (scopeId: string) => void,
 ): StageColumns {
   if (!visual) {
     return {
@@ -666,9 +677,9 @@ function stageColumns(
     case "semantic":
       return {
         leftTitle: "AST",
-        left: astGraph(visual, astZoom, setAstZoom, true, inspectorContext),
+        left: astGraph(visual, astZoom, setAstZoom, true, inspectorContext, selectedSemanticScopeId, setSelectedSemanticScopeId),
         rightTitle: "作用域",
-        right: activeScopeRows(visual, semanticScopeTreeModelFactory),
+        right: activeScopeRows(visual, selectedSemanticScopeId),
       };
     case "codegen":
       return {
@@ -687,9 +698,9 @@ function stageColumns(
     case "ir":
       return {
         leftTitle: "AST",
-        left: astGraph(visual, astZoom, setAstZoom, true, inspectorContext),
+        left: astGraph(visual, astZoom, setAstZoom, true, inspectorContext, selectedSemanticScopeId, setSelectedSemanticScopeId),
         rightTitle: "IR",
-        right: globalRows("ir", snapshot),
+        right: selectedSemanticScopeId.length === 0 ? globalRows("ir", snapshot) : activeScopeRows(visual, selectedSemanticScopeId),
       };
     case "toolchain":
       return {
@@ -721,6 +732,8 @@ function astGraph(
   setAstZoom: (value: number) => void,
   semanticMasks: boolean,
   inspectorContext: VisualInspectorContext,
+  selectedSemanticScopeId = "",
+  setSelectedSemanticScopeId: (scopeId: string) => void = () => {},
 ) {
   return (
     <div className="ast-zoom-box">
@@ -742,9 +755,11 @@ function astGraph(
         onSemanticScopeSelect={(scopeId) => {
           const scope = scopeById(visual.semanticRoot, scopeId);
           if (scope) {
+            setSelectedSemanticScopeId(scopeId);
             inspectorContext.inspector.show(semanticScopeContent(scope, scopeDepth(visual.semanticRoot, scopeId), visual, inspectorContext));
           }
         }}
+        selectedSemanticScopeId={selectedSemanticScopeId}
         semanticMasks={semanticMasks}
         visual={visual}
         zoom={astZoom}
@@ -861,15 +876,25 @@ export function assemblyRow(
   );
 }
 
-function activeScopeRows(visual: UiStageVisualDto | null, factory: MiniCSemanticScopeTreeModelFactory) {
+function activeScopeRows(visual: UiStageVisualDto | null, selectedSemanticScopeId = "") {
   if (!visual || !visual.semanticRoot) {
     return monoRows(["暂无活动作用域。"]);
   }
-  return (
-    <div>
-      {factory.create(visual).map((line, index) => semanticRow(line, index))}
-    </div>
-  );
+  const scope = selectedScope(visual.semanticRoot, selectedSemanticScopeId);
+  if (scope === null) {
+    return monoRows(["暂无活动作用域。"]);
+  }
+  if (scope.symbols.length === 0) {
+    return monoRows([`${scope.label} 暂无符号。`]);
+  }
+  return monoRows(scope.symbols);
+}
+
+export function semanticRows(visual: UiStageVisualDto | null, factory = new MiniCSemanticScopeTreeModelFactory()) {
+  if (!visual || !visual.semanticRoot) {
+    return <div>{textRow("作用域尚未就绪", "semantic-row", "semantic-scope-line")}</div>;
+  }
+  return <div>{factory.create(visual).map((line, index) => semanticRow(line, index))}</div>;
 }
 
 function semanticRow(line: MiniCSemanticScopeTreeLine, index: number) {
@@ -1080,6 +1105,32 @@ export function scopeById(scope: UiSemanticScopeVisualDto | null, id: string): U
     const found = scopeById(child, id);
     if (found !== null) {
       return found;
+    }
+  }
+  return null;
+}
+
+export function selectedScope(scope: UiSemanticScopeVisualDto | null, selectedSemanticScopeId: string): UiSemanticScopeVisualDto | null {
+  if (selectedSemanticScopeId.trim().length > 0) {
+    const selected = scopeById(scope, selectedSemanticScopeId);
+    if (selected !== null) {
+      return selected;
+    }
+  }
+  return activeScope(scope);
+}
+
+export function activeScope(scope: UiSemanticScopeVisualDto | null): UiSemanticScopeVisualDto | null {
+  if (scope === null) {
+    return null;
+  }
+  if (scope.active) {
+    return scope;
+  }
+  for (const child of scope.children) {
+    const active = activeScope(child);
+    if (active !== null) {
+      return active;
     }
   }
   return null;

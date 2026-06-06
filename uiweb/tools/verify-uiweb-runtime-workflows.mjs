@@ -272,7 +272,22 @@ async function verifyCompilerPipeline(page, baseUrl) {
     if (stageId === "parser") {
       await verifyPipelineInspector(page, ".ast-graph g[role='button']", "AST 节点");
     }
+    if (stageId === "semantic") {
+      await verifySemanticScopePane(page);
+    }
   }
+}
+
+async function verifySemanticScopePane(page) {
+  const scopePaneText = await page.locator(".stage-flow-column").nth(1).innerText();
+  assert(!scopePaneText.includes("^ "), `semantic scope pane should show active scope symbols, not the whole scope tree:\n${scopePaneText}`);
+  assert((await page.locator(".stage-flow-column").nth(1).locator(".assembly-text").count()) > 0, "semantic scope pane should render symbol rows as mono labels");
+  const mask = page.locator(".semantic-graph-scope-mask-0, .semantic-graph-scope-mask-1, .semantic-graph-scope-mask-2, .semantic-graph-scope-mask-3").first();
+  await mask.waitFor({ state: "visible" });
+  await mask.click({ force: true });
+  await page.waitForFunction(() => document.querySelector(".selected-scope-mask") !== null);
+  const selectedScopePaneText = await page.locator(".stage-flow-column").nth(1).innerText();
+  assert(!selectedScopePaneText.includes("^ "), `selected semantic scope pane should still show symbols, not tree rows:\n${selectedScopePaneText}`);
 }
 
 async function verifyDebugger(page, baseUrl) {
