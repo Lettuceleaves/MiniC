@@ -322,6 +322,48 @@ button:disabled {
   overflow: auto;
 }
 
+.debug-metadata,
+.debug-data-space,
+.debug-ast-view,
+.debug-code-view {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.debug-summary-grid {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  border-style: solid;
+}
+
+.debug-summary-row {
+  display: contents;
+}
+
+.debug-section,
+.debug-process-section,
+.debug-visuals,
+.debug-visual-card,
+.debug-visual-diagram {
+  border-style: solid;
+}
+
+.debug-section-title,
+.debug-process-title {
+  display: flex;
+  margin: 0;
+}
+
+.debug-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .source-editor,
 .code-editor {
   flex: 1 1 auto;

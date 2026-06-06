@@ -1,5 +1,5 @@
 import type { JavaMirrorFile } from "../translation/javaMirror";
-import type { UiDebugDataStructureViewDto } from "../translation/uiapi";
+import type { UiDebugDataStructureViewDto, UiDebugVisualElementDto, UiDebugVisualStructureDto } from "../translation/uiapi";
 
 export const miniCDebugVisualDiagramRendererMirror = {
   "javaPath": "src/main/java/minic/uilocal/debug/MiniCDebugVisualDiagramRenderer.java",
@@ -157,26 +157,76 @@ export function visualDiagram(view: UiDebugDataStructureViewDto | null) {
   }
   return (
     <div className="debug-visuals">
-      <article className="debug-visual-card">
-        <h3 className="debug-visual-title">{view.title}</h3>
-        <div className="debug-visual-diagram">
-          {view.rows.length === 0 ? (
-            <p className="debug-section-line">暂无结构项</p>
-          ) : (
-            view.rows.map((row, index) => (
-              <p className="debug-section-line" key={`${row}-${index}`}>
-                {visualText(row)}
-              </p>
-            ))
-          )}
-        </div>
-      </article>
+      <h3 className="debug-section-title">visual structures</h3>
+      {view.visuals.length === 0 ? (
+        <p className="debug-section-line">(empty)</p>
+      ) : (
+        view.visuals.map((visual) => visualCard(visual))
+      )}
     </div>
   );
 }
 
-export function visualText(text: string): string {
-  return text.trim().length === 0 ? " " : text;
+export function visualCard(visual: UiDebugVisualStructureDto) {
+  const elementLines = compactVisualElementLines(visual);
+  const counts = compactVisualCounts(visual.elements);
+  return (
+    <article className="debug-visual-card" key={visual.id}>
+      <h3 className="debug-visual-title">
+        {visual.type} {visual.name} · {visual.kind}
+      </h3>
+      <p className="debug-section-line">{visual.summary}</p>
+      {counts.length > 0 && <p className="debug-section-line">{counts}</p>}
+      {visual.explanation.trim().length > 0 && <p className="debug-section-line">{visual.explanation}</p>}
+      <div className="debug-visual-diagram">
+        {elementLines.length === 0 ? (
+          <p className="debug-section-line">(empty)</p>
+        ) : (
+          elementLines.map((line) => (
+            <p className="debug-section-line" key={line}>
+              {line}
+            </p>
+          ))
+        )}
+      </div>
+    </article>
+  );
+}
+
+export function visualText(element: UiDebugVisualElementDto): string {
+  const name = element.metadata.fieldName ?? element.label;
+  const value = element.metadata.valueSummary ?? "";
+  const pointerTarget = element.metadata.pointerTarget ?? "";
+  const type = element.metadata.type ?? element.metadata.typeName ?? "";
+  if (pointerTarget.trim().length > 0) {
+    return `${name}${type.trim().length === 0 ? "" : ` : ${type}`} -> ${pointerTarget}`;
+  }
+  if (value.trim().length > 0) {
+    return `${name}${type.trim().length === 0 ? "" : ` : ${type}`} = ${value}`;
+  }
+  return `${name}${type.trim().length === 0 ? "" : ` : ${type}`}`;
+}
+
+export function compactVisualCounts(elements: readonly UiDebugVisualElementDto[]): string {
+  const cells = elements.filter((element) => element.kind === "ARRAY_CELL").length;
+  const nodes = elements.filter((element) => element.kind === "GRAPH_NODE").length;
+  const edges = elements.filter((element) => element.kind === "GRAPH_EDGE").length;
+  const fields = elements.filter((element) => element.kind === "COMPOSITE_PART").length;
+  const parts = [
+    cells > 0 ? `cells=${cells}` : "",
+    nodes > 0 ? `nodes=${nodes}` : "",
+    edges > 0 ? `edges=${edges}` : "",
+    fields > 0 ? `fields=${fields}` : "",
+  ].filter((part) => part.length > 0);
+  return parts.join(" · ");
+}
+
+export function compactVisualElementLines(visual: UiDebugVisualStructureDto): readonly string[] {
+  return visual.elements
+    .filter((element) => element.kind !== "GRAPH_EDGE")
+    .map(visualText)
+    .filter((line) => line.trim().length > 0)
+    .slice(0, 12);
 }
 
 export function simpleVisualId(index: number): string {

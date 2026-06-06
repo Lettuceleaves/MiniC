@@ -5,10 +5,18 @@ import type {
   UiAssemblyLineVisualDto,
   UiDebugAsmViewDto,
   UiDebugAstViewDto,
+  UiDebugBreakpointDto,
   UiDebugDataStructureViewDto,
+  UiDebugEventDto,
+  UiDebugFrameDto,
   UiDebugIrViewDto,
+  UiDebugIrOperandDto,
   UiDebugMetadataViewDto,
+  UiDebugProcessSpaceDto,
+  UiDebugTimelineItemDto,
+  UiDebugVariableDto,
   UiIrLineVisualDto,
+  UiSourceSpanDto,
 } from "../translation/uiapi";
 import type { MiniCWorkbenchSnapshot, MiniCWorkbenchViewModel } from "../workbench/MiniCWorkbenchViewModel";
 import { MiniCDebugAstGraphRenderer } from "./MiniCDebugAstGraphRenderer";
@@ -467,7 +475,12 @@ export function MiniCDebugPane({ viewModel, sourceView }: MiniCDebugPaneProps) {
   const formatter = useMemo(() => new MiniCDebugTextFormatter(), []);
   const [selectedViewId, setSelectedViewId] = useState<DebugViewId>("metadata");
   const debugSourceView = sourceView ?? (
-    <MiniCSourceLoaderView className="debug-source-view" showControls={false} viewModel={viewModel} />
+    <MiniCSourceLoaderView
+      className="debug-source-view"
+      editorScrollClassName="debug-source-editor-scroll"
+      showControls={false}
+      viewModel={viewModel}
+    />
   );
 
   return (
@@ -548,10 +561,10 @@ export function contentFor(
   formatter: MiniCDebugTextFormatter,
 ) {
   if (!snapshot.debugStarted || snapshot.debugState === null) return emptyDebugContent();
-  if (viewId === "metadata") return metadataContent(snapshot.debugMetadataView);
-  if (viewId === "data") return dataContent(snapshot.debugDataStructureView);
-  if (viewId === "ast") return astContent(snapshot.debugAstView);
-  if (viewId === "ir") return irContent(snapshot.debugIrView);
+  if (viewId === "metadata") return metadataContent(snapshot.debugMetadataView, formatter);
+  if (viewId === "data") return dataContent(snapshot.debugDataStructureView, formatter);
+  if (viewId === "ast") return astContent(snapshot.debugAstView, formatter);
+  if (viewId === "ir") return irContent(snapshot.debugIrView, formatter);
   return asmContent(snapshot.debugAsmView);
 }
 
@@ -559,27 +572,48 @@ export function statusText(snapshot: MiniCWorkbenchSnapshot): string {
   if (!snapshot.debugStarted || snapshot.debugState === null) {
     return "Debug 未启动";
   }
-  return `Debug ${snapshot.debugState.playbackMode} · line ${snapshot.debugState.currentLine}`;
+  const current = snapshot.debugState.currentSnapshot;
+  return `Debug ${snapshot.debugState.executionState} · ${current.stopReason} · step ${current.visibleStepIndex} · ${current.functionName}`;
 }
 
 export function emptyDebugContent() {
   return <div className="visual-scroll debug-empty-content" />;
 }
 
-export function metadataContent(view: UiDebugMetadataViewDto | null) {
+export function metadataContent(view: UiDebugMetadataViewDto | null, formatter: MiniCDebugTextFormatter) {
+  if (view === null) {
+    return <div className="debug-metadata" />;
+  }
   return (
     <div className="debug-metadata">
-      {metadataSummary(view)}
-      {metadataSection("Timeline", view?.rows ?? [])}
+      {metadataSummary(view, formatter)}
+      {metadataSection("调用栈", view.callStack.map((frame) => formatter.frameText(frame)))}
+      {metadataSection("变量", variableLines(view.variables, formatter))}
+      {metadataSection("断点", view.breakpoints.map((breakpoint) => formatter.breakpointText(breakpoint)))}
+      {metadataSection("事件日志", boundedLines(view.events.map((event) => formatter.eventText(event))))}
+      {metadataSection("Snapshot 时间线", boundedLines(view.timeline.map((item) => formatter.timelineText(item))))}
+      {metadataSection("stdout", [view.stdout.trim().length === 0 ? "(empty)" : view.stdout])}
+      {metadataSection("stderr", [view.stderr.trim().length === 0 ? "(empty)" : view.stderr])}
     </div>
   );
 }
 
-export function metadataSummary(view: UiDebugMetadataViewDto | null) {
+export function metadataSummary(view: UiDebugMetadataViewDto, formatter: MiniCDebugTextFormatter) {
   return (
     <div className="debug-summary-grid">
-      <span className="debug-summary-key">Rows</span>
-      <span className="debug-summary-value">{view?.rows.length ?? 0}</span>
+      {summaryRow("状态", view.executionState)}
+      {summaryRow("停止原因", view.stopReason)}
+      {summaryRow("函数", view.currentFunction)}
+      {summaryRow("源码", formatter.rangeText(view.currentSourceRange))}
+    </div>
+  );
+}
+
+export function summaryRow(key: string, value: string | null | undefined) {
+  return (
+    <div className="debug-summary-row" key={key}>
+      <span className="debug-summary-key">{key}</span>
+      <span className="debug-summary-value">{value && value.trim().length > 0 ? value : "(empty)"}</span>
     </div>
   );
 }
@@ -594,37 +628,83 @@ export function metadataSection(title: string, lines: readonly string[]) {
 }
 
 export function boundedLines(lines: readonly string[]): readonly string[] {
-  return lines.length > 0 ? lines.slice(0, 200) : ["暂无数据"];
+  if (lines.length === 0) {
+    return ["(empty)"];
+  }
+  if (lines.length <= 200) {
+    return lines;
+  }
+  const omitted = lines.length - 200;
+  return [`(已省略较早的 ${omitted} 条，显示最近 200 条)`, ...lines.slice(omitted)];
 }
 
-export function dataContent(view: UiDebugDataStructureViewDto | null) {
+export function dataContent(view: UiDebugDataStructureViewDto | null, formatter: MiniCDebugTextFormatter) {
+  if (view === null) {
+    return <div className="debug-data-space" />;
+  }
   return (
     <div className="debug-data-space">
+      {processSpaceSection("runtime", runtimeSummary(view.processSpace, formatter))}
       <MiniCDebugVisualDiagramRenderer view={view} />
-      {runtimeSummary(view)}
+      {metadataSection("warnings", view.warnings)}
     </div>
   );
 }
 
-export function runtimeSummary(view: UiDebugDataStructureViewDto | null) {
-  return processSpaceSection(view?.title ?? "Runtime", view?.rows ?? []);
+export function runtimeSummary(processSpace: UiDebugProcessSpaceDto, formatter: MiniCDebugTextFormatter): readonly string[] {
+  return [
+    `current: ${processSpace.currentFunctionName} / ${processSpace.currentInstructionId}`,
+    `functions=${processSpace.functions.length} · stackFrames=${processSpace.stackFrames.length} · heapEntries=${processSpace.heapValues.length}`,
+    `stdout: ${formatter.emptyText(processSpace.stdout)}`,
+  ];
 }
 
 export function processSpaceSection(title: string, lines: readonly string[]) {
-  return metadataSection(title, lines);
+  return (
+    <section className="debug-process-section">
+      <h3 className="debug-process-title">{title}</h3>
+      <div className="debug-section-body">{boundedLines(lines).map((line) => label(line, "debug-section-line"))}</div>
+    </section>
+  );
 }
 
-export function astContent(view: UiDebugAstViewDto | null) {
+export function astContent(view: UiDebugAstViewDto | null, formatter: MiniCDebugTextFormatter) {
   return (
-    <div className="visual-canvas">
+    <div className="debug-ast-view">
+      {astSummary(view, formatter)}
       <MiniCDebugAstGraphRenderer view={view} />
-      {metadataSection("Details", view?.details ?? [])}
     </div>
   );
 }
 
-export function irContent(view: UiDebugIrViewDto | null) {
-  return <div className="debug-code-rows">{(view?.lines ?? []).map(irLineRow)}</div>;
+export function astSummary(view: UiDebugAstViewDto | null, formatter: MiniCDebugTextFormatter) {
+  if (view === null || view.activeNode === null) {
+    return metadataSection("当前 AST 节点", ["(empty)"]);
+  }
+  return metadataSection("当前 AST 节点", [
+    `${view.activeNode.kind} ${view.activeNode.label}`,
+    `range: ${formatter.rangeText(view.activeNode.sourceRange)}`,
+    view.activeNode.explanation,
+    `IR: ${view.relatedIrIds.join(", ")}`,
+    `ASM: ${view.relatedAsmIds.join(", ")}`,
+  ]);
+}
+
+export function irContent(view: UiDebugIrViewDto | null, formatter: MiniCDebugTextFormatter) {
+  if (view === null) {
+    return <div className="debug-code-view" />;
+  }
+  return (
+    <div className="debug-code-view">
+      {metadataSection("IR", [
+        view.explanation,
+        `current: ${view.currentInstructionId}`,
+        `range: ${formatter.rangeText(view.currentSourceRange)}`,
+      ])}
+      <div className="debug-code-rows">{view.lines.map(irLineRow)}</div>
+      {metadataSection("operands", view.operands.map(operandText))}
+    </div>
+  );
 }
 
 export function irLineRow(line: UiIrLineVisualDto) {
@@ -636,8 +716,20 @@ export function irLineRow(line: UiIrLineVisualDto) {
   );
 }
 
+export function operandText(operand: UiDebugIrOperandDto): string {
+  return `${operand.name} ${operand.typeName} = ${operand.valueSummary} @ ${operand.valueRef}`;
+}
+
 export function asmContent(view: UiDebugAsmViewDto | null) {
-  return <div className="debug-code-rows">{(view?.lines ?? []).map(asmLineRow)}</div>;
+  if (view === null) {
+    return <div className="debug-code-view" />;
+  }
+  return (
+    <div className="debug-code-view">
+      {metadataSection("ASM", [view.explanation, `IR: ${view.relatedIrIds.join(", ")}`])}
+      <div className="debug-code-rows">{view.lines.map(asmLineRow)}</div>
+    </div>
+  );
 }
 
 export function asmLineRow(line: UiAssemblyLineVisualDto) {
@@ -655,6 +747,25 @@ export function label(text: string, styleClass: string) {
       {text}
     </p>
   );
+}
+
+export function variableLines(variables: readonly UiDebugVariableDto[], formatter: MiniCDebugTextFormatter): readonly string[] {
+  const lines: string[] = [];
+  for (const variable of variables) {
+    addVariableLines(lines, variable, 0, formatter);
+  }
+  return lines;
+}
+
+function addVariableLines(
+  lines: string[],
+  variable: UiDebugVariableDto,
+  depth: number,
+  formatter: MiniCDebugTextFormatter,
+): void {
+  lines.push(`${"  ".repeat(depth)}${formatter.variableText(variable).trimStart()}`);
+  variable.fields.forEach((field) => addVariableLines(lines, field, depth + 1, formatter));
+  variable.elements.forEach((element) => addVariableLines(lines, element, depth + 1, formatter));
 }
 
 function useDebugSnapshot(viewModel: MiniCWorkbenchViewModel): MiniCWorkbenchSnapshot {

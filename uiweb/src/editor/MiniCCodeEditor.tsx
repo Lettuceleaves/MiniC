@@ -487,6 +487,7 @@ export interface MiniCCodeEditorProps {
   readonly currentExecutionRange?: UiSourceSpanDto | null;
   readonly readOnly?: boolean;
   readonly className?: string;
+  readonly scrollContainerClassName?: string;
   readonly ariaLabel?: string;
   readonly onTextChange?: (text: string) => void;
   readonly onBreakpointsChange?: (lines: readonly number[]) => void;
@@ -826,6 +827,7 @@ function MiniCCodeEditorComponent({
   currentExecutionRange = null,
   readOnly = false,
   className = "",
+  scrollContainerClassName = "",
   ariaLabel = "MiniC source editor",
   onTextChange,
   onBreakpointsChange,
@@ -966,7 +968,7 @@ function MiniCCodeEditorComponent({
 
   return (
     <section className={`code-editor ${className}`.trim()} data-java-source={miniCCodeEditorMirror.javaPath}>
-      <div className="source-editor-scroll">
+      <div className={`source-editor-scroll ${scrollContainerClassName}`.trim()}>
         <div className="editor-gutter-column">
           <div className="editor-gutter-column-inner" style={{ transform: `translateY(${-scrollTop}px)` }}>
             {editorLines.map((lineModel) => {

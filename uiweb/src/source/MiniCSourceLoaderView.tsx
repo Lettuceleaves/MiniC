@@ -121,6 +121,7 @@ export interface MiniCSourceLoaderViewProps {
   readonly onSaveDocument?: (name: string, source: string) => void;
   readonly className?: string;
   readonly showControls?: boolean;
+  readonly editorScrollClassName?: string;
 }
 
 export function MiniCSourceLoaderView({
@@ -129,6 +130,7 @@ export function MiniCSourceLoaderView({
   onSaveDocument,
   className = "",
   showControls = true,
+  editorScrollClassName = "",
 }: MiniCSourceLoaderViewProps) {
   const snapshot = useSourceLoaderSnapshot(viewModel);
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -199,12 +201,13 @@ export function MiniCSourceLoaderView({
         analysis={toEditorAnalysis(snapshot.realtimeAnalysis)}
         breakpoints={snapshot.debugBreakpointLines}
         className="source-editor"
-        currentExecutionLine={snapshot.debugState?.currentLine ?? 0}
-        currentExecutionRange={null}
+        currentExecutionLine={snapshot.debugState?.currentSnapshot.sourceRange?.startLine ?? 0}
+        currentExecutionRange={snapshot.debugState?.currentSnapshot.sourceRange ?? null}
         initialText={snapshot.sourceText}
         onBreakpointsChange={(lines) => viewModel.setDebugBreakpoints(lines)}
         onSubmitRealtimeSource={(name, source) => viewModel.submitRealtimeSource(name, source)}
         onTextChange={setEditorText}
+        scrollContainerClassName={editorScrollClassName}
         sourceName={sourceName}
         value={editorText}
       />

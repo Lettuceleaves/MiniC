@@ -154,32 +154,151 @@ export interface UiDebugBreakpointDto {
   readonly enabled: boolean;
 }
 
+export interface UiDebugVisualElementDto {
+  readonly id: string;
+  readonly kind: string;
+  readonly label: string;
+  readonly metadata: Readonly<Record<string, string>>;
+}
+
+export interface UiDebugVisualStructureDto {
+  readonly id: string;
+  readonly name: string;
+  readonly type: string;
+  readonly kind: string;
+  readonly layoutHint: string;
+  readonly summary: string;
+  readonly explanation: string;
+  readonly elements: readonly UiDebugVisualElementDto[];
+}
+
+export interface UiDebugVariableDto {
+  readonly name: string;
+  readonly address: string;
+  readonly typeName: string;
+  readonly valueKind: string;
+  readonly valueSummary: string;
+  readonly pointerTarget: string;
+  readonly typeShape: string;
+  readonly highlightedChange: boolean;
+  readonly explanation: string;
+  readonly fields: readonly UiDebugVariableDto[];
+  readonly elements: readonly UiDebugVariableDto[];
+}
+
+export interface UiDebugFrameDto {
+  readonly frameId: string;
+  readonly functionName: string;
+  readonly parameters: readonly UiDebugVariableDto[];
+  readonly locals: readonly UiDebugVariableDto[];
+  readonly returnTarget: string | null;
+  readonly activeRange: UiSourceSpanDto | null;
+}
+
+export interface UiDebugEventDto {
+  readonly eventId: number;
+  readonly snapshotId: number;
+  readonly type: string;
+  readonly title: string;
+  readonly description: string;
+  readonly sourceRange: UiSourceSpanDto | null;
+  readonly affectedValueRefs: readonly string[];
+}
+
+export interface UiDebugTimelineItemDto {
+  readonly snapshotId: number;
+  readonly visibleStepIndex: number;
+  readonly stopReason: string;
+  readonly breakpointHit: boolean;
+  readonly sourceRange: UiSourceSpanDto | null;
+}
+
+export interface UiDebugProcessSpaceDto {
+  readonly currentFunctionName: string;
+  readonly currentInstructionId: string;
+  readonly functions: readonly string[];
+  readonly staticValues: readonly UiDebugVariableDto[];
+  readonly stackFrames: readonly UiDebugFrameDto[];
+  readonly heapValues: readonly UiDebugVariableDto[];
+  readonly stdin: string;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+export interface UiDebugSnapshotDto {
+  readonly snapshotId: number;
+  readonly visibleStepIndex: number;
+  readonly functionName: string;
+  readonly blockLabel: string;
+  readonly instructionId: string;
+  readonly sourceRange: UiSourceSpanDto | null;
+  readonly callStackSummary: readonly string[];
+  readonly processSpace: UiDebugProcessSpaceDto;
+  readonly breakpointHit: boolean;
+  readonly stopReason: string;
+}
+
 export interface UiDebugStateDto {
   readonly sourceName: string;
-  readonly playbackMode: MiniCPlaybackMode;
-  readonly currentLine: number;
+  readonly executionState: string;
+  readonly currentSnapshot: UiDebugSnapshotDto;
+  readonly snapshots: readonly UiDebugSnapshotDto[];
+  readonly events: readonly UiDebugEventDto[];
   readonly breakpoints: readonly UiDebugBreakpointDto[];
-  readonly timeline: readonly string[];
 }
 
 export interface UiDebugMetadataViewDto {
-  readonly rows: readonly string[];
+  readonly executionState: string;
+  readonly stopReason: string;
+  readonly currentFunction: string;
+  readonly currentSourceRange: UiSourceSpanDto | null;
+  readonly callStack: readonly UiDebugFrameDto[];
+  readonly variables: readonly UiDebugVariableDto[];
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly breakpoints: readonly UiDebugBreakpointDto[];
+  readonly events: readonly UiDebugEventDto[];
+  readonly timeline: readonly UiDebugTimelineItemDto[];
 }
 
 export interface UiDebugDataStructureViewDto {
-  readonly title: string;
-  readonly rows: readonly string[];
+  readonly processSpace: UiDebugProcessSpaceDto;
+  readonly visuals: readonly UiDebugVisualStructureDto[];
+  readonly warnings: readonly string[];
+}
+
+export interface UiDebugAstNodeDetailDto {
+  readonly nodeId: string;
+  readonly kind: string;
+  readonly label: string;
+  readonly sourceRange: UiSourceSpanDto | null;
+  readonly explanation: string;
 }
 
 export interface UiDebugAstViewDto {
-  readonly root: UiAstNodeVisualDto | null;
-  readonly details: readonly string[];
+  readonly root: UiAstNodeVisualDto;
+  readonly activeNode: UiDebugAstNodeDetailDto | null;
+  readonly relatedIrIds: readonly string[];
+  readonly relatedAsmIds: readonly string[];
+}
+
+export interface UiDebugIrOperandDto {
+  readonly name: string;
+  readonly typeName: string;
+  readonly valueSummary: string;
+  readonly valueRef: string;
 }
 
 export interface UiDebugIrViewDto {
   readonly lines: readonly UiIrLineVisualDto[];
+  readonly currentInstructionId: string;
+  readonly currentSourceRange: UiSourceSpanDto | null;
+  readonly explanation: string;
+  readonly operands: readonly UiDebugIrOperandDto[];
 }
 
 export interface UiDebugAsmViewDto {
   readonly lines: readonly UiAssemblyLineVisualDto[];
+  readonly explanation: string;
+  readonly relatedIrIds: readonly string[];
 }
