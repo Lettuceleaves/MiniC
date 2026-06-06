@@ -14,8 +14,8 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import minic.color.ThemeManager;
-import minic.ui.MiniCKeyBindingConfig;
-import minic.ui.control.MiniCWorkbenchControlHub;
+import minic.uilocal.MiniCKeyBindingConfig;
+import minic.uilocal.control.MiniCWorkbenchControlHub;
 
 import java.io.IOException;
 import java.nio.file.Files;

@@ -1,0 +1,665 @@
+.debug-null-node {
+    -fx-fill: {{graph.null_node_fill}};
+    -fx-stroke: {{graph.null_node_stroke}};
+    -fx-stroke-width: 1.6px;
+}
+
+.debug-graph-edge {
+    -fx-stroke: {{accent.blue}};
+    -fx-stroke-width: 1.6px;
+    -fx-stroke-line-cap: round;
+}
+
+.debug-graph-edge-head {
+    -fx-fill: {{accent.blue}};
+    -fx-stroke: {{accent.blue}};
+    -fx-stroke-width: 1.6px;
+}
+
+.debug-pointer-arrow {
+}
+
+.debug-visual-label {
+    -fx-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 10px;
+    -fx-text-alignment: center;
+}
+
+.debug-code-view {
+    -fx-padding: 10px;
+    -fx-background-color: {{background.primary}};
+}
+
+.debug-code-rows {
+    -fx-padding: 6px 0;
+    -fx-background-color: {{background.primary}};
+}
+
+.debug-code-row {
+    -fx-min-height: 22px;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 1px;
+}
+
+.debug-code-row.active {
+    -fx-background-color: {{background.running}};
+    -fx-border-color: {{accent.blue}};
+    -fx-border-width: 1px;
+}
+
+.debug-code-line-number {
+    -fx-min-width: 54px;
+    -fx-padding: 1px 12px 1px 0;
+    -fx-alignment: center-right;
+    -fx-text-fill: {{text.line_number}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.debug-code-text {
+    -fx-padding: 1px 8px;
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.debug-code-row.active .debug-code-line-number,
+.debug-code-row.active .debug-code-text {
+    -fx-text-fill: {{text.active}};
+}
+
+.stage-flow {
+    -fx-min-width: 0;
+    -fx-background-color: {{background.primary}};
+}
+
+.stage-flow-column {
+    -fx-min-width: 0;
+    -fx-background-color: {{background.border}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px;
+}
+
+.stage-flow .split-pane-divider {
+    -fx-padding: 0 2px;
+    -fx-background-color: {{background.tertiary}};
+}
+
+.stage-flow-title {
+    -fx-min-height: 28px;
+    -fx-padding: 0 10px;
+    -fx-alignment: center-left;
+    -fx-text-fill: {{text.label}};
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 0 0 1px 0;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.stage-flow-body {
+    -fx-padding: 10px;
+    -fx-background-color: {{background.primary}};
+}
+
+.stage-flow-scroll {
+    -fx-background-color: {{background.primary}};
+    -fx-background: {{background.primary}};
+    -fx-fit-to-width: false;
+}
+
+.asm-input-stack {
+    -fx-background-color: {{background.primary}};
+}
+
+.ast-zoom-box {
+    -fx-background-color: {{background.primary}};
+}
+
+.ast-zoom-controls {
+    -fx-min-height: 30px;
+    -fx-alignment: center-left;
+    -fx-padding: 0 4px 6px 4px;
+}
+
+.ast-zoom-label,
+.ast-zoom-value {
+    -fx-text-fill: {{text.muted_alt}};
+    -fx-font-size: 11px;
+}
+
+.ast-zoom-slider {
+    -fx-pref-width: 150px;
+}
+
+.source-flow-line {
+    -fx-min-height: 21px;
+    -fx-padding: 0 8px 0 0;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.source-flow-text {
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+    -fx-padding: 0;
+}
+
+.source-token-mask {
+    -fx-background-color: {{background.token_mask}};
+}
+
+.token-row {
+    -fx-min-height: 24px;
+    -fx-alignment: center-left;
+}
+
+.token-kind {
+    -fx-min-width: 132px;
+    -fx-padding: 2px 7px;
+    -fx-text-fill: {{syntax.type}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px;
+}
+
+.token-text {
+    -fx-min-width: 132px;
+    -fx-padding: 2px 7px;
+    -fx-text-fill: {{syntax.string}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.token-range {
+    -fx-min-width: 54px;
+    -fx-padding: 2px 0;
+    -fx-text-fill: {{text.line_number}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.token-kind.active,
+.token-text.active,
+.token-range.active {
+    -fx-background-color: {{background.running}};
+    -fx-text-fill: {{text.active}};
+}
+
+.ast-graph {
+    -fx-background-color: {{background.primary}};
+}
+
+.ast-graph-viewport {
+    -fx-background-color: {{background.primary}};
+}
+
+.ast-edge {
+    -fx-stroke: {{graph.edge}};
+    -fx-stroke-width: 1.15px;
+    -fx-opacity: 0.72;
+}
+
+.ast-graph-node {
+    -fx-fill: {{background.secondary}};
+    -fx-stroke: {{syntax.keyword}};
+    -fx-stroke-width: 1.35px;
+}
+
+.ast-graph-node.root {
+    -fx-fill: {{graph.root_fill}};
+    -fx-stroke: {{graph.root_stroke}};
+    -fx-stroke-width: 1.8px;
+}
+
+.ast-graph-node.leaf {
+    -fx-fill: {{graph.leaf_fill}};
+    -fx-stroke: {{graph.leaf_stroke}};
+}
+
+.ast-graph-node.active {
+    -fx-fill: {{graph.active_node_fill}};
+    -fx-stroke: {{accent.gold}};
+    -fx-stroke-width: 3px;
+    -fx-effect: dropshadow(gaussian, {{graph.active_node_shadow}}, 12, 0.45, 0, 0);
+}
+
+.semantic-graph-scope-mask-0 {
+    -fx-fill: {{graph.scope_0_fill}};
+    -fx-stroke: {{graph.scope_0_stroke}};
+    -fx-stroke-width: 1px;
+}
+
+.semantic-graph-scope-mask-1 {
+    -fx-fill: {{graph.scope_1_fill}};
+    -fx-stroke: {{graph.scope_1_stroke}};
+    -fx-stroke-width: 1px;
+}
+
+.semantic-graph-scope-mask-2 {
+    -fx-fill: {{graph.scope_2_fill}};
+    -fx-stroke: {{graph.scope_2_stroke}};
+    -fx-stroke-width: 1px;
+}
+
+.semantic-graph-scope-mask-3 {
+    -fx-fill: {{graph.scope_3_fill}};
+    -fx-stroke: {{graph.scope_3_stroke}};
+    -fx-stroke-width: 1px;
+}
+
+.semantic-graph-scope-mask-0.active-scope-mask,
+.semantic-graph-scope-mask-1.active-scope-mask,
+.semantic-graph-scope-mask-2.active-scope-mask,
+.semantic-graph-scope-mask-3.active-scope-mask {
+    -fx-stroke: {{accent.yellow}};
+    -fx-stroke-width: 3px;
+    -fx-effect: dropshadow(gaussian, {{graph.active_scope_shadow}}, 14, 0.42, 0, 0);
+}
+
+.semantic-graph-scope-mask-0.selected-scope-mask,
+.semantic-graph-scope-mask-1.selected-scope-mask,
+.semantic-graph-scope-mask-2.selected-scope-mask,
+.semantic-graph-scope-mask-3.selected-scope-mask {
+    -fx-stroke: {{text.active}};
+    -fx-stroke-width: 3px;
+}
+
+.ast-graph-label {
+    -fx-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 10px;
+    -fx-text-alignment: center;
+}
+
+.visual-node {
+    -fx-padding: 8px 10px;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{syntax.keyword}};
+    -fx-border-width: 1px;
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 11px;
+    -fx-max-width: 260px;
+    -fx-wrap-text: true;
+}
+
+.visual-node.hot {
+    -fx-background-color: {{graph.active_node_fill}};
+    -fx-border-color: {{accent.gold}};
+    -fx-text-fill: {{text.active}};
+}
+
+.lexer-row {
+    -fx-min-height: 21px;
+}
+
+.lexer-line-number {
+    -fx-min-width: 48px;
+    -fx-padding: 0 12px 0 0;
+    -fx-alignment: center-right;
+    -fx-text-fill: {{text.line_number}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.lexer-segment {
+    -fx-min-height: 21px;
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+    -fx-background-color: transparent;
+}
+
+.lexer-segment.active {
+    -fx-background-color: {{background.lexer_active}};
+    -fx-text-fill: {{text.active}};
+}
+
+.ast-row {
+    -fx-min-height: 24px;
+}
+
+.ast-node-line {
+    -fx-padding: 3px 8px;
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 1px;
+}
+
+.ast-node-line.active {
+    -fx-background-color: {{background.running}};
+    -fx-border-color: {{accent.blue}};
+    -fx-text-fill: {{text.active}};
+}
+
+.semantic-row {
+    -fx-min-height: 26px;
+}
+
+.semantic-scope-line {
+    -fx-padding: 4px 8px;
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 1px;
+}
+
+.semantic-scope-line.path {
+    -fx-border-color: {{accent.blue}};
+}
+
+.semantic-scope-line.active {
+    -fx-background-color: {{background.running}};
+    -fx-text-fill: {{text.active}};
+}
+
+.assembly-row {
+    -fx-min-height: 21px;
+}
+
+.assembly-line-number {
+    -fx-min-width: 54px;
+    -fx-padding: 0 12px 0 0;
+    -fx-alignment: center-right;
+    -fx-text-fill: {{text.line_number}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.assembly-text {
+    -fx-padding: 1px 8px;
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.assembly-line-number.active,
+.assembly-text.active {
+    -fx-background-color: {{background.running}};
+    -fx-text-fill: {{text.active}};
+}
+
+.bottom-panel {
+    -fx-background-color: {{background.primary}};
+    -fx-border-color: {{background.border}};
+    -fx-border-width: 1px 0 0 0;
+}
+
+.bottom-panel.collapsed {
+}
+
+.bottom-panel.expanded {
+}
+
+.bottom-resize-handle {
+    -fx-min-height: 4px;
+    -fx-pref-height: 4px;
+    -fx-max-height: 4px;
+    -fx-background-color: {{background.border}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px 0 0 0;
+}
+
+.bottom-resize-handle:hover {
+    -fx-background-color: {{background.hover}};
+}
+
+.bottom-bar {
+    -fx-min-height: 24px;
+    -fx-pref-height: 24px;
+    -fx-padding: 0 6px 0 12px;
+    -fx-alignment: center-left;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 0 0 1px 0;
+}
+
+.bottom-toggle {
+    -fx-min-width: 24px;
+    -fx-pref-width: 24px;
+    -fx-min-height: 20px;
+    -fx-pref-height: 20px;
+    -fx-padding: 0;
+    -fx-background-color: {{background.tertiary}};
+    -fx-text-fill: {{text.active}};
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.bottom-body {
+    -fx-background-color: {{background.primary}};
+    -fx-padding: 8px 10px;
+}
+
+.hover-inspector-left,
+.hover-inspector-right {
+    -fx-min-width: 0;
+    -fx-background-color: {{background.primary}};
+}
+
+.hover-inspector-left {
+    -fx-pref-width: 62%;
+}
+
+.hover-inspector-right {
+    -fx-pref-width: 38%;
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 0 0 0 1px;
+    -fx-padding: 0 0 0 10px;
+}
+
+.hover-inspector-title {
+    -fx-text-fill: {{text.active}};
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+.hover-inspector-meta {
+    -fx-padding: 0 0 4px 0;
+}
+
+.hover-inspector-line,
+.hover-inspector-explanation,
+.hover-source-line-number,
+.hover-source-text {
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.hover-inspector-line {
+    -fx-text-fill: {{text.secondary}};
+}
+
+.hover-inspector-explanation {
+    -fx-text-fill: {{text.body}};
+}
+
+.hover-left-scroll {
+    -fx-background-color: {{background.primary}};
+    -fx-background: {{background.primary}};
+}
+
+.hover-left-content {
+    -fx-background-color: {{background.primary}};
+}
+
+.hover-explanation-scroll {
+    -fx-background-color: {{background.primary}};
+    -fx-background: {{background.primary}};
+}
+
+.hover-source {
+    -fx-background-color: {{background.primary}};
+}
+
+.hover-source-row {
+    -fx-min-height: 20px;
+}
+
+.hover-source-line-number {
+    -fx-min-width: 44px;
+    -fx-padding: 1px 10px 1px 0;
+    -fx-alignment: center-right;
+    -fx-text-fill: {{text.line_number}};
+}
+
+.hover-source-text {
+    -fx-min-width: 7.2px;
+    -fx-padding: 1px 0;
+    -fx-text-fill: {{text.active}};
+}
+
+.hover-source-text-flow {
+    -fx-padding: 0 8px 0 0;
+}
+
+.hover-source-text.masked {
+    -fx-background-color: {{background.source_mask}};
+    -fx-text-fill: {{text.active}};
+}
+
+.controls {
+    -fx-padding: 10px 14px;
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 0 0 1px 0;
+}
+
+.inspector-controls {
+    -fx-spacing: 6px;
+}
+
+.inspector-control-row {
+    -fx-spacing: 6px;
+    -fx-alignment: center-left;
+}
+
+.inspector-control-button {
+    -fx-padding: 0 8px;
+    -fx-alignment: center;
+}
+
+.debug-controls {
+    -fx-alignment: center-left;
+    -fx-spacing: 6px;
+}
+
+.debug-paired-controls {
+    -fx-alignment: center-left;
+}
+
+.debug-paired-row {
+    -fx-alignment: center-left;
+    -fx-spacing: 6px;
+}
+
+.debug-control-single-button,
+.debug-control-paired-button {
+    -fx-min-height: 28px;
+    -fx-pref-height: 28px;
+    -fx-max-height: 28px;
+    -fx-padding: 0 8px;
+}
+
+.debug-control-single-button {
+    -fx-min-width: 92px;
+    -fx-pref-width: 92px;
+    -fx-max-width: 92px;
+}
+
+.debug-control-paired-button {
+    -fx-min-width: 92px;
+    -fx-pref-width: 92px;
+    -fx-max-width: 92px;
+}
+
+.control-primary,
+.control-secondary {
+    -fx-min-height: 28px;
+    -fx-padding: 0 10px;
+    -fx-alignment: center;
+    -fx-border-color: {{background.hover}};
+    -fx-border-width: 1px;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.control-primary {
+    -fx-background-color: {{background.button}};
+    -fx-text-fill: {{text.active}};
+}
+
+.control-secondary {
+    -fx-background-color: {{background.tertiary}};
+    -fx-text-fill: {{text.label}};
+}
+
+.control-secondary .list-cell {
+    -fx-text-fill: {{text.active}};
+    -fx-background-color: {{background.tertiary}};
+}
+
+.control-secondary .list-cell:hover {
+    -fx-background-color: {{background.hover}};
+}
+
+.control-secondary .combo-box-popup .list-view {
+    -fx-background-color: {{background.secondary}};
+}
+
+.control-secondary .combo-box-popup .list-cell {
+    -fx-text-fill: {{text.active}};
+    -fx-background-color: {{background.secondary}};
+}
+
+.control-secondary .combo-box-popup .list-cell:hover {
+    -fx-background-color: {{background.hover}};
+}
+
+.key-binding-list {
+    -fx-spacing: 8px;
+}
+
+.key-binding-button {
+    -fx-min-width: 180px;
+    -fx-pref-width: 220px;
+    -fx-alignment: center-left;
+}
+
+.key-binding-capturing {
+    -fx-border-color: {{accent.blue}};
+}
+
+.key-binding-conflict {
+    -fx-text-fill: {{accent.error_border}};
+    -fx-border-color: {{accent.error_border}};
+    -fx-underline: true;
+}
+
+.key-binding-warning {
+    -fx-text-fill: {{accent.error_border}};
+    -fx-underline: true;
+}
+
+.status-bar {
+    -fx-min-height: 22px;
+    -fx-pref-height: 22px;
+    -fx-padding: 0 10px;
+    -fx-alignment: center-left;
+    -fx-background-color: {{accent.blue}};
+}
+
+.status-bar .label {
+    -fx-text-fill: {{text.active}};
+    -fx-font-size: 12px;
+}

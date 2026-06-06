@@ -11,7 +11,10 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ThemeCssGenerator {
-    private static final String TEMPLATE_PATH = "/minic/ui/workbench.css";
+    private static final String[] TEMPLATE_PATHS = {
+            "/minic/uilocal/workbench.css",
+            "/minic/uilocal/workbench-components.css"
+    };
     private static final Pattern PIXEL_VALUE = Pattern.compile("(?<![-\\w.])(-?\\d+(?:\\.\\d+)?)px");
     private static String template;
 
@@ -52,15 +55,23 @@ public final class ThemeCssGenerator {
 
     private static String loadTemplate() {
         if (template == null) {
-            try (InputStream is = ThemeCssGenerator.class.getResourceAsStream(TEMPLATE_PATH)) {
-                if (is == null) {
-                    throw new IllegalStateException("CSS template not found: " + TEMPLATE_PATH);
-                }
-                template = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            } catch (IOException e) {
-                throw new IllegalStateException("Failed to load CSS template", e);
+            StringBuilder css = new StringBuilder();
+            for (String path : TEMPLATE_PATHS) {
+                css.append(loadTemplatePart(path)).append('\n');
             }
+            template = css.toString();
         }
         return template;
+    }
+
+    private static String loadTemplatePart(String path) {
+        try (InputStream is = ThemeCssGenerator.class.getResourceAsStream(path)) {
+            if (is == null) {
+                throw new IllegalStateException("CSS template not found: " + path);
+            }
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException("Failed to load CSS template: " + path, e);
+        }
     }
 }

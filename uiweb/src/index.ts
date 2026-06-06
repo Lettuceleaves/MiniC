@@ -1,0 +1,11 @@
+export * as app from "./app";
+export * as control from "./control";
+export * as debug from "./debug";
+export * as diagnostics from "./diagnostics";
+export * as editor from "./editor";
+export * as info from "./info";
+export * as panel from "./panel";
+export * as source from "./source";
+export * as text from "./text";
+export * as visual from "./visual";
+export * as workbench from "./workbench";

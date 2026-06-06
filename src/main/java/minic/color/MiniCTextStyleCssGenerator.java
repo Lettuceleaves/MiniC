@@ -1,7 +1,7 @@
 package minic.color;
 
-import minic.ui.text.MiniCTextStyleRole;
-import minic.ui.text.MiniCTextStyleState;
+import minic.uilocal.text.MiniCTextStyleRole;
+import minic.uilocal.text.MiniCTextStyleState;
 
 import java.util.Map;
 

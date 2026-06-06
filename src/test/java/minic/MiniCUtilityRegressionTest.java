@@ -6,7 +6,7 @@ import minic.diagnostics.Diagnostic;
 import minic.diagnostics.DiagnosticSeverity;
 import minic.source.SourceFile;
 import minic.source.SourceRange;
-import minic.ui.MiniCSamplePrograms;
+import minic.uilocal.MiniCSamplePrograms;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

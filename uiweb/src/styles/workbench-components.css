@@ -1,0 +1,741 @@
+:root {
+  --minic-background-primary: #e1e1e1;
+  --minic-background-secondary: #dadad9;
+  --minic-background-tertiary: #cccccc;
+  --minic-background-section-header: #d2d2d2;
+  --minic-background-border: #e4e4e4;
+  --minic-background-hover: #c3c3c3;
+  --minic-background-running: #dac9b5;
+  --minic-background-current-line: #d5c0a0;
+  --minic-background-selection: #d9b087;
+  --minic-background-button: #f19c63;
+  --minic-background-diagnostic-border: #a5d2d2;
+  --minic-text-active: #000000;
+  --minic-text-body: #2b2b2b;
+  --minic-text-secondary: #424242;
+  --minic-text-label: #333333;
+  --minic-text-muted: #696969;
+  --minic-text-muted-alt: #626262;
+  --minic-text-line-number: #7a7a7a;
+  --minic-text-panel-title: #444444;
+  --minic-text-stage-title: #1a1a1a;
+  --minic-text-diagnostic-detail: #0b383c;
+  --minic-accent-blue: #ff8533;
+  --minic-accent-gold: #284582;
+  --minic-accent-yellow: #0d2e94;
+  --minic-accent-error-border: #0eb3b3;
+  --minic-accent-breakpoint: #0b8e8b;
+  --minic-accent-diagnostic-wave: #0b788e;
+  --minic-accent-done-border: #cba4cb;
+  --minic-syntax-keyword: #a96329;
+  --minic-syntax-string: #316e87;
+  --minic-syntax-literal: #4a3157;
+  --minic-syntax-type: #632301;
+  --minic-graph-root-fill: #f6b88e;
+  --minic-graph-root-stroke: #754b07;
+  --minic-graph-leaf-fill: #e0d2dd;
+  --minic-graph-leaf-stroke: #9566aa;
+  --minic-graph-active-node-fill: #b4d0e1;
+  --minic-graph-edge: #c0905c;
+  --minic-graph-null-node-fill: #3bc1c1;
+  --minic-graph-null-node-stroke: #009494;
+  --minic-graph-label: #2b2b2b;
+  --minic-background-diagnostic-overlay: rgba(218, 218, 217, 0.96);
+  --minic-background-selection-rgba: rgba(217, 176, 135, 0.65);
+  --minic-background-token-mask: rgba(0, 41, 191, 0.38);
+  --minic-background-source-mask: rgba(0, 41, 191, 0.46);
+  --minic-background-lexer-active: rgba(169, 99, 41, 0.36);
+  --minic-text-breakpoint-hover: rgba(11, 142, 139, 0.55);
+  --minic-graph-scope-0-fill: rgba(217, 144, 129, 0.22);
+  --minic-graph-scope-0-stroke: rgba(217, 144, 129, 0.55);
+  --minic-graph-scope-1-fill: rgba(129, 169, 219, 0.23);
+  --minic-graph-scope-1-stroke: rgba(129, 169, 219, 0.6);
+  --minic-graph-scope-2-fill: rgba(192, 143, 194, 0.22);
+  --minic-graph-scope-2-stroke: rgba(192, 143, 194, 0.58);
+  --minic-graph-scope-3-fill: rgba(129, 191, 159, 0.22);
+  --minic-graph-scope-3-stroke: rgba(129, 191, 159, 0.58);
+  --minic-graph-active-node-shadow: rgba(40, 69, 130, 0.5);
+  --minic-graph-active-scope-shadow: rgba(13, 46, 148, 0.58);
+}
+
+/* Mechanical CSS translation from src/main/resources/minic/uilocal/workbench-components.css. Keep class names aligned with uilocal. */
+.debug-null-node {
+    fill: var(--minic-graph-null-node-fill);
+    stroke: var(--minic-graph-null-node-stroke);
+    stroke-width: 1.6px;
+}
+
+.debug-graph-edge {
+    stroke: var(--minic-accent-blue);
+    stroke-width: 1.6px;
+    stroke-linecap: round;
+}
+
+.debug-graph-edge-head {
+    fill: var(--minic-accent-blue);
+    stroke: var(--minic-accent-blue);
+    stroke-width: 1.6px;
+}
+
+.debug-pointer-arrow {
+}
+
+.debug-visual-label {
+    fill: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 10px;
+    text-align: center;
+}
+
+.debug-code-view {
+    padding: 10px;
+    background-color: var(--minic-background-primary);
+}
+
+.debug-code-rows {
+    padding: 6px 0;
+    background-color: var(--minic-background-primary);
+}
+
+.debug-code-row {
+    min-height: 22px;
+    background-color: transparent;
+    border-color: transparent;
+    border-width: 1px;
+}
+
+.debug-code-row.active {
+    background-color: var(--minic-background-running);
+    border-color: var(--minic-accent-blue);
+    border-width: 1px;
+}
+
+.debug-code-line-number {
+    min-width: 54px;
+    padding: 1px 12px 1px 0;
+    align-items: center;
+    justify-content: flex-end;
+    color: var(--minic-text-line-number);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+}
+
+.debug-code-text {
+    padding: 1px 8px;
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+}
+
+.debug-code-row.active .debug-code-line-number,
+.debug-code-row.active .debug-code-text {
+    color: var(--minic-text-active);
+}
+
+.stage-flow {
+    min-width: 0;
+    background-color: var(--minic-background-primary);
+}
+
+.stage-flow-column {
+    min-width: 0;
+    background-color: var(--minic-background-border);
+    border-color: var(--minic-background-tertiary);
+    border-width: 1px;
+}
+
+.stage-flow .split-pane-divider {
+    padding: 0 2px;
+    background-color: var(--minic-background-tertiary);
+}
+
+.stage-flow-title {
+    min-height: 28px;
+    padding: 0 10px;
+    align-items: center;
+    justify-content: flex-start;
+    color: var(--minic-text-label);
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 0 0 1px 0;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.stage-flow-body {
+    padding: 10px;
+    background-color: var(--minic-background-primary);
+}
+
+.stage-flow-scroll {
+    background-color: var(--minic-background-primary);
+    background: var(--minic-background-primary);
+}
+
+.asm-input-stack {
+    background-color: var(--minic-background-primary);
+}
+
+.ast-zoom-box {
+    background-color: var(--minic-background-primary);
+}
+
+.ast-zoom-controls {
+    min-height: 30px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0 4px 6px 4px;
+}
+
+.ast-zoom-label,
+.ast-zoom-value {
+    color: var(--minic-text-muted-alt);
+    font-size: 11px;
+}
+
+.ast-zoom-slider {
+    width: 150px;
+}
+
+.source-flow-line {
+    min-height: 21px;
+    padding: 0 8px 0 0;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+}
+
+.source-flow-text {
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    padding: 0;
+}
+
+.source-token-mask {
+    background-color: var(--minic-background-token-mask);
+}
+
+.token-row {
+    min-height: 24px;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.token-kind {
+    min-width: 132px;
+    padding: 2px 7px;
+    color: var(--minic-syntax-type);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 1px;
+}
+
+.token-text {
+    min-width: 132px;
+    padding: 2px 7px;
+    color: var(--minic-syntax-string);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+
+.token-range {
+    min-width: 54px;
+    padding: 2px 0;
+    color: var(--minic-text-line-number);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+
+.token-kind.active,
+.token-text.active,
+.token-range.active {
+    background-color: var(--minic-background-running);
+    color: var(--minic-text-active);
+}
+
+.ast-graph {
+    background-color: var(--minic-background-primary);
+}
+
+.ast-graph-viewport {
+    background-color: var(--minic-background-primary);
+}
+
+.ast-edge {
+    stroke: var(--minic-graph-edge);
+    stroke-width: 1.15px;
+    opacity: 0.72;
+}
+
+.ast-graph-node {
+    fill: var(--minic-background-secondary);
+    stroke: var(--minic-syntax-keyword);
+    stroke-width: 1.35px;
+}
+
+.ast-graph-node.root {
+    fill: var(--minic-graph-root-fill);
+    stroke: var(--minic-graph-root-stroke);
+    stroke-width: 1.8px;
+}
+
+.ast-graph-node.leaf {
+    fill: var(--minic-graph-leaf-fill);
+    stroke: var(--minic-graph-leaf-stroke);
+}
+
+.ast-graph-node.active {
+    fill: var(--minic-graph-active-node-fill);
+    stroke: var(--minic-accent-gold);
+    stroke-width: 3px;
+    filter: drop-shadow(0px 0px 12px {{graph.active_node_shadow}});
+}
+
+.semantic-graph-scope-mask-0 {
+    fill: var(--minic-graph-scope-0-fill);
+    stroke: var(--minic-graph-scope-0-stroke);
+    stroke-width: 1px;
+}
+
+.semantic-graph-scope-mask-1 {
+    fill: var(--minic-graph-scope-1-fill);
+    stroke: var(--minic-graph-scope-1-stroke);
+    stroke-width: 1px;
+}
+
+.semantic-graph-scope-mask-2 {
+    fill: var(--minic-graph-scope-2-fill);
+    stroke: var(--minic-graph-scope-2-stroke);
+    stroke-width: 1px;
+}
+
+.semantic-graph-scope-mask-3 {
+    fill: var(--minic-graph-scope-3-fill);
+    stroke: var(--minic-graph-scope-3-stroke);
+    stroke-width: 1px;
+}
+
+.semantic-graph-scope-mask-0.active-scope-mask,
+.semantic-graph-scope-mask-1.active-scope-mask,
+.semantic-graph-scope-mask-2.active-scope-mask,
+.semantic-graph-scope-mask-3.active-scope-mask {
+    stroke: var(--minic-accent-yellow);
+    stroke-width: 3px;
+    filter: drop-shadow(0px 0px 14px {{graph.active_scope_shadow}});
+}
+
+.semantic-graph-scope-mask-0.selected-scope-mask,
+.semantic-graph-scope-mask-1.selected-scope-mask,
+.semantic-graph-scope-mask-2.selected-scope-mask,
+.semantic-graph-scope-mask-3.selected-scope-mask {
+    stroke: var(--minic-text-active);
+    stroke-width: 3px;
+}
+
+.ast-graph-label {
+    fill: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 10px;
+    text-align: center;
+}
+
+.visual-node {
+    padding: 8px 10px;
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-syntax-keyword);
+    border-width: 1px;
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 11px;
+    max-width: 260px;
+    white-space: normal;
+}
+
+.visual-node.hot {
+    background-color: var(--minic-graph-active-node-fill);
+    border-color: var(--minic-accent-gold);
+    color: var(--minic-text-active);
+}
+
+.lexer-row {
+    min-height: 21px;
+}
+
+.lexer-line-number {
+    min-width: 48px;
+    padding: 0 12px 0 0;
+    align-items: center;
+    justify-content: flex-end;
+    color: var(--minic-text-line-number);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+}
+
+.lexer-segment {
+    min-height: 21px;
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+    background-color: transparent;
+}
+
+.lexer-segment.active {
+    background-color: var(--minic-background-lexer-active);
+    color: var(--minic-text-active);
+}
+
+.ast-row {
+    min-height: 24px;
+}
+
+.ast-node-line {
+    padding: 3px 8px;
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    background-color: transparent;
+    border-color: transparent;
+    border-width: 1px;
+}
+
+.ast-node-line.active {
+    background-color: var(--minic-background-running);
+    border-color: var(--minic-accent-blue);
+    color: var(--minic-text-active);
+}
+
+.semantic-row {
+    min-height: 26px;
+}
+
+.semantic-scope-line {
+    padding: 4px 8px;
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    background-color: transparent;
+    border-color: transparent;
+    border-width: 1px;
+}
+
+.semantic-scope-line.path {
+    border-color: var(--minic-accent-blue);
+}
+
+.semantic-scope-line.active {
+    background-color: var(--minic-background-running);
+    color: var(--minic-text-active);
+}
+
+.assembly-row {
+    min-height: 21px;
+}
+
+.assembly-line-number {
+    min-width: 54px;
+    padding: 0 12px 0 0;
+    align-items: center;
+    justify-content: flex-end;
+    color: var(--minic-text-line-number);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+}
+
+.assembly-text {
+    padding: 1px 8px;
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+}
+
+.assembly-line-number.active,
+.assembly-text.active {
+    background-color: var(--minic-background-running);
+    color: var(--minic-text-active);
+}
+
+.bottom-panel {
+    background-color: var(--minic-background-primary);
+    border-color: var(--minic-background-border);
+    border-width: 1px 0 0 0;
+}
+
+.bottom-panel.collapsed {
+}
+
+.bottom-panel.expanded {
+}
+
+.bottom-resize-handle {
+    min-height: 4px;
+    height: 4px;
+    max-height: 4px;
+    background-color: var(--minic-background-border);
+    border-color: var(--minic-background-tertiary);
+    border-width: 1px 0 0 0;
+}
+
+.bottom-resize-handle:hover {
+    background-color: var(--minic-background-hover);
+}
+
+.bottom-bar {
+    min-height: 24px;
+    height: 24px;
+    padding: 0 6px 0 12px;
+    align-items: center;
+    justify-content: flex-start;
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 0 0 1px 0;
+}
+
+.bottom-toggle {
+    min-width: 24px;
+    width: 24px;
+    min-height: 20px;
+    height: 20px;
+    padding: 0;
+    background-color: var(--minic-background-tertiary);
+    color: var(--minic-text-active);
+    border-radius: 0;
+    border-radius: 0;
+}
+
+.bottom-body {
+    background-color: var(--minic-background-primary);
+    padding: 8px 10px;
+}
+
+.hover-inspector-left,
+.hover-inspector-right {
+    min-width: 0;
+    background-color: var(--minic-background-primary);
+}
+
+.hover-inspector-left {
+    width: 62%;
+}
+
+.hover-inspector-right {
+    width: 38%;
+    border-color: var(--minic-background-tertiary);
+    border-width: 0 0 0 1px;
+    padding: 0 0 0 10px;
+}
+
+.hover-inspector-title {
+    color: var(--minic-text-active);
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.hover-inspector-meta {
+    padding: 0 0 4px 0;
+}
+
+.hover-inspector-line,
+.hover-inspector-explanation,
+.hover-source-line-number,
+.hover-source-text {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+
+.hover-inspector-line {
+    color: var(--minic-text-secondary);
+}
+
+.hover-inspector-explanation {
+    color: var(--minic-text-body);
+}
+
+.hover-left-scroll {
+    background-color: var(--minic-background-primary);
+    background: var(--minic-background-primary);
+}
+
+.hover-left-content {
+    background-color: var(--minic-background-primary);
+}
+
+.hover-explanation-scroll {
+    background-color: var(--minic-background-primary);
+    background: var(--minic-background-primary);
+}
+
+.hover-source {
+    background-color: var(--minic-background-primary);
+}
+
+.hover-source-row {
+    min-height: 20px;
+}
+
+.hover-source-line-number {
+    min-width: 44px;
+    padding: 1px 10px 1px 0;
+    align-items: center;
+    justify-content: flex-end;
+    color: var(--minic-text-line-number);
+}
+
+.hover-source-text {
+    min-width: 7.2px;
+    padding: 1px 0;
+    color: var(--minic-text-active);
+}
+
+.hover-source-text-flow {
+    padding: 0 8px 0 0;
+}
+
+.hover-source-text.masked {
+    background-color: var(--minic-background-source-mask);
+    color: var(--minic-text-active);
+}
+
+.controls {
+    padding: 10px 14px;
+    border-color: var(--minic-background-tertiary);
+    border-width: 0 0 1px 0;
+}
+
+.inspector-controls {
+    gap: 6px;
+}
+
+.inspector-control-row {
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.inspector-control-button {
+    padding: 0 8px;
+    align-items: center;
+    justify-content: center;
+}
+
+.debug-controls {
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+}
+
+.debug-paired-controls {
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.debug-paired-row {
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px;
+}
+
+.debug-control-single-button,
+.debug-control-paired-button {
+    min-height: 28px;
+    height: 28px;
+    max-height: 28px;
+    padding: 0 8px;
+}
+
+.debug-control-single-button {
+    min-width: 92px;
+    width: 92px;
+    max-width: 92px;
+}
+
+.debug-control-paired-button {
+    min-width: 92px;
+    width: 92px;
+    max-width: 92px;
+}
+
+.control-primary,
+.control-secondary {
+    min-height: 28px;
+    padding: 0 10px;
+    align-items: center;
+    justify-content: center;
+    border-color: var(--minic-background-hover);
+    border-width: 1px;
+    border-radius: 0;
+    border-radius: 0;
+}
+
+.control-primary {
+    background-color: var(--minic-background-button);
+    color: var(--minic-text-active);
+}
+
+.control-secondary {
+    background-color: var(--minic-background-tertiary);
+    color: var(--minic-text-label);
+}
+
+.control-secondary .list-cell {
+    color: var(--minic-text-active);
+    background-color: var(--minic-background-tertiary);
+}
+
+.control-secondary .list-cell:hover {
+    background-color: var(--minic-background-hover);
+}
+
+.control-secondary .combo-box-popup .list-view {
+    background-color: var(--minic-background-secondary);
+}
+
+.control-secondary .combo-box-popup .list-cell {
+    color: var(--minic-text-active);
+    background-color: var(--minic-background-secondary);
+}
+
+.control-secondary .combo-box-popup .list-cell:hover {
+    background-color: var(--minic-background-hover);
+}
+
+.key-binding-list {
+    gap: 8px;
+}
+
+.key-binding-button {
+    min-width: 180px;
+    width: 220px;
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.key-binding-capturing {
+    border-color: var(--minic-accent-blue);
+}
+
+.key-binding-conflict {
+    color: var(--minic-accent-error-border);
+    border-color: var(--minic-accent-error-border);
+    text-decoration: underline;
+}
+
+.key-binding-warning {
+    color: var(--minic-accent-error-border);
+    text-decoration: underline;
+}
+
+.status-bar {
+    min-height: 22px;
+    height: 22px;
+    padding: 0 10px;
+    align-items: center;
+    justify-content: flex-start;
+    background-color: var(--minic-accent-blue);
+}
+
+.status-bar .label {
+    color: var(--minic-text-active);
+    font-size: 12px;
+}

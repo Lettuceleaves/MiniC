@@ -1,0 +1,915 @@
+:root {
+  --minic-background-primary: #e1e1e1;
+  --minic-background-secondary: #dadad9;
+  --minic-background-tertiary: #cccccc;
+  --minic-background-section-header: #d2d2d2;
+  --minic-background-border: #e4e4e4;
+  --minic-background-hover: #c3c3c3;
+  --minic-background-running: #dac9b5;
+  --minic-background-current-line: #d5c0a0;
+  --minic-background-selection: #d9b087;
+  --minic-background-button: #f19c63;
+  --minic-background-diagnostic-border: #a5d2d2;
+  --minic-text-active: #000000;
+  --minic-text-body: #2b2b2b;
+  --minic-text-secondary: #424242;
+  --minic-text-label: #333333;
+  --minic-text-muted: #696969;
+  --minic-text-muted-alt: #626262;
+  --minic-text-line-number: #7a7a7a;
+  --minic-text-panel-title: #444444;
+  --minic-text-stage-title: #1a1a1a;
+  --minic-text-diagnostic-detail: #0b383c;
+  --minic-accent-blue: #ff8533;
+  --minic-accent-gold: #284582;
+  --minic-accent-yellow: #0d2e94;
+  --minic-accent-error-border: #0eb3b3;
+  --minic-accent-breakpoint: #0b8e8b;
+  --minic-accent-diagnostic-wave: #0b788e;
+  --minic-accent-done-border: #cba4cb;
+  --minic-syntax-keyword: #a96329;
+  --minic-syntax-string: #316e87;
+  --minic-syntax-literal: #4a3157;
+  --minic-syntax-type: #632301;
+  --minic-graph-root-fill: #f6b88e;
+  --minic-graph-root-stroke: #754b07;
+  --minic-graph-leaf-fill: #e0d2dd;
+  --minic-graph-leaf-stroke: #9566aa;
+  --minic-graph-active-node-fill: #b4d0e1;
+  --minic-graph-edge: #c0905c;
+  --minic-graph-null-node-fill: #3bc1c1;
+  --minic-graph-null-node-stroke: #009494;
+  --minic-graph-label: #2b2b2b;
+  --minic-background-diagnostic-overlay: rgba(218, 218, 217, 0.96);
+  --minic-background-selection-rgba: rgba(217, 176, 135, 0.65);
+  --minic-background-token-mask: rgba(0, 41, 191, 0.38);
+  --minic-background-source-mask: rgba(0, 41, 191, 0.46);
+  --minic-background-lexer-active: rgba(169, 99, 41, 0.36);
+  --minic-text-breakpoint-hover: rgba(11, 142, 139, 0.55);
+  --minic-graph-scope-0-fill: rgba(217, 144, 129, 0.22);
+  --minic-graph-scope-0-stroke: rgba(217, 144, 129, 0.55);
+  --minic-graph-scope-1-fill: rgba(129, 169, 219, 0.23);
+  --minic-graph-scope-1-stroke: rgba(129, 169, 219, 0.6);
+  --minic-graph-scope-2-fill: rgba(192, 143, 194, 0.22);
+  --minic-graph-scope-2-stroke: rgba(192, 143, 194, 0.58);
+  --minic-graph-scope-3-fill: rgba(129, 191, 159, 0.22);
+  --minic-graph-scope-3-stroke: rgba(129, 191, 159, 0.58);
+  --minic-graph-active-node-shadow: rgba(40, 69, 130, 0.5);
+  --minic-graph-active-scope-shadow: rgba(13, 46, 148, 0.58);
+}
+
+/* Mechanical CSS translation from src/main/resources/minic/uilocal/workbench.css. Keep class names aligned with uilocal. */
+.workbench-root {
+    background-color: var(--minic-background-primary);
+    font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    font-size: 13px;
+}
+
+.activity-bar {
+    width: 48px;
+    min-width: 48px;
+    max-width: 48px;
+    padding: 9px 0 0 0;
+    background-color: var(--minic-background-tertiary);
+}
+
+.activity-item {
+    min-width: 48px;
+    min-height: 43px;
+    align-items: center;
+    justify-content: center;
+    color: var(--minic-text-secondary);
+}
+
+.activity-icon {
+    fill: transparent;
+    stroke: var(--minic-text-line-number);
+    stroke-width: 1.7px;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.activity-item:hover {
+    background-color: var(--minic-background-hover);
+    color: var(--minic-text-active);
+}
+
+.activity-item:hover .activity-icon {
+    stroke: var(--minic-text-label);
+}
+
+.activity-item.active {
+    color: var(--minic-text-active);
+    border-color: var(--minic-text-active);
+    border-width: 0 0 0 2px;
+}
+
+.activity-item.active .activity-icon {
+    stroke: var(--minic-text-active);
+}
+
+.activity-placeholder {
+    padding: 24px 28px;
+    background-color: var(--minic-background-primary);
+}
+
+.activity-placeholder-title {
+    color: var(--minic-text-active);
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.activity-placeholder-text {
+    color: var(--minic-text-secondary);
+    font-size: 13px;
+}
+
+.workbench-body {
+    background-color: var(--minic-background-primary);
+}
+
+.sidebar {
+    min-width: 260px;
+    width: 260px;
+    max-width: 260px;
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-border);
+    border-width: 0 1px 0 0;
+}
+
+.inspector {
+    min-width: 360px;
+    width: 360px;
+    max-width: 360px;
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-border);
+    border-width: 0 0 0 1px;
+}
+
+.panel-title {
+    min-height: 36px;
+    padding: 0 14px;
+    align-items: center;
+    justify-content: flex-start;
+    color: var(--minic-text-panel-title);
+    font-size: 11px;
+}
+
+.section-label {
+    min-height: 28px;
+    padding: 0 14px;
+    align-items: center;
+    justify-content: flex-start;
+    background-color: var(--minic-background-section-header);
+    color: var(--minic-text-label);
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.body-text {
+    padding: 10px 14px;
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    line-height: 18px;
+}
+
+.stage-card {
+    padding: 8px;
+    background-color: var(--minic-background-primary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 1px;
+}
+
+.stage-list {
+    padding: 10px 8px;
+    gap: 8px;
+}
+
+.stage-card.running {
+    background-color: var(--minic-background-running);
+    border-color: var(--minic-accent-blue);
+}
+
+.stage-card.selected {
+    border-color: var(--minic-accent-gold);
+    border-width: 1px 1px 1px 3px;
+}
+
+.stage-card.done {
+    border-color: var(--minic-accent-done-border);
+}
+
+.stage-card.error {
+    border-color: var(--minic-accent-error-border);
+}
+
+.stage-top {
+    color: var(--minic-text-stage-title);
+    font-weight: bold;
+}
+
+.stage-meta {
+    color: var(--minic-text-muted);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 11px;
+}
+
+.editor-area,
+.split,
+.pane {
+    background-color: var(--minic-background-primary);
+}
+
+.split .split-pane-divider,
+.debug-workspace .split-pane-divider {
+    padding: 0 2px;
+    background-color: var(--minic-background-tertiary);
+}
+
+.tabs {
+    min-height: 35px;
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-border);
+    border-width: 0 0 1px 0;
+}
+
+.tab {
+    min-width: 190px;
+    width: 190px;
+    max-width: 190px;
+    min-height: 35px;
+    padding: 0 12px;
+    align-items: center;
+    justify-content: flex-start;
+    border-color: var(--minic-background-border);
+    border-width: 0 1px 0 0;
+}
+
+.tab.active {
+    background-color: var(--minic-background-primary);
+}
+
+.tab-title {
+    min-width: 0;
+    color: var(--minic-text-muted);
+}
+
+.tab.active .tab-title {
+    color: var(--minic-text-active);
+}
+
+.tab-close {
+    min-width: 20px;
+    width: 20px;
+    min-height: 20px;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+    color: var(--minic-text-muted);
+}
+
+.tab-close:hover {
+    background-color: var(--minic-background-hover);
+    color: var(--minic-text-active);
+}
+
+.tab-rename {
+    min-width: 0;
+    background-color: var(--minic-background-primary);
+    color: var(--minic-text-active);
+    border-color: var(--minic-accent-blue);
+    border-width: 1px;
+    border-radius: 0;
+    border-radius: 0;
+    padding: 1px 4px;
+}
+
+.tab-action {
+    min-height: 35px;
+    height: 35px;
+    max-height: 35px;
+    padding: 0 10px;
+    background-color: var(--minic-background-section-header);
+    color: var(--minic-text-label);
+    border-color: var(--minic-background-hover);
+    border-width: 0 1px 0 0;
+    border-radius: 0;
+    border-radius: 0;
+}
+
+.pane {
+    border-color: var(--minic-background-secondary);
+    border-width: 0 1px 0 0;
+}
+
+.pane-head {
+    min-height: 31px;
+    padding: 0 12px;
+    align-items: center;
+    justify-content: flex-start;
+    color: var(--minic-text-muted-alt);
+    border-color: var(--minic-background-secondary);
+    border-width: 0 0 1px 0;
+    font-size: 12px;
+}
+
+.mono-body {
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+
+.code-lines {
+    padding: 10px 0;
+    background-color: var(--minic-background-primary);
+}
+
+.source-area {
+    background-color: var(--minic-background-primary);
+}
+
+.source-loader {
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-border);
+    border-width: 0 0 1px 0;
+}
+
+.loader-controls {
+    padding: 8px 12px;
+}
+
+.source-editor {
+    height: 10000px;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    background-color: var(--minic-background-primary);
+}
+
+.code-editor {
+    background-color: var(--minic-background-primary);
+}
+
+.token-plain {
+    fill: var(--minic-text-body);
+}
+
+.token-keyword {
+    fill: var(--minic-syntax-keyword);
+}
+
+.token-identifier {
+    fill: var(--minic-text-body);
+}
+
+.token-string {
+    fill: var(--minic-syntax-string);
+}
+
+.token-literal {
+    fill: var(--minic-syntax-literal);
+}
+
+.token-operator {
+    fill: var(--minic-text-body);
+}
+
+.debug-execution-range {
+    background-color: var(--minic-background-running);
+    fill: var(--minic-text-active);
+}
+
+.diagnostic-layer {
+    background-color: transparent;
+}
+
+.diagnostic-wave {
+    stroke: var(--minic-accent-diagnostic-wave);
+    stroke-width: 1.4px;
+    fill: transparent;
+}
+
+.editor-diagnostic-details {
+    background-color: var(--minic-background-diagnostic-overlay);
+    border-color: var(--minic-background-diagnostic-border);
+    border-width: 1px 0 0 0;
+    padding: 8px 12px;
+}
+
+.editor-diagnostic-detail {
+    color: var(--minic-text-diagnostic-detail);
+    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    font-size: 12px;
+    line-height: 16px;
+}
+
+.code-editor .styled-text-area,
+.code-editor .styled-text-area .viewport,
+.code-editor .styled-text-area .content,
+.code-editor .paragraph-box {
+    background-color: var(--minic-background-primary);
+}
+
+.code-editor .styled-text-area {
+    padding: 7px 9px;
+}
+
+.code-editor .lineno {
+    background-color: var(--minic-background-primary);
+    color: var(--minic-text-line-number);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    padding: 0 12px 0 0;
+}
+
+.editor-gutter {
+    background-color: var(--minic-background-primary);
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.editor-gutter.current-execution {
+    background-color: var(--minic-background-current-line);
+}
+
+.execution-gutter {
+    min-width: 16px;
+    width: 16px;
+    max-width: 16px;
+    align-items: center;
+    justify-content: center;
+    color: var(--minic-accent-gold);
+    font-family: Consolas, "Courier New", monospace;
+}
+
+.breakpoint-gutter {
+    min-width: 18px;
+    width: 18px;
+    max-width: 18px;
+    align-items: center;
+    justify-content: center;
+    color: transparent;
+    font-family: Consolas, "Courier New", monospace;
+    cursor: pointer;
+}
+
+.breakpoint-gutter:hover {
+    color: var(--minic-text-breakpoint-hover);
+    transform: scale(1.5);
+    transform: scale(1.5);
+}
+
+.breakpoint-gutter.active {
+    color: var(--minic-accent-breakpoint);
+    transform: scale(1.5);
+    transform: scale(1.5);
+}
+
+.breakpoint-gutter.active:hover {
+    color: var(--minic-text-breakpoint-hover);
+    transform: scale(1.5);
+    transform: scale(1.5);
+}
+
+.code-editor .paragraph-text {
+    font-family: Consolas, "Courier New", monospace;
+}
+
+.code-editor .caret {
+    stroke: var(--minic-text-active);
+    stroke-width: 1.4px;
+}
+
+.code-editor .selection {
+    fill: var(--minic-background-selection-rgba);
+}
+
+.completion-list {
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-hover);
+    border-width: 1px 0 0 0;
+}
+
+.completion-list .list-cell {
+    background-color: var(--minic-background-secondary);
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    padding: 5px 10px;
+}
+
+.completion-list .list-cell.filled.selected,
+.completion-list .list-cell.filled:hover {
+    background-color: var(--minic-background-selection);
+    color: var(--minic-text-active);
+}
+
+.context-menu {
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-hover);
+    border-width: 1px;
+}
+
+.context-menu .menu-item:focus {
+    background-color: var(--minic-background-selection);
+}
+
+.execution-pane {
+    background-color: var(--minic-background-primary);
+}
+
+.execution-actions {
+    min-height: 36px;
+    padding: 6px 10px;
+    align-items: center;
+    justify-content: flex-start;
+    background-color: var(--minic-background-primary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 0 0 1px 0;
+}
+
+.execution-actions .check-box {
+    color: var(--minic-text-label);
+}
+
+.execution-actions .button {
+    min-height: 26px;
+    padding: 0 10px;
+    background-color: var(--minic-background-button);
+    color: var(--minic-text-active);
+    border-radius: 0;
+    border-radius: 0;
+}
+
+.execution-stdin,
+.execution-output {
+    background-color: var(--minic-background-primary);
+    background-color: var(--minic-background-primary);
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+
+.line-number {
+    min-width: 48px;
+    padding: 0 14px 0 0;
+    align-items: center;
+    justify-content: flex-end;
+    color: var(--minic-text-line-number);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+}
+
+.line-text {
+    min-height: 21px;
+    padding: 0 8px 0 0;
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 13px;
+}
+
+.line-number.focus,
+.line-text.focus {
+    background-color: var(--minic-background-current-line);
+    border-color: var(--minic-background-selection);
+    border-width: 1px 0;
+}
+
+.visual-canvas {
+    padding: 16px;
+    background-color: var(--minic-background-primary);
+}
+
+.visual-scroll {
+    background-color: var(--minic-background-primary);
+    background: var(--minic-background-primary);
+    width: 100%;
+}
+
+.debug-metadata {
+    padding: 10px;
+    background-color: var(--minic-background-primary);
+}
+
+.debug-summary-grid {
+    column-gap: 10px;
+    row-gap: 6px;
+    padding: 8px;
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 1px;
+}
+
+.debug-summary-key {
+    min-width: 70px;
+    color: var(--minic-text-muted-alt);
+    font-size: 12px;
+}
+
+.debug-summary-value {
+    color: var(--minic-text-active);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+
+.debug-section {
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 1px;
+}
+
+.debug-section-title {
+    min-height: 26px;
+    padding: 0 8px;
+    align-items: center;
+    justify-content: flex-start;
+    color: var(--minic-text-label);
+    font-size: 12px;
+    font-weight: bold;
+    background-color: var(--minic-background-section-header);
+}
+
+.debug-section-body {
+    padding: 7px 8px;
+}
+
+.debug-section-line {
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    white-space: normal;
+}
+
+.debug-workspace {
+    background-color: var(--minic-background-primary);
+}
+
+.debug-pane {
+    background-color: var(--minic-background-primary);
+    padding: 0;
+}
+
+.debug-pane .split-pane {
+    background-color: var(--minic-background-primary);
+    padding: 0;
+}
+
+.debug-pane .scroll-pane {
+    background-color: var(--minic-background-primary);
+    background: var(--minic-background-primary);
+    padding: 0;
+}
+
+.debug-pane .scroll-pane .viewport {
+    background-color: var(--minic-background-primary);
+}
+
+.debug-pane .scroll-bar {
+    background-color: var(--minic-background-secondary);
+}
+
+.debug-pane .scroll-bar .thumb {
+    background-color: var(--minic-background-hover);
+    border-radius: 0;
+}
+
+.debug-pane .scroll-bar .increment-button,
+.debug-pane .scroll-bar .decrement-button {
+    background-color: transparent;
+    padding: 0;
+}
+
+.debug-pane .scroll-bar .increment-arrow,
+.debug-pane .scroll-bar .decrement-arrow {
+    clip-path: none;
+    padding: 0;
+}
+
+.settings-scroll {
+    background-color: var(--minic-background-primary);
+    background: var(--minic-background-primary);
+    padding: 0;
+}
+
+.settings-scroll .viewport {
+    background-color: var(--minic-background-primary);
+}
+
+.info-scroll {
+    background-color: var(--minic-background-primary);
+    background: var(--minic-background-primary);
+    padding: 0;
+}
+
+.info-scroll .viewport {
+    background-color: var(--minic-background-primary);
+}
+
+.info-markdown {
+    padding: 24px 32px 32px 32px;
+    background-color: var(--minic-background-primary);
+}
+
+.info-heading-1 {
+    color: var(--minic-text-active);
+    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    font-size: 22px;
+    font-weight: bold;
+}
+
+.info-heading-2 {
+    color: var(--minic-text-active);
+    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    font-size: 17px;
+    font-weight: bold;
+}
+
+.info-heading-3 {
+    color: var(--minic-text-active);
+    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+.info-paragraph {
+    line-height: 18px;
+}
+
+.info-text {
+    fill: var(--minic-text-body);
+    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    font-size: 13px;
+}
+
+.info-strong {
+    fill: var(--minic-text-active);
+    font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.info-inline-code {
+    fill: var(--minic-accent-green);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+
+.info-list-item {
+    justify-content: flex-start;
+}
+
+.info-list-marker {
+    min-width: 16px;
+    width: 16px;
+    color: var(--minic-accent-blue);
+    font-size: 13px;
+    font-weight: bold;
+}
+
+.info-code-block {
+    padding: 10px 12px;
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 1px;
+    color: var(--minic-text-body);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+}
+
+.source-editor-scroll .scroll-bar.vertical,
+.debug-source-editor-scroll .scroll-bar.vertical,
+.pipeline-source-editor-scroll .scroll-bar.vertical,
+.stage-flow-scroll .scroll-bar.vertical,
+.settings-scroll .scroll-bar.vertical,
+.info-scroll .scroll-bar.vertical,
+.visual-scroll .scroll-bar.vertical {
+    min-width: 12px;
+    width: 12px;
+    max-width: 12px;
+    background-color: var(--minic-background-tertiary);
+    opacity: 1;
+}
+
+.source-editor-scroll .scroll-bar.vertical .track,
+.debug-source-editor-scroll .scroll-bar.vertical .track,
+.pipeline-source-editor-scroll .scroll-bar.vertical .track,
+.stage-flow-scroll .scroll-bar.vertical .track,
+.settings-scroll .scroll-bar.vertical .track,
+.info-scroll .scroll-bar.vertical .track,
+.visual-scroll .scroll-bar.vertical .track {
+    background-color: var(--minic-background-tertiary);
+}
+
+.source-editor-scroll .scroll-bar.vertical .thumb,
+.debug-source-editor-scroll .scroll-bar.vertical .thumb,
+.pipeline-source-editor-scroll .scroll-bar.vertical .thumb,
+.stage-flow-scroll .scroll-bar.vertical .thumb,
+.settings-scroll .scroll-bar.vertical .thumb,
+.info-scroll .scroll-bar.vertical .thumb,
+.visual-scroll .scroll-bar.vertical .thumb {
+    background-color: var(--minic-accent-blue);
+    background-clip: padding-box;
+    border-radius: 6px;
+}
+
+.debug-view-selector {
+    min-width: 88px;
+    width: 88px;
+    max-width: 88px;
+    padding: 8px 6px;
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 0 1px 0 0;
+}
+
+.debug-view-button {
+    min-width: 76px;
+    width: 76px;
+    min-height: 30px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 0 8px;
+    background-color: transparent;
+    color: var(--minic-text-secondary);
+    border-color: transparent;
+    border-width: 1px;
+    border-radius: 0;
+    border-radius: 0;
+}
+
+.debug-view-button:hover {
+    background-color: var(--minic-background-tertiary);
+    color: var(--minic-text-active);
+}
+
+.debug-view-button.active {
+    background-color: var(--minic-background-primary);
+    border-color: var(--minic-accent-blue);
+    border-width: 0 0 0 2px;
+    color: var(--minic-text-active);
+}
+
+.debug-view-content {
+    background-color: var(--minic-background-primary);
+}
+
+.debug-data-space {
+    padding: 10px;
+    background-color: var(--minic-background-primary);
+}
+
+.debug-process-section {
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 1px;
+}
+
+.debug-process-title {
+    min-height: 26px;
+    padding: 0 8px;
+    align-items: center;
+    justify-content: flex-start;
+    color: var(--minic-syntax-type);
+    font-size: 12px;
+    font-weight: bold;
+    background-color: var(--minic-background-section-header);
+}
+
+.debug-visuals {
+    padding: 0;
+    background-color: var(--minic-background-secondary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 1px;
+}
+
+.debug-visual-card {
+    padding: 8px;
+    background-color: var(--minic-background-primary);
+    border-color: var(--minic-background-hover);
+    border-width: 1px;
+}
+
+.debug-visual-title {
+    color: var(--minic-text-active);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.debug-visual-diagram {
+    background-color: var(--minic-background-primary);
+    border-color: var(--minic-background-tertiary);
+    border-width: 1px;
+}
+
+.debug-array-cell {
+    fill: var(--minic-background-secondary);
+    stroke: var(--minic-accent-blue);
+    stroke-width: 1.6px;
+}
+
+.debug-graph-node {
+    fill: var(--minic-background-secondary);
+    stroke: var(--minic-accent-blue);
+    stroke-width: 1.6px;
+}

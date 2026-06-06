@@ -1,0 +1,78 @@
+@import "./workbench.css";
+@import "./workbench-components.css";
+
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: var(--minic-background-primary, #e1e1e1);
+  color: var(--minic-text-body, #2b2b2b);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: var(--minic-background-primary, #e1e1e1);
+}
+
+.uiweb-mirror {
+  display: none;
+  border: 1px solid #343941;
+  border-radius: 6px;
+  margin: 12px;
+  padding: 12px;
+  background: #1f2328;
+}
+
+.uiweb-mirror__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  border-bottom: 1px solid #343941;
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+
+.uiweb-mirror__title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.uiweb-mirror__path {
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.uiweb-mirror__grid {
+  display: grid;
+  grid-template-columns: minmax(160px, 0.8fr) repeat(2, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.uiweb-mirror h2 {
+  font-size: 13px;
+  margin: 0 0 6px;
+}
+
+.uiweb-mirror ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.uiweb-mirror li,
+.uiweb-mirror dd,
+.uiweb-mirror dt {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  .uiweb-mirror__grid {
+    grid-template-columns: 1fr;
+  }
+}

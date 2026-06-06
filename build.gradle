@@ -40,7 +40,7 @@ tasks.register('runUi', JavaExec) {
     group = 'application'
     description = '启动 MiniC Visual Workbench JavaFX UI'
     classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'minic.ui.MiniCWorkbenchLauncher'
+    mainClass = 'minic.uilocal.MiniCWorkbenchLauncher'
     javaLauncher.set(javaToolchains.launcherFor {
         languageVersion = JavaLanguageVersion.of(21)
     })

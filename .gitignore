@@ -20,3 +20,9 @@ release/*
 !release/.gitkeep
 !release/launcher/
 !release/launcher/**
+
+uiweb/node_modules/
+uiweb/dist/
+uiweb/playwright-report/
+uiweb/test-results/
+uiweb/.local-vite*.log

@@ -1,0 +1,840 @@
+.workbench-root {
+    -fx-background-color: {{background.primary}};
+    -fx-font-family: "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+    -fx-font-size: 13px;
+}
+
+.activity-bar {
+    -fx-pref-width: 48px;
+    -fx-min-width: 48px;
+    -fx-max-width: 48px;
+    -fx-padding: 9px 0 0 0;
+    -fx-background-color: {{background.tertiary}};
+}
+
+.activity-item {
+    -fx-min-width: 48px;
+    -fx-min-height: 43px;
+    -fx-alignment: center;
+    -fx-text-fill: {{text.secondary}};
+}
+
+.activity-icon {
+    -fx-fill: transparent;
+    -fx-stroke: {{text.line_number}};
+    -fx-stroke-width: 1.7px;
+    -fx-stroke-line-cap: round;
+    -fx-stroke-line-join: round;
+}
+
+.activity-item:hover {
+    -fx-background-color: {{background.hover}};
+    -fx-text-fill: {{text.active}};
+}
+
+.activity-item:hover .activity-icon {
+    -fx-stroke: {{text.label}};
+}
+
+.activity-item.active {
+    -fx-text-fill: {{text.active}};
+    -fx-border-color: {{text.active}};
+    -fx-border-width: 0 0 0 2px;
+}
+
+.activity-item.active .activity-icon {
+    -fx-stroke: {{text.active}};
+}
+
+.activity-placeholder {
+    -fx-padding: 24px 28px;
+    -fx-background-color: {{background.primary}};
+}
+
+.activity-placeholder-title {
+    -fx-text-fill: {{text.active}};
+    -fx-font-size: 18px;
+    -fx-font-weight: bold;
+}
+
+.activity-placeholder-text {
+    -fx-text-fill: {{text.secondary}};
+    -fx-font-size: 13px;
+}
+
+.workbench-body {
+    -fx-background-color: {{background.primary}};
+}
+
+.sidebar {
+    -fx-min-width: 260px;
+    -fx-pref-width: 260px;
+    -fx-max-width: 260px;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.border}};
+    -fx-border-width: 0 1px 0 0;
+}
+
+.inspector {
+    -fx-min-width: 360px;
+    -fx-pref-width: 360px;
+    -fx-max-width: 360px;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.border}};
+    -fx-border-width: 0 0 0 1px;
+}
+
+.panel-title {
+    -fx-min-height: 36px;
+    -fx-padding: 0 14px;
+    -fx-alignment: center-left;
+    -fx-text-fill: {{text.panel_title}};
+    -fx-font-size: 11px;
+}
+
+.section-label {
+    -fx-min-height: 28px;
+    -fx-padding: 0 14px;
+    -fx-alignment: center-left;
+    -fx-background-color: {{background.section_header}};
+    -fx-text-fill: {{text.label}};
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.body-text {
+    -fx-padding: 10px 14px;
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-line-spacing: 4px;
+}
+
+.stage-card {
+    -fx-padding: 8px;
+    -fx-background-color: {{background.primary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px;
+}
+
+.stage-list {
+    -fx-padding: 10px 8px;
+    -fx-spacing: 8px;
+}
+
+.stage-card.running {
+    -fx-background-color: {{background.running}};
+    -fx-border-color: {{accent.blue}};
+}
+
+.stage-card.selected {
+    -fx-border-color: {{accent.gold}};
+    -fx-border-width: 1px 1px 1px 3px;
+}
+
+.stage-card.done {
+    -fx-border-color: {{accent.done_border}};
+}
+
+.stage-card.error {
+    -fx-border-color: {{accent.error_border}};
+}
+
+.stage-top {
+    -fx-text-fill: {{text.stage_title}};
+    -fx-font-weight: bold;
+}
+
+.stage-meta {
+    -fx-text-fill: {{text.muted}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 11px;
+}
+
+.editor-area,
+.split,
+.pane {
+    -fx-background-color: {{background.primary}};
+}
+
+.split .split-pane-divider,
+.debug-workspace .split-pane-divider {
+    -fx-padding: 0 2px;
+    -fx-background-color: {{background.tertiary}};
+}
+
+.tabs {
+    -fx-min-height: 35px;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.border}};
+    -fx-border-width: 0 0 1px 0;
+}
+
+.tab {
+    -fx-min-width: 190px;
+    -fx-pref-width: 190px;
+    -fx-max-width: 190px;
+    -fx-min-height: 35px;
+    -fx-padding: 0 12px;
+    -fx-alignment: center-left;
+    -fx-border-color: {{background.border}};
+    -fx-border-width: 0 1px 0 0;
+}
+
+.tab.active {
+    -fx-background-color: {{background.primary}};
+}
+
+.tab-title {
+    -fx-min-width: 0;
+    -fx-text-fill: {{text.muted}};
+}
+
+.tab.active .tab-title {
+    -fx-text-fill: {{text.active}};
+}
+
+.tab-close {
+    -fx-min-width: 20px;
+    -fx-pref-width: 20px;
+    -fx-min-height: 20px;
+    -fx-pref-height: 20px;
+    -fx-alignment: center;
+    -fx-text-fill: {{text.muted}};
+}
+
+.tab-close:hover {
+    -fx-background-color: {{background.hover}};
+    -fx-text-fill: {{text.active}};
+}
+
+.tab-rename {
+    -fx-min-width: 0;
+    -fx-background-color: {{background.primary}};
+    -fx-text-fill: {{text.active}};
+    -fx-border-color: {{accent.blue}};
+    -fx-border-width: 1px;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-padding: 1px 4px;
+}
+
+.tab-action {
+    -fx-min-height: 35px;
+    -fx-pref-height: 35px;
+    -fx-max-height: 35px;
+    -fx-padding: 0 10px;
+    -fx-background-color: {{background.section_header}};
+    -fx-text-fill: {{text.label}};
+    -fx-border-color: {{background.hover}};
+    -fx-border-width: 0 1px 0 0;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.pane {
+    -fx-border-color: {{background.secondary}};
+    -fx-border-width: 0 1px 0 0;
+}
+
+.pane-head {
+    -fx-min-height: 31px;
+    -fx-padding: 0 12px;
+    -fx-alignment: center-left;
+    -fx-text-fill: {{text.muted_alt}};
+    -fx-border-color: {{background.secondary}};
+    -fx-border-width: 0 0 1px 0;
+    -fx-font-size: 12px;
+}
+
+.mono-body {
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.code-lines {
+    -fx-padding: 10px 0;
+    -fx-background-color: {{background.primary}};
+}
+
+.source-area {
+    -fx-background-color: {{background.primary}};
+}
+
+.source-loader {
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.border}};
+    -fx-border-width: 0 0 1px 0;
+}
+
+.loader-controls {
+    -fx-padding: 8px 12px;
+}
+
+.source-editor {
+    -fx-pref-height: 10000px;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-background-color: {{background.primary}};
+}
+
+.code-editor {
+    -fx-background-color: {{background.primary}};
+}
+
+.token-plain {
+    -fx-fill: {{text.body}};
+}
+
+.token-keyword {
+    -fx-fill: {{syntax.keyword}};
+}
+
+.token-identifier {
+    -fx-fill: {{text.body}};
+}
+
+.token-string {
+    -fx-fill: {{syntax.string}};
+}
+
+.token-literal {
+    -fx-fill: {{syntax.literal}};
+}
+
+.token-operator {
+    -fx-fill: {{text.body}};
+}
+
+.debug-execution-range {
+    -rtfx-background-color: {{background.running}};
+    -fx-fill: {{text.active}};
+}
+
+.diagnostic-layer {
+    -fx-background-color: transparent;
+}
+
+.diagnostic-wave {
+    -fx-stroke: {{accent.diagnostic_wave}};
+    -fx-stroke-width: 1.4px;
+    -fx-fill: transparent;
+}
+
+.editor-diagnostic-details {
+    -fx-background-color: {{background.diagnostic_overlay}};
+    -fx-border-color: {{background.diagnostic_border}};
+    -fx-border-width: 1px 0 0 0;
+    -fx-padding: 8px 12px;
+}
+
+.editor-diagnostic-detail {
+    -fx-text-fill: {{text.diagnostic_detail}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 12px;
+    -fx-line-spacing: 2px;
+}
+
+.code-editor .styled-text-area,
+.code-editor .styled-text-area .viewport,
+.code-editor .styled-text-area .content,
+.code-editor .paragraph-box {
+    -fx-background-color: {{background.primary}};
+}
+
+.code-editor .styled-text-area {
+    -fx-padding: 7px 9px;
+}
+
+.code-editor .lineno {
+    -fx-background-color: {{background.primary}};
+    -fx-text-fill: {{text.line_number}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-padding: 0 12px 0 0;
+}
+
+.editor-gutter {
+    -fx-background-color: {{background.primary}};
+    -fx-alignment: center-left;
+}
+
+.editor-gutter.current-execution {
+    -fx-background-color: {{background.current_line}};
+}
+
+.execution-gutter {
+    -fx-min-width: 16px;
+    -fx-pref-width: 16px;
+    -fx-max-width: 16px;
+    -fx-alignment: center;
+    -fx-text-fill: {{accent.gold}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+}
+
+.breakpoint-gutter {
+    -fx-min-width: 18px;
+    -fx-pref-width: 18px;
+    -fx-max-width: 18px;
+    -fx-alignment: center;
+    -fx-text-fill: transparent;
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-cursor: hand;
+}
+
+.breakpoint-gutter:hover {
+    -fx-text-fill: {{text.breakpoint_hover}};
+    -fx-scale-x: 1.5;
+    -fx-scale-y: 1.5;
+}
+
+.breakpoint-gutter.active {
+    -fx-text-fill: {{accent.breakpoint}};
+    -fx-scale-x: 1.5;
+    -fx-scale-y: 1.5;
+}
+
+.breakpoint-gutter.active:hover {
+    -fx-text-fill: {{text.breakpoint_hover}};
+    -fx-scale-x: 1.5;
+    -fx-scale-y: 1.5;
+}
+
+.code-editor .paragraph-text {
+    -fx-font-family: Consolas, "Courier New", monospace;
+}
+
+.code-editor .caret {
+    -fx-stroke: {{text.active}};
+    -fx-stroke-width: 1.4px;
+}
+
+.code-editor .selection {
+    -fx-fill: {{background.selection_rgba}};
+}
+
+.completion-list {
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.hover}};
+    -fx-border-width: 1px 0 0 0;
+}
+
+.completion-list .list-cell {
+    -fx-background-color: {{background.secondary}};
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-padding: 5px 10px;
+}
+
+.completion-list .list-cell:filled:selected,
+.completion-list .list-cell:filled:hover {
+    -fx-background-color: {{background.selection}};
+    -fx-text-fill: {{text.active}};
+}
+
+.context-menu {
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.hover}};
+    -fx-border-width: 1px;
+}
+
+.context-menu .menu-item:focused {
+    -fx-background-color: {{background.selection}};
+}
+
+.execution-pane {
+    -fx-background-color: {{background.primary}};
+}
+
+.execution-actions {
+    -fx-min-height: 36px;
+    -fx-padding: 6px 10px;
+    -fx-alignment: center-left;
+    -fx-background-color: {{background.primary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 0 0 1px 0;
+}
+
+.execution-actions .check-box {
+    -fx-text-fill: {{text.label}};
+}
+
+.execution-actions .button {
+    -fx-min-height: 26px;
+    -fx-padding: 0 10px;
+    -fx-background-color: {{background.button}};
+    -fx-text-fill: {{text.active}};
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.execution-stdin,
+.execution-output {
+    -fx-control-inner-background: {{background.primary}};
+    -fx-background-color: {{background.primary}};
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.line-number {
+    -fx-min-width: 48px;
+    -fx-padding: 0 14px 0 0;
+    -fx-alignment: center-right;
+    -fx-text-fill: {{text.line_number}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.line-text {
+    -fx-min-height: 21px;
+    -fx-padding: 0 8px 0 0;
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 13px;
+}
+
+.line-number.focus,
+.line-text.focus {
+    -fx-background-color: {{background.current_line}};
+    -fx-border-color: {{background.selection}};
+    -fx-border-width: 1px 0;
+}
+
+.visual-canvas {
+    -fx-padding: 16px;
+    -fx-background-color: {{background.primary}};
+}
+
+.visual-scroll {
+    -fx-background-color: {{background.primary}};
+    -fx-background: {{background.primary}};
+    -fx-fit-to-width: true;
+}
+
+.debug-metadata {
+    -fx-padding: 10px;
+    -fx-background-color: {{background.primary}};
+}
+
+.debug-summary-grid {
+    -fx-hgap: 10px;
+    -fx-vgap: 6px;
+    -fx-padding: 8px;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px;
+}
+
+.debug-summary-key {
+    -fx-min-width: 70px;
+    -fx-text-fill: {{text.muted_alt}};
+    -fx-font-size: 12px;
+}
+
+.debug-summary-value {
+    -fx-text-fill: {{text.active}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.debug-section {
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px;
+}
+
+.debug-section-title {
+    -fx-min-height: 26px;
+    -fx-padding: 0 8px;
+    -fx-alignment: center-left;
+    -fx-text-fill: {{text.label}};
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-background-color: {{background.section_header}};
+}
+
+.debug-section-body {
+    -fx-padding: 7px 8px;
+}
+
+.debug-section-line {
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-wrap-text: true;
+}
+
+.debug-workspace {
+    -fx-background-color: {{background.primary}};
+}
+
+.debug-pane {
+    -fx-background-color: {{background.primary}};
+    -fx-padding: 0;
+}
+
+.debug-pane .split-pane {
+    -fx-background-color: {{background.primary}};
+    -fx-padding: 0;
+}
+
+.debug-pane .scroll-pane {
+    -fx-background-color: {{background.primary}};
+    -fx-background: {{background.primary}};
+    -fx-padding: 0;
+}
+
+.debug-pane .scroll-pane .viewport {
+    -fx-background-color: {{background.primary}};
+}
+
+.debug-pane .scroll-bar {
+    -fx-background-color: {{background.secondary}};
+}
+
+.debug-pane .scroll-bar .thumb {
+    -fx-background-color: {{background.hover}};
+    -fx-background-radius: 0;
+}
+
+.debug-pane .scroll-bar .increment-button,
+.debug-pane .scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.debug-pane .scroll-bar .increment-arrow,
+.debug-pane .scroll-bar .decrement-arrow {
+    -fx-shape: "";
+    -fx-padding: 0;
+}
+
+.settings-scroll {
+    -fx-background-color: {{background.primary}};
+    -fx-background: {{background.primary}};
+    -fx-padding: 0;
+}
+
+.settings-scroll .viewport {
+    -fx-background-color: {{background.primary}};
+}
+
+.info-scroll {
+    -fx-background-color: {{background.primary}};
+    -fx-background: {{background.primary}};
+    -fx-padding: 0;
+}
+
+.info-scroll .viewport {
+    -fx-background-color: {{background.primary}};
+}
+
+.info-markdown {
+    -fx-padding: 24px 32px 32px 32px;
+    -fx-background-color: {{background.primary}};
+}
+
+.info-heading-1 {
+    -fx-text-fill: {{text.active}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+}
+
+.info-heading-2 {
+    -fx-text-fill: {{text.active}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 17px;
+    -fx-font-weight: bold;
+}
+
+.info-heading-3 {
+    -fx-text-fill: {{text.active}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+.info-paragraph {
+    -fx-line-spacing: 4px;
+}
+
+.info-text {
+    -fx-fill: {{text.body}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 13px;
+}
+
+.info-strong {
+    -fx-fill: {{text.active}};
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.info-inline-code {
+    -fx-fill: {{accent.green}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.info-list-item {
+    -fx-alignment: top-left;
+}
+
+.info-list-marker {
+    -fx-min-width: 16px;
+    -fx-pref-width: 16px;
+    -fx-text-fill: {{accent.blue}};
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+}
+
+.info-code-block {
+    -fx-padding: 10px 12px;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px;
+    -fx-text-fill: {{text.body}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+
+.source-editor-scroll .scroll-bar:vertical,
+.debug-source-editor-scroll .scroll-bar:vertical,
+.pipeline-source-editor-scroll .scroll-bar:vertical,
+.stage-flow-scroll .scroll-bar:vertical,
+.settings-scroll .scroll-bar:vertical,
+.info-scroll .scroll-bar:vertical,
+.visual-scroll .scroll-bar:vertical {
+    -fx-min-width: 12px;
+    -fx-pref-width: 12px;
+    -fx-max-width: 12px;
+    -fx-background-color: {{background.tertiary}};
+    -fx-opacity: 1;
+}
+
+.source-editor-scroll .scroll-bar:vertical .track,
+.debug-source-editor-scroll .scroll-bar:vertical .track,
+.pipeline-source-editor-scroll .scroll-bar:vertical .track,
+.stage-flow-scroll .scroll-bar:vertical .track,
+.settings-scroll .scroll-bar:vertical .track,
+.info-scroll .scroll-bar:vertical .track,
+.visual-scroll .scroll-bar:vertical .track {
+    -fx-background-color: {{background.tertiary}};
+}
+
+.source-editor-scroll .scroll-bar:vertical .thumb,
+.debug-source-editor-scroll .scroll-bar:vertical .thumb,
+.pipeline-source-editor-scroll .scroll-bar:vertical .thumb,
+.stage-flow-scroll .scroll-bar:vertical .thumb,
+.settings-scroll .scroll-bar:vertical .thumb,
+.info-scroll .scroll-bar:vertical .thumb,
+.visual-scroll .scroll-bar:vertical .thumb {
+    -fx-background-color: {{accent.blue}};
+    -fx-background-insets: 2px;
+    -fx-background-radius: 6px;
+}
+
+.debug-view-selector {
+    -fx-min-width: 88px;
+    -fx-pref-width: 88px;
+    -fx-max-width: 88px;
+    -fx-padding: 8px 6px;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 0 1px 0 0;
+}
+
+.debug-view-button {
+    -fx-min-width: 76px;
+    -fx-pref-width: 76px;
+    -fx-min-height: 30px;
+    -fx-alignment: center-left;
+    -fx-padding: 0 8px;
+    -fx-background-color: transparent;
+    -fx-text-fill: {{text.secondary}};
+    -fx-border-color: transparent;
+    -fx-border-width: 1px;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.debug-view-button:hover {
+    -fx-background-color: {{background.tertiary}};
+    -fx-text-fill: {{text.active}};
+}
+
+.debug-view-button.active {
+    -fx-background-color: {{background.primary}};
+    -fx-border-color: {{accent.blue}};
+    -fx-border-width: 0 0 0 2px;
+    -fx-text-fill: {{text.active}};
+}
+
+.debug-view-content {
+    -fx-background-color: {{background.primary}};
+}
+
+.debug-data-space {
+    -fx-padding: 10px;
+    -fx-background-color: {{background.primary}};
+}
+
+.debug-process-section {
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px;
+}
+
+.debug-process-title {
+    -fx-min-height: 26px;
+    -fx-padding: 0 8px;
+    -fx-alignment: center-left;
+    -fx-text-fill: {{syntax.type}};
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-background-color: {{background.section_header}};
+}
+
+.debug-visuals {
+    -fx-padding: 0;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px;
+}
+
+.debug-visual-card {
+    -fx-padding: 8px;
+    -fx-background-color: {{background.primary}};
+    -fx-border-color: {{background.hover}};
+    -fx-border-width: 1px;
+}
+
+.debug-visual-title {
+    -fx-text-fill: {{text.active}};
+    -fx-font-family: Consolas, "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+}
+
+.debug-visual-diagram {
+    -fx-background-color: {{background.primary}};
+    -fx-border-color: {{background.tertiary}};
+    -fx-border-width: 1px;
+}
+
+.debug-array-cell {
+    -fx-fill: {{background.secondary}};
+    -fx-stroke: {{accent.blue}};
+    -fx-stroke-width: 1.6px;
+}
+
+.debug-graph-node {
+    -fx-fill: {{background.secondary}};
+    -fx-stroke: {{accent.blue}};
+    -fx-stroke-width: 1.6px;
+}
