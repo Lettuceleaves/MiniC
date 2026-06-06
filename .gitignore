@@ -16,11 +16,6 @@ out/
 .local/
 .gradle-home/
 
-web/node_modules/
-web/dist/
-web/playwright-report/
-web/test-results/
-
 release/*
 !release/.gitkeep
 !release/launcher/
