@@ -22,7 +22,7 @@ dependencies {
 
 javafx {
     version = '21.0.2'
-    modules = ['javafx.controls']
+    modules = ['javafx.controls', 'javafx.swing']
 }
 
 test {
@@ -70,4 +70,33 @@ tasks.register('runUiApi', JavaExec) {
             '-Dsun.stdout.encoding=UTF-8',
             '-Dsun.stderr.encoding=UTF-8'
     ]
+}
+
+tasks.register('captureUiLocalScreenshots', JavaExec) {
+    group = 'verification'
+    description = 'Capture JavaFX UI reference screenshots for UIWeb parity checks'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'minic.uilocal.MiniCUiLocalScreenshotCapture'
+    args = [String.valueOf(project.findProperty('uiLocalScreenshotOutput')
+            ?: layout.projectDirectory.dir('uiweb-render-check/parity-report/uilocal').asFile.absolutePath)]
+    workingDir = layout.buildDirectory.dir('tmp/ui-local-screenshot-cwd').get().asFile
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    })
+    jvmArgs = [
+            '--module-path', configurations.testRuntimeClasspath.asPath,
+            '--add-modules', javafx.modules.join(','),
+            '-Dfile.encoding=UTF-8',
+            '-Dsun.stdout.encoding=UTF-8',
+            '-Dsun.stderr.encoding=UTF-8',
+            '-Duser.language=en',
+            '-Duser.country=US'
+    ]
+    doFirst {
+        workingDir.mkdirs()
+        copy {
+            from layout.projectDirectory.dir('config/themes')
+            into new File(workingDir, 'config/themes')
+        }
+    }
 }

@@ -13,6 +13,8 @@
     "verify:editor-scroll": "node tools/verify-editor-scroll.mjs",
     "verify:snapshot-parity": "node tools/verify-uiapi-snapshot-parity.mjs",
     "verify:runtime-workflows": "node tools/verify-uiweb-runtime-workflows.mjs",
+    "capture:screenshots": "node tools/capture-uiweb-screenshots.mjs",
+    "verify:screenshots": "node tools/verify-screenshot-parity.mjs",
     "verify:parity": "npm run verify:mirror && npm run verify:placeholders && npm run verify:editor-scroll && npm run typecheck && npm run build",
     "verify:strict-parity": "npm run verify:mirror && npm run verify:mirror-signatures && npm run verify:placeholders && npm run verify:no-runtime-downgrade && npm run verify:adapter-completeness && npm run verify:editor-scroll && npm run typecheck && npm run build",
     "verify:strict-final": "npm run verify:strict-parity",

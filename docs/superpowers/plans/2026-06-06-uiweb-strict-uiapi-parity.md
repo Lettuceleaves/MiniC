@@ -393,9 +393,11 @@ git commit -m "test(uiweb): cover runtime uiapi workflows"
 - Create: `uiweb/tools/capture-uilocal-screenshots.ps1`
 - Create: `uiweb/tools/verify-screenshot-parity.mjs`
 - Create: `docs/uiweb-parity/screenshot-matrix.md`
+- Create: `src/test/java/minic/uilocal/MiniCUiLocalScreenshotCapture.java`
+- Modify: `build.gradle`
 - Modify: `uiweb/package.json`
 
-- [ ] Define the screenshot matrix.
+- [x] Define the screenshot matrix.
 
 Required pages/states:
 - Workbench source/editor initial state.
@@ -420,7 +422,7 @@ Required pages/states:
 - Bottom hover inspector expanded.
 - Bottom hover inspector collapsed.
 
-- [ ] Capture JavaFX and UIWeb screenshots from the same sources and viewport sizes.
+- [x] Capture JavaFX and UIWeb screenshots from the same sources and viewport sizes.
 
 Viewport sizes:
 - `1920x1080`
@@ -434,7 +436,7 @@ Acceptance:
 - Overlapping text is a failure.
 - Missing scrollbar, line number, breakpoint marker, status bar, tab bar, sidebar icon, or right-side debugger panel is a failure.
 
-- [ ] Add layout metric comparison.
+- [x] Add layout metric comparison.
 
 Acceptance:
 - Key bounding boxes differ by no more than 2 px: activity bar, sidebar, editor, pipeline right panel, debugger toolbar, debugger side tabs, status bar, bottom panel.
@@ -452,7 +454,7 @@ npm run verify:screenshots
 Expected:
 - All states pass with generated report at `uiweb-render-check/parity-report/index.html`.
 
-- [ ] Commit Task 6 only.
+- [x] Commit Task 6 only.
 
 Commit message:
 
