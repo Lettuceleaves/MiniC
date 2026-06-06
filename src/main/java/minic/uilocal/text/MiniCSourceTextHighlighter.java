@@ -1,8 +1,7 @@
 package minic.uilocal.text;
 
-import minic.compiler.lexer.Lexer;
-import minic.compiler.lexer.Token;
-import minic.source.SourceFile;
+import minic.uiapi.MiniCRealtimeAnalysisApi;
+import minic.uiapi.UiLexerTokenVisualDto;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -12,6 +11,7 @@ import java.util.List;
  * Lightweight highlighter for MiniC/C source snippets.
  */
 public final class MiniCSourceTextHighlighter {
+    private final MiniCRealtimeAnalysisApi api = new MiniCRealtimeAnalysisApi();
     private final MiniCSyntaxTextStyleMapper styleMapper = new MiniCSyntaxTextStyleMapper();
 
     public List<MiniCStyledTextSegment> highlight(String source) {
@@ -24,26 +24,26 @@ public final class MiniCSourceTextHighlighter {
     }
 
     private List<MiniCStyledTextSegment> highlightTokens(String source) {
-        List<Token> tokens = new Lexer(new SourceFile("guide-code.mc", source)).lex().tokens().stream()
-                .filter(token -> !"EOF".equals(token.kind().name()))
-                .filter(token -> token.range().endOffset() > token.range().startOffset())
-                .sorted(Comparator.comparingInt(token -> token.range().startOffset()))
+        List<UiLexerTokenVisualDto> tokens = api.tokenize("guide-code.mc", source).stream()
+                .filter(token -> !"EOF".equals(token.kind()))
+                .filter(token -> token.endOffset() > token.startOffset())
+                .sorted(Comparator.comparingInt(UiLexerTokenVisualDto::startOffset))
                 .toList();
         if (tokens.isEmpty()) {
             return List.of(new MiniCStyledTextSegment(source, MiniCTextStyleRole.CODE_PLAIN));
         }
         ArrayList<MiniCStyledTextSegment> segments = new ArrayList<>();
         int cursor = 0;
-        for (Token token : tokens) {
-            int start = safeOffset(source, token.range().startOffset());
-            int end = safeOffset(source, token.range().endOffset());
+        for (UiLexerTokenVisualDto token : tokens) {
+            int start = safeOffset(source, token.startOffset());
+            int end = safeOffset(source, token.endOffset());
             if (end <= start || start < cursor) {
                 continue;
             }
             if (start > cursor) {
                 MiniCLineTokenHighlighter.add(segments, source.substring(cursor, start), MiniCTextStyleRole.CODE_PLAIN);
             }
-            MiniCLineTokenHighlighter.add(segments, source.substring(start, end), styleMapper.roleFor(token.kind().name()));
+            MiniCLineTokenHighlighter.add(segments, source.substring(start, end), styleMapper.roleFor(token.kind()));
             cursor = end;
         }
         if (cursor < source.length()) {

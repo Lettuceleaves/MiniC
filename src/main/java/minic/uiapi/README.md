@@ -6,3 +6,6 @@ The Java package remains `minic.uiapi` for compatibility. Files are grouped by A
 - `core`: common DTOs shared by compiler observation and debugger views.
 - `visual`: compiler pipeline visual DTOs and builders.
 - `debug`: debugger DTOs, mappers, and view builders.
+
+Realtime editor analysis and source tokenization also live behind `api` facades so UI clients do not import compiler
+internals directly.

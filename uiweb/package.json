@@ -7,7 +7,8 @@
     "generate:mirror": "node tools/generate-uiweb.mjs",
     "verify:mirror": "node tools/verify-uiweb-mirror.mjs",
     "verify:placeholders": "node tools/verify-no-mirror-placeholders.mjs",
-    "verify:parity": "npm run verify:mirror && npm run verify:placeholders && npm run typecheck && npm run build",
+    "verify:editor-scroll": "node tools/verify-editor-scroll.mjs",
+    "verify:parity": "npm run verify:mirror && npm run verify:placeholders && npm run verify:editor-scroll && npm run typecheck && npm run build",
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "dev": "vite --host 127.0.0.1"

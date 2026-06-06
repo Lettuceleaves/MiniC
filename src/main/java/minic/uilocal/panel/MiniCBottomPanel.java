@@ -11,15 +11,14 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.TextFlow;
-import minic.compiler.lexer.Lexer;
-import minic.compiler.lexer.Token;
 import minic.uilocal.text.MiniCExplanationTextHighlighter;
 import minic.uilocal.text.MiniCSyntaxTextStyleMapper;
 import minic.uilocal.text.MiniCTextFlowFactory;
 import minic.uilocal.text.MiniCTextStyleRole;
 import minic.uilocal.text.MiniCTextStyles;
+import minic.uiapi.MiniCRealtimeAnalysisApi;
+import minic.uiapi.UiLexerTokenVisualDto;
 import minic.uiapi.UiSourceSpanDto;
-import minic.source.SourceFile;
 import minic.settings.MiniCSettings;
 
 import java.util.ArrayList;
@@ -42,6 +41,7 @@ public final class MiniCBottomPanel extends VBox {
     private final MiniCHoverInspector inspector;
     private final MiniCExplanationTextHighlighter explanationTextHighlighter = new MiniCExplanationTextHighlighter();
     private final MiniCSyntaxTextStyleMapper syntaxTextStyleMapper = new MiniCSyntaxTextStyleMapper();
+    private final MiniCRealtimeAnalysisApi realtimeAnalysisApi = new MiniCRealtimeAnalysisApi();
     private final Region resizeHandle = new Region();
     private final HBox body = new HBox(10);
     private final Button toggle = new Button("+");
@@ -230,10 +230,10 @@ public final class MiniCBottomPanel extends VBox {
             return List.of();
         }
         try {
-            return new Lexer(new SourceFile("hover-inspector-source.mc", source)).lex().tokens().stream()
-                    .filter(token -> !"EOF".equals(token.kind().name()))
-                    .filter(token -> token.range().endOffset() > token.range().startOffset())
-                    .sorted(Comparator.comparingInt(token -> token.range().startOffset()))
+            return realtimeAnalysisApi.tokenize("hover-inspector-source.mc", source).stream()
+                    .filter(token -> !"EOF".equals(token.kind()))
+                    .filter(token -> token.endOffset() > token.startOffset())
+                    .sorted(Comparator.comparingInt(UiLexerTokenVisualDto::startOffset))
                     .map(this::sourceTokenStyle)
                     .toList();
         } catch (RuntimeException ignored) {
@@ -241,11 +241,11 @@ public final class MiniCBottomPanel extends VBox {
         }
     }
 
-    private SourceTokenStyle sourceTokenStyle(Token token) {
+    private SourceTokenStyle sourceTokenStyle(UiLexerTokenVisualDto token) {
         return new SourceTokenStyle(
-                token.range().startOffset(),
-                token.range().endOffset(),
-                new ArrayList<>(syntaxTextStyleMapper.styleClassesFor(token.kind().name(), false))
+                token.startOffset(),
+                token.endOffset(),
+                new ArrayList<>(syntaxTextStyleMapper.styleClassesFor(token.kind(), false))
         );
     }
 

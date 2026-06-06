@@ -86,6 +86,24 @@ class MiniCUiApiRegressionTest {
         assertThat(api.currentStageVisualData().sourceText()).contains("return 4;");
     }
 
+    @Test
+    void exposesRealtimeAnalysisAndSourceTokenizationWithoutJavaFx() {
+        MiniCRealtimeAnalysisApi api = new MiniCRealtimeAnalysisApi();
+
+        UiRealtimeAnalysisDto result = api.analyze("realtime.mc", """
+                #define VALUE 8
+                int main() { return VALUE; }
+                """, 42);
+
+        assertThat(result.sourceName()).isEqualTo("realtime.mc");
+        assertThat(result.version()).isEqualTo(42);
+        assertThat(result.diagnostics()).isEmpty();
+        assertThat(result.tokens()).extracting(UiLexerTokenVisualDto::kind).contains("INT", "IDENTIFIER");
+        assertThat(api.tokenize("guide.mc", "int main() { return 0; }"))
+                .extracting(UiLexerTokenVisualDto::kind)
+                .contains("INT", "RETURN");
+    }
+
     private static void advanceTo(MiniCObservationApi api, String stage) {
         for (int guard = 0; !api.currentState().currentStage().equals(stage) && guard < 1000; guard++) {
             api.next();
