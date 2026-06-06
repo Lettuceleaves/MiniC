@@ -160,6 +160,11 @@ button:disabled {
   overflow: hidden;
 }
 
+.workbench-main.source-mode .source-area {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .main-content {
   display: flex;
   flex: 1 1 auto;

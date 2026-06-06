@@ -1,4 +1,5 @@
-import type { JavaMirrorFile, UiSemanticScopeVisualDto, UiStageVisualDto } from "../translation/javaMirror";
+import type { JavaMirrorFile } from "../translation/javaMirror";
+import type { UiSemanticScopeVisualDto, UiStageVisualDto } from "../translation/uiapi";
 import { MiniCSemanticScopeTreeLine } from "./MiniCSemanticScopeTreeLine";
 import type { MiniCSemanticScopeArrowDirection } from "./MiniCSemanticScopeTreeLine";
 

@@ -1,4 +1,5 @@
-import type { JavaMirrorFile, UiStageVisualDto } from "../translation/javaMirror";
+import type { JavaMirrorFile } from "../translation/javaMirror";
+import type { UiStageVisualDto } from "../translation/uiapi";
 import { MiniCAssemblyTextLine } from "./MiniCAssemblyTextLine";
 
 export const miniCAssemblyTextModelFactoryMirror = {

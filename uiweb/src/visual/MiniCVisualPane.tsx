@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JavaMirrorFile } from "../translation/javaMirror";
-import type { UiAssemblyLineVisualDto, UiIrLineVisualDto, UiStageVisualDto } from "../translation/uiapi";
+import type { ReactElement } from "react";
+import type { UiAssemblyLineVisualDto, UiIrLineVisualDto, UiSemanticScopeVisualDto, UiStageVisualDto } from "../translation/uiapi";
+import { MiniCAssemblyTextHighlighter } from "../text/MiniCAssemblyTextHighlighter";
+import { MiniCIrTextHighlighter } from "../text/MiniCIrTextHighlighter";
+import { textFlow } from "../text/MiniCTextFlowFactory";
 import type { MiniCWorkbenchSnapshot, MiniCWorkbenchViewModel } from "../workbench/MiniCWorkbenchViewModel";
+import { MiniCAssemblyTextModelFactory } from "./MiniCAssemblyTextModelFactory";
+import type { MiniCAssemblyTextLine } from "./MiniCAssemblyTextLine";
+import { MiniCSemanticScopeTreeModelFactory } from "./MiniCSemanticScopeTreeModelFactory";
+import type { MiniCSemanticScopeTreeLine } from "./MiniCSemanticScopeTreeLine";
 import { MiniCVisualAstGraphRenderer } from "./MiniCVisualAstGraphRenderer";
 import { MiniCVisualModelFactory } from "./MiniCVisualModelFactory";
 import { MiniCVisualSourceRows } from "./MiniCVisualSourceRows";
@@ -462,33 +470,50 @@ export interface MiniCVisualPaneProps {
 }
 
 const DEFAULT_AST_ZOOM = 1;
-const MIN_AST_ZOOM = 0.5;
-const MAX_AST_ZOOM = 2;
-const AST_ZOOM_STEP = 0.1;
+const MIN_AST_ZOOM = 0.05;
+const MAX_AST_ZOOM = 1;
+const AST_ZOOM_STEP = 0.025;
 
 export function MiniCVisualPane({ viewModel }: MiniCVisualPaneProps) {
   const snapshot = useVisualSnapshot(viewModel);
   const [astZoom, setAstZoomState] = useState(DEFAULT_AST_ZOOM);
-  const visual = visualForStage(snapshot);
   const modelFactory = useMemo(() => new MiniCVisualModelFactory(), []);
+  const semanticScopeTreeModelFactory = useMemo(() => new MiniCSemanticScopeTreeModelFactory(), []);
+  const assemblyTextModelFactory = useMemo(() => new MiniCAssemblyTextModelFactory(), []);
+  const irTextHighlighter = useMemo(() => new MiniCIrTextHighlighter(), []);
+  const assemblyTextHighlighter = useMemo(() => new MiniCAssemblyTextHighlighter(), []);
+  const currentStage = snapshot.currentStageData?.stage ?? "pending";
+  const stage = snapshot.selectedVisualStage.length > 0 ? snapshot.selectedVisualStage : currentStage;
+  const visual = visualForStage(stage, snapshot);
 
   const setAstZoom = (value: number): void => {
     setAstZoomState(Math.max(MIN_AST_ZOOM, Math.min(MAX_AST_ZOOM, value)));
   };
 
+  const columns = stageColumns(
+    stage,
+    visual,
+    astZoom,
+    setAstZoom,
+    snapshot,
+    modelFactory,
+    semanticScopeTreeModelFactory,
+    assemblyTextModelFactory,
+    irTextHighlighter,
+    assemblyTextHighlighter,
+  );
+
   return (
     <section className="visual-canvas" data-java-source={miniCVisualPaneMirror.javaPath}>
-      <header className="pane-head">{stageName(visual?.stage ?? snapshot.currentState?.currentStage ?? "source")}</header>
+      <header className="pane-head">图形视图 · {stageName(stage)}{stage === currentStage ? "" : " · 快照"}</header>
       <div className="stage-flow">
         <section className="stage-flow-column">
-          <h2 className="stage-flow-title">源码与阶段数据</h2>
-          <div className="stage-flow-body">{sourceRows(visual)}</div>
+          <h2 className="stage-flow-title">{columns.leftTitle}</h2>
+          <div className="stage-flow-body">{columns.left}</div>
         </section>
         <section className="stage-flow-column">
-          <h2 className="stage-flow-title">可视化</h2>
-          <div className="stage-flow-body">
-            {visualContent(visual, astZoom, setAstZoom, modelFactory)}
-          </div>
+          <h2 className="stage-flow-title">{columns.rightTitle}</h2>
+          <div className="stage-flow-body">{columns.right}</div>
         </section>
       </div>
     </section>
@@ -497,12 +522,11 @@ export function MiniCVisualPane({ viewModel }: MiniCVisualPaneProps) {
 
 MiniCVisualPane.mirror = miniCVisualPaneMirror;
 
-export function visualForStage(snapshot: MiniCWorkbenchSnapshot): UiStageVisualDto | null {
-  const selected = snapshot.selectedVisualStage;
-  if (selected === "lexer") return snapshot.lexerVisualData;
-  if (selected === "parser") return snapshot.astVisualData;
-  if (selected === "semantic") return snapshot.semanticVisualData;
-  if (selected === "codegen") return snapshot.codegenVisualData;
+export function visualForStage(stage: string, snapshot: MiniCWorkbenchSnapshot): UiStageVisualDto | null {
+  if (stage === "lexer") return snapshot.lexerVisualData;
+  if (stage === "parser") return snapshot.astVisualData;
+  if (stage === "semantic") return snapshot.semanticVisualData;
+  if (stage === "codegen") return snapshot.codegenVisualData;
   return snapshot.currentStageVisualData ?? snapshot.lexerVisualData ?? snapshot.astVisualData;
 }
 
@@ -526,6 +550,8 @@ export function stageName(stage: string): string {
       return "工具链";
     case "execution":
       return "执行";
+    case "pending":
+      return "等待中";
     default:
       return stage;
   }
@@ -550,58 +576,12 @@ export function sourceRows(visual: UiStageVisualDto | null) {
   );
 }
 
-export function fallbackRows() {
-  return <p className="body-text">等待开始观测会话</p>;
-}
-
-function visualContent(
-  visual: UiStageVisualDto | null,
-  astZoom: number,
-  setAstZoom: (value: number) => void,
-  modelFactory: MiniCVisualModelFactory,
-) {
-  if (!visual) {
-    return fallbackRows();
-  }
-  if (visual.astRoot) {
-    return (
-      <div className="ast-zoom-box">
-        <div className="ast-zoom-controls">
-          <button className="control-secondary" onClick={() => setAstZoom(zoomAstOut(astZoom))} type="button">
-            -
-          </button>
-          <span className="ast-zoom-label">AST</span>
-          <input
-            className="ast-zoom-slider"
-            max={MAX_AST_ZOOM}
-            min={MIN_AST_ZOOM}
-            onChange={(event) => setAstZoom(Number(event.target.value))}
-            step={AST_ZOOM_STEP}
-            type="range"
-            value={astZoom}
-          />
-          <span className="ast-zoom-value">{Math.round(astZoom * 100)}%</span>
-          <button className="control-secondary" onClick={() => setAstZoom(zoomAstIn(astZoom))} type="button">
-            +
-          </button>
-        </div>
-        <MiniCVisualAstGraphRenderer semanticMasks={visual.visualType === "semantic-scope"} visual={visual} zoom={astZoom} />
-      </div>
-    );
-  }
-  if (visual.lexerTokens.length > 0) {
-    return tokenRows(visual);
-  }
-  if (visual.irLines.length > 0) {
-    return codegenIrRows(visual);
-  }
-  if (visual.assemblyLines.length > 0) {
-    return assemblyRows(visual);
-  }
+export function fallbackRows(items: readonly { readonly label: string; readonly hot: boolean }[] = []) {
+  const rows = items.length > 0 ? items : [{ label: "等待开始观测会话", hot: true }];
   return (
     <div>
-      {modelFactory.createFromVisual(visual).map((item) => (
-        <div className={`visual-node${item.hot ? " hot" : ""}`} key={item.label}>
+      {rows.map((item, index) => (
+        <div className={`visual-node${item.hot ? " hot" : ""}`} key={`${item.label}-${index}`}>
           {item.label}
         </div>
       ))}
@@ -609,33 +589,220 @@ function visualContent(
   );
 }
 
-export function codegenIrRows(visual: UiStageVisualDto) {
-  return <div>{visual.irLines.map((line) => irRow(line))}</div>;
+interface StageColumns {
+  readonly leftTitle: string;
+  readonly left: ReactElement;
+  readonly rightTitle: string;
+  readonly right: ReactElement;
 }
 
-export function irRow(line: UiIrLineVisualDto) {
+function stageColumns(
+  stage: string,
+  visual: UiStageVisualDto | null,
+  astZoom: number,
+  setAstZoom: (value: number) => void,
+  snapshot: MiniCWorkbenchSnapshot,
+  modelFactory: MiniCVisualModelFactory,
+  semanticScopeTreeModelFactory: MiniCSemanticScopeTreeModelFactory,
+  assemblyTextModelFactory: MiniCAssemblyTextModelFactory,
+  irTextHighlighter: MiniCIrTextHighlighter,
+  assemblyTextHighlighter: MiniCAssemblyTextHighlighter,
+): StageColumns {
+  if (!visual) {
+    return {
+      leftTitle: stage,
+      left: fallbackRows(modelFactory.create(snapshot.currentStageData, snapshot.globalData)),
+      rightTitle: "输出",
+      right: <div />,
+    };
+  }
+
+  switch (stage) {
+    case "preprocess":
+      return {
+        leftTitle: "源码",
+        left: sourceRows(visual),
+        rightTitle: "预处理后产物",
+        right: preprocessRows(visual),
+      };
+    case "lexer":
+      return {
+        leftTitle: "预处理后产物",
+        left: sourceRows(visual),
+        rightTitle: "Token",
+        right: tokenRows(visual),
+      };
+    case "parser":
+      return {
+        leftTitle: "Token",
+        left: tokenRows(snapshot.lexerVisualData),
+        rightTitle: "AST",
+        right: astGraph(visual, astZoom, setAstZoom, false),
+      };
+    case "semantic":
+      return {
+        leftTitle: "AST",
+        left: astGraph(visual, astZoom, setAstZoom, true),
+        rightTitle: "作用域",
+        right: activeScopeRows(visual, semanticScopeTreeModelFactory),
+      };
+    case "codegen":
+      return {
+        leftTitle: "IR",
+        left: codegenIrRows(visual, irTextHighlighter),
+        rightTitle: "汇编",
+        right: assemblyRows(visual, assemblyTextModelFactory, assemblyTextHighlighter),
+      };
+    case "source":
+      return {
+        leftTitle: "源码",
+        left: sourceRows(visual),
+        rightTitle: "输出",
+        right: monoRows(["源码已加载。"]),
+      };
+    case "ir":
+      return {
+        leftTitle: "AST",
+        left: astGraph(visual, astZoom, setAstZoom, true),
+        rightTitle: "IR",
+        right: globalRows("ir", snapshot),
+      };
+    case "toolchain":
+      return {
+        leftTitle: "汇编",
+        left: assemblyRows(snapshot.codegenVisualData, assemblyTextModelFactory, assemblyTextHighlighter),
+        rightTitle: "工具链",
+        right: globalRows("toolchain", snapshot),
+      };
+    case "execution":
+      return {
+        leftTitle: "STDIN",
+        left: executionInputPane(snapshot.executionInputDraft),
+        rightTitle: "输出",
+        right: executionOutputRows(snapshot),
+      };
+    default:
+      return {
+        leftTitle: stage,
+        left: fallbackRows(modelFactory.create(snapshot.currentStageData, snapshot.globalData)),
+        rightTitle: "输出",
+        right: <div />,
+      };
+  }
+}
+
+function astGraph(
+  visual: UiStageVisualDto,
+  astZoom: number,
+  setAstZoom: (value: number) => void,
+  semanticMasks: boolean,
+) {
   return (
-    <div className={`debug-code-row${line.active ? " active" : ""}`} key={line.lineNumber}>
-      <span className="debug-code-line-number">{line.lineNumber}</span>
-      <code className="debug-code-text">{line.text}</code>
+    <div className="ast-zoom-box">
+      <div className="ast-zoom-controls">
+        <span className="ast-zoom-label">缩放</span>
+        <input
+          className="ast-zoom-slider"
+          max={MAX_AST_ZOOM}
+          min={MIN_AST_ZOOM}
+          onChange={(event) => setAstZoom(Number(event.target.value))}
+          step={AST_ZOOM_STEP}
+          type="range"
+          value={astZoom}
+        />
+        <span className="ast-zoom-value">{astZoomPercent(astZoom)}</span>
+      </div>
+      <MiniCVisualAstGraphRenderer semanticMasks={semanticMasks} visual={visual} zoom={astZoom} />
     </div>
   );
 }
 
-export function assemblyRows(visual: UiStageVisualDto) {
-  return <div>{visual.assemblyLines.map((line) => assemblyRow(line))}</div>;
+function preprocessRows(visual: UiStageVisualDto | null) {
+  if (!visual || visual.genericItems.length === 0) {
+    return monoRows(["预处理产物会显示在这里。"]);
+  }
+  return monoRows(visual.genericItems);
 }
 
-export function assemblyRow(line: UiAssemblyLineVisualDto) {
+function globalRows(stage: string, snapshot: MiniCWorkbenchSnapshot) {
+  if (snapshot.globalData === null) {
+    return monoRows(["暂无数据。"]);
+  }
+  const rows = stage === "ir" ? snapshot.globalData.irSummary : stage === "toolchain" ? snapshot.globalData.artifactSummary : [];
+  return monoRows(rows.length > 0 ? rows : [`${stageName(stage)} 暂无输出。`]);
+}
+
+function executionInputPane(value: string) {
+  return <textarea className="execution-stdin" readOnly value={value} />;
+}
+
+function executionOutputRows(snapshot: MiniCWorkbenchSnapshot) {
+  const rows = snapshot.globalData?.executionOutputSummary ?? [];
+  return monoRows(rows.length > 0 ? rows : ["执行输出会显示在这里。"]);
+}
+
+export function codegenIrRows(visual: UiStageVisualDto | null, highlighter = new MiniCIrTextHighlighter()) {
+  if (!visual || visual.irLines.length === 0) {
+    return <div>{textRow("IR 暂无输出。", "assembly-row", "assembly-text")}</div>;
+  }
+  return <div>{visual.irLines.map((line) => irRow(line, highlighter))}</div>;
+}
+
+export function irRow(line: UiIrLineVisualDto, highlighter = new MiniCIrTextHighlighter()) {
+  return (
+    <div className={`assembly-row${line.active ? " active" : ""}`} key={line.lineNumber}>
+      <span className={`assembly-line-number${line.active ? " active" : ""}`}>{line.lineNumber}</span>
+      {textFlow(highlighter.highlight(line.text), `assembly-text${line.active ? " active" : ""}`, line.active)}
+    </div>
+  );
+}
+
+export function assemblyRows(
+  visual: UiStageVisualDto | null,
+  modelFactory = new MiniCAssemblyTextModelFactory(),
+  highlighter = new MiniCAssemblyTextHighlighter(),
+) {
+  const lines = modelFactory.create(visual);
+  if (lines.length === 0) {
+    return <div>{textRow("汇编尚未就绪", "assembly-row", "assembly-text")}</div>;
+  }
+  return <div>{lines.map((line) => assemblyRow(line, highlighter))}</div>;
+}
+
+export function assemblyRow(line: UiAssemblyLineVisualDto | MiniCAssemblyTextLine, highlighter = new MiniCAssemblyTextHighlighter()) {
   return (
     <div className="assembly-row" key={line.lineNumber}>
       <span className={`assembly-line-number${line.active ? " active" : ""}`}>{line.lineNumber}</span>
-      <code className={`assembly-text${line.active ? " active" : ""}`}>{line.text}</code>
+      {textFlow(highlighter.highlight(line.text), `assembly-text${line.active ? " active" : ""}`, line.active)}
     </div>
   );
 }
 
-export function tokenRows(visual: UiStageVisualDto) {
+function activeScopeRows(visual: UiStageVisualDto | null, factory: MiniCSemanticScopeTreeModelFactory) {
+  if (!visual || !visual.semanticRoot) {
+    return monoRows(["暂无活动作用域。"]);
+  }
+  return (
+    <div>
+      {factory.create(visual).map((line, index) => semanticRow(line, index))}
+    </div>
+  );
+}
+
+function semanticRow(line: MiniCSemanticScopeTreeLine, index: number) {
+  const prefix = "  ".repeat(line.depth);
+  const text = `${prefix}^ ${line.label}  ${line.symbols.join(", ")}`;
+  return (
+    <div className={`semantic-row${line.active ? " active" : ""}`} key={`${line.label}-${index}`}>
+      <span className={`semantic-scope-line${line.active ? " active" : ""}${line.onActivePath ? " path" : ""}`}>{text}</span>
+    </div>
+  );
+}
+
+export function tokenRows(visual: UiStageVisualDto | null) {
+  if (!visual || visual.lexerTokens.length === 0) {
+    return <div>{textRow("Token 尚未就绪", "token-row", "token-text")}</div>;
+  }
   return (
     <div>
       {visual.lexerTokens.map((token, index) => (
@@ -649,6 +816,26 @@ export function tokenRows(visual: UiStageVisualDto) {
       ))}
     </div>
   );
+}
+
+function monoRows(rows: readonly string[]) {
+  return (
+    <div>
+      {rows.map((row, index) => textRow(row, "assembly-row", "assembly-text", index))}
+    </div>
+  );
+}
+
+function textRow(text: string, rowStyle: string, textStyle: string, index = 0) {
+  return (
+    <div className={rowStyle} key={`${text}-${index}`}>
+      <span className={textStyle}>{text.length > 0 ? text : " "}</span>
+    </div>
+  );
+}
+
+function astZoomPercent(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
 }
 
 function useVisualSnapshot(viewModel: MiniCWorkbenchViewModel): MiniCWorkbenchSnapshot {

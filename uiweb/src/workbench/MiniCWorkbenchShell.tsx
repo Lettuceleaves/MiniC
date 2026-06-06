@@ -8,7 +8,7 @@ import type { JavaMirrorFile } from "../translation/javaMirror";
 import MiniCVisualPane from "../visual/MiniCVisualPane";
 import { MiniCSamplePrograms } from "../editor/MiniCSamplePrograms";
 import { MiniCSidebarView } from "./MiniCSidebarView";
-import { MiniCWorkbenchViewModel } from "./MiniCWorkbenchViewModel";
+import { MiniCWorkbenchViewModel, type MiniCWorkbenchSnapshot } from "./MiniCWorkbenchViewModel";
 
 export const miniCWorkbenchShellMirror = {
   "javaPath": "src/main/java/minic/uilocal/workbench/MiniCWorkbenchShell.java",
@@ -455,6 +455,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   const [editingTabName, setEditingTabName] = useState("");
   const activeDocument = documents[Math.min(activeDocumentIndex, Math.max(0, documents.length - 1))] ?? documents[0];
   const activeModel = activeDocument.viewModel;
+  const activeSnapshot = useWorkbenchShellSnapshot(activeModel);
 
   useEffect(() => {
     persistOpenDocuments(documents);
@@ -533,7 +534,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   return (
     <section className="workbench-root" data-java-source={miniCWorkbenchShellMirror.javaPath} aria-label={title}>
       {activityBar(activeSection, setActiveSection)}
-      {sectionContent(activeSection, activeModel, {
+      {sectionContent(activeSection, activeModel, activeSnapshot, {
         activeDocument,
         activeDocumentIndex,
         documents,
@@ -549,7 +550,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
         saveDocument,
         addDocument,
       })}
-      {statusBar(activeDocument, activeModel)}
+      {statusBar(activeDocument, activeSnapshot)}
     </section>
   );
 }
@@ -594,10 +595,15 @@ function activityBar(activeSection: ActivitySectionId, selectActivitySection: (s
   );
 }
 
-function sectionContent(section: ActivitySectionId, viewModel: MiniCWorkbenchViewModel, actions: ShellActions) {
+function sectionContent(
+  section: ActivitySectionId,
+  viewModel: MiniCWorkbenchViewModel,
+  snapshot: MiniCWorkbenchSnapshot,
+  actions: ShellActions,
+) {
   switch (section) {
     case "CODE":
-      return workbenchBody(viewModel, actions);
+      return workbenchBody(viewModel, snapshot, actions);
     case "DEBUG":
       return <MiniCDebugPane viewModel={viewModel} sourceView={<MiniCSourceLoaderView viewModel={viewModel} />} />;
     case "SETTINGS":
@@ -607,28 +613,43 @@ function sectionContent(section: ActivitySectionId, viewModel: MiniCWorkbenchVie
   }
 }
 
-function workbenchBody(viewModel: MiniCWorkbenchViewModel, actions: ShellActions) {
+function workbenchBody(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWorkbenchSnapshot, actions: ShellActions) {
+  const sourceVisible = sourceMode(snapshot);
   return (
     <main className="workbench-body">
       <MiniCSidebarView viewModel={viewModel} />
       <section className="editor-area">
         {tabs(actions)}
-        <div className="workbench-main">
-          <div className="source-area">
-            <MiniCSourceLoaderView
-              viewModel={viewModel}
-              onOpenDocument={(name, source) => actions.addDocument(name, source, name)}
-              onSaveDocument={(name, source) => actions.saveDocument(name, source)}
-            />
-          </div>
-          <div className="main-content">
-            <MiniCVisualPane viewModel={viewModel} />
-          </div>
+        <div className={`workbench-main ${sourceVisible ? "source-mode" : "visual-mode"}`}>
+          {sourceVisible ? (
+            <div className="source-area">
+              <MiniCSourceLoaderView
+                viewModel={viewModel}
+                onOpenDocument={(name, source) => actions.addDocument(name, source, name)}
+                onSaveDocument={(name, source) => actions.saveDocument(name, source)}
+              />
+            </div>
+          ) : (
+            <div className="main-content">
+              <MiniCVisualPane viewModel={viewModel} />
+            </div>
+          )}
         </div>
         <MiniCBottomPanel viewModel={viewModel} />
       </section>
     </main>
   );
+}
+
+function sourceMode(snapshot: MiniCWorkbenchSnapshot): boolean {
+  const selectedStage = snapshot.selectedVisualStage;
+  if (selectedStage === "source") {
+    return true;
+  }
+  if (selectedStage.length > 0) {
+    return false;
+  }
+  return !snapshot.sessionStarted || snapshot.currentState === null || snapshot.currentState.currentStage === "source";
 }
 
 function tabs(actions: ShellActions) {
@@ -696,8 +717,7 @@ function settingsPage() {
   );
 }
 
-function statusBar(document: DocumentTab, viewModel: MiniCWorkbenchViewModel) {
-  const snapshot = viewModel.snapshot();
+function statusBar(document: DocumentTab, snapshot: MiniCWorkbenchSnapshot) {
   return (
     <footer className="status-bar">
       <span>
@@ -705,6 +725,19 @@ function statusBar(document: DocumentTab, viewModel: MiniCWorkbenchViewModel) {
       </span>
     </footer>
   );
+}
+
+function useWorkbenchShellSnapshot(viewModel: MiniCWorkbenchViewModel): MiniCWorkbenchSnapshot {
+  const [snapshot, setSnapshot] = useState(() => viewModel.snapshot());
+
+  useEffect(() => {
+    setSnapshot(viewModel.snapshot());
+    return viewModel.subscribe(() => {
+      setSnapshot(viewModel.snapshot());
+    });
+  }, [viewModel]);
+
+  return snapshot;
 }
 
 function restorePersistedDocuments(): readonly DocumentTab[] {
