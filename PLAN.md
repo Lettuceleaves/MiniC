@@ -4,12 +4,7 @@
 
 下一步任务：规划 `0.5.1` Debugger UI 细化和运行时数据结构深度投影。
 
-`0.1.0` 编译闭环总结见 [version/0.1.0.md](version/0.1.0.md)。
-`0.2.0` 结构化观测阶段记录见 [version/0.2.0.md](version/0.2.0.md)。
-`0.3.0` JavaFX UI 首版记录见 [version/0.3.0.md](version/0.3.0.md)。
-`0.3.1` 阶段专属图形化增强记录见 [version/0.3.1.md](version/0.3.1.md)。
-`0.4.0` C 子集语法和预编译扩展记录见 [version/0.4.0.md](version/0.4.0.md)。
-`0.5.0` 教学型可视化 Debugger 记录见 [version/0.5.0.md](version/0.5.0.md)。
+历史阶段记录已从独立版本目录清理；当前能力和后续约束以 `README.md`、`SPEC.md`、`docs/GUIDE.md` 和 `docs/uiweb-parity/strict-acceptance.md` 为准。
 
 ## 执行规则
 
@@ -684,7 +679,6 @@ Debugger 基于 IR Interpreter 执行，并使用“状态快照 + 事件日志�
 - `PLAN.md`
 - `SPEC.md`
 - `samples/**`
-- `version/0.5.0.md`
 - 必要时测试文件
 
 验收：
@@ -693,7 +687,6 @@ Debugger 基于 IR Interpreter 执行，并使用“状态快照 + 事件日志�
 - 新增数组/矩阵样例。
 - 新增链式图样例。
 - 新增混合结构样例。
-- 新增 `version/0.5.0.md`。
 - README 当前状态记录 0.5.0 Debugger 能力。
 - `./gradlew test` 通过。
 

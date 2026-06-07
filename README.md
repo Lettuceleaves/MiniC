@@ -2,20 +2,17 @@
 
 MiniC 是一个用于学习编译原理的 Java 版 C 语言子集编译器。当前已经完成从源码到 Windows x64 可执行文件的基础编译闭环，并完成 `0.2.0` 结构化编译观测阶段。
 
-当前版本：`0.4.0`。
+当前版本：`0.5.0`。
 
 ## 文档入口
 
 - [SPEC.md](SPEC.md)：项目规范、语言范围、架构约束、代码和测试要求。
 - [PLAN.md](PLAN.md)：当前 agent 小步执行计划。
-- [version/0.1.0.md](version/0.1.0.md)：`0.1.0` 编译闭环阶段总结。
-- [version/0.2.0.md](version/0.2.0.md)：`0.2.0` 结构化观测阶段记录。
-- [version/0.3.0.md](version/0.3.0.md)：`0.3.0` JavaFX UI 首版阶段记录。
-- [version/0.3.1.md](version/0.3.1.md)：`0.3.1` 阶段专属图形化增强记录。
-- [version/0.4.0.md](version/0.4.0.md)：`0.4.0` C 子集语法和预编译扩展阶段记录。
-- [version/0.5.0.md](version/0.5.0.md)：`0.5.0` 教学型可视化 Debugger 阶段记录。
+- [docs/GUIDE.md](docs/GUIDE.md)：Workbench 使用指南和功能入口。
 - [docs/text-style-system.md](docs/text-style-system.md)：Workbench 文本样式抽象、主题配置和迁移指南。
+- [docs/data-structure-visualization-usage.md](docs/data-structure-visualization-usage.md)：数据结构可视化注释和示例。
 - [docs/testing-strategy.md](docs/testing-strategy.md)：默认回归套件的粗粒度测试策略和 50 项预算。
+- [docs/uiweb-parity/strict-acceptance.md](docs/uiweb-parity/strict-acceptance.md)：UIWeb 与 UILocal 严格一致性验收标准。
 
 ## 当前状态
 
@@ -43,7 +40,7 @@ UI 交互细化暂缓，后续可继续补充 AST/Scope 节点点击定位源码
 UI 风格继续参考：
 
 ```text
-C:\Users\Administrator\Desktop\styleOfMiniC\index.html
+<style-prototype-root>\index.html
 ```
 
 首版 UI 只依赖 `minic.uiapi.*`，不直接访问 compiler、runtime stepper 或 session 内部对象。
@@ -51,13 +48,27 @@ C:\Users\Administrator\Desktop\styleOfMiniC\index.html
 ## 启动 JavaFX UI
 
 ```powershell
-$env:JAVA_HOME='E:\projects\MiniC\.local\tools\jdk-21.0.10+7'
-$env:PATH='E:\projects\MiniC\.local\tools\jdk-21.0.10+7\bin;' + $env:PATH
-$env:GRADLE_USER_HOME='E:\projects\MiniC\.gradle-home'
+$env:JAVA_HOME=(Resolve-Path '.local\tools\jdk-21.0.10+7').Path
+$env:PATH=(Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
+$env:GRADLE_USER_HOME=(Resolve-Path '.gradle-home').Path
 .\gradlew.bat runUi
 ```
 
 `runUi` 是前台 JavaFX 进程，窗口未关闭前 Gradle 会一直显示 `:runUi EXECUTING`，这是正常状态；关闭 UI 窗口后任务才会结束。
+
+## 启动 BS 架构
+
+根目录脚本会同时启动 UIAPI HTTP 服务和 UIWeb 前端，并把日志写入 `temp\tools\bs`。
+
+```powershell
+pwsh -ExecutionPolicy Bypass -File .\start-bs.ps1
+```
+
+默认访问地址：
+
+```text
+http://127.0.0.1:5173/
+```
 
 ## UI API 最小示例
 
@@ -88,9 +99,9 @@ api.pause();
 推荐使用项目内本地 JDK 和 Gradle 缓存：
 
 ```powershell
-$env:JAVA_HOME='E:\projects\MiniC\.local\tools\jdk-21.0.10+7'
-$env:PATH='E:\projects\MiniC\.local\tools\jdk-21.0.10+7\bin;' + $env:PATH
-$env:GRADLE_USER_HOME='E:\projects\MiniC\.gradle-home'
+$env:JAVA_HOME=(Resolve-Path '.local\tools\jdk-21.0.10+7').Path
+$env:PATH=(Join-Path $env:JAVA_HOME 'bin') + ';' + $env:PATH
+$env:GRADLE_USER_HOME=(Resolve-Path '.gradle-home').Path
 .\gradlew.bat test
 ```
 
@@ -101,13 +112,13 @@ Windows x64 可执行文件生成依赖 Visual Studio 2022 Build Tools 的 C++ �
 在普通 PowerShell 中可通过 `VsDevCmd.bat` 临时启用 x64 工具链环境：
 
 ```powershell
-cmd /c "`"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat`" -arch=x64 && where ml64 && where link"
+cmd /c "`"%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat`" -arch=x64 && where ml64 && where link"
 ```
 
 编译样例并生成可执行文件：
 
 ```powershell
-cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && set "JAVA_HOME=E:\projects\MiniC\.local\tools\jdk-21.0.10+7" && set "PATH=E:\projects\MiniC\.local\tools\jdk-21.0.10+7\bin;%PATH%" && set "GRADLE_USER_HOME=E:\projects\MiniC\.gradle-home" && .\gradlew --no-daemon run --args="compile samples\main.mc --out-dir build\minic --emit-asm --ml64 \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\ml64.exe\" --link \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\link.exe\""'
+cmd /c '"%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && set "JAVA_HOME=%CD%\.local\tools\jdk-21.0.10+7" && set "PATH=%CD%\.local\tools\jdk-21.0.10+7\bin;%PATH%" && set "GRADLE_USER_HOME=%CD%\.gradle-home" && .\gradlew --no-daemon run --args="compile samples\main.mc --out-dir build\minic --emit-asm --ml64 \"ml64\" --link \"link\""'
 ```
 
 成功后产物位于：
@@ -128,7 +139,7 @@ $LASTEXITCODE
 也可以使用 `compile-run` 一次完成编译、链接、运行，并捕获 stdout、stderr 和退出码：
 
 ```powershell
-cmd /c '"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && set "JAVA_HOME=E:\projects\MiniC\.local\tools\jdk-21.0.10+7" && set "PATH=E:\projects\MiniC\.local\tools\jdk-21.0.10+7\bin;%PATH%" && set "GRADLE_USER_HOME=E:\projects\MiniC\.gradle-home" && .\gradlew --no-daemon run --args="compile-run samples\printf.mc --out-dir build\minic --emit-asm --ml64 \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\ml64.exe\" --link \"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\MSVC\14.44.35207\bin\Hostx64\x64\link.exe\""'
+cmd /c '"%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && set "JAVA_HOME=%CD%\.local\tools\jdk-21.0.10+7" && set "PATH=%CD%\.local\tools\jdk-21.0.10+7\bin;%PATH%" && set "GRADLE_USER_HOME=%CD%\.gradle-home" && .\gradlew --no-daemon run --args="compile-run samples\printf.mc --out-dir build\minic --emit-asm --ml64 \"ml64\" --link \"link\""'
 ```
 
 ## 协作规则摘要

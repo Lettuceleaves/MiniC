@@ -396,27 +396,7 @@ tail->next = head;
 
 ## 8. 示例文件
 
-当前仓库里有这些可直接打开的样例：
-
-| 文件 | 说明 |
-|---|---|
-| `samples/visual_scalar.mc` | 标量 |
-| `samples/visual_pointer.mc` | 指针 |
-| `samples/visual_pointer_chain.mc` | 多级指针 |
-| `samples/visual_array.mc` | 一维数组 |
-| `samples/visual_pointer_array.mc` | 指针数组 |
-| `samples/visual_matrix.mc` | 矩阵 |
-| `samples/visual_struct.mc` | 结构体 |
-| `samples/visual_struct_pointer.mc` | 结构体指针 |
-| `samples/visual_struct_pointer_chain.mc` | 结构体指针链 |
-| `samples/visual_struct_array.mc` | 结构体数组 |
-| `samples/visual_struct_matrix.mc` | 结构体矩阵 |
-| `samples/visual_struct_list.mc` | 结构体链表 |
-| `samples/visual_lru_list.mc` | LRU/双向链表 |
-| `samples/visual_binary_tree.mc` | 二叉树 |
-| `samples/visual_hash_chain_table.mc` | 拉链法哈希表 |
-| `samples/visual_heap.mc` | 堆数组 |
-| `samples/visual_fenwick_tree.mc` | 树状数组 |
+仓库中的独立样例已收敛为少量基础程序，数据结构可视化不再维护一组单独的 `samples/visual_*.mc` 文件。需要验证某个结构时，建议直接从本文的注解写法和内联片段出发，在 UI 中新建临时源码或在测试中构造对应源码字符串。
 
 ## 9. 建议写法
 

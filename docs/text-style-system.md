@@ -142,6 +142,30 @@ Collection<String> styles = syntaxTextStyleMapper.styleClassesFor(
 | `IDENTIFIER` | `CODE_IDENTIFIER` |
 | 其他 token | `CODE_OPERATOR` |
 
+### 给说明文本做高亮
+
+说明文本、教学解释、debug metadata 和 tooltip 中经常混合中文说明与代码片段。调用方使用 `MiniCExplanationTextHighlighter`，再交给 `MiniCTextFlowFactory` 渲染。
+
+```java
+private final MiniCExplanationTextHighlighter explanationTextHighlighter =
+        new MiniCExplanationTextHighlighter();
+
+TextFlow flow = MiniCTextFlowFactory.textFlow(
+        explanationTextHighlighter.highlight("说明: return %1 == 3，并写入 rax。"),
+        "debug-section-line",
+        false
+);
+```
+
+说明高亮器的边界：
+
+1. 普通自然语言保持 `BODY`，避免整段说明被染成代码。
+2. C 关键字、IR 操作词和汇编 mnemonic 使用 `CODE_KEYWORD`。
+3. `%1`、`rax`、`values[0]` 等代码式标识符使用 `CODE_IDENTIFIER`。
+4. 数字、布尔、null 和字符串/字符字面量使用 `CODE_LITERAL` / `CODE_STRING`。
+5. `==`、`->`、括号、逗号、分号等符号使用 `CODE_OPERATOR`。
+6. 类型名、IR/ASM 标签、`.data` / `$label` 等标签式文本使用 `CODE_TYPE`。
+
 ## 主题配置
 
 主题 JSON 仍然兼容现有 key，例如 `text.body`、`syntax.keyword`、`background.running`。文本样式系统会先查新的 `textStyle.*` 和 `textStyleState.*`，没有配置时回退到旧 key。
@@ -296,9 +320,16 @@ DEBUG_REGISTER("debug.register", "text.body", "mono", "bold", "normal")
 - IR 临时值、局部名、函数名使用 identifier/type 相关 role。
 - Assembly 行高亮 mnemonic、寄存器、directive/label、数字字面量和 `;` 注释。
 
+说明文本也已接入以下入口：
+
+- `MiniCBottomPanel` 右侧“说明”文本。
+- `MiniCBottomPanel` 左侧源码片段；源码 token 使用 `MiniCSyntaxTextStyleMapper`，当前说明 range 继续叠加 `.masked`。
+- `MiniCDebugPane` 的 split plain view、metadata/data/AST/IR/ASM 摘要行。
+- `MiniCDebugPane` 中 data structure card 和图形元素的 explanation tooltip。
+- `MiniCInspectorView` 的当前状态、当前项和累计输出正文。
+
 后续建议逐步迁移：
 
-- `MiniCVisualPane` 中 token、lexer、AST、semantic 等非 IR/Assembly 文本。
-- `MiniCDebugPane` 中 metadata、visual label、变量树等非 IR/Assembly 文本。
-- `MiniCInspectorView`、`MiniCBottomPanel`、`MiniCSourceView` 中的普通正文、标题、行号。
+- `MiniCVisualPane`、`MiniCDebugPane` 中图形 label、坐标行号等非说明文本。
+- `MiniCSourceView`、workbench 导航、sidebar stage detail 中的普通正文、标题、行号。
 - CSS 中仍直接定义 `-fx-text-fill`、`-fx-fill`、`-fx-font-family`、`-fx-font-weight`、`-fx-font-style` 的文本 class。
