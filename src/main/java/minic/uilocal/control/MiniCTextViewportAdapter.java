@@ -24,7 +24,7 @@ public final class MiniCTextViewportAdapter implements MiniCViewportAdapter {
 
     @Override
     public void zoomAt(Point2D localPoint, double delta) {
-        editor.zoomFontBy(delta);
+        editor.zoomDisplayBy(delta);
     }
 
     @Override

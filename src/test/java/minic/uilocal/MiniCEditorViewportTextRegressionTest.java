@@ -1,7 +1,13 @@
 package minic.uilocal;
 
+import javafx.application.Platform;
+import javafx.geometry.Point2D;
+import javafx.scene.Node;
+import javafx.scene.Scene;
+import javafx.stage.Stage;
 import minic.color.ThemeCssGenerator;
 import minic.compiler.lexer.TokenKind;
+import minic.settings.MiniCSettings;
 import minic.uilocal.control.MiniCActiveTrackingService;
 import minic.uilocal.control.MiniCControlTargetType;
 import minic.uilocal.control.MiniCViewportAdapter;
@@ -16,13 +22,81 @@ import minic.uilocal.text.MiniCTextStyleState;
 import minic.uilocal.text.MiniCTextStyles;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class MiniCEditorViewportTextRegressionTest {
+    private static final Path SETTINGS_FILE = Path.of("config", "settings.json");
+
     @Test
     void handlesSourceLoaderBreakpointsEditorDiagnosticsTypingAndRealtimeAnalysis() {
         assertThat(MiniCEditorTyping.type("", 0, 0, "{").source()).isEqualTo("{}");
         assertThat(MiniCEditorTyping.backspace("{}", 1, 1).source()).isEmpty();
+    }
+
+    @Test
+    void textViewportZoomScalesDisplayAndPersistsWithoutChangingFontSize() throws Exception {
+        ensureFxStarted();
+        String originalSettings = backup(SETTINGS_FILE);
+        AtomicReference<Stage> stageRef = new AtomicReference<>();
+        AtomicReference<MiniCCodeEditor> editorRef = new AtomicReference<>();
+        AtomicReference<Node> sourceNodeRef = new AtomicReference<>();
+        try {
+            Files.writeString(SETTINGS_FILE, """
+                    {
+                      "theme": "dark",
+                      "editorDisplayScale": 1.0
+                    }
+                    """, StandardCharsets.UTF_8);
+            MiniCSettings.load();
+
+            runFx(() -> {
+                MiniCCodeEditor editor = new MiniCCodeEditor();
+                editor.setText("int main() {\\n    return 0;\\n}\\n");
+                Stage stage = new Stage();
+                stage.setScene(new Scene(editor, 640, 360));
+                stage.show();
+                editor.applyCss();
+                editor.layout();
+                Node sourceNode = editor.lookup(".source-editor");
+
+                stageRef.set(stage);
+                editorRef.set(editor);
+                sourceNodeRef.set(sourceNode);
+            });
+
+            runFx(() -> {
+                MiniCCodeEditor editor = editorRef.get();
+                Node sourceNode = sourceNodeRef.get();
+                assertThat(sourceNode).isNotNull();
+
+                double fontSize = editor.editorFontSizeForTesting();
+                double scaleY = sourceNode.getScaleY();
+                editor.viewportAdapter().zoomAt(Point2D.ZERO, 1.0);
+
+                assertThat(editor.editorFontSizeForTesting()).isEqualTo(fontSize);
+                assertThat(sourceNode.getScaleY()).isGreaterThan(scaleY);
+            });
+
+            assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
+                    .contains("\"editorDisplayScale\": 1.0833333333333333");
+
+            MiniCSettings.load();
+            runFx(() -> assertThat(new MiniCCodeEditor().editorDisplayScaleForTesting())
+                    .isEqualTo(1.0833333333333333));
+        } finally {
+            if (stageRef.get() != null) {
+                runFx(() -> stageRef.get().close());
+            }
+            restore(SETTINGS_FILE, originalSettings);
+            MiniCSettings.load();
+        }
     }
 
     @Test
@@ -71,5 +145,50 @@ class MiniCEditorViewportTextRegressionTest {
                 .extracting(MiniCStyledTextSegment::role)
                 .contains(MiniCTextStyleRole.CODE_IDENTIFIER, MiniCTextStyleRole.CODE_LITERAL,
                         MiniCTextStyleRole.CODE_OPERATOR, MiniCTextStyleRole.CODE_TYPE);
+    }
+
+    private static String backup(Path path) throws Exception {
+        return Files.exists(path) ? Files.readString(path, StandardCharsets.UTF_8) : null;
+    }
+
+    private static void restore(Path path, String original) throws Exception {
+        if (original == null) {
+            Files.deleteIfExists(path);
+            return;
+        }
+        Files.createDirectories(path.getParent());
+        Files.writeString(path, original, StandardCharsets.UTF_8);
+    }
+
+    private static void ensureFxStarted() throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        try {
+            Platform.startup(() -> {
+                Platform.setImplicitExit(false);
+                latch.countDown();
+            });
+        } catch (IllegalStateException alreadyStarted) {
+            Platform.setImplicitExit(false);
+            Platform.runLater(latch::countDown);
+        }
+        assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+    }
+
+    private static void runFx(Runnable runnable) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        Platform.runLater(() -> {
+            try {
+                runnable.run();
+            } catch (Throwable throwable) {
+                failure.set(throwable);
+            } finally {
+                latch.countDown();
+            }
+        });
+        assertThat(latch.await(5, TimeUnit.SECONDS)).isTrue();
+        if (failure.get() != null) {
+            throw new AssertionError(failure.get());
+        }
     }
 }

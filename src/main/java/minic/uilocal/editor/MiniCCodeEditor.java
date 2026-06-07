@@ -18,6 +18,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import minic.color.ThemeRegistry;
 import javafx.scene.shape.Polyline;
+import minic.settings.MiniCSettings;
 import minic.uilocal.control.MiniCTextViewportAdapter;
 import minic.uilocal.control.MiniCViewportAdapter;
 import minic.uilocal.text.MiniCSyntaxTextStyleMapper;
@@ -48,8 +49,7 @@ import java.util.Set;
  */
 public final class MiniCCodeEditor extends StackPane {
     private static final double DEFAULT_EDITOR_FONT_SIZE = 12;
-    private static final double MIN_EDITOR_FONT_SIZE = 10;
-    private static final double MAX_EDITOR_FONT_SIZE = 24;
+    private static final double EDITOR_DISPLAY_SCALE_STEP = 1.0 / DEFAULT_EDITOR_FONT_SIZE;
     private final StyleClassedTextArea input = new StyleClassedTextArea(false);
     private final VirtualizedScrollPane<StyleClassedTextArea> scrollPane = new VirtualizedScrollPane<>(
             input,
@@ -72,6 +72,7 @@ public final class MiniCCodeEditor extends StackPane {
     private int currentExecutionRangeStart = -1;
     private int currentExecutionRangeEnd = -1;
     private double editorFontSize = DEFAULT_EDITOR_FONT_SIZE;
+    private double editorDisplayScale = MiniCSettings.editorDisplayScale();
     private double requestedScrollY;
 
     /**
@@ -80,7 +81,9 @@ public final class MiniCCodeEditor extends StackPane {
     public MiniCCodeEditor() {
         getStyleClass().add("code-editor");
         input.getStyleClass().add("source-editor");
+        input.layoutBoundsProperty().addListener((observable, oldValue, newValue) -> updateInputScaleAnchor());
         applyEditorFontSize();
+        applyEditorDisplayScale();
         input.setWrapText(false);
         input.setParagraphGraphicFactory(this::paragraphGraphic);
         input.setTextInsertionStyle(MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN));
@@ -308,15 +311,24 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     /**
-     * 按像素增量调整源码字体大小。
+     * 按原字号步进调整源码编辑器显示缩放。
      *
-     * @param delta 字号增量
+     * @param delta 历史字号步进增量
      */
     public void zoomFontBy(double delta) {
+        zoomDisplayBy(delta);
+    }
+
+    /**
+     * 按显示倍率步进缩放源码编辑器。
+     *
+     * @param delta 缩放步进
+     */
+    public void zoomDisplayBy(double delta) {
         if (!Double.isFinite(delta)) {
             return;
         }
-        adjustEditorFontSize(delta);
+        adjustEditorDisplayScale(delta * EDITOR_DISPLAY_SCALE_STEP);
     }
 
     /**
@@ -328,7 +340,7 @@ public final class MiniCCodeEditor extends StackPane {
         if (!Double.isFinite(pixels) || Double.compare(pixels, 0.0) == 0) {
             return;
         }
-        scrollYToPixel(estimatedScrollY() + pixels);
+        scrollYToPixel(estimatedScrollY() + pixels / editorDisplayScale);
     }
 
     /**
@@ -501,7 +513,7 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     private void handleCompletionKeys(KeyEvent event) {
-        if (event.isControlDown() && handleFontZoomKey(event)) {
+        if (event.isControlDown() && handleDisplayZoomKey(event)) {
             event.consume();
             return;
         }
@@ -549,26 +561,29 @@ public final class MiniCCodeEditor extends StackPane {
         }
     }
 
-    private boolean handleFontZoomKey(KeyEvent event) {
+    private boolean handleDisplayZoomKey(KeyEvent event) {
         if (event.getCode() == KeyCode.PLUS || event.getCode() == KeyCode.ADD || event.getCode() == KeyCode.EQUALS) {
-            adjustEditorFontSize(1);
+            zoomDisplayBy(1);
             return true;
         }
         if (event.getCode() == KeyCode.MINUS || event.getCode() == KeyCode.SUBTRACT) {
-            adjustEditorFontSize(-1);
+            zoomDisplayBy(-1);
             return true;
         }
         return false;
     }
 
-    private void adjustEditorFontSize(double delta) {
-        double next = Math.max(MIN_EDITOR_FONT_SIZE, Math.min(MAX_EDITOR_FONT_SIZE, editorFontSize + delta));
-        if (Double.compare(next, editorFontSize) == 0) {
+    private void adjustEditorDisplayScale(double delta) {
+        double next = Math.max(
+                MiniCSettings.minEditorDisplayScale(),
+                Math.min(MiniCSettings.maxEditorDisplayScale(), editorDisplayScale + delta)
+        );
+        if (Double.compare(next, editorDisplayScale) == 0) {
             return;
         }
-        editorFontSize = next;
-        applyEditorFontSize();
-        refreshParagraphGraphics();
+        editorDisplayScale = next;
+        MiniCSettings.setEditorDisplayScale(editorDisplayScale);
+        applyEditorDisplayScale();
         Platform.runLater(this::drawDiagnostics);
     }
 
@@ -607,7 +622,7 @@ public final class MiniCCodeEditor extends StackPane {
         if (height <= 0) {
             height = scrollPane.getHeight();
         }
-        return Math.max(editorLineHeight(), height);
+        return Math.max(editorLineHeight(), height / editorDisplayScale);
     }
 
     private boolean isExecutionViewportFullyVisible(ExecutionViewport viewport) {
@@ -667,6 +682,10 @@ public final class MiniCCodeEditor extends StackPane {
         return editorFontSize;
     }
 
+    double editorDisplayScaleForTesting() {
+        return editorDisplayScale;
+    }
+
     double estimatedScrollYForTesting() {
         return estimatedScrollY();
     }
@@ -682,6 +701,18 @@ public final class MiniCCodeEditor extends StackPane {
                 caret.setStyle("-fx-stroke-width: " + caretWidth + "px;");
             }
         });
+    }
+
+    private void applyEditorDisplayScale() {
+        input.setScaleX(editorDisplayScale);
+        input.setScaleY(editorDisplayScale);
+        updateInputScaleAnchor();
+    }
+
+    private void updateInputScaleAnchor() {
+        Bounds bounds = input.getLayoutBounds();
+        input.setTranslateX(bounds.getWidth() * (editorDisplayScale - 1.0) / 2.0);
+        input.setTranslateY(bounds.getHeight() * (editorDisplayScale - 1.0) / 2.0);
     }
 
     private void applyGutterSize(Label label) {
