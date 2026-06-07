@@ -1,6 +1,7 @@
 .gradle/
 build/
 out/
+tmp/
 
 *.class
 *.log
@@ -26,3 +27,4 @@ uiweb/dist/
 uiweb/playwright-report/
 uiweb/test-results/
 uiweb/.local-vite*.log
+uiweb-render-check/
