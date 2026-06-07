@@ -182,11 +182,12 @@ async function startViteServer(uiApiBaseUrl) {
 async function verifyEditor(page, baseUrl) {
   const editor = page.locator("textarea.source-editor-input").first();
   await editor.waitFor({ state: "visible" });
+  await verifyEditorHighlighting(page, "initial source");
   await Promise.all([
     waitForApiResponse(page, baseUrl, "POST", ["/api/realtime/analyze"], 60_000),
     editor.fill(workflowSource),
   ]);
-  await page.waitForFunction(() => document.querySelectorAll(".source-editor-render .token-keyword").length > 0);
+  await verifyEditorHighlighting(page, "edited source");
   const lineCount = await page.locator(".editor-gutter .lineno").count();
   assert(lineCount >= 40, `source editor should expose JavaFX-like line numbers, got ${lineCount}`);
   const editorMetrics = await page.evaluate(() => {
@@ -237,6 +238,27 @@ async function verifyEditor(page, baseUrl) {
   );
   const keywordCount = await page.locator(".source-editor-render .token-keyword").count();
   assert(keywordCount > 0, "source editor should render UIAPI token highlighting");
+}
+
+async function verifyEditorHighlighting(page, label) {
+  await page.waitForFunction(() => document.querySelectorAll(".source-editor-render .token-keyword").length > 0);
+  const colors = await page.evaluate(() => {
+    const keyword = document.querySelector(".source-editor-render .token-keyword");
+    const plain = document.querySelector(".source-editor-render .token-plain");
+    const textarea = document.querySelector("textarea.source-editor-input");
+    return {
+      keyword: keyword === null ? "" : window.getComputedStyle(keyword).color,
+      plain: plain === null ? "" : window.getComputedStyle(plain).color,
+      textarea: textarea === null ? "" : window.getComputedStyle(textarea).color,
+    };
+  });
+  assert(colors.keyword !== "", `${label} should expose keyword token color`);
+  assert(colors.plain !== "", `${label} should expose plain token color`);
+  assert(colors.keyword !== colors.plain, `${label} keyword color should differ from plain text (${JSON.stringify(colors)})`);
+  assert(
+    colors.textarea === "rgba(0, 0, 0, 0)" || colors.textarea === "transparent",
+    `${label} textarea text should stay transparent above highlighted render layer (${JSON.stringify(colors)})`,
+  );
 }
 
 async function verifyCompilerPipeline(page, baseUrl) {
