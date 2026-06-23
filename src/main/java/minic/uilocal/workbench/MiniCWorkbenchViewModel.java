@@ -192,29 +192,8 @@ public final class MiniCWorkbenchViewModel {
      */
     public UiControlResultDto runToExecution() {
         selectedVisualStage.set("");
-        UiControlResultDto result = null;
-        int guard = 0;
-        while (currentState.get() != null
-                && !"execution".equals(currentState.get().currentStage())
-                && currentState.get().canNext()
-                && guard++ < 1000) {
-            result = api.nextStage();
-            applyControlResult(result);
-            refreshAll();
-            if ("FAILED".equals(result.outcome()) || "CANNOT_ADVANCE".equals(result.outcome())) {
-                return result;
-            }
-        }
-        if (result == null) {
-            result = new UiControlResultDto(
-                    "CANNOT_ADVANCE",
-                    "execution",
-                    "已在执行阶段",
-                    "当前已经位于执行阶段入口。",
-                    List.of()
-            );
-            applyControlResult(result);
-        }
+        UiControlResultDto result = api.runToExecution();
+        applyControlResult(result);
         refreshAll();
         return result;
     }
@@ -771,9 +750,7 @@ public final class MiniCWorkbenchViewModel {
         if (state == null || data == null || !"execution".equals(state.currentStage())) {
             return;
         }
-        boolean confirmed = data.executionInputSummary().stream()
-                .anyMatch(line -> line.equals("stdin confirmed"));
-        if (confirmed) {
+        if (data.executionInputConfirmed()) {
             return;
         }
         UiControlResultDto result = api.confirmExecutionInput(executionInputDraft);
@@ -787,7 +764,7 @@ public final class MiniCWorkbenchViewModel {
         return state != null
                 && data != null
                 && "execution".equals(state.currentStage())
-                && data.executionInputSummary().stream().anyMatch(line -> line.equals("stdin pending"));
+                && data.executionInputPending();
     }
 
     private void applyRealtimeAnalysis(UiRealtimeAnalysisDto result) {

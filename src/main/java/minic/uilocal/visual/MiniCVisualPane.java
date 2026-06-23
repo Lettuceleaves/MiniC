@@ -284,8 +284,7 @@ public final class MiniCVisualPane extends VBox {
         boolean completed = viewModel.currentStageDataProperty().get() != null
                 && viewModel.currentStageDataProperty().get().completed();
         boolean confirmed = viewModel.globalDataProperty().get() != null
-                && viewModel.globalDataProperty().get().executionInputSummary().stream()
-                .anyMatch(line -> line.equals("stdin confirmed"));
+                && viewModel.globalDataProperty().get().executionInputConfirmed();
         executionStdin.setDisable(completed || confirmed);
         box.getChildren().add(executionStdin);
         VBox.setVgrow(executionStdin, Priority.ALWAYS);
