@@ -259,6 +259,7 @@
     color: var(--minic-text-active);
 }
 
+.tab-split,
 .tab-close {
     min-width: 20px;
     width: 20px;
@@ -269,6 +270,7 @@
     color: var(--minic-text-muted);
 }
 
+.tab-split:hover,
 .tab-close:hover {
     background-color: var(--minic-background-hover);
     color: var(--minic-text-active);

@@ -102,6 +102,64 @@ class MiniCWorkbenchFileSessionRegressionTest {
         }
     }
 
+    @Test
+    void openingPipelineStageCreatesBeforeAfterTabsWithoutStealingFocusWhenAutoSplitDisabled() throws Exception {
+        String originalSettings = backup(SETTINGS_FILE);
+        try {
+            Files.writeString(SETTINGS_FILE, """
+                    {
+                      "theme": "dark",
+                      "autoSplitPipelineTabs": "false"
+                    }
+                    """, StandardCharsets.UTF_8);
+            MiniCSettings.load();
+            MiniCWorkbenchViewModel model = new MiniCWorkbenchViewModel();
+            MiniCWorkbenchShell shell = new MiniCWorkbenchShell(model);
+            model.loadSource("pipeline-tabs.mc", "int main() { return 0; }");
+            model.startSession();
+            model.runToExecution();
+
+            shell.openStageTabsForTesting("lexer");
+
+            assertThat(shell.workspaceTabTitlesForTesting())
+                    .containsExactly("pipeline-tabs.mc", "词法分析 before", "词法分析 after");
+            assertThat(shell.activeLeftWorkspaceTabTitleForTesting()).isEqualTo("pipeline-tabs.mc");
+            assertThat(shell.activeRightWorkspaceTabTitleForTesting()).isEmpty();
+        } finally {
+            restore(SETTINGS_FILE, originalSettings);
+            MiniCSettings.load();
+        }
+    }
+
+    @Test
+    void openingPipelineStageSplitsAfterTabRightWhenAutoSplitEnabled() throws Exception {
+        String originalSettings = backup(SETTINGS_FILE);
+        try {
+            Files.writeString(SETTINGS_FILE, """
+                    {
+                      "theme": "dark",
+                      "autoSplitPipelineTabs": "true"
+                    }
+                    """, StandardCharsets.UTF_8);
+            MiniCSettings.load();
+            MiniCWorkbenchViewModel model = new MiniCWorkbenchViewModel();
+            MiniCWorkbenchShell shell = new MiniCWorkbenchShell(model);
+            model.loadSource("pipeline-tabs.mc", "int main() { return 0; }");
+            model.startSession();
+            model.runToExecution();
+
+            shell.openStageTabsForTesting("lexer");
+
+            assertThat(shell.workspaceTabTitlesForTesting())
+                    .containsExactly("pipeline-tabs.mc", "词法分析 before", "词法分析 after");
+            assertThat(shell.activeLeftWorkspaceTabTitleForTesting()).isEqualTo("词法分析 before");
+            assertThat(shell.activeRightWorkspaceTabTitleForTesting()).contains("词法分析 after");
+        } finally {
+            restore(SETTINGS_FILE, originalSettings);
+            MiniCSettings.load();
+        }
+    }
+
     private static String backup(Path path) throws Exception {
         return Files.exists(path) ? Files.readString(path, StandardCharsets.UTF_8) : null;
     }

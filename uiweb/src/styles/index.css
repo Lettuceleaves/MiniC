@@ -211,6 +211,7 @@ button:disabled {
 .debug-paired-controls,
 .debug-paired-row,
 .settings-row,
+.settings-check-row,
 .bottom-bar,
 .bottom-body,
 .stage-flow,
@@ -231,6 +232,11 @@ button:disabled {
 
 .inspector-controls {
   flex-direction: column;
+}
+
+.settings-check-row {
+  align-items: center;
+  gap: 8px;
 }
 
 .debug-paired-controls {
@@ -468,11 +474,48 @@ button:disabled {
   overflow: hidden;
 }
 
+.workspace-split {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-group {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.workspace-split.has-right .workspace-group:first-child {
+  border-right: 1px solid var(--minic-background-tertiary);
+}
+
+.workspace-content {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.workspace-content > .source-area,
+.workspace-content > .main-content {
+  flex: 1 1 auto;
+}
+
 .stage-flow {
   flex: 1 1 auto;
   min-height: 0;
   gap: 1px;
   overflow: hidden;
+}
+
+.stage-flow.single .stage-flow-column {
+  flex-basis: 100%;
 }
 
 .stage-flow-column {

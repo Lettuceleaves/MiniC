@@ -34,6 +34,7 @@ export const miniCSettingsMirror = {
     { name: "MIN_GRAPH_ZOOM_STEP", signature: "private static final double MIN_GRAPH_ZOOM_STEP = 0.001;" },
     { name: "MAX_GRAPH_ZOOM_STEP", signature: "private static final double MAX_GRAPH_ZOOM_STEP = 0.25;" },
     { name: "DEFAULT_GRAPH_ZOOM_ANCHOR", signature: 'private static final String DEFAULT_GRAPH_ZOOM_ANCHOR = "mouse";' },
+    { name: "DEFAULT_AUTO_SPLIT_PIPELINE_TABS", signature: "private static final boolean DEFAULT_AUTO_SPLIT_PIPELINE_TABS = false;" },
     { name: "LAST_FILE_DIALOG_DIRECTORY_KEY", signature: 'private static final String LAST_FILE_DIALOG_DIRECTORY_KEY = "lastFileDialogDirectory";' },
     { name: "OPEN_FILES_KEY", signature: 'private static final String OPEN_FILES_KEY = "openFiles";' },
     { name: "values", signature: "private static final Map<String, String> values =" },
@@ -61,6 +62,8 @@ export const miniCSettingsMirror = {
     { name: "graphZoomAnchor", signature: "graphZoomAnchor()" },
     { name: "setGraphZoomAnchor", signature: "setGraphZoomAnchor(String anchor)" },
     { name: "graphZoomAnchoredAtMouse", signature: "graphZoomAnchoredAtMouse()" },
+    { name: "autoSplitPipelineTabs", signature: "autoSplitPipelineTabs()" },
+    { name: "setAutoSplitPipelineTabs", signature: "setAutoSplitPipelineTabs(boolean enabled)" },
   ],
 } as const satisfies JavaMirrorFile;
 
@@ -75,6 +78,7 @@ export interface MiniCSettingsSnapshot {
   readonly uiScale: number;
   readonly graphZoomStep: number;
   readonly graphZoomAnchor: "mouse" | "center";
+  readonly autoSplitPipelineTabs: boolean;
   readonly lastFileDialogDirectory: string;
   readonly openFiles: readonly MiniCOpenFileState[];
 }
@@ -91,6 +95,7 @@ const DEFAULT_GRAPH_ZOOM_STEP = 0.025;
 const MIN_GRAPH_ZOOM_STEP = 0.001;
 const MAX_GRAPH_ZOOM_STEP = 0.25;
 const DEFAULT_GRAPH_ZOOM_ANCHOR = "mouse";
+const DEFAULT_AUTO_SPLIT_PIPELINE_TABS = false;
 const LAST_FILE_DIALOG_DIRECTORY_KEY = "lastFileDialogDirectory";
 
 let currentValues = defaultValues();
@@ -121,6 +126,7 @@ export class MiniCSettings {
       uiScale: MiniCSettings.uiScale(),
       graphZoomStep: MiniCSettings.graphZoomStep(),
       graphZoomAnchor: MiniCSettings.graphZoomAnchor(),
+      autoSplitPipelineTabs: MiniCSettings.autoSplitPipelineTabs(),
       lastFileDialogDirectory: currentValues[LAST_FILE_DIALOG_DIRECTORY_KEY] ?? "",
       openFiles: [...currentOpenFiles],
     };
@@ -219,6 +225,15 @@ export class MiniCSettings {
   static graphZoomAnchoredAtMouse(): boolean {
     return MiniCSettings.graphZoomAnchor() === "mouse";
   }
+
+  static autoSplitPipelineTabs(): boolean {
+    return readBoolean(currentValues.autoSplitPipelineTabs, DEFAULT_AUTO_SPLIT_PIPELINE_TABS);
+  }
+
+  static setAutoSplitPipelineTabs(enabled: boolean): void {
+    currentValues.autoSplitPipelineTabs = String(enabled);
+    save();
+  }
 }
 
 function defaultValues(): Record<string, string> {
@@ -228,6 +243,7 @@ function defaultValues(): Record<string, string> {
     uiScale: String(DEFAULT_UI_SCALE),
     graphZoomStep: String(DEFAULT_GRAPH_ZOOM_STEP),
     graphZoomAnchor: DEFAULT_GRAPH_ZOOM_ANCHOR,
+    autoSplitPipelineTabs: String(DEFAULT_AUTO_SPLIT_PIPELINE_TABS),
     [LAST_FILE_DIALOG_DIRECTORY_KEY]: "",
   };
 }
@@ -286,6 +302,7 @@ function save(): void {
         uiScale: MiniCSettings.uiScale(),
         graphZoomStep: MiniCSettings.graphZoomStep(),
         graphZoomAnchor: MiniCSettings.graphZoomAnchor(),
+        autoSplitPipelineTabs: String(MiniCSettings.autoSplitPipelineTabs()),
         openFiles: currentOpenFiles,
       },
       null,
@@ -300,6 +317,13 @@ function readNumber(raw: string | undefined, fallback: number): number {
   }
   const value = Number(raw);
   return Number.isFinite(value) ? value : fallback;
+}
+
+function readBoolean(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined) {
+    return fallback;
+  }
+  return raw.toLowerCase() === "true";
 }
 
 function clampInteger(value: number, min: number, max: number): number {

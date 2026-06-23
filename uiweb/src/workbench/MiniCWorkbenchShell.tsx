@@ -11,7 +11,7 @@ import { MiniCSettings, ThemeManager } from "../settings";
 import MiniCSettingsPane from "../settings/MiniCSettingsPane";
 import MiniCSourceLoaderView from "../source/MiniCSourceLoaderView";
 import type { JavaMirrorFile } from "../translation/javaMirror";
-import MiniCVisualPane from "../visual/MiniCVisualPane";
+import MiniCVisualPane, { stageName } from "../visual/MiniCVisualPane";
 import { MiniCSamplePrograms } from "../editor/MiniCSamplePrograms";
 import { MiniCKeyBindingConfig, type MiniCInputEvent } from "./MiniCKeyBindingConfig";
 import { MiniCPlaybackController } from "./MiniCPlaybackController";
@@ -34,11 +34,14 @@ export const miniCWorkbenchShellMirror = {
     "java.util.LinkedHashSet",
     "java.util.List",
     "java.util.Objects",
+    "javafx.geometry.Orientation",
     "javafx.geometry.Point2D",
+    "javafx.scene.Node",
     "javafx.scene.Parent",
     "javafx.scene.control.Button",
     "javafx.scene.control.Label",
     "javafx.scene.control.ScrollPane",
+    "javafx.scene.control.SplitPane",
     "javafx.scene.control.TextField",
     "javafx.scene.control.Tooltip",
     "javafx.scene.input.KeyCode",
@@ -69,6 +72,14 @@ export const miniCWorkbenchShellMirror = {
       "signature": "private int activeDocumentIndex"
     },
     {
+      "name": "activeLeftWorkspaceTabId",
+      "signature": "private String activeLeftWorkspaceTabId="
+    },
+    {
+      "name": "activeRightWorkspaceTabId",
+      "signature": "private String activeRightWorkspaceTabId"
+    },
+    {
       "name": "activeSection",
       "signature": "private ActivitySection activeSection="
     },
@@ -87,6 +98,14 @@ export const miniCWorkbenchShellMirror = {
     {
       "name": "documents",
       "signature": "private final ArrayList<DocumentTab>documents="
+    },
+    {
+      "name": "stageTabs",
+      "signature": "private final ArrayList<WorkspaceTab>stageTabs="
+    },
+    {
+      "name": "rightWorkspaceTabIds",
+      "signature": "private final LinkedHashSet<String>rightWorkspaceTabIds="
     },
     {
       "name": "draggedTabIndex",
@@ -115,6 +134,14 @@ export const miniCWorkbenchShellMirror = {
     {
       "name": "mainContent",
       "signature": "private StackPane mainContent"
+    },
+    {
+      "name": "rightMainContent",
+      "signature": "private StackPane rightMainContent"
+    },
+    {
+      "name": "workspaceSplit",
+      "signature": "private SplitPane workspaceSplit"
     },
     {
       "name": "nextUntitledIndex",
@@ -149,6 +176,10 @@ export const miniCWorkbenchShellMirror = {
       "signature": "private HBox tabs"
     },
     {
+      "name": "rightTabs",
+      "signature": "private HBox rightTabs"
+    },
+    {
       "name": "TEXT_ZOOM_STEP",
       "signature": "private static final double TEXT_ZOOM_STEP="
     },
@@ -175,6 +206,14 @@ export const miniCWorkbenchShellMirror = {
       "signature": "activeViewportAdapters()"
     },
     {
+      "name": "activeLeftWorkspaceTab",
+      "signature": "activeLeftWorkspaceTab()"
+    },
+    {
+      "name": "activeRightWorkspaceTab",
+      "signature": "activeRightWorkspaceTab()"
+    },
+    {
       "name": "activityBar",
       "signature": "activityBar()"
     },
@@ -191,6 +230,10 @@ export const miniCWorkbenchShellMirror = {
       "signature": "addDocument(String name,String source,Path path,BigDecimal order,MiniCWorkbenchViewModel model,boolean persist)"
     },
     {
+      "name": "allWorkspaceTabs",
+      "signature": "allWorkspaceTabs()"
+    },
+    {
       "name": "applyRememberedDirectory",
       "signature": "applyRememberedDirectory(FileChooser chooser)"
     },
@@ -201,6 +244,10 @@ export const miniCWorkbenchShellMirror = {
     {
       "name": "closeDocument",
       "signature": "closeDocument(int index)"
+    },
+    {
+      "name": "closeWorkspaceTab",
+      "signature": "closeWorkspaceTab(String id)"
     },
     {
       "name": "commitRenameDocument",
@@ -219,12 +266,24 @@ export const miniCWorkbenchShellMirror = {
       "signature": "documentIndex(Path path)"
     },
     {
+      "name": "documentIndex",
+      "signature": "documentIndex(MiniCWorkbenchViewModel model)"
+    },
+    {
       "name": "DocumentTab",
       "signature": "DocumentTab(String name,Path path,BigDecimal order,MiniCWorkbenchViewModel viewModel)"
     },
     {
       "name": "editorArea",
       "signature": "editorArea()"
+    },
+    {
+      "name": "ensureStageTab",
+      "signature": "ensureStageTab(DocumentTab document,String stage,MiniCVisualPane.VisualSide side)"
+    },
+    {
+      "name": "findWorkspaceTab",
+      "signature": "findWorkspaceTab(String id)"
     },
     {
       "name": "handleCommandShortcut",
@@ -283,6 +342,10 @@ export const miniCWorkbenchShellMirror = {
       "signature": "openDocument()"
     },
     {
+      "name": "openStageTabs",
+      "signature": "openStageTabs(String stage)"
+    },
+    {
       "name": "orderForIndex",
       "signature": "orderForIndex(int index)"
     },
@@ -291,8 +354,16 @@ export const miniCWorkbenchShellMirror = {
       "signature": "persistOpenDocuments()"
     },
     {
+      "name": "pauseIfPlaying",
+      "signature": "pauseIfPlaying(MiniCWorkbenchViewModel model)"
+    },
+    {
       "name": "placeholderPage",
       "signature": "placeholderPage(ActivitySection section)"
+    },
+    {
+      "name": "rebuildWorkspaceSplit",
+      "signature": "rebuildWorkspaceSplit()"
     },
     {
       "name": "rebuildWorkbenchBody",
@@ -327,12 +398,32 @@ export const miniCWorkbenchShellMirror = {
       "signature": "saveDocument()"
     },
     {
+      "name": "saveDocument",
+      "signature": "saveDocument(MiniCWorkbenchViewModel model)"
+    },
+    {
+      "name": "saveDocument",
+      "signature": "saveDocument(int documentIndex)"
+    },
+    {
       "name": "saveDocumentAs",
       "signature": "saveDocumentAs()"
     },
     {
       "name": "saveDocumentAs",
+      "signature": "saveDocumentAs(MiniCWorkbenchViewModel model)"
+    },
+    {
+      "name": "saveDocumentAs",
+      "signature": "saveDocumentAs(int documentIndex)"
+    },
+    {
+      "name": "saveDocumentAs",
       "signature": "saveDocumentAs(Path rawPath)"
+    },
+    {
+      "name": "saveDocumentAs",
+      "signature": "saveDocumentAs(int documentIndex,Path rawPath)"
     },
     {
       "name": "sectionContent",
@@ -356,11 +447,27 @@ export const miniCWorkbenchShellMirror = {
     },
     {
       "name": "sourceArea",
-      "signature": "sourceArea()"
+      "signature": "sourceArea(MiniCWorkbenchViewModel model,boolean primary)"
     },
     {
-      "name": "sourceMode",
-      "signature": "sourceMode()"
+      "name": "sourceTabId",
+      "signature": "sourceTabId(DocumentTab document)"
+    },
+    {
+      "name": "sourceWorkspaceTab",
+      "signature": "sourceWorkspaceTab(DocumentTab document)"
+    },
+    {
+      "name": "splitWorkspaceTabRight",
+      "signature": "splitWorkspaceTabRight(String id)"
+    },
+    {
+      "name": "stageName",
+      "signature": "stageName(String stage)"
+    },
+    {
+      "name": "stageTabId",
+      "signature": "stageTabId(DocumentTab document,String stage,MiniCVisualPane.VisualSide side)"
     },
     {
       "name": "statusBar",
@@ -371,6 +478,10 @@ export const miniCWorkbenchShellMirror = {
       "signature": "switchDocument(int index)"
     },
     {
+      "name": "switchWorkspaceTab",
+      "signature": "switchWorkspaceTab(String id,boolean rightGroup)"
+    },
+    {
       "name": "syncActiveEditorToModel",
       "signature": "syncActiveEditorToModel()"
     },
@@ -379,8 +490,8 @@ export const miniCWorkbenchShellMirror = {
       "signature": "toolbarButton(String text,String tooltip,Runnable action)"
     },
     {
-      "name": "updateMainContent",
-      "signature": "updateMainContent()"
+      "name": "viewModelForTab",
+      "signature": "viewModelForTab(WorkspaceTab tab)"
     },
     {
       "name": "viewportZoomDelta",
@@ -403,6 +514,30 @@ export const miniCWorkbenchShellMirror = {
       "signature": "withPath(Path path)"
     },
     {
+      "name": "workspaceContent",
+      "signature": "workspaceContent(WorkspaceTab tab,boolean primary)"
+    },
+    {
+      "name": "workspaceGroup",
+      "signature": "workspaceGroup(HBox tabBar,StackPane content)"
+    },
+    {
+      "name": "WorkspaceTab",
+      "signature": "WorkspaceTab(String id,String title,WorkspaceTabKind kind,MiniCWorkbenchViewModel viewModel,String stage,MiniCVisualPane.VisualSide side)"
+    },
+    {
+      "name": "workspaceTabNode",
+      "signature": "workspaceTabNode(WorkspaceTab workspaceTab,boolean rightGroup)"
+    },
+    {
+      "name": "workspaceTabs",
+      "signature": "workspaceTabs(boolean rightGroup)"
+    },
+    {
+      "name": "workspaceTabsForGroup",
+      "signature": "workspaceTabsForGroup(boolean rightGroup)"
+    },
+    {
       "name": "workbenchBody",
       "signature": "workbenchBody()"
     }
@@ -422,10 +557,23 @@ interface ActivitySection {
 }
 
 interface DocumentTab {
+  readonly id: string;
   readonly name: string;
   readonly path: string | null;
   readonly order: number;
   readonly viewModel: MiniCWorkbenchViewModel;
+}
+
+type WorkspaceTabKind = "source" | "stage";
+type VisualSide = "before" | "after" | "both";
+
+interface WorkspaceTab {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: WorkspaceTabKind;
+  readonly document: DocumentTab;
+  readonly stage: string;
+  readonly side: VisualSide;
 }
 
 const ACTIVITY_SECTIONS: readonly ActivitySection[] = [
@@ -456,6 +604,7 @@ const ACTIVITY_SECTIONS: readonly ActivitySection[] = [
 const DOCUMENTS_STORAGE_KEY = "minic.uiweb.documents";
 const TEXT_ZOOM_STEP = 1.0;
 const VIEWPORT_KEY_SCROLL_DELTA = 48.0;
+let nextDocumentTabId = 1;
 const COMPILER_SHORTCUT_ACTIONS = [
   MiniCWorkbenchControlHub.COMPILER_NEXT,
   MiniCWorkbenchControlHub.COMPILER_NEXT_STAGE,
@@ -487,6 +636,10 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   const [activeSection, setActiveSection] = useState<ActivitySectionId>("CODE");
   const [documents, setDocuments] = useState<readonly DocumentTab[]>(() => restorePersistedDocuments());
   const [activeDocumentIndex, setActiveDocumentIndex] = useState(0);
+  const [stageTabs, setStageTabs] = useState<readonly WorkspaceTab[]>([]);
+  const [rightWorkspaceTabIds, setRightWorkspaceTabIds] = useState<readonly string[]>([]);
+  const [activeLeftWorkspaceTabId, setActiveLeftWorkspaceTabId] = useState("");
+  const [activeRightWorkspaceTabId, setActiveRightWorkspaceTabId] = useState("");
   const [editingTabIndex, setEditingTabIndex] = useState<number | null>(null);
   const [editingTabName, setEditingTabName] = useState("");
   const controlHub = useMemo(() => new MiniCWorkbenchControlHub(), []);
@@ -525,15 +678,116 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
     return installShortcutDispatch(controlHub, keyBindings, pressedKeys);
   }, [controlHub, keyBindings]);
 
+  const sourceWorkspaceTab = (document: DocumentTab): WorkspaceTab => ({
+    id: document.id,
+    title: document.name,
+    kind: "source",
+    document,
+    stage: "source",
+    side: "both",
+  });
+  const allWorkspaceTabs = (): readonly WorkspaceTab[] => [
+    ...documents.map(sourceWorkspaceTab),
+    ...stageTabs.filter((tab) => documents.some((document) => document.id === tab.document.id)),
+  ];
+  const findWorkspaceTab = (id: string): WorkspaceTab | null => allWorkspaceTabs().find((tab) => tab.id === id) ?? null;
+  const activeLeftWorkspaceTab = (): WorkspaceTab => (
+    findWorkspaceTab(activeLeftWorkspaceTabId)
+    ?? sourceWorkspaceTab(activeDocument)
+  );
+  const activeRightWorkspaceTab = (): WorkspaceTab | null => (
+    findWorkspaceTab(activeRightWorkspaceTabId)
+    ?? rightWorkspaceTabIds.map(findWorkspaceTab).find((tab): tab is WorkspaceTab => tab !== null)
+    ?? null
+  );
+  const stageTabId = (document: DocumentTab, stage: string, side: Exclude<VisualSide, "both">): string =>
+    `${document.id}:${stage}:${side}`;
+  const createStageWorkspaceTab = (
+    document: DocumentTab,
+    stage: string,
+    side: Exclude<VisualSide, "both">,
+  ): WorkspaceTab => ({
+    id: stageTabId(document, stage, side),
+    title: `${stageName(stage)} ${side}`,
+    kind: "stage",
+    document,
+    stage,
+    side,
+  });
+  const openStageTabs = (stageId: string): void => {
+    const normalizedStage = stageId.trim().length === 0 ? "source" : stageId;
+    activeModel.runInBackground(activeModel.selectVisualStage(normalizedStage), "选择阶段失败");
+    if (normalizedStage === "source") {
+      setActiveLeftWorkspaceTabId(activeDocument.id);
+      return;
+    }
+    const before = createStageWorkspaceTab(activeDocument, normalizedStage, "before");
+    const after = createStageWorkspaceTab(activeDocument, normalizedStage, "after");
+    setStageTabs((current) => {
+      const byId = new Map(current.map((tab) => [tab.id, tab]));
+      byId.set(before.id, byId.get(before.id) ?? before);
+      byId.set(after.id, byId.get(after.id) ?? after);
+      return [...byId.values()];
+    });
+    if (MiniCSettings.autoSplitPipelineTabs()) {
+      setRightWorkspaceTabIds((current) => [...new Set([...current, after.id])]);
+      setActiveLeftWorkspaceTabId(before.id);
+      setActiveRightWorkspaceTabId(after.id);
+    }
+  };
+  const switchWorkspaceTab = (tabId: string, group: "left" | "right"): void => {
+    const tab = findWorkspaceTab(tabId);
+    if (tab === null) {
+      return;
+    }
+    if (group === "right") {
+      setActiveRightWorkspaceTabId(tabId);
+    } else {
+      setActiveLeftWorkspaceTabId(tabId);
+      const documentIndex = documents.findIndex((document) => document.id === tab.document.id);
+      if (documentIndex >= 0) {
+        setActiveDocumentIndex(documentIndex);
+      }
+    }
+  };
+  const splitWorkspaceTabRight = (tabId: string): void => {
+    if (findWorkspaceTab(tabId) === null) {
+      return;
+    }
+    setRightWorkspaceTabIds((current) => [...new Set([...current, tabId])]);
+    setActiveRightWorkspaceTabId(tabId);
+    setActiveLeftWorkspaceTabId((current) => {
+      if (current !== tabId) {
+        return current;
+      }
+      return allWorkspaceTabs().find((tab) => tab.id !== tabId)?.id ?? current;
+    });
+  };
+  const closeWorkspaceTab = (tabId: string): void => {
+    const tab = findWorkspaceTab(tabId);
+    if (tab === null) {
+      return;
+    }
+    if (tab.kind === "source") {
+      closeDocument(documents.findIndex((document) => document.id === tab.document.id));
+      return;
+    }
+    setStageTabs((current) => current.filter((candidate) => candidate.id !== tabId));
+    setRightWorkspaceTabIds((current) => current.filter((id) => id !== tabId));
+    setActiveLeftWorkspaceTabId((current) => current === tabId ? activeDocument.id : current);
+    setActiveRightWorkspaceTabId((current) => current === tabId ? "" : current);
+  };
+
   const switchDocument = (index: number): void => {
     if (index >= 0 && index < documents.length) {
       setActiveDocumentIndex(index);
+      setActiveLeftWorkspaceTabId(documents[index]?.id ?? "");
     }
   };
 
   const addDocument = (name: string, source: string, path: string | null = null): void => {
     const viewModel = createMiniCWorkbenchViewModel(name, source);
-    setDocuments((current) => [...current, { name, path, order: nextDocumentOrder(current), viewModel }]);
+    setDocuments((current) => [...current, createDocumentTab(name, path, nextDocumentOrder(current), viewModel)]);
     setActiveDocumentIndex(documents.length);
   };
 
@@ -542,10 +796,17 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   };
 
   const closeDocument = (index: number): void => {
+    const closedDocument = documents[index];
+    if (closedDocument !== undefined) {
+      setStageTabs((current) => current.filter((tab) => tab.document.id !== closedDocument.id));
+      setRightWorkspaceTabIds((current) => current.filter((id) => !id.startsWith(`${closedDocument.id}:`) && id !== closedDocument.id));
+      setActiveLeftWorkspaceTabId((current) => current === closedDocument.id || current.startsWith(`${closedDocument.id}:`) ? "" : current);
+      setActiveRightWorkspaceTabId((current) => current === closedDocument.id || current.startsWith(`${closedDocument.id}:`) ? "" : current);
+    }
     if (documents.length <= 1) {
       const sample = MiniCSamplePrograms.defaultSample();
       const viewModel = createMiniCWorkbenchViewModel(sample.name, sample.source);
-      setDocuments([{ name: sample.name, path: null, order: 1, viewModel }]);
+      setDocuments([createDocumentTab(sample.name, null, 1, viewModel)]);
       setActiveDocumentIndex(0);
       return;
     }
@@ -571,11 +832,20 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
     setEditingTabIndex(null);
   };
 
-  const saveDocument = (name = activeDocument.name, source = activeModel.sourceTextProperty().get()): void => {
+  const saveDocumentFor = (
+    document: DocumentTab,
+    name = document.name,
+    source = document.viewModel.sourceTextProperty().get(),
+  ): void => {
     setDocuments((current) =>
-      current.map((document, index) => (index === activeDocumentIndex ? { ...document, name } : document)),
+      current.map((candidate) => (candidate.id === document.id ? { ...candidate, name } : candidate)),
     );
-    activeModel.runInBackground(activeModel.renameSource(name), "保存源码名失败");
+    document.viewModel.runInBackground(document.viewModel.loadSource(name, source), "保存源码内容失败");
+    document.viewModel.runInBackground(document.viewModel.renameSource(name), "保存源码名失败");
+  };
+
+  const saveDocument = (name = activeDocument.name, source = activeModel.sourceTextProperty().get()): void => {
+    saveDocumentFor(activeDocument, name, source);
   };
 
   const reorderDocumentTab = (fromIndex: number, toIndex: number): void => {
@@ -601,16 +871,25 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
         activeDocument,
         activeDocumentIndex,
         documents,
+        stageTabs,
+        rightWorkspaceTabIds,
+        activeLeftWorkspaceTab: activeLeftWorkspaceTab(),
+        activeRightWorkspaceTab: activeRightWorkspaceTab(),
         editingTabIndex,
         editingTabName,
         setEditingTabName,
         setEditingTabIndex,
         switchDocument,
+        openStageTabs,
+        switchWorkspaceTab,
+        splitWorkspaceTabRight,
+        closeWorkspaceTab,
         closeDocument,
         newDocument,
         commitRenameDocument,
         reorderDocumentTab,
         saveDocument,
+        saveDocumentFor,
         addDocument,
       })}
       {statusBar(activeSnapshot)}
@@ -624,16 +903,25 @@ interface ShellActions {
   readonly activeDocument: DocumentTab;
   readonly activeDocumentIndex: number;
   readonly documents: readonly DocumentTab[];
+  readonly stageTabs: readonly WorkspaceTab[];
+  readonly rightWorkspaceTabIds: readonly string[];
+  readonly activeLeftWorkspaceTab: WorkspaceTab;
+  readonly activeRightWorkspaceTab: WorkspaceTab | null;
   readonly editingTabIndex: number | null;
   readonly editingTabName: string;
   readonly setEditingTabName: (name: string) => void;
   readonly setEditingTabIndex: (index: number | null) => void;
   readonly switchDocument: (index: number) => void;
+  readonly openStageTabs: (stageId: string) => void;
+  readonly switchWorkspaceTab: (tabId: string, group: "left" | "right") => void;
+  readonly splitWorkspaceTabRight: (tabId: string) => void;
+  readonly closeWorkspaceTab: (tabId: string) => void;
   readonly closeDocument: (index: number) => void;
   readonly newDocument: () => void;
   readonly commitRenameDocument: (index: number, name: string) => void;
   readonly reorderDocumentTab: (fromIndex: number, toIndex: number) => void;
   readonly saveDocument: (name?: string, source?: string) => void;
+  readonly saveDocumentFor: (document: DocumentTab, name?: string, source?: string) => void;
   readonly addDocument: (name: string, source: string, path?: string | null) => void;
 }
 
@@ -686,27 +974,11 @@ function workbenchBody(
   hoverInspector: MiniCHoverInspector,
   actions: ShellActions,
 ) {
-  const sourceVisible = sourceMode(snapshot);
   return (
     <main className="workbench-body">
-      <MiniCSidebarView viewModel={viewModel} />
+      <MiniCSidebarView onStageSelect={actions.openStageTabs} viewModel={viewModel} />
       <section className="editor-area">
-        {tabs(actions)}
-        <div className={`split workbench-main ${sourceVisible ? "source-mode" : "visual-mode"}`}>
-          {sourceVisible ? (
-            <div className="source-area">
-              <MiniCSourceLoaderView
-                viewModel={viewModel}
-                onOpenDocument={(name, source) => actions.addDocument(name, source, name)}
-                onSaveDocument={(name, source) => actions.saveDocument(name, source)}
-              />
-            </div>
-          ) : (
-            <div className="main-content">
-              <MiniCVisualPane inspector={hoverInspector} viewModel={viewModel} />
-            </div>
-          )}
-        </div>
+        {workspaceSplit(actions, hoverInspector)}
         <MiniCBottomPanel inspector={hoverInspector} viewModel={viewModel} />
       </section>
       <MiniCInspectorView playbackController={playbackController} viewModel={viewModel} />
@@ -714,34 +986,67 @@ function workbenchBody(
   );
 }
 
-function sourceMode(snapshot: MiniCWorkbenchSnapshot): boolean {
-  const selectedStage = snapshot.selectedVisualStage;
-  if (selectedStage === "source") {
-    return true;
-  }
-  if (selectedStage.length > 0) {
-    return false;
-  }
-  return !snapshot.sessionStarted || snapshot.currentState === null || snapshot.currentState.currentStage === "source";
+function workspaceSplit(actions: ShellActions, hoverInspector: MiniCHoverInspector) {
+  const leftTabs = workspaceTabsForGroup(actions, "left");
+  const rightTabs = workspaceTabsForGroup(actions, "right");
+  return (
+    <div className={`workspace-split${rightTabs.length > 0 ? " has-right" : ""}`}>
+      <section className="workspace-group">
+        {workspaceTabs(actions, "left", leftTabs)}
+        <div className="workspace-content">{workspaceContent(actions.activeLeftWorkspaceTab, actions, hoverInspector)}</div>
+      </section>
+      {rightTabs.length > 0 && actions.activeRightWorkspaceTab !== null && (
+        <section className="workspace-group right">
+          {workspaceTabs(actions, "right", rightTabs)}
+          <div className="workspace-content">{workspaceContent(actions.activeRightWorkspaceTab, actions, hoverInspector)}</div>
+        </section>
+      )}
+    </div>
+  );
 }
 
-function tabs(actions: ShellActions) {
+function workspaceTabsForGroup(actions: ShellActions, group: "left" | "right"): readonly WorkspaceTab[] {
+  const rightIds = new Set(actions.rightWorkspaceTabIds);
+  const sourceTabs = actions.documents.map((document): WorkspaceTab => ({
+    id: document.id,
+    title: document.name,
+    kind: "source",
+    document,
+    stage: "source",
+    side: "both",
+  }));
+  return [...sourceTabs, ...actions.stageTabs].filter((tab) => rightIds.has(tab.id) === (group === "right"));
+}
+
+function workspaceTabs(actions: ShellActions, group: "left" | "right", groupTabs: readonly WorkspaceTab[]) {
   return (
     <div className="tabs" role="tablist">
-      {actions.documents.map((document, index) => (
+      {groupTabs.map((tab) => {
+        const index = actions.documents.findIndex((document) => document.id === tab.document.id);
+        const document = tab.document;
+        const active = group === "right"
+          ? tab.id === actions.activeRightWorkspaceTab?.id
+          : tab.id === actions.activeLeftWorkspaceTab.id;
+        return (
         <div
-          className={`tab${index === actions.activeDocumentIndex ? " active" : ""}`}
-          draggable
-          key={`${document.order}-${document.name}`}
-          onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
+          className={`tab${active ? " active" : ""}`}
+          draggable={tab.kind === "source"}
+          key={tab.id}
+          onDragStart={(event) => {
+            if (tab.kind === "source") {
+              event.dataTransfer.setData("text/plain", String(index));
+            }
+          }}
           onDrop={(event) => {
             event.preventDefault();
-            actions.reorderDocumentTab(Number(event.dataTransfer.getData("text/plain")), index);
+            if (tab.kind === "source") {
+              actions.reorderDocumentTab(Number(event.dataTransfer.getData("text/plain")), index);
+            }
           }}
           onDragOver={(event) => event.preventDefault()}
           role="tab"
         >
-          {actions.editingTabIndex === index ? (
+          {tab.kind === "source" && actions.editingTabIndex === index ? (
             <input
               autoFocus
               className="tab-rename"
@@ -760,24 +1065,56 @@ function tabs(actions: ShellActions) {
           ) : (
             <button
               className="tab-title"
-              onClick={() => actions.switchDocument(index)}
+              onClick={() => actions.switchWorkspaceTab(tab.id, group)}
               onDoubleClick={() => {
-                actions.setEditingTabName(document.name);
-                actions.setEditingTabIndex(index);
+                if (tab.kind === "source") {
+                  actions.setEditingTabName(document.name);
+                  actions.setEditingTabIndex(index);
+                }
               }}
               type="button"
             >
-              {document.name}
+              {tab.kind === "source" ? document.name : tab.title}
             </button>
           )}
-          <button className="tab-close" onClick={() => actions.closeDocument(index)} type="button" aria-label="Close document">
+          <button className="tab-split" onClick={() => actions.splitWorkspaceTabRight(tab.id)} title="向右拆分" type="button" aria-label="Split tab right">
+            &gt;
+          </button>
+          <button className="tab-close" onClick={() => actions.closeWorkspaceTab(tab.id)} type="button" aria-label="Close tab">
             x
           </button>
         </div>
-      ))}
-      <button className="tab-action" onClick={actions.newDocument} type="button">
-        +
-      </button>
+        );
+      })}
+      {group === "left" && (
+        <button className="tab-action" onClick={actions.newDocument} type="button">
+          +
+        </button>
+      )}
+    </div>
+  );
+}
+
+function workspaceContent(tab: WorkspaceTab, actions: ShellActions, hoverInspector: MiniCHoverInspector) {
+  if (tab.kind === "source") {
+    return (
+      <div className="source-area">
+        <MiniCSourceLoaderView
+          viewModel={tab.document.viewModel}
+          onOpenDocument={(name, source) => actions.addDocument(name, source, name)}
+          onSaveDocument={(name, source) => actions.saveDocumentFor(tab.document, name, source)}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="main-content">
+      <MiniCVisualPane
+        inspector={hoverInspector}
+        side={tab.side}
+        stageOverride={tab.stage}
+        viewModel={tab.document.viewModel}
+      />
     </div>
   );
 }
@@ -815,7 +1152,7 @@ function useWorkbenchShellSnapshot(viewModel: MiniCWorkbenchViewModel): MiniCWor
 
 function restorePersistedDocuments(): readonly DocumentTab[] {
   const sample = MiniCSamplePrograms.defaultSample();
-  const fallback = [{ name: sample.name, path: null, order: 1, viewModel: createMiniCWorkbenchViewModel(sample.name, sample.source) }];
+  const fallback = [createDocumentTab(sample.name, null, 1, createMiniCWorkbenchViewModel(sample.name, sample.source))];
   try {
     const raw = window.localStorage.getItem(DOCUMENTS_STORAGE_KEY);
     if (!raw) {
@@ -825,15 +1162,30 @@ function restorePersistedDocuments(): readonly DocumentTab[] {
     if (!Array.isArray(parsed) || parsed.length === 0) {
       return fallback;
     }
-    return parsed.map((entry, index) => ({
-      name: typeof entry.name === "string" && entry.name.length > 0 ? entry.name : nextUntitledName([]),
-      path: typeof entry.path === "string" ? entry.path : null,
-      order: Number.isFinite(entry.order) ? entry.order : index + 1,
-      viewModel: createMiniCWorkbenchViewModel(entry.name, typeof entry.source === "string" ? entry.source : ""),
-    }));
+    return parsed.map((entry, index) => createDocumentTab(
+      typeof entry.name === "string" && entry.name.length > 0 ? entry.name : nextUntitledName([]),
+      typeof entry.path === "string" ? entry.path : null,
+      Number.isFinite(entry.order) ? entry.order : index + 1,
+      createMiniCWorkbenchViewModel(entry.name, typeof entry.source === "string" ? entry.source : ""),
+    ));
   } catch {
     return fallback;
   }
+}
+
+function createDocumentTab(
+  name: string,
+  path: string | null,
+  order: number,
+  viewModel: MiniCWorkbenchViewModel,
+): DocumentTab {
+  return {
+    id: `source-${nextDocumentTabId++}`,
+    name,
+    path,
+    order,
+    viewModel,
+  };
 }
 
 function persistOpenDocuments(documents: readonly DocumentTab[]): void {

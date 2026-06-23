@@ -285,7 +285,7 @@ async function verifyCompilerPipeline(page, baseUrl) {
     page.keyboard.press("Control+Alt+Shift+KeyK"),
   ]);
   await clickControlForApi(page, baseUrl, ".inspector", "下一步", "POST", ["/api/observation/", "/next"]);
-  await page.locator(".visual-canvas").waitFor({ state: "visible" });
+  await page.locator("textarea.source-editor-input").first().waitFor({ state: "visible" });
   await verifyPlaybackControls(page, baseUrl);
   await clickControlForApi(page, baseUrl, ".inspector", "下一阶段", "POST", ["/api/observation/", "/next-stage"]);
   await clickControlForApi(page, baseUrl, ".inspector", "到执行", "POST", ["/api/observation/", "/run-to-execution"], 90_000);
@@ -293,6 +293,8 @@ async function verifyCompilerPipeline(page, baseUrl) {
     const execution = document.querySelector('.stage-card[data-stage-id="execution"]');
     return execution !== null && !execution.hasAttribute("disabled");
   });
+  await verifyPipelineTabsDefaultFocus(page);
+  await setAutoSplitPipelineTabs(page, true);
 
   const stageExpectations = [
     ["preprocess", "预编译"],
@@ -309,8 +311,10 @@ async function verifyCompilerPipeline(page, baseUrl) {
     await card.waitFor({ state: "visible" });
     assert(!(await card.isDisabled()), `stage card ${stageId} should be enabled after running to execution`);
     await card.click();
-    await page.locator(".pane-head", { hasText: stageTitle }).waitFor({ state: "visible" });
-    const visualText = await page.locator(".visual-canvas").innerText();
+    await page.locator(".workspace-group:not(.right) .tab.active .tab-title", { hasText: `${stageTitle} before` }).waitFor({ state: "visible" });
+    await page.locator(".workspace-group.right .tab.active .tab-title", { hasText: `${stageTitle} after` }).waitFor({ state: "visible" });
+    await page.locator(".workspace-group.right .pane-head", { hasText: stageTitle }).waitFor({ state: "visible" });
+    const visualText = await page.locator(".workspace-group.right .visual-canvas").first().innerText();
     assert(visualText.trim().length > stageTitle.length, `stage ${stageId} should render non-empty visual content`);
     if (stageId === "lexer") {
       assert(
@@ -326,6 +330,32 @@ async function verifyCompilerPipeline(page, baseUrl) {
       await verifySemanticScopePane(page);
     }
   }
+}
+
+async function verifyPipelineTabsDefaultFocus(page) {
+  const leftActiveTitle = page.locator(".workspace-group:not(.right) .tab.active .tab-title").first();
+  const activeBefore = (await leftActiveTitle.innerText()).trim();
+  await page.locator('.stage-card[data-stage-id="lexer"]').click();
+  await page.locator(".workspace-group:not(.right) .tab-title", { hasText: "词法分析 before" }).waitFor({ state: "visible" });
+  await page.locator(".workspace-group:not(.right) .tab-title", { hasText: "词法分析 after" }).waitFor({ state: "visible" });
+  const activeAfter = (await leftActiveTitle.innerText()).trim();
+  assert(activeAfter === activeBefore, `disabled auto split should not steal focus (${activeBefore} -> ${activeAfter})`);
+  assert((await page.locator(".workspace-group.right").count()) === 0, "disabled auto split should not create a right workspace group");
+}
+
+async function setAutoSplitPipelineTabs(page, enabled) {
+  await page.getByRole("button", { name: "设置", exact: true }).click();
+  const checkbox = page.locator("#minic-auto-split-pipeline-tabs");
+  await checkbox.waitFor({ state: "visible" });
+  if ((await checkbox.isChecked()) !== enabled) {
+    await checkbox.setChecked(enabled);
+  }
+  await page.waitForFunction((expected) => {
+    const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
+    return settings.autoSplitPipelineTabs === String(expected);
+  }, enabled);
+  await page.getByRole("button", { name: "代码区", exact: true }).click();
+  await page.locator(".workspace-group:not(.right)").waitFor({ state: "visible" });
 }
 
 async function verifyPlaybackControls(page, baseUrl) {
@@ -357,14 +387,15 @@ async function intervalDelaysSince(page, start) {
 }
 
 async function verifySemanticScopePane(page) {
-  const scopePaneText = await page.locator(".stage-flow-column").nth(1).innerText();
+  const scopePane = page.locator(".workspace-group.right .stage-flow-column").first();
+  const scopePaneText = await scopePane.innerText();
   assert(!scopePaneText.includes("^ "), `semantic scope pane should show active scope symbols, not the whole scope tree:\n${scopePaneText}`);
-  assert((await page.locator(".stage-flow-column").nth(1).locator(".assembly-text").count()) > 0, "semantic scope pane should render symbol rows as mono labels");
+  assert((await scopePane.locator(".assembly-text").count()) > 0, "semantic scope pane should render symbol rows as mono labels");
   const mask = page.locator(".semantic-graph-scope-mask-0, .semantic-graph-scope-mask-1, .semantic-graph-scope-mask-2, .semantic-graph-scope-mask-3").first();
   await mask.waitFor({ state: "visible" });
   await mask.click({ force: true });
   await page.waitForFunction(() => document.querySelector(".selected-scope-mask") !== null);
-  const selectedScopePaneText = await page.locator(".stage-flow-column").nth(1).innerText();
+  const selectedScopePaneText = await scopePane.innerText();
   assert(!selectedScopePaneText.includes("^ "), `selected semantic scope pane should still show symbols, not tree rows:\n${selectedScopePaneText}`);
 }
 

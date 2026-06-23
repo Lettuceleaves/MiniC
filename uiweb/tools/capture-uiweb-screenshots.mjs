@@ -138,7 +138,13 @@ export async function captureUiwebScreenshots() {
     manifest.appBaseUrl = vite.baseUrl;
     for (const viewport of viewports) {
       const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
-      await context.addInitScript(() => window.localStorage.clear());
+      await context.addInitScript(() => {
+        window.localStorage.clear();
+        window.localStorage.setItem(
+          "minic.uiweb.settings",
+          JSON.stringify({ autoSplitPipelineTabs: "true" }),
+        );
+      });
       const page = await context.newPage();
       const pageErrors = [];
       page.on("console", (message) => {
@@ -377,7 +383,7 @@ async function waitForStageView(page, stageId) {
     await page.locator("textarea.source-editor-input").first().waitFor({ state: "visible" });
     return;
   }
-  await page.locator(".visual-canvas").waitFor({ state: "visible" });
+  await page.locator(".visual-canvas").first().waitFor({ state: "visible" });
   const expected = {
     preprocess: "预编译",
     lexer: "词法分析",
@@ -389,7 +395,7 @@ async function waitForStageView(page, stageId) {
     execution: "执行",
   }[stageId];
   if (expected) {
-    await page.locator(".pane-head", { hasText: expected }).waitFor({ state: "visible" });
+    await page.locator(".pane-head", { hasText: expected }).first().waitFor({ state: "visible" });
   }
 }
 

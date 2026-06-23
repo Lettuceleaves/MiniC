@@ -194,6 +194,7 @@
     -fx-text-fill: {{text.active}};
 }
 
+.tab-split,
 .tab-close {
     -fx-min-width: 20px;
     -fx-pref-width: 20px;
@@ -203,6 +204,7 @@
     -fx-text-fill: {{text.muted}};
 }
 
+.tab-split:hover,
 .tab-close:hover {
     -fx-background-color: {{background.hover}};
     -fx-text-fill: {{text.active}};

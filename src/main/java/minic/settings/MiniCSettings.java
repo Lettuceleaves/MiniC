@@ -30,6 +30,7 @@ public final class MiniCSettings {
     private static final double MIN_GRAPH_ZOOM_STEP = 0.001;
     private static final double MAX_GRAPH_ZOOM_STEP = 0.25;
     private static final String DEFAULT_GRAPH_ZOOM_ANCHOR = "mouse";
+    private static final boolean DEFAULT_AUTO_SPLIT_PIPELINE_TABS = false;
     private static final String LAST_FILE_DIALOG_DIRECTORY_KEY = "lastFileDialogDirectory";
     private static final String OPEN_FILES_KEY = "openFiles";
     private static final MathContext TAB_ORDER_CONTEXT = MathContext.DECIMAL128;
@@ -218,6 +219,18 @@ public final class MiniCSettings {
         return "mouse".equalsIgnoreCase(graphZoomAnchor());
     }
 
+    public static boolean autoSplitPipelineTabs() {
+        return Boolean.parseBoolean(values.getOrDefault(
+                "autoSplitPipelineTabs",
+                String.valueOf(DEFAULT_AUTO_SPLIT_PIPELINE_TABS)
+        ));
+    }
+
+    public static void setAutoSplitPipelineTabs(boolean enabled) {
+        values.put("autoSplitPipelineTabs", String.valueOf(enabled));
+        save();
+    }
+
     public static Optional<Path> lastFileDialogDirectory() {
         String raw = values.get(LAST_FILE_DIALOG_DIRECTORY_KEY);
         if (raw == null || raw.isBlank()) {
@@ -395,6 +408,7 @@ public final class MiniCSettings {
         defaults.put("editorDisplayScale", String.valueOf(DEFAULT_EDITOR_DISPLAY_SCALE));
         defaults.put("graphZoomStep", String.valueOf(DEFAULT_GRAPH_ZOOM_STEP));
         defaults.put("graphZoomAnchor", DEFAULT_GRAPH_ZOOM_ANCHOR);
+        defaults.put("autoSplitPipelineTabs", String.valueOf(DEFAULT_AUTO_SPLIT_PIPELINE_TABS));
         defaults.put(LAST_FILE_DIALOG_DIRECTORY_KEY, "");
         return defaults;
     }

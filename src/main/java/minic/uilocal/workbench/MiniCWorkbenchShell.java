@@ -1,9 +1,12 @@
 package minic.uilocal;
 import javafx.scene.Parent;
 import javafx.geometry.Point2D;
+import javafx.geometry.Orientation;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
@@ -61,22 +64,29 @@ public final class MiniCWorkbenchShell {
             MiniCWorkbenchControlHub.SETTINGS_UI_SCALE_DECREASE
     );
     private final ArrayList<DocumentTab> documents = new ArrayList<>();
+    private final ArrayList<WorkspaceTab> stageTabs = new ArrayList<>();
+    private final LinkedHashSet<String> rightWorkspaceTabIds = new LinkedHashSet<>();
     private final MiniCKeyBindingConfig keyBindings = MiniCKeyBindingConfig.loadDefault();
     private final MiniCWorkbenchControlHub controlHub = new MiniCWorkbenchControlHub();
     private final LinkedHashSet<KeyCode> pressedKeys = new LinkedHashSet<>();
     private BorderPane root;
     private HBox body;
     private HBox tabs;
+    private HBox rightTabs;
     private VBox editor;
     private MiniCWorkbenchViewModel viewModel;
     private MiniCVisualPane visualPane;
     private MiniCSourceLoaderView sourceLoader;
     private VBox sourcePane;
     private StackPane mainContent;
+    private StackPane rightMainContent;
+    private SplitPane workspaceSplit;
     private MiniCHoverInspector hoverInspector;
     private ActivitySection activeSection = ActivitySection.CODE;
     private TextField editingTabField;
     private int activeDocumentIndex;
+    private String activeLeftWorkspaceTabId = "";
+    private String activeRightWorkspaceTabId;
     private int nextUntitledIndex = 1;
     private int draggedTabIndex = -1;
 
@@ -90,6 +100,7 @@ public final class MiniCWorkbenchShell {
         if (!restorePersistedDocuments(initialModel)) {
             addDocument(nextUntitledName(), "", null, BigDecimal.ZERO, initialModel, false);
         }
+        activeLeftWorkspaceTabId = sourceTabId(documents.get(activeDocumentIndex));
         registerSettingsCommands();
     }
 
@@ -226,7 +237,7 @@ public final class MiniCWorkbenchShell {
     }
 
     private VBox sidebar() {
-        return new MiniCSidebarView(viewModel);
+        return new MiniCSidebarView(viewModel, this::openStageTabs);
     }
 
     private VBox editorArea() {
@@ -236,82 +247,115 @@ public final class MiniCWorkbenchShell {
         editor.setMaxWidth(Double.MAX_VALUE);
         HBox.setHgrow(editor, Priority.ALWAYS);
 
-        tabs = new HBox();
-        tabs.getStyleClass().add("tabs");
-        refreshTabs();
-
-        mainContent = new StackPane();
-        mainContent.getStyleClass().add("split");
-        mainContent.setMinWidth(0);
-        mainContent.setMaxWidth(Double.MAX_VALUE);
-        VBox.setVgrow(mainContent, Priority.ALWAYS);
-        sourcePane = sourceArea();
-        visualPane = new MiniCVisualPane(viewModel, hoverInspector);
-        sourceLoader.installViewportTarget(controlHub);
-        visualPane.installViewportTargets(controlHub);
+        workspaceSplit = new SplitPane();
+        workspaceSplit.getStyleClass().add("split");
+        workspaceSplit.setOrientation(Orientation.HORIZONTAL);
+        workspaceSplit.setMinWidth(0);
+        workspaceSplit.setMaxWidth(Double.MAX_VALUE);
+        VBox.setVgrow(workspaceSplit, Priority.ALWAYS);
+        rebuildWorkspaceSplit();
         controlHub.setActiveTrackingAction(new MiniCActiveTrackingService(this::activeViewportAdapters)::trackActiveViewports);
-        sourcePane.setMinWidth(0);
-        visualPane.setMinWidth(0);
-        mainContent.getChildren().addAll(sourcePane, visualPane);
-        mainContent.addEventFilter(MouseEvent.MOUSE_CLICKED, event -> {
-            if (event.getButton() == MouseButton.PRIMARY) {
-                var state = viewModel.currentStateProperty().get();
-                if (state != null && !"PAUSED".equals(state.playbackMode())) {
-                    viewModel.pause();
-                }
-            }
-        });
-        viewModel.sessionStartedProperty().addListener((observable, oldValue, newValue) -> updateMainContent());
-        viewModel.currentStateProperty().addListener((observable, oldValue, newValue) -> updateMainContent());
-        viewModel.selectedVisualStageProperty().addListener((observable, oldValue, newValue) -> updateMainContent());
-        updateMainContent();
 
-        editor.getChildren().addAll(tabs, mainContent, new MiniCBottomPanel(hoverInspector));
+        editor.getChildren().addAll(workspaceSplit, new MiniCBottomPanel(hoverInspector));
         return editor;
     }
 
-    private void updateMainContent() {
-        if (sourcePane == null || visualPane == null) {
+    private void rebuildWorkspaceSplit() {
+        if (workspaceSplit == null) {
             return;
         }
-        boolean sourceMode = sourceMode();
-        sourcePane.setVisible(sourceMode);
-        sourcePane.setManaged(sourceMode);
-        visualPane.setVisible(!sourceMode);
-        visualPane.setManaged(!sourceMode);
+        sourceLoader = null;
+        visualPane = null;
+        tabs = workspaceTabs(false);
+        mainContent = new StackPane(workspaceContent(activeLeftWorkspaceTab(), true));
+        mainContent.getStyleClass().add("workspace-content");
+        mainContent.setMinWidth(0);
+        mainContent.setMaxWidth(Double.MAX_VALUE);
+        VBox.setVgrow(mainContent, Priority.ALWAYS);
+        VBox leftGroup = workspaceGroup(tabs, mainContent);
+        List<Node> groups = new ArrayList<>();
+        groups.add(leftGroup);
+        if (!rightWorkspaceTabIds.isEmpty()) {
+            if (activeRightWorkspaceTabId == null || findWorkspaceTab(activeRightWorkspaceTabId) == null) {
+                activeRightWorkspaceTabId = rightWorkspaceTabIds.stream().findFirst().orElse(null);
+            }
+            rightTabs = workspaceTabs(true);
+            rightMainContent = new StackPane(workspaceContent(activeRightWorkspaceTab(), false));
+            rightMainContent.getStyleClass().add("workspace-content");
+            rightMainContent.setMinWidth(0);
+            rightMainContent.setMaxWidth(Double.MAX_VALUE);
+            VBox.setVgrow(rightMainContent, Priority.ALWAYS);
+            groups.add(workspaceGroup(rightTabs, rightMainContent));
+        } else {
+            rightTabs = null;
+            rightMainContent = null;
+            activeRightWorkspaceTabId = null;
+        }
+        workspaceSplit.getItems().setAll(groups);
+        if (groups.size() == 2) {
+            workspaceSplit.setDividerPositions(0.5);
+        }
     }
 
-    private boolean sourceMode() {
-        String selectedStage = viewModel.selectedVisualStageProperty().get();
-        if ("source".equals(selectedStage)) {
-            return true;
-        }
-        if (selectedStage != null && !selectedStage.isEmpty()) {
-            return false;
-        }
-        return !viewModel.sessionStartedProperty().get()
-                || viewModel.currentStateProperty().get() == null
-                || "source".equals(viewModel.currentStateProperty().get().currentStage());
+    private VBox workspaceGroup(HBox tabBar, StackPane content) {
+        VBox group = new VBox();
+        group.getStyleClass().add("workspace-group");
+        group.setMinWidth(0);
+        group.setMaxWidth(Double.MAX_VALUE);
+        group.getChildren().addAll(tabBar, content);
+        VBox.setVgrow(content, Priority.ALWAYS);
+        return group;
     }
 
-    private VBox sourceArea() {
+    private Node workspaceContent(WorkspaceTab tab, boolean primary) {
+        if (tab.kind() == WorkspaceTabKind.SOURCE) {
+            return sourceArea(tab.viewModel(), primary);
+        }
+        MiniCVisualPane pane = new MiniCVisualPane(viewModelForTab(tab), hoverInspector, tab.stage(), tab.side());
+        pane.installViewportTargets(controlHub);
+        pane.setMinWidth(0);
+        pane.addEventFilter(MouseEvent.MOUSE_CLICKED, event -> pauseIfPlaying(tab.viewModel()));
+        if (primary) {
+            visualPane = pane;
+        }
+        return pane;
+    }
+
+    private VBox sourceArea(MiniCWorkbenchViewModel model, boolean primary) {
         VBox sourceArea = new VBox();
         sourceArea.getStyleClass().add("source-area");
-        sourceLoader = new MiniCSourceLoaderView(viewModel, this::openDocument, this::saveDocument, this::saveDocumentAs);
-        sourceLoader.usePersistentEditorScrollBars("pipeline-source-editor-scroll");
-        sourceArea.getChildren().add(sourceLoader);
-        VBox.setVgrow(sourceLoader, Priority.ALWAYS);
+        MiniCSourceLoaderView loader = new MiniCSourceLoaderView(
+                model,
+                this::openDocument,
+                () -> saveDocument(model),
+                () -> saveDocumentAs(model)
+        );
+        loader.usePersistentEditorScrollBars("pipeline-source-editor-scroll");
+        loader.installViewportTarget(controlHub);
+        sourceArea.getChildren().add(loader);
+        VBox.setVgrow(loader, Priority.ALWAYS);
+        if (primary) {
+            sourceLoader = loader;
+        }
         return sourceArea;
     }
 
     private List<MiniCViewportAdapter> activeViewportAdapters() {
-        if (sourceLoader == null || visualPane == null) {
-            return List.of();
-        }
-        if (sourceMode()) {
+        WorkspaceTab active = activeLeftWorkspaceTab();
+        if (active.kind() == WorkspaceTabKind.SOURCE && sourceLoader != null) {
             return List.of(sourceLoader.viewportAdapter());
         }
-        return visualPane.activeViewportAdapters();
+        if (active.kind() == WorkspaceTabKind.STAGE && visualPane != null) {
+            return visualPane.activeViewportAdapters();
+        }
+        return List.of();
+    }
+
+    private void pauseIfPlaying(MiniCWorkbenchViewModel model) {
+        var state = model.currentStateProperty().get();
+        if (state != null && !"PAUSED".equals(state.playbackMode())) {
+            model.pause();
+        }
     }
 
     private HBox statusBar() {
@@ -326,32 +370,60 @@ public final class MiniCWorkbenchShell {
     }
 
     private void refreshTabs() {
-        if (tabs == null) {
-            return;
+        if (workspaceSplit != null) {
+            rebuildWorkspaceSplit();
         }
-        tabs.getChildren().clear();
-        for (int index = 0; index < documents.size(); index++) {
-            DocumentTab document = documents.get(index);
-            HBox tab = new HBox();
-            tab.getStyleClass().add("tab");
-            Label title = new Label("C  " + document.displayName());
-            title.getStyleClass().add("tab-title");
-            title.setMaxWidth(Double.MAX_VALUE);
-            HBox.setHgrow(title, Priority.ALWAYS);
-            Label close = new Label("×");
-            close.getStyleClass().add("tab-close");
-            if (index == activeDocumentIndex) {
-                tab.getStyleClass().add("active");
+    }
+
+    private HBox workspaceTabs(boolean rightGroup) {
+        HBox tabBar = new HBox();
+        tabBar.getStyleClass().add("tabs");
+        for (WorkspaceTab workspaceTab : workspaceTabsForGroup(rightGroup)) {
+            tabBar.getChildren().add(workspaceTabNode(workspaceTab, rightGroup));
+        }
+        if (!rightGroup) {
+            tabBar.getChildren().add(toolbarButton("+", "新建文件", this::newDocument));
+        }
+        return tabBar;
+    }
+
+    private List<WorkspaceTab> workspaceTabsForGroup(boolean rightGroup) {
+        return allWorkspaceTabs().stream()
+                .filter(tab -> rightWorkspaceTabIds.contains(tab.id()) == rightGroup)
+                .toList();
+    }
+
+    private HBox workspaceTabNode(WorkspaceTab workspaceTab, boolean rightGroup) {
+        HBox tab = new HBox();
+        tab.getStyleClass().add("tab");
+        Label title = new Label(workspaceTab.kind() == WorkspaceTabKind.SOURCE
+                ? "C  " + workspaceTab.title()
+                : workspaceTab.title());
+        title.getStyleClass().add("tab-title");
+        title.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(title, Priority.ALWAYS);
+        Label split = new Label(">");
+        split.getStyleClass().add("tab-split");
+        split.setTooltip(new Tooltip("向右拆分"));
+        Label close = new Label("×");
+        close.getStyleClass().add("tab-close");
+        boolean active = rightGroup
+                ? workspaceTab.id().equals(activeRightWorkspaceTabId)
+                : workspaceTab.id().equals(activeLeftWorkspaceTabId);
+        if (active) {
+            tab.getStyleClass().add("active");
+        }
+        tab.setOnMouseClicked(event -> {
+            if (event.getClickCount() == 2 && workspaceTab.kind() == WorkspaceTabKind.SOURCE) {
+                int documentIndex = documentIndex(workspaceTab.viewModel());
+                beginRenameDocument(documentIndex, tab, title);
+                event.consume();
+                return;
             }
-            int tabIndex = index;
-            tab.setOnMouseClicked(event -> {
-                if (event.getClickCount() == 2) {
-                    beginRenameDocument(tabIndex, tab, title);
-                    event.consume();
-                    return;
-                }
-                switchDocument(tabIndex);
-            });
+            switchWorkspaceTab(workspaceTab.id(), rightGroup);
+        });
+        if (workspaceTab.kind() == WorkspaceTabKind.SOURCE) {
+            int tabIndex = documentIndex(workspaceTab.viewModel());
             tab.setOnDragDetected(event -> {
                 draggedTabIndex = tabIndex;
                 tab.startFullDrag();
@@ -361,14 +433,17 @@ public final class MiniCWorkbenchShell {
                 reorderDraggedTab(tabIndex);
                 event.consume();
             });
-            close.setOnMouseClicked(event -> {
-                closeDocument(tabIndex);
-                event.consume();
-            });
-            tab.getChildren().addAll(title, close);
-            tabs.getChildren().add(tab);
         }
-        tabs.getChildren().add(toolbarButton("+", "新建文件", this::newDocument));
+        split.setOnMouseClicked(event -> {
+            splitWorkspaceTabRight(workspaceTab.id());
+            event.consume();
+        });
+        close.setOnMouseClicked(event -> {
+            closeWorkspaceTab(workspaceTab.id());
+            event.consume();
+        });
+        tab.getChildren().addAll(title, split, close);
+        return tab;
     }
 
     private Button toolbarButton(String text, String tooltip, Runnable action) {
@@ -379,12 +454,210 @@ public final class MiniCWorkbenchShell {
         return button;
     }
 
+    private List<WorkspaceTab> allWorkspaceTabs() {
+        ArrayList<WorkspaceTab> tabs = new ArrayList<>();
+        for (DocumentTab document : documents) {
+            tabs.add(sourceWorkspaceTab(document));
+        }
+        tabs.addAll(stageTabs);
+        return tabs;
+    }
+
+    private WorkspaceTab sourceWorkspaceTab(DocumentTab document) {
+        return new WorkspaceTab(
+                sourceTabId(document),
+                document.displayName(),
+                WorkspaceTabKind.SOURCE,
+                document.viewModel(),
+                "source",
+                MiniCVisualPane.VisualSide.BOTH
+        );
+    }
+
+    private WorkspaceTab activeLeftWorkspaceTab() {
+        WorkspaceTab found = findWorkspaceTab(activeLeftWorkspaceTabId);
+        if (found != null) {
+            return found;
+        }
+        WorkspaceTab first = allWorkspaceTabs().getFirst();
+        activeLeftWorkspaceTabId = first.id();
+        activeDocumentIndex = Math.max(0, documentIndex(first.viewModel()));
+        return first;
+    }
+
+    private WorkspaceTab activeRightWorkspaceTab() {
+        WorkspaceTab found = findWorkspaceTab(activeRightWorkspaceTabId);
+        if (found != null) {
+            return found;
+        }
+        String fallback = rightWorkspaceTabIds.stream().findFirst().orElse(null);
+        activeRightWorkspaceTabId = fallback;
+        return findWorkspaceTab(fallback);
+    }
+
+    private WorkspaceTab findWorkspaceTab(String id) {
+        if (id == null || id.isBlank()) {
+            return null;
+        }
+        return allWorkspaceTabs().stream()
+                .filter(tab -> tab.id().equals(id))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private MiniCWorkbenchViewModel viewModelForTab(WorkspaceTab tab) {
+        return tab == null ? documents.get(activeDocumentIndex).viewModel() : tab.viewModel();
+    }
+
+    private String sourceTabId(DocumentTab document) {
+        return "source:" + System.identityHashCode(document.viewModel());
+    }
+
+    private String stageTabId(DocumentTab document, String stage, MiniCVisualPane.VisualSide side) {
+        return sourceTabId(document) + ":" + stage + ":" + side.id();
+    }
+
+    private void switchWorkspaceTab(String id, boolean rightGroup) {
+        WorkspaceTab tab = findWorkspaceTab(id);
+        if (tab == null) {
+            return;
+        }
+        syncActiveEditorToModel();
+        if (rightGroup) {
+            activeRightWorkspaceTabId = id;
+        } else {
+            activeLeftWorkspaceTabId = id;
+            int documentIndex = documentIndex(tab.viewModel());
+            if (documentIndex >= 0) {
+                activeDocumentIndex = documentIndex;
+            }
+        }
+        if (body != null) {
+            body.getChildren().clear();
+            rebuildWorkbenchBody();
+        }
+    }
+
+    private void splitWorkspaceTabRight(String id) {
+        WorkspaceTab tab = findWorkspaceTab(id);
+        if (tab == null) {
+            return;
+        }
+        rightWorkspaceTabIds.add(id);
+        activeRightWorkspaceTabId = id;
+        if (id.equals(activeLeftWorkspaceTabId)) {
+            activeLeftWorkspaceTabId = allWorkspaceTabs().stream()
+                    .filter(candidate -> !rightWorkspaceTabIds.contains(candidate.id()))
+                    .map(WorkspaceTab::id)
+                    .findFirst()
+                    .orElse(id);
+        }
+        refreshTabs();
+    }
+
+    private void closeWorkspaceTab(String id) {
+        WorkspaceTab tab = findWorkspaceTab(id);
+        if (tab == null) {
+            return;
+        }
+        if (tab.kind() == WorkspaceTabKind.SOURCE) {
+            closeDocument(documentIndex(tab.viewModel()));
+            return;
+        }
+        stageTabs.removeIf(candidate -> candidate.id().equals(id));
+        rightWorkspaceTabIds.remove(id);
+        if (id.equals(activeLeftWorkspaceTabId)) {
+            activeLeftWorkspaceTabId = allWorkspaceTabs().stream()
+                    .filter(candidate -> !rightWorkspaceTabIds.contains(candidate.id()))
+                    .map(WorkspaceTab::id)
+                    .findFirst()
+                    .orElse(sourceTabId(documents.get(activeDocumentIndex)));
+        }
+        if (id.equals(activeRightWorkspaceTabId)) {
+            activeRightWorkspaceTabId = rightWorkspaceTabIds.stream().findFirst().orElse(null);
+        }
+        refreshTabs();
+    }
+
+    private void openStageTabs(String stage) {
+        String normalizedStage = stage == null || stage.isBlank() ? "source" : stage;
+        DocumentTab document = documents.get(activeDocumentIndex);
+        document.viewModel().selectVisualStage(normalizedStage);
+        if ("source".equals(normalizedStage)) {
+            switchWorkspaceTab(sourceTabId(document), false);
+            return;
+        }
+        WorkspaceTab before = ensureStageTab(document, normalizedStage, MiniCVisualPane.VisualSide.BEFORE);
+        WorkspaceTab after = ensureStageTab(document, normalizedStage, MiniCVisualPane.VisualSide.AFTER);
+        if (MiniCSettings.autoSplitPipelineTabs()) {
+            rightWorkspaceTabIds.add(after.id());
+            activeLeftWorkspaceTabId = before.id();
+            activeRightWorkspaceTabId = after.id();
+            refreshTabs();
+        } else {
+            refreshTabs();
+        }
+    }
+
+    private WorkspaceTab ensureStageTab(DocumentTab document, String stage, MiniCVisualPane.VisualSide side) {
+        String id = stageTabId(document, stage, side);
+        WorkspaceTab existing = findWorkspaceTab(id);
+        if (existing != null) {
+            return existing;
+        }
+        WorkspaceTab created = new WorkspaceTab(
+                id,
+                stageName(stage) + " " + side.label(),
+                WorkspaceTabKind.STAGE,
+                document.viewModel(),
+                stage,
+                side
+        );
+        stageTabs.add(created);
+        return created;
+    }
+
+    private String stageName(String stage) {
+        return switch (stage) {
+            case "source" -> "源码";
+            case "preprocess" -> "预编译";
+            case "lexer" -> "词法分析";
+            case "parser" -> "语法分析";
+            case "semantic" -> "语义分析";
+            case "ir" -> "IR 降级";
+            case "codegen" -> "代码生成";
+            case "toolchain" -> "工具链";
+            case "execution" -> "执行";
+            default -> stage;
+        };
+    }
+
+    void openStageTabsForTesting(String stage) {
+        openStageTabs(stage);
+    }
+
+    List<String> workspaceTabTitlesForTesting() {
+        return allWorkspaceTabs().stream()
+                .map(WorkspaceTab::title)
+                .toList();
+    }
+
+    String activeLeftWorkspaceTabTitleForTesting() {
+        return activeLeftWorkspaceTab().title();
+    }
+
+    java.util.Optional<String> activeRightWorkspaceTabTitleForTesting() {
+        WorkspaceTab right = activeRightWorkspaceTab();
+        return right == null ? java.util.Optional.empty() : java.util.Optional.of(right.title());
+    }
+
     private void switchDocument(int index) {
         if (index < 0 || index >= documents.size() || index == activeDocumentIndex) {
             return;
         }
         syncActiveEditorToModel();
         activeDocumentIndex = index;
+        activeLeftWorkspaceTabId = sourceTabId(documents.get(activeDocumentIndex));
         body.getChildren().clear();
         rebuildWorkbenchBody();
         refreshTabs();
@@ -396,6 +669,8 @@ public final class MiniCWorkbenchShell {
         }
         syncActiveEditorToModel();
         DocumentTab closed = documents.remove(index);
+        stageTabs.removeIf(tab -> tab.viewModel() == closed.viewModel());
+        rightWorkspaceTabIds.removeIf(id -> findWorkspaceTab(id) == null);
         if (closed.path() != null) {
             MiniCSettings.forgetOpenFile(closed.path());
         }
@@ -407,6 +682,8 @@ public final class MiniCWorkbenchShell {
         } else if (index < activeDocumentIndex) {
             activeDocumentIndex--;
         }
+        activeLeftWorkspaceTabId = sourceTabId(documents.get(activeDocumentIndex));
+        activeRightWorkspaceTabId = rightWorkspaceTabIds.stream().findFirst().orElse(null);
         if (body != null) {
             body.getChildren().clear();
             rebuildWorkbenchBody();
@@ -556,10 +833,21 @@ public final class MiniCWorkbenchShell {
 
     private void saveDocument() {
         syncActiveEditorToModel();
-        DocumentTab document = documents.get(activeDocumentIndex);
+        saveDocument(activeDocumentIndex);
+    }
+
+    private void saveDocument(MiniCWorkbenchViewModel model) {
+        int index = documentIndex(model);
+        if (index >= 0) {
+            saveDocument(index);
+        }
+    }
+
+    private void saveDocument(int documentIndex) {
+        DocumentTab document = documents.get(documentIndex);
         Path path = document.path();
         if (path == null) {
-            saveDocumentAs();
+            saveDocumentAs(documentIndex);
             return;
         }
         try {
@@ -571,7 +859,18 @@ public final class MiniCWorkbenchShell {
 
     private void saveDocumentAs() {
         syncActiveEditorToModel();
-        DocumentTab document = documents.get(activeDocumentIndex);
+        saveDocumentAs(activeDocumentIndex);
+    }
+
+    private void saveDocumentAs(MiniCWorkbenchViewModel model) {
+        int index = documentIndex(model);
+        if (index >= 0) {
+            saveDocumentAs(index);
+        }
+    }
+
+    private void saveDocumentAs(int documentIndex) {
+        DocumentTab document = documents.get(documentIndex);
         FileChooser chooser = new FileChooser();
         chooser.setTitle("另存为 MiniC 源文件");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("MiniC 源文件 (*.mc)", "*.mc"));
@@ -581,17 +880,21 @@ public final class MiniCWorkbenchShell {
         if (file == null) {
             return;
         }
-        saveDocumentAs(file.toPath());
+        saveDocumentAs(documentIndex, file.toPath());
     }
 
     void saveDocumentAsForTesting(Path path) {
         syncActiveEditorToModel();
-        saveDocumentAs(path);
+        saveDocumentAs(activeDocumentIndex, path);
     }
 
     private void saveDocumentAs(Path rawPath) {
+        saveDocumentAs(activeDocumentIndex, rawPath);
+    }
+
+    private void saveDocumentAs(int documentIndex, Path rawPath) {
         Path path = normalizePath(rawPath);
-        DocumentTab document = documents.get(activeDocumentIndex);
+        DocumentTab document = documents.get(documentIndex);
         Path oldPath = document.path();
         try {
             Files.createDirectories(path.getParent());
@@ -604,7 +907,7 @@ public final class MiniCWorkbenchShell {
             MiniCSettings.forgetOpenFile(oldPath);
         }
         DocumentTab saved = document.withPath(path);
-        documents.set(activeDocumentIndex, saved);
+        documents.set(documentIndex, saved);
         saved.viewModel().renameSource(path.toString());
         MiniCSettings.rememberOpenFile(path, saved.order());
         refreshTabs();
@@ -719,6 +1022,15 @@ public final class MiniCWorkbenchShell {
         Path normalized = normalizePath(path);
         for (int i = 0; i < documents.size(); i++) {
             if (normalized.equals(documents.get(i).path())) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private int documentIndex(MiniCWorkbenchViewModel model) {
+        for (int i = 0; i < documents.size(); i++) {
+            if (documents.get(i).viewModel() == model) {
                 return i;
             }
         }
@@ -941,6 +1253,21 @@ public final class MiniCWorkbenchShell {
         private DocumentTab withOrder(BigDecimal order) {
             return new DocumentTab(name, path, order, viewModel);
         }
+    }
+
+    private record WorkspaceTab(
+            String id,
+            String title,
+            WorkspaceTabKind kind,
+            MiniCWorkbenchViewModel viewModel,
+            String stage,
+            MiniCVisualPane.VisualSide side
+    ) {
+    }
+
+    private enum WorkspaceTabKind {
+        SOURCE,
+        STAGE
     }
 
     private enum ActivitySection {

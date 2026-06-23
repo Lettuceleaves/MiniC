@@ -4,6 +4,7 @@ import javafx.application.Platform;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
 import javafx.scene.input.KeyCode;
@@ -48,10 +49,12 @@ class MiniCSettingsInteractionRegressionTest {
             assertThat(MiniCSettings.uiScale()).isEqualTo(1.0);
             assertThat(MiniCSettings.graphZoomStep()).isEqualTo(0.025);
             assertThat(MiniCSettings.graphZoomAnchor()).isEqualTo("mouse");
+            assertThat(MiniCSettings.autoSplitPipelineTabs()).isFalse();
             assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
                     .contains("\"uiScale\": 1.0")
                     .contains("\"graphZoomStep\": 0.025")
-                    .contains("\"graphZoomAnchor\": \"mouse\"");
+                    .contains("\"graphZoomAnchor\": \"mouse\"")
+                    .contains("\"autoSplitPipelineTabs\": \"false\"");
 
             MiniCSettings.setUiScale(MiniCSettings.maxUiScale() * 4);
             assertThat(MiniCSettings.uiScale()).isEqualTo(MiniCSettings.maxUiScale());
@@ -69,6 +72,10 @@ class MiniCSettingsInteractionRegressionTest {
             assertThat(MiniCSettings.graphZoomStep()).isEqualTo(MiniCSettings.maxGraphZoomStep());
             assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
                     .contains("\"graphZoomStep\": " + MiniCSettings.maxGraphZoomStep());
+            MiniCSettings.setAutoSplitPipelineTabs(true);
+            assertThat(MiniCSettings.autoSplitPipelineTabs()).isTrue();
+            assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
+                    .contains("\"autoSplitPipelineTabs\": \"true\"");
 
             Files.deleteIfExists(KEY_BINDINGS_FILE);
             MiniCKeyBindingConfig config = MiniCKeyBindingConfig.loadDefault();
@@ -155,10 +162,16 @@ class MiniCSettingsInteractionRegressionTest {
 
             Button zoomOut = lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT);
             Slider uiScale = lookupSlider(paneRef.get(), "setting:uiScale");
+            CheckBox autoSplit = lookupCheckBox(paneRef.get(), "setting:autoSplitPipelineTabs");
             assertThat(uiScale.getValue()).isEqualTo(1.0);
             runFx(() -> uiScale.setValue(1.25));
             assertThat(MiniCSettings.uiScale()).isEqualTo(1.25);
             assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8)).contains("\"uiScale\": 1.25");
+            assertThat(autoSplit.isSelected()).isFalse();
+            runFx(() -> autoSplit.setSelected(true));
+            assertThat(MiniCSettings.autoSplitPipelineTabs()).isTrue();
+            assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
+                    .contains("\"autoSplitPipelineTabs\": \"true\"");
             assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.DEBUG_STEP_OVER)).isNotNull();
             assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.COMPILER_NEXT)).isNotNull();
             assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_INCREASE))
@@ -398,6 +411,15 @@ class MiniCSettingsInteractionRegressionTest {
                 .filter(Slider.class::isInstance)
                 .map(Slider.class::cast)
                 .filter(slider -> accessibleText.equals(slider.getAccessibleText()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static CheckBox lookupCheckBox(MiniCSettingsPane pane, String accessibleText) {
+        return pane.lookupAll(".check-box").stream()
+                .filter(CheckBox.class::isInstance)
+                .map(CheckBox.class::cast)
+                .filter(checkBox -> accessibleText.equals(checkBox.getAccessibleText()))
                 .findFirst()
                 .orElseThrow();
     }
