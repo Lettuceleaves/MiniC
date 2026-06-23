@@ -16,10 +16,7 @@ out/
 .local/
 .gradle-home/
 
-release/*
-!release/.gitkeep
-!release/launcher/
-!release/launcher/**
+release/
 
 uiweb/node_modules/
 uiweb/dist/
