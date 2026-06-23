@@ -26,3 +26,7 @@ uiweb/dist/
 uiweb/playwright-report/
 uiweb/test-results/
 uiweb/.local-vite*.log
+
+# Local/generated verification artifacts
+tmp/path-scan/
+uiweb-render-check/
