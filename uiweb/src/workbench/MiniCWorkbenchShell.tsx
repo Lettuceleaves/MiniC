@@ -564,7 +564,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
         if (currentIndex !== index) {
           return document;
         }
-        void document.viewModel.renameSource(name);
+        document.viewModel.runInBackground(document.viewModel.renameSource(name), "重命名源码失败");
         return { ...document, name };
       }),
     );
@@ -575,7 +575,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
     setDocuments((current) =>
       current.map((document, index) => (index === activeDocumentIndex ? { ...document, name } : document)),
     );
-    void activeModel.renameSource(name);
+    activeModel.runInBackground(activeModel.renameSource(name), "保存源码名失败");
   };
 
   const reorderDocumentTab = (fromIndex: number, toIndex: number): void => {
@@ -613,7 +613,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
         saveDocument,
         addDocument,
       })}
-      {statusBar()}
+      {statusBar(activeSnapshot)}
     </section>
   );
 }
@@ -790,10 +790,10 @@ function settingsPage(controlHub: MiniCWorkbenchControlHub) {
   );
 }
 
-function statusBar() {
+function statusBar(snapshot: MiniCWorkbenchSnapshot) {
   return (
     <footer className="status-bar">
-      <span className="label">MiniC 可视化工作台</span>
+      <span className="label">{snapshot.runtimeError ?? (snapshot.runtimePending ? "UIAPI 请求中" : "MiniC 可视化工作台")}</span>
       <span className="status-spacer" />
       <span className="label">C030 · 工作台</span>
     </footer>
@@ -872,11 +872,11 @@ function registerWorkbenchCommands(
   const playbackController = () => activePlaybackControllerRef.current;
   controlHub.registerCompilerCommands({
     canNext: () => model().canNextControl(),
-    next: () => void model().next(),
+    next: () => runModelCommand(model(), model().next(), "下一步失败"),
     canNextStage: () => model().canNextStageControl(),
-    nextStage: () => void playbackController().nextStage(),
+    nextStage: () => runModelCommand(model(), playbackController().nextStage(), "下一阶段失败"),
     canRunToExecution: () => model().canRunToExecutionControl(),
-    runToExecution: () => void model().runToExecution(),
+    runToExecution: () => runModelCommand(model(), model().runToExecution(), "到执行失败"),
     canPlay: () => model().canPlayControl(),
     play: () => playbackController().play(),
     canPlayFast: () => model().canPlayFastControl(),
@@ -886,21 +886,21 @@ function registerWorkbenchCommands(
   });
   controlHub.registerDebuggerCommands({
     canStart: () => true,
-    start: () => void model().startDebug(),
+    start: () => runModelCommand(model(), model().startDebug(), "启动 Debug 失败"),
     canRunToEnd: () => model().snapshot().debugStarted,
-    runToEnd: () => void model().debugRunToEnd(),
+    runToEnd: () => runModelCommand(model(), model().debugRunToEnd(), "运行到结束失败"),
     canRunToBreakpoint: () => model().snapshot().debugStarted,
-    runToBreakpoint: () => void model().debugRunToBreakpoint(),
+    runToBreakpoint: () => runModelCommand(model(), model().debugRunToBreakpoint(), "运行到断点失败"),
     canStepOver: () => model().snapshot().debugStarted,
-    stepOver: () => void model().debugStepOver(),
+    stepOver: () => runModelCommand(model(), model().debugStepOver(), "本层下一句失败"),
     canStepInto: () => model().snapshot().debugStarted,
-    stepInto: () => void model().debugStepInto(),
+    stepInto: () => runModelCommand(model(), model().debugStepInto(), "下一句失败"),
     canBackToBreakpoint: () => model().snapshot().debugStarted,
-    backToBreakpoint: () => void model().debugBackToBreakpoint(),
+    backToBreakpoint: () => runModelCommand(model(), model().debugBackToBreakpoint(), "上个断点失败"),
     canStepBackOver: () => model().snapshot().debugStarted,
-    stepBackOver: () => void model().debugStepBackOver(),
+    stepBackOver: () => runModelCommand(model(), model().debugStepBackOver(), "本层上一句失败"),
     canStepBack: () => model().snapshot().debugStarted,
-    stepBack: () => void model().debugStepBack(),
+    stepBack: () => runModelCommand(model(), model().debugStepBack(), "上一句失败"),
   });
   controlHub.registerSettingsCommands({
     themeSetter: ThemeManager.setTheme,
@@ -917,6 +917,10 @@ function registerWorkbenchCommands(
     maxUiScale: MiniCSettings.maxUiScale,
     uiScaleStep: 0.05,
   });
+}
+
+function runModelCommand(model: MiniCWorkbenchViewModel, promise: Promise<unknown>, label: string): void {
+  model.runInBackground(promise, label);
 }
 
 function installShortcutDispatch(

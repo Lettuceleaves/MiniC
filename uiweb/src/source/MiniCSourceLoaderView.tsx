@@ -144,7 +144,7 @@ export function MiniCSourceLoaderView({
 
   const loadCurrentSource = async (): Promise<void> => {
     await viewModel.loadSource(sourceName, editorText);
-    await viewModel.submitRealtimeSource(sourceName, editorText);
+    viewModel.runInBackground(viewModel.submitRealtimeSource(sourceName, editorText), "实时分析失败");
   };
 
   const startSession = async (): Promise<void> => {
@@ -166,23 +166,25 @@ export function MiniCSourceLoaderView({
     downloadSource(sourceName, editorText);
   };
 
-  const handleFile = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
+  const handleFile = (event: ChangeEvent<HTMLInputElement>): void => {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) {
       return;
     }
-    const source = await file.text();
-    await viewModel.loadSource(file.name, source);
-    await viewModel.submitRealtimeSource(file.name, source);
-    onOpenDocument?.(file.name, source);
+    viewModel.runInBackground((async () => {
+      const source = await file.text();
+      await viewModel.loadSource(file.name, source);
+      viewModel.runInBackground(viewModel.submitRealtimeSource(file.name, source), "实时分析失败");
+      onOpenDocument?.(file.name, source);
+    })(), "打开源码失败");
   };
 
   return (
     <section className={`source-loader ${className}`.trim()} data-java-source={miniCSourceLoaderViewMirror.javaPath}>
       {showControls && (
         <div className="loader-controls">
-          <button className="control-primary" type="button" onClick={() => void startSession()}>
+          <button className="control-primary" type="button" onClick={() => viewModel.runInBackground(startSession(), "启动编译 pipeline 失败")}>
             开始
           </button>
           <button className="control-secondary" type="button" onClick={openAction}>
@@ -205,7 +207,7 @@ export function MiniCSourceLoaderView({
         currentExecutionRange={snapshot.debugState?.currentSnapshot.sourceRange ?? null}
         initialText={snapshot.sourceText}
         onBreakpointsChange={(lines) => viewModel.setDebugBreakpoints(lines)}
-        onSubmitRealtimeSource={(name, source) => void viewModel.submitRealtimeSource(name, source)}
+        onSubmitRealtimeSource={(name, source) => viewModel.runInBackground(viewModel.submitRealtimeSource(name, source), "实时分析失败")}
         onTextChange={setEditorText}
         scrollContainerClassName={editorScrollClassName}
         sourceName={sourceName}
@@ -227,14 +229,17 @@ export function breakpointLines(snapshot: MiniCWorkbenchSnapshot): readonly numb
 
 export function setBreakpoint(viewModel: MiniCWorkbenchViewModel, line: number, enabled: boolean): void {
   if (enabled) {
-    void viewModel.setDebugBreakpoint(line);
+    viewModel.runInBackground(viewModel.setDebugBreakpoint(line), "设置断点失败");
   } else {
-    void viewModel.clearDebugBreakpoint(line);
+    viewModel.runInBackground(viewModel.clearDebugBreakpoint(line), "清除断点失败");
   }
 }
 
 export function submitRealtimeSource(viewModel: MiniCWorkbenchViewModel): void {
-  void viewModel.submitRealtimeSource(viewModel.sourceNameProperty().get(), viewModel.sourceTextProperty().get());
+  viewModel.runInBackground(
+    viewModel.submitRealtimeSource(viewModel.sourceNameProperty().get(), viewModel.sourceTextProperty().get()),
+    "实时分析失败",
+  );
 }
 
 function useSourceLoaderSnapshot(viewModel: MiniCWorkbenchViewModel): MiniCWorkbenchSnapshot {

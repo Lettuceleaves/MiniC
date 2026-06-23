@@ -52,6 +52,7 @@ export const miniCCodeEditorMirror = {
     "javafx.scene.layout.VBox",
     "javafx.scene.shape.Polyline",
     "minic.color.ThemeRegistry",
+    "minic.settings.MiniCSettings",
     "minic.uiapi.UiDiagnosticDto",
     "minic.uiapi.UiLexerTokenVisualDto",
     "minic.uiapi.UiRealtimeAnalysisDto",
@@ -98,6 +99,10 @@ export const miniCCodeEditorMirror = {
       "signature": "private static final double DEFAULT_EDITOR_FONT_SIZE="
     },
     {
+      "name": "EDITOR_DISPLAY_SCALE_STEP",
+      "signature": "private static final double EDITOR_DISPLAY_SCALE_STEP="
+    },
+    {
       "name": "diagnosticDetails",
       "signature": "private final VBox diagnosticDetails="
     },
@@ -108,6 +113,10 @@ export const miniCCodeEditorMirror = {
     {
       "name": "editorFontSize",
       "signature": "private double editorFontSize="
+    },
+    {
+      "name": "editorDisplayScale",
+      "signature": "private double editorDisplayScale="
     },
     {
       "name": "formatter",
@@ -128,14 +137,6 @@ export const miniCCodeEditorMirror = {
     {
       "name": "lineNumberFactory",
       "signature": "private final IntFunction<Node>lineNumberFactory="
-    },
-    {
-      "name": "MAX_EDITOR_FONT_SIZE",
-      "signature": "private static final double MAX_EDITOR_FONT_SIZE="
-    },
-    {
-      "name": "MIN_EDITOR_FONT_SIZE",
-      "signature": "private static final double MIN_EDITOR_FONT_SIZE="
     },
     {
       "name": "requestedScrollY",
@@ -168,8 +169,8 @@ export const miniCCodeEditorMirror = {
       "signature": "addStyledRange(StyleSpansBuilder<Collection<String>>builder,String source,int start,int end,Collection<String>baseStyles)"
     },
     {
-      "name": "adjustEditorFontSize",
-      "signature": "adjustEditorFontSize(double delta)"
+      "name": "adjustEditorDisplayScale",
+      "signature": "adjustEditorDisplayScale(double delta)"
     },
     {
       "name": "applyCompletion",
@@ -178,6 +179,10 @@ export const miniCCodeEditorMirror = {
     {
       "name": "applyEditorFontSize",
       "signature": "applyEditorFontSize()"
+    },
+    {
+      "name": "applyEditorDisplayScale",
+      "signature": "applyEditorDisplayScale()"
     },
     {
       "name": "applyGutterSize",
@@ -268,8 +273,8 @@ export const miniCCodeEditorMirror = {
       "signature": "handleCompletionKeys(KeyEvent event)"
     },
     {
-      "name": "handleFontZoomKey",
-      "signature": "handleFontZoomKey(KeyEvent event)"
+      "name": "handleDisplayZoomKey",
+      "signature": "handleDisplayZoomKey(KeyEvent event)"
     },
     {
       "name": "hideCompletion",
@@ -428,6 +433,10 @@ export const miniCCodeEditorMirror = {
       "signature": "updateItem(String item,boolean empty)"
     },
     {
+      "name": "updateInputScaleAnchor",
+      "signature": "updateInputScaleAnchor()"
+    },
+    {
       "name": "viewportAdapter",
       "signature": "viewportAdapter()"
     },
@@ -438,6 +447,10 @@ export const miniCCodeEditorMirror = {
     {
       "name": "withDebugExecutionRange",
       "signature": "withDebugExecutionRange(Collection<String>baseStyles)"
+    },
+    {
+      "name": "zoomDisplayBy",
+      "signature": "zoomDisplayBy(double delta)"
     },
     {
       "name": "zoomFontBy",

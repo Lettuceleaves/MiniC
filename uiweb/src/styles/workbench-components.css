@@ -290,7 +290,7 @@
     fill: var(--minic-graph-active-node-fill);
     stroke: var(--minic-accent-gold);
     stroke-width: 3px;
-    filter: drop-shadow(0px 0px 12px {{graph.active_node_shadow}});
+    filter: drop-shadow(0px 0px 12px var(--minic-graph-active-node-shadow));
 }
 
 .semantic-graph-scope-mask-0 {
@@ -323,7 +323,7 @@
 .semantic-graph-scope-mask-3.active-scope-mask {
     stroke: var(--minic-accent-yellow);
     stroke-width: 3px;
-    filter: drop-shadow(0px 0px 14px {{graph.active_scope_shadow}});
+    filter: drop-shadow(0px 0px 14px var(--minic-graph-active-scope-shadow));
 }
 
 .semantic-graph-scope-mask-0.selected-scope-mask,

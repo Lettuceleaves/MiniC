@@ -232,7 +232,7 @@ export function MiniCSettingsPane({ controlHub: sharedControlHub }: MiniCSetting
           onChange={(event) => {
             const file = event.target.files?.[0];
             if (file !== undefined) {
-              void importTheme(file);
+              void importTheme(file).catch(() => undefined);
             }
             event.target.value = "";
           }}

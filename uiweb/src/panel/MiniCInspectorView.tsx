@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { JavaMirrorFile } from "../translation/javaMirror";
 import type { MiniCPlaybackController } from "../workbench/MiniCPlaybackController";
 import type { MiniCWorkbenchSnapshot, MiniCWorkbenchViewModel } from "../workbench/MiniCWorkbenchViewModel";
+import { MiniCInspectorModel } from "./MiniCInspectorModel";
 import { MiniCInspectorModelFactory } from "./MiniCInspectorModelFactory";
 
 export const miniCInspectorViewMirror = {
@@ -131,7 +132,13 @@ export interface MiniCInspectorViewProps {
 export function MiniCInspectorView({ viewModel, playbackController }: MiniCInspectorViewProps) {
   const snapshot = useInspectorSnapshot(viewModel);
   const modelFactory = useMemo(() => new MiniCInspectorModelFactory(), []);
-  const model = modelFactory.create(snapshot.currentState, snapshot.currentStageData, snapshot.globalData);
+  const model = snapshot.inspectorModel === null
+    ? modelFactory.create(snapshot.currentState, snapshot.currentStageData, snapshot.globalData)
+    : new MiniCInspectorModel(
+      snapshot.inspectorModel.currentState,
+      snapshot.inspectorModel.currentItem,
+      snapshot.inspectorModel.accumulatedOutput,
+    );
 
   return (
     <aside className="inspector" data-java-source={miniCInspectorViewMirror.javaPath}>
@@ -157,9 +164,9 @@ export function controls(
   return (
     <div className="controls inspector-controls">
       <div className="inspector-control-row">
-        {control("下一步", true, () => void viewModel.next(), snapshot.currentState?.canNext ?? false)}
-        {control("下一阶段", false, () => void playbackController.nextStage(), snapshot.currentState !== null)}
-        {control("到执行", false, () => void viewModel.runToExecution(), snapshot.currentState !== null)}
+        {control("下一步", true, () => viewModel.runInBackground(viewModel.next(), "下一步失败"), snapshot.currentState?.canNext ?? false)}
+        {control("下一阶段", false, () => viewModel.runInBackground(playbackController.nextStage(), "下一阶段失败"), snapshot.currentState !== null)}
+        {control("到执行", false, () => viewModel.runInBackground(viewModel.runToExecution(), "到执行失败"), snapshot.currentState !== null)}
       </div>
       <div className="inspector-control-row">
         {control("播放", false, () => playbackController.play(), snapshot.currentState?.canPlay ?? false)}
@@ -198,13 +205,13 @@ export function execute(
 ): void {
   switch (commandId) {
     case "compiler.next":
-      void viewModel.next();
+      viewModel.runInBackground(viewModel.next(), "下一步失败");
       break;
     case "compiler.nextStage":
-      void playbackController.nextStage();
+      viewModel.runInBackground(playbackController.nextStage(), "下一阶段失败");
       break;
     case "compiler.runToExecution":
-      void viewModel.runToExecution();
+      viewModel.runInBackground(viewModel.runToExecution(), "到执行失败");
       break;
     case "compiler.play":
       playbackController.play();

@@ -6,8 +6,10 @@ import type {
   UiDebugMetadataViewDto,
   UiDebugStateDto,
   UiGlobalDataDto,
+  UiInspectorModelDto,
   UiRealtimeAnalysisDto,
   UiStageDataDto,
+  UiStageViewDto,
   UiStageVisualDto,
   UiControlResultDto,
   UiCurrentStateDto,
@@ -53,6 +55,8 @@ export interface MiniCUiApiClientDtoMap {
   readonly control: UiControlResultDto;
   readonly currentState: UiCurrentStateDto;
   readonly stageData: UiStageDataDto;
+  readonly stageViews: readonly UiStageViewDto[];
+  readonly inspectorModel: UiInspectorModelDto;
   readonly stageVisual: UiStageVisualDto;
   readonly globalData: UiGlobalDataDto;
   readonly realtimeAnalysis: UiRealtimeAnalysisDto;
@@ -129,7 +133,7 @@ export class MiniCUiApiClient {
 }
 
 function errorBody(response: Response, text: string, method: string, path: string): MiniCUiApiErrorBody {
-  const parsed = text.trim().length === 0 ? null : parseJson(text);
+  const parsed = text.trim().length === 0 ? null : tryParseJson(text);
   if (isMiniCUiApiErrorBody(parsed)) {
     return parsed;
   }
@@ -137,12 +141,20 @@ function errorBody(response: Response, text: string, method: string, path: strin
     status: response.status,
     method,
     path,
-    message: response.statusText || `UIAPI request failed with HTTP ${response.status}`,
+    message: response.statusText || text.trim() || `UIAPI request failed with HTTP ${response.status}`,
   };
 }
 
 function parseJson(text: string): unknown {
   return JSON.parse(text) as unknown;
+}
+
+function tryParseJson(text: string): unknown {
+  try {
+    return parseJson(text);
+  } catch {
+    return null;
+  }
 }
 
 function isMiniCUiApiErrorBody(value: unknown): value is MiniCUiApiErrorBody {

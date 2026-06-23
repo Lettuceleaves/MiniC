@@ -54,8 +54,10 @@ export function MiniCSidebarView({ viewModel }: MiniCSidebarViewProps) {
   const snapshot = useWorkbenchSnapshot(viewModel);
   const factory = useMemo(() => new MiniCStageListFactory(), []);
   const stages = useMemo(
-    () => factory.create(snapshot.currentState, snapshot.currentStageData, snapshot.globalData),
-    [factory, snapshot.currentState, snapshot.currentStageData, snapshot.globalData],
+    () => snapshot.stageViews.length > 0
+      ? snapshot.stageViews
+      : factory.create(snapshot.currentState, snapshot.currentStageData, snapshot.globalData),
+    [factory, snapshot.currentState, snapshot.currentStageData, snapshot.globalData, snapshot.stageViews],
   );
 
   return (
@@ -66,7 +68,7 @@ export function MiniCSidebarView({ viewModel }: MiniCSidebarViewProps) {
             key={stage.id}
             stage={stage}
             selected={stage.id === snapshot.selectedVisualStage}
-            onSelect={(stageId) => void viewModel.selectVisualStage(stageId)}
+            onSelect={(stageId) => viewModel.runInBackground(viewModel.selectVisualStage(stageId), "选择阶段失败")}
           />
         ))}
       </div>

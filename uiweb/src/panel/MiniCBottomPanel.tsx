@@ -325,11 +325,18 @@ function SourceLines({ source, range }: { readonly source: string; readonly rang
         active = false;
       };
     }
-    void realtimeAnalysisApi.tokenize("hover-inspector-source.mc", source).then((tokens) => {
-      if (active) {
-        setTokenStyles(sourceTokenStyles(tokens));
-      }
-    });
+    void realtimeAnalysisApi
+      .tokenize("hover-inspector-source.mc", source)
+      .then((tokens) => {
+        if (active) {
+          setTokenStyles(sourceTokenStyles(tokens));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setTokenStyles([]);
+        }
+      });
     return () => {
       active = false;
     };

@@ -11,33 +11,14 @@ export const miniCInspectorModelFactoryMirror = {
   "imports": [
     "minic.uiapi.UiCurrentStateDto",
     "minic.uiapi.UiGlobalDataDto",
+    "minic.uiapi.UiInspectorModelDto",
     "minic.uiapi.UiStageDataDto"
   ],
   "fields": [],
   "methods": [
     {
-      "name": "accumulatedOutput",
-      "signature": "accumulatedOutput(UiGlobalDataDto globalData)"
-    },
-    {
       "name": "create",
       "signature": "create(UiCurrentStateDto state,UiStageDataDto stageData,UiGlobalDataDto globalData)"
-    },
-    {
-      "name": "currentItem",
-      "signature": "currentItem(UiStageDataDto stageData)"
-    },
-    {
-      "name": "currentState",
-      "signature": "currentState(UiCurrentStateDto state)"
-    },
-    {
-      "name": "playbackMode",
-      "signature": "playbackMode(String mode)"
-    },
-    {
-      "name": "stageName",
-      "signature": "stageName(String stage)"
     }
   ]
 } as const satisfies JavaMirrorFile;

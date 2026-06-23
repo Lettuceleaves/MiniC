@@ -85,16 +85,16 @@ export class MiniCPlaybackController {
   }
 
   play(): void {
-    void this.startPlayback(() => this.viewModel.play());
+    this.viewModel.runInBackground(this.startPlayback(() => this.viewModel.play()), "播放失败");
   }
 
   playFast(): void {
-    void this.startPlayback(() => this.viewModel.playFast());
+    this.viewModel.runInBackground(this.startPlayback(() => this.viewModel.playFast()), "2x 播放失败");
   }
 
   pause(): void {
     this.stopTimeline();
-    void this.viewModel.pause();
+    this.viewModel.runInBackground(this.viewModel.pause(), "暂停失败");
   }
 
   nextStage(): Promise<UiControlResultDto> {
@@ -139,7 +139,7 @@ export class MiniCPlaybackController {
     }
     const interval = state.frameIntervalMillis;
     this.timer = window.setInterval(() => {
-      void this.tickOnce();
+      this.viewModel.runInBackground(this.tickOnce(), "播放 tick 失败");
     }, interval);
   }
 

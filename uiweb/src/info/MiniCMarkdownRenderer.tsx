@@ -210,11 +210,18 @@ function MiniCCodeBlock({ code }: { readonly code: string }) {
 
   useEffect(() => {
     let active = true;
-    void realtimeApi.tokenize("guide-code.mc", code).then((result) => {
-      if (active) {
-        setTokens(result);
-      }
-    });
+    void realtimeApi
+      .tokenize("guide-code.mc", code)
+      .then((result) => {
+        if (active) {
+          setTokens(result);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setTokens([]);
+        }
+      });
     return () => {
       active = false;
     };

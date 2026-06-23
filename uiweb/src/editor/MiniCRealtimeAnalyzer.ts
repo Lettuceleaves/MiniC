@@ -127,7 +127,9 @@ export class MiniCRealtimeAnalyzer {
       return;
     }
     this.scheduledHandle = window.setTimeout(() => {
-      void this.runLoop();
+      void this.runLoop().catch(() => {
+        this.scheduledHandle = null;
+      });
     }, 0);
   }
 
@@ -138,9 +140,13 @@ export class MiniCRealtimeAnalyzer {
     }
     const request = this.drainLatest(this.pendingRequest);
     this.pendingRequest = null;
-    const result = await this.api.analyze(request.sourceName, request.sourceText, request.version);
-    if (this.running && result.version === request.version) {
-      this.resultSink(result);
+    try {
+      const result = await this.api.analyze(request.sourceName, request.sourceText, request.version);
+      if (this.running && result.version === request.version) {
+        this.resultSink(result);
+      }
+    } catch {
+      // Realtime diagnostics are opportunistic; the workbench ViewModel owns user-facing failures.
     }
     if (this.pendingRequest !== null) {
       this.ensureStarted();

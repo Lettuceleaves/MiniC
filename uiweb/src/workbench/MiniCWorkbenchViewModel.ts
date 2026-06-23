@@ -6,6 +6,7 @@ import type {
   UiCurrentStateDto,
   UiDiagnosticDto,
   UiGlobalDataDto,
+  UiInspectorModelDto,
   UiLexerTokenVisualDto,
   UiRealtimeAnalysisDto,
   UiDebugAsmViewDto,
@@ -15,8 +16,10 @@ import type {
   UiDebugMetadataViewDto,
   UiDebugStateDto,
   UiStageDataDto,
+  UiStageViewDto,
   UiStageVisualDto,
 } from "../translation/uiapi";
+import { MiniCUiApiError } from "../api/MiniCUiApiClient";
 
 export const miniCWorkbenchViewModelMirror = {
   "javaPath": "src/main/java/minic/uilocal/workbench/MiniCWorkbenchViewModel.java",
@@ -485,6 +488,7 @@ export interface MiniCObservationApiAdapter {
   startSession(): Promise<void>;
   next(): Promise<UiControlResultDto>;
   nextStage(): Promise<UiControlResultDto>;
+  runToExecution(): Promise<UiControlResultDto>;
   play(): Promise<UiControlResultDto>;
   playFast(): Promise<UiControlResultDto>;
   tick(): Promise<UiControlResultDto>;
@@ -500,6 +504,8 @@ export interface MiniCObservationApiAdapter {
   semanticVisualData(): Promise<UiStageVisualDto>;
   codegenVisualData(): Promise<UiStageVisualDto>;
   globalData(): Promise<UiGlobalDataDto>;
+  stageViews(): Promise<readonly UiStageViewDto[]>;
+  inspectorModel(): Promise<UiInspectorModelDto>;
 }
 
 export interface MiniCDebugApiAdapter {
@@ -554,6 +560,8 @@ export class MiniCWorkbenchViewModel {
 
   private sourceLoadPromise: Promise<void> = Promise.resolve();
 
+  private debugOperationPromise: Promise<void> = Promise.resolve();
+
   private readonly listeners = new Set<() => void>();
 
   private readonly sourceNameStore = new MiniCWritableProperty("", () => this.emit());
@@ -561,6 +569,10 @@ export class MiniCWorkbenchViewModel {
   private readonly sourceTextStore = new MiniCWritableProperty("", () => this.emit());
 
   private readonly lastOutcomeStore = new MiniCWritableProperty("", () => this.emit());
+
+  private readonly runtimePendingStore = new MiniCWritableProperty(false, () => this.emit());
+
+  private readonly runtimeErrorStore = new MiniCWritableProperty<string | null>(null, () => this.emit());
 
   private readonly sessionStartedStore = new MiniCWritableProperty(false, () => this.emit());
 
@@ -594,6 +606,14 @@ export class MiniCWorkbenchViewModel {
   );
 
   private readonly globalDataStore = new MiniCWritableProperty<UiGlobalDataDto | null>(null, () =>
+    this.emit(),
+  );
+
+  private readonly stageViewsStore = new MiniCWritableProperty<readonly UiStageViewDto[]>([], () =>
+    this.emit(),
+  );
+
+  private readonly inspectorModelStore = new MiniCWritableProperty<UiInspectorModelDto | null>(null, () =>
     this.emit(),
   );
 
@@ -648,20 +668,26 @@ export class MiniCWorkbenchViewModel {
     this.debugApi = adapters.debugApi;
     this.realtimeAnalysisApi = adapters.realtimeAnalysisApi;
     if (initialSourceName !== "" || initialSourceText !== "") {
-      void this.loadSource(initialSourceName, initialSourceText);
-      void this.submitRealtimeSource(initialSourceName, initialSourceText);
+      this.background(this.loadSource(initialSourceName, initialSourceText), "加载初始源码失败");
+      this.background(this.submitRealtimeSource(initialSourceName, initialSourceText), "实时分析失败");
     }
   }
 
   async loadSource(name: string, source: string): Promise<void> {
-    this.sourceNameStore.set(name);
-    this.sourceTextStore.set(source);
-    this.clearSessionState();
-    this.sourceLoadPromise = Promise.all([
-      this.api.loadSource(name, source),
-      this.debugApi.loadSource(name, source),
-    ]).then(() => undefined);
-    await this.sourceLoadPromise;
+    await this.withRuntimeOperation("加载源码", async () => {
+      this.sourceNameStore.set(name);
+      this.sourceTextStore.set(source);
+      this.clearSessionState();
+      const promise = Promise.all([
+        this.api.loadSource(name, source),
+        this.debugApi.loadSource(name, source),
+      ]).then(() => undefined);
+      this.sourceLoadPromise = promise.catch((error: unknown) => {
+        this.sourceLoadPromise = Promise.resolve();
+        throw error;
+      });
+      await this.sourceLoadPromise;
+    });
   }
 
   async renameSource(name: string): Promise<void> {
@@ -673,107 +699,113 @@ export class MiniCWorkbenchViewModel {
     this.sourceTextStore.set(source);
     const version = this.nextRealtimeVersion + 1;
     this.nextRealtimeVersion = version;
-    const result = await this.realtimeAnalysisApi.analyze(name, source, version);
-    if (version === this.nextRealtimeVersion) {
-      this.applyRealtimeAnalysis(result);
+    try {
+      const result = await this.realtimeAnalysisApi.analyze(name, source, version);
+      if (version === this.nextRealtimeVersion) {
+        this.applyRealtimeAnalysis(result);
+        this.clearRuntimeError("实时分析");
+      }
+    } catch (error) {
+      if (version === this.nextRealtimeVersion) {
+        this.recordRuntimeError("实时分析失败", error);
+      }
     }
   }
 
   async startSession(): Promise<void> {
-    await this.sourceLoadPromise;
-    await this.api.startSession();
-    this.sessionStartedStore.set(true);
-    this.selectedVisualStageStore.set("");
-    await this.refreshAll();
+    await this.withRuntimeOperation("启动编译 pipeline", async () => {
+      await this.sourceLoadPromise;
+      await this.api.startSession();
+      this.sessionStartedStore.set(true);
+      this.selectedVisualStageStore.set("");
+      await this.refreshAll();
+    });
   }
 
   async next(): Promise<UiControlResultDto> {
-    await this.autoConfirmExecutionInput();
-    const result = this.api.next();
-    const resolved = await result;
-    this.applyControlResult(resolved);
-    await this.refreshAll();
-    return resolved;
+    return this.withRuntimeOperation("下一步", async () => {
+      await this.autoConfirmExecutionInput();
+      const result = await this.api.next();
+      this.applyControlResult(result);
+      await this.refreshAll();
+      return result;
+    });
   }
 
   async nextStage(): Promise<UiControlResultDto> {
-    await this.autoConfirmExecutionInput();
-    this.selectedVisualStageStore.set("");
-    const state = this.currentStateStore.get();
-    const result = state !== null && state.currentStage === "execution" && state.canNext
-      ? await this.api.next()
-      : await this.api.nextStage();
-    this.applyControlResult(result);
-    await this.refreshAll();
-    return result;
+    return this.withRuntimeOperation("下一阶段", async () => {
+      await this.autoConfirmExecutionInput();
+      this.selectedVisualStageStore.set("");
+      const state = this.currentStateStore.get();
+      const result = state !== null && state.currentStage === "execution" && state.canNext
+        ? await this.api.next()
+        : await this.api.nextStage();
+      this.applyControlResult(result);
+      await this.refreshAll();
+      return result;
+    });
   }
 
   async runToExecution(): Promise<UiControlResultDto> {
-    this.selectedVisualStageStore.set("");
-    let result: UiControlResultDto | null = null;
-    let guard = 0;
-    while (
-      this.currentStateStore.get() !== null &&
-      this.currentStateStore.get()?.currentStage !== "execution" &&
-      this.currentStateStore.get()?.canNext === true &&
-      guard < 1000
-    ) {
-      guard += 1;
-      result = await this.api.nextStage();
+    return this.withRuntimeOperation("到执行", async () => {
+      this.selectedVisualStageStore.set("");
+      const result = await this.api.runToExecution();
       this.applyControlResult(result);
       await this.refreshAll();
-      if (result.outcome === "FAILED" || result.outcome === "CANNOT_ADVANCE") {
-        return result;
-      }
-    }
-    if (result === null) {
-      result = await this.api.nextStage();
-      this.applyControlResult(result);
-    }
-    await this.refreshAll();
-    return result;
+      return result;
+    });
   }
 
   async play(): Promise<UiControlResultDto> {
-    this.selectedVisualStageStore.set("");
-    await this.autoConfirmExecutionInput();
-    const result = await this.api.play();
-    this.applyControlResult(result);
-    await this.refreshAll();
-    return result;
+    return this.withRuntimeOperation("播放", async () => {
+      this.selectedVisualStageStore.set("");
+      await this.autoConfirmExecutionInput();
+      const result = await this.api.play();
+      this.applyControlResult(result);
+      await this.refreshAll();
+      return result;
+    });
   }
 
   async playFast(): Promise<UiControlResultDto> {
-    this.selectedVisualStageStore.set("");
-    await this.autoConfirmExecutionInput();
-    const result = await this.api.playFast();
-    this.applyControlResult(result);
-    await this.refreshAll();
-    return result;
+    return this.withRuntimeOperation("2x 播放", async () => {
+      this.selectedVisualStageStore.set("");
+      await this.autoConfirmExecutionInput();
+      const result = await this.api.playFast();
+      this.applyControlResult(result);
+      await this.refreshAll();
+      return result;
+    });
   }
 
   async tick(): Promise<UiControlResultDto> {
-    await this.autoConfirmExecutionInput();
-    const result = await this.api.tick();
-    this.applyControlResult(result);
-    await this.refreshAll();
-    return result;
+    return this.withRuntimeOperation("播放 tick", async () => {
+      await this.autoConfirmExecutionInput();
+      const result = await this.api.tick();
+      this.applyControlResult(result);
+      await this.refreshAll();
+      return result;
+    });
   }
 
   async pause(): Promise<UiControlResultDto> {
-    const result = await this.api.pause();
-    this.applyControlResult(result);
-    await this.refreshAll();
-    return result;
+    return this.withRuntimeOperation("暂停", async () => {
+      const result = await this.api.pause();
+      this.applyControlResult(result);
+      await this.refreshAll();
+      return result;
+    });
   }
 
   async confirmExecutionInput(standardInput: string): Promise<UiControlResultDto> {
-    this.selectedVisualStageStore.set("");
-    this.executionInputDraftText = standardInput ?? "";
-    const result = await this.api.confirmExecutionInput(standardInput);
-    this.applyControlResult(result);
-    await this.refreshAll();
-    return result;
+    return this.withRuntimeOperation("确认运行输入", async () => {
+      this.selectedVisualStageStore.set("");
+      this.executionInputDraftText = standardInput ?? "";
+      const result = await this.api.confirmExecutionInput(standardInput);
+      this.applyControlResult(result);
+      await this.refreshAll();
+      return result;
+    });
   }
 
   updateExecutionInputDraft(standardInput: string): void {
@@ -818,143 +850,125 @@ export class MiniCWorkbenchViewModel {
   }
 
   async startDebug(): Promise<void> {
-    await this.sourceLoadPromise;
-    const name = this.sourceNameStore.get().trim() === "" ? "untitled.mc" : this.sourceNameStore.get();
-    await this.debugApi.loadSource(name, this.sourceTextStore.get());
-    this.debugStateStore.set(await this.debugApi.startDebug());
-    this.debugStartedStore.set(true);
-    await this.applyPendingDebugBreakpoints();
-    await this.refreshDebug();
+    await this.withDebugOperation("启动 Debug", () => this.startDebugWithinOperation());
   }
 
   setDebugBreakpoints(lines: readonly number[]): void {
     this.debugBreakpointLinesStore.set(normalizeBreakpoints(lines));
-    void this.syncDebugBreakpoints();
+    this.background(this.syncDebugBreakpoints(), "同步断点失败");
   }
 
   async syncDebugBreakpoints(): Promise<void> {
-    if (!this.debugStartedStore.get()) {
-      return;
-    }
-    await this.applyPendingDebugBreakpoints();
-    await this.refreshDebug();
+    await this.withDebugOperation("同步断点", async () => {
+      if (!this.debugStartedStore.get()) {
+        return;
+      }
+      await this.applyPendingDebugBreakpoints();
+      await this.refreshDebug();
+    });
   }
 
   async setDebugBreakpoint(line: number): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugBreakpointLinesStore.set(normalizeBreakpoints([...this.debugBreakpointLinesStore.get(), line]));
-    this.debugStateStore.set(await this.debugApi.setBreakpoint(line));
-    await this.refreshDebug();
+    await this.withDebugOperation("设置断点", async () => {
+      await this.ensureDebugStarted();
+      this.debugBreakpointLinesStore.set(normalizeBreakpoints([...this.debugBreakpointLinesStore.get(), line]));
+      this.debugStateStore.set(await this.debugApi.setBreakpoint(line));
+      await this.refreshDebug();
+    });
   }
 
   async clearDebugBreakpoint(line: number): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugBreakpointLinesStore.set(this.debugBreakpointLinesStore.get().filter((item) => item !== line));
-    this.debugStateStore.set(await this.debugApi.clearBreakpoint(line));
-    await this.refreshDebug();
+    await this.withDebugOperation("清除断点", async () => {
+      await this.ensureDebugStarted();
+      this.debugBreakpointLinesStore.set(this.debugBreakpointLinesStore.get().filter((item) => item !== line));
+      this.debugStateStore.set(await this.debugApi.clearBreakpoint(line));
+      await this.refreshDebug();
+    });
   }
 
   async debugRunToBreakpoint(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.runToBreakpoint());
-    await this.refreshDebug();
+    await this.withDebugControl("运行到断点", () => this.debugApi.runToBreakpoint());
   }
 
   async debugRunToEnd(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.runToEnd());
-    await this.refreshDebug();
+    await this.withDebugControl("运行到结束", () => this.debugApi.runToEnd());
   }
 
   async debugFastForward(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.fastForward());
-    await this.refreshDebug();
+    await this.withDebugControl("Debug 快进", () => this.debugApi.fastForward());
   }
 
   async debugStepOver(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.stepOver());
-    await this.refreshDebug();
+    await this.withDebugControl("本层下一句", () => this.debugApi.stepOver());
   }
 
   async debugStepInto(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.stepInto());
-    await this.refreshDebug();
+    await this.withDebugControl("下一句", () => this.debugApi.stepInto());
   }
 
   async debugStepOut(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.stepOut());
-    await this.refreshDebug();
+    await this.withDebugControl("Debug 步出", () => this.debugApi.stepOut());
   }
 
   async debugPause(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.pause());
-    await this.refreshDebug();
+    await this.withDebugControl("Debug 暂停", () => this.debugApi.pause());
   }
 
   async debugRestart(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.restart());
-    await this.refreshDebug();
+    await this.withDebugControl("Debug 重启", () => this.debugApi.restart());
   }
 
   async debugClose(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.close());
-    this.debugStartedStore.set(false);
-    this.debugMetadataViewStore.set(null);
-    this.debugDataStructureViewStore.set(null);
-    this.debugAstViewStore.set(null);
-    this.debugIrViewStore.set(null);
-    this.debugAsmViewStore.set(null);
+    await this.withDebugOperation("关闭 Debug", async () => {
+      await this.ensureDebugStarted();
+      this.debugStateStore.set(await this.debugApi.close());
+      this.debugStartedStore.set(false);
+      this.debugMetadataViewStore.set(null);
+      this.debugDataStructureViewStore.set(null);
+      this.debugAstViewStore.set(null);
+      this.debugIrViewStore.set(null);
+      this.debugAsmViewStore.set(null);
+    });
   }
 
   async debugStepBack(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.stepBack());
-    await this.refreshDebug();
+    await this.withDebugControl("上一句", () => this.debugApi.stepBack());
   }
 
   async debugStepBackOver(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.stepBackOver());
-    await this.refreshDebug();
+    await this.withDebugControl("本层上一句", () => this.debugApi.stepBackOver());
   }
 
   async debugBackToBreakpoint(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.backToBreakpoint());
-    await this.refreshDebug();
+    await this.withDebugControl("上个断点", () => this.debugApi.backToBreakpoint());
   }
 
   async debugBackToCallSite(): Promise<void> {
-    await this.ensureDebugStarted();
-    this.debugStateStore.set(await this.debugApi.backToCallSite());
-    await this.refreshDebug();
+    await this.withDebugControl("返回调用处", () => this.debugApi.backToCallSite());
   }
 
   async refreshDebug(): Promise<void> {
     if (!this.debugStartedStore.get()) {
       return;
     }
-    const [state, metadata, dataStructure, ast, ir, asm] = await Promise.all([
-      this.debugApi.state(),
+    const state = await this.debugApi.state();
+    this.debugStateStore.set(state);
+    const settled = await Promise.allSettled([
       this.debugApi.metadataView(),
       this.debugApi.dataStructureView(),
       this.debugApi.astView(),
       this.debugApi.irView(),
       this.debugApi.asmView(),
     ]);
-    this.debugStateStore.set(state);
-    this.debugMetadataViewStore.set(metadata);
-    this.debugDataStructureViewStore.set(dataStructure);
-    this.debugAstViewStore.set(ast);
-    this.debugIrViewStore.set(ir);
-    this.debugAsmViewStore.set(asm);
+    if (settled[0]?.status === "fulfilled") this.debugMetadataViewStore.set(settled[0].value);
+    if (settled[1]?.status === "fulfilled") this.debugDataStructureViewStore.set(settled[1].value);
+    if (settled[2]?.status === "fulfilled") this.debugAstViewStore.set(settled[2].value);
+    if (settled[3]?.status === "fulfilled") this.debugIrViewStore.set(settled[3].value);
+    if (settled[4]?.status === "fulfilled") this.debugAsmViewStore.set(settled[4].value);
+    const rejected = settled.find((result) => result.status === "rejected");
+    if (rejected?.status === "rejected") {
+      this.recordRuntimeError("刷新 Debug 视图失败", rejected.reason);
+    }
   }
 
   async refreshAll(): Promise<void> {
@@ -969,6 +983,20 @@ export class MiniCWorkbenchViewModel {
     this.currentStateStore.set(state);
     this.currentStageDataStore.set(stageData);
     this.globalDataStore.set(globalData);
+    const derived = await Promise.allSettled([
+      this.api.stageViews(),
+      this.api.inspectorModel(),
+    ]);
+    if (derived[0]?.status === "fulfilled") {
+      this.stageViewsStore.set(derived[0].value);
+    }
+    if (derived[1]?.status === "fulfilled") {
+      this.inspectorModelStore.set(derived[1].value);
+    }
+    const rejected = derived.find((result) => result.status === "rejected");
+    if (rejected?.status === "rejected") {
+      this.recordRuntimeError("刷新派生 UI 状态失败", rejected.reason);
+    }
     await this.refreshVisualDataFromApi();
   }
 
@@ -982,6 +1010,14 @@ export class MiniCWorkbenchViewModel {
 
   lastOutcomeProperty(): MiniCReadonlyProperty<string> {
     return this.lastOutcomeStore;
+  }
+
+  runtimePendingProperty(): MiniCReadonlyProperty<boolean> {
+    return this.runtimePendingStore;
+  }
+
+  runtimeErrorProperty(): MiniCReadonlyProperty<string | null> {
+    return this.runtimeErrorStore;
   }
 
   sessionStartedProperty(): MiniCReadonlyProperty<boolean> {
@@ -1018,6 +1054,14 @@ export class MiniCWorkbenchViewModel {
 
   globalDataProperty(): MiniCReadonlyProperty<UiGlobalDataDto | null> {
     return this.globalDataStore;
+  }
+
+  stageViewsProperty(): MiniCReadonlyProperty<readonly UiStageViewDto[]> {
+    return this.stageViewsStore;
+  }
+
+  inspectorModelProperty(): MiniCReadonlyProperty<UiInspectorModelDto | null> {
+    return this.inspectorModelStore;
   }
 
   realtimeAnalysisProperty(): MiniCReadonlyProperty<UiRealtimeAnalysisDto | null> {
@@ -1078,6 +1122,8 @@ export class MiniCWorkbenchViewModel {
       sourceName: this.sourceNameStore.get(),
       sourceText: this.sourceTextStore.get(),
       lastOutcome: this.lastOutcomeStore.get(),
+      runtimePending: this.runtimePendingStore.get(),
+      runtimeError: this.runtimeErrorStore.get(),
       sessionStarted: this.sessionStartedStore.get(),
       currentState: this.currentStateStore.get(),
       currentStageData: this.currentStageDataStore.get(),
@@ -1087,6 +1133,8 @@ export class MiniCWorkbenchViewModel {
       semanticVisualData: this.semanticVisualDataStore.get(),
       codegenVisualData: this.codegenVisualDataStore.get(),
       globalData: this.globalDataStore.get(),
+      stageViews: this.stageViewsStore.get(),
+      inspectorModel: this.inspectorModelStore.get(),
       realtimeAnalysis: this.realtimeAnalysisStore.get(),
       lastControlResult: this.lastControlResultStore.get(),
       selectedVisualStage: this.selectedVisualStageStore.get(),
@@ -1123,6 +1171,8 @@ export class MiniCWorkbenchViewModel {
     this.semanticVisualDataStore.set(null);
     this.codegenVisualDataStore.set(null);
     this.globalDataStore.set(null);
+    this.stageViewsStore.set([]);
+    this.inspectorModelStore.set(null);
     this.realtimeAnalysisStore.set(null);
     this.lastControlResultStore.set(null);
     this.selectedVisualStageStore.set("");
@@ -1196,7 +1246,7 @@ export class MiniCWorkbenchViewModel {
       state !== null &&
       data !== null &&
       state.currentStage === "execution" &&
-      data.executionInputSummary.includes("stdin pending")
+      data.executionInputPending
     );
   }
 
@@ -1208,8 +1258,68 @@ export class MiniCWorkbenchViewModel {
 
   private async ensureDebugStarted(): Promise<void> {
     if (!this.debugStartedStore.get()) {
-      await this.startDebug();
+      await this.startDebugWithinOperation();
     }
+  }
+
+  private async startDebugWithinOperation(): Promise<void> {
+    await this.sourceLoadPromise;
+    const name = this.sourceNameStore.get().trim() === "" ? "untitled.mc" : this.sourceNameStore.get();
+    await this.debugApi.loadSource(name, this.sourceTextStore.get());
+    this.debugStateStore.set(await this.debugApi.startDebug());
+    this.debugStartedStore.set(true);
+    await this.applyPendingDebugBreakpoints();
+    await this.refreshDebug();
+  }
+
+  private async withDebugControl(label: string, command: () => Promise<UiDebugStateDto>): Promise<void> {
+    await this.withDebugOperation(label, async () => {
+      await this.ensureDebugStarted();
+      this.debugStateStore.set(await command());
+      await this.refreshDebug();
+    });
+  }
+
+  private async withDebugOperation<T>(label: string, operation: () => Promise<T>): Promise<T> {
+    const next = this.debugOperationPromise.then(() => this.withRuntimeOperation(label, operation));
+    this.debugOperationPromise = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  private async withRuntimeOperation<T>(label: string, operation: () => Promise<T>): Promise<T> {
+    this.runtimePendingStore.set(true);
+    this.clearRuntimeError(label);
+    try {
+      const result = await operation();
+      return result;
+    } catch (error) {
+      this.recordRuntimeError(`${label}失败`, error);
+      throw error;
+    } finally {
+      this.runtimePendingStore.set(false);
+    }
+  }
+
+  private background(promise: Promise<unknown>, fallbackLabel: string): void {
+    void promise.catch((error) => {
+      this.recordRuntimeError(fallbackLabel, error);
+    });
+  }
+
+  runInBackground(promise: Promise<unknown>, fallbackLabel: string): void {
+    this.background(promise, fallbackLabel);
+  }
+
+  reportRuntimeError(label: string, error: unknown): void {
+    this.recordRuntimeError(label, error);
+  }
+
+  private clearRuntimeError(_label: string): void {
+    this.runtimeErrorStore.set(null);
+  }
+
+  private recordRuntimeError(label: string, error: unknown): void {
+    this.runtimeErrorStore.set(`${label}: ${errorMessage(error)}`);
   }
 
   private async applyPendingDebugBreakpoints(): Promise<void> {
@@ -1239,6 +1349,8 @@ export interface MiniCWorkbenchSnapshot {
   readonly sourceName: string;
   readonly sourceText: string;
   readonly lastOutcome: string;
+  readonly runtimePending: boolean;
+  readonly runtimeError: string | null;
   readonly sessionStarted: boolean;
   readonly currentState: UiCurrentStateDto | null;
   readonly currentStageData: UiStageDataDto | null;
@@ -1248,6 +1360,8 @@ export interface MiniCWorkbenchSnapshot {
   readonly semanticVisualData: UiStageVisualDto | null;
   readonly codegenVisualData: UiStageVisualDto | null;
   readonly globalData: UiGlobalDataDto | null;
+  readonly stageViews: readonly UiStageViewDto[];
+  readonly inspectorModel: UiInspectorModelDto | null;
   readonly realtimeAnalysis: UiRealtimeAnalysisDto | null;
   readonly lastControlResult: UiControlResultDto | null;
   readonly selectedVisualStage: string;
@@ -1309,6 +1423,16 @@ function toStageId(stage: string): MiniCStageId {
 
 function normalizeBreakpoints(lines: readonly number[]): readonly number[] {
   return [...new Set(lines.map((line) => Math.trunc(line)).filter((line) => line >= 1))].sort((left, right) => left - right);
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof MiniCUiApiError) {
+    return error.body.message;
+  }
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return String(error);
 }
 
 function clampUnit(value: number): number {

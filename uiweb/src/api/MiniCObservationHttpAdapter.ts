@@ -3,7 +3,9 @@ import type {
   UiControlResultDto,
   UiCurrentStateDto,
   UiGlobalDataDto,
+  UiInspectorModelDto,
   UiStageDataDto,
+  UiStageViewDto,
   UiStageVisualDto,
 } from "../translation/uiapi";
 import {
@@ -37,6 +39,10 @@ export class MiniCObservationHttpAdapter implements MiniCObservationApiAdapter {
 
   async nextStage(): Promise<UiControlResultDto> {
     return this.client.post(`${await this.basePath()}/next-stage`);
+  }
+
+  async runToExecution(): Promise<UiControlResultDto> {
+    return this.client.post(`${await this.basePath()}/run-to-execution`);
   }
 
   async play(): Promise<UiControlResultDto> {
@@ -97,6 +103,14 @@ export class MiniCObservationHttpAdapter implements MiniCObservationApiAdapter {
 
   async globalData(): Promise<UiGlobalDataDto> {
     return this.client.get(`${await this.basePath()}/global`);
+  }
+
+  async stageViews(): Promise<readonly UiStageViewDto[]> {
+    return this.client.get(`${await this.basePath()}/stage-views`);
+  }
+
+  async inspectorModel(): Promise<UiInspectorModelDto> {
+    return this.client.get(`${await this.basePath()}/inspector`);
   }
 
   async visualDataFor(stage: MiniCStageId): Promise<UiStageVisualDto> {

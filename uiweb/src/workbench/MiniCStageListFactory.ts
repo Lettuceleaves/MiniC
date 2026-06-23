@@ -9,46 +9,17 @@ export const miniCStageListFactoryMirror = {
   "exportName": "MiniCStageListFactory",
   "kind": "class",
   "imports": [
-    "java.util.ArrayList",
     "java.util.List",
     "minic.uiapi.UiCurrentStateDto",
     "minic.uiapi.UiGlobalDataDto",
-    "minic.uiapi.UiStageDataDto"
+    "minic.uiapi.UiStageDataDto",
+    "minic.uiapi.UiStageViewDto"
   ],
-  "fields": [
-    {
-      "name": "STAGES",
-      "signature": "private static final List<StageInfo>STAGES="
-    }
-  ],
+  "fields": [],
   "methods": [
     {
       "name": "create",
       "signature": "create(UiCurrentStateDto currentState,UiStageDataDto currentStageData,UiGlobalDataDto globalData)"
-    },
-    {
-      "name": "detail",
-      "signature": "detail(String stage,boolean active,UiStageDataDto currentStageData,UiGlobalDataDto globalData)"
-    },
-    {
-      "name": "hasErrors",
-      "signature": "hasErrors(UiGlobalDataDto globalData)"
-    },
-    {
-      "name": "progress",
-      "signature": "progress(String stage,boolean active,boolean done,UiCurrentStateDto currentState,UiStageDataDto currentStageData)"
-    },
-    {
-      "name": "stageIndex",
-      "signature": "stageIndex(String id)"
-    },
-    {
-      "name": "StageInfo",
-      "signature": "StageInfo(String id,String title)"
-    },
-    {
-      "name": "state",
-      "signature": "state(boolean active,boolean done,UiGlobalDataDto globalData)"
     }
   ]
 } as const satisfies JavaMirrorFile;

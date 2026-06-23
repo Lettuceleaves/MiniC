@@ -84,6 +84,22 @@ export interface UiGlobalDataDto {
   readonly artifactSummary: readonly string[];
   readonly executionInputSummary: readonly string[];
   readonly executionOutputSummary: readonly string[];
+  readonly executionInputPending: boolean;
+  readonly executionInputConfirmed: boolean;
+}
+
+export interface UiStageViewDto {
+  readonly id: MiniCStageId;
+  readonly title: string;
+  readonly state: "queued" | "running" | "done" | "error";
+  readonly detail: string;
+  readonly progressPercent: number;
+}
+
+export interface UiInspectorModelDto {
+  readonly currentState: string;
+  readonly currentItem: string;
+  readonly accumulatedOutput: string;
 }
 
 export interface UiLexerTokenVisualDto {

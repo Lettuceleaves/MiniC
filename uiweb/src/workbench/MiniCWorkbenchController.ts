@@ -44,8 +44,10 @@ export class MiniCWorkbenchController {
 
   startDefaultSession(): void {
     const sample = MiniCSamplePrograms.defaultSample();
-    void this.viewModel.loadSource(sample.name, sample.source)
-      .then(() => this.viewModel.startSession());
+    this.viewModel.runInBackground(
+      this.viewModel.loadSource(sample.name, sample.source).then(() => this.viewModel.startSession()),
+      "启动默认会话失败",
+    );
   }
 
   next(): Promise<UiControlResultDto> {

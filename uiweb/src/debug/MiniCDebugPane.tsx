@@ -516,16 +516,16 @@ export function controls(viewModel: MiniCWorkbenchViewModel, snapshot: MiniCWork
     <div className="controls debug-controls">
       <div className="debug-paired-controls">
         <div className="debug-paired-row">
-          {button("从头开始", () => void viewModel.startDebug(), true, "debug-control-single-button")}
-          {button("下个断点", () => void viewModel.debugRunToBreakpoint(), started, "debug-control-paired-button")}
-          {button("本层下一句", () => void viewModel.debugStepOver(), started, "debug-control-paired-button")}
-          {button("下一句", () => void viewModel.debugStepInto(), started, "debug-control-paired-button")}
+          {button("从头开始", () => viewModel.runInBackground(viewModel.startDebug(), "启动 Debug 失败"), true, "debug-control-single-button")}
+          {button("下个断点", () => viewModel.runInBackground(viewModel.debugRunToBreakpoint(), "运行到断点失败"), started, "debug-control-paired-button")}
+          {button("本层下一句", () => viewModel.runInBackground(viewModel.debugStepOver(), "本层下一句失败"), started, "debug-control-paired-button")}
+          {button("下一句", () => viewModel.runInBackground(viewModel.debugStepInto(), "下一句失败"), started, "debug-control-paired-button")}
         </div>
         <div className="debug-paired-row">
-          {button("运行到结束", () => void viewModel.debugRunToEnd(), started, "debug-control-single-button")}
-          {button("上个断点", () => void viewModel.debugBackToBreakpoint(), started, "debug-control-paired-button")}
-          {button("本层上一句", () => void viewModel.debugStepBackOver(), started, "debug-control-paired-button")}
-          {button("上一句", () => void viewModel.debugStepBack(), started, "debug-control-paired-button")}
+          {button("运行到结束", () => viewModel.runInBackground(viewModel.debugRunToEnd(), "运行到结束失败"), started, "debug-control-single-button")}
+          {button("上个断点", () => viewModel.runInBackground(viewModel.debugBackToBreakpoint(), "上个断点失败"), started, "debug-control-paired-button")}
+          {button("本层上一句", () => viewModel.runInBackground(viewModel.debugStepBackOver(), "本层上一句失败"), started, "debug-control-paired-button")}
+          {button("上一句", () => viewModel.runInBackground(viewModel.debugStepBack(), "上一句失败"), started, "debug-control-paired-button")}
         </div>
       </div>
     </div>
