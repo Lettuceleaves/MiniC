@@ -13,11 +13,12 @@
     "verify:editor-scroll": "node tools/verify-editor-scroll.mjs",
     "verify:snapshot-parity": "node tools/verify-uiapi-snapshot-parity.mjs",
     "verify:runtime-workflows": "node tools/verify-uiweb-runtime-workflows.mjs",
+    "verify:failure-resilience": "node tools/verify-uiweb-failure-resilience.mjs",
     "capture:screenshots": "node tools/capture-uiweb-screenshots.mjs",
     "verify:screenshots": "node tools/verify-screenshot-parity.mjs",
     "verify:parity": "npm run verify:mirror && npm run verify:placeholders && npm run verify:editor-scroll && npm run typecheck && npm run build",
     "verify:strict-parity": "npm run verify:mirror && npm run verify:mirror-signatures && npm run verify:placeholders && npm run verify:no-runtime-downgrade && npm run verify:adapter-completeness && npm run verify:editor-scroll && npm run typecheck && npm run build",
-    "verify:strict-final": "npm run verify:mirror && npm run verify:mirror-signatures && npm run verify:placeholders && npm run verify:no-runtime-downgrade && npm run verify:adapter-completeness && npm run verify:editor-scroll && npm run verify:snapshot-parity && npm run verify:runtime-workflows && npm run verify:screenshots && npm run typecheck && npm run build",
+    "verify:strict-final": "npm run verify:mirror && npm run verify:mirror-signatures && npm run verify:placeholders && npm run verify:no-runtime-downgrade && npm run verify:adapter-completeness && npm run verify:editor-scroll && npm run verify:snapshot-parity && npm run verify:runtime-workflows && npm run verify:failure-resilience && npm run verify:screenshots && npm run typecheck && npm run build",
     "typecheck": "tsc --noEmit",
     "build": "vite build",
     "dev": "vite --host 127.0.0.1"

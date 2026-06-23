@@ -14,6 +14,7 @@ const requiredApiHits = [
   "POST /api/observation/*/start",
   "POST /api/observation/*/next",
   "POST /api/observation/*/next-stage",
+  "POST /api/observation/*/run-to-execution",
   "POST /api/observation/*/play",
   "POST /api/observation/*/play-fast",
   "POST /api/observation/*/tick",
@@ -97,13 +98,16 @@ const workflowSource = [
 ].join("\n");
 
 async function main() {
-  const uiApi = await startUiApiServer();
-  const vite = await startViteServer(uiApi.baseUrl);
-  const browser = await chromium.launch();
+  let uiApi = null;
+  let vite = null;
+  let browser = null;
   const apiHits = new Set();
   const pageErrors = [];
   const failedRequests = [];
   try {
+    uiApi = await startUiApiServer();
+    vite = await startViteServer(uiApi.baseUrl);
+    browser = await chromium.launch();
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
     await context.addInitScript(() => {
       window.localStorage.clear();
@@ -116,8 +120,8 @@ async function main() {
     });
     const page = await context.newPage();
     page.on("console", (message) => {
-      if (message.type() === "error") {
-        pageErrors.push(message.text());
+      if (message.type() === "error" || message.type() === "warning") {
+        pageErrors.push(`${message.type()}: ${message.text()}`);
       }
     });
     page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -144,9 +148,9 @@ async function main() {
     assert(failedRequests.length === 0, `failed UIAPI requests:\n${failedRequests.join("\n")}`);
     console.log(`uiweb runtime workflow verification passed (${apiHits.size} API patterns observed)`);
   } finally {
-    await browser.close().catch(() => {});
-    await vite.stop();
-    await uiApi.stop();
+    await browser?.close().catch(() => {});
+    await vite?.stop();
+    await uiApi?.stop();
   }
 }
 
@@ -172,7 +176,12 @@ async function startViteServer(uiApiBaseUrl) {
     output += chunk;
   });
   const baseUrl = `http://127.0.0.1:${port}`;
-  await waitForVite(baseUrl, 60_000, () => output, child);
+  try {
+    await waitForVite(baseUrl, 60_000, () => output, child);
+  } catch (error) {
+    await stopProcessTree(child);
+    throw error;
+  }
   return {
     baseUrl,
     stop: () => stopProcessTree(child),
@@ -279,7 +288,7 @@ async function verifyCompilerPipeline(page, baseUrl) {
   await page.locator(".visual-canvas").waitFor({ state: "visible" });
   await verifyPlaybackControls(page, baseUrl);
   await clickControlForApi(page, baseUrl, ".inspector", "下一阶段", "POST", ["/api/observation/", "/next-stage"]);
-  await clickControlForApi(page, baseUrl, ".inspector", "到执行", "POST", ["/api/observation/", "/next-stage"], 90_000);
+  await clickControlForApi(page, baseUrl, ".inspector", "到执行", "POST", ["/api/observation/", "/run-to-execution"], 90_000);
   await page.waitForFunction(() => {
     const execution = document.querySelector('.stage-card[data-stage-id="execution"]');
     return execution !== null && !execution.hasAttribute("disabled");

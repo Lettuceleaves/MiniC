@@ -119,26 +119,31 @@ const metricSelectors = [
 
 export async function captureUiwebScreenshots() {
   cleanUiwebReportRoot();
-  const uiApi = await startUiApiServer();
-  const vite = await startViteServer(uiApi.baseUrl);
-  const browser = await chromium.launch();
+  let uiApi = null;
+  let vite = null;
+  let browser = null;
   const manifest = {
     generatedAt: new Date().toISOString(),
-    uiApiBaseUrl: uiApi.baseUrl,
-    appBaseUrl: vite.baseUrl,
+    uiApiBaseUrl: "",
+    appBaseUrl: "",
     viewports,
     states: matrixStates,
     captures: [],
   };
   try {
+    uiApi = await startUiApiServer();
+    vite = await startViteServer(uiApi.baseUrl);
+    browser = await chromium.launch();
+    manifest.uiApiBaseUrl = uiApi.baseUrl;
+    manifest.appBaseUrl = vite.baseUrl;
     for (const viewport of viewports) {
       const context = await browser.newContext({ viewport: { width: viewport.width, height: viewport.height } });
       await context.addInitScript(() => window.localStorage.clear());
       const page = await context.newPage();
       const pageErrors = [];
       page.on("console", (message) => {
-        if (message.type() === "error") {
-          pageErrors.push(message.text());
+        if (message.type() === "error" || message.type() === "warning") {
+          pageErrors.push(`${message.type()}: ${message.text()}`);
         }
       });
       page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -149,9 +154,9 @@ export async function captureUiwebScreenshots() {
       await context.close();
     }
   } finally {
-    await browser.close().catch(() => {});
-    await vite.stop();
-    await uiApi.stop();
+    await browser?.close().catch(() => {});
+    await vite?.stop();
+    await uiApi?.stop();
   }
   fs.mkdirSync(reportRoot, { recursive: true });
   fs.writeFileSync(path.join(reportRoot, "manifest.json"), JSON.stringify(manifest, null, 2));
@@ -181,7 +186,7 @@ async function driveAndCaptureViewport(page, viewport, appBaseUrl, apiBaseUrl, m
   await page.locator(".inspector").waitFor({ state: "visible" });
   await captureState(page, viewport, "pipeline-after-start", manifest);
 
-  await clickControlForApi(page, apiBaseUrl, ".inspector", "到执行", "POST", ["/api/observation/", "/next-stage"], 90_000);
+  await clickControlForApi(page, apiBaseUrl, ".inspector", "到执行", "POST", ["/api/observation/", "/run-to-execution"], 90_000);
   await page.waitForFunction(() => {
     const execution = document.querySelector('.stage-card[data-stage-id="execution"]');
     return execution !== null && !execution.hasAttribute("disabled");
@@ -433,7 +438,12 @@ async function startViteServer(uiApiBaseUrl) {
     output += chunk;
   });
   const baseUrl = `http://127.0.0.1:${port}`;
-  await waitForHttp(baseUrl, 60_000, () => output, child);
+  try {
+    await waitForHttp(baseUrl, 60_000, () => output, child);
+  } catch (error) {
+    await stopProcessTree(child);
+    throw error;
+  }
   return {
     baseUrl,
     stop: () => stopProcessTree(child),

@@ -12,6 +12,8 @@ const requiredDtoTypes = new Set([
   "UiStageDataDto",
   "UiStageVisualDto",
   "UiGlobalDataDto",
+  "List<UiStageViewDto>",
+  "UiInspectorModelDto",
   "UiDebugStateDto",
   "UiDebugMetadataViewDto",
   "UiDebugDataStructureViewDto",
@@ -24,8 +26,8 @@ if (!fs.existsSync(snapshotRoot)) {
   fail("snapshot directory is missing; run .\\gradlew.bat test --tests minic.uiapi.MiniCUiApiSnapshotParityTest first");
 } else {
   const files = fs.readdirSync(snapshotRoot).filter((file) => file.endsWith(".json")).sort();
-  if (files.length < 12) {
-    fail(`expected at least 12 snapshot files, found ${files.length}`);
+  if (files.length < 14) {
+    fail(`expected at least 14 snapshot files, found ${files.length}`);
   }
   const seenTypes = new Set();
   for (const file of files) {
@@ -87,6 +89,12 @@ function validateDto(dtoType, value, label, scenario) {
       return;
     case "UiGlobalDataDto":
       validateGlobalData(value, label);
+      return;
+    case "List<UiStageViewDto>":
+      expectArray(value, label).forEach((stage, index) => validateStageView(stage, `${label}[${index}]`));
+      return;
+    case "UiInspectorModelDto":
+      validateInspectorModel(value, label);
       return;
     case "UiDebugStateDto":
       validateDebugState(value, label);
@@ -178,6 +186,27 @@ function validateGlobalData(value, label) {
   ]) {
     expectArray(value[key], `${label}.${key}`);
   }
+  expectBoolean(value.executionInputPending, `${label}.executionInputPending`);
+  expectBoolean(value.executionInputConfirmed, `${label}.executionInputConfirmed`);
+}
+
+function validateStageView(value, label) {
+  expectObject(value, label);
+  expectString(value.id, `${label}.id`);
+  expectString(value.title, `${label}.title`);
+  expectString(value.state, `${label}.state`);
+  expectString(value.detail, `${label}.detail`);
+  expectNumber(value.progressPercent, `${label}.progressPercent`);
+  if (value.progressPercent < 0 || value.progressPercent > 100) {
+    fail(`${label}.progressPercent must be between 0 and 100`);
+  }
+}
+
+function validateInspectorModel(value, label) {
+  expectObject(value, label);
+  expectString(value.currentState, `${label}.currentState`);
+  expectString(value.currentItem, `${label}.currentItem`);
+  expectString(value.accumulatedOutput, `${label}.accumulatedOutput`);
 }
 
 function validateStageVisual(value, label, scenario) {
