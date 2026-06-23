@@ -23,6 +23,7 @@
   "accent.blue": "#268bd2",
   "accent.gold": "#b58900",
   "accent.yellow": "#b58900",
+  "accent.green": "#2aa198",
   "accent.error_border": "#dc322f",
   "accent.breakpoint": "#d33682",
   "accent.diagnostic_wave": "#cb4b16",

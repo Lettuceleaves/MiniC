@@ -59,9 +59,11 @@ class MiniCSettingsInteractionRegressionTest {
             assertThat(MiniCSettings.uiScale()).isEqualTo(MiniCSettings.minUiScale());
 
             MiniCSettings.setUiScale(1.25);
-            assertThat(ThemeCssGenerator.generate())
+            String scaledCss = ThemeCssGenerator.generate();
+            assertThat(scaledCss)
                     .contains("-fx-font-size: 16.25px")
                     .contains("-fx-pref-width: 60px");
+            assertThat(scaledCss).doesNotContain("{{");
 
             MiniCSettings.setGraphZoomStep(MiniCSettings.maxGraphZoomStep() * 4);
             assertThat(MiniCSettings.graphZoomStep()).isEqualTo(MiniCSettings.maxGraphZoomStep());
