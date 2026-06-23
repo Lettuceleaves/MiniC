@@ -19,6 +19,8 @@ class MiniCUiApiSnapshotParityTest {
         assertThat(snapshots).extracting(MiniCUiApiSnapshotFixtureWriter.SnapshotFile::dtoType)
                 .contains(
                         "UiRealtimeAnalysisDto",
+                        "List<UiStageViewDto>",
+                        "UiInspectorModelDto",
                         "UiStageVisualDto",
                         "UiDebugStateDto",
                         "UiDebugMetadataViewDto",

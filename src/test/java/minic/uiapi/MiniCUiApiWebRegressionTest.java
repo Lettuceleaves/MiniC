@@ -128,6 +128,46 @@ class MiniCUiApiWebRegressionTest {
     }
 
     @Test
+    void observationCompositeAndDerivedUiEndpointsMirrorDirectFacade() throws Exception {
+        MiniCObservationApi direct = new MiniCObservationApi();
+        direct.loadSource("observe-composite.mc", OBSERVATION_SOURCE);
+        direct.startSession();
+
+        String sessionId = post("/api/observation/sessions", Map.of(), MiniCUiApiRouter.SessionResponse.class)
+                .sessionId();
+        post("/api/observation/" + sessionId + "/source", sourceBody("observe-composite.mc", OBSERVATION_SOURCE),
+                MiniCUiApiRouter.StatusResponse.class);
+        post("/api/observation/" + sessionId + "/start", Map.of(), UiCurrentStateDto.class);
+
+        assertThat(post("/api/observation/" + sessionId + "/run-to-execution", Map.of(), UiControlResultDto.class))
+                .isEqualTo(direct.runToExecution());
+        assertThat(get("/api/observation/" + sessionId + "/state", UiCurrentStateDto.class))
+                .isEqualTo(direct.currentState());
+        assertThat(getList("/api/observation/" + sessionId + "/stage-views", UiStageViewDto.class))
+                .isEqualTo(direct.stageViews());
+        assertThat(get("/api/observation/" + sessionId + "/inspector", UiInspectorModelDto.class))
+                .isEqualTo(direct.inspectorModel());
+    }
+
+    @Test
+    void observationControlRouteValidationDoesNotAdvanceState() throws Exception {
+        String sessionId = post("/api/observation/sessions", Map.of(), MiniCUiApiRouter.SessionResponse.class)
+                .sessionId();
+        post("/api/observation/" + sessionId + "/source", sourceBody("observe-validation.mc", OBSERVATION_SOURCE),
+                MiniCUiApiRouter.StatusResponse.class);
+        post("/api/observation/" + sessionId + "/start", Map.of(), UiCurrentStateDto.class);
+        UiCurrentStateDto before = get("/api/observation/" + sessionId + "/state", UiCurrentStateDto.class);
+
+        assertThat(raw("GET", "/api/observation/" + sessionId + "/run-to-execution", null).statusCode())
+                .isEqualTo(405);
+        assertThat(raw("POST", "/api/observation/" + sessionId + "/run-to-execution/extra", "{}").statusCode())
+                .isEqualTo(404);
+
+        assertThat(get("/api/observation/" + sessionId + "/state", UiCurrentStateDto.class))
+                .isEqualTo(before);
+    }
+
+    @Test
     void observationSessionSerializesConcurrentVisualQueriesWithoutCorruptingStageState() throws Exception {
         String sessionId = post("/api/observation/sessions", Map.of(), MiniCUiApiRouter.SessionResponse.class)
                 .sessionId();
@@ -272,6 +312,12 @@ class MiniCUiApiWebRegressionTest {
 
     private <T> List<T> postList(String path, Object body, Class<T> elementType) throws Exception {
         HttpResponse<String> response = raw("POST", path, json.write(body));
+        assertThat(response.statusCode()).isBetween(200, 299);
+        return json.readList(response.body(), elementType);
+    }
+
+    private <T> List<T> getList(String path, Class<T> elementType) throws Exception {
+        HttpResponse<String> response = raw("GET", path, null);
         assertThat(response.statusCode()).isBetween(200, 299);
         return json.readList(response.body(), elementType);
     }

@@ -85,6 +85,8 @@ public final class MiniCUiApiSnapshotFixtureWriter {
         writer.write(scenario + "-stage-data", "UiStageDataDto", api.currentStageData());
         writer.write(scenario + "-visual", "UiStageVisualDto", api.currentStageVisualData());
         writer.write(scenario + "-global", "UiGlobalDataDto", api.globalData());
+        writer.write(scenario + "-stage-views", "List<UiStageViewDto>", api.stageViews());
+        writer.write(scenario + "-inspector", "UiInspectorModelDto", api.inspectorModel());
     }
 
     private static void writeDebugSnapshots(SnapshotWriter writer) throws IOException {

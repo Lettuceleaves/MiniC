@@ -14,6 +14,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * Request router for the browser-facing UIAPI HTTP transport.
@@ -119,24 +120,27 @@ public final class MiniCUiApiRouter implements HttpHandler {
                 api.startSession();
                 yield api.currentState();
             }
-            case "next" -> control(method, segments, api.next());
-            case "next-stage" -> control(method, segments, api.nextStage());
-            case "play" -> control(method, segments, api.play());
-            case "play-fast" -> control(method, segments, api.playFast());
-            case "tick" -> control(method, segments, api.tick());
-            case "pause" -> control(method, segments, api.pause());
+            case "next" -> control(method, segments, api::next);
+            case "next-stage" -> control(method, segments, api::nextStage);
+            case "run-to-execution" -> control(method, segments, api::runToExecution);
+            case "play" -> control(method, segments, api::play);
+            case "play-fast" -> control(method, segments, api::playFast);
+            case "tick" -> control(method, segments, api::tick);
+            case "pause" -> control(method, segments, api::pause);
             case "confirm-input" -> {
                 requireMethod(method, "POST");
                 requireSize(segments, 4);
                 ExecutionInputRequest request = read(exchange, ExecutionInputRequest.class);
                 yield api.confirmExecutionInput(required(request.standardInput(), "standardInput"));
             }
-            case "previous" -> control(method, segments, api.previous());
-            case "reverse-play" -> control(method, segments, api.reversePlay());
+            case "previous" -> control(method, segments, api::previous);
+            case "reverse-play" -> control(method, segments, api::reversePlay);
             case "state" -> query(method, segments, api.currentState());
             case "stage-data" -> query(method, segments, api.currentStageData());
             case "visual" -> routeObservationVisual(exchange, method, segments, api);
             case "global" -> query(method, segments, api.globalData());
+            case "stage-views" -> query(method, segments, api.stageViews());
+            case "inspector" -> query(method, segments, api.inspectorModel());
             default -> throw notFound(exchange);
         };
     }
@@ -188,15 +192,15 @@ public final class MiniCUiApiRouter implements HttpHandler {
                 api.loadSource(required(request.sourceName(), "sourceName"), required(request.sourceText(), "sourceText"));
                 yield new StatusResponse("loaded");
             }
-            case "start" -> debugControl(method, segments, api.startDebug());
-            case "run-to-breakpoint" -> debugControl(method, segments, api.runToBreakpoint());
-            case "run-to-end" -> debugControl(method, segments, api.runToEnd());
-            case "fast-forward" -> debugControl(method, segments, api.fastForward());
-            case "step-over" -> debugControl(method, segments, api.stepOver());
-            case "step-into" -> debugControl(method, segments, api.stepInto());
-            case "step-out" -> debugControl(method, segments, api.stepOut());
-            case "pause" -> debugControl(method, segments, api.pause());
-            case "restart" -> debugControl(method, segments, api.restart());
+            case "start" -> debugControl(method, segments, api::startDebug);
+            case "run-to-breakpoint" -> debugControl(method, segments, api::runToBreakpoint);
+            case "run-to-end" -> debugControl(method, segments, api::runToEnd);
+            case "fast-forward" -> debugControl(method, segments, api::fastForward);
+            case "step-over" -> debugControl(method, segments, api::stepOver);
+            case "step-into" -> debugControl(method, segments, api::stepInto);
+            case "step-out" -> debugControl(method, segments, api::stepOut);
+            case "pause" -> debugControl(method, segments, api::pause);
+            case "restart" -> debugControl(method, segments, api::restart);
             case "close" -> {
                 requireMethod(method, "POST");
                 requireSize(segments, 4);
@@ -204,10 +208,10 @@ public final class MiniCUiApiRouter implements HttpHandler {
                 sessions.removeDebugSession(id);
                 yield state;
             }
-            case "step-back" -> debugControl(method, segments, api.stepBack());
-            case "step-back-over" -> debugControl(method, segments, api.stepBackOver());
-            case "back-to-breakpoint" -> debugControl(method, segments, api.backToBreakpoint());
-            case "back-to-call-site" -> debugControl(method, segments, api.backToCallSite());
+            case "step-back" -> debugControl(method, segments, api::stepBack);
+            case "step-back-over" -> debugControl(method, segments, api::stepBackOver);
+            case "back-to-breakpoint" -> debugControl(method, segments, api::backToBreakpoint);
+            case "back-to-call-site" -> debugControl(method, segments, api::backToCallSite);
             case "state" -> query(method, segments, api.currentState());
             case "metadata" -> query(method, segments, api.metadataView());
             case "data-structure" -> query(method, segments, api.dataStructureDebugView());
@@ -218,16 +222,16 @@ public final class MiniCUiApiRouter implements HttpHandler {
         };
     }
 
-    private Object control(String method, List<String> segments, Object result) {
+    private Object control(String method, List<String> segments, Supplier<?> action) {
         requireMethod(method, "POST");
         requireSize(segments, 4);
-        return result;
+        return action.get();
     }
 
-    private Object debugControl(String method, List<String> segments, Object result) {
+    private Object debugControl(String method, List<String> segments, Supplier<?> action) {
         requireMethod(method, "POST");
         requireSize(segments, 4);
-        return result;
+        return action.get();
     }
 
     private Object query(String method, List<String> segments, Object result) {

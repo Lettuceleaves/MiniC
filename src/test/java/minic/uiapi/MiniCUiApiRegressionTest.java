@@ -1,5 +1,6 @@
 package minic.uiapi;
 
+import minic.uiapi.web.MiniCUiApiJson;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -23,6 +24,95 @@ class MiniCUiApiRegressionTest {
         assertThat(api.play().outcome()).isEqualTo("ADVANCED");
         assertThat(api.tick().outcome()).isIn("ADVANCED", "STAGE_COMPLETED");
         assertThat(api.pause().outcome()).isEqualTo("ADVANCED");
+    }
+
+    @Test
+    void exposesCompositeRunToExecutionAndDerivedUiModels() {
+        MiniCObservationApi api = new MiniCObservationApi();
+        api.loadSource("run-to-execution.mc", """
+                int main() {
+                    return 0;
+                }
+                """);
+        api.startSession();
+
+        UiControlResultDto result = api.runToExecution();
+
+        assertThat(result.outcome()).isIn("ADVANCED", "STAGE_COMPLETED", "CANNOT_ADVANCE");
+        assertThat(api.currentState().currentStage()).isEqualTo("execution");
+        assertThat(api.stageViews())
+                .extracting(UiStageViewDto::id)
+                .containsExactly("source", "preprocess", "lexer", "parser", "semantic", "ir", "codegen", "toolchain", "execution");
+        assertThat(api.stageViews())
+                .filteredOn(stage -> stage.id().equals("execution"))
+                .singleElement()
+                .satisfies(stage -> {
+                    assertThat(stage.title()).isEqualTo("执行");
+                    assertThat(stage.state()).isIn("running", "done", "error");
+                    assertThat(stage.progressPercent()).isBetween(0, 100);
+                });
+        assertThat(api.inspectorModel().currentState()).contains("阶段: 执行");
+        assertThat(api.inspectorModel().accumulatedOutput()).contains("IR:", "汇编:");
+    }
+
+    @Test
+    void runToExecutionReturnsStableCannotAdvanceResultWhenAlreadyAtExecution() {
+        MiniCObservationApi api = new MiniCObservationApi();
+        api.loadSource("already-execution.mc", "int main() { return 0; }");
+        api.startSession();
+        api.runToExecution();
+
+        UiControlResultDto result = api.runToExecution();
+
+        assertThat(result.outcome()).isEqualTo("CANNOT_ADVANCE");
+        assertThat(result.stage()).isEqualTo("execution");
+        assertThat(result.title()).isEqualTo("已在执行阶段");
+        assertThat(api.currentState().currentStage()).isEqualTo("execution");
+    }
+
+    @Test
+    void globalDataKeepsOldConstructorWhileDerivingInputFlags() {
+        UiGlobalDataDto data = new UiGlobalDataDto(
+                "",
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of("stdin pending", "stdin confirmed"),
+                java.util.List.of()
+        );
+
+        assertThat(data.executionInputPending()).isTrue();
+        assertThat(data.executionInputConfirmed()).isTrue();
+    }
+
+    @Test
+    void globalDataDerivesInputFlagsWhenReadingOldJsonPayloads() throws Exception {
+        MiniCUiApiJson json = new MiniCUiApiJson();
+        UiGlobalDataDto data = json.read("""
+                {
+                  "source": "",
+                  "stageSummaries": [],
+                  "diagnostics": [],
+                  "preprocessSummary": [],
+                  "tokenSummary": [],
+                  "astSummary": [],
+                  "semanticSummary": [],
+                  "irSummary": [],
+                  "assemblySummary": [],
+                  "artifactSummary": [],
+                  "executionInputSummary": ["stdin pending", "stdin confirmed"],
+                  "executionOutputSummary": []
+                }
+                """, UiGlobalDataDto.class);
+
+        assertThat(data.executionInputPending()).isTrue();
+        assertThat(data.executionInputConfirmed()).isTrue();
     }
 
     @Test

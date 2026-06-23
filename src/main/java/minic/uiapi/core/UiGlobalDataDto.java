@@ -20,6 +20,8 @@ import java.util.Objects;
  * @param artifactSummary artifact 摘要
  * @param executionInputSummary 运行输入摘要
  * @param executionOutputSummary 运行输出摘要
+ * @param executionInputPending 运行输入是否等待确认
+ * @param executionInputConfirmed 运行输入是否已确认
  */
 public record UiGlobalDataDto(
         String source,
@@ -33,8 +35,42 @@ public record UiGlobalDataDto(
         List<String> assemblySummary,
         List<String> artifactSummary,
         List<String> executionInputSummary,
-        List<String> executionOutputSummary
+        List<String> executionOutputSummary,
+        boolean executionInputPending,
+        boolean executionInputConfirmed
 ) {
+    public UiGlobalDataDto(
+            String source,
+            List<String> stageSummaries,
+            List<UiDiagnosticDto> diagnostics,
+            List<String> preprocessSummary,
+            List<String> tokenSummary,
+            List<String> astSummary,
+            List<String> semanticSummary,
+            List<String> irSummary,
+            List<String> assemblySummary,
+            List<String> artifactSummary,
+            List<String> executionInputSummary,
+            List<String> executionOutputSummary
+    ) {
+        this(
+                source,
+                stageSummaries,
+                diagnostics,
+                preprocessSummary,
+                tokenSummary,
+                astSummary,
+                semanticSummary,
+                irSummary,
+                assemblySummary,
+                artifactSummary,
+                executionInputSummary,
+                executionOutputSummary,
+                containsExecutionInputMarker(executionInputSummary, "stdin pending"),
+                containsExecutionInputMarker(executionInputSummary, "stdin confirmed")
+        );
+    }
+
     public UiGlobalDataDto {
         Objects.requireNonNull(source, "source");
         Objects.requireNonNull(stageSummaries, "stageSummaries");
@@ -59,6 +95,12 @@ public record UiGlobalDataDto(
         artifactSummary = List.copyOf(artifactSummary);
         executionInputSummary = List.copyOf(executionInputSummary);
         executionOutputSummary = List.copyOf(executionOutputSummary);
+        executionInputPending = executionInputPending || containsExecutionInputMarker(executionInputSummary, "stdin pending");
+        executionInputConfirmed = executionInputConfirmed || containsExecutionInputMarker(executionInputSummary, "stdin confirmed");
+    }
+
+    private static boolean containsExecutionInputMarker(List<String> summary, String marker) {
+        return summary != null && summary.stream().anyMatch(line -> line.equals(marker));
     }
 
     static UiGlobalDataDto from(GlobalStepData data) {

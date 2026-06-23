@@ -3,6 +3,7 @@ package minic.uiapi;
 import minic.session.CompileObservationSession;
 import minic.source.SourceFile;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -58,6 +59,44 @@ public final class MiniCObservationApi {
      */
     public synchronized UiControlResultDto nextStage() {
         return UiControlResultDto.from(requireSession().nextStage());
+    }
+
+    /**
+     * 一步推进到执行阶段入口。
+     *
+     * @return 最后一次控制结果
+     */
+    public synchronized UiControlResultDto runToExecution() {
+        CompileObservationSession currentSession = requireSession();
+        UiControlResultDto result = null;
+        int guard = 0;
+        UiCurrentStateDto state = UiCurrentStateDto.from(currentSession.currentState());
+        while (!"execution".equals(state.currentStage()) && state.canNext() && guard++ < 1000) {
+            result = UiControlResultDto.from(currentSession.nextStage());
+            if ("FAILED".equals(result.outcome()) || "CANNOT_ADVANCE".equals(result.outcome())) {
+                return result;
+            }
+            state = UiCurrentStateDto.from(currentSession.currentState());
+        }
+        if (result != null) {
+            return result;
+        }
+        if ("execution".equals(state.currentStage())) {
+            return new UiControlResultDto(
+                    "CANNOT_ADVANCE",
+                    "execution",
+                    "已在执行阶段",
+                    "当前已经位于执行阶段入口。",
+                    List.of()
+            );
+        }
+        return new UiControlResultDto(
+                "CANNOT_ADVANCE",
+                state.currentStage(),
+                "无法推进到执行阶段",
+                "当前状态不能继续推进到执行阶段。",
+                state.diagnostics()
+        );
     }
 
     /**
@@ -311,6 +350,30 @@ public final class MiniCObservationApi {
      */
     public synchronized UiGlobalDataDto globalData() {
         return UiGlobalDataDto.from(requireSession().globalData());
+    }
+
+    /**
+     * 查询 pipeline 阶段卡片展示语义。
+     *
+     * @return 阶段卡片列表
+     */
+    public synchronized List<UiStageViewDto> stageViews() {
+        if (session == null) {
+            return UiStageViewDto.initialViews();
+        }
+        return UiStageViewDto.from(currentState(), currentStageData(), globalData());
+    }
+
+    /**
+     * 查询 Inspector 汇总展示语义。
+     *
+     * @return Inspector 模型
+     */
+    public synchronized UiInspectorModelDto inspectorModel() {
+        if (session == null) {
+            return UiInspectorModelDto.initial();
+        }
+        return UiInspectorModelDto.from(currentState(), currentStageData(), globalData());
     }
 
     private void ensureSourceLoaded() {
