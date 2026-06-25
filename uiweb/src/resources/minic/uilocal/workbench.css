@@ -75,6 +75,59 @@
     -fx-border-width: 0 1px 0 0;
 }
 
+.sidebar-rail {
+    -fx-min-width: 44px;
+    -fx-pref-width: 44px;
+    -fx-max-width: 44px;
+    -fx-padding: 8px 6px;
+    -fx-spacing: 8px;
+    -fx-alignment: top-center;
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.border}};
+}
+
+.pipeline-sidebar-rail {
+    -fx-border-width: 0 1px 0 0;
+}
+
+.metadata-sidebar-rail {
+    -fx-border-width: 0 0 0 1px;
+}
+
+.sidebar-rail-toggle {
+    -fx-min-width: 28px;
+    -fx-pref-width: 28px;
+    -fx-max-width: 28px;
+}
+
+.sidebar-rail-label {
+    -fx-text-fill: {{text.label}};
+    -fx-font-size: 10px;
+}
+
+.sidebar-collapse-bar {
+    -fx-padding: 8px 10px;
+    -fx-alignment: center-left;
+    -fx-border-color: {{background.border}};
+    -fx-border-width: 0 0 1px 0;
+}
+
+.sidebar-collapse-label {
+    -fx-text-fill: {{text.panel_title}};
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.sidebar-collapse-button {
+    -fx-min-width: 28px;
+    -fx-pref-width: 28px;
+    -fx-max-width: 28px;
+    -fx-min-height: 22px;
+    -fx-pref-height: 22px;
+    -fx-max-height: 22px;
+    -fx-padding: 0 6px;
+}
+
 .inspector {
     -fx-min-width: 360px;
     -fx-pref-width: 360px;

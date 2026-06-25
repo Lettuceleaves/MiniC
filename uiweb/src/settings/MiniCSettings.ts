@@ -35,6 +35,10 @@ export const miniCSettingsMirror = {
     { name: "MAX_GRAPH_ZOOM_STEP", signature: "private static final double MAX_GRAPH_ZOOM_STEP = 0.25;" },
     { name: "DEFAULT_GRAPH_ZOOM_ANCHOR", signature: 'private static final String DEFAULT_GRAPH_ZOOM_ANCHOR = "mouse";' },
     { name: "DEFAULT_AUTO_SPLIT_PIPELINE_TABS", signature: "private static final boolean DEFAULT_AUTO_SPLIT_PIPELINE_TABS = false;" },
+    { name: "DEFAULT_PIPELINE_LEFT_SIDEBAR_COLLAPSED", signature: "private static final boolean DEFAULT_PIPELINE_LEFT_SIDEBAR_COLLAPSED = false;" },
+    { name: "DEFAULT_PIPELINE_RIGHT_SIDEBAR_COLLAPSED", signature: "private static final boolean DEFAULT_PIPELINE_RIGHT_SIDEBAR_COLLAPSED = false;" },
+    { name: "DEFAULT_COMPILER_CONTROLS_DOCK", signature: 'private static final String DEFAULT_COMPILER_CONTROLS_DOCK = "RIGHT_METADATA_TOP";' },
+    { name: "DEFAULT_COMPILER_CONTROLS_FLOATING_RECT", signature: "private static final FloatingRect DEFAULT_COMPILER_CONTROLS_FLOATING_RECT =" },
     { name: "LAST_FILE_DIALOG_DIRECTORY_KEY", signature: 'private static final String LAST_FILE_DIALOG_DIRECTORY_KEY = "lastFileDialogDirectory";' },
     { name: "OPEN_FILES_KEY", signature: 'private static final String OPEN_FILES_KEY = "openFiles";' },
     { name: "values", signature: "private static final Map<String, String> values =" },
@@ -64,12 +68,27 @@ export const miniCSettingsMirror = {
     { name: "graphZoomAnchoredAtMouse", signature: "graphZoomAnchoredAtMouse()" },
     { name: "autoSplitPipelineTabs", signature: "autoSplitPipelineTabs()" },
     { name: "setAutoSplitPipelineTabs", signature: "setAutoSplitPipelineTabs(boolean enabled)" },
+    { name: "pipelineLeftSidebarCollapsed", signature: "pipelineLeftSidebarCollapsed()" },
+    { name: "setPipelineLeftSidebarCollapsed", signature: "setPipelineLeftSidebarCollapsed(boolean collapsed)" },
+    { name: "pipelineRightSidebarCollapsed", signature: "pipelineRightSidebarCollapsed()" },
+    { name: "setPipelineRightSidebarCollapsed", signature: "setPipelineRightSidebarCollapsed(boolean collapsed)" },
+    { name: "compilerControlsDock", signature: "compilerControlsDock()" },
+    { name: "setCompilerControlsDock", signature: "setCompilerControlsDock(String dock)" },
+    { name: "compilerControlsFloatingRect", signature: "compilerControlsFloatingRect()" },
+    { name: "setCompilerControlsFloatingRect", signature: "setCompilerControlsFloatingRect(FloatingRect rect)" },
   ],
 } as const satisfies JavaMirrorFile;
 
 export interface MiniCOpenFileState {
   readonly path: string;
   readonly order: string;
+}
+
+export interface MiniCFloatingRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
 }
 
 export interface MiniCSettingsSnapshot {
@@ -79,9 +98,15 @@ export interface MiniCSettingsSnapshot {
   readonly graphZoomStep: number;
   readonly graphZoomAnchor: "mouse" | "center";
   readonly autoSplitPipelineTabs: boolean;
+  readonly pipelineLeftSidebarCollapsed: boolean;
+  readonly pipelineRightSidebarCollapsed: boolean;
+  readonly compilerControlsDock: CompilerControlsDock;
+  readonly compilerControlsFloatingRect: MiniCFloatingRect;
   readonly lastFileDialogDirectory: string;
   readonly openFiles: readonly MiniCOpenFileState[];
 }
+
+export type CompilerControlsDock = "RIGHT_METADATA_TOP" | "LEFT_PIPELINE_BOTTOM" | "FLOATING";
 
 const LOCAL_STORAGE_KEY = "minic.uiweb.settings";
 const DEFAULT_THEME = "dark";
@@ -96,6 +121,10 @@ const MIN_GRAPH_ZOOM_STEP = 0.001;
 const MAX_GRAPH_ZOOM_STEP = 0.25;
 const DEFAULT_GRAPH_ZOOM_ANCHOR = "mouse";
 const DEFAULT_AUTO_SPLIT_PIPELINE_TABS = false;
+const DEFAULT_PIPELINE_LEFT_SIDEBAR_COLLAPSED = false;
+const DEFAULT_PIPELINE_RIGHT_SIDEBAR_COLLAPSED = false;
+const DEFAULT_COMPILER_CONTROLS_DOCK: CompilerControlsDock = "RIGHT_METADATA_TOP";
+const DEFAULT_COMPILER_CONTROLS_FLOATING_RECT: MiniCFloatingRect = { x: 24, y: 24, width: 320, height: 120 };
 const LAST_FILE_DIALOG_DIRECTORY_KEY = "lastFileDialogDirectory";
 
 let currentValues = defaultValues();
@@ -127,6 +156,10 @@ export class MiniCSettings {
       graphZoomStep: MiniCSettings.graphZoomStep(),
       graphZoomAnchor: MiniCSettings.graphZoomAnchor(),
       autoSplitPipelineTabs: MiniCSettings.autoSplitPipelineTabs(),
+      pipelineLeftSidebarCollapsed: MiniCSettings.pipelineLeftSidebarCollapsed(),
+      pipelineRightSidebarCollapsed: MiniCSettings.pipelineRightSidebarCollapsed(),
+      compilerControlsDock: MiniCSettings.compilerControlsDock(),
+      compilerControlsFloatingRect: MiniCSettings.compilerControlsFloatingRect(),
       lastFileDialogDirectory: currentValues[LAST_FILE_DIALOG_DIRECTORY_KEY] ?? "",
       openFiles: [...currentOpenFiles],
     };
@@ -234,6 +267,51 @@ export class MiniCSettings {
     currentValues.autoSplitPipelineTabs = String(enabled);
     save();
   }
+
+  static pipelineLeftSidebarCollapsed(): boolean {
+    return readBoolean(currentValues.pipelineLeftSidebarCollapsed, DEFAULT_PIPELINE_LEFT_SIDEBAR_COLLAPSED);
+  }
+
+  static setPipelineLeftSidebarCollapsed(collapsed: boolean): void {
+    currentValues.pipelineLeftSidebarCollapsed = String(collapsed);
+    save();
+  }
+
+  static pipelineRightSidebarCollapsed(): boolean {
+    return readBoolean(currentValues.pipelineRightSidebarCollapsed, DEFAULT_PIPELINE_RIGHT_SIDEBAR_COLLAPSED);
+  }
+
+  static setPipelineRightSidebarCollapsed(collapsed: boolean): void {
+    currentValues.pipelineRightSidebarCollapsed = String(collapsed);
+    save();
+  }
+
+  static compilerControlsDock(): CompilerControlsDock {
+    return normalizeCompilerControlsDock(currentValues.compilerControlsDock);
+  }
+
+  static setCompilerControlsDock(dock: string): void {
+    currentValues.compilerControlsDock = normalizeCompilerControlsDock(dock);
+    save();
+  }
+
+  static compilerControlsFloatingRect(): MiniCFloatingRect {
+    return {
+      x: readNumber(currentValues.compilerControlsFloatingX, DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.x),
+      y: readNumber(currentValues.compilerControlsFloatingY, DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.y),
+      width: readNumber(currentValues.compilerControlsFloatingWidth, DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.width),
+      height: readNumber(currentValues.compilerControlsFloatingHeight, DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.height),
+    };
+  }
+
+  static setCompilerControlsFloatingRect(rect: MiniCFloatingRect | null): void {
+    const normalized = rect ?? DEFAULT_COMPILER_CONTROLS_FLOATING_RECT;
+    currentValues.compilerControlsFloatingX = String(normalized.x);
+    currentValues.compilerControlsFloatingY = String(normalized.y);
+    currentValues.compilerControlsFloatingWidth = String(normalized.width);
+    currentValues.compilerControlsFloatingHeight = String(normalized.height);
+    save();
+  }
 }
 
 function defaultValues(): Record<string, string> {
@@ -244,6 +322,13 @@ function defaultValues(): Record<string, string> {
     graphZoomStep: String(DEFAULT_GRAPH_ZOOM_STEP),
     graphZoomAnchor: DEFAULT_GRAPH_ZOOM_ANCHOR,
     autoSplitPipelineTabs: String(DEFAULT_AUTO_SPLIT_PIPELINE_TABS),
+    pipelineLeftSidebarCollapsed: String(DEFAULT_PIPELINE_LEFT_SIDEBAR_COLLAPSED),
+    pipelineRightSidebarCollapsed: String(DEFAULT_PIPELINE_RIGHT_SIDEBAR_COLLAPSED),
+    compilerControlsDock: DEFAULT_COMPILER_CONTROLS_DOCK,
+    compilerControlsFloatingX: String(DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.x),
+    compilerControlsFloatingY: String(DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.y),
+    compilerControlsFloatingWidth: String(DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.width),
+    compilerControlsFloatingHeight: String(DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.height),
     [LAST_FILE_DIALOG_DIRECTORY_KEY]: "",
   };
 }
@@ -303,6 +388,13 @@ function save(): void {
         graphZoomStep: MiniCSettings.graphZoomStep(),
         graphZoomAnchor: MiniCSettings.graphZoomAnchor(),
         autoSplitPipelineTabs: String(MiniCSettings.autoSplitPipelineTabs()),
+        pipelineLeftSidebarCollapsed: String(MiniCSettings.pipelineLeftSidebarCollapsed()),
+        pipelineRightSidebarCollapsed: String(MiniCSettings.pipelineRightSidebarCollapsed()),
+        compilerControlsDock: MiniCSettings.compilerControlsDock(),
+        compilerControlsFloatingX: MiniCSettings.compilerControlsFloatingRect().x,
+        compilerControlsFloatingY: MiniCSettings.compilerControlsFloatingRect().y,
+        compilerControlsFloatingWidth: MiniCSettings.compilerControlsFloatingRect().width,
+        compilerControlsFloatingHeight: MiniCSettings.compilerControlsFloatingRect().height,
         openFiles: currentOpenFiles,
       },
       null,
@@ -332,6 +424,10 @@ function clampInteger(value: number, min: number, max: number): number {
 
 function clampNumber(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function normalizeCompilerControlsDock(dock: string | undefined): CompilerControlsDock {
+  return dock === "LEFT_PIPELINE_BOTTOM" || dock === "FLOATING" ? dock : DEFAULT_COMPILER_CONTROLS_DOCK;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

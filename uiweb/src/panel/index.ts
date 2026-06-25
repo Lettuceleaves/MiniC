@@ -1,6 +1,7 @@
 export * from "./MiniCBottomPanel";
 export * from "./MiniCBottomPanelModel";
 export * from "./MiniCBottomPanelModelFactory";
+export * from "./MiniCCompilerControlsView";
 export * from "./MiniCHoverInspector";
 export * from "./MiniCHoverInspectorContent";
 export * from "./MiniCInspectorModel";

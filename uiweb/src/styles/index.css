@@ -102,17 +102,40 @@ button:disabled {
   flex: 1 1 auto;
 }
 
+.pipeline-sidebar-shell,
 .sidebar,
-.inspector {
+.inspector,
+.sidebar-rail {
   flex: 0 0 auto;
   min-height: 0;
   border-style: solid;
   overflow: auto;
 }
 
+.pipeline-sidebar-shell,
 .inspector {
   display: flex;
   flex-direction: column;
+}
+
+.pipeline-sidebar-shell > .sidebar {
+  flex: 1 1 auto;
+}
+
+.sidebar-rail {
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-collapse-bar {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  border-style: solid;
+}
+
+.sidebar-collapse-spacer {
+  flex: 1 1 auto;
 }
 
 .panel-title,
@@ -480,6 +503,7 @@ button:disabled {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .workspace-group {
@@ -505,6 +529,24 @@ button:disabled {
 .workspace-content > .source-area,
 .workspace-content > .main-content {
   flex: 1 1 auto;
+}
+
+.compiler-controls-host {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  border-style: solid;
+}
+
+.compiler-controls-dock-bar {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.floating-compiler-controls {
+  border-style: solid;
+  overflow: hidden;
 }
 
 .stage-flow {

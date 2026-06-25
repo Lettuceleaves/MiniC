@@ -272,20 +272,23 @@ async function verifyEditorHighlighting(page, label) {
 
 async function verifyCompilerPipeline(page, baseUrl) {
   await assignKeyBinding(page, "编译器 · 下一步", "Control+Alt+Shift+KeyK", "Ctrl+Alt+Shift+K");
+  await setAutoSplitPipelineTabs(page, true);
   await page.getByRole("button", { name: "代码区", exact: true }).click();
   await Promise.all([
     waitForApiResponse(page, baseUrl, "POST", ["/api/observation/", "/start"]),
     page.getByRole("button", { name: "开始", exact: true }).click(),
   ]);
-  await waitForApiResponse(page, baseUrl, "GET", ["/api/observation/", "/visual/lexer"]);
+  await verifyReusablePipelineTabsAutoSplit(page);
   await page.locator(".inspector").waitFor({ state: "visible" });
+  await verifyPipelineLayoutControls(page);
+  await verifyWorkspaceTabMoveLeft(page);
 
   await Promise.all([
     waitForApiResponse(page, baseUrl, "POST", ["/api/observation/", "/next"]),
     page.keyboard.press("Control+Alt+Shift+KeyK"),
   ]);
   await clickControlForApi(page, baseUrl, ".inspector", "下一步", "POST", ["/api/observation/", "/next"]);
-  await page.locator("textarea.source-editor-input").first().waitFor({ state: "visible" });
+  await page.locator(".workspace-group.right .visual-canvas").first().waitFor({ state: "visible" });
   await verifyPlaybackControls(page, baseUrl);
   await clickControlForApi(page, baseUrl, ".inspector", "下一阶段", "POST", ["/api/observation/", "/next-stage"]);
   await clickControlForApi(page, baseUrl, ".inspector", "到执行", "POST", ["/api/observation/", "/run-to-execution"], 90_000);
@@ -293,8 +296,6 @@ async function verifyCompilerPipeline(page, baseUrl) {
     const execution = document.querySelector('.stage-card[data-stage-id="execution"]');
     return execution !== null && !execution.hasAttribute("disabled");
   });
-  await verifyPipelineTabsDefaultFocus(page);
-  await setAutoSplitPipelineTabs(page, true);
 
   const stageExpectations = [
     ["preprocess", "预编译"],
@@ -311,8 +312,7 @@ async function verifyCompilerPipeline(page, baseUrl) {
     await card.waitFor({ state: "visible" });
     assert(!(await card.isDisabled()), `stage card ${stageId} should be enabled after running to execution`);
     await card.click();
-    await page.locator(".workspace-group:not(.right) .tab.active .tab-title", { hasText: `${stageTitle} before` }).waitFor({ state: "visible" });
-    await page.locator(".workspace-group.right .tab.active .tab-title", { hasText: `${stageTitle} after` }).waitFor({ state: "visible" });
+    await verifyReusablePipelineTabsAutoSplit(page);
     await page.locator(".workspace-group.right .pane-head", { hasText: stageTitle }).waitFor({ state: "visible" });
     const visualText = await page.locator(".workspace-group.right .visual-canvas").first().innerText();
     assert(visualText.trim().length > stageTitle.length, `stage ${stageId} should render non-empty visual content`);
@@ -330,17 +330,125 @@ async function verifyCompilerPipeline(page, baseUrl) {
       await verifySemanticScopePane(page);
     }
   }
+  await clickControlForApi(page, baseUrl, ".inspector", "下一步", "POST", ["/api/observation/", "/next"], 90_000);
+  await page.waitForFunction(() => document.querySelector(".workspace-group.right") === null);
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll(".tab-title")]
+      .every((node) => !/\s(before|after)$/.test(node.textContent?.trim() ?? "")),
+  );
 }
 
-async function verifyPipelineTabsDefaultFocus(page) {
-  const leftActiveTitle = page.locator(".workspace-group:not(.right) .tab.active .tab-title").first();
-  const activeBefore = (await leftActiveTitle.innerText()).trim();
-  await page.locator('.stage-card[data-stage-id="lexer"]').click();
-  await page.locator(".workspace-group:not(.right) .tab-title", { hasText: "词法分析 before" }).waitFor({ state: "visible" });
-  await page.locator(".workspace-group:not(.right) .tab-title", { hasText: "词法分析 after" }).waitFor({ state: "visible" });
-  const activeAfter = (await leftActiveTitle.innerText()).trim();
-  assert(activeAfter === activeBefore, `disabled auto split should not steal focus (${activeBefore} -> ${activeAfter})`);
-  assert((await page.locator(".workspace-group.right").count()) === 0, "disabled auto split should not create a right workspace group");
+async function verifyReusablePipelineTabsAutoSplit(page) {
+  await page.locator(".workspace-group:not(.right) .tab.active .tab-title").filter({ hasText: / before$/ }).waitFor({ state: "visible" });
+  await page.locator(".workspace-group.right .tab.active .tab-title").filter({ hasText: / after$/ }).waitFor({ state: "visible" });
+  assert(
+    (await page.locator(".tab-title").filter({ hasText: / before$/ }).count()) === 1,
+    "pipeline should reuse one before tab per source document",
+  );
+  assert(
+    (await page.locator(".tab-title").filter({ hasText: / after$/ }).count()) === 1,
+    "pipeline should reuse one after tab per source document",
+  );
+}
+
+async function verifyPipelineLayoutControls(page) {
+  await page.locator(".right-metadata-controls").waitFor({ state: "visible" });
+  assert(
+    (await page.locator(".inspector-metadata .inspector-control-button").count()) === 0,
+    "metadata inspector should not own compiler control buttons",
+  );
+  assert(
+    (await page.locator(".right-metadata-controls .inspector-control-button").count()) === 6,
+    "right metadata dock should render the six compiler controls",
+  );
+
+  await page.locator(".right-metadata-controls .compiler-controls-dock-button", { hasText: "左" }).click();
+  await page.locator(".left-pipeline-controls").waitFor({ state: "visible" });
+  await page.waitForFunction(() => {
+    const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
+    return settings.compilerControlsDock === "LEFT_PIPELINE_BOTTOM";
+  });
+
+  await page.locator(".left-pipeline-controls .compiler-controls-dock-button", { hasText: "浮" }).click();
+  await page.locator(".floating-compiler-controls").waitFor({ state: "visible" });
+  await page.waitForFunction(() => {
+    const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
+    return settings.compilerControlsDock === "FLOATING";
+  });
+  const floatingBounds = await page.evaluate(() => {
+    const workspace = document.querySelector(".workspace-split")?.getBoundingClientRect();
+    const floating = document.querySelector(".floating-compiler-controls")?.getBoundingClientRect();
+    return workspace && floating
+      ? {
+          bottomInside: floating.bottom <= workspace.bottom + 1,
+          leftInside: floating.left >= workspace.left - 1,
+          rightInside: floating.right <= workspace.right + 1,
+          topInside: floating.top >= workspace.top - 1,
+        }
+      : null;
+  });
+  assert(floatingBounds !== null, "floating compiler controls should share the workspace split coordinate space");
+  assert(
+    Object.values(floatingBounds).every(Boolean),
+    `floating compiler controls should stay inside workspace split bounds (${JSON.stringify(floatingBounds)})`,
+  );
+
+  const floatingBox = await page.locator(".floating-compiler-controls").boundingBox();
+  assert(floatingBox !== null, "floating compiler controls should be measurable");
+  await page.mouse.move(floatingBox.x + 12, floatingBox.y + 12);
+  await page.mouse.down();
+  await page.mouse.move(floatingBox.x + 72, floatingBox.y + 52);
+  await page.mouse.up();
+  await page.waitForFunction(() => {
+    const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
+    return Number(settings.compilerControlsFloatingX) > 24 || Number(settings.compilerControlsFloatingY) > 24;
+  });
+
+  await page.locator(".floating-compiler-controls .compiler-controls-dock-button", { hasText: "右" }).click();
+  await page.locator(".right-metadata-controls").waitFor({ state: "visible" });
+  await page.waitForFunction(() => {
+    const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
+    return settings.compilerControlsDock === "RIGHT_METADATA_TOP";
+  });
+
+  await page.locator(".pipeline-sidebar-shell .sidebar-collapse-button").click();
+  await page.locator(".pipeline-sidebar-rail").waitFor({ state: "visible" });
+  await page.waitForFunction(() => {
+    const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
+    return settings.pipelineLeftSidebarCollapsed === "true";
+  });
+  await page.locator(".pipeline-sidebar-rail .sidebar-rail-toggle").click();
+  await page.locator(".pipeline-sidebar-shell").waitFor({ state: "visible" });
+
+  await page.locator(".inspector .sidebar-collapse-button").click();
+  await page.locator(".metadata-sidebar-rail").waitFor({ state: "visible" });
+  await page.waitForFunction(() => {
+    const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
+    return settings.pipelineRightSidebarCollapsed === "true";
+  });
+  await page.locator(".metadata-sidebar-rail .sidebar-rail-toggle").click();
+  await page.locator(".inspector").waitFor({ state: "visible" });
+  await page.locator(".right-metadata-controls").waitFor({ state: "visible" });
+}
+
+async function verifyWorkspaceTabMoveLeft(page) {
+  await page.locator(".workspace-group.right .tab.active .tab-split").click();
+  await page.waitForFunction(() => document.querySelector(".workspace-group.right") === null);
+  await page.locator(".workspace-group:not(.right) .tab.active .tab-title").filter({ hasText: / after$/ }).waitFor({ state: "visible" });
+
+  await page.locator(".workspace-group:not(.right) .tab .tab-title").filter({ hasText: / before$/ }).click();
+  const splitClicked = await page.evaluate(() => {
+    const tab = [...document.querySelectorAll(".workspace-group:not(.right) .tab")]
+      .find((candidate) => /\safter$/.test(candidate.querySelector(".tab-title")?.textContent?.trim() ?? ""));
+    const button = tab?.querySelector(".tab-split");
+    if (!(button instanceof HTMLButtonElement)) {
+      return false;
+    }
+    button.click();
+    return true;
+  });
+  assert(splitClicked, "after tab should expose a split-right button after moving left");
+  await verifyReusablePipelineTabsAutoSplit(page);
 }
 
 async function setAutoSplitPipelineTabs(page, enabled) {

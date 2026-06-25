@@ -31,6 +31,11 @@ public final class MiniCSettings {
     private static final double MAX_GRAPH_ZOOM_STEP = 0.25;
     private static final String DEFAULT_GRAPH_ZOOM_ANCHOR = "mouse";
     private static final boolean DEFAULT_AUTO_SPLIT_PIPELINE_TABS = false;
+    private static final boolean DEFAULT_PIPELINE_LEFT_SIDEBAR_COLLAPSED = false;
+    private static final boolean DEFAULT_PIPELINE_RIGHT_SIDEBAR_COLLAPSED = false;
+    private static final String DEFAULT_COMPILER_CONTROLS_DOCK = "RIGHT_METADATA_TOP";
+    private static final FloatingRect DEFAULT_COMPILER_CONTROLS_FLOATING_RECT =
+            new FloatingRect(24, 24, 320, 120);
     private static final String LAST_FILE_DIALOG_DIRECTORY_KEY = "lastFileDialogDirectory";
     private static final String OPEN_FILES_KEY = "openFiles";
     private static final MathContext TAB_ORDER_CONTEXT = MathContext.DECIMAL128;
@@ -231,6 +236,60 @@ public final class MiniCSettings {
         save();
     }
 
+    public static boolean pipelineLeftSidebarCollapsed() {
+        return Boolean.parseBoolean(values.getOrDefault(
+                "pipelineLeftSidebarCollapsed",
+                String.valueOf(DEFAULT_PIPELINE_LEFT_SIDEBAR_COLLAPSED)
+        ));
+    }
+
+    public static void setPipelineLeftSidebarCollapsed(boolean collapsed) {
+        values.put("pipelineLeftSidebarCollapsed", String.valueOf(collapsed));
+        save();
+    }
+
+    public static boolean pipelineRightSidebarCollapsed() {
+        return Boolean.parseBoolean(values.getOrDefault(
+                "pipelineRightSidebarCollapsed",
+                String.valueOf(DEFAULT_PIPELINE_RIGHT_SIDEBAR_COLLAPSED)
+        ));
+    }
+
+    public static void setPipelineRightSidebarCollapsed(boolean collapsed) {
+        values.put("pipelineRightSidebarCollapsed", String.valueOf(collapsed));
+        save();
+    }
+
+    public static String compilerControlsDock() {
+        return normalizeCompilerControlsDock(values.getOrDefault(
+                "compilerControlsDock",
+                DEFAULT_COMPILER_CONTROLS_DOCK
+        ));
+    }
+
+    public static void setCompilerControlsDock(String dock) {
+        values.put("compilerControlsDock", normalizeCompilerControlsDock(dock));
+        save();
+    }
+
+    public static FloatingRect compilerControlsFloatingRect() {
+        return new FloatingRect(
+                doubleSetting("compilerControlsFloatingX", DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.x()),
+                doubleSetting("compilerControlsFloatingY", DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.y()),
+                doubleSetting("compilerControlsFloatingWidth", DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.width()),
+                doubleSetting("compilerControlsFloatingHeight", DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.height())
+        );
+    }
+
+    public static void setCompilerControlsFloatingRect(FloatingRect rect) {
+        FloatingRect normalized = rect == null ? DEFAULT_COMPILER_CONTROLS_FLOATING_RECT : rect;
+        values.put("compilerControlsFloatingX", String.valueOf(normalized.x()));
+        values.put("compilerControlsFloatingY", String.valueOf(normalized.y()));
+        values.put("compilerControlsFloatingWidth", String.valueOf(normalized.width()));
+        values.put("compilerControlsFloatingHeight", String.valueOf(normalized.height()));
+        save();
+    }
+
     public static Optional<Path> lastFileDialogDirectory() {
         String raw = values.get(LAST_FILE_DIALOG_DIRECTORY_KEY);
         if (raw == null || raw.isBlank()) {
@@ -409,6 +468,13 @@ public final class MiniCSettings {
         defaults.put("graphZoomStep", String.valueOf(DEFAULT_GRAPH_ZOOM_STEP));
         defaults.put("graphZoomAnchor", DEFAULT_GRAPH_ZOOM_ANCHOR);
         defaults.put("autoSplitPipelineTabs", String.valueOf(DEFAULT_AUTO_SPLIT_PIPELINE_TABS));
+        defaults.put("pipelineLeftSidebarCollapsed", String.valueOf(DEFAULT_PIPELINE_LEFT_SIDEBAR_COLLAPSED));
+        defaults.put("pipelineRightSidebarCollapsed", String.valueOf(DEFAULT_PIPELINE_RIGHT_SIDEBAR_COLLAPSED));
+        defaults.put("compilerControlsDock", DEFAULT_COMPILER_CONTROLS_DOCK);
+        defaults.put("compilerControlsFloatingX", String.valueOf(DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.x()));
+        defaults.put("compilerControlsFloatingY", String.valueOf(DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.y()));
+        defaults.put("compilerControlsFloatingWidth", String.valueOf(DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.width()));
+        defaults.put("compilerControlsFloatingHeight", String.valueOf(DEFAULT_COMPILER_CONTROLS_FLOATING_RECT.height()));
         defaults.put(LAST_FILE_DIALOG_DIRECTORY_KEY, "");
         return defaults;
     }
@@ -469,6 +535,26 @@ public final class MiniCSettings {
         return Objects.requireNonNull(order, "order").plus(TAB_ORDER_CONTEXT).stripTrailingZeros();
     }
 
+    private static double doubleSetting(String key, double fallback) {
+        String raw = values.get(key);
+        if (raw == null) {
+            return fallback;
+        }
+        try {
+            double value = Double.parseDouble(raw);
+            return Double.isFinite(value) ? value : fallback;
+        } catch (NumberFormatException exception) {
+            return fallback;
+        }
+    }
+
+    private static String normalizeCompilerControlsDock(String dock) {
+        if ("LEFT_PIPELINE_BOTTOM".equals(dock) || "FLOATING".equals(dock)) {
+            return dock;
+        }
+        return DEFAULT_COMPILER_CONTROLS_DOCK;
+    }
+
     private static void appendJsonString(StringBuilder sb, String value) {
         sb.append('"');
         for (int i = 0; i < value.length(); i++) {
@@ -483,6 +569,9 @@ public final class MiniCSettings {
             }
         }
         sb.append('"');
+    }
+
+    public record FloatingRect(double x, double y, double width, double height) {
     }
 
     public record OpenFileState(Path path, BigDecimal order) {

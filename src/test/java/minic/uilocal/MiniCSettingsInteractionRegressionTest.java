@@ -136,6 +136,57 @@ class MiniCSettingsInteractionRegressionTest {
     }
 
     @Test
+    void persistsPipelineLayoutState() throws Exception {
+        String originalSettings = backup(SETTINGS_FILE);
+        try {
+            Files.writeString(SETTINGS_FILE, """
+                    {
+                      "theme": "dark",
+                      "pipelineLeftSidebarCollapsed": "true",
+                      "pipelineRightSidebarCollapsed": "false",
+                      "compilerControlsDock": "FLOATING",
+                      "compilerControlsFloatingX": 42,
+                      "compilerControlsFloatingY": 56,
+                      "compilerControlsFloatingWidth": 360,
+                      "compilerControlsFloatingHeight": 144
+                    }
+                    """, StandardCharsets.UTF_8);
+            MiniCSettings.load();
+
+            assertThat(MiniCSettings.pipelineLeftSidebarCollapsed()).isTrue();
+            assertThat(MiniCSettings.pipelineRightSidebarCollapsed()).isFalse();
+            assertThat(MiniCSettings.compilerControlsDock()).isEqualTo("FLOATING");
+            assertThat(MiniCSettings.compilerControlsFloatingRect())
+                    .isEqualTo(new MiniCSettings.FloatingRect(42, 56, 360, 144));
+
+            MiniCSettings.setPipelineLeftSidebarCollapsed(false);
+            MiniCSettings.setPipelineRightSidebarCollapsed(true);
+            MiniCSettings.setCompilerControlsDock("LEFT_PIPELINE_BOTTOM");
+            MiniCSettings.setCompilerControlsFloatingRect(new MiniCSettings.FloatingRect(8, 12, 280, 96));
+
+            assertThat(MiniCSettings.pipelineLeftSidebarCollapsed()).isFalse();
+            assertThat(MiniCSettings.pipelineRightSidebarCollapsed()).isTrue();
+            assertThat(MiniCSettings.compilerControlsDock()).isEqualTo("LEFT_PIPELINE_BOTTOM");
+            assertThat(MiniCSettings.compilerControlsFloatingRect())
+                    .isEqualTo(new MiniCSettings.FloatingRect(8, 12, 280, 96));
+            assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
+                    .contains("\"pipelineLeftSidebarCollapsed\": \"false\"")
+                    .contains("\"pipelineRightSidebarCollapsed\": \"true\"")
+                    .contains("\"compilerControlsDock\": \"LEFT_PIPELINE_BOTTOM\"")
+                    .contains("\"compilerControlsFloatingX\": 8.0")
+                    .contains("\"compilerControlsFloatingY\": 12.0")
+                    .contains("\"compilerControlsFloatingWidth\": 280.0")
+                    .contains("\"compilerControlsFloatingHeight\": 96.0");
+
+            MiniCSettings.setCompilerControlsDock("unknown");
+            assertThat(MiniCSettings.compilerControlsDock()).isEqualTo("RIGHT_METADATA_TOP");
+        } finally {
+            restore(SETTINGS_FILE, originalSettings);
+            MiniCSettings.load();
+        }
+    }
+
+    @Test
     void settingsPaneCapturesOverridesAndRejectsConflicts() throws Exception {
         ensureFxStarted();
         String originalSettings = backup(SETTINGS_FILE);
