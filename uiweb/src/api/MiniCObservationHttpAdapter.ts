@@ -97,6 +97,10 @@ export class MiniCObservationHttpAdapter implements MiniCObservationApiAdapter {
     return this.client.get(`${await this.basePath()}/visual/semantic`);
   }
 
+  async irVisualData(): Promise<UiStageVisualDto> {
+    return this.client.get(`${await this.basePath()}/visual/ir`);
+  }
+
   async codegenVisualData(): Promise<UiStageVisualDto> {
     return this.client.get(`${await this.basePath()}/visual/codegen`);
   }
@@ -120,8 +124,11 @@ export class MiniCObservationHttpAdapter implements MiniCObservationApiAdapter {
     if (stage === "parser") {
       return this.astVisualData();
     }
-    if (stage === "semantic" || stage === "ir") {
+    if (stage === "semantic") {
       return this.semanticVisualData();
+    }
+    if (stage === "ir") {
+      return this.irVisualData();
     }
     if (stage === "codegen" || stage === "toolchain" || stage === "execution") {
       return this.codegenVisualData();

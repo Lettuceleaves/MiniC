@@ -598,6 +598,7 @@ export function visualForStage(stage: string, snapshot: MiniCWorkbenchSnapshot):
   if (stage === "lexer") return snapshot.lexerVisualData;
   if (stage === "parser") return snapshot.astVisualData;
   if (stage === "semantic") return snapshot.semanticVisualData;
+  if (stage === "ir") return snapshot.irVisualData;
   if (stage === "codegen") return snapshot.codegenVisualData;
   return snapshot.currentStageVisualData ?? snapshot.lexerVisualData ?? snapshot.astVisualData;
 }
@@ -740,7 +741,7 @@ function stageColumns(
         leftTitle: "AST",
         left: astGraph(visual, astZoom, setAstZoom, true, inspectorContext, selectedSemanticScopeId, setSelectedSemanticScopeId),
         rightTitle: "IR",
-        right: selectedSemanticScopeId.length === 0 ? globalRows("ir", snapshot) : activeScopeRows(visual, selectedSemanticScopeId),
+        right: selectedSemanticScopeId.length === 0 ? codegenIrRows(visual, irTextHighlighter, inspectorContext) : activeScopeRows(visual, selectedSemanticScopeId),
       };
     case "toolchain":
       return {
@@ -1054,6 +1055,7 @@ export function sourceTextForRange(
   }
   const visuals = [
     snapshot.currentStageVisualData,
+    snapshot.irVisualData,
     snapshot.semanticVisualData,
     snapshot.astVisualData,
     snapshot.lexerVisualData,

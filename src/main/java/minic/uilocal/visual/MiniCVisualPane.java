@@ -129,6 +129,7 @@ public final class MiniCVisualPane extends VBox {
         viewModel.lexerVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.astVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.semanticVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
+        viewModel.irVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.codegenVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.globalDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.selectedVisualStageProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
@@ -213,7 +214,7 @@ public final class MiniCVisualPane extends VBox {
             case "ir" -> {
                 leftColumn.setContent("AST", List.of(astGraphRenderer.zoomableSemanticAstGraph(visual)));
                 if (selectedSemanticScopeId == null || selectedSemanticScopeId.isBlank()) {
-                    rightColumn.setContent("IR", globalRows(stage));
+                    rightColumn.setContent("IR", codegenIrRows(visual));
                 } else {
                     rightColumn.setContent("作用域", activeScopeRows(visual));
                 }
@@ -238,6 +239,7 @@ public final class MiniCVisualPane extends VBox {
             case "lexer" -> viewModel.lexerVisualDataProperty().get();
             case "parser" -> viewModel.astVisualDataProperty().get();
             case "semantic" -> viewModel.semanticVisualDataProperty().get();
+            case "ir" -> viewModel.irVisualDataProperty().get();
             case "codegen" -> viewModel.codegenVisualDataProperty().get();
             default -> viewModel.currentStageVisualDataProperty().get();
         };
@@ -611,6 +613,7 @@ public final class MiniCVisualPane extends VBox {
         }
         for (UiStageVisualDto visual : new UiStageVisualDto[]{
                 viewModel.currentStageVisualDataProperty().get(),
+                viewModel.irVisualDataProperty().get(),
                 viewModel.semanticVisualDataProperty().get(),
                 viewModel.astVisualDataProperty().get(),
                 viewModel.lexerVisualDataProperty().get(),

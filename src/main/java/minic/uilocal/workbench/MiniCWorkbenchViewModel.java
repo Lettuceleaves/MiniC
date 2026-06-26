@@ -45,6 +45,7 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiStageVisualDto> lexerVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageVisualDto> astVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageVisualDto> semanticVisualData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> irVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageVisualDto> codegenVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiGlobalDataDto> globalData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiRealtimeAnalysisDto> realtimeAnalysis = new ReadOnlyObjectWrapper<>();
@@ -112,6 +113,7 @@ public final class MiniCWorkbenchViewModel {
         lexerVisualData.set(null);
         astVisualData.set(null);
         semanticVisualData.set(null);
+        irVisualData.set(null);
         codegenVisualData.set(null);
         globalData.set(null);
         realtimeAnalysis.set(null);
@@ -544,12 +546,14 @@ public final class MiniCWorkbenchViewModel {
         if (!sessionStarted.get()) {
             return;
         }
+        UiStageVisualDto currentVisual = api.currentStageVisualData();
         currentState.set(api.currentState());
         currentStageData.set(api.currentStageData());
-        currentStageVisualData.set(api.currentStageVisualData());
+        currentStageVisualData.set(currentVisual);
         lexerVisualData.set(api.lexerVisualData());
         astVisualData.set(api.astVisualData());
         semanticVisualData.set(api.semanticVisualData());
+        irVisualData.set("ir".equals(currentVisual.stage()) ? currentVisual : api.irVisualData());
         codegenVisualData.set(api.codegenVisualData());
         globalData.set(api.globalData());
     }
@@ -642,6 +646,15 @@ public final class MiniCWorkbenchViewModel {
      */
     public ReadOnlyObjectProperty<UiStageVisualDto> semanticVisualDataProperty() {
         return semanticVisualData.getReadOnlyProperty();
+    }
+
+    /**
+     * IR 图形化 DTO 属性。
+     *
+     * @return IR 图形化 DTO 属性
+     */
+    public ReadOnlyObjectProperty<UiStageVisualDto> irVisualDataProperty() {
+        return irVisualData.getReadOnlyProperty();
     }
 
     /**

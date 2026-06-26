@@ -153,10 +153,21 @@ public record UiStageVisualDto(
             Scope globalScope,
             IrLoweringAction currentAction
     ) {
+        return fromIrAstAndScope(data, program, globalScope, currentAction, null);
+    }
+
+    static UiStageVisualDto fromIrAstAndScope(
+            StageStepData data,
+            Program program,
+            Scope globalScope,
+            IrLoweringAction currentAction,
+            IrModule module
+    ) {
         Object activeAstNode = currentAction == null ? null : currentAction.astNode();
         UiAstNodeVisualDto astRoot = new UiAstVisualBuilder().buildProgram(program, activeAstNode);
         UiSemanticScopeVisualDto semanticRoot = new UiSemanticScopeVisualBuilder().build(globalScope, null);
-        return new UiStageVisualDto(data.stage().id(), "ir-ast-scope", sourceText(program), List.of(), List.of(), astRoot, semanticRoot, true, List.of(), List.of());
+        List<UiIrLineVisualDto> irLines = module == null ? List.of() : irLines(module, null);
+        return new UiStageVisualDto(data.stage().id(), "ir-ast-scope", sourceText(program), List.of(), List.of(), astRoot, semanticRoot, true, irLines, List.of());
     }
 
     static UiStageVisualDto fromAssemblyLines(
