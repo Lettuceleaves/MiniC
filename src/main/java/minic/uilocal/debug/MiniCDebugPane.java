@@ -371,8 +371,6 @@ public final class MiniCDebugPane extends VBox {
                 metadataSection("调用栈", view.callStack().stream().map(MiniCDebugTextFormatter::frameText).toList()),
                 metadataSection("变量", view.variables().stream().map(MiniCDebugTextFormatter::variableText).toList()),
                 metadataSection("断点", view.breakpoints().stream().map(MiniCDebugTextFormatter::breakpointText).toList()),
-                metadataSection("事件日志", boundedLines(view.events().stream().map(MiniCDebugTextFormatter::eventText).toList())),
-                metadataSection("Snapshot 时间线", boundedLines(view.timeline().stream().map(MiniCDebugTextFormatter::timelineText).toList())),
                 metadataSection("stdout", List.of(view.stdout().isBlank() ? "(empty)" : view.stdout())),
                 metadataSection("stderr", List.of(view.stderr().isBlank() ? "(empty)" : view.stderr()))
         );
@@ -461,12 +459,6 @@ public final class MiniCDebugPane extends VBox {
                 .collect(Collectors.joining("\n"))
                 + "\n\n断点:\n" + view.breakpoints().stream()
                 .map(MiniCDebugTextFormatter::breakpointText)
-                .collect(Collectors.joining("\n"))
-                + "\n\n事件:\n" + view.events().stream()
-                .map(MiniCDebugTextFormatter::eventText)
-                .collect(Collectors.joining("\n"))
-                + "\n\n时间线:\n" + view.timeline().stream()
-                .map(MiniCDebugTextFormatter::timelineText)
                 .collect(Collectors.joining("\n"))
                 + "\n\nstdout:\n" + view.stdout()
                 + "\n\nstderr:\n" + view.stderr();

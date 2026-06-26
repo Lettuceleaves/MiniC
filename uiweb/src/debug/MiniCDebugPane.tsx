@@ -596,8 +596,6 @@ export function metadataContent(view: UiDebugMetadataViewDto | null, formatter: 
       {metadataSection("调用栈", view.callStack.map((frame) => formatter.frameText(frame)))}
       {metadataSection("变量", variableLines(view.variables, formatter))}
       {metadataSection("断点", view.breakpoints.map((breakpoint) => formatter.breakpointText(breakpoint)))}
-      {metadataSection("事件日志", boundedLines(view.events.map((event) => formatter.eventText(event))))}
-      {metadataSection("Snapshot 时间线", boundedLines(view.timeline.map((item) => formatter.timelineText(item))))}
       {metadataSection("stdout", [view.stdout.trim().length === 0 ? "(empty)" : view.stdout])}
       {metadataSection("stderr", [view.stderr.trim().length === 0 ? "(empty)" : view.stderr])}
     </div>

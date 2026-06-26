@@ -388,6 +388,44 @@ class MiniCSettingsInteractionRegressionTest {
     }
 
     @Test
+    void debugMetadataPanelDoesNotRenderEventOrTimelineLogs() throws Exception {
+        ensureFxStarted();
+        AtomicReference<Stage> stageRef = new AtomicReference<>();
+        try {
+            runFx(() -> {
+                MiniCWorkbenchViewModel model = new MiniCWorkbenchViewModel();
+                model.loadSource("debug-metadata.mc", """
+                        int main() {
+                            int x = 1;
+                            return x;
+                        }
+                        """);
+                model.startDebug();
+                MiniCDebugPane pane = new MiniCDebugPane(model);
+                Stage stage = new Stage();
+                stage.setScene(new Scene(pane, 900, 640));
+                stage.show();
+                stageRef.set(stage);
+
+                List<String> sectionTitles = pane.lookupAll(".debug-section-title").stream()
+                        .filter(Label.class::isInstance)
+                        .map(Label.class::cast)
+                        .map(Label::getText)
+                        .toList();
+
+                assertThat(model.debugMetadataViewProperty().get().events()).isNotEmpty();
+                assertThat(model.debugMetadataViewProperty().get().timeline()).isNotEmpty();
+                assertThat(sectionTitles).contains("调用栈", "变量", "断点", "stdout", "stderr");
+                assertThat(sectionTitles).doesNotContain("事件日志", "Snapshot 时间线");
+            });
+        } finally {
+            if (stageRef.get() != null) {
+                runFx(() -> stageRef.get().close());
+            }
+        }
+    }
+
+    @Test
     void hoverInspectorSourceSnippetKeepsRangeMaskWhileUsingSyntaxTextRoles() throws Exception {
         ensureFxStarted();
         AtomicReference<Stage> stageRef = new AtomicReference<>();
