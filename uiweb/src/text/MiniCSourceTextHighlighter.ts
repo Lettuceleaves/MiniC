@@ -63,7 +63,8 @@ export class MiniCSourceTextHighlighter {
     }
     const segments: MiniCStyledTextSegment[] = [];
     let cursor = 0;
-    for (const token of sortedTokens) {
+    for (let index = 0; index < sortedTokens.length; index += 1) {
+      const token = sortedTokens[index];
       if (token.range === null) {
         continue;
       }
@@ -75,7 +76,7 @@ export class MiniCSourceTextHighlighter {
       if (start > cursor) {
         MiniCLineTokenHighlighter.add(segments, text.slice(cursor, start), MiniCTextStyleRole.CODE_PLAIN);
       }
-      MiniCLineTokenHighlighter.add(segments, text.slice(start, end), this.styleMapper.roleFor(token.kind));
+      MiniCLineTokenHighlighter.add(segments, text.slice(start, end), this.styleMapper.roleForToken(sortedTokens, index));
       cursor = end;
     }
     if (cursor < text.length) {

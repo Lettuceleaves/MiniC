@@ -23,9 +23,12 @@ public final class MiniCAssemblyTextHighlighter {
             "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5"
     );
     private static final Set<String> DIRECTIVES = Set.of(
-            "proc", "endp", "public", "extern", "extrn", "data", "code", "const",
-            "segment", "ends", "db", "dw", "dd", "dq", "qword", "dword", "word",
-            "byte", "ptr", "offset", "flat"
+            ".text", ".data", ".code", ".const", "text", "data", "code", "const",
+            "proc", "endp", "public", "extern", "extrn", "segment", "ends",
+            "db", "dw", "dd", "dq", "flat"
+    );
+    private static final Set<String> TYPE_WORDS = Set.of(
+            "qword", "dword", "word", "byte", "ptr", "offset"
     );
 
     public List<MiniCStyledTextSegment> highlight(String line) {
@@ -43,23 +46,32 @@ public final class MiniCAssemblyTextHighlighter {
 
     private MiniCTextStyleRole roleFor(String token, int startOffset, String fullLine) {
         String normalized = token.toLowerCase();
+        if (DIRECTIVES.contains(normalized)) {
+            return MiniCTextStyleRole.CODE_DIRECTIVE;
+        }
         if (startsLabel(token, startOffset, fullLine) || token.startsWith("$") || token.startsWith(".")) {
-            return MiniCTextStyleRole.CODE_TYPE;
+            return MiniCTextStyleRole.CODE_LABEL;
         }
         if (MNEMONICS.contains(normalized)) {
-            return MiniCTextStyleRole.CODE_KEYWORD;
+            return MiniCTextStyleRole.CODE_FUNCTION;
         }
         if (REGISTERS.contains(normalized)) {
-            return MiniCTextStyleRole.CODE_IDENTIFIER;
+            return MiniCTextStyleRole.CODE_REGISTER;
         }
-        if (DIRECTIVES.contains(normalized)) {
+        if (TYPE_WORDS.contains(normalized)) {
             return MiniCTextStyleRole.CODE_TYPE;
         }
         if (isNumber(token)) {
             return MiniCTextStyleRole.CODE_LITERAL;
         }
+        if (followsCallTarget(token, startOffset, fullLine)) {
+            return MiniCTextStyleRole.CODE_FUNCTION;
+        }
         if (isIdentifier(token)) {
-            return MiniCTextStyleRole.CODE_IDENTIFIER;
+            return MiniCTextStyleRole.CODE_VARIABLE;
+        }
+        if (isPunctuation(token)) {
+            return MiniCTextStyleRole.CODE_PUNCTUATION;
         }
         return MiniCTextStyleRole.CODE_OPERATOR;
     }
@@ -75,5 +87,14 @@ public final class MiniCAssemblyTextHighlighter {
 
     private boolean isNumber(String token) {
         return token.matches("[-+]?0x[0-9A-Fa-f]+|[-+]?[0-9]+(?:\\.[0-9]+)?");
+    }
+
+    private boolean followsCallTarget(String token, int startOffset, String fullLine) {
+        String prefix = fullLine.substring(0, Math.max(0, startOffset)).stripTrailing().toLowerCase();
+        return isIdentifier(token) && prefix.endsWith("call");
+    }
+
+    private boolean isPunctuation(String token) {
+        return token.length() == 1 && "(),:[]{}".contains(token);
     }
 }

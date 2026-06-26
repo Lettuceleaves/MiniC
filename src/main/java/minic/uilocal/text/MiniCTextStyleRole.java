@@ -23,9 +23,16 @@ public enum MiniCTextStyleRole {
     CODE_PLAIN("code.plain", "text.body", "mono", "normal", "normal", "token-plain"),
     CODE_KEYWORD("code.keyword", "syntax.keyword", "mono", "normal", "normal", "token-keyword"),
     CODE_IDENTIFIER("code.identifier", "text.body", "mono", "normal", "normal", "token-identifier"),
+    CODE_CONTROL("code.control", "syntax.control", "mono", "normal", "normal"),
+    CODE_FUNCTION("code.function", "syntax.function", "mono", "normal", "normal"),
+    CODE_VARIABLE("code.variable", "syntax.variable", "mono", "normal", "normal"),
+    CODE_REGISTER("code.register", "syntax.register", "mono", "normal", "normal"),
+    CODE_LABEL("code.label", "syntax.label", "mono", "normal", "normal"),
+    CODE_DIRECTIVE("code.directive", "syntax.directive", "mono", "normal", "normal"),
     CODE_STRING("code.string", "syntax.string", "mono", "normal", "normal", "token-string"),
     CODE_LITERAL("code.literal", "syntax.literal", "mono", "normal", "normal", "token-literal"),
-    CODE_OPERATOR("code.operator", "text.body", "mono", "normal", "normal", "token-operator"),
+    CODE_OPERATOR("code.operator", "syntax.operator", "mono", "normal", "normal", "token-operator"),
+    CODE_PUNCTUATION("code.punctuation", "syntax.punctuation", "mono", "normal", "normal"),
     CODE_TYPE("code.type", "syntax.type", "mono", "normal", "normal"),
     CODE_COMMENT("code.comment", "text.muted", "mono", "normal", "italic");
 

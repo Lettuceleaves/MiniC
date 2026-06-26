@@ -31,6 +31,14 @@
   --minic-syntax-string: #316e87;
   --minic-syntax-literal: #4a3157;
   --minic-syntax-type: #632301;
+  --minic-syntax-control: #7b3f9d;
+  --minic-syntax-function: #795e26;
+  --minic-syntax-variable: #2b2b2b;
+  --minic-syntax-register: #0f6f5f;
+  --minic-syntax-label: #284582;
+  --minic-syntax-directive: #6f5e00;
+  --minic-syntax-operator: #424242;
+  --minic-syntax-punctuation: #696969;
   --minic-graph-root-fill: #f6b88e;
   --minic-graph-root-stroke: #754b07;
   --minic-graph-leaf-fill: #e0d2dd;

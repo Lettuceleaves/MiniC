@@ -34,7 +34,8 @@ public final class MiniCSourceTextHighlighter {
         }
         ArrayList<MiniCStyledTextSegment> segments = new ArrayList<>();
         int cursor = 0;
-        for (UiLexerTokenVisualDto token : tokens) {
+        for (int index = 0; index < tokens.size(); index++) {
+            UiLexerTokenVisualDto token = tokens.get(index);
             int start = safeOffset(source, token.startOffset());
             int end = safeOffset(source, token.endOffset());
             if (end <= start || start < cursor) {
@@ -43,7 +44,7 @@ public final class MiniCSourceTextHighlighter {
             if (start > cursor) {
                 MiniCLineTokenHighlighter.add(segments, source.substring(cursor, start), MiniCTextStyleRole.CODE_PLAIN);
             }
-            MiniCLineTokenHighlighter.add(segments, source.substring(start, end), styleMapper.roleFor(token.kind()));
+            MiniCLineTokenHighlighter.add(segments, source.substring(start, end), styleMapper.roleForToken(tokens, index));
             cursor = end;
         }
         if (cursor < source.length()) {

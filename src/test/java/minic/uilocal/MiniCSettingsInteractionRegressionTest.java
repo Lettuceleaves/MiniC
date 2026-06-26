@@ -422,11 +422,11 @@ class MiniCSettingsInteractionRegressionTest {
                         .toList();
                 assertThat(sourceChars).anySatisfy(label -> {
                     assertThat(label.getText()).isEqualTo("i");
-                    assertThat(label.getStyleClass()).contains("mc-text-code-keyword");
+                    assertThat(label.getStyleClass()).contains("mc-text-code-type");
                 });
                 assertThat(sourceChars).anySatisfy(label -> {
                     assertThat(label.getText()).isEqualTo("m");
-                    assertThat(label.getStyleClass()).contains("mc-text-code-identifier");
+                    assertThat(label.getStyleClass()).contains("mc-text-code-function");
                 });
                 assertThat(sourceChars).anySatisfy(label -> {
                     assertThat(label.getText()).isEqualTo("7");
@@ -434,11 +434,11 @@ class MiniCSettingsInteractionRegressionTest {
                 });
                 assertThat(sourceChars).anySatisfy(label -> {
                     assertThat(label.getText()).isEqualTo("{");
-                    assertThat(label.getStyleClass()).contains("mc-text-code-operator");
+                    assertThat(label.getStyleClass()).contains("mc-text-code-punctuation");
                 });
                 assertThat(sourceChars).anySatisfy(label -> {
                     assertThat(label.getText()).isEqualTo("r");
-                    assertThat(label.getStyleClass()).contains("masked", "mc-text-code-keyword");
+                    assertThat(label.getStyleClass()).contains("masked", "mc-text-code-control");
                 });
             });
         } finally {

@@ -20,11 +20,15 @@ public final class MiniCExplanationTextHighlighter {
     private static final Pattern NUMBER = Pattern.compile("[-+]?0x[0-9A-Fa-f]+|[-+]?[0-9]+(?:\\.[0-9]+)?");
     private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z0-9_.$]*");
     private static final Pattern PREFIXED_IDENTIFIER = Pattern.compile("[%@$&.][A-Za-z0-9_][A-Za-z0-9_.$]*");
-    private static final Pattern OPERATOR = Pattern.compile("==|!=|<=|>=|->|&&|\\|\\||[-+*/%=&|!<>^~.,:;()\\[\\]{}@]");
+    private static final Pattern OPERATOR = Pattern.compile("==|!=|<=|>=|->|&&|\\|\\||[-+*/%=&|!<>^~@]");
+    private static final Pattern PUNCTUATION = Pattern.compile("[.,:;()\\[\\]{}]");
 
+    private static final Set<String> C_CONTROL_KEYWORDS = Set.of(
+            "return", "if", "else", "while", "for", "break", "continue",
+            "switch", "case", "default", "do", "goto"
+    );
     private static final Set<String> C_KEYWORDS = Set.of(
-            "extern", "return", "if", "else", "while", "for", "break", "continue",
-            "sizeof", "switch", "case", "default", "do", "goto"
+            "extern", "sizeof"
     );
     private static final Set<String> TYPE_NAMES = Set.of(
             "void", "bool", "char", "int", "long", "float", "double", "struct",
@@ -85,22 +89,41 @@ public final class MiniCExplanationTextHighlighter {
         if (TYPE_NAMES.contains(normalized)) {
             return MiniCTextStyleRole.CODE_TYPE;
         }
-        if (C_KEYWORDS.contains(normalized) || IR_KEYWORDS.contains(normalized) || ASM_MNEMONICS.contains(normalized)) {
+        if (C_CONTROL_KEYWORDS.contains(normalized)) {
+            return MiniCTextStyleRole.CODE_CONTROL;
+        }
+        if (C_KEYWORDS.contains(normalized) || IR_KEYWORDS.contains(normalized)) {
             return MiniCTextStyleRole.CODE_KEYWORD;
         }
+        if (ASM_MNEMONICS.contains(normalized)) {
+            return MiniCTextStyleRole.CODE_FUNCTION;
+        }
         if (ASM_REGISTERS.contains(normalized) || isPrefixedIdentifier(token)) {
-            return token.startsWith(".") || token.startsWith("$")
-                    ? MiniCTextStyleRole.CODE_TYPE
-                    : MiniCTextStyleRole.CODE_IDENTIFIER;
+            if (ASM_REGISTERS.contains(normalized)) {
+                return MiniCTextStyleRole.CODE_REGISTER;
+            }
+            if (token.startsWith(".") || token.startsWith("$")) {
+                return MiniCTextStyleRole.CODE_LABEL;
+            }
+            if (token.startsWith("@")) {
+                return MiniCTextStyleRole.CODE_FUNCTION;
+            }
+            return MiniCTextStyleRole.CODE_VARIABLE;
         }
         if (IDENTIFIER.matcher(token).matches()) {
             if (isLabel(token, startOffset, fullText)) {
-                return MiniCTextStyleRole.CODE_TYPE;
+                return MiniCTextStyleRole.CODE_LABEL;
+            }
+            if (isFunctionName(token, startOffset, fullText)) {
+                return MiniCTextStyleRole.CODE_FUNCTION;
             }
             if (isLikelyCodeIdentifier(token, startOffset, fullText)) {
-                return MiniCTextStyleRole.CODE_IDENTIFIER;
+                return MiniCTextStyleRole.CODE_VARIABLE;
             }
             return MiniCTextStyleRole.BODY;
+        }
+        if (PUNCTUATION.matcher(token).matches()) {
+            return MiniCTextStyleRole.CODE_PUNCTUATION;
         }
         if (OPERATOR.matcher(token).matches()) {
             return MiniCTextStyleRole.CODE_OPERATOR;
@@ -121,6 +144,11 @@ public final class MiniCExplanationTextHighlighter {
     private boolean isLabel(String token, int startOffset, String fullText) {
         int next = nextNonWhitespace(fullText, startOffset + token.length());
         return next >= 0 && fullText.charAt(next) == ':';
+    }
+
+    private boolean isFunctionName(String token, int startOffset, String fullText) {
+        int next = nextNonWhitespace(fullText, startOffset + token.length());
+        return next >= 0 && fullText.charAt(next) == '(';
     }
 
     private boolean isLikelyCodeIdentifier(String token, int startOffset, String fullText) {

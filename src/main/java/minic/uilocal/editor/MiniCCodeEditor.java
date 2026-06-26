@@ -418,13 +418,14 @@ public final class MiniCCodeEditor extends StackPane {
             return builder.create();
         }
         int cursor = 0;
-        for (UiLexerTokenVisualDto token : tokens) {
+        for (int index = 0; index < tokens.size(); index++) {
+            UiLexerTokenVisualDto token = tokens.get(index);
             int start = safeOffset(source, token.startOffset());
             int end = safeOffset(source, token.endOffset());
             if (start > cursor) {
                 addStyledRange(builder, source, cursor, start, MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN));
             }
-            addStyledRange(builder, source, start, end, tokenStyles(token.kind(), overlapsDiagnostic(start, end, diagnostics)));
+            addStyledRange(builder, source, start, end, tokenStyles(tokens, index, overlapsDiagnostic(start, end, diagnostics)));
             cursor = end;
         }
         if (cursor < source.length()) {
@@ -469,8 +470,8 @@ public final class MiniCCodeEditor extends StackPane {
         input.setParagraphGraphicFactory(this::paragraphGraphic);
     }
 
-    private Collection<String> tokenStyles(String kind, boolean diagnostic) {
-        return syntaxTextStyleMapper.styleClassesFor(kind, diagnostic);
+    private Collection<String> tokenStyles(List<UiLexerTokenVisualDto> tokens, int index, boolean diagnostic) {
+        return syntaxTextStyleMapper.styleClassesForToken(tokens, index, diagnostic);
     }
 
     private void addStyledRange(

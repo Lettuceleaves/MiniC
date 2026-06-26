@@ -28,9 +28,17 @@ export const miniCAssemblyTextHighlighterMirror = {
     {
       "name": "REGISTERS",
       "signature": "private static final Set<String>REGISTERS="
+    },
+    {
+      "name": "TYPE_WORDS",
+      "signature": "private static final Set<String>TYPE_WORDS="
     }
   ],
   methods: [
+    {
+      "name": "followsCallTarget",
+      "signature": "followsCallTarget(String token,int startOffset,String fullLine)"
+    },
     {
       "name": "highlight",
       "signature": "highlight(String line)"
@@ -42,6 +50,10 @@ export const miniCAssemblyTextHighlighterMirror = {
     {
       "name": "isNumber",
       "signature": "isNumber(String token)"
+    },
+    {
+      "name": "isPunctuation",
+      "signature": "isPunctuation(String token)"
     },
     {
       "name": "roleFor",
@@ -143,27 +155,35 @@ const REGISTERS = new Set([
 ]);
 
 const DIRECTIVES = new Set([
+  ".text",
+  ".data",
+  ".code",
+  ".const",
+  "text",
+  "data",
+  "code",
+  "const",
   "proc",
   "endp",
   "public",
   "extern",
   "extrn",
-  "data",
-  "code",
-  "const",
   "segment",
   "ends",
   "db",
   "dw",
   "dd",
   "dq",
+  "flat",
+]);
+
+const TYPE_WORDS = new Set([
   "qword",
   "dword",
   "word",
   "byte",
   "ptr",
   "offset",
-  "flat",
 ]);
 
 const IDENTIFIER = /^[A-Za-z_.$][A-Za-z0-9_.$]*$/;
@@ -185,29 +205,47 @@ export class MiniCAssemblyTextHighlighter implements MiniCTokenClassifier {
 
   roleFor(token: string, startOffset: number, fullLine: string): MiniCTextStyleRoleValue {
     const normalized = token.toLowerCase();
+    if (DIRECTIVES.has(normalized)) {
+      return MiniCTextStyleRole.CODE_DIRECTIVE;
+    }
     if (this.startsLabel(token, startOffset, fullLine) || token.startsWith("$") || token.startsWith(".")) {
-      return MiniCTextStyleRole.CODE_TYPE;
+      return MiniCTextStyleRole.CODE_LABEL;
     }
     if (MNEMONICS.has(normalized)) {
-      return MiniCTextStyleRole.CODE_KEYWORD;
+      return MiniCTextStyleRole.CODE_FUNCTION;
     }
     if (REGISTERS.has(normalized)) {
-      return MiniCTextStyleRole.CODE_IDENTIFIER;
+      return MiniCTextStyleRole.CODE_REGISTER;
     }
-    if (DIRECTIVES.has(normalized)) {
+    if (TYPE_WORDS.has(normalized)) {
       return MiniCTextStyleRole.CODE_TYPE;
     }
     if (NUMBER.test(token)) {
       return MiniCTextStyleRole.CODE_LITERAL;
     }
+    if (this.followsCallTarget(token, startOffset, fullLine)) {
+      return MiniCTextStyleRole.CODE_FUNCTION;
+    }
     if (IDENTIFIER.test(token)) {
-      return MiniCTextStyleRole.CODE_IDENTIFIER;
+      return MiniCTextStyleRole.CODE_VARIABLE;
+    }
+    if (this.isPunctuation(token)) {
+      return MiniCTextStyleRole.CODE_PUNCTUATION;
     }
     return MiniCTextStyleRole.CODE_OPERATOR;
   }
 
   private startsLabel(token: string, startOffset: number, fullLine: string): boolean {
     return fullLine.at(startOffset + token.length) === ":";
+  }
+
+  private followsCallTarget(token: string, startOffset: number, fullLine: string): boolean {
+    const prefix = fullLine.slice(0, Math.max(0, startOffset)).trimEnd().toLowerCase();
+    return IDENTIFIER.test(token) && prefix.endsWith("call");
+  }
+
+  private isPunctuation(token: string): boolean {
+    return token.length === 1 && "(),:[]{}".includes(token);
   }
 }
 

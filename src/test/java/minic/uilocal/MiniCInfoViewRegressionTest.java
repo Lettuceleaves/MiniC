@@ -97,7 +97,8 @@ class MiniCInfoViewRegressionTest {
 
         assertThat(codeBlock).isNotNull();
         assertThat(codeBlock.getChildren())
-                .anySatisfy(node -> assertThat(node.getStyleClass()).contains("mc-text-code-keyword", "token-keyword"))
+                .anySatisfy(node -> assertThat(node.getStyleClass()).contains("mc-text-code-type"))
+                .anySatisfy(node -> assertThat(node.getStyleClass()).contains("mc-text-code-control"))
                 .anySatisfy(node -> assertThat(node.getStyleClass()).contains("mc-text-code-literal", "token-literal"));
     }
 

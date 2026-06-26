@@ -702,45 +702,89 @@ button:disabled {
   user-select: none;
 }
 
-.source-flow-text .token-plain,
-.source-flow-text .token-identifier,
-.source-flow-text .token-operator {
+.mc-text-code-plain,
+.mc-text-code-identifier {
   color: var(--minic-text-body);
 }
 
-.source-flow-text .token-keyword {
+.mc-text-code-keyword {
   color: var(--minic-syntax-keyword);
 }
 
-.source-flow-text .token-string {
+.mc-text-code-control {
+  color: var(--minic-syntax-control, var(--minic-syntax-keyword));
+}
+
+.mc-text-code-function {
+  color: var(--minic-syntax-function, var(--minic-syntax-type));
+}
+
+.mc-text-code-variable {
+  color: var(--minic-syntax-variable, var(--minic-text-body));
+}
+
+.mc-text-code-register {
+  color: var(--minic-syntax-register, var(--minic-syntax-type));
+}
+
+.mc-text-code-label {
+  color: var(--minic-syntax-label, var(--minic-accent-gold));
+}
+
+.mc-text-code-directive {
+  color: var(--minic-syntax-directive, var(--minic-syntax-keyword));
+}
+
+.mc-text-code-string {
   color: var(--minic-syntax-string);
 }
 
-.source-flow-text .token-literal {
+.mc-text-code-literal {
   color: var(--minic-syntax-literal);
 }
 
+.mc-text-code-operator {
+  color: var(--minic-syntax-operator, var(--minic-text-body));
+}
+
+.mc-text-code-punctuation {
+  color: var(--minic-syntax-punctuation, var(--minic-text-muted));
+}
+
+.mc-text-code-type {
+  color: var(--minic-syntax-type);
+}
+
+.mc-text-code-comment {
+  color: var(--minic-text-muted);
+  font-style: italic;
+}
+
+.source-flow-text .token-plain,
+.source-flow-text .token-identifier,
 .source-editor-render .token-plain,
-.source-editor-render .token-identifier,
-.source-editor-render .token-operator {
+.source-editor-render .token-identifier {
   color: var(--minic-text-body);
 }
 
+.source-flow-text .token-keyword,
 .source-editor-render .token-keyword {
   color: var(--minic-syntax-keyword);
 }
 
+.source-flow-text .token-string,
 .source-editor-render .token-string {
   color: var(--minic-syntax-string);
 }
 
+.source-flow-text .token-literal,
 .source-editor-render .token-literal {
   color: var(--minic-syntax-literal);
 }
 
-.source-editor-render .mc-text-code-comment {
-  color: var(--minic-text-muted);
-  font-style: italic;
+.source-flow-text .token-operator,
+.source-editor-render .token-operator {
+  color: var(--minic-syntax-operator, var(--minic-text-body));
 }
 
 .source-editor-render .debug-execution-range {

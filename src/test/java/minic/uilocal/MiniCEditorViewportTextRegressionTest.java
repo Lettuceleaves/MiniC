@@ -15,6 +15,7 @@ import minic.uilocal.control.MiniCViewportRegistry;
 import minic.uilocal.text.MiniCAssemblyTextHighlighter;
 import minic.uilocal.text.MiniCExplanationTextHighlighter;
 import minic.uilocal.text.MiniCIrTextHighlighter;
+import minic.uilocal.text.MiniCSourceTextHighlighter;
 import minic.uilocal.text.MiniCStyledTextSegment;
 import minic.uilocal.text.MiniCSyntaxTextStyleMapper;
 import minic.uilocal.text.MiniCTextStyleRole;
@@ -25,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -125,26 +127,86 @@ class MiniCEditorViewportTextRegressionTest {
     }
 
     @Test
+    void classifiesSourceTokensWithContextAwareSemanticRoles() {
+        MiniCSourceTextHighlighter highlighter = new MiniCSourceTextHighlighter();
+
+        List<MiniCStyledTextSegment> segments = highlighter.highlight("""
+                int main() {
+                    int value = main();
+                    if (value > 0) return sizeof(int);
+                }
+                """);
+
+        assertThat(segments)
+                .filteredOn(segment -> segment.text().equals("int"))
+                .extracting(MiniCStyledTextSegment::role)
+                .containsOnly(MiniCTextStyleRole.CODE_TYPE);
+        assertThat(segments)
+                .filteredOn(segment -> segment.text().equals("main"))
+                .extracting(MiniCStyledTextSegment::role)
+                .containsOnly(MiniCTextStyleRole.CODE_FUNCTION);
+        assertThat(segments)
+                .filteredOn(segment -> segment.text().equals("value"))
+                .extracting(MiniCStyledTextSegment::role)
+                .containsOnly(MiniCTextStyleRole.CODE_VARIABLE);
+        assertThat(segments)
+                .filteredOn(segment -> segment.text().equals("if") || segment.text().equals("return"))
+                .extracting(MiniCStyledTextSegment::role)
+                .containsOnly(MiniCTextStyleRole.CODE_CONTROL);
+        assertThat(segments)
+                .filteredOn(segment -> segment.text().equals("sizeof"))
+                .extracting(MiniCStyledTextSegment::role)
+                .containsOnly(MiniCTextStyleRole.CODE_KEYWORD);
+        assertThat(segments)
+                .filteredOn(segment -> segment.text().equals("(") || segment.text().equals(")"))
+                .extracting(MiniCStyledTextSegment::role)
+                .containsOnly(MiniCTextStyleRole.CODE_PUNCTUATION);
+        assertThat(segments)
+                .filteredOn(segment -> segment.text().equals(">") || segment.text().equals("="))
+                .extracting(MiniCStyledTextSegment::role)
+                .containsOnly(MiniCTextStyleRole.CODE_OPERATOR);
+    }
+
+    @Test
+    void classifiesIrAssemblyAndExplanationWithDedicatedSemanticRoles() {
+        assertThat(new MiniCIrTextHighlighter().highlight("entry: %1 = call @main, %arg"))
+                .extracting(MiniCStyledTextSegment::role)
+                .contains(MiniCTextStyleRole.CODE_LABEL, MiniCTextStyleRole.CODE_FUNCTION,
+                        MiniCTextStyleRole.CODE_VARIABLE, MiniCTextStyleRole.CODE_PUNCTUATION,
+                        MiniCTextStyleRole.CODE_OPERATOR);
+        assertThat(new MiniCAssemblyTextHighlighter().highlight(".text main: mov rax, qword ptr [rbp-8] ; load"))
+                .extracting(MiniCStyledTextSegment::role)
+                .contains(MiniCTextStyleRole.CODE_DIRECTIVE, MiniCTextStyleRole.CODE_LABEL,
+                        MiniCTextStyleRole.CODE_FUNCTION, MiniCTextStyleRole.CODE_REGISTER,
+                        MiniCTextStyleRole.CODE_TYPE, MiniCTextStyleRole.CODE_COMMENT);
+        assertThat(new MiniCExplanationTextHighlighter().highlight("调用 main(%1)，跳转到 .L1，寄存器 rax == 0。"))
+                .extracting(MiniCStyledTextSegment::role)
+                .contains(MiniCTextStyleRole.CODE_FUNCTION, MiniCTextStyleRole.CODE_VARIABLE,
+                        MiniCTextStyleRole.CODE_LABEL, MiniCTextStyleRole.CODE_REGISTER,
+                        MiniCTextStyleRole.CODE_OPERATOR, MiniCTextStyleRole.CODE_PUNCTUATION);
+    }
+
+    @Test
     void rendersStyledIrAndAssemblyRowsInVisualPaneAndDebugPane() {
         assertThat(new MiniCIrTextHighlighter().highlight("  %1 = add %2, 3"))
                 .extracting(MiniCStyledTextSegment::role)
-                .contains(MiniCTextStyleRole.CODE_KEYWORD, MiniCTextStyleRole.CODE_IDENTIFIER, MiniCTextStyleRole.CODE_LITERAL);
+                .contains(MiniCTextStyleRole.CODE_KEYWORD, MiniCTextStyleRole.CODE_VARIABLE, MiniCTextStyleRole.CODE_LITERAL);
         assertThat(new MiniCAssemblyTextHighlighter().highlight("main: mov rax, 1 ; comment"))
                 .extracting(MiniCStyledTextSegment::role)
-                .contains(MiniCTextStyleRole.CODE_TYPE, MiniCTextStyleRole.CODE_KEYWORD,
-                        MiniCTextStyleRole.CODE_IDENTIFIER, MiniCTextStyleRole.CODE_COMMENT);
+                .contains(MiniCTextStyleRole.CODE_LABEL, MiniCTextStyleRole.CODE_FUNCTION,
+                        MiniCTextStyleRole.CODE_REGISTER, MiniCTextStyleRole.CODE_COMMENT);
         assertThat(new MiniCExplanationTextHighlighter().highlight("说明: return %1 == 3，并写入 rax。"))
                 .extracting(MiniCStyledTextSegment::role)
-                .contains(MiniCTextStyleRole.BODY, MiniCTextStyleRole.CODE_KEYWORD,
-                        MiniCTextStyleRole.CODE_IDENTIFIER, MiniCTextStyleRole.CODE_LITERAL,
-                        MiniCTextStyleRole.CODE_OPERATOR);
+                .contains(MiniCTextStyleRole.BODY, MiniCTextStyleRole.CODE_CONTROL,
+                        MiniCTextStyleRole.CODE_VARIABLE, MiniCTextStyleRole.CODE_LITERAL,
+                        MiniCTextStyleRole.CODE_OPERATOR, MiniCTextStyleRole.CODE_REGISTER);
         assertThat(new MiniCExplanationTextHighlighter().highlight("plain words 只是说明"))
                 .extracting(MiniCStyledTextSegment::role)
                 .containsOnly(MiniCTextStyleRole.BODY);
         assertThat(new MiniCExplanationTextHighlighter().highlight("读取 values[0] 后跳转到 .L1"))
                 .extracting(MiniCStyledTextSegment::role)
-                .contains(MiniCTextStyleRole.CODE_IDENTIFIER, MiniCTextStyleRole.CODE_LITERAL,
-                        MiniCTextStyleRole.CODE_OPERATOR, MiniCTextStyleRole.CODE_TYPE);
+                .contains(MiniCTextStyleRole.CODE_VARIABLE, MiniCTextStyleRole.CODE_LITERAL,
+                        MiniCTextStyleRole.CODE_PUNCTUATION, MiniCTextStyleRole.CODE_LABEL);
     }
 
     private static String backup(Path path) throws Exception {

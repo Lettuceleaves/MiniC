@@ -359,7 +359,7 @@
 }
 
 .token-operator {
-    -fx-fill: {{text.body}};
+    -fx-fill: {{syntax.operator}};
 }
 
 .debug-execution-range {
