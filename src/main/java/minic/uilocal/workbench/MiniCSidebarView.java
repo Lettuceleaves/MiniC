@@ -5,6 +5,7 @@ import javafx.scene.layout.VBox;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * VS Code 风格侧边栏，包含 workspace 和 pipeline 阶段列表。
@@ -13,6 +14,7 @@ public final class MiniCSidebarView extends VBox {
     private final MiniCWorkbenchViewModel viewModel;
     private final MiniCStageListFactory stageListFactory;
     private final VBox stageList = new VBox(5);
+    private final Consumer<String> stageSelectAction;
 
     /**
      * 创建侧边栏。
@@ -20,7 +22,12 @@ public final class MiniCSidebarView extends VBox {
      * @param viewModel UI 状态模型
      */
     public MiniCSidebarView(MiniCWorkbenchViewModel viewModel) {
+        this(viewModel, viewModel::selectVisualStage);
+    }
+
+    public MiniCSidebarView(MiniCWorkbenchViewModel viewModel, Consumer<String> stageSelectAction) {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
+        this.stageSelectAction = Objects.requireNonNull(stageSelectAction, "stageSelectAction");
         stageListFactory = new MiniCStageListFactory();
         getStyleClass().add("sidebar");
         getChildren().add(stageList);
@@ -52,7 +59,7 @@ public final class MiniCSidebarView extends VBox {
             card.getStyleClass().add("selected");
         }
         if (stage.id().equals("source") || !stage.state().equals("queued")) {
-            card.setOnMouseClicked(event -> viewModel.selectVisualStage(stage.id()));
+            card.setOnMouseClicked(event -> stageSelectAction.accept(stage.id()));
         }
         Label top = label(stage.title() + "    " + stage.state(), "stage-top");
         Label meta = label(stage.progressPercent() + "% · " + stage.detail(), "stage-meta");

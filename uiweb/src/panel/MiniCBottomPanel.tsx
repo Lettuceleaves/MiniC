@@ -182,7 +182,7 @@ export const miniCBottomPanelMirror = {
     },
     {
       "name": "sourceTokenStyle",
-      "signature": "sourceTokenStyle(UiLexerTokenVisualDto token)"
+      "signature": "sourceTokenStyle(List<UiLexerTokenVisualDto>tokens,int index)"
     },
     {
       "name": "SourceTokenStyle",
@@ -385,14 +385,15 @@ interface SourceTokenStyle {
 }
 
 export function sourceTokenStyles(tokens: readonly UiLexerTokenVisualDto[]): readonly SourceTokenStyle[] {
-  return tokens
+  const sortedTokens = tokens
     .filter((token) => token.kind !== "EOF" && token.range !== null)
     .filter((token) => token.range !== null && token.range.endOffset > token.range.startOffset)
-    .map(sourceTokenStyle)
-    .sort((left, right) => left.startOffset - right.startOffset);
+    .sort((left, right) => (left.range?.startOffset ?? 0) - (right.range?.startOffset ?? 0));
+  return sortedTokens.map((token, index) => sourceTokenStyle(sortedTokens, index));
 }
 
-export function sourceTokenStyle(token: UiLexerTokenVisualDto): SourceTokenStyle {
+export function sourceTokenStyle(tokens: readonly UiLexerTokenVisualDto[], index: number): SourceTokenStyle {
+  const token = tokens[index];
   const range = token.range;
   if (range === null) {
     return {
@@ -404,7 +405,7 @@ export function sourceTokenStyle(token: UiLexerTokenVisualDto): SourceTokenStyle
   return {
     startOffset: range.startOffset,
     endOffset: range.endOffset,
-    styleClasses: syntaxTextStyleMapper.styleClassesFor(token.kind, false),
+    styleClasses: syntaxTextStyleMapper.styleClassesForToken(tokens, index, false),
   };
 }
 

@@ -27,6 +27,10 @@ export const miniCExplanationTextHighlighterMirror = {
       "signature": "private static final Set<String>ASM_REGISTERS="
     },
     {
+      "name": "C_CONTROL_KEYWORDS",
+      "signature": "private static final Set<String>C_CONTROL_KEYWORDS="
+    },
+    {
       "name": "C_KEYWORDS",
       "signature": "private static final Set<String>C_KEYWORDS="
     },
@@ -49,6 +53,10 @@ export const miniCExplanationTextHighlighterMirror = {
     {
       "name": "OPERATOR",
       "signature": "private static final Pattern OPERATOR="
+    },
+    {
+      "name": "PUNCTUATION",
+      "signature": "private static final Pattern PUNCTUATION="
     },
     {
       "name": "PREFIXED_IDENTIFIER",
@@ -79,6 +87,10 @@ export const miniCExplanationTextHighlighterMirror = {
     {
       "name": "isLabel",
       "signature": "isLabel(String token,int startOffset,String fullText)"
+    },
+    {
+      "name": "isFunctionName",
+      "signature": "isFunctionName(String token,int startOffset,String fullText)"
     },
     {
       "name": "isLikelyCodeIdentifier",
@@ -112,9 +124,11 @@ const TOKEN =
 const NUMBER = /^[-+]?0x[0-9A-Fa-f]+$|^[-+]?[0-9]+(?:\.[0-9]+)?$/;
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_.$]*$/;
 const PREFIXED_IDENTIFIER = /^[%@$&.][A-Za-z0-9_][A-Za-z0-9_.$]*$/;
-const OPERATOR = /^(==|!=|<=|>=|->|&&|\|\||[-+*/%=&|!<>^~.,:;()[\]{}@])$/;
+const OPERATOR = /^(==|!=|<=|>=|->|&&|\|\||[-+*/%=&|!<>^~@])$/;
+const PUNCTUATION = /^[.,:;()[\]{}]$/;
 
-const C_KEYWORDS = new Set(["extern", "return", "if", "else", "while", "for", "break", "continue", "sizeof", "switch", "case", "default", "do", "goto"]);
+const C_CONTROL_KEYWORDS = new Set(["return", "if", "else", "while", "for", "break", "continue", "switch", "case", "default", "do", "goto"]);
+const C_KEYWORDS = new Set(["extern", "sizeof"]);
 const TYPE_NAMES = new Set(["void", "bool", "char", "int", "long", "float", "double", "struct", "ir", "asm", "ast", "token", "qword", "dword", "word", "byte", "ptr", "offset"]);
 const LITERALS = new Set(["true", "false", "null", "nullptr"]);
 const IR_KEYWORDS = new Set([
@@ -191,17 +205,38 @@ export class MiniCExplanationTextHighlighter {
     if (TYPE_NAMES.has(normalized)) {
       return MiniCTextStyleRole.CODE_TYPE;
     }
-    if (C_KEYWORDS.has(normalized) || IR_KEYWORDS.has(normalized) || ASM_MNEMONICS.has(normalized)) {
+    if (C_CONTROL_KEYWORDS.has(normalized)) {
+      return MiniCTextStyleRole.CODE_CONTROL;
+    }
+    if (C_KEYWORDS.has(normalized) || IR_KEYWORDS.has(normalized)) {
       return MiniCTextStyleRole.CODE_KEYWORD;
     }
+    if (ASM_MNEMONICS.has(normalized)) {
+      return MiniCTextStyleRole.CODE_FUNCTION;
+    }
     if (ASM_REGISTERS.has(normalized) || PREFIXED_IDENTIFIER.test(token)) {
-      return token.startsWith(".") || token.startsWith("$") ? MiniCTextStyleRole.CODE_TYPE : MiniCTextStyleRole.CODE_IDENTIFIER;
+      if (ASM_REGISTERS.has(normalized)) {
+        return MiniCTextStyleRole.CODE_REGISTER;
+      }
+      if (token.startsWith(".") || token.startsWith("$")) {
+        return MiniCTextStyleRole.CODE_LABEL;
+      }
+      if (token.startsWith("@")) {
+        return MiniCTextStyleRole.CODE_FUNCTION;
+      }
+      return MiniCTextStyleRole.CODE_VARIABLE;
     }
     if (IDENTIFIER.test(token)) {
       if (this.isLabel(token, startOffset, fullText)) {
-        return MiniCTextStyleRole.CODE_TYPE;
+        return MiniCTextStyleRole.CODE_LABEL;
       }
-      return this.isLikelyCodeIdentifier(token, startOffset, fullText) ? MiniCTextStyleRole.CODE_IDENTIFIER : MiniCTextStyleRole.BODY;
+      if (this.isFunctionName(token, startOffset, fullText)) {
+        return MiniCTextStyleRole.CODE_FUNCTION;
+      }
+      return this.isLikelyCodeIdentifier(token, startOffset, fullText) ? MiniCTextStyleRole.CODE_VARIABLE : MiniCTextStyleRole.BODY;
+    }
+    if (PUNCTUATION.test(token)) {
+      return MiniCTextStyleRole.CODE_PUNCTUATION;
     }
     if (OPERATOR.test(token)) {
       return MiniCTextStyleRole.CODE_OPERATOR;
@@ -217,6 +252,11 @@ export class MiniCExplanationTextHighlighter {
   private isLabel(token: string, startOffset: number, fullText: string): boolean {
     const next = this.nextNonWhitespace(fullText, startOffset + token.length);
     return next >= 0 && fullText.at(next) === ":";
+  }
+
+  private isFunctionName(token: string, startOffset: number, fullText: string): boolean {
+    const next = this.nextNonWhitespace(fullText, startOffset + token.length);
+    return next >= 0 && fullText.at(next) === "(";
   }
 
   private isLikelyCodeIdentifier(token: string, startOffset: number, fullText: string): boolean {

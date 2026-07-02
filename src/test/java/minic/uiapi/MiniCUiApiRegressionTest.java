@@ -3,6 +3,8 @@ package minic.uiapi;
 import minic.uiapi.web.MiniCUiApiJson;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class MiniCUiApiRegressionTest {
@@ -53,6 +55,40 @@ class MiniCUiApiRegressionTest {
                 });
         assertThat(api.inspectorModel().currentState()).contains("阶段: 执行");
         assertThat(api.inspectorModel().accumulatedOutput()).contains("IR:", "汇编:");
+    }
+
+    @Test
+    void completedIrStageVisualShowsFormattedIrUsedByCodegenInput() {
+        MiniCObservationApi api = new MiniCObservationApi();
+        api.loadSource("ir-after.mc", """
+                int main() {
+                    int value = 1;
+                    return value + 1;
+                }
+                """);
+        api.startSession();
+        advanceTo(api, "ir");
+        while (!api.currentStageData().completed()) {
+            api.next();
+        }
+
+        List<String> irAfter = api.currentStageVisualData().irLines().stream()
+                .map(UiIrLineVisualDto::text)
+                .toList();
+
+        assertThat(irAfter).isNotEmpty();
+        assertThat(irAfter.getFirst()).isEqualTo("function main");
+        assertThat(irAfter).anyMatch(line -> line.contains("return"));
+
+        api.nextStage();
+        List<String> codegenBefore = api.codegenVisualData().irLines().stream()
+                .map(UiIrLineVisualDto::text)
+                .toList();
+        assertThat(irAfter).isEqualTo(codegenBefore);
+        assertThat(api.irVisualData().irLines().stream()
+                .map(UiIrLineVisualDto::text)
+                .toList())
+                .isEqualTo(codegenBefore);
     }
 
     @Test

@@ -1,5 +1,6 @@
 package minic.uiapi;
 
+import minic.compiler.ir.model.IrModule;
 import minic.session.CompileObservationSession;
 import minic.source.SourceFile;
 
@@ -222,7 +223,8 @@ public final class MiniCObservationApi {
                     currentSession.currentStageData(),
                     irStepper.program(),
                     semanticResult.globalScope(),
-                    irStepper.irState().currentAction().orElse(null)
+                    irStepper.irState().currentAction().orElse(null),
+                    currentSession.irModule().orElseGet(() -> irStepper.irState().currentModule())
             );
         }
         if (currentSession.currentStepper() instanceof minic.runtime.step.CodegenStageStepper codegenStepper) {
@@ -312,6 +314,33 @@ public final class MiniCObservationApi {
                     semanticStepper.program(),
                     semanticStepper.semanticState().work().globalScope(),
                     semanticStepper.semanticState().currentAction().orElse(null)
+            );
+        }
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+    }
+
+    /**
+     * 查询当前可用的 IR 可视化数据。IR 尚未准备时返回当前阶段 fallback。
+     *
+     * @return IR 可视化数据
+     */
+    public synchronized UiStageVisualDto irVisualData() {
+        CompileObservationSession currentSession = requireSession();
+        minic.compiler.parser.ParseResult cachedParseResult = currentSession.parseResult().orElse(null);
+        minic.compiler.semantic.SemanticResult cachedSemanticResult = currentSession.semanticResult().orElse(null);
+        if (cachedParseResult != null && cachedSemanticResult != null) {
+            IrModule module = currentSession.irModule().orElse(null);
+            minic.compiler.ir.lowering.IrLoweringAction currentAction = null;
+            if (currentSession.currentStepper() instanceof minic.runtime.step.IrStageStepper irStepper) {
+                module = currentSession.irModule().orElseGet(() -> irStepper.irState().currentModule());
+                currentAction = irStepper.irState().currentAction().orElse(null);
+            }
+            return UiStageVisualDto.fromIrAstAndScope(
+                    currentSession.currentStageData(),
+                    cachedParseResult.program(),
+                    cachedSemanticResult.globalScope(),
+                    currentAction,
+                    module
             );
         }
         return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));

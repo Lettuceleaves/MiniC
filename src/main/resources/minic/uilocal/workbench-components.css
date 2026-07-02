@@ -535,6 +535,49 @@
     -fx-border-width: 0 0 1px 0;
 }
 
+.compiler-controls-host {
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{background.border}};
+    -fx-border-width: 0 0 1px 0;
+}
+
+.left-pipeline-controls {
+    -fx-border-width: 1px 0 0 0;
+}
+
+.floating-compiler-controls {
+    -fx-background-color: {{background.secondary}};
+    -fx-border-color: {{accent.blue}};
+    -fx-border-width: 1px;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.35), 18, 0.2, 0, 8);
+}
+
+.compiler-controls-dock-bar {
+    -fx-padding: 8px 10px 0 14px;
+    -fx-alignment: center-left;
+}
+
+.compiler-controls-title {
+    -fx-text-fill: {{text.panel_title}};
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+}
+
+.compiler-controls-dock-button {
+    -fx-min-width: 28px;
+    -fx-pref-width: 28px;
+    -fx-max-width: 28px;
+    -fx-min-height: 22px;
+    -fx-pref-height: 22px;
+    -fx-max-height: 22px;
+    -fx-padding: 0 6px;
+}
+
+.compiler-controls-dock-button.active {
+    -fx-background-color: {{background.running}};
+    -fx-text-fill: {{text.active}};
+}
+
 .inspector-controls {
     -fx-spacing: 6px;
 }

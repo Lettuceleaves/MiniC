@@ -119,6 +119,8 @@ class MiniCUiApiWebRegressionTest {
                 .isEqualTo(direct.currentStageVisualData());
         assertThat(get("/api/observation/" + sessionId + "/visual/lexer", UiStageVisualDto.class))
                 .isEqualTo(direct.lexerVisualData());
+        assertThat(get("/api/observation/" + sessionId + "/visual/ir", UiStageVisualDto.class))
+                .isEqualTo(direct.irVisualData());
         assertThat(get("/api/observation/" + sessionId + "/global", UiGlobalDataDto.class))
                 .isEqualTo(direct.globalData());
         assertThat(post("/api/observation/" + sessionId + "/previous", Map.of(), UiControlResultDto.class))
@@ -186,6 +188,7 @@ class MiniCUiApiWebRegressionTest {
                 "/visual/lexer",
                 "/visual/ast",
                 "/visual/semantic",
+                "/visual/ir",
                 "/visual/codegen"
         );
         List<CompletableFuture<HttpResponse<String>>> futures = IntStream.range(0, 10)

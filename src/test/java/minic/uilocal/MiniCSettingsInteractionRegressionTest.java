@@ -4,6 +4,7 @@ import javafx.application.Platform;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
 import javafx.scene.input.KeyCode;
@@ -48,10 +49,12 @@ class MiniCSettingsInteractionRegressionTest {
             assertThat(MiniCSettings.uiScale()).isEqualTo(1.0);
             assertThat(MiniCSettings.graphZoomStep()).isEqualTo(0.025);
             assertThat(MiniCSettings.graphZoomAnchor()).isEqualTo("mouse");
+            assertThat(MiniCSettings.autoSplitPipelineTabs()).isFalse();
             assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
                     .contains("\"uiScale\": 1.0")
                     .contains("\"graphZoomStep\": 0.025")
-                    .contains("\"graphZoomAnchor\": \"mouse\"");
+                    .contains("\"graphZoomAnchor\": \"mouse\"")
+                    .contains("\"autoSplitPipelineTabs\": \"false\"");
 
             MiniCSettings.setUiScale(MiniCSettings.maxUiScale() * 4);
             assertThat(MiniCSettings.uiScale()).isEqualTo(MiniCSettings.maxUiScale());
@@ -69,6 +72,10 @@ class MiniCSettingsInteractionRegressionTest {
             assertThat(MiniCSettings.graphZoomStep()).isEqualTo(MiniCSettings.maxGraphZoomStep());
             assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
                     .contains("\"graphZoomStep\": " + MiniCSettings.maxGraphZoomStep());
+            MiniCSettings.setAutoSplitPipelineTabs(true);
+            assertThat(MiniCSettings.autoSplitPipelineTabs()).isTrue();
+            assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
+                    .contains("\"autoSplitPipelineTabs\": \"true\"");
 
             Files.deleteIfExists(KEY_BINDINGS_FILE);
             MiniCKeyBindingConfig config = MiniCKeyBindingConfig.loadDefault();
@@ -129,6 +136,57 @@ class MiniCSettingsInteractionRegressionTest {
     }
 
     @Test
+    void persistsPipelineLayoutState() throws Exception {
+        String originalSettings = backup(SETTINGS_FILE);
+        try {
+            Files.writeString(SETTINGS_FILE, """
+                    {
+                      "theme": "dark",
+                      "pipelineLeftSidebarCollapsed": "true",
+                      "pipelineRightSidebarCollapsed": "false",
+                      "compilerControlsDock": "FLOATING",
+                      "compilerControlsFloatingX": 42,
+                      "compilerControlsFloatingY": 56,
+                      "compilerControlsFloatingWidth": 360,
+                      "compilerControlsFloatingHeight": 144
+                    }
+                    """, StandardCharsets.UTF_8);
+            MiniCSettings.load();
+
+            assertThat(MiniCSettings.pipelineLeftSidebarCollapsed()).isTrue();
+            assertThat(MiniCSettings.pipelineRightSidebarCollapsed()).isFalse();
+            assertThat(MiniCSettings.compilerControlsDock()).isEqualTo("FLOATING");
+            assertThat(MiniCSettings.compilerControlsFloatingRect())
+                    .isEqualTo(new MiniCSettings.FloatingRect(42, 56, 360, 144));
+
+            MiniCSettings.setPipelineLeftSidebarCollapsed(false);
+            MiniCSettings.setPipelineRightSidebarCollapsed(true);
+            MiniCSettings.setCompilerControlsDock("LEFT_PIPELINE_BOTTOM");
+            MiniCSettings.setCompilerControlsFloatingRect(new MiniCSettings.FloatingRect(8, 12, 280, 96));
+
+            assertThat(MiniCSettings.pipelineLeftSidebarCollapsed()).isFalse();
+            assertThat(MiniCSettings.pipelineRightSidebarCollapsed()).isTrue();
+            assertThat(MiniCSettings.compilerControlsDock()).isEqualTo("LEFT_PIPELINE_BOTTOM");
+            assertThat(MiniCSettings.compilerControlsFloatingRect())
+                    .isEqualTo(new MiniCSettings.FloatingRect(8, 12, 280, 96));
+            assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
+                    .contains("\"pipelineLeftSidebarCollapsed\": \"false\"")
+                    .contains("\"pipelineRightSidebarCollapsed\": \"true\"")
+                    .contains("\"compilerControlsDock\": \"LEFT_PIPELINE_BOTTOM\"")
+                    .contains("\"compilerControlsFloatingX\": 8.0")
+                    .contains("\"compilerControlsFloatingY\": 12.0")
+                    .contains("\"compilerControlsFloatingWidth\": 280.0")
+                    .contains("\"compilerControlsFloatingHeight\": 96.0");
+
+            MiniCSettings.setCompilerControlsDock("unknown");
+            assertThat(MiniCSettings.compilerControlsDock()).isEqualTo("RIGHT_METADATA_TOP");
+        } finally {
+            restore(SETTINGS_FILE, originalSettings);
+            MiniCSettings.load();
+        }
+    }
+
+    @Test
     void settingsPaneCapturesOverridesAndRejectsConflicts() throws Exception {
         ensureFxStarted();
         String originalSettings = backup(SETTINGS_FILE);
@@ -155,10 +213,16 @@ class MiniCSettingsInteractionRegressionTest {
 
             Button zoomOut = lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.VIEWPORT_ZOOM_OUT);
             Slider uiScale = lookupSlider(paneRef.get(), "setting:uiScale");
+            CheckBox autoSplit = lookupCheckBox(paneRef.get(), "setting:autoSplitPipelineTabs");
             assertThat(uiScale.getValue()).isEqualTo(1.0);
             runFx(() -> uiScale.setValue(1.25));
             assertThat(MiniCSettings.uiScale()).isEqualTo(1.25);
             assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8)).contains("\"uiScale\": 1.25");
+            assertThat(autoSplit.isSelected()).isFalse();
+            runFx(() -> autoSplit.setSelected(true));
+            assertThat(MiniCSettings.autoSplitPipelineTabs()).isTrue();
+            assertThat(Files.readString(SETTINGS_FILE, StandardCharsets.UTF_8))
+                    .contains("\"autoSplitPipelineTabs\": \"true\"");
             assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.DEBUG_STEP_OVER)).isNotNull();
             assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.COMPILER_NEXT)).isNotNull();
             assertThat(lookupButton(paneRef.get(), "keybinding:" + MiniCWorkbenchControlHub.SETTINGS_FRAME_INTERVAL_INCREASE))
@@ -324,6 +388,44 @@ class MiniCSettingsInteractionRegressionTest {
     }
 
     @Test
+    void debugMetadataPanelDoesNotRenderEventOrTimelineLogs() throws Exception {
+        ensureFxStarted();
+        AtomicReference<Stage> stageRef = new AtomicReference<>();
+        try {
+            runFx(() -> {
+                MiniCWorkbenchViewModel model = new MiniCWorkbenchViewModel();
+                model.loadSource("debug-metadata.mc", """
+                        int main() {
+                            int x = 1;
+                            return x;
+                        }
+                        """);
+                model.startDebug();
+                MiniCDebugPane pane = new MiniCDebugPane(model);
+                Stage stage = new Stage();
+                stage.setScene(new Scene(pane, 900, 640));
+                stage.show();
+                stageRef.set(stage);
+
+                List<String> sectionTitles = pane.lookupAll(".debug-section-title").stream()
+                        .filter(Label.class::isInstance)
+                        .map(Label.class::cast)
+                        .map(Label::getText)
+                        .toList();
+
+                assertThat(model.debugMetadataViewProperty().get().events()).isNotEmpty();
+                assertThat(model.debugMetadataViewProperty().get().timeline()).isNotEmpty();
+                assertThat(sectionTitles).contains("调用栈", "变量", "断点", "stdout", "stderr");
+                assertThat(sectionTitles).doesNotContain("事件日志", "Snapshot 时间线");
+            });
+        } finally {
+            if (stageRef.get() != null) {
+                runFx(() -> stageRef.get().close());
+            }
+        }
+    }
+
+    @Test
     void hoverInspectorSourceSnippetKeepsRangeMaskWhileUsingSyntaxTextRoles() throws Exception {
         ensureFxStarted();
         AtomicReference<Stage> stageRef = new AtomicReference<>();
@@ -358,11 +460,11 @@ class MiniCSettingsInteractionRegressionTest {
                         .toList();
                 assertThat(sourceChars).anySatisfy(label -> {
                     assertThat(label.getText()).isEqualTo("i");
-                    assertThat(label.getStyleClass()).contains("mc-text-code-keyword");
+                    assertThat(label.getStyleClass()).contains("mc-text-code-type");
                 });
                 assertThat(sourceChars).anySatisfy(label -> {
                     assertThat(label.getText()).isEqualTo("m");
-                    assertThat(label.getStyleClass()).contains("mc-text-code-identifier");
+                    assertThat(label.getStyleClass()).contains("mc-text-code-function");
                 });
                 assertThat(sourceChars).anySatisfy(label -> {
                     assertThat(label.getText()).isEqualTo("7");
@@ -370,11 +472,11 @@ class MiniCSettingsInteractionRegressionTest {
                 });
                 assertThat(sourceChars).anySatisfy(label -> {
                     assertThat(label.getText()).isEqualTo("{");
-                    assertThat(label.getStyleClass()).contains("mc-text-code-operator");
+                    assertThat(label.getStyleClass()).contains("mc-text-code-punctuation");
                 });
                 assertThat(sourceChars).anySatisfy(label -> {
                     assertThat(label.getText()).isEqualTo("r");
-                    assertThat(label.getStyleClass()).contains("masked", "mc-text-code-keyword");
+                    assertThat(label.getStyleClass()).contains("masked", "mc-text-code-control");
                 });
             });
         } finally {
@@ -398,6 +500,15 @@ class MiniCSettingsInteractionRegressionTest {
                 .filter(Slider.class::isInstance)
                 .map(Slider.class::cast)
                 .filter(slider -> accessibleText.equals(slider.getAccessibleText()))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static CheckBox lookupCheckBox(MiniCSettingsPane pane, String accessibleText) {
+        return pane.lookupAll(".check-box").stream()
+                .filter(CheckBox.class::isInstance)
+                .map(CheckBox.class::cast)
+                .filter(checkBox -> accessibleText.equals(checkBox.getAccessibleText()))
                 .findFirst()
                 .orElseThrow();
     }

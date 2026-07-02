@@ -31,9 +31,16 @@
 | `CODE_PLAIN` | 代码普通文本 | 等宽字体 |
 | `CODE_KEYWORD` | 代码关键字 | 等宽字体 |
 | `CODE_IDENTIFIER` | 代码标识符 | 等宽字体 |
+| `CODE_CONTROL` | 控制流关键字 | 等宽字体 |
+| `CODE_FUNCTION` | 函数名、调用目标或汇编 mnemonic | 等宽字体 |
+| `CODE_VARIABLE` | 变量、临时值或普通代码标识符 | 等宽字体 |
+| `CODE_REGISTER` | 汇编寄存器 | 等宽字体 |
+| `CODE_LABEL` | IR/ASM 标签或跳转目标 | 等宽字体 |
+| `CODE_DIRECTIVE` | IR/ASM 指令性声明、段名或伪指令 | 等宽字体 |
 | `CODE_STRING` | 字符串/字符字面量 | 等宽字体 |
 | `CODE_LITERAL` | 数字/布尔/null 字面量 | 等宽字体 |
-| `CODE_OPERATOR` | 操作符和其他 token | 等宽字体 |
+| `CODE_OPERATOR` | 操作符 | 等宽字体 |
+| `CODE_PUNCTUATION` | 括号、逗号、分号等标点 | 等宽字体 |
 | `CODE_TYPE` | 类型或类型标签 | 等宽字体 |
 | `CODE_COMMENT` | 代码、IR 或汇编注释 | 等宽字体 |
 
@@ -132,14 +139,19 @@ Collection<String> styles = syntaxTextStyleMapper.styleClassesFor(
 );
 ```
 
-当前默认映射：
+`roleFor(String tokenKind)` 保留旧的粗粒度兼容映射；源码编辑器和源码片段使用 `roleForToken(...)`，会根据相邻 token 做轻量上下文判断。
 
 | Token kind | Role |
 |------------|------|
-| `BOOL`, `CHAR`, `INT`, `LONG`, `FLOAT`, `DOUBLE`, `EXTERN`, `STRUCT`, `RETURN`, `IF`, `ELSE`, `WHILE`, `FOR`, `BREAK`, `CONTINUE` | `CODE_KEYWORD` |
+| `BOOL`, `CHAR`, `INT`, `LONG`, `FLOAT`, `DOUBLE`, `STRUCT` | `CODE_TYPE` |
+| `RETURN`, `IF`, `ELSE`, `WHILE`, `DO`, `FOR`, `BREAK`, `CONTINUE`, `SWITCH`, `CASE`, `DEFAULT` | `CODE_CONTROL` |
+| `EXTERN`, `SIZEOF` | `CODE_KEYWORD` |
 | `STRING_LITERAL`, `CHAR_LITERAL` | `CODE_STRING` |
 | `INTEGER_LITERAL`, `LONG_LITERAL`, `FLOAT_LITERAL`, `DOUBLE_LITERAL`, `BOOL_LITERAL`, `NULL_LITERAL` | `CODE_LITERAL` |
-| `IDENTIFIER` | `CODE_IDENTIFIER` |
+| 函数名/调用目标形式的 `IDENTIFIER` | `CODE_FUNCTION` |
+| `struct` 后的 `IDENTIFIER` | `CODE_TYPE` |
+| 其他 `IDENTIFIER` | `CODE_VARIABLE` |
+| 括号、花括号、方括号、逗号、分号、冒号等 | `CODE_PUNCTUATION` |
 | 其他 token | `CODE_OPERATOR` |
 
 ### 给说明文本做高亮
@@ -160,11 +172,12 @@ TextFlow flow = MiniCTextFlowFactory.textFlow(
 说明高亮器的边界：
 
 1. 普通自然语言保持 `BODY`，避免整段说明被染成代码。
-2. C 关键字、IR 操作词和汇编 mnemonic 使用 `CODE_KEYWORD`。
-3. `%1`、`rax`、`values[0]` 等代码式标识符使用 `CODE_IDENTIFIER`。
-4. 数字、布尔、null 和字符串/字符字面量使用 `CODE_LITERAL` / `CODE_STRING`。
-5. `==`、`->`、括号、逗号、分号等符号使用 `CODE_OPERATOR`。
-6. 类型名、IR/ASM 标签、`.data` / `$label` 等标签式文本使用 `CODE_TYPE`。
+2. C 控制流关键字使用 `CODE_CONTROL`，其他关键字和 IR 操作词使用 `CODE_KEYWORD`。
+3. 函数名、调用目标和汇编 mnemonic 使用 `CODE_FUNCTION`。
+4. `%1`、`values[0]` 等代码式标识符使用 `CODE_VARIABLE`，`rax` 等寄存器使用 `CODE_REGISTER`。
+5. 数字、布尔、null 和字符串/字符字面量使用 `CODE_LITERAL` / `CODE_STRING`。
+6. `==`、`->` 等符号使用 `CODE_OPERATOR`，括号、逗号、分号等使用 `CODE_PUNCTUATION`。
+7. 类型名使用 `CODE_TYPE`，IR/ASM 标签、`.L1` / `$label` 等标签式文本使用 `CODE_LABEL`。
 
 ## 主题配置
 
@@ -317,8 +330,8 @@ DEBUG_REGISTER("debug.register", "text.body", "mono", "bold", "normal")
 当前也已接入编译流程视图和 Debug 视图中的 IR/Assembly 行内高亮：
 
 - IR 行高亮 `function`、`block`、`call`、`return`、`load`、`store` 等操作词。
-- IR 临时值、局部名、函数名使用 identifier/type 相关 role。
-- Assembly 行高亮 mnemonic、寄存器、directive/label、数字字面量和 `;` 注释。
+- IR 临时值、局部名、函数名、标签、标点使用 variable/function/label/punctuation 相关 role。
+- Assembly 行高亮 mnemonic、寄存器、directive、label、类型宽度、数字字面量和 `;` 注释。
 
 说明文本也已接入以下入口：
 

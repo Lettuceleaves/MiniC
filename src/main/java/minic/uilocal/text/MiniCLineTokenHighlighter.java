@@ -7,7 +7,10 @@ import java.util.regex.Pattern;
 
 final class MiniCLineTokenHighlighter {
     private static final Pattern TOKEN = Pattern.compile(
-            "[-+]?0x[0-9A-Fa-f]+|[-+]?[0-9]+(?:\\.[0-9]+)?|[%@$&.]?[A-Za-z0-9_][A-Za-z0-9_.$]*|\\S"
+            "[-+]?0x[0-9A-Fa-f]+|[-+]?[0-9]+(?:\\.[0-9]+)?"
+                    + "|[%@$&.]?[A-Za-z0-9_][A-Za-z0-9_.$]*\\*?"
+                    + "|==|!=|<=|>=|->|&&|\\|\\||<<=?|>>=?"
+                    + "|[-+*/%=&|!<>^~]+|\\S"
     );
 
     private MiniCLineTokenHighlighter() {}

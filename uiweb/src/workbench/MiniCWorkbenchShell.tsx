@@ -1,17 +1,19 @@
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type MutableRefObject } from "react";
 import { createMiniCWorkbenchViewModel } from "../api/createMiniCWorkbenchViewModel";
 import { MiniCControlTargetType } from "../control/MiniCControlTargetType";
 import { MiniCWorkbenchControlHub } from "../control/MiniCWorkbenchControlHub";
 import MiniCDebugPane from "../debug/MiniCDebugPane";
 import MiniCInfoView from "../info/MiniCInfoView";
 import MiniCBottomPanel from "../panel/MiniCBottomPanel";
+import MiniCCompilerControlsView from "../panel/MiniCCompilerControlsView";
 import { MiniCHoverInspector } from "../panel/MiniCHoverInspector";
 import MiniCInspectorView from "../panel/MiniCInspectorView";
 import { MiniCSettings, ThemeManager } from "../settings";
+import type { CompilerControlsDock, MiniCFloatingRect } from "../settings/MiniCSettings";
 import MiniCSettingsPane from "../settings/MiniCSettingsPane";
 import MiniCSourceLoaderView from "../source/MiniCSourceLoaderView";
 import type { JavaMirrorFile } from "../translation/javaMirror";
-import MiniCVisualPane from "../visual/MiniCVisualPane";
+import MiniCVisualPane, { stageName } from "../visual/MiniCVisualPane";
 import { MiniCSamplePrograms } from "../editor/MiniCSamplePrograms";
 import { MiniCKeyBindingConfig, type MiniCInputEvent } from "./MiniCKeyBindingConfig";
 import { MiniCPlaybackController } from "./MiniCPlaybackController";
@@ -34,11 +36,14 @@ export const miniCWorkbenchShellMirror = {
     "java.util.LinkedHashSet",
     "java.util.List",
     "java.util.Objects",
+    "javafx.geometry.Orientation",
     "javafx.geometry.Point2D",
+    "javafx.scene.Node",
     "javafx.scene.Parent",
     "javafx.scene.control.Button",
     "javafx.scene.control.Label",
     "javafx.scene.control.ScrollPane",
+    "javafx.scene.control.SplitPane",
     "javafx.scene.control.TextField",
     "javafx.scene.control.Tooltip",
     "javafx.scene.input.KeyCode",
@@ -69,6 +74,26 @@ export const miniCWorkbenchShellMirror = {
       "signature": "private int activeDocumentIndex"
     },
     {
+      "name": "activeLeftWorkspaceTabId",
+      "signature": "private String activeLeftWorkspaceTabId="
+    },
+    {
+      "name": "activeRightWorkspaceTabId",
+      "signature": "private String activeRightWorkspaceTabId"
+    },
+    {
+      "name": "pipelineLeftSidebarCollapsed",
+      "signature": "private boolean pipelineLeftSidebarCollapsed="
+    },
+    {
+      "name": "pipelineRightSidebarCollapsed",
+      "signature": "private boolean pipelineRightSidebarCollapsed="
+    },
+    {
+      "name": "compilerControlsDock",
+      "signature": "private String compilerControlsDock="
+    },
+    {
       "name": "activeSection",
       "signature": "private ActivitySection activeSection="
     },
@@ -87,6 +112,14 @@ export const miniCWorkbenchShellMirror = {
     {
       "name": "documents",
       "signature": "private final ArrayList<DocumentTab>documents="
+    },
+    {
+      "name": "stageTabs",
+      "signature": "private final ArrayList<WorkspaceTab>stageTabs="
+    },
+    {
+      "name": "rightWorkspaceTabIds",
+      "signature": "private final LinkedHashSet<String>rightWorkspaceTabIds="
     },
     {
       "name": "draggedTabIndex",
@@ -115,6 +148,18 @@ export const miniCWorkbenchShellMirror = {
     {
       "name": "mainContent",
       "signature": "private StackPane mainContent"
+    },
+    {
+      "name": "rightMainContent",
+      "signature": "private StackPane rightMainContent"
+    },
+    {
+      "name": "workspaceHost",
+      "signature": "private StackPane workspaceHost"
+    },
+    {
+      "name": "workspaceSplit",
+      "signature": "private SplitPane workspaceSplit"
     },
     {
       "name": "nextUntitledIndex",
@@ -149,6 +194,10 @@ export const miniCWorkbenchShellMirror = {
       "signature": "private HBox tabs"
     },
     {
+      "name": "rightTabs",
+      "signature": "private HBox rightTabs"
+    },
+    {
       "name": "TEXT_ZOOM_STEP",
       "signature": "private static final double TEXT_ZOOM_STEP="
     },
@@ -175,6 +224,14 @@ export const miniCWorkbenchShellMirror = {
       "signature": "activeViewportAdapters()"
     },
     {
+      "name": "activeLeftWorkspaceTab",
+      "signature": "activeLeftWorkspaceTab()"
+    },
+    {
+      "name": "activeRightWorkspaceTab",
+      "signature": "activeRightWorkspaceTab()"
+    },
+    {
       "name": "activityBar",
       "signature": "activityBar()"
     },
@@ -191,6 +248,10 @@ export const miniCWorkbenchShellMirror = {
       "signature": "addDocument(String name,String source,Path path,BigDecimal order,MiniCWorkbenchViewModel model,boolean persist)"
     },
     {
+      "name": "allWorkspaceTabs",
+      "signature": "allWorkspaceTabs()"
+    },
+    {
       "name": "applyRememberedDirectory",
       "signature": "applyRememberedDirectory(FileChooser chooser)"
     },
@@ -201,6 +262,14 @@ export const miniCWorkbenchShellMirror = {
     {
       "name": "closeDocument",
       "signature": "closeDocument(int index)"
+    },
+    {
+      "name": "closeWorkspaceTab",
+      "signature": "closeWorkspaceTab(String id)"
+    },
+    {
+      "name": "closePipelineTabs",
+      "signature": "closePipelineTabs(DocumentTab document)"
     },
     {
       "name": "commitRenameDocument",
@@ -219,12 +288,40 @@ export const miniCWorkbenchShellMirror = {
       "signature": "documentIndex(Path path)"
     },
     {
+      "name": "documentIndex",
+      "signature": "documentIndex(MiniCWorkbenchViewModel model)"
+    },
+    {
+      "name": "documentFor",
+      "signature": "documentFor(MiniCWorkbenchViewModel model)"
+    },
+    {
       "name": "DocumentTab",
       "signature": "DocumentTab(String name,Path path,BigDecimal order,MiniCWorkbenchViewModel viewModel)"
     },
     {
       "name": "editorArea",
       "signature": "editorArea()"
+    },
+    {
+      "name": "compilerControlsHost",
+      "signature": "compilerControlsHost(String styleClass)"
+    },
+    {
+      "name": "dockButton",
+      "signature": "dockButton(String text,String dock)"
+    },
+    {
+      "name": "ensureStageTab",
+      "signature": "ensureStageTab(DocumentTab document,MiniCVisualPane.VisualSide side)"
+    },
+    {
+      "name": "ensurePipelineTabs",
+      "signature": "ensurePipelineTabs(DocumentTab document)"
+    },
+    {
+      "name": "findWorkspaceTab",
+      "signature": "findWorkspaceTab(String id)"
     },
     {
       "name": "handleCommandShortcut",
@@ -259,6 +356,10 @@ export const miniCWorkbenchShellMirror = {
       "signature": "handleViewportShortcut(ScrollEvent event)"
     },
     {
+      "name": "inspectorSidebar",
+      "signature": "inspectorSidebar()"
+    },
+    {
       "name": "isModifier",
       "signature": "isModifier(KeyCode code)"
     },
@@ -283,6 +384,10 @@ export const miniCWorkbenchShellMirror = {
       "signature": "openDocument()"
     },
     {
+      "name": "openStageTabs",
+      "signature": "openStageTabs(String stage)"
+    },
+    {
       "name": "orderForIndex",
       "signature": "orderForIndex(int index)"
     },
@@ -291,8 +396,20 @@ export const miniCWorkbenchShellMirror = {
       "signature": "persistOpenDocuments()"
     },
     {
+      "name": "pauseIfPlaying",
+      "signature": "pauseIfPlaying(MiniCWorkbenchViewModel model)"
+    },
+    {
+      "name": "pipelineCompleted",
+      "signature": "pipelineCompleted(MiniCWorkbenchViewModel model)"
+    },
+    {
       "name": "placeholderPage",
       "signature": "placeholderPage(ActivitySection section)"
+    },
+    {
+      "name": "rebuildWorkspaceSplit",
+      "signature": "rebuildWorkspaceSplit()"
     },
     {
       "name": "rebuildWorkbenchBody",
@@ -301,6 +418,10 @@ export const miniCWorkbenchShellMirror = {
     {
       "name": "refreshTabs",
       "signature": "refreshTabs()"
+    },
+    {
+      "name": "renderFloatingCompilerControls",
+      "signature": "renderFloatingCompilerControls()"
     },
     {
       "name": "registerSettingsCommands",
@@ -327,12 +448,32 @@ export const miniCWorkbenchShellMirror = {
       "signature": "saveDocument()"
     },
     {
+      "name": "saveDocument",
+      "signature": "saveDocument(MiniCWorkbenchViewModel model)"
+    },
+    {
+      "name": "saveDocument",
+      "signature": "saveDocument(int documentIndex)"
+    },
+    {
       "name": "saveDocumentAs",
       "signature": "saveDocumentAs()"
     },
     {
       "name": "saveDocumentAs",
+      "signature": "saveDocumentAs(MiniCWorkbenchViewModel model)"
+    },
+    {
+      "name": "saveDocumentAs",
+      "signature": "saveDocumentAs(int documentIndex)"
+    },
+    {
+      "name": "saveDocumentAs",
       "signature": "saveDocumentAs(Path rawPath)"
+    },
+    {
+      "name": "saveDocumentAs",
+      "signature": "saveDocumentAs(int documentIndex,Path rawPath)"
     },
     {
       "name": "sectionContent",
@@ -355,12 +496,64 @@ export const miniCWorkbenchShellMirror = {
       "signature": "sidebar()"
     },
     {
-      "name": "sourceArea",
-      "signature": "sourceArea()"
+      "name": "sidebarRail",
+      "signature": "sidebarRail(String styleClass,String text,Runnable expandAction)"
     },
     {
-      "name": "sourceMode",
-      "signature": "sourceMode()"
+      "name": "sidebarCollapseBar",
+      "signature": "sidebarCollapseBar(String text,String glyph,Runnable collapseAction)"
+    },
+    {
+      "name": "sourceArea",
+      "signature": "sourceArea(MiniCWorkbenchViewModel model,boolean primary)"
+    },
+    {
+      "name": "sourceTabId",
+      "signature": "sourceTabId(DocumentTab document)"
+    },
+    {
+      "name": "sourceWorkspaceTab",
+      "signature": "sourceWorkspaceTab(DocumentTab document)"
+    },
+    {
+      "name": "splitWorkspaceTabRight",
+      "signature": "splitWorkspaceTabRight(String id)"
+    },
+    {
+      "name": "moveWorkspaceTabLeft",
+      "signature": "moveWorkspaceTabLeft(String id)"
+    },
+    {
+      "name": "normalizeWorkspaceGroups",
+      "signature": "normalizeWorkspaceGroups()"
+    },
+    {
+      "name": "normalizeCompilerControlsDock",
+      "signature": "normalizeCompilerControlsDock(String dock)"
+    },
+    {
+      "name": "positionFloatingCompilerControls",
+      "signature": "positionFloatingCompilerControls(Region host,MiniCSettings.FloatingRect rect)"
+    },
+    {
+      "name": "setCompilerControlsDock",
+      "signature": "setCompilerControlsDock(String dock)"
+    },
+    {
+      "name": "setPipelineLeftSidebarCollapsed",
+      "signature": "setPipelineLeftSidebarCollapsed(boolean collapsed)"
+    },
+    {
+      "name": "setPipelineRightSidebarCollapsed",
+      "signature": "setPipelineRightSidebarCollapsed(boolean collapsed)"
+    },
+    {
+      "name": "stageName",
+      "signature": "stageName(String stage)"
+    },
+    {
+      "name": "stageTabId",
+      "signature": "stageTabId(DocumentTab document,MiniCVisualPane.VisualSide side)"
     },
     {
       "name": "statusBar",
@@ -371,6 +564,10 @@ export const miniCWorkbenchShellMirror = {
       "signature": "switchDocument(int index)"
     },
     {
+      "name": "switchWorkspaceTab",
+      "signature": "switchWorkspaceTab(String id,boolean rightGroup)"
+    },
+    {
       "name": "syncActiveEditorToModel",
       "signature": "syncActiveEditorToModel()"
     },
@@ -379,8 +576,12 @@ export const miniCWorkbenchShellMirror = {
       "signature": "toolbarButton(String text,String tooltip,Runnable action)"
     },
     {
-      "name": "updateMainContent",
-      "signature": "updateMainContent()"
+      "name": "updatePipelineTabs",
+      "signature": "updatePipelineTabs(MiniCWorkbenchViewModel model)"
+    },
+    {
+      "name": "viewModelForTab",
+      "signature": "viewModelForTab(WorkspaceTab tab)"
     },
     {
       "name": "viewportZoomDelta",
@@ -403,6 +604,30 @@ export const miniCWorkbenchShellMirror = {
       "signature": "withPath(Path path)"
     },
     {
+      "name": "workspaceContent",
+      "signature": "workspaceContent(WorkspaceTab tab,boolean primary)"
+    },
+    {
+      "name": "workspaceGroup",
+      "signature": "workspaceGroup(HBox tabBar,StackPane content)"
+    },
+    {
+      "name": "WorkspaceTab",
+      "signature": "WorkspaceTab(String id,String title,WorkspaceTabKind kind,MiniCWorkbenchViewModel viewModel,String stage,MiniCVisualPane.VisualSide side)"
+    },
+    {
+      "name": "workspaceTabNode",
+      "signature": "workspaceTabNode(WorkspaceTab workspaceTab,boolean rightGroup)"
+    },
+    {
+      "name": "workspaceTabs",
+      "signature": "workspaceTabs(boolean rightGroup)"
+    },
+    {
+      "name": "workspaceTabsForGroup",
+      "signature": "workspaceTabsForGroup(boolean rightGroup)"
+    },
+    {
       "name": "workbenchBody",
       "signature": "workbenchBody()"
     }
@@ -422,10 +647,23 @@ interface ActivitySection {
 }
 
 interface DocumentTab {
+  readonly id: string;
   readonly name: string;
   readonly path: string | null;
   readonly order: number;
   readonly viewModel: MiniCWorkbenchViewModel;
+}
+
+type WorkspaceTabKind = "source" | "stage";
+type VisualSide = "before" | "after" | "both";
+
+interface WorkspaceTab {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: WorkspaceTabKind;
+  readonly document: DocumentTab;
+  readonly stage: string;
+  readonly side: VisualSide;
 }
 
 const ACTIVITY_SECTIONS: readonly ActivitySection[] = [
@@ -456,6 +694,7 @@ const ACTIVITY_SECTIONS: readonly ActivitySection[] = [
 const DOCUMENTS_STORAGE_KEY = "minic.uiweb.documents";
 const TEXT_ZOOM_STEP = 1.0;
 const VIEWPORT_KEY_SCROLL_DELTA = 48.0;
+let nextDocumentTabId = 1;
 const COMPILER_SHORTCUT_ACTIONS = [
   MiniCWorkbenchControlHub.COMPILER_NEXT,
   MiniCWorkbenchControlHub.COMPILER_NEXT_STAGE,
@@ -487,11 +726,21 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   const [activeSection, setActiveSection] = useState<ActivitySectionId>("CODE");
   const [documents, setDocuments] = useState<readonly DocumentTab[]>(() => restorePersistedDocuments());
   const [activeDocumentIndex, setActiveDocumentIndex] = useState(0);
+  const [stageTabs, setStageTabs] = useState<readonly WorkspaceTab[]>([]);
+  const [rightWorkspaceTabIds, setRightWorkspaceTabIds] = useState<readonly string[]>([]);
+  const [activeLeftWorkspaceTabId, setActiveLeftWorkspaceTabId] = useState("");
+  const [activeRightWorkspaceTabId, setActiveRightWorkspaceTabId] = useState("");
+  const [pipelineLeftSidebarCollapsed, setPipelineLeftSidebarCollapsedState] = useState(() => MiniCSettings.pipelineLeftSidebarCollapsed());
+  const [pipelineRightSidebarCollapsed, setPipelineRightSidebarCollapsedState] = useState(() => MiniCSettings.pipelineRightSidebarCollapsed());
+  const [compilerControlsDock, setCompilerControlsDockState] = useState<CompilerControlsDock>(() => MiniCSettings.compilerControlsDock());
+  const [compilerControlsFloatingRect, setCompilerControlsFloatingRectState] = useState<MiniCFloatingRect>(() => MiniCSettings.compilerControlsFloatingRect());
   const [editingTabIndex, setEditingTabIndex] = useState<number | null>(null);
   const [editingTabName, setEditingTabName] = useState("");
   const controlHub = useMemo(() => new MiniCWorkbenchControlHub(), []);
   const keyBindings = useMemo(() => MiniCKeyBindingConfig.loadDefault(), []);
   const pressedKeys = useRef(new Set<string>());
+  const workspaceSplitRef = useRef<HTMLDivElement | null>(null);
+  const stageTabsRef = useRef(stageTabs);
   const [hoverInspector] = useState(() => new MiniCHoverInspector());
   const activeDocument = documents[Math.min(activeDocumentIndex, Math.max(0, documents.length - 1))] ?? documents[0];
   const activeModel = activeDocument.viewModel;
@@ -513,6 +762,10 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   }, [activeModel, activeSection, activeSnapshot]);
 
   useEffect(() => {
+    stageTabsRef.current = stageTabs;
+  }, [stageTabs]);
+
+  useEffect(() => {
     activePlaybackControllerRef.current = activePlaybackController;
     return () => activePlaybackController.dispose();
   }, [activePlaybackController]);
@@ -525,15 +778,226 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
     return installShortcutDispatch(controlHub, keyBindings, pressedKeys);
   }, [controlHub, keyBindings]);
 
+  const sourceWorkspaceTab = (document: DocumentTab): WorkspaceTab => ({
+    id: document.id,
+    title: document.name,
+    kind: "source",
+    document,
+    stage: "source",
+    side: "both",
+  });
+  const allWorkspaceTabs = (): readonly WorkspaceTab[] => [
+    ...documents.map(sourceWorkspaceTab),
+    ...stageTabs.filter((tab) => documents.some((document) => document.id === tab.document.id)),
+  ];
+  const findWorkspaceTab = (id: string): WorkspaceTab | null => allWorkspaceTabs().find((tab) => tab.id === id) ?? null;
+  const activeLeftWorkspaceTab = (): WorkspaceTab => (
+    findWorkspaceTab(activeLeftWorkspaceTabId)
+    ?? sourceWorkspaceTab(activeDocument)
+  );
+  const activeRightWorkspaceTab = (): WorkspaceTab | null => (
+    findWorkspaceTab(activeRightWorkspaceTabId)
+    ?? rightWorkspaceTabIds.map(findWorkspaceTab).find((tab): tab is WorkspaceTab => tab !== null)
+    ?? null
+  );
+  const stageTabId = (document: DocumentTab, side: Exclude<VisualSide, "both">): string =>
+    `${document.id}:pipeline:${side}`;
+  const createStageWorkspaceTab = (
+    document: DocumentTab,
+    side: Exclude<VisualSide, "both">,
+  ): WorkspaceTab => ({
+    id: stageTabId(document, side),
+    title: `${document.name} ${side}`,
+    kind: "stage",
+    document,
+    stage: "",
+    side,
+  });
+  const ensurePipelineTabs = (document: DocumentTab): void => {
+    const before = createStageWorkspaceTab(document, "before");
+    const after = createStageWorkspaceTab(document, "after");
+    const hadBefore = stageTabsRef.current.some((tab) => tab.id === before.id);
+    const hadAfter = stageTabsRef.current.some((tab) => tab.id === after.id);
+    if (hadBefore && hadAfter) {
+      return;
+    }
+    setStageTabs((current) => {
+      const byId = new Map(current.map((tab) => [tab.id, tab]));
+      byId.set(before.id, byId.get(before.id) ?? before);
+      byId.set(after.id, byId.get(after.id) ?? after);
+      const next = [...byId.values()];
+      stageTabsRef.current = next;
+      return next;
+    });
+    if ((!hadBefore || !hadAfter) && MiniCSettings.autoSplitPipelineTabs()) {
+      setRightWorkspaceTabIds((current) => [...new Set([...current, after.id])]);
+      setActiveLeftWorkspaceTabId(before.id);
+      setActiveRightWorkspaceTabId(after.id);
+    }
+  };
+  const closePipelineTabs = (document: DocumentTab): void => {
+    const beforeId = stageTabId(document, "before");
+    const afterId = stageTabId(document, "after");
+    if (!stageTabsRef.current.some((tab) => tab.id === beforeId || tab.id === afterId)) {
+      return;
+    }
+    setStageTabs((current) => {
+      const next = current.filter((tab) => tab.id !== beforeId && tab.id !== afterId);
+      stageTabsRef.current = next;
+      return next;
+    });
+    setRightWorkspaceTabIds((current) => current.filter((id) => id !== beforeId && id !== afterId));
+    setActiveLeftWorkspaceTabId((current) => current === beforeId || current === afterId ? document.id : current);
+    setActiveRightWorkspaceTabId((current) => current === beforeId || current === afterId ? "" : current);
+  };
+  const pipelineCompleted = (snapshot: MiniCWorkbenchSnapshot): boolean => {
+    const state = snapshot.currentState;
+    const result = snapshot.lastControlResult;
+    if (state === null || result === null) {
+      return false;
+    }
+    if (state.currentStage !== "execution" || result.stage !== "execution" || state.canNext) {
+      return false;
+    }
+    return result.outcome === "STAGE_COMPLETED" || result.outcome === "FAILED" || result.outcome === "CANNOT_ADVANCE";
+  };
+  const openStageTabs = (stageId: string): void => {
+    const normalizedStage = stageId.trim().length === 0 ? "source" : stageId;
+    activeModel.runInBackground(activeModel.selectVisualStage(normalizedStage), "选择阶段失败");
+    if (normalizedStage === "source") {
+      setActiveLeftWorkspaceTabId(activeDocument.id);
+      return;
+    }
+    ensurePipelineTabs(activeDocument);
+    if (MiniCSettings.autoSplitPipelineTabs()) {
+      const beforeId = stageTabId(activeDocument, "before");
+      const afterId = stageTabId(activeDocument, "after");
+      setRightWorkspaceTabIds((current) => [...new Set([...current, afterId])]);
+      setActiveLeftWorkspaceTabId(beforeId);
+      setActiveRightWorkspaceTabId(afterId);
+    }
+  };
+  const switchWorkspaceTab = (tabId: string, group: "left" | "right"): void => {
+    const tab = findWorkspaceTab(tabId);
+    if (tab === null) {
+      return;
+    }
+    if (group === "right") {
+      setActiveRightWorkspaceTabId(tabId);
+    } else {
+      setActiveLeftWorkspaceTabId(tabId);
+      const documentIndex = documents.findIndex((document) => document.id === tab.document.id);
+      if (documentIndex >= 0) {
+        setActiveDocumentIndex(documentIndex);
+      }
+    }
+  };
+  const normalizeWorkspaceGroups = (
+    candidateRightIds: readonly string[],
+    preferredLeftId = activeLeftWorkspaceTabId,
+    preferredRightId = activeRightWorkspaceTabId,
+  ): { readonly rightIds: readonly string[]; readonly activeLeftId: string; readonly activeRightId: string } => {
+    const tabs = allWorkspaceTabs();
+    const tabIds = new Set(tabs.map((tab) => tab.id));
+    const rightIds = [...new Set(candidateRightIds)].filter((id) => tabIds.has(id));
+    const leftTabs = tabs.filter((tab) => !rightIds.includes(tab.id));
+    if (rightIds.length > 0 && leftTabs.length === 0) {
+      const promoted = preferredRightId.length > 0 && tabIds.has(preferredRightId) ? preferredRightId : rightIds[0] ?? activeDocument.id;
+      return { rightIds: [], activeLeftId: promoted, activeRightId: "" };
+    }
+    const activeRightId = rightIds.includes(preferredRightId) ? preferredRightId : rightIds[0] ?? "";
+    const activeLeftId = preferredLeftId.length > 0
+      && tabIds.has(preferredLeftId)
+      && !rightIds.includes(preferredLeftId)
+      ? preferredLeftId
+      : leftTabs[0]?.id ?? activeDocument.id;
+    return { rightIds, activeLeftId, activeRightId };
+  };
+  const splitWorkspaceTabRight = (tabId: string): void => {
+    if (findWorkspaceTab(tabId) === null) {
+      return;
+    }
+    const normalized = normalizeWorkspaceGroups(
+      [...rightWorkspaceTabIds, tabId],
+      activeLeftWorkspaceTabId === tabId ? "" : activeLeftWorkspaceTabId,
+      tabId,
+    );
+    setRightWorkspaceTabIds(normalized.rightIds);
+    setActiveLeftWorkspaceTabId(normalized.activeLeftId);
+    setActiveRightWorkspaceTabId(normalized.activeRightId);
+  };
+  const moveWorkspaceTabLeft = (tabId: string): void => {
+    if (findWorkspaceTab(tabId) === null) {
+      return;
+    }
+    const normalized = normalizeWorkspaceGroups(
+      rightWorkspaceTabIds.filter((id) => id !== tabId),
+      tabId,
+      activeRightWorkspaceTabId === tabId ? "" : activeRightWorkspaceTabId,
+    );
+    setRightWorkspaceTabIds(normalized.rightIds);
+    setActiveLeftWorkspaceTabId(normalized.activeLeftId);
+    setActiveRightWorkspaceTabId(normalized.activeRightId);
+  };
+  const closeWorkspaceTab = (tabId: string): void => {
+    const tab = findWorkspaceTab(tabId);
+    if (tab === null) {
+      return;
+    }
+    if (tab.kind === "source") {
+      closeDocument(documents.findIndex((document) => document.id === tab.document.id));
+      return;
+    }
+    setStageTabs((current) => current.filter((candidate) => candidate.id !== tabId));
+    setRightWorkspaceTabIds((current) => current.filter((id) => id !== tabId));
+    setActiveLeftWorkspaceTabId((current) => current === tabId ? activeDocument.id : current);
+    setActiveRightWorkspaceTabId((current) => current === tabId ? "" : current);
+  };
+  const setPipelineLeftSidebarCollapsed = (collapsed: boolean): void => {
+    MiniCSettings.setPipelineLeftSidebarCollapsed(collapsed);
+    setPipelineLeftSidebarCollapsedState(collapsed);
+  };
+  const setPipelineRightSidebarCollapsed = (collapsed: boolean): void => {
+    MiniCSettings.setPipelineRightSidebarCollapsed(collapsed);
+    setPipelineRightSidebarCollapsedState(collapsed);
+  };
+  const setCompilerControlsDock = (dock: CompilerControlsDock): void => {
+    MiniCSettings.setCompilerControlsDock(dock);
+    setCompilerControlsDockState(MiniCSettings.compilerControlsDock());
+  };
+  const setCompilerControlsFloatingRect = (rect: MiniCFloatingRect): void => {
+    MiniCSettings.setCompilerControlsFloatingRect(rect);
+    setCompilerControlsFloatingRectState(MiniCSettings.compilerControlsFloatingRect());
+  };
+
+  useEffect(() => {
+    const reconcilePipelineTabs = (document: DocumentTab): void => {
+      const snapshot = document.viewModel.snapshot();
+      if (pipelineCompleted(snapshot)) {
+        closePipelineTabs(document);
+        return;
+      }
+      if (snapshot.currentState !== null) {
+        ensurePipelineTabs(document);
+      }
+    };
+    documents.forEach(reconcilePipelineTabs);
+    const unsubscribers = documents.map((document) =>
+      document.viewModel.subscribe(() => reconcilePipelineTabs(document)),
+    );
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  }, [documents]);
+
   const switchDocument = (index: number): void => {
     if (index >= 0 && index < documents.length) {
       setActiveDocumentIndex(index);
+      setActiveLeftWorkspaceTabId(documents[index]?.id ?? "");
     }
   };
 
   const addDocument = (name: string, source: string, path: string | null = null): void => {
     const viewModel = createMiniCWorkbenchViewModel(name, source);
-    setDocuments((current) => [...current, { name, path, order: nextDocumentOrder(current), viewModel }]);
+    setDocuments((current) => [...current, createDocumentTab(name, path, nextDocumentOrder(current), viewModel)]);
     setActiveDocumentIndex(documents.length);
   };
 
@@ -542,10 +1006,17 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   };
 
   const closeDocument = (index: number): void => {
+    const closedDocument = documents[index];
+    if (closedDocument !== undefined) {
+      setStageTabs((current) => current.filter((tab) => tab.document.id !== closedDocument.id));
+      setRightWorkspaceTabIds((current) => current.filter((id) => !id.startsWith(`${closedDocument.id}:`) && id !== closedDocument.id));
+      setActiveLeftWorkspaceTabId((current) => current === closedDocument.id || current.startsWith(`${closedDocument.id}:`) ? "" : current);
+      setActiveRightWorkspaceTabId((current) => current === closedDocument.id || current.startsWith(`${closedDocument.id}:`) ? "" : current);
+    }
     if (documents.length <= 1) {
       const sample = MiniCSamplePrograms.defaultSample();
       const viewModel = createMiniCWorkbenchViewModel(sample.name, sample.source);
-      setDocuments([{ name: sample.name, path: null, order: 1, viewModel }]);
+      setDocuments([createDocumentTab(sample.name, null, 1, viewModel)]);
       setActiveDocumentIndex(0);
       return;
     }
@@ -571,11 +1042,20 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
     setEditingTabIndex(null);
   };
 
-  const saveDocument = (name = activeDocument.name, source = activeModel.sourceTextProperty().get()): void => {
+  const saveDocumentFor = (
+    document: DocumentTab,
+    name = document.name,
+    source = document.viewModel.sourceTextProperty().get(),
+  ): void => {
     setDocuments((current) =>
-      current.map((document, index) => (index === activeDocumentIndex ? { ...document, name } : document)),
+      current.map((candidate) => (candidate.id === document.id ? { ...candidate, name } : candidate)),
     );
-    activeModel.runInBackground(activeModel.renameSource(name), "保存源码名失败");
+    document.viewModel.runInBackground(document.viewModel.loadSource(name, source), "保存源码内容失败");
+    document.viewModel.runInBackground(document.viewModel.renameSource(name), "保存源码名失败");
+  };
+
+  const saveDocument = (name = activeDocument.name, source = activeModel.sourceTextProperty().get()): void => {
+    saveDocumentFor(activeDocument, name, source);
   };
 
   const reorderDocumentTab = (fromIndex: number, toIndex: number): void => {
@@ -601,16 +1081,35 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
         activeDocument,
         activeDocumentIndex,
         documents,
+        stageTabs,
+        rightWorkspaceTabIds,
+        activeLeftWorkspaceTab: activeLeftWorkspaceTab(),
+        activeRightWorkspaceTab: activeRightWorkspaceTab(),
+        pipelineLeftSidebarCollapsed,
+        pipelineRightSidebarCollapsed,
+        compilerControlsDock,
+        compilerControlsFloatingRect,
+        workspaceSplitRef,
         editingTabIndex,
         editingTabName,
         setEditingTabName,
         setEditingTabIndex,
         switchDocument,
+        openStageTabs,
+        switchWorkspaceTab,
+        splitWorkspaceTabRight,
+        moveWorkspaceTabLeft,
+        closeWorkspaceTab,
+        setPipelineLeftSidebarCollapsed,
+        setPipelineRightSidebarCollapsed,
+        setCompilerControlsDock,
+        setCompilerControlsFloatingRect,
         closeDocument,
         newDocument,
         commitRenameDocument,
         reorderDocumentTab,
         saveDocument,
+        saveDocumentFor,
         addDocument,
       })}
       {statusBar(activeSnapshot)}
@@ -624,16 +1123,35 @@ interface ShellActions {
   readonly activeDocument: DocumentTab;
   readonly activeDocumentIndex: number;
   readonly documents: readonly DocumentTab[];
+  readonly stageTabs: readonly WorkspaceTab[];
+  readonly rightWorkspaceTabIds: readonly string[];
+  readonly activeLeftWorkspaceTab: WorkspaceTab;
+  readonly activeRightWorkspaceTab: WorkspaceTab | null;
+  readonly pipelineLeftSidebarCollapsed: boolean;
+  readonly pipelineRightSidebarCollapsed: boolean;
+  readonly compilerControlsDock: CompilerControlsDock;
+  readonly compilerControlsFloatingRect: MiniCFloatingRect;
+  readonly workspaceSplitRef: MutableRefObject<HTMLDivElement | null>;
   readonly editingTabIndex: number | null;
   readonly editingTabName: string;
   readonly setEditingTabName: (name: string) => void;
   readonly setEditingTabIndex: (index: number | null) => void;
   readonly switchDocument: (index: number) => void;
+  readonly openStageTabs: (stageId: string) => void;
+  readonly switchWorkspaceTab: (tabId: string, group: "left" | "right") => void;
+  readonly splitWorkspaceTabRight: (tabId: string) => void;
+  readonly moveWorkspaceTabLeft: (tabId: string) => void;
+  readonly closeWorkspaceTab: (tabId: string) => void;
+  readonly setPipelineLeftSidebarCollapsed: (collapsed: boolean) => void;
+  readonly setPipelineRightSidebarCollapsed: (collapsed: boolean) => void;
+  readonly setCompilerControlsDock: (dock: CompilerControlsDock) => void;
+  readonly setCompilerControlsFloatingRect: (rect: MiniCFloatingRect) => void;
   readonly closeDocument: (index: number) => void;
   readonly newDocument: () => void;
   readonly commitRenameDocument: (index: number, name: string) => void;
   readonly reorderDocumentTab: (fromIndex: number, toIndex: number) => void;
   readonly saveDocument: (name?: string, source?: string) => void;
+  readonly saveDocumentFor: (document: DocumentTab, name?: string, source?: string) => void;
   readonly addDocument: (name: string, source: string, path?: string | null) => void;
 }
 
@@ -686,62 +1204,227 @@ function workbenchBody(
   hoverInspector: MiniCHoverInspector,
   actions: ShellActions,
 ) {
-  const sourceVisible = sourceMode(snapshot);
   return (
     <main className="workbench-body">
-      <MiniCSidebarView viewModel={viewModel} />
+      {pipelineSidebar(viewModel, playbackController, actions)}
       <section className="editor-area">
-        {tabs(actions)}
-        <div className={`split workbench-main ${sourceVisible ? "source-mode" : "visual-mode"}`}>
-          {sourceVisible ? (
-            <div className="source-area">
-              <MiniCSourceLoaderView
-                viewModel={viewModel}
-                onOpenDocument={(name, source) => actions.addDocument(name, source, name)}
-                onSaveDocument={(name, source) => actions.saveDocument(name, source)}
-              />
-            </div>
-          ) : (
-            <div className="main-content">
-              <MiniCVisualPane inspector={hoverInspector} viewModel={viewModel} />
-            </div>
-          )}
-        </div>
+        {workspaceSplit(actions, hoverInspector, playbackController)}
         <MiniCBottomPanel inspector={hoverInspector} viewModel={viewModel} />
       </section>
-      <MiniCInspectorView playbackController={playbackController} viewModel={viewModel} />
+      {metadataSidebar(viewModel, playbackController, actions)}
     </main>
   );
 }
 
-function sourceMode(snapshot: MiniCWorkbenchSnapshot): boolean {
-  const selectedStage = snapshot.selectedVisualStage;
-  if (selectedStage === "source") {
-    return true;
+function pipelineSidebar(
+  viewModel: MiniCWorkbenchViewModel,
+  playbackController: MiniCPlaybackController,
+  actions: ShellActions,
+) {
+  if (actions.pipelineLeftSidebarCollapsed) {
+    return (
+      <aside className="sidebar-rail pipeline-sidebar-rail">
+        <button className="sidebar-rail-toggle" onClick={() => actions.setPipelineLeftSidebarCollapsed(false)} type="button">&gt;</button>
+        <span className="sidebar-rail-label">Pipeline</span>
+      </aside>
+    );
   }
-  if (selectedStage.length > 0) {
-    return false;
-  }
-  return !snapshot.sessionStarted || snapshot.currentState === null || snapshot.currentState.currentStage === "source";
+  return (
+    <aside className="pipeline-sidebar-shell">
+      {sidebarCollapseBar("Pipeline", "<", () => actions.setPipelineLeftSidebarCollapsed(true))}
+      <MiniCSidebarView onStageSelect={actions.openStageTabs} viewModel={viewModel} />
+      {actions.compilerControlsDock === "LEFT_PIPELINE_BOTTOM" && (
+        compilerControlsHost(viewModel, playbackController, actions, "left-pipeline-controls")
+      )}
+    </aside>
+  );
 }
 
-function tabs(actions: ShellActions) {
+function metadataSidebar(
+  viewModel: MiniCWorkbenchViewModel,
+  playbackController: MiniCPlaybackController,
+  actions: ShellActions,
+) {
+  if (actions.pipelineRightSidebarCollapsed) {
+    return (
+      <aside className="sidebar-rail metadata-sidebar-rail">
+        <button className="sidebar-rail-toggle" onClick={() => actions.setPipelineRightSidebarCollapsed(false)} type="button">&lt;</button>
+        <span className="sidebar-rail-label">Metadata</span>
+      </aside>
+    );
+  }
+  return (
+    <aside className="inspector">
+      {sidebarCollapseBar("元数据", ">", () => actions.setPipelineRightSidebarCollapsed(true))}
+      {actions.compilerControlsDock === "RIGHT_METADATA_TOP" && (
+        compilerControlsHost(viewModel, playbackController, actions, "right-metadata-controls")
+      )}
+      <MiniCInspectorView viewModel={viewModel} />
+    </aside>
+  );
+}
+
+function sidebarCollapseBar(text: string, glyph: string, collapseAction: () => void) {
+  return (
+    <div className="sidebar-collapse-bar">
+      <span className="sidebar-collapse-label">{text}</span>
+      <span className="sidebar-collapse-spacer" />
+      <button className="sidebar-collapse-button" onClick={collapseAction} title={`收起 ${text}`} type="button">
+        {glyph}
+      </button>
+    </div>
+  );
+}
+
+function workspaceSplit(actions: ShellActions, hoverInspector: MiniCHoverInspector, playbackController: MiniCPlaybackController) {
+  const leftTabs = workspaceTabsForGroup(actions, "left");
+  const rightTabs = workspaceTabsForGroup(actions, "right");
+  return (
+    <div className={`workspace-split${rightTabs.length > 0 ? " has-right" : ""}`} ref={actions.workspaceSplitRef}>
+      <section className="workspace-group">
+        {workspaceTabs(actions, "left", leftTabs)}
+        <div className="workspace-content">{workspaceContent(actions.activeLeftWorkspaceTab, actions, hoverInspector)}</div>
+      </section>
+      {rightTabs.length > 0 && actions.activeRightWorkspaceTab !== null && (
+        <section className="workspace-group right">
+          {workspaceTabs(actions, "right", rightTabs)}
+          <div className="workspace-content">{workspaceContent(actions.activeRightWorkspaceTab, actions, hoverInspector)}</div>
+        </section>
+      )}
+      {actions.compilerControlsDock === "FLOATING" && floatingCompilerControls(actions, playbackController)}
+    </div>
+  );
+}
+
+function compilerControlsHost(
+  viewModel: MiniCWorkbenchViewModel,
+  playbackController: MiniCPlaybackController,
+  actions: ShellActions,
+  className: string,
+) {
+  return (
+    <div className={`compiler-controls-host ${className}`}>
+      <div className="compiler-controls-dock-bar">
+        <span className="compiler-controls-title">控制台</span>
+        <span className="compiler-controls-spacer" />
+        {dockButton("右", "RIGHT_METADATA_TOP", actions)}
+        {dockButton("左", "LEFT_PIPELINE_BOTTOM", actions)}
+        {dockButton("浮", "FLOATING", actions)}
+      </div>
+      <MiniCCompilerControlsView playbackController={playbackController} viewModel={viewModel} />
+    </div>
+  );
+}
+
+function dockButton(label: string, dock: CompilerControlsDock, actions: ShellActions) {
+  return (
+    <button
+      className={`compiler-controls-dock-button${actions.compilerControlsDock === dock ? " active" : ""}`}
+      onClick={() => actions.setCompilerControlsDock(dock)}
+      type="button"
+    >
+      {label}
+    </button>
+  );
+}
+
+function floatingCompilerControls(actions: ShellActions, playbackController: MiniCPlaybackController) {
+  const rect = clampFloatingRect(actions.compilerControlsFloatingRect, actions.workspaceSplitRef.current);
+  const startDrag = (event: ReactMouseEvent<HTMLDivElement>): void => {
+    const target = event.target;
+    if (target instanceof HTMLButtonElement) {
+      return;
+    }
+    const container = actions.workspaceSplitRef.current;
+    if (container === null) {
+      return;
+    }
+    const bounds = container.getBoundingClientRect();
+    const offsetX = event.clientX - bounds.left - rect.x;
+    const offsetY = event.clientY - bounds.top - rect.y;
+    const move = (moveEvent: MouseEvent): void => {
+      actions.setCompilerControlsFloatingRect(clampFloatingRect({
+        ...rect,
+        x: moveEvent.clientX - bounds.left - offsetX,
+        y: moveEvent.clientY - bounds.top - offsetY,
+      }, container));
+    };
+    const stop = (): void => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", stop);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", stop);
+  };
+  return (
+    <div
+      className="floating-compiler-controls"
+      onMouseDown={startDrag}
+      style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+    >
+      {compilerControlsHost(actions.activeDocument.viewModel, playbackController, actions, "floating-controls-inner")}
+    </div>
+  );
+}
+
+function clampFloatingRect(rect: MiniCFloatingRect, container: HTMLElement | null): MiniCFloatingRect {
+  if (container === null) {
+    return rect;
+  }
+  const width = Math.max(1, rect.width);
+  const height = Math.max(1, rect.height);
+  const maxX = Math.max(0, container.clientWidth - width);
+  const maxY = Math.max(0, container.clientHeight - height);
+  return {
+    x: Math.max(0, Math.min(maxX, rect.x)),
+    y: Math.max(0, Math.min(maxY, rect.y)),
+    width,
+    height,
+  };
+}
+
+function workspaceTabsForGroup(actions: ShellActions, group: "left" | "right"): readonly WorkspaceTab[] {
+  const rightIds = new Set(actions.rightWorkspaceTabIds);
+  const sourceTabs = actions.documents.map((document): WorkspaceTab => ({
+    id: document.id,
+    title: document.name,
+    kind: "source",
+    document,
+    stage: "source",
+    side: "both",
+  }));
+  return [...sourceTabs, ...actions.stageTabs].filter((tab) => rightIds.has(tab.id) === (group === "right"));
+}
+
+function workspaceTabs(actions: ShellActions, group: "left" | "right", groupTabs: readonly WorkspaceTab[]) {
   return (
     <div className="tabs" role="tablist">
-      {actions.documents.map((document, index) => (
+      {groupTabs.map((tab) => {
+        const index = actions.documents.findIndex((document) => document.id === tab.document.id);
+        const document = tab.document;
+        const active = group === "right"
+          ? tab.id === actions.activeRightWorkspaceTab?.id
+          : tab.id === actions.activeLeftWorkspaceTab.id;
+        return (
         <div
-          className={`tab${index === actions.activeDocumentIndex ? " active" : ""}`}
-          draggable
-          key={`${document.order}-${document.name}`}
-          onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
+          className={`tab${active ? " active" : ""}`}
+          draggable={tab.kind === "source"}
+          key={tab.id}
+          onDragStart={(event) => {
+            if (tab.kind === "source") {
+              event.dataTransfer.setData("text/plain", String(index));
+            }
+          }}
           onDrop={(event) => {
             event.preventDefault();
-            actions.reorderDocumentTab(Number(event.dataTransfer.getData("text/plain")), index);
+            if (tab.kind === "source") {
+              actions.reorderDocumentTab(Number(event.dataTransfer.getData("text/plain")), index);
+            }
           }}
           onDragOver={(event) => event.preventDefault()}
           role="tab"
         >
-          {actions.editingTabIndex === index ? (
+          {tab.kind === "source" && actions.editingTabIndex === index ? (
             <input
               autoFocus
               className="tab-rename"
@@ -760,24 +1443,62 @@ function tabs(actions: ShellActions) {
           ) : (
             <button
               className="tab-title"
-              onClick={() => actions.switchDocument(index)}
+              onClick={() => actions.switchWorkspaceTab(tab.id, group)}
               onDoubleClick={() => {
-                actions.setEditingTabName(document.name);
-                actions.setEditingTabIndex(index);
+                if (tab.kind === "source") {
+                  actions.setEditingTabName(document.name);
+                  actions.setEditingTabIndex(index);
+                }
               }}
               type="button"
             >
-              {document.name}
+              {tab.kind === "source" ? document.name : tab.title}
             </button>
           )}
-          <button className="tab-close" onClick={() => actions.closeDocument(index)} type="button" aria-label="Close document">
+          <button
+            aria-label={group === "right" ? "Move tab left" : "Split tab right"}
+            className="tab-split"
+            onClick={() => (group === "right" ? actions.moveWorkspaceTabLeft(tab.id) : actions.splitWorkspaceTabRight(tab.id))}
+            title={group === "right" ? "移回左侧" : "向右拆分"}
+            type="button"
+          >
+            {group === "right" ? "<" : ">"}
+          </button>
+          <button className="tab-close" onClick={() => actions.closeWorkspaceTab(tab.id)} type="button" aria-label="Close tab">
             x
           </button>
         </div>
-      ))}
-      <button className="tab-action" onClick={actions.newDocument} type="button">
-        +
-      </button>
+        );
+      })}
+      {group === "left" && (
+        <button className="tab-action" onClick={actions.newDocument} type="button">
+          +
+        </button>
+      )}
+    </div>
+  );
+}
+
+function workspaceContent(tab: WorkspaceTab, actions: ShellActions, hoverInspector: MiniCHoverInspector) {
+  if (tab.kind === "source") {
+    return (
+      <div className="source-area">
+        <MiniCSourceLoaderView
+          viewModel={tab.document.viewModel}
+          onOpenDocument={(name, source) => actions.addDocument(name, source, name)}
+          onSaveDocument={(name, source) => actions.saveDocumentFor(tab.document, name, source)}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="main-content">
+      <MiniCVisualPane
+        inspector={hoverInspector}
+        side={tab.side}
+        stageOverride={tab.stage}
+        viewModel={tab.document.viewModel}
+      />
     </div>
   );
 }
@@ -815,7 +1536,7 @@ function useWorkbenchShellSnapshot(viewModel: MiniCWorkbenchViewModel): MiniCWor
 
 function restorePersistedDocuments(): readonly DocumentTab[] {
   const sample = MiniCSamplePrograms.defaultSample();
-  const fallback = [{ name: sample.name, path: null, order: 1, viewModel: createMiniCWorkbenchViewModel(sample.name, sample.source) }];
+  const fallback = [createDocumentTab(sample.name, null, 1, createMiniCWorkbenchViewModel(sample.name, sample.source))];
   try {
     const raw = window.localStorage.getItem(DOCUMENTS_STORAGE_KEY);
     if (!raw) {
@@ -825,15 +1546,30 @@ function restorePersistedDocuments(): readonly DocumentTab[] {
     if (!Array.isArray(parsed) || parsed.length === 0) {
       return fallback;
     }
-    return parsed.map((entry, index) => ({
-      name: typeof entry.name === "string" && entry.name.length > 0 ? entry.name : nextUntitledName([]),
-      path: typeof entry.path === "string" ? entry.path : null,
-      order: Number.isFinite(entry.order) ? entry.order : index + 1,
-      viewModel: createMiniCWorkbenchViewModel(entry.name, typeof entry.source === "string" ? entry.source : ""),
-    }));
+    return parsed.map((entry, index) => createDocumentTab(
+      typeof entry.name === "string" && entry.name.length > 0 ? entry.name : nextUntitledName([]),
+      typeof entry.path === "string" ? entry.path : null,
+      Number.isFinite(entry.order) ? entry.order : index + 1,
+      createMiniCWorkbenchViewModel(entry.name, typeof entry.source === "string" ? entry.source : ""),
+    ));
   } catch {
     return fallback;
   }
+}
+
+function createDocumentTab(
+  name: string,
+  path: string | null,
+  order: number,
+  viewModel: MiniCWorkbenchViewModel,
+): DocumentTab {
+  return {
+    id: `source-${nextDocumentTabId++}`,
+    name,
+    path,
+    order,
+    viewModel,
+  };
 }
 
 function persistOpenDocuments(documents: readonly DocumentTab[]): void {

@@ -67,6 +67,10 @@ export const miniCWorkbenchViewModelMirror = {
       "signature": "private final ReadOnlyObjectWrapper<UiStageVisualDto>codegenVisualData="
     },
     {
+      "name": "irVisualData",
+      "signature": "private final ReadOnlyObjectWrapper<UiStageVisualDto>irVisualData="
+    },
+    {
       "name": "currentStageData",
       "signature": "private final ReadOnlyObjectWrapper<UiStageDataDto>currentStageData="
     },
@@ -231,6 +235,10 @@ export const miniCWorkbenchViewModelMirror = {
     {
       "name": "codegenVisualDataProperty",
       "signature": "codegenVisualDataProperty()"
+    },
+    {
+      "name": "irVisualDataProperty",
+      "signature": "irVisualDataProperty()"
     },
     {
       "name": "confirmExecutionInput",
@@ -502,6 +510,7 @@ export interface MiniCObservationApiAdapter {
   lexerVisualData(): Promise<UiStageVisualDto>;
   astVisualData(): Promise<UiStageVisualDto>;
   semanticVisualData(): Promise<UiStageVisualDto>;
+  irVisualData(): Promise<UiStageVisualDto>;
   codegenVisualData(): Promise<UiStageVisualDto>;
   globalData(): Promise<UiGlobalDataDto>;
   stageViews(): Promise<readonly UiStageViewDto[]>;
@@ -598,6 +607,10 @@ export class MiniCWorkbenchViewModel {
   );
 
   private readonly semanticVisualDataStore = new MiniCWritableProperty<UiStageVisualDto | null>(null, () =>
+    this.emit(),
+  );
+
+  private readonly irVisualDataStore = new MiniCWritableProperty<UiStageVisualDto | null>(null, () =>
     this.emit(),
   );
 
@@ -1048,6 +1061,10 @@ export class MiniCWorkbenchViewModel {
     return this.semanticVisualDataStore;
   }
 
+  irVisualDataProperty(): MiniCReadonlyProperty<UiStageVisualDto | null> {
+    return this.irVisualDataStore;
+  }
+
   codegenVisualDataProperty(): MiniCReadonlyProperty<UiStageVisualDto | null> {
     return this.codegenVisualDataStore;
   }
@@ -1131,6 +1148,7 @@ export class MiniCWorkbenchViewModel {
       lexerVisualData: this.lexerVisualDataStore.get(),
       astVisualData: this.astVisualDataStore.get(),
       semanticVisualData: this.semanticVisualDataStore.get(),
+      irVisualData: this.irVisualDataStore.get(),
       codegenVisualData: this.codegenVisualDataStore.get(),
       globalData: this.globalDataStore.get(),
       stageViews: this.stageViewsStore.get(),
@@ -1169,6 +1187,7 @@ export class MiniCWorkbenchViewModel {
     this.lexerVisualDataStore.set(null);
     this.astVisualDataStore.set(null);
     this.semanticVisualDataStore.set(null);
+    this.irVisualDataStore.set(null);
     this.codegenVisualDataStore.set(null);
     this.globalDataStore.set(null);
     this.stageViewsStore.set([]);
@@ -1195,16 +1214,20 @@ export class MiniCWorkbenchViewModel {
     const state = this.currentStateStore.get();
     const selected = this.selectedVisualStageStore.get();
     const currentStage = selected === "" ? state?.currentStage ?? "source" : toStageId(selected);
-    const [lexer, ast, semantic, codegen, current] = await Promise.all([
+    const currentPromise = selected === "" ? this.api.currentStageVisualData() : this.visualDataForStage(currentStage);
+    const irPromise = selected === "" && currentStage === "ir" ? currentPromise : this.api.irVisualData();
+    const [lexer, ast, semantic, ir, codegen, current] = await Promise.all([
       this.api.lexerVisualData(),
       this.api.astVisualData(),
       this.api.semanticVisualData(),
+      irPromise,
       this.api.codegenVisualData(),
-      selected === "" ? this.api.currentStageVisualData() : this.visualDataForStage(currentStage),
+      currentPromise,
     ]);
     this.lexerVisualDataStore.set(lexer);
     this.astVisualDataStore.set(ast);
     this.semanticVisualDataStore.set(semantic);
+    this.irVisualDataStore.set(ir);
     this.codegenVisualDataStore.set(codegen);
     this.currentStageVisualDataStore.set(current);
   }
@@ -1216,8 +1239,11 @@ export class MiniCWorkbenchViewModel {
     if (stage === "parser") {
       return this.api.astVisualData();
     }
-    if (stage === "semantic" || stage === "ir") {
+    if (stage === "semantic") {
       return this.api.semanticVisualData();
+    }
+    if (stage === "ir") {
+      return this.api.irVisualData();
     }
     if (stage === "codegen" || stage === "toolchain" || stage === "execution") {
       return this.api.codegenVisualData();
@@ -1358,6 +1384,7 @@ export interface MiniCWorkbenchSnapshot {
   readonly lexerVisualData: UiStageVisualDto | null;
   readonly astVisualData: UiStageVisualDto | null;
   readonly semanticVisualData: UiStageVisualDto | null;
+  readonly irVisualData: UiStageVisualDto | null;
   readonly codegenVisualData: UiStageVisualDto | null;
   readonly globalData: UiGlobalDataDto | null;
   readonly stageViews: readonly UiStageViewDto[];

@@ -418,7 +418,7 @@ export const miniCCodeEditorMirror = {
     },
     {
       "name": "tokenStyles",
-      "signature": "tokenStyles(String kind,boolean diagnostic)"
+      "signature": "tokenStyles(List<UiLexerTokenVisualDto>tokens,int index,boolean diagnostic)"
     },
     {
       "name": "updateCompletion",
@@ -473,6 +473,7 @@ interface ExecutionViewport {
 
 interface EditorToken {
   readonly kind: string;
+  readonly text: string;
   readonly startOffset: number;
   readonly endOffset: number;
 }
@@ -1176,6 +1177,7 @@ function tokensForSource(source: string, analysis: UiRealtimeAnalysisDto | null)
 function tokenFromAnalysis(token: UiLexerTokenVisualDto): EditorToken {
   return {
     kind: token.kind,
+    text: token.text,
     startOffset: token.startOffset,
     endOffset: token.endOffset,
   };
@@ -1242,12 +1244,12 @@ function classesForRange(
   selectionRange: EditorSelectionRange,
   syntaxMapper: MiniCSyntaxTextStyleMapper,
 ): string {
-  const token = tokens.find((candidate) => candidate.startOffset <= start && candidate.endOffset >= end);
+  const tokenIndex = tokens.findIndex((candidate) => candidate.startOffset <= start && candidate.endOffset >= end);
   const diagnostic = diagnostics.some((candidate) => rangesOverlap(start, end, candidate.startOffset, candidate.endOffset));
   const baseClasses =
-    token === undefined
+    tokenIndex < 0
       ? MiniCTextStyles.classes(MiniCTextStyleRole.CODE_PLAIN, ...(diagnostic ? [MiniCTextStyleState.DIAGNOSTIC] : []))
-      : syntaxMapper.styleClassesFor(token.kind, diagnostic);
+      : syntaxMapper.styleClassesForToken(tokens, tokenIndex, diagnostic);
   const executionClasses =
     currentExecutionRange && rangesOverlap(start, end, currentExecutionRange.startOffset, currentExecutionRange.endOffset)
       ? MiniCTextStyles.stateClasses(MiniCTextStyleState.DEBUG_EXECUTION)

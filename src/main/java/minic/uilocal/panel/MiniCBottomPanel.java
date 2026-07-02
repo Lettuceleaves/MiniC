@@ -230,22 +230,27 @@ public final class MiniCBottomPanel extends VBox {
             return List.of();
         }
         try {
-            return realtimeAnalysisApi.tokenize("hover-inspector-source.mc", source).stream()
+            List<UiLexerTokenVisualDto> tokens = realtimeAnalysisApi.tokenize("hover-inspector-source.mc", source).stream()
                     .filter(token -> !"EOF".equals(token.kind()))
                     .filter(token -> token.endOffset() > token.startOffset())
                     .sorted(Comparator.comparingInt(UiLexerTokenVisualDto::startOffset))
-                    .map(this::sourceTokenStyle)
                     .toList();
+            ArrayList<SourceTokenStyle> styles = new ArrayList<>(tokens.size());
+            for (int index = 0; index < tokens.size(); index++) {
+                styles.add(sourceTokenStyle(tokens, index));
+            }
+            return List.copyOf(styles);
         } catch (RuntimeException ignored) {
             return List.of();
         }
     }
 
-    private SourceTokenStyle sourceTokenStyle(UiLexerTokenVisualDto token) {
+    private SourceTokenStyle sourceTokenStyle(List<UiLexerTokenVisualDto> tokens, int index) {
+        UiLexerTokenVisualDto token = tokens.get(index);
         return new SourceTokenStyle(
                 token.startOffset(),
                 token.endOffset(),
-                new ArrayList<>(syntaxTextStyleMapper.styleClassesFor(token.kind(), false))
+                new ArrayList<>(syntaxTextStyleMapper.styleClassesForToken(tokens, index, false))
         );
     }
 

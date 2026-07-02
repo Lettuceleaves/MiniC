@@ -28,7 +28,7 @@ export interface MiniCTokenClassifier {
   roleFor(token: string, startOffset: number, fullLine: string): MiniCTextStyleRoleValue;
 }
 
-const TOKEN_PATTERN = /[-+]?0x[0-9A-Fa-f]+|[-+]?[0-9]+(?:\.[0-9]+)?|[%@$&.]?[A-Za-z0-9_][A-Za-z0-9_.$]*|\S/g;
+const TOKEN_PATTERN = /[-+]?0x[0-9A-Fa-f]+|[-+]?[0-9]+(?:\.[0-9]+)?|[%@$&.]?[A-Za-z0-9_][A-Za-z0-9_.$]*\*?|==|!=|<=|>=|->|&&|\|\||<<=?|>>=?|[-+*/%=&|!<>^~]+|\S/g;
 
 export class MiniCLineTokenHighlighter {
   static readonly mirror = miniCLineTokenHighlighterMirror;

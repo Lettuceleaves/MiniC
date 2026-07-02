@@ -3,6 +3,7 @@ package minic.settings;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
@@ -145,6 +146,13 @@ public final class MiniCSettingsPane extends VBox {
             }
         });
 
+        CheckBox autoSplitTabs = new CheckBox("自动拆分 Pipeline Tab");
+        autoSplitTabs.getStyleClass().add("activity-placeholder-text");
+        autoSplitTabs.setAccessibleText("setting:autoSplitPipelineTabs");
+        autoSplitTabs.setSelected(MiniCSettings.autoSplitPipelineTabs());
+        autoSplitTabs.selectedProperty().addListener((observable, oldValue, selected) ->
+                MiniCSettings.setAutoSplitPipelineTabs(selected));
+
         Label keyBindingLabel = new Label("键位绑定");
         keyBindingLabel.getStyleClass().add("activity-placeholder-text");
         keyBindingWarning.getStyleClass().addAll("body-text", "key-binding-warning");
@@ -160,6 +168,7 @@ public final class MiniCSettingsPane extends VBox {
                 uiScaleLabel, uiScaleRow,
                 zoomLabel, zoomRow,
                 zoomAnchorLabel, zoomAnchorCombo,
+                autoSplitTabs,
                 keyBindingLabel, keyBindingRows, keyBindingWarning
         );
     }

@@ -114,6 +114,13 @@ final class IncrementalIrFunctionLowerer {
         return new IrFunction(function.name(), parameters, builder.buildBlocks(), function.range());
     }
 
+    IrFunction snapshot() {
+        if (!begun) {
+            throw new IllegalStateException("function lowering has not begun");
+        }
+        return new IrFunction(function.name(), parameters, builder.buildBlocks(), function.range());
+    }
+
     private static List<AstStep> astNodes(BlockStmt body) {
         ArrayList<AstStep> nodes = new ArrayList<>();
         for (Statement statement : body.statements()) {

@@ -17,14 +17,22 @@ export const miniCIrTextHighlighterMirror = {
   ],
   fields: [
     {
-      "name": "KEYWORDS",
-      "signature": "private static final Set<String>KEYWORDS="
+      "name": "DIRECTIVES",
+      "signature": "private static final Set<String>DIRECTIVES="
+    },
+    {
+      "name": "OPERATIONS",
+      "signature": "private static final Set<String>OPERATIONS="
     }
   ],
   methods: [
     {
       "name": "highlight",
       "signature": "highlight(String line)"
+    },
+    {
+      "name": "followsCallTarget",
+      "signature": "followsCallTarget(int startOffset,String fullLine)"
     },
     {
       "name": "isIdentifier",
@@ -35,16 +43,27 @@ export const miniCIrTextHighlighterMirror = {
       "signature": "isNumber(String token)"
     },
     {
+      "name": "isPunctuation",
+      "signature": "isPunctuation(String token)"
+    },
+    {
       "name": "roleFor",
       "signature": "roleFor(String token,int startOffset,String fullLine)"
+    },
+    {
+      "name": "startsLabel",
+      "signature": "startsLabel(String token,int startOffset,String fullLine)"
     }
   ],
 } as const satisfies JavaMirrorFile;
 
-const KEYWORDS = new Set([
+const DIRECTIVES = new Set([
   "function",
   "block",
   "declare",
+]);
+
+const OPERATIONS = new Set([
   "check_initialized",
   "address_of",
   "load",
@@ -84,7 +103,7 @@ const KEYWORDS = new Set([
 ]);
 
 const NUMBER = /^[-+]?0x[0-9A-Fa-f]+$|^[-+]?[0-9]+(?:\.[0-9]+)?$/;
-const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_.$]*$/;
+const IDENTIFIER = /^[A-Za-z_@][A-Za-z0-9_.$]*$/;
 
 export class MiniCIrTextHighlighter implements MiniCTokenClassifier {
   static readonly mirror = miniCIrTextHighlighterMirror;
@@ -93,18 +112,43 @@ export class MiniCIrTextHighlighter implements MiniCTokenClassifier {
     return MiniCLineTokenHighlighter.highlight(line, this);
   }
 
-  roleFor(token: string): MiniCTextStyleRoleValue {
+  roleFor(token: string, startOffset: number, fullLine: string): MiniCTextStyleRoleValue {
     const normalized = token.toLowerCase();
-    if (KEYWORDS.has(normalized)) {
+    if (DIRECTIVES.has(normalized)) {
+      return MiniCTextStyleRole.CODE_DIRECTIVE;
+    }
+    if (OPERATIONS.has(normalized)) {
       return MiniCTextStyleRole.CODE_KEYWORD;
     }
     if (NUMBER.test(token)) {
       return MiniCTextStyleRole.CODE_LITERAL;
     }
-    if (token.startsWith("%") || token.startsWith("$") || token.startsWith("&") || IDENTIFIER.test(token)) {
-      return MiniCTextStyleRole.CODE_IDENTIFIER;
+    if (this.startsLabel(token, startOffset, fullLine) || token.startsWith(".") || token.startsWith("$")) {
+      return MiniCTextStyleRole.CODE_LABEL;
+    }
+    if (token.startsWith("@") || this.followsCallTarget(startOffset, fullLine)) {
+      return MiniCTextStyleRole.CODE_FUNCTION;
+    }
+    if (token.startsWith("%") || token.startsWith("&") || IDENTIFIER.test(token)) {
+      return MiniCTextStyleRole.CODE_VARIABLE;
+    }
+    if (this.isPunctuation(token)) {
+      return MiniCTextStyleRole.CODE_PUNCTUATION;
     }
     return MiniCTextStyleRole.CODE_OPERATOR;
+  }
+
+  private startsLabel(token: string, startOffset: number, fullLine: string): boolean {
+    return fullLine.at(startOffset + token.length) === ":";
+  }
+
+  private followsCallTarget(startOffset: number, fullLine: string): boolean {
+    const prefix = fullLine.slice(0, Math.max(0, startOffset)).trimEnd().toLowerCase();
+    return prefix.endsWith("call") || prefix.endsWith("call*") || prefix.endsWith("declare");
+  }
+
+  private isPunctuation(token: string): boolean {
+    return token.length === 1 && "(),:[]{}".includes(token);
   }
 }
 

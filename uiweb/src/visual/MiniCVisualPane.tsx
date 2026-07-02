@@ -120,6 +120,14 @@ export const miniCVisualPaneMirror = {
       "signature": "private final TextArea executionStdin="
     },
     {
+      "name": "stageOverride",
+      "signature": "private final String stageOverride"
+    },
+    {
+      "name": "visualSide",
+      "signature": "private final VisualSide visualSide"
+    },
+    {
       "name": "explanationFormatter",
       "signature": "private final MiniCVisualExplanationFormatter explanationFormatter"
     },
@@ -132,12 +140,20 @@ export const miniCVisualPaneMirror = {
       "signature": "private final Label header="
     },
     {
+      "name": "id",
+      "signature": "private final String id"
+    },
+    {
       "name": "hoverInspector",
       "signature": "private final MiniCHoverInspector hoverInspector"
     },
     {
       "name": "irTextHighlighter",
       "signature": "private final MiniCIrTextHighlighter irTextHighlighter="
+    },
+    {
+      "name": "label",
+      "signature": "private final String label"
     },
     {
       "name": "leftColumn",
@@ -234,6 +250,10 @@ export const miniCVisualPaneMirror = {
       "signature": "activeViewportAdapters()"
     },
     {
+      "name": "applyVisibleColumns",
+      "signature": "applyVisibleColumns()"
+    },
+    {
       "name": "assemblyRow",
       "signature": "assemblyRow(MiniCAssemblyTextLine line,UiStageVisualDto visual)"
     },
@@ -310,6 +330,10 @@ export const miniCVisualPaneMirror = {
       "signature": "hasSavedViewport(String key)"
     },
     {
+      "name": "id",
+      "signature": "id()"
+    },
+    {
       "name": "inspectorContent",
       "signature": "inspectorContent(String title,List<String>metadata,UiSourceSpanDto range,String explanation,UiStageVisualDto visual)"
     },
@@ -328,6 +352,10 @@ export const miniCVisualPaneMirror = {
     {
       "name": "irRow",
       "signature": "irRow(UiIrLineVisualDto line,UiStageVisualDto visual)"
+    },
+    {
+      "name": "label",
+      "signature": "label()"
     },
     {
       "name": "isActiveFullyVisible",
@@ -483,14 +511,18 @@ export const miniCVisualPaneMirror = {
 export interface MiniCVisualPaneProps {
   readonly viewModel: MiniCWorkbenchViewModel;
   readonly inspector?: MiniCHoverInspector;
+  readonly stageOverride?: string;
+  readonly side?: MiniCVisualSide;
 }
+
+export type MiniCVisualSide = "both" | "before" | "after";
 
 const DEFAULT_AST_ZOOM = 1;
 const MIN_AST_ZOOM = 0.05;
 const MAX_AST_ZOOM = 1;
 const AST_ZOOM_STEP = 0.025;
 
-export function MiniCVisualPane({ viewModel, inspector }: MiniCVisualPaneProps) {
+export function MiniCVisualPane({ viewModel, inspector, stageOverride = "", side = "both" }: MiniCVisualPaneProps) {
   const snapshot = useVisualSnapshot(viewModel);
   const [astZoom, setAstZoomState] = useState(DEFAULT_AST_ZOOM);
   const [selectedSemanticScopeId, setSelectedSemanticScopeId] = useState("");
@@ -506,7 +538,9 @@ export function MiniCVisualPane({ viewModel, inspector }: MiniCVisualPaneProps) 
     snapshot,
   }), [localInspector, snapshot]);
   const currentStage = snapshot.currentStageData?.stage ?? "pending";
-  const stage = snapshot.selectedVisualStage.length > 0 ? snapshot.selectedVisualStage : currentStage;
+  const stage = stageOverride.length > 0
+    ? stageOverride
+    : snapshot.selectedVisualStage.length > 0 ? snapshot.selectedVisualStage : currentStage;
   const visual = visualForStage(stage, snapshot);
 
   useEffect(() => {
@@ -537,16 +571,22 @@ export function MiniCVisualPane({ viewModel, inspector }: MiniCVisualPaneProps) 
 
   return (
     <section className="visual-canvas" data-java-source={miniCVisualPaneMirror.javaPath}>
-      <header className="pane-head">图形视图 · {stageName(stage)}{stage === currentStage ? "" : " · 快照"}</header>
-      <div className="stage-flow">
-        <section className="stage-flow-column">
-          <h2 className="stage-flow-title">{columns.leftTitle}</h2>
-          <div className="stage-flow-body">{columns.left}</div>
-        </section>
-        <section className="stage-flow-column">
-          <h2 className="stage-flow-title">{columns.rightTitle}</h2>
-          <div className="stage-flow-body">{columns.right}</div>
-        </section>
+      <header className="pane-head">
+        图形视图 · {stageName(stage)}{side === "both" ? "" : ` · ${side}`}{stage === currentStage ? "" : " · 快照"}
+      </header>
+      <div className={`stage-flow${side === "both" ? "" : " single"}`}>
+        {side !== "after" && (
+          <section className="stage-flow-column">
+            <h2 className="stage-flow-title">{columns.leftTitle}</h2>
+            <div className="stage-flow-body">{columns.left}</div>
+          </section>
+        )}
+        {side !== "before" && (
+          <section className="stage-flow-column">
+            <h2 className="stage-flow-title">{columns.rightTitle}</h2>
+            <div className="stage-flow-body">{columns.right}</div>
+          </section>
+        )}
       </div>
     </section>
   );
@@ -558,6 +598,7 @@ export function visualForStage(stage: string, snapshot: MiniCWorkbenchSnapshot):
   if (stage === "lexer") return snapshot.lexerVisualData;
   if (stage === "parser") return snapshot.astVisualData;
   if (stage === "semantic") return snapshot.semanticVisualData;
+  if (stage === "ir") return snapshot.irVisualData;
   if (stage === "codegen") return snapshot.codegenVisualData;
   return snapshot.currentStageVisualData ?? snapshot.lexerVisualData ?? snapshot.astVisualData;
 }
@@ -700,7 +741,7 @@ function stageColumns(
         leftTitle: "AST",
         left: astGraph(visual, astZoom, setAstZoom, true, inspectorContext, selectedSemanticScopeId, setSelectedSemanticScopeId),
         rightTitle: "IR",
-        right: selectedSemanticScopeId.length === 0 ? globalRows("ir", snapshot) : activeScopeRows(visual, selectedSemanticScopeId),
+        right: selectedSemanticScopeId.length === 0 ? codegenIrRows(visual, irTextHighlighter, inspectorContext) : activeScopeRows(visual, selectedSemanticScopeId),
       };
     case "toolchain":
       return {
@@ -1014,6 +1055,7 @@ export function sourceTextForRange(
   }
   const visuals = [
     snapshot.currentStageVisualData,
+    snapshot.irVisualData,
     snapshot.semanticVisualData,
     snapshot.astVisualData,
     snapshot.lexerVisualData,

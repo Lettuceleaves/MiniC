@@ -16,6 +16,7 @@ export const miniCSettingsPaneMirror = {
     "javafx.collections.FXCollections",
     "javafx.collections.ObservableList",
     "javafx.scene.control.Button",
+    "javafx.scene.control.CheckBox",
     "javafx.scene.control.ComboBox",
     "javafx.scene.control.Label",
     "javafx.scene.control.Slider",
@@ -87,6 +88,7 @@ export function MiniCSettingsPane({ controlHub: sharedControlHub }: MiniCSetting
   const [uiScale, setUiScaleState] = useState(() => MiniCSettings.uiScale());
   const [graphZoomStep, setGraphZoomStepState] = useState(() => MiniCSettings.graphZoomStep());
   const [graphZoomAnchor, setGraphZoomAnchorState] = useState(() => MiniCSettings.graphZoomAnchor());
+  const [autoSplitPipelineTabs, setAutoSplitPipelineTabsState] = useState(() => MiniCSettings.autoSplitPipelineTabs());
   const [capture, setCapture] = useState<CaptureState | null>(null);
   const [keyBindingWarning, setKeyBindingWarning] = useState("");
   const [bindingVersion, setBindingVersion] = useState(0);
@@ -144,6 +146,11 @@ export function MiniCSettingsPane({ controlHub: sharedControlHub }: MiniCSetting
   function setGraphZoomAnchor(value: string): void {
     MiniCSettings.setGraphZoomAnchor(value);
     setGraphZoomAnchorState(MiniCSettings.graphZoomAnchor());
+  }
+
+  function setAutoSplitPipelineTabs(value: boolean): void {
+    MiniCSettings.setAutoSplitPipelineTabs(value);
+    setAutoSplitPipelineTabsState(MiniCSettings.autoSplitPipelineTabs());
   }
 
   function beginCapture(action: string): void {
@@ -304,6 +311,16 @@ export function MiniCSettingsPane({ controlHub: sharedControlHub }: MiniCSetting
         <option value="mouse">mouse</option>
         <option value="center">center</option>
       </select>
+
+      <label className="settings-check-row activity-placeholder-text" htmlFor="minic-auto-split-pipeline-tabs">
+        <input
+          checked={autoSplitPipelineTabs}
+          id="minic-auto-split-pipeline-tabs"
+          onChange={(event) => setAutoSplitPipelineTabs(event.target.checked)}
+          type="checkbox"
+        />
+        <span>自动拆分 Pipeline Tab</span>
+      </label>
 
       <label className="activity-placeholder-text">键位绑定</label>
       <div className="key-binding-list">

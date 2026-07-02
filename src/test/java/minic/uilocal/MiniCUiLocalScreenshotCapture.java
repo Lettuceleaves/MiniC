@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * Headful JavaFX screenshot fixture used by UIWeb parity verification.
  */
 public final class MiniCUiLocalScreenshotCapture {
+    private static final Path SETTINGS_FILE = Path.of("config", "settings.json");
     private static final List<Viewport> VIEWPORTS = List.of(
             new Viewport("desktop-1920x1080", 1920, 1080),
             new Viewport("desktop-1366x768", 1366, 768),
@@ -104,6 +105,7 @@ public final class MiniCUiLocalScreenshotCapture {
         Path outputRoot = Path.of(args.length == 0 ? "uiweb-render-check/parity-report/uilocal" : args[0])
                 .toAbsolutePath()
                 .normalize();
+        SettingsBackup settingsBackup = backupSettings();
         int exitCode = 0;
         try {
             cleanOutputRoot(outputRoot);
@@ -117,6 +119,7 @@ public final class MiniCUiLocalScreenshotCapture {
             throwable.printStackTrace(System.err);
             exitCode = 1;
         } finally {
+            restoreSettings(settingsBackup);
             Platform.exit();
         }
         if (exitCode != 0) {
@@ -160,7 +163,7 @@ public final class MiniCUiLocalScreenshotCapture {
                             && "execution".equals(workbench.model().currentStateProperty().get().currentStage())));
             for (String stage : STAGES) {
                 runFx(() -> {
-                    workbench.model().selectVisualStage(stage);
+                    workbench.shell().openStageTabsForTesting(stage);
                     pulse(workbench.root());
                     return null;
                 });
@@ -231,6 +234,7 @@ public final class MiniCUiLocalScreenshotCapture {
 
     private static FxWorkbench openWorkbench(Viewport viewport) {
         MiniCSettings.load();
+        MiniCSettings.setAutoSplitPipelineTabs(true);
         MiniCWorkbenchViewModel model = new MiniCWorkbenchViewModel();
         MiniCWorkbenchShell shell = new MiniCWorkbenchShell(model);
         Parent root = shell.createRoot();
@@ -242,7 +246,28 @@ public final class MiniCUiLocalScreenshotCapture {
         model.loadSource("03_red_black_tree.mc", WORKFLOW_SOURCE);
         model.submitRealtimeSource("03_red_black_tree.mc", WORKFLOW_SOURCE);
         pulse(root);
-        return new FxWorkbench(stage, root, model);
+        return new FxWorkbench(stage, root, model, shell);
+    }
+
+    private static SettingsBackup backupSettings() throws IOException {
+        Path normalized = SETTINGS_FILE.toAbsolutePath().normalize();
+        if (!Files.exists(normalized)) {
+            return new SettingsBackup(normalized, false, null);
+        }
+        return new SettingsBackup(normalized, true, Files.readAllBytes(normalized));
+    }
+
+    private static void restoreSettings(SettingsBackup backup) {
+        try {
+            if (backup.existed()) {
+                Files.createDirectories(backup.path().getParent());
+                Files.write(backup.path(), backup.content());
+            } else {
+                Files.deleteIfExists(backup.path());
+            }
+        } catch (IOException exception) {
+            System.err.println("Failed to restore settings file after screenshot capture: " + exception.getMessage());
+        }
     }
 
     private static void selectActivity(Parent root, String accessibleText) {
@@ -402,7 +427,10 @@ public final class MiniCUiLocalScreenshotCapture {
         }
     }
 
-    private record FxWorkbench(Stage stage, Parent root, MiniCWorkbenchViewModel model) {
+    private record FxWorkbench(Stage stage, Parent root, MiniCWorkbenchViewModel model, MiniCWorkbenchShell shell) {
+    }
+
+    private record SettingsBackup(Path path, boolean existed, byte[] content) {
     }
 
     @FunctionalInterface

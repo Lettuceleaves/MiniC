@@ -158,6 +158,7 @@ public final class MiniCUiApiRouter implements HttpHandler {
             case "lexer" -> api.lexerVisualData();
             case "ast" -> api.astVisualData();
             case "semantic" -> api.semanticVisualData();
+            case "ir" -> api.irVisualData();
             case "codegen" -> api.codegenVisualData();
             default -> throw notFound(exchange);
         };

@@ -13,6 +13,7 @@ export const miniCSidebarViewMirror = {
   "imports": [
     "java.util.List",
     "java.util.Objects",
+    "java.util.function.Consumer",
     "javafx.scene.control.Label",
     "javafx.scene.layout.VBox"
   ],
@@ -20,6 +21,10 @@ export const miniCSidebarViewMirror = {
     {
       "name": "stageList",
       "signature": "private final VBox stageList="
+    },
+    {
+      "name": "stageSelectAction",
+      "signature": "private final Consumer<String> stageSelectAction"
     },
     {
       "name": "stageListFactory",
@@ -48,9 +53,10 @@ export const miniCSidebarViewMirror = {
 
 export interface MiniCSidebarViewProps {
   readonly viewModel: MiniCWorkbenchViewModel;
+  readonly onStageSelect?: (stageId: string) => void;
 }
 
-export function MiniCSidebarView({ viewModel }: MiniCSidebarViewProps) {
+export function MiniCSidebarView({ viewModel, onStageSelect }: MiniCSidebarViewProps) {
   const snapshot = useWorkbenchSnapshot(viewModel);
   const factory = useMemo(() => new MiniCStageListFactory(), []);
   const stages = useMemo(
@@ -68,7 +74,13 @@ export function MiniCSidebarView({ viewModel }: MiniCSidebarViewProps) {
             key={stage.id}
             stage={stage}
             selected={stage.id === snapshot.selectedVisualStage}
-            onSelect={(stageId) => viewModel.runInBackground(viewModel.selectVisualStage(stageId), "选择阶段失败")}
+            onSelect={(stageId) => {
+              if (onStageSelect !== undefined) {
+                onStageSelect(stageId);
+              } else {
+                viewModel.runInBackground(viewModel.selectVisualStage(stageId), "选择阶段失败");
+              }
+            }}
           />
         ))}
       </div>

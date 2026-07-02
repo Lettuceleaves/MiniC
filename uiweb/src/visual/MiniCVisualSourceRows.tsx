@@ -93,14 +93,14 @@ interface SourceTokenStyle {
 const syntaxTextStyleMapper = new MiniCSyntaxTextStyleMapper();
 
 export function sourceTokenStyles(visual: UiStageVisualDto | null | undefined): readonly SourceTokenStyle[] {
-  return (visual?.lexerTokens ?? [])
+  const tokens = (visual?.lexerTokens ?? [])
     .filter((token) => token.range !== null && token.range.endOffset > token.range.startOffset)
-    .map((token) => ({
-      startOffset: token.range?.startOffset ?? 0,
-      endOffset: token.range?.endOffset ?? 0,
-      styleClasses: syntaxTextStyleMapper.styleClassesFor(token.kind, false),
-    }))
-    .sort((left, right) => left.startOffset - right.startOffset);
+    .sort((left, right) => (left.range?.startOffset ?? 0) - (right.range?.startOffset ?? 0));
+  return tokens.map((token, index) => ({
+    startOffset: token.range?.startOffset ?? 0,
+    endOffset: token.range?.endOffset ?? 0,
+    styleClasses: syntaxTextStyleMapper.styleClassesForToken(tokens, index, false),
+  }));
 }
 
 export function sourceLineFlow(

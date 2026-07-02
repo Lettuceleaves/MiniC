@@ -195,6 +195,19 @@ public final class IrStepState implements CompilerStageState<IrStepState.Input, 
         return new IrModule(work.functions, work.stringLiteralRegistry.stringData(), work.externalFunctionNames);
     }
 
+    /**
+     * 返回当前已产出的 IR 模块快照，不推进 lowering 状态。
+     *
+     * @return 当前 IR 模块快照
+     */
+    public IrModule currentModule() {
+        ArrayList<IrFunction> functions = new ArrayList<>(work.functions);
+        if (currentFunctionLowerer != null) {
+            functions.add(currentFunctionLowerer.snapshot());
+        }
+        return new IrModule(functions, work.stringLiteralRegistry.stringData(), work.externalFunctionNames);
+    }
+
     private static Map<String, IrFunctionSignature> collectFunctionSignatures(Program program) {
         java.util.LinkedHashMap<String, IrFunctionSignature> signatures = new java.util.LinkedHashMap<>();
         for (FunctionDecl function : program.functions()) {

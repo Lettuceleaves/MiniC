@@ -62,6 +62,8 @@ public final class MiniCVisualPane extends VBox {
     private final StageColumn rightColumn = new StageColumn("right", true);
     private final Slider astZoom = new Slider(MIN_AST_ZOOM, MAX_AST_ZOOM, DEFAULT_AST_ZOOM);
     private final TextArea executionStdin = new TextArea();
+    private final String stageOverride;
+    private final VisualSide visualSide;
     private MiniCWorkbenchControlHub controlHub;
     private String selectedSemanticScopeId = "";
     private boolean refreshScheduled;
@@ -73,7 +75,7 @@ public final class MiniCVisualPane extends VBox {
      * @param viewModel UI 状态模型
      */
     public MiniCVisualPane(MiniCWorkbenchViewModel viewModel) {
-        this(viewModel, new MiniCHoverInspector());
+        this(viewModel, new MiniCHoverInspector(), "", VisualSide.BOTH);
     }
 
     /**
@@ -83,8 +85,19 @@ public final class MiniCVisualPane extends VBox {
      * @param hoverInspector hover inspector 共享状态
      */
     public MiniCVisualPane(MiniCWorkbenchViewModel viewModel, MiniCHoverInspector hoverInspector) {
+        this(viewModel, hoverInspector, "", VisualSide.BOTH);
+    }
+
+    public MiniCVisualPane(
+            MiniCWorkbenchViewModel viewModel,
+            MiniCHoverInspector hoverInspector,
+            String stageOverride,
+            VisualSide visualSide
+    ) {
         this.viewModel = Objects.requireNonNull(viewModel, "viewModel");
         this.hoverInspector = Objects.requireNonNull(hoverInspector, "hoverInspector");
+        this.stageOverride = stageOverride == null ? "" : stageOverride;
+        this.visualSide = Objects.requireNonNull(visualSide, "visualSide");
         this.explanationFormatter = new MiniCVisualExplanationFormatter(range -> sourceSnippetForRange(range, null));
         this.astGraphRenderer = new MiniCVisualAstGraphRenderer(
                 astZoom,
@@ -102,8 +115,7 @@ public final class MiniCVisualPane extends VBox {
         splitPane.setOrientation(Orientation.HORIZONTAL);
         splitPane.setMinWidth(0);
         splitPane.setMaxWidth(Double.MAX_VALUE);
-        splitPane.getItems().setAll(leftColumn.root, rightColumn.root);
-        splitPane.setDividerPositions(0.5);
+        applyVisibleColumns();
         astZoom.getStyleClass().add("ast-zoom-slider");
         astZoom.setBlockIncrement(AST_ZOOM_STEP);
         astZoom.setMajorTickUnit(0.25);
@@ -117,9 +129,21 @@ public final class MiniCVisualPane extends VBox {
         viewModel.lexerVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.astVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.semanticVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
+        viewModel.irVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.codegenVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.globalDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.selectedVisualStageProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
+    }
+
+    private void applyVisibleColumns() {
+        switch (visualSide) {
+            case BEFORE -> splitPane.getItems().setAll(leftColumn.root);
+            case AFTER -> splitPane.getItems().setAll(rightColumn.root);
+            case BOTH -> {
+                splitPane.getItems().setAll(leftColumn.root, rightColumn.root);
+                splitPane.setDividerPositions(0.5);
+            }
+        }
     }
 
     private void requestRefresh() {
@@ -146,12 +170,16 @@ public final class MiniCVisualPane extends VBox {
                 ? "pending"
                 : viewModel.currentStageDataProperty().get().stage();
         String selectedStage = viewModel.selectedVisualStageProperty().get();
-        String stage = selectedStage == null || selectedStage.isBlank() ? currentStage : selectedStage;
+        String stage = !stageOverride.isBlank()
+                ? stageOverride
+                : selectedStage == null || selectedStage.isBlank() ? currentStage : selectedStage;
         activeVisualStage = stage;
         if (!"semantic".equals(stage)) {
             selectedSemanticScopeId = "";
         }
-        header.setText("图形视图 · " + stageName(stage) + (stage.equals(currentStage) ? "" : " · 快照"));
+        header.setText("图形视图 · " + stageName(stage)
+                + (visualSide == VisualSide.BOTH ? "" : " · " + visualSide.label())
+                + (stage.equals(currentStage) ? "" : " · 快照"));
         UiStageVisualDto visual = visualForStage(stage);
         if (visual == null) {
             leftColumn.setContent(stage, fallbackRows());
@@ -186,7 +214,7 @@ public final class MiniCVisualPane extends VBox {
             case "ir" -> {
                 leftColumn.setContent("AST", List.of(astGraphRenderer.zoomableSemanticAstGraph(visual)));
                 if (selectedSemanticScopeId == null || selectedSemanticScopeId.isBlank()) {
-                    rightColumn.setContent("IR", globalRows(stage));
+                    rightColumn.setContent("IR", codegenIrRows(visual));
                 } else {
                     rightColumn.setContent("作用域", activeScopeRows(visual));
                 }
@@ -211,6 +239,7 @@ public final class MiniCVisualPane extends VBox {
             case "lexer" -> viewModel.lexerVisualDataProperty().get();
             case "parser" -> viewModel.astVisualDataProperty().get();
             case "semantic" -> viewModel.semanticVisualDataProperty().get();
+            case "ir" -> viewModel.irVisualDataProperty().get();
             case "codegen" -> viewModel.codegenVisualDataProperty().get();
             default -> viewModel.currentStageVisualDataProperty().get();
         };
@@ -253,8 +282,12 @@ public final class MiniCVisualPane extends VBox {
      */
     public List<MiniCViewportAdapter> activeViewportAdapters() {
         ArrayList<MiniCViewportAdapter> adapters = new ArrayList<>();
-        adapters.add(leftColumn.viewportAdapter);
-        adapters.add(rightColumn.viewportAdapter);
+        if (visualSide != VisualSide.AFTER) {
+            adapters.add(leftColumn.viewportAdapter);
+        }
+        if (visualSide != VisualSide.BEFORE) {
+            adapters.add(rightColumn.viewportAdapter);
+        }
         astGraphRenderer.collectGraphViewportAdapters(this, adapters);
         return adapters;
     }
@@ -580,6 +613,7 @@ public final class MiniCVisualPane extends VBox {
         }
         for (UiStageVisualDto visual : new UiStageVisualDto[]{
                 viewModel.currentStageVisualDataProperty().get(),
+                viewModel.irVisualDataProperty().get(),
                 viewModel.semanticVisualDataProperty().get(),
                 viewModel.astVisualDataProperty().get(),
                 viewModel.lexerVisualDataProperty().get(),
@@ -992,6 +1026,28 @@ public final class MiniCVisualPane extends VBox {
             public void centerActive() {
                 StageColumn.this.centerActive();
             }
+        }
+    }
+
+    public enum VisualSide {
+        BOTH("both", "both"),
+        BEFORE("before", "before"),
+        AFTER("after", "after");
+
+        private final String id;
+        private final String label;
+
+        VisualSide(String id, String label) {
+            this.id = id;
+            this.label = label;
+        }
+
+        public String id() {
+            return id;
+        }
+
+        public String label() {
+            return label;
         }
     }
 }
