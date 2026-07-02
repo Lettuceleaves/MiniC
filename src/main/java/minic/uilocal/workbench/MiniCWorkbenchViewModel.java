@@ -166,6 +166,15 @@ public final class MiniCWorkbenchViewModel {
         UiControlResultDto result = api.next();
         applyControlResult(result);
         refreshAll();
+        if ("CANNOT_ADVANCE".equals(result.outcome())
+                && "execution".equals(result.stage())
+                && currentState.get() != null
+                && currentStageData.get() != null
+                && "execution".equals(currentState.get().currentStage())
+                && !currentState.get().canNext()
+                && currentStageData.get().completed()) {
+            loadSource(sourceName.get(), sourceText.get());
+        }
         return result;
     }
 
@@ -184,6 +193,15 @@ public final class MiniCWorkbenchViewModel {
                 : api.nextStage();
         applyControlResult(result);
         refreshAll();
+        if ("CANNOT_ADVANCE".equals(result.outcome())
+                && "execution".equals(result.stage())
+                && currentState.get() != null
+                && currentStageData.get() != null
+                && "execution".equals(currentState.get().currentStage())
+                && !currentState.get().canNext()
+                && currentStageData.get().completed()) {
+            loadSource(sourceName.get(), sourceText.get());
+        }
         return result;
     }
 
@@ -238,6 +256,15 @@ public final class MiniCWorkbenchViewModel {
         UiControlResultDto result = api.tick();
         applyControlResult(result);
         refreshAll();
+        if ("CANNOT_ADVANCE".equals(result.outcome())
+                && "execution".equals(result.stage())
+                && currentState.get() != null
+                && currentStageData.get() != null
+                && "execution".equals(currentState.get().currentStage())
+                && !currentState.get().canNext()
+                && currentStageData.get().completed()) {
+            loadSource(sourceName.get(), sourceText.get());
+        }
         return result;
     }
 

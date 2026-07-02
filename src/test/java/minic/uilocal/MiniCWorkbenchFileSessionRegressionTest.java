@@ -182,7 +182,7 @@ class MiniCWorkbenchFileSessionRegressionTest {
     }
 
     @Test
-    void executionCompletionClosesReusableBeforeAfterTabs() throws Exception {
+    void executionResultStaysVisibleBeforeNextAdvanceClosesReusableBeforeAfterTabs() throws Exception {
         String originalSettings = backup(SETTINGS_FILE);
         try {
             Files.writeString(SETTINGS_FILE, """
@@ -200,10 +200,21 @@ class MiniCWorkbenchFileSessionRegressionTest {
 
             model.next();
 
+            assertThat(model.currentStateProperty().get().canNext()).isTrue();
+            assertThat(shell.workspaceTabTitlesForTesting())
+                    .containsExactly("pipeline-tabs.mc", "pipeline-tabs.mc before", "pipeline-tabs.mc after");
+
+            model.next();
+
             assertThat(shell.workspaceTabTitlesForTesting())
                     .containsExactly("pipeline-tabs.mc");
             assertThat(shell.activeLeftWorkspaceTabTitleForTesting()).isEqualTo("pipeline-tabs.mc");
             assertThat(shell.activeRightWorkspaceTabTitleForTesting()).isEmpty();
+            assertThat(model.sessionStartedProperty().get()).isFalse();
+            assertThat(model.currentStateProperty().get()).isNull();
+            assertThat(model.currentStageDataProperty().get()).isNull();
+            assertThat(model.globalDataProperty().get()).isNull();
+            assertThat(model.lastControlResultProperty().get()).isNull();
         } finally {
             restore(SETTINGS_FILE, originalSettings);
             MiniCSettings.load();
