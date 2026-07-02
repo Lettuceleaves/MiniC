@@ -7,7 +7,10 @@ import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrModule;
 import minic.compiler.ir.value.IrTemporary;
+import minic.compiler.semantic.StructLayout;
 import minic.runtime.debug.dataflow.DataFlowEventType;
+import minic.runtime.debug.dataflow.DebugFieldInfo;
+import minic.runtime.debug.dataflow.PointerFieldWrite;
 import minic.runtime.debug.visual.VisualAnnotation;
 import minic.source.SourceFile;
 
@@ -18,6 +21,7 @@ final class InterpreterState {
         final IrModule module;
         final IrFunction function;
         final DebugSession session;
+        final Map<String, StructLayout> structLayouts;
         final List<VisualRuntimeGraph> visualRuntimeGraphs;
         final Map<String, AddressLocal> addressLocals = new LinkedHashMap<>();
         final Map<String, AddressField> addressFields = new LinkedHashMap<>();
@@ -42,11 +46,13 @@ final class InterpreterState {
                 IrModule module,
                 IrFunction function,
                 SourceFile sourceFile,
-                List<VisualAnnotation> visualAnnotations
+                List<VisualAnnotation> visualAnnotations,
+                Map<String, StructLayout> structLayouts
         ) {
             this.module = module;
             this.function = function;
             this.session = DebugSession.fromSource(sourceFile);
+            this.structLayouts = Map.copyOf(structLayouts);
             List<VisualAnnotation> visualMapAnnotations = visualAnnotations.stream()
                     .filter(annotation -> annotation.directive().equals("@visual-map"))
                     .toList();
@@ -284,7 +290,8 @@ record PendingDataFlowEvent(
             String oldValue,
             String newValue,
             String address,
-            String pointerTarget
+            String pointerTarget,
+            PointerFieldWrite pointerFieldWrite
     ) {
     }
 
@@ -313,8 +320,11 @@ record AddressLocal(
 
 record AddressField(
             DebugVirtualAddress baseAddress,
-            String fieldName
+            DebugFieldInfo fieldInfo
     ) {
+        String fieldName() {
+            return fieldInfo.fieldName();
+        }
     }
 
 record AddressElement(

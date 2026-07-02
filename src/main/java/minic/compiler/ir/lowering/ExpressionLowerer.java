@@ -489,13 +489,19 @@ final class ExpressionLowerer {
                 ? lowerExpression(fieldAccessExpr.target())
                 : lowerAddress(fieldAccessExpr.target());
         String structName = structName(fieldAccessExpr.target());
-        int offset = builder.fieldOffset(structName, fieldAccessExpr.fieldName());
+        int declaredFieldIndex = builder.fieldIndex(structName, fieldAccessExpr.fieldName());
+        int pointerFieldIndex = builder.pointerFieldIndex(structName, declaredFieldIndex);
+        int offset = builder.fieldOffset(structName, declaredFieldIndex);
         IrTemporary result = builder.newTemporary(IrType.POINTER);
         builder.addInstruction(new IrFieldAddressInstruction(
                 result,
                 baseAddress,
+                structName,
                 fieldAccessExpr.fieldName(),
+                declaredFieldIndex,
+                pointerFieldIndex,
                 offset,
+                builder.fieldType(structName, declaredFieldIndex),
                 fieldAccessExpr.range()
         ));
         return result;

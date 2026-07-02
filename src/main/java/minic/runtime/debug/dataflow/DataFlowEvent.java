@@ -17,6 +17,7 @@ import java.util.Objects;
  * @param newValue 变化后值
  * @param address 关联地址；没有时为空字符串
  * @param pointerTarget 指针目标地址；非指针事件为空字符串
+ * @param pointerFieldWrite 指针字段写入结构化信息；非指针字段写入事件为 {@code null}
  */
 public record DataFlowEvent(
         long snapshotId,
@@ -28,8 +29,39 @@ public record DataFlowEvent(
         String oldValue,
         String newValue,
         String address,
-        String pointerTarget
+        String pointerTarget,
+        PointerFieldWrite pointerFieldWrite
 ) {
+    /**
+     * 创建不携带结构化指针字段写入信息的数据流事件。
+     */
+    public DataFlowEvent(
+            long snapshotId,
+            String instructionId,
+            SourceRange sourceRange,
+            DataFlowEventType type,
+            String cExpression,
+            String lvaluePath,
+            String oldValue,
+            String newValue,
+            String address,
+            String pointerTarget
+    ) {
+        this(
+                snapshotId,
+                instructionId,
+                sourceRange,
+                type,
+                cExpression,
+                lvaluePath,
+                oldValue,
+                newValue,
+                address,
+                pointerTarget,
+                null
+        );
+    }
+
     /**
      * 创建数据流事件。
      */

@@ -64,7 +64,8 @@ public final class MiniCDebugApi {
      */
     public synchronized UiDebugStateDto startDebug() {
         ensureSourceLoaded();
-        session = new IrDebugInterpreter().runMain(lower(sourceFile), sourceFile);
+        Lowered lowered = lowerWithProgram(sourceFile);
+        session = new IrDebugInterpreter().runMain(lowered.module(), sourceFile, lowered.semanticResult());
         session.control(DebugCommand.RESTART);
         return currentState();
     }
@@ -327,7 +328,7 @@ public final class MiniCDebugApi {
         if (!semanticResult.diagnostics().isEmpty()) {
             throw new IllegalStateException("debug source has semantic diagnostics");
         }
-        lowered = new Lowered(sourceFile, program, new IrLowerer().lower(program, semanticResult));
+        lowered = new Lowered(sourceFile, program, semanticResult, new IrLowerer().lower(program, semanticResult));
         return lowered;
     }
 
@@ -336,6 +337,6 @@ public final class MiniCDebugApi {
         return sourceFile;
     }
 
-    private record Lowered(SourceFile sourceFile, Program program, IrModule module) {
+    private record Lowered(SourceFile sourceFile, Program program, SemanticResult semanticResult, IrModule module) {
     }
 }

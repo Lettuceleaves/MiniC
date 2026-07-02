@@ -10,6 +10,7 @@ import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrTemporary;
+import minic.compiler.semantic.StructFieldLayout;
 import minic.compiler.semantic.StructLayout;
 import minic.compiler.type.MiniType;
 import minic.compiler.type.TypeLayout;
@@ -96,52 +97,75 @@ final class IrFunctionBuilder {
     }
 
     int fieldOffset(String structName, String fieldName) {
-        StructLayout layout = structLayouts.get(structName);
-        if (layout == null) {
-            throw new IllegalArgumentException("missing struct layout: " + structName);
-        }
-        return layout.field(fieldName)
-                .orElseThrow(() -> new IllegalArgumentException("missing struct field: " + structName + "." + fieldName))
-                .offset();
+        return fieldLayout(structName, fieldName).offset();
     }
 
     int fieldOffset(String structName, int fieldIndex) {
-        StructLayout layout = structLayouts.get(structName);
-        if (layout == null) {
-            throw new IllegalArgumentException("missing struct layout: " + structName);
-        }
-        return layout.fields().get(fieldIndex).offset();
+        return fieldLayout(structName, fieldIndex).offset();
     }
 
     String fieldName(String structName, int fieldIndex) {
-        StructLayout layout = structLayouts.get(structName);
-        if (layout == null) {
-            throw new IllegalArgumentException("missing struct layout: " + structName);
+        return fieldLayout(structName, fieldIndex).name();
+    }
+
+    int fieldIndex(String structName, String fieldName) {
+        StructLayout layout = structLayout(structName);
+        for (int i = 0; i < layout.fields().size(); i++) {
+            if (layout.fields().get(i).name().equals(fieldName)) {
+                return i;
+            }
         }
-        return layout.fields().get(fieldIndex).name();
+        throw new IllegalArgumentException("missing struct field: " + structName + "." + fieldName);
+    }
+
+    int pointerFieldIndex(String structName, int declaredFieldIndex) {
+        StructLayout layout = structLayout(structName);
+        StructFieldLayout declaredField = layout.fields().get(declaredFieldIndex);
+        if (!declaredField.type().isPointer()) {
+            return -1;
+        }
+        int pointerIndex = 0;
+        for (int i = 0; i < declaredFieldIndex; i++) {
+            if (layout.fields().get(i).type().isPointer()) {
+                pointerIndex++;
+            }
+        }
+        return pointerIndex;
+    }
+
+    String fieldType(String structName, int fieldIndex) {
+        return fieldLayout(structName, fieldIndex).type().toString();
+    }
+
+    StructFieldLayout fieldLayout(String structName, String fieldName) {
+        return structLayout(structName).field(fieldName)
+                .orElseThrow(() -> new IllegalArgumentException("missing struct field: " + structName + "." + fieldName));
+    }
+
+    StructFieldLayout fieldLayout(String structName, int fieldIndex) {
+        return structLayout(structName).fields().get(fieldIndex);
     }
 
     int structSize(String structName) {
+        StructLayout layout = structLayout(structName);
+        return layout.size();
+    }
+
+    private StructLayout structLayout(String structName) {
         StructLayout layout = structLayouts.get(structName);
         if (layout == null) {
             throw new IllegalArgumentException("missing struct layout: " + structName);
         }
-        return layout.size();
+        return layout;
     }
 
     private int sizeBytes(MiniType declaredType, IrType irType) {
         if (declaredType instanceof MiniType.StructType structType) {
-            StructLayout layout = structLayouts.get(structType.name());
-            if (layout == null) {
-                throw new IllegalArgumentException("missing struct layout: " + structType.name());
-            }
+            StructLayout layout = structLayout(structType.name());
             return layout.size();
         }
         if (declaredType.isArray() && declaredType.elementType() instanceof MiniType.StructType structType) {
-            StructLayout layout = structLayouts.get(structType.name());
-            if (layout == null) {
-                throw new IllegalArgumentException("missing struct layout: " + structType.name());
-            }
+            StructLayout layout = structLayout(structType.name());
             return layout.size() * declaredType.arrayLength();
         }
         if (irType == IrType.INT_ARRAY) {

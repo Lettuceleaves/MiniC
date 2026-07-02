@@ -36,8 +36,12 @@ import minic.compiler.ir.value.IrParameterRef;
 import minic.compiler.ir.value.IrStringLiteral;
 import minic.compiler.ir.value.IrTemporary;
 import minic.compiler.ir.value.IrValue;
+import minic.compiler.semantic.SemanticResult;
+import minic.compiler.semantic.StructLayout;
 import minic.runtime.debug.dataflow.DataFlowEvent;
 import minic.runtime.debug.dataflow.DataFlowEventType;
+import minic.runtime.debug.dataflow.DebugFieldInfo;
+import minic.runtime.debug.dataflow.PointerFieldWrite;
 import minic.runtime.debug.visual.VisualAnnotation;
 import minic.runtime.debug.visual.VisualAnnotationParser;
 import minic.runtime.debug.visual.VisualEvent;
@@ -65,12 +69,22 @@ public final class IrDebugInterpreter {
     }
 
     public DebugSession runMain(IrModule module, SourceFile sourceFile) {
+        return runMain(module, sourceFile, Map.of());
+    }
+
+    public DebugSession runMain(IrModule module, SourceFile sourceFile, SemanticResult semanticResult) {
+        Objects.requireNonNull(semanticResult, "semanticResult");
+        return runMain(module, sourceFile, semanticResult.structLayouts());
+    }
+
+    public DebugSession runMain(IrModule module, SourceFile sourceFile, Map<String, StructLayout> structLayouts) {
         Objects.requireNonNull(module, "module");
         Objects.requireNonNull(sourceFile, "sourceFile");
+        Objects.requireNonNull(structLayouts, "structLayouts");
         IrFunction main = module.findFunction("main").orElseThrow(() ->
                 new IllegalArgumentException("IR module does not contain main"));
         List<VisualAnnotation> visualAnnotations = new VisualAnnotationParser().parse(sourceFile).annotations();
-        InterpreterState state = new InterpreterState(module, main, sourceFile, visualAnnotations);
+        InterpreterState state = new InterpreterState(module, main, sourceFile, visualAnnotations, structLayouts);
         state.pushFrame(main, List.of(), null);
         executeFunction(state);
         return state.session;
@@ -134,7 +148,7 @@ public final class IrDebugInterpreter {
         if (instruction instanceof IrFieldAddressInstruction fieldAddress) {
             DebugVirtualAddress baseAddress = pointerAddress(resolveValue(state, fieldAddress.baseAddress()));
             DebugVirtualAddress address = new DebugVirtualAddress(baseAddress.segment(), baseAddress.offset() + fieldAddress.offset());
-            AddressField fieldReference = new AddressField(baseAddress, fieldAddress.fieldName());
+            AddressField fieldReference = new AddressField(baseAddress, debugFieldInfo(fieldAddress));
             state.currentFrame().temps.put(
                     fieldAddress.result().name(),
                     DebugValue.pointerValue(typeName(fieldAddress.result().type()), address)
@@ -228,6 +242,7 @@ public final class IrDebugInterpreter {
             DebugValue oldValue = pointerValueAt(state, storePointer.address(), address);
             DataFlowEventType dataFlowType = pointerStoreEventType(state, storePointer.address(), address);
             String lvaluePath = addressPath(state, storePointer.address(), address);
+            PointerFieldWrite pointerFieldWrite = pointerFieldWrite(state, storePointer.address(), address, oldValue, value);
             queueDataFlowEvent(
                     state,
                     instruction,
@@ -236,7 +251,8 @@ public final class IrDebugInterpreter {
                     oldValue,
                     value,
                     address.display(),
-                    pointerTarget(value)
+                    pointerTarget(value),
+                    pointerFieldWrite
             );
             VisualFieldWrite visualFieldWrite = visualFieldWrite(state, storePointer.address(), address, value);
             writePointerValue(state, storePointer.address(), address, value);
@@ -618,6 +634,17 @@ public final class IrDebugInterpreter {
         state.memory.put(addressKey(address), value);
     }
 
+    private DebugFieldInfo debugFieldInfo(IrFieldAddressInstruction fieldAddress) {
+        return new DebugFieldInfo(
+                fieldAddress.ownerStructName(),
+                fieldAddress.fieldName(),
+                fieldAddress.declaredFieldIndex(),
+                fieldAddress.pointerFieldIndex(),
+                fieldAddress.offset(),
+                fieldAddress.fieldType()
+        );
+    }
+
     private AddressField tempAddressField(InterpreterState state, IrValue addressValue) {
         if (addressValue instanceof IrTemporary temporary && state.hasFrames()) {
             return state.currentFrame().tempAddressFields.get(temporary.name());
@@ -743,6 +770,28 @@ public final class IrDebugInterpreter {
         return new VisualFieldWrite(state.currentFrame().function.name(), field.baseAddress(), field.fieldName(), value);
     }
 
+    private PointerFieldWrite pointerFieldWrite(
+            InterpreterState state,
+            IrValue addressValue,
+            DebugVirtualAddress fieldAddress,
+            DebugValue oldValue,
+            DebugValue newValue
+    ) {
+        AddressField field = tempAddressField(state, addressValue);
+        if (field == null) {
+            field = state.addressFields.get(addressKey(fieldAddress));
+        }
+        if (field == null || field.fieldInfo().pointerFieldIndex() < 0) {
+            return null;
+        }
+        return new PointerFieldWrite(
+                field.baseAddress().display(),
+                field.fieldInfo(),
+                pointerTarget(oldValue),
+                pointerTarget(newValue)
+        );
+    }
+
     private void queueDataFlowEvent(
             InterpreterState state,
             IrInstruction instruction,
@@ -753,6 +802,20 @@ public final class IrDebugInterpreter {
             String address,
             String pointerTarget
     ) {
+        queueDataFlowEvent(state, instruction, type, lvaluePath, oldValue, newValue, address, pointerTarget, null);
+    }
+
+    private void queueDataFlowEvent(
+            InterpreterState state,
+            IrInstruction instruction,
+            DataFlowEventType type,
+            String lvaluePath,
+            DebugValue oldValue,
+            DebugValue newValue,
+            String address,
+            String pointerTarget,
+            PointerFieldWrite pointerFieldWrite
+    ) {
         state.pendingDataFlowEvents.add(new PendingDataFlowEvent(
                 instruction.range(),
                 type,
@@ -761,7 +824,8 @@ public final class IrDebugInterpreter {
                 IrDebugEventFormatter.valueSummary(oldValue),
                 IrDebugEventFormatter.valueSummary(newValue),
                 address,
-                pointerTarget
+                pointerTarget,
+                pointerFieldWrite
         ));
     }
 
@@ -959,7 +1023,8 @@ public final class IrDebugInterpreter {
                     event.oldValue(),
                     event.newValue(),
                     event.address(),
-                    event.pointerTarget()
+                    event.pointerTarget(),
+                    event.pointerFieldWrite()
             ));
         }
     }
