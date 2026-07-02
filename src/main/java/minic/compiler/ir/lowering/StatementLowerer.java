@@ -359,9 +359,19 @@ final class StatementLowerer {
         for (int i = 0; i < structInitExpr.values().size(); i++) {
             String fieldName = builder.fieldName(structName, i);
             int offset = builder.fieldOffset(structName, i);
+            int pointerFieldIndex = builder.pointerFieldIndex(structName, i);
             IrTemporary fieldAddr = builder.newTemporary(IrType.POINTER);
             builder.addInstruction(new IrFieldAddressInstruction(
-                    fieldAddr, baseAddress, fieldName, offset, varDeclStmt.range()));
+                    fieldAddr,
+                    baseAddress,
+                    structName,
+                    fieldName,
+                    i,
+                    pointerFieldIndex,
+                    offset,
+                    builder.fieldType(structName, i),
+                    varDeclStmt.range()
+            ));
             IrValue value = expressionLowerer.lowerExpression(structInitExpr.values().get(i));
             builder.addInstruction(new IrStorePointerInstruction(fieldAddr, value, varDeclStmt.range()));
         }

@@ -2,8 +2,12 @@ package minic.runtime.debug;
 
 import minic.compiler.ir.model.IrModule;
 import minic.compiler.pipeline.MiniCompiler;
+import minic.runtime.debug.dataflow.DataFlowEvent;
+import minic.runtime.debug.dataflow.DataFlowEventType;
 import minic.source.SourceFile;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -102,11 +106,58 @@ class IrDebugRuntimeRegressionTest {
         assertThat(session.currentSnapshot().processSpace().stack().frames()).isNotEmpty();
     }
 
+    @Test
+    void recordsPointerFieldWritesWithStructFieldMetadata() {
+        DebugSession session = debug("""
+                struct Node {
+                    long value;
+                    struct Node *left;
+                    struct Node *right;
+                };
+                int main() {
+                    struct Node root;
+                    struct Node left;
+                    struct Node right;
+                    root.left = &left;
+                    root.right = &right;
+                    return 0;
+                }
+                """);
+
+        List<DataFlowEvent> writes = session.dataFlowEvents().stream()
+                .filter(event -> event.type() == DataFlowEventType.FIELD_WRITE)
+                .filter(event -> event.pointerFieldWrite() != null)
+                .toList();
+
+        assertThat(writes).hasSize(2);
+        DataFlowEvent leftWrite = writes.stream()
+                .filter(event -> event.pointerFieldWrite().fieldInfo().fieldName().equals("left"))
+                .findFirst()
+                .orElseThrow();
+        DataFlowEvent rightWrite = writes.stream()
+                .filter(event -> event.pointerFieldWrite().fieldInfo().fieldName().equals("right"))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(leftWrite.lvaluePath()).endsWith(".left");
+        assertThat(rightWrite.lvaluePath()).endsWith(".right");
+        assertThat(leftWrite.pointerFieldWrite().ownerAddress()).isEqualTo(rightWrite.pointerFieldWrite().ownerAddress());
+        assertThat(leftWrite.pointerFieldWrite().ownerAddress()).isNotBlank();
+        assertThat(leftWrite.pointerFieldWrite().fieldInfo().ownerStructName()).isEqualTo("Node");
+        assertThat(leftWrite.pointerFieldWrite().fieldInfo().declaredFieldIndex()).isEqualTo(1);
+        assertThat(leftWrite.pointerFieldWrite().fieldInfo().pointerFieldIndex()).isEqualTo(0);
+        assertThat(rightWrite.pointerFieldWrite().fieldInfo().ownerStructName()).isEqualTo("Node");
+        assertThat(rightWrite.pointerFieldWrite().fieldInfo().declaredFieldIndex()).isEqualTo(2);
+        assertThat(rightWrite.pointerFieldWrite().fieldInfo().pointerFieldIndex()).isEqualTo(1);
+        assertThat(leftWrite.pointerFieldWrite().newTargetAddress()).isNotBlank();
+        assertThat(rightWrite.pointerFieldWrite().newTargetAddress()).isNotBlank();
+    }
+
     private static DebugSession debug(String source) {
         SourceFile sourceFile = new SourceFile("debug.mc", source);
         var result = new MiniCompiler().compile(sourceFile);
         assertThat(result.diagnostics()).isEmpty();
         IrModule module = result.irModuleOptional().orElseThrow();
-        return new IrDebugInterpreter().runMain(module, sourceFile);
+        return new IrDebugInterpreter().runMain(module, sourceFile, result.semanticResultOptional().orElseThrow());
     }
 }
