@@ -107,6 +107,29 @@ class MiniCUiApiRegressionTest {
     }
 
     @Test
+    void executionResultRemainsVisibleUntilUserAdvancesAgain() {
+        MiniCObservationApi api = new MiniCObservationApi();
+        api.loadSource("execution-result.mc", "int main() { return 0; }");
+        api.startSession();
+        api.runToExecution();
+        api.confirmExecutionInput("");
+
+        UiControlResultDto executionResult = api.next();
+
+        assertThat(executionResult.outcome()).isEqualTo("STAGE_COMPLETED");
+        assertThat(api.currentStageData().completed()).isTrue();
+        assertThat(api.currentStageData().accumulatedOutput()).isNotEmpty();
+        assertThat(api.currentState().currentStage()).isEqualTo("execution");
+        assertThat(api.currentState().canNext()).isTrue();
+
+        UiControlResultDto exitResult = api.next();
+
+        assertThat(exitResult.outcome()).isEqualTo("CANNOT_ADVANCE");
+        assertThat(exitResult.title()).isEqualTo("编译观测已完成");
+        assertThat(api.currentState().canNext()).isFalse();
+    }
+
+    @Test
     void globalDataKeepsOldConstructorWhileDerivingInputFlags() {
         UiGlobalDataDto data = new UiGlobalDataDto(
                 "",

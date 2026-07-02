@@ -56,6 +56,7 @@ public final class CompileObservationSession {
     private int currentStageIndex;
     private long globalStepCount;
     private PlaybackMode playbackMode = PlaybackMode.PAUSED;
+    private boolean finalStageResultPending;
 
     private LexResult lexResult;
     private PreprocessResult preprocessResult;
@@ -212,6 +213,9 @@ public final class CompileObservationSession {
             globalStepCount++;
             if (!stepper.canNext()) {
                 cacheCurrentStageOutput();
+                if (atLastStage()) {
+                    finalStageResultPending = true;
+                }
             }
             return result;
         }
@@ -220,6 +224,9 @@ public final class CompileObservationSession {
             return StepResult.cannotAdvance(currentStage(), "等待运行输入", "请先确认标准输入，或勾选无输入。");
         }
         if (atLastStage()) {
+            if (finalStageResultPending) {
+                finalStageResultPending = false;
+            }
             return StepResult.cannotAdvance(currentStage(), "编译观测已完成", "没有更多编译步骤。");
         }
         if (hasBlockingDiagnostics()) {
@@ -528,7 +535,7 @@ public final class CompileObservationSession {
     }
 
     private StepCapabilities capabilities() {
-        boolean canNext = currentStepper().canNext() || !atLastStage();
+        boolean canNext = currentStepper().canNext() || !atLastStage() || finalStageResultPending;
         return new StepCapabilities(canNext, false, canNext, canNext, true, false);
     }
 

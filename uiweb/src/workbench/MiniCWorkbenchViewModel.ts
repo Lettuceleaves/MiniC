@@ -741,6 +741,26 @@ export class MiniCWorkbenchViewModel {
       const result = await this.api.next();
       this.applyControlResult(result);
       await this.refreshAll();
+      if (
+        result.outcome === "CANNOT_ADVANCE" &&
+        result.stage === "execution" &&
+        this.currentStateStore.get()?.currentStage === "execution" &&
+        this.currentStateStore.get()?.canNext === false &&
+        this.currentStageDataStore.get()?.completed === true
+      ) {
+        const name = this.sourceNameStore.get();
+        const source = this.sourceTextStore.get();
+        this.clearSessionState();
+        const promise = Promise.all([
+          this.api.loadSource(name, source),
+          this.debugApi.loadSource(name, source),
+        ]).then(() => undefined);
+        this.sourceLoadPromise = promise.catch((error: unknown) => {
+          this.sourceLoadPromise = Promise.resolve();
+          throw error;
+        });
+        await this.sourceLoadPromise;
+      }
       return result;
     });
   }
@@ -755,6 +775,26 @@ export class MiniCWorkbenchViewModel {
         : await this.api.nextStage();
       this.applyControlResult(result);
       await this.refreshAll();
+      if (
+        result.outcome === "CANNOT_ADVANCE" &&
+        result.stage === "execution" &&
+        this.currentStateStore.get()?.currentStage === "execution" &&
+        this.currentStateStore.get()?.canNext === false &&
+        this.currentStageDataStore.get()?.completed === true
+      ) {
+        const name = this.sourceNameStore.get();
+        const source = this.sourceTextStore.get();
+        this.clearSessionState();
+        const promise = Promise.all([
+          this.api.loadSource(name, source),
+          this.debugApi.loadSource(name, source),
+        ]).then(() => undefined);
+        this.sourceLoadPromise = promise.catch((error: unknown) => {
+          this.sourceLoadPromise = Promise.resolve();
+          throw error;
+        });
+        await this.sourceLoadPromise;
+      }
       return result;
     });
   }
@@ -797,6 +837,26 @@ export class MiniCWorkbenchViewModel {
       const result = await this.api.tick();
       this.applyControlResult(result);
       await this.refreshAll();
+      if (
+        result.outcome === "CANNOT_ADVANCE" &&
+        result.stage === "execution" &&
+        this.currentStateStore.get()?.currentStage === "execution" &&
+        this.currentStateStore.get()?.canNext === false &&
+        this.currentStageDataStore.get()?.completed === true
+      ) {
+        const name = this.sourceNameStore.get();
+        const source = this.sourceTextStore.get();
+        this.clearSessionState();
+        const promise = Promise.all([
+          this.api.loadSource(name, source),
+          this.debugApi.loadSource(name, source),
+        ]).then(() => undefined);
+        this.sourceLoadPromise = promise.catch((error: unknown) => {
+          this.sourceLoadPromise = Promise.resolve();
+          throw error;
+        });
+        await this.sourceLoadPromise;
+      }
       return result;
     });
   }
