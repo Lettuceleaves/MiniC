@@ -7,8 +7,7 @@ import minic.compiler.pipeline.MiniCompiler;
 import minic.diagnostics.Diagnostic;
 import minic.diagnostics.DiagnosticSeverity;
 import minic.runtime.debug.visual.VisualAnnotationParser;
-import minic.runtime.debug.visual.VisualKind;
-import minic.runtime.debug.visual.typed.VisualSpec;
+import minic.runtime.debug.visual.VisualSpec;
 import minic.source.SourceFile;
 import minic.source.SourceRange;
 import minic.uilocal.MiniCSamplePrograms;
@@ -63,19 +62,19 @@ class MiniCUtilityRegressionTest {
         Path binaryTree = Path.of("samples", "visual_binary_tree.mc");
         Path redBlackTree = Path.of("samples", "visual_red_black_tree.mc");
 
-        assertVisualSampleCompilesAndDeclaresKind(binaryTree, VisualKind.BINARY_TREE);
-        assertVisualSampleCompilesAndDeclaresKind(redBlackTree, VisualKind.BINARY_TREE);
+        assertVisualSampleCompilesAndDeclaresCaptureType(binaryTree, "Node");
+        assertVisualSampleCompilesAndDeclaresCaptureType(redBlackTree, "RBNode");
         assertThat(Files.readString(redBlackTree)).contains("rotateLeft", "rotateRight", "color");
     }
 
-    private static void assertVisualSampleCompilesAndDeclaresKind(Path path, VisualKind kind) throws Exception {
+    private static void assertVisualSampleCompilesAndDeclaresCaptureType(Path path, String type) throws Exception {
         assertThat(path).exists();
         String sourceText = Files.readString(path);
         SourceFile source = new SourceFile(path.getFileName().toString(), sourceText);
 
         assertThat(new VisualAnnotationParser().parse(source).specs())
-                .extracting(VisualSpec::kind)
-                .contains(kind);
+                .flatExtracting(VisualSpec::captureTypes)
+                .contains(type);
 
         CompileResult result = new MiniCompiler().compile(source);
         assertThat(result.diagnostics()).as(path.toString()).isEmpty();
