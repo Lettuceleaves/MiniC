@@ -1,5 +1,5 @@
 import type { JavaMirrorFile } from "../translation/javaMirror";
-import type { ReactElement } from "react";
+import type { CSSProperties, ReactElement } from "react";
 import type { UiDebugDataStructureViewDto, UiDebugVisualElementDto, UiDebugVisualStructureDto } from "../translation/uiapi";
 
 export const miniCDebugVisualDiagramRendererMirror = {
@@ -10,8 +10,6 @@ export const miniCDebugVisualDiagramRendererMirror = {
   "kind": "component",
   "imports": [
     "java.util.ArrayList",
-    "java.util.Comparator",
-    "java.util.HashSet",
     "java.util.LinkedHashMap",
     "java.util.List",
     "java.util.Map",
@@ -19,6 +17,7 @@ export const miniCDebugVisualDiagramRendererMirror = {
     "java.util.stream.Collectors",
     "javafx.scene.Node",
     "javafx.scene.layout.Pane",
+    "javafx.scene.paint.Color",
     "javafx.scene.shape.Circle",
     "javafx.scene.shape.Line",
     "javafx.scene.shape.Polygon",
@@ -30,10 +29,6 @@ export const miniCDebugVisualDiagramRendererMirror = {
   ],
   "fields": [
     {
-      "name": "nextLeafX",
-      "signature": "private double nextLeafX="
-    },
-    {
       "name": "tooltipInstaller",
       "signature": "private final BiConsumer<Node,UiDebugVisualElementDto>tooltipInstaller"
     },
@@ -44,6 +39,10 @@ export const miniCDebugVisualDiagramRendererMirror = {
     {
       "name": "VISUAL_GRID_GAP",
       "signature": "private static final double VISUAL_GRID_GAP="
+    },
+    {
+      "name": "VISUAL_GRID_UNIT",
+      "signature": "private static final double VISUAL_GRID_UNIT="
     },
     {
       "name": "VISUAL_MARGIN",
@@ -60,28 +59,76 @@ export const miniCDebugVisualDiagramRendererMirror = {
   ],
   "methods": [
     {
+      "name": "addVisualStyleClasses",
+      "signature": "addVisualStyleClasses(Node node,UiDebugVisualElementDto element)"
+    },
+    {
+      "name": "applyVisualShapeStyle",
+      "signature": "applyVisualShapeStyle(Node shape,UiDebugVisualElementDto element)"
+    },
+    {
+      "name": "applyVisualTextStyle",
+      "signature": "applyVisualTextStyle(Text text,UiDebugVisualElementDto element)"
+    },
+    {
       "name": "arrayDiagram",
-      "signature": "arrayDiagram(List<UiDebugVisualElementDto>cells)"
+      "signature": "arrayDiagram(String layoutHint,List<UiDebugVisualElementDto>cells)"
     },
     {
       "name": "arrow",
       "signature": "arrow(VisualPoint from,VisualPoint to,boolean nullTarget)"
     },
     {
-      "name": "bucketedPositions",
-      "signature": "bucketedPositions(List<UiDebugVisualElementDto>nodes)"
+      "name": "fitText",
+      "signature": "fitText(String value,int capacity)"
     },
     {
       "name": "graphDiagram",
       "signature": "graphDiagram(String kind,String layoutHint,List<UiDebugVisualElementDto>nodes,List<UiDebugVisualElementDto>edges)"
     },
     {
-      "name": "graphPositions",
-      "signature": "graphPositions(String kind,String layoutHint,List<UiDebugVisualElementDto>nodes,List<UiDebugVisualElementDto>edges)"
+      "name": "GridBounds",
+      "signature": "GridBounds(double minX,double minY,double maxX,double maxY)"
     },
     {
-      "name": "isBucketedLayout",
-      "signature": "isBucketedLayout(String kind,String layoutHint)"
+      "name": "GridRect",
+      "signature": "GridRect(double x,double y,double width,double height)"
+    },
+    {
+      "name": "gridArrow",
+      "signature": "gridArrow(VisualPoint from,VisualPoint to,UiDebugVisualElementDto edge)"
+    },
+    {
+      "name": "gridBounds",
+      "signature": "gridBounds(List<GridRect>rects,List<VisualPoint>points)"
+    },
+    {
+      "name": "gridGraphDiagram",
+      "signature": "gridGraphDiagram(List<UiDebugVisualElementDto>nodes,List<UiDebugVisualElementDto>edges)"
+    },
+    {
+      "name": "gridNodeContent",
+      "signature": "gridNodeContent(UiDebugVisualElementDto node,boolean square,double x,double y,double width,double height)"
+    },
+    {
+      "name": "gridVisualDiagram",
+      "signature": "gridVisualDiagram(List<UiDebugVisualElementDto>cells,List<UiDebugVisualElementDto>nodes,List<UiDebugVisualElementDto>edges)"
+    },
+    {
+      "name": "gridPoint",
+      "signature": "gridPoint(UiDebugVisualElementDto edge,String xKey,String yKey)"
+    },
+    {
+      "name": "gridRect",
+      "signature": "gridRect(UiDebugVisualElementDto node)"
+    },
+    {
+      "name": "gridStructTable",
+      "signature": "gridStructTable(UiDebugVisualElementDto node,double x,double y,double width,double height)"
+    },
+    {
+      "name": "graphPositions",
+      "signature": "graphPositions(List<UiDebugVisualElementDto>nodes)"
     },
     {
       "name": "isNullNode",
@@ -92,44 +139,24 @@ export const miniCDebugVisualDiagramRendererMirror = {
       "signature": "isNullNode(UiDebugVisualElementDto node)"
     },
     {
-      "name": "isTreeLayout",
-      "signature": "isTreeLayout(String kind,String layoutHint)"
-    },
-    {
-      "name": "layoutTree",
-      "signature": "layoutTree(String nodeId,int depth,Map<String,ArrayList<String>>childrenById,Map<String,VisualPoint>positions,java.util.Set<String>visiting,TreeLayoutCursor cursor)"
-    },
-    {
       "name": "metadataInt",
       "signature": "metadataInt(UiDebugVisualElementDto element,String key,int fallback)"
     },
     {
-      "name": "orderedTreeEdges",
-      "signature": "orderedTreeEdges(List<UiDebugVisualElementDto>edges)"
+      "name": "metadataNumber",
+      "signature": "metadataNumber(UiDebugVisualElementDto element,String key)"
     },
     {
       "name": "shortLabel",
       "signature": "shortLabel(String label)"
     },
     {
+      "name": "shortArrayLabel",
+      "signature": "shortArrayLabel(String label)"
+    },
+    {
       "name": "simpleVisualId",
       "signature": "simpleVisualId(UiDebugVisualElementDto element)"
-    },
-    {
-      "name": "treeEdgeOrder",
-      "signature": "treeEdgeOrder(String key)"
-    },
-    {
-      "name": "treePositions",
-      "signature": "treePositions(List<UiDebugVisualElementDto>nodes,List<UiDebugVisualElementDto>edges)"
-    },
-    {
-      "name": "treeY",
-      "signature": "treeY(int depth)"
-    },
-    {
-      "name": "visibleGraphNodes",
-      "signature": "visibleGraphNodes(String kind,String layoutHint,List<UiDebugVisualElementDto>nodes,List<UiDebugVisualElementDto>edges)"
     },
     {
       "name": "VisualPoint",
@@ -202,6 +229,7 @@ const VISUAL_NODE_RADIUS = VISUAL_CELL_SIZE / 2;
 const VISUAL_NULL_SIZE = 16;
 const VISUAL_GRID_GAP = 34;
 const VISUAL_MARGIN = 24;
+const VISUAL_GRID_UNIT = 22;
 const MIN_GRAPH_WIDTH = 220;
 const MIN_GRAPH_HEIGHT = 150;
 
@@ -210,36 +238,40 @@ interface VisualPoint {
   readonly y: number;
 }
 
-interface TreeLayoutCursor {
-  nextLeafX: number;
-}
-
 export function visualStructureDiagram(visual: UiDebugVisualStructureDto): ReactElement | null {
   const arrayCells = visual.elements.filter((element) => element.kind === "ARRAY_CELL");
-  if (arrayCells.length > 0) {
-    return arrayDiagram(arrayCells);
-  }
   const graphNodes = visual.elements.filter((element) => element.kind === "GRAPH_NODE");
+  const graphEdges = visual.elements.filter((element) => element.kind === "GRAPH_EDGE");
+  if (visual.layoutHint === "grid") {
+    return gridVisualDiagram(arrayCells, graphNodes, graphEdges);
+  }
+  if (arrayCells.length > 0) {
+    return arrayDiagram(visual.layoutHint, arrayCells);
+  }
   if (graphNodes.length > 0) {
-    const graphEdges = visual.elements.filter((element) => element.kind === "GRAPH_EDGE");
     return graphDiagram(visual.kind, visual.layoutHint, graphNodes, graphEdges);
   }
   return null;
 }
 
-export function arrayDiagram(cells: readonly UiDebugVisualElementDto[]): ReactElement {
-  const width = VISUAL_MARGIN * 2 + VISUAL_CELL_SIZE * cells.length;
-  const height = VISUAL_MARGIN * 2 + VISUAL_CELL_SIZE;
+export function arrayDiagram(layoutHint: string, cells: readonly UiDebugVisualElementDto[]): ReactElement {
+  const matrixLayout = layoutHint === "grid" || layoutHint === "matrix" || cells.some((cell) => metadataInt(cell, "row", 0) > 0);
+  const rows = matrixLayout ? Math.max(1, ...cells.map((cell) => metadataInt(cell, "row", 0) + 1)) : 1;
+  const columns = matrixLayout ? Math.max(1, ...cells.map((cell) => metadataInt(cell, "column", 0) + 1)) : cells.length;
+  const width = VISUAL_MARGIN * 2 + VISUAL_CELL_SIZE * Math.max(columns, 1);
+  const height = VISUAL_MARGIN * 2 + VISUAL_CELL_SIZE * Math.max(rows, 1);
   return (
     <svg className="debug-visual-diagram" height={height} viewBox={`0 0 ${width} ${height}`} width={width} role="img">
       {cells.map((cell, index) => {
-        const x = VISUAL_MARGIN + index * VISUAL_CELL_SIZE;
-        const y = VISUAL_MARGIN;
+        const row = matrixLayout ? metadataInt(cell, "row", 0) : 0;
+        const column = matrixLayout ? metadataInt(cell, "column", index) : index;
+        const x = VISUAL_MARGIN + column * VISUAL_CELL_SIZE;
+        const y = VISUAL_MARGIN + row * VISUAL_CELL_SIZE;
         return (
           <g key={cell.id}>
             <title>{visualText(cell)}</title>
             <rect className="debug-array-cell" height={VISUAL_CELL_SIZE} width={VISUAL_CELL_SIZE} x={x} y={y} />
-            {visualLabel(shortLabel(cell.label), x + VISUAL_CELL_SIZE / 2, y + VISUAL_CELL_SIZE / 2 + 4)}
+            {visualLabel(shortArrayLabel(cell.label), x + VISUAL_CELL_SIZE / 2, y + VISUAL_CELL_SIZE / 2 + 4)}
           </g>
         );
       })}
@@ -253,9 +285,12 @@ export function graphDiagram(
   nodes: readonly UiDebugVisualElementDto[],
   edges: readonly UiDebugVisualElementDto[],
 ): ReactElement {
-  const visibleNodes = visibleGraphNodes(kind, layoutHint, nodes, edges);
+  if (layoutHint === "grid") {
+    return gridGraphDiagram(nodes, edges);
+  }
+  const visibleNodes = nodes;
   const nodesById = new Map(visibleNodes.map((node) => [simpleVisualId(node), node]));
-  const positions = graphPositions(kind, layoutHint, visibleNodes, edges);
+  const positions = graphPositions(visibleNodes);
   const width = Math.max(MIN_GRAPH_WIDTH, maxCoordinate(positions, "x", 160) + VISUAL_MARGIN);
   const height = Math.max(MIN_GRAPH_HEIGHT, maxCoordinate(positions, "y", 100) + VISUAL_MARGIN);
   return (
@@ -290,8 +325,8 @@ export function graphDiagram(
         return (
           <g key={node.id}>
             <title>{visualText(node)}</title>
-            <circle className="debug-graph-node" cx={point.x} cy={point.y} r={VISUAL_NODE_RADIUS} />
-            {visualLabel(shortLabel(node.label), point.x, point.y + 4)}
+            <circle className={graphNodeClass(node)} cx={point.x} cy={point.y} r={VISUAL_NODE_RADIUS} style={visualShapeStyle(node)} />
+            {visualLabel(shortLabel(node.label), point.x, point.y + 4, undefined, visualTextStyle(node))}
           </g>
         );
       })}
@@ -299,9 +334,179 @@ export function graphDiagram(
   );
 }
 
-function visualLabel(label: string, x: number, y: number): ReactElement {
+export function gridGraphDiagram(
+  nodes: readonly UiDebugVisualElementDto[],
+  edges: readonly UiDebugVisualElementDto[],
+): ReactElement {
+  return gridVisualDiagram([], nodes, edges);
+}
+
+export function gridVisualDiagram(
+  cells: readonly UiDebugVisualElementDto[],
+  nodes: readonly UiDebugVisualElementDto[],
+  edges: readonly UiDebugVisualElementDto[],
+): ReactElement {
+  const rects = [...cells, ...nodes]
+    .map((node) => ({ node, rect: gridRect(node) }))
+    .filter((entry): entry is { readonly node: UiDebugVisualElementDto; readonly rect: GridRect } => entry.rect !== null);
+  const lines = edges
+    .map((edge) => ({ edge, start: gridPoint(edge, "gridStartX", "gridStartY"), end: gridPoint(edge, "gridEndX", "gridEndY") }))
+    .filter((entry): entry is { readonly edge: UiDebugVisualElementDto; readonly start: VisualPoint; readonly end: VisualPoint } => entry.start !== null && entry.end !== null);
+  const bounds = gridBounds(rects.map((entry) => entry.rect), lines.flatMap((line) => [line.start, line.end]));
+  const width = Math.max(MIN_GRAPH_WIDTH, VISUAL_MARGIN * 2 + (bounds.maxX - bounds.minX) * VISUAL_GRID_UNIT);
+  const height = Math.max(MIN_GRAPH_HEIGHT, VISUAL_MARGIN * 2 + (bounds.maxY - bounds.minY) * VISUAL_GRID_UNIT);
+  const toSvgX = (x: number) => VISUAL_MARGIN + (x - bounds.minX) * VISUAL_GRID_UNIT;
+  const toSvgY = (y: number) => VISUAL_MARGIN + (y - bounds.minY) * VISUAL_GRID_UNIT;
   return (
-    <text className="debug-visual-label" textAnchor="middle" dominantBaseline="middle" x={x} y={y}>
+    <svg className="debug-visual-diagram" height={height} viewBox={`0 0 ${width} ${height}`} width={width} role="img">
+      {lines.map(({ edge, start, end }) => gridArrow(
+        { x: toSvgX(start.x), y: toSvgY(start.y) },
+        { x: toSvgX(end.x), y: toSvgY(end.y) },
+        edge,
+      ))}
+      {rects.map(({ node, rect }) => {
+        const x = toSvgX(rect.x);
+        const y = toSvgY(rect.y);
+        const width = rect.width * VISUAL_GRID_UNIT;
+        const height = rect.height * VISUAL_GRID_UNIT;
+        return (
+          <g key={node.id}>
+            <title>{visualText(node)}</title>
+            <rect className={gridNodeClass(node)} height={height} width={width} x={x} y={y} style={visualShapeStyle(node)} />
+            {gridNodeContent(node, node.kind === "ARRAY_CELL" || metadata(node, "visual-shape") === "SQUARE", x, y, width, height)}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function gridNodeContent(
+  node: UiDebugVisualElementDto,
+  square: boolean,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): readonly ReactElement[] {
+  if (!square && metadata(node, "visual-content") === "STRUCT_TABLE") {
+    return gridStructTable(node, x, y, width, height);
+  }
+  return [
+    visualLabel(
+      square ? shortArrayLabel(node.label) : shortLabel(node.label),
+      x + width / 2,
+      y + height / 2 + 4,
+      `${node.id}-label`,
+      visualTextStyle(node),
+    ),
+  ];
+}
+
+function gridStructTable(
+  node: UiDebugVisualElementDto,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): readonly ReactElement[] {
+  const rowCount = Math.max(1, metadataInt(node, "visual-row-count", 1));
+  const rowHeight = height / rowCount;
+  const capacity = metadataInt(node, "visual-row-capacity", 12);
+  const content: ReactElement[] = [];
+  for (let row = 1; row < rowCount; row += 1) {
+    const lineY = y + row * rowHeight;
+    content.push(
+      <line
+        className="debug-grid-table-line"
+        key={`${node.id}-table-line-${row}`}
+        x1={x}
+        x2={x + width}
+        y1={lineY}
+        y2={lineY}
+      />,
+    );
+  }
+  for (let row = 0; row < rowCount; row += 1) {
+    content.push(visualLabel(
+      fitText(metadata(node, `visual-row.${row}`), capacity),
+      x + width / 2,
+      y + row * rowHeight + rowHeight / 2 + 4,
+      `${node.id}-table-label-${row}`,
+      visualTextStyle(node),
+    ));
+  }
+  return content;
+}
+
+interface GridRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+interface GridBounds {
+  readonly minX: number;
+  readonly minY: number;
+  readonly maxX: number;
+  readonly maxY: number;
+}
+
+function gridRect(node: UiDebugVisualElementDto): GridRect | null {
+  const x = metadataNumber(node, "gridX");
+  const y = metadataNumber(node, "gridY");
+  const width = metadataNumber(node, "gridWidth");
+  const height = metadataNumber(node, "gridHeight");
+  if (x === null || y === null || width === null || height === null) {
+    return null;
+  }
+  return { x, y, width, height };
+}
+
+function gridPoint(edge: UiDebugVisualElementDto, xKey: string, yKey: string): VisualPoint | null {
+  const x = metadataNumber(edge, xKey);
+  const y = metadataNumber(edge, yKey);
+  return x === null || y === null ? null : { x, y };
+}
+
+function gridBounds(rects: readonly GridRect[], points: readonly VisualPoint[]): GridBounds {
+  const minX = Math.min(0, ...rects.map((rect) => rect.x), ...points.map((point) => point.x));
+  const minY = Math.min(0, ...rects.map((rect) => rect.y), ...points.map((point) => point.y));
+  const maxX = Math.max(1, ...rects.map((rect) => rect.x + rect.width), ...points.map((point) => point.x));
+  const maxY = Math.max(1, ...rects.map((rect) => rect.y + rect.height), ...points.map((point) => point.y));
+  return { minX, minY, maxX, maxY };
+}
+
+function metadataNumber(element: UiDebugVisualElementDto, key: string): number | null {
+  const value = metadata(element, key);
+  if (value.trim().length === 0) {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function gridArrow(from: VisualPoint, to: VisualPoint, edge: UiDebugVisualElementDto): ReactElement {
+  const angle = Math.atan2(to.y - from.y, to.x - from.x);
+  const arrowSize = 8;
+  const head = [
+    [to.x, to.y],
+    [to.x - Math.cos(angle - Math.PI / 6) * arrowSize, to.y - Math.sin(angle - Math.PI / 6) * arrowSize],
+    [to.x - Math.cos(angle + Math.PI / 6) * arrowSize, to.y - Math.sin(angle + Math.PI / 6) * arrowSize],
+  ].map(([x, y]) => `${x},${y}`).join(" ");
+  return (
+    <g key={edge.id}>
+      <title>{visualText(edge)}</title>
+      <line className="debug-graph-edge debug-pointer-arrow" x1={from.x} x2={to.x} y1={from.y} y2={to.y} />
+      <polygon className="debug-graph-edge-head debug-pointer-arrow" points={head} />
+    </g>
+  );
+}
+
+function visualLabel(label: string, x: number, y: number, key?: string, style?: CSSProperties): ReactElement {
+  return (
+    <text className="debug-visual-label" textAnchor="middle" dominantBaseline="middle" x={x} y={y} key={key} style={style}>
       {label}
     </text>
   );
@@ -334,46 +539,7 @@ export function arrow(
   );
 }
 
-export function visibleGraphNodes(
-  kind: string,
-  layoutHint: string,
-  nodes: readonly UiDebugVisualElementDto[],
-  edges: readonly UiDebugVisualElementDto[],
-): readonly UiDebugVisualElementDto[] {
-  if (!isTreeLayout(kind, layoutHint)) {
-    return nodes;
-  }
-  const nodeIds = new Set(nodes.map(simpleVisualId));
-  const edgeNodeIds = new Set<string>();
-  edges.forEach((edge) => {
-    const from = metadata(edge, "from");
-    const to = metadata(edge, "to");
-    if (from.length > 0) {
-      edgeNodeIds.add(from);
-    }
-    if (to.length > 0) {
-      edgeNodeIds.add(to);
-    }
-  });
-  return nodes.filter((node) => {
-    const id = simpleVisualId(node);
-    const summary = metadata(node, "summary");
-    return edgeNodeIds.has(id) || summary.length === 0 || !nodeIds.has(summary);
-  });
-}
-
-export function graphPositions(
-  kind: string,
-  layoutHint: string,
-  nodes: readonly UiDebugVisualElementDto[],
-  edges: readonly UiDebugVisualElementDto[],
-): Map<string, VisualPoint> {
-  if (isTreeLayout(kind, layoutHint)) {
-    return treePositions(nodes, edges);
-  }
-  if (isBucketedLayout(kind, layoutHint)) {
-    return bucketedPositions(nodes);
-  }
+export function graphPositions(nodes: readonly UiDebugVisualElementDto[]): Map<string, VisualPoint> {
   const positions = new Map<string, VisualPoint>();
   nodes.forEach((node, index) => {
     positions.set(simpleVisualId(node), {
@@ -384,136 +550,9 @@ export function graphPositions(
   return positions;
 }
 
-export function isTreeLayout(kind: string, layoutHint: string): boolean {
-  return kind === "tree" || kind === "binary_tree" || kind === "binary-tree" || layoutHint === "hierarchical";
-}
-
-export function isBucketedLayout(kind: string, layoutHint: string): boolean {
-  return kind === "hash-chain-table" || kind === "adjacency-list" || layoutHint === "bucketed" || layoutHint === "bucket_graph";
-}
-
-export function bucketedPositions(nodes: readonly UiDebugVisualElementDto[]): Map<string, VisualPoint> {
-  const positions = new Map<string, VisualPoint>();
-  const buckets = nodes
-    .filter((node) => metadata(node, "visual-role") === "bucket")
-    .sort((left, right) => metadataInt(left, "bucketIndex", Number.MAX_SAFE_INTEGER) - metadataInt(right, "bucketIndex", Number.MAX_SAFE_INTEGER));
-  const bucketXByIndex = new Map<string, number>();
-  const bucketY = VISUAL_MARGIN + VISUAL_NODE_RADIUS;
-  buckets.forEach((bucket, index) => {
-    const bucketIndex = metadataInt(bucket, "bucketIndex", index);
-    const x = VISUAL_MARGIN + VISUAL_NODE_RADIUS + index * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
-    bucketXByIndex.set(String(bucketIndex), x);
-    positions.set(simpleVisualId(bucket), { x, y: bucketY });
-  });
-  nodes
-    .filter((node) => metadata(node, "visual-role") === "chain-node")
-    .sort((left, right) => {
-      const bucketDelta = metadataInt(left, "bucketIndex", Number.MAX_SAFE_INTEGER) - metadataInt(right, "bucketIndex", Number.MAX_SAFE_INTEGER);
-      return bucketDelta !== 0 ? bucketDelta : metadataInt(left, "chainDepth", Number.MAX_SAFE_INTEGER) - metadataInt(right, "chainDepth", Number.MAX_SAFE_INTEGER);
-    })
-    .forEach((node) => {
-      const bucketIndex = metadata(node, "bucketIndex", "0");
-      const chainDepth = metadataInt(node, "chainDepth", 0);
-      const fallbackX = VISUAL_MARGIN + VISUAL_NODE_RADIUS + bucketXByIndex.size * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
-      const x = bucketXByIndex.get(bucketIndex) ?? fallbackX;
-      positions.set(simpleVisualId(node), { x, y: bucketY + (chainDepth + 1) * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP) });
-    });
-  let fallbackIndex = 0;
-  nodes.forEach((node) => {
-    const id = simpleVisualId(node);
-    if (positions.has(id)) {
-      return;
-    }
-    positions.set(id, {
-      x: VISUAL_MARGIN + VISUAL_NODE_RADIUS + fallbackIndex * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP),
-      y: bucketY + (VISUAL_CELL_SIZE + VISUAL_GRID_GAP),
-    });
-    fallbackIndex += 1;
-  });
-  return positions;
-}
-
 export function metadataInt(element: UiDebugVisualElementDto, key: string, fallback: number): number {
   const parsed = Number.parseInt(metadata(element, key, String(fallback)), 10);
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-export function treePositions(
-  nodes: readonly UiDebugVisualElementDto[],
-  edges: readonly UiDebugVisualElementDto[],
-): Map<string, VisualPoint> {
-  const nodeById = new Map(nodes.map((node) => [simpleVisualId(node), node]));
-  const childrenById = new Map<string, string[]>();
-  const childIds = new Set<string>();
-  nodeById.forEach((_node, id) => childrenById.set(id, []));
-  orderedTreeEdges(edges).forEach((edge) => {
-    const from = metadata(edge, "from");
-    const to = metadata(edge, "to");
-    if (nodeById.has(from) && nodeById.has(to)) {
-      childrenById.get(from)?.push(to);
-      childIds.add(to);
-    }
-  });
-  const roots = [...nodeById.keys()].filter((id) => !childIds.has(id));
-  const effectiveRoots = roots.length > 0 ? roots : [...nodeById.keys()];
-  const positions = new Map<string, VisualPoint>();
-  const cursor: TreeLayoutCursor = { nextLeafX: VISUAL_MARGIN + VISUAL_NODE_RADIUS };
-  effectiveRoots.forEach((root) => {
-    layoutTree(root, 0, childrenById, positions, new Set(), cursor);
-    cursor.nextLeafX += VISUAL_CELL_SIZE + VISUAL_GRID_GAP;
-  });
-  return positions;
-}
-
-export function orderedTreeEdges(edges: readonly UiDebugVisualElementDto[]): readonly UiDebugVisualElementDto[] {
-  return [...edges].sort((left, right) => {
-    const fromOrder = metadata(left, "from").localeCompare(metadata(right, "from"));
-    return fromOrder !== 0 ? fromOrder : treeEdgeOrder(metadata(left, "key", left.label)) - treeEdgeOrder(metadata(right, "key", right.label));
-  });
-}
-
-export function treeEdgeOrder(key: string): number {
-  if (key === "left") {
-    return 0;
-  }
-  if (key === "right") {
-    return 1;
-  }
-  return 2;
-}
-
-export function layoutTree(
-  nodeId: string,
-  depth: number,
-  childrenById: ReadonlyMap<string, readonly string[]>,
-  positions: Map<string, VisualPoint>,
-  visiting: Set<string>,
-  cursor: TreeLayoutCursor,
-): number {
-  if (visiting.has(nodeId)) {
-    const x = cursor.nextLeafX;
-    cursor.nextLeafX += VISUAL_CELL_SIZE + VISUAL_GRID_GAP;
-    positions.set(nodeId, { x, y: treeY(depth) });
-    return x;
-  }
-  visiting.add(nodeId);
-  const children = childrenById.get(nodeId) ?? [];
-  if (children.length === 0) {
-    const x = cursor.nextLeafX;
-    cursor.nextLeafX += VISUAL_CELL_SIZE + VISUAL_GRID_GAP;
-    positions.set(nodeId, { x, y: treeY(depth) });
-    visiting.delete(nodeId);
-    return x;
-  }
-  const childXs = children.map((child) => layoutTree(child, depth + 1, childrenById, positions, visiting, cursor));
-  const x = (childXs[0] + childXs[childXs.length - 1]) / 2;
-  positions.set(nodeId, { x, y: treeY(depth) });
-  visiting.delete(nodeId);
-  return x;
-}
-
-export function treeY(depth: number): number {
-  return VISUAL_MARGIN + VISUAL_NODE_RADIUS + depth * (VISUAL_CELL_SIZE + VISUAL_GRID_GAP);
 }
 
 function isNullNodeById(nodesById: ReadonlyMap<string, UiDebugVisualElementDto>, id: string): boolean {
@@ -523,6 +562,39 @@ function isNullNodeById(nodesById: ReadonlyMap<string, UiDebugVisualElementDto>,
 
 export function isNullNode(node: UiDebugVisualElementDto): boolean {
   return metadata(node, "visual-null", "false") === "true";
+}
+
+function graphNodeClass(node: UiDebugVisualElementDto): string {
+  return withVisualStyleClass("debug-graph-node", node);
+}
+
+function gridNodeClass(node: UiDebugVisualElementDto): string {
+  if (node.kind === "ARRAY_CELL" || metadata(node, "visual-shape") === "SQUARE") {
+    return withVisualStyleClass("debug-grid-square", node);
+  }
+  return withVisualStyleClass("debug-grid-node", node);
+}
+
+function withVisualStyleClass(baseClass: string, node: UiDebugVisualElementDto): string {
+  const extraClass = metadata(node, "visual-style-class").trim();
+  return extraClass.length === 0 ? baseClass : `${baseClass} ${extraClass}`;
+}
+
+function visualShapeStyle(node: UiDebugVisualElementDto): CSSProperties | undefined {
+  const fill = metadata(node, "visual-fill").trim();
+  const stroke = metadata(node, "visual-stroke").trim();
+  if (fill.length === 0 && stroke.length === 0) {
+    return undefined;
+  }
+  return {
+    ...(fill.length > 0 ? { fill } : {}),
+    ...(stroke.length > 0 ? { stroke } : {}),
+  };
+}
+
+function visualTextStyle(node: UiDebugVisualElementDto): CSSProperties | undefined {
+  const fill = metadata(node, "visual-text-fill").trim();
+  return fill.length === 0 ? undefined : { fill };
 }
 
 export function visualText(element: UiDebugVisualElementDto): string {
@@ -573,6 +645,27 @@ export function simpleVisualId(element: UiDebugVisualElementDto): string {
 export function shortLabel(label: string): string {
   const compact = label.replaceAll("\n", " ").trim();
   return compact.length <= 10 ? compact : `${compact.slice(0, 9)}...`;
+}
+
+export function shortArrayLabel(label: string): string {
+  const compact = label.replaceAll("\n", " ").trim();
+  const capacity = 4;
+  if (compact.length <= capacity) {
+    return compact;
+  }
+  return `${compact.slice(0, capacity - 3)}...`;
+}
+
+export function fitText(value: string, requestedCapacity: number): string {
+  const capacity = Math.max(3, requestedCapacity);
+  const compact = value.replaceAll("\n", " ").trim();
+  if (compact.length <= capacity) {
+    return compact;
+  }
+  if (capacity === 3) {
+    return "...";
+  }
+  return `${compact.slice(0, capacity - 3)}...`;
 }
 
 function metadata(element: UiDebugVisualElementDto, key: string, fallback = ""): string {

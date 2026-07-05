@@ -9,11 +9,28 @@ import minic.runtime.debug.memory.TypedMemoryGraph;
 import minic.runtime.debug.memory.TypedMemoryGraphBuilder;
 import minic.runtime.debug.memory.TypedMemoryNode;
 import minic.runtime.debug.memory.TypeShape;
+import minic.runtime.debug.visual.grid.GridScene;
+import minic.runtime.debug.visual.grid.GridSceneEdge;
+import minic.runtime.debug.visual.grid.GridSceneGraphAdapter;
+import minic.runtime.debug.visual.grid.GridSceneNode;
+import minic.runtime.debug.visual.layout.LayoutInput;
+import minic.runtime.debug.visual.layout.LayoutPlan;
+import minic.runtime.debug.visual.layout.NaturalLayoutStrategy;
+import minic.runtime.debug.visual.layout.PlacedEdge;
+import minic.runtime.debug.visual.layout.PlacedNode;
+import minic.runtime.debug.visual.layout.UnidirectionalLayoutStrategy;
+import minic.runtime.debug.visual.layout.VisualMemoryEdge;
+import minic.runtime.debug.visual.layout.VisualMemoryMirror;
+import minic.runtime.debug.visual.layout.VisualMemoryNode;
+import minic.runtime.debug.visual.layout.VisualMemoryNodeRole;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -24,7 +41,8 @@ import java.util.stream.Collectors;
  */
 public final class VisualProjectionBuilder {
     private static final int DEFAULT_MAX_DEPTH = 64;
-    private final TypedVisualProjectionBuilder typedVisualProjectionBuilder = new TypedVisualProjectionBuilder();
+    private static final int STRUCT_FIELD_TEXT_CAPACITY = 12;
+    private final VisualStyleRuleResolver styleRuleResolver = new VisualStyleRuleResolver();
 
     /**
      * 构建投影。
@@ -93,13 +111,503 @@ public final class VisualProjectionBuilder {
                 default -> warnings.add("忽略未知 visual 指令：" + annotation.directive());
             }
         }
-        typedVisualProjectionBuilder.buildTypedSpecs(processSpace, specs, structures, warnings);
+        for (VisualSpec spec : specs) {
+            if (spec.layout().equals("natural")) {
+                buildNaturalLayout(processSpace, spec, structures, warnings);
+            } else if (spec.layout().equals("unidirectional")) {
+                buildUnidirectionalLayout(processSpace, spec, structures, warnings);
+            } else {
+                warnings.add("visual " + spec.name() + " layout 不支持：" + spec.layout());
+            }
+        }
         replayEvents(events, snapshotId, graphs);
 
         graphs.values().stream()
                 .map(GraphAccumulator::build)
                 .forEach(structures::add);
         return new VisualProjection(structures, warnings);
+    }
+
+    private void buildUnidirectionalLayout(
+            DebugProcessSpace processSpace,
+            VisualSpec spec,
+            ArrayList<VisualStructure> structures,
+            ArrayList<String> warnings
+    ) {
+        TypedMemoryGraph memoryGraph = TypedMemoryGraphBuilder.build(processSpace);
+        TypedNodeIndex index = TypedNodeIndex.from(memoryGraph);
+        ArrayList<TypedMemoryNode> rootNodes = new ArrayList<>();
+        for (String rootName : spec.roots()) {
+            TypedMemoryNode root = memoryGraph.findRoot(rootName).orElse(null);
+            TypedMemoryNode objectRoot = objectNode(root, index);
+            if (objectRoot == null || objectRoot.address() == null) {
+                warnings.add("未找到 visual root 变量：" + rootName);
+                continue;
+            }
+            rootNodes.add(objectRoot);
+        }
+        if (rootNodes.isEmpty()) {
+            return;
+        }
+        LayoutProjection projection = layoutProjection(rootNodes, index);
+        LayoutPlan plan = new UnidirectionalLayoutStrategy().build(new LayoutInput(
+                rootNodes.stream().map(TypedMemoryNode::address).toList(),
+                projection.mirror(),
+                spec.style()
+        ));
+        structures.add(GridSceneGraphAdapter.toGraphStructure(gridScene(spec, plan, projection)));
+    }
+
+    private void buildNaturalLayout(
+            DebugProcessSpace processSpace,
+            VisualSpec spec,
+            ArrayList<VisualStructure> structures,
+            ArrayList<String> warnings
+    ) {
+        TypedMemoryGraph memoryGraph = TypedMemoryGraphBuilder.build(processSpace);
+        TypedNodeIndex index = TypedNodeIndex.from(memoryGraph);
+        NaturalMirrorBuild mirrorBuild = naturalMirror(spec, memoryGraph, index, warnings);
+        if (mirrorBuild.rootAddresses().isEmpty()) {
+            return;
+        }
+        LayoutProjection projection = new LayoutProjection(
+                new VisualMemoryMirror(
+                        mirrorBuild.nodes().values().stream().toList(),
+                        mirrorBuild.edges()
+                ),
+                mirrorBuild.typedByAddress(),
+                mirrorBuild.edgeLabels()
+        );
+        LayoutPlan plan = new NaturalLayoutStrategy().build(new LayoutInput(
+                mirrorBuild.rootAddresses(),
+                projection.mirror(),
+                spec.style()
+        ));
+        structures.add(GridSceneGraphAdapter.toGraphStructure(gridScene(spec, "natural", plan, projection)));
+    }
+
+    private TypedMemoryNode objectNode(TypedMemoryNode root, TypedNodeIndex index) {
+        if (root == null) {
+            return null;
+        }
+        if (root.shape() == TypeShape.POINTER && root.pointerTarget() != null) {
+            return index.nodeByAddress(root.pointerTarget());
+        }
+        return root.address() == null ? null : root;
+    }
+
+    private NaturalMirrorBuild naturalMirror(
+            VisualSpec spec,
+            TypedMemoryGraph memoryGraph,
+            TypedNodeIndex index,
+            ArrayList<String> warnings
+    ) {
+        LinkedHashMap<String, VisualMemoryNode> nodes = new LinkedHashMap<>();
+        ArrayList<VisualMemoryEdge> edges = new ArrayList<>();
+        LinkedHashMap<String, TypedMemoryNode> typedByAddress = new LinkedHashMap<>();
+        LinkedHashMap<String, String> edgeLabels = new LinkedHashMap<>();
+        ArrayList<String> rootAddresses = new ArrayList<>();
+        LinkedHashSet<String> capturedTypes = spec.captureTypes().stream()
+                .map(this::canonicalType)
+                .filter(type -> !type.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        for (String rootName : spec.roots()) {
+            TypedMemoryNode root = memoryGraph.findRoot(rootName).orElse(null);
+            if (root == null) {
+                warnings.add("未找到 visual root 变量：" + rootName);
+                continue;
+            }
+            if (root.shape() == TypeShape.ARRAY) {
+                addArrayCells(spec, root, nodes, typedByAddress, rootAddresses, warnings);
+                continue;
+            }
+            TypedMemoryNode objectRoot = objectNode(root, index);
+            if (objectRoot == null || objectRoot.address() == null) {
+                warnings.add("未找到 visual root 变量：" + rootName);
+                continue;
+            }
+            capturedTypes.add(canonicalType(objectRoot.typeName()));
+            addObjectNode(spec, objectRoot, nodes, typedByAddress, capturedTypeName(objectRoot, capturedTypes), warnings);
+            rootAddresses.add(objectRoot.address());
+        }
+
+        ArrayDeque<String> queue = new ArrayDeque<>(rootAddresses);
+        HashSet<String> visited = new HashSet<>();
+        while (!queue.isEmpty()) {
+            String address = queue.removeFirst();
+            if (!visited.add(address)) {
+                continue;
+            }
+            TypedMemoryNode current = typedByAddress.get(address);
+            if (current == null) {
+                continue;
+            }
+            for (PointerTarget target : pointerTargets(current, index)) {
+                TypedMemoryNode targetNode = target.node();
+                String capturedType = capturedTypeName(targetNode, capturedTypes);
+                if (capturedType.isBlank()) {
+                    continue;
+                }
+                addObjectNode(spec, targetNode, nodes, typedByAddress, capturedType, warnings);
+                edges.add(new VisualMemoryEdge(address, targetNode.address()));
+                edgeLabels.putIfAbsent(edgeKey(address, targetNode.address()), target.label());
+                queue.add(targetNode.address());
+            }
+        }
+        return new NaturalMirrorBuild(nodes, edges, typedByAddress, edgeLabels, List.copyOf(rootAddresses));
+    }
+
+    private void addObjectNode(
+            VisualSpec spec,
+            TypedMemoryNode node,
+            LinkedHashMap<String, VisualMemoryNode> nodes,
+            LinkedHashMap<String, TypedMemoryNode> typedByAddress,
+            ArrayList<String> warnings
+    ) {
+        addObjectNode(spec, node, nodes, typedByAddress, "", warnings);
+    }
+
+    private void addObjectNode(
+            VisualSpec spec,
+            TypedMemoryNode node,
+            LinkedHashMap<String, VisualMemoryNode> nodes,
+            LinkedHashMap<String, TypedMemoryNode> typedByAddress,
+            String capturedType,
+            ArrayList<String> warnings
+    ) {
+        if (node.address() == null) {
+            return;
+        }
+        String displayType = capturedType == null || capturedType.isBlank() ? node.typeName() : capturedType;
+        LinkedHashMap<String, String> metadata = new LinkedHashMap<>();
+        metadata.put("visual-shape", "RECT");
+        metadata.put("path", node.name());
+        metadata.put("type", displayType);
+        metadata.put("runtimeType", node.typeName());
+        metadata.put("address", node.address());
+        metadata.put("valueSummary", node.valueSummary());
+        addStructRows(node, metadata);
+        node.fields().forEach(field -> {
+            String value = field.value().valueSummary();
+            if (value != null && !value.isBlank()) {
+                metadata.put("field." + field.name(), value);
+            }
+            metadata.put("fieldType." + field.name(), field.value().typeName());
+        });
+        styleRuleResolver.apply(spec, node, displayType, metadata, warnings);
+        nodes.putIfAbsent(node.address(), new VisualMemoryNode(
+                node.address(),
+                estimatedByteCount(node),
+                VisualMemoryNodeRole.OBJECT,
+                metadata
+        ));
+        typedByAddress.putIfAbsent(node.address(), node);
+    }
+
+    private void addStructRows(TypedMemoryNode node, LinkedHashMap<String, String> metadata) {
+        if (node.fields().isEmpty()) {
+            return;
+        }
+        metadata.put("visual-content", "STRUCT_TABLE");
+        metadata.put("visual-row-count", Integer.toString(node.fields().size()));
+        metadata.put("visual-row-capacity", Integer.toString(STRUCT_FIELD_TEXT_CAPACITY));
+        metadata.put("fieldNames", node.fields().stream()
+                .map(TypedMemoryField::name)
+                .collect(Collectors.joining(",")));
+        for (int index = 0; index < node.fields().size(); index++) {
+            TypedMemoryField field = node.fields().get(index);
+            metadata.put("visual-row-name." + index, field.name());
+            metadata.put("visual-row-type." + index, field.value().typeName());
+            metadata.put("visual-row." + index, fitText(field.value().valueSummary(), STRUCT_FIELD_TEXT_CAPACITY));
+        }
+    }
+
+    private String fitText(String value, int capacity) {
+        if (capacity < 3) {
+            throw new IllegalArgumentException("capacity must be at least 3");
+        }
+        String compact = value == null ? "" : value.replaceAll("\\s+", " ").trim();
+        if (compact.length() <= capacity) {
+            return compact;
+        }
+        if (capacity == 3) {
+            return "...";
+        }
+        return compact.substring(0, capacity - 3) + "...";
+    }
+
+    private void addArrayCells(
+            VisualSpec spec,
+            TypedMemoryNode root,
+            LinkedHashMap<String, VisualMemoryNode> nodes,
+            LinkedHashMap<String, TypedMemoryNode> typedByAddress,
+            ArrayList<String> rootAddresses,
+            ArrayList<String> warnings
+    ) {
+        if (root.elements().stream().anyMatch(element -> element.value().shape() == TypeShape.ARRAY
+                && element.value().elements().stream().anyMatch(inner -> inner.value().shape() == TypeShape.ARRAY))) {
+            warnings.add("visual " + spec.name() + " 不支持连续第三维数组");
+            return;
+        }
+        if (root.elements().stream().anyMatch(element -> element.value().shape() == TypeShape.ARRAY)) {
+            int rows = root.elements().size();
+            int columns = root.elements().stream()
+                    .map(TypedMemoryElement::value)
+                    .mapToInt(value -> value.elements().size())
+                    .max()
+                    .orElse(0);
+            for (TypedMemoryElement rowElement : root.elements()) {
+                int row = Math.toIntExact(rowElement.index());
+                for (TypedMemoryElement columnElement : rowElement.value().elements()) {
+                    addArrayCell(root, columnElement.value(), row, Math.toIntExact(columnElement.index()), rows, columns,
+                            nodes, typedByAddress, rootAddresses);
+                }
+            }
+            return;
+        }
+        int size = root.elements().size();
+        int columns = Math.max(1, metadataInt(spec.attributes(), "columns", size));
+        int rows = Math.max(1, metadataInt(spec.attributes(), "rows", (int) Math.ceil((double) size / columns)));
+        for (TypedMemoryElement element : root.elements()) {
+            int index = Math.toIntExact(element.index());
+            addArrayCell(root, element.value(), index / columns, index % columns, rows, columns,
+                    nodes, typedByAddress, rootAddresses);
+        }
+    }
+
+    private void addArrayCell(
+            TypedMemoryNode arrayRoot,
+            TypedMemoryNode value,
+            int row,
+            int column,
+            int rows,
+            int columns,
+            LinkedHashMap<String, VisualMemoryNode> nodes,
+            LinkedHashMap<String, TypedMemoryNode> typedByAddress,
+            ArrayList<String> rootAddresses
+    ) {
+        String address = value.address() == null
+                ? arrayRoot.address() + "[" + row + "," + column + "]"
+                : value.address();
+        LinkedHashMap<String, String> metadata = new LinkedHashMap<>();
+        metadata.put("visual-shape", "SQUARE");
+        metadata.put("path", value.name());
+        metadata.put("type", value.typeName());
+        metadata.put("address", address);
+        metadata.put("valueSummary", value.valueSummary());
+        metadata.put("row", Integer.toString(row));
+        metadata.put("column", Integer.toString(column));
+        metadata.put("rows", Integer.toString(rows));
+        metadata.put("columns", Integer.toString(columns));
+        nodes.putIfAbsent(address, new VisualMemoryNode(
+                address,
+                estimatedByteCount(value),
+                VisualMemoryNodeRole.ARRAY_CELL,
+                metadata
+        ));
+        typedByAddress.putIfAbsent(address, value);
+        rootAddresses.add(address);
+    }
+
+    private LayoutProjection layoutProjection(List<TypedMemoryNode> roots, TypedNodeIndex index) {
+        LinkedHashMap<String, VisualMemoryNode> nodes = new LinkedHashMap<>();
+        ArrayList<VisualMemoryEdge> edges = new ArrayList<>();
+        LinkedHashMap<String, TypedMemoryNode> typedByAddress = new LinkedHashMap<>();
+        LinkedHashMap<String, String> edgeLabels = new LinkedHashMap<>();
+        ArrayDeque<TypedMemoryNode> queue = new ArrayDeque<>(roots);
+        HashSet<String> visited = new HashSet<>();
+        while (!queue.isEmpty()) {
+            TypedMemoryNode current = queue.removeFirst();
+            if (current.address() == null || !visited.add(current.address())) {
+                continue;
+            }
+            typedByAddress.put(current.address(), current);
+            nodes.putIfAbsent(current.address(), new VisualMemoryNode(current.address(), estimatedByteCount(current)));
+            for (PointerTarget target : pointerTargets(current, index)) {
+                edges.add(new VisualMemoryEdge(current.address(), target.node().address()));
+                edgeLabels.putIfAbsent(edgeKey(current.address(), target.node().address()), target.label());
+                queue.add(target.node());
+            }
+        }
+        return new LayoutProjection(
+                new VisualMemoryMirror(nodes.values().stream().toList(), edges),
+                typedByAddress,
+                edgeLabels
+        );
+    }
+
+    private List<PointerTarget> pointerTargets(TypedMemoryNode node, TypedNodeIndex index) {
+        ArrayList<PointerTarget> targets = new ArrayList<>();
+        if (node.shape() == TypeShape.POINTER) {
+            addPointerTarget(targets, node.name(), node, index);
+        }
+        for (TypedMemoryField field : node.fields()) {
+            addPointerTarget(targets, field.name(), field.value(), index);
+        }
+        for (TypedMemoryElement element : node.elements()) {
+            addPointerTarget(targets, "[" + element.index() + "]", element.value(), index);
+        }
+        return targets;
+    }
+
+    private void addPointerTarget(
+            ArrayList<PointerTarget> targets,
+            String label,
+            TypedMemoryNode pointer,
+            TypedNodeIndex index
+    ) {
+        String pointerTarget = pointer.pointerTarget();
+        if (pointerTarget == null && pointer.shape() == TypeShape.POINTER && isAddressLike(pointer.valueSummary())) {
+            pointerTarget = pointer.valueSummary();
+        }
+        if (pointerTarget == null) {
+            return;
+        }
+        TypedMemoryNode target = index.nodeByAddress(pointerTarget);
+        if (target == null || target.address() == null) {
+            return;
+        }
+        targets.add(new PointerTarget(label, target));
+    }
+
+    private boolean isAddressLike(String value) {
+        return value != null && !value.isBlank() && !value.equals("null") && !value.equals("0");
+    }
+
+    private int estimatedByteCount(TypedMemoryNode node) {
+        return 16;
+    }
+
+    private GridScene gridScene(VisualSpec spec, LayoutPlan plan, LayoutProjection projection) {
+        return gridScene(spec, "unidirectional", plan, projection);
+    }
+
+    private GridScene gridScene(VisualSpec spec, String kind, LayoutPlan plan, LayoutProjection projection) {
+        LinkedHashMap<String, PlacedNode> placedNodes = new LinkedHashMap<>();
+        for (PlacedNode node : plan.nodes()) {
+            placedNodes.put(node.address(), node);
+        }
+        List<GridSceneNode> nodes = plan.nodes().stream()
+                .map(placed -> gridNode(spec, placed, projection))
+                .toList();
+        List<GridSceneEdge> edges = plan.edges().stream()
+                .map(edge -> gridEdge(spec, edge, placedNodes, projection))
+                .toList();
+        return new GridScene("grid-" + spec.name(), spec.name(), kind, nodes, edges);
+    }
+
+    private GridSceneNode gridNode(VisualSpec spec, PlacedNode placed, LayoutProjection projection) {
+        TypedMemoryNode typed = projection.typedByAddress().get(placed.address());
+        VisualMemoryNode visualNode = projection.mirror().node(placed.address()).orElse(null);
+        String visualId = sanitize(placed.address());
+        LinkedHashMap<String, String> metadata = new LinkedHashMap<>(visualNode == null ? Map.of() : visualNode.metadata());
+        metadata.put("id", visualId);
+        metadata.put("root", spec.root());
+        metadata.putIfAbsent("path", typed == null ? placed.address() : typed.name());
+        metadata.putIfAbsent("type", typed == null ? "" : typed.typeName());
+        metadata.put("address", placed.address());
+        metadata.putIfAbsent("valueSummary", typed == null ? "" : typed.valueSummary());
+        String label = typed == null ? placed.address() : typed.name();
+        if (metadata.getOrDefault("visual-shape", "").equals("SQUARE")
+                && !metadata.getOrDefault("valueSummary", "").isBlank()) {
+            label = metadata.get("valueSummary");
+        }
+        return new GridSceneNode(
+                spec.name() + "-node-" + visualId,
+                label,
+                placed.address(),
+                placed.bounds(),
+                metadata
+        );
+    }
+
+    private GridSceneEdge gridEdge(
+            VisualSpec spec,
+            PlacedEdge edge,
+            Map<String, PlacedNode> placedNodes,
+            LayoutProjection projection
+    ) {
+        String fromId = sanitize(edge.fromAddress());
+        String toId = sanitize(edge.toAddress());
+        String label = projection.edgeLabels().getOrDefault(edgeKey(edge.fromAddress(), edge.toAddress()), "");
+        LinkedHashMap<String, String> metadata = new LinkedHashMap<>();
+        metadata.put("from", fromId);
+        metadata.put("to", toId);
+        metadata.put("key", label);
+        metadata.put("edge-role", "primary");
+        metadata.put("fromAddress", edge.fromAddress());
+        metadata.put("toAddress", edge.toAddress());
+        metadata.put("fromPath", nodePath(projection.typedByAddress().get(edge.fromAddress()), edge.fromAddress()));
+        metadata.put("toPath", nodePath(projection.typedByAddress().get(edge.toAddress()), edge.toAddress()));
+        return new GridSceneEdge(
+                spec.name() + "-edge-" + fromId + "-" + toId,
+                placedNodes.get(edge.fromAddress()).address().equals(edge.fromAddress()) ? spec.name() + "-node-" + fromId : fromId,
+                placedNodes.get(edge.toAddress()).address().equals(edge.toAddress()) ? spec.name() + "-node-" + toId : toId,
+                label,
+                edge.fromAnchor(),
+                edge.toAnchor(),
+                edge.start(),
+                edge.end(),
+                metadata
+        );
+    }
+
+    private String nodePath(TypedMemoryNode node, String fallback) {
+        return node == null ? fallback : node.name();
+    }
+
+    private String edgeKey(String fromAddress, String toAddress) {
+        return fromAddress + "->" + toAddress;
+    }
+
+    private int metadataInt(Map<String, String> metadata, String key, int fallback) {
+        try {
+            return Integer.parseInt(metadata.getOrDefault(key, Integer.toString(fallback)));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private String canonicalType(String typeName) {
+        if (typeName == null || typeName.isBlank()) {
+            return "";
+        }
+        String normalized = typeName.trim()
+                .replaceAll("\\bstruct\\s+", "")
+                .replaceAll("\\[[^]]*]", "")
+                .replace("*", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+        int space = normalized.indexOf(' ');
+        return space < 0 ? normalized : normalized.substring(space + 1).trim().toLowerCase(Locale.ROOT).equals("const")
+                ? normalized.substring(0, space)
+                : normalized;
+    }
+
+    private String capturedTypeName(TypedMemoryNode target, Set<String> capturedTypes) {
+        String canonical = canonicalType(target.typeName());
+        if (target.shape() == TypeShape.STRUCT && (canonical.isBlank() || canonical.equals("struct"))) {
+            return capturedTypes.stream()
+                    .filter(type -> !type.equals("struct") && !isPrimitiveType(type))
+                    .findFirst()
+                    .orElse(capturedTypes.contains(canonical) ? canonical : "");
+        }
+        if (capturedTypes.contains(canonical)) {
+            return canonical;
+        }
+        return "";
+    }
+
+    private boolean isPrimitiveType(String type) {
+        String normalized = type.toLowerCase(Locale.ROOT);
+        return normalized.equals("int")
+                || normalized.equals("long")
+                || normalized.equals("char")
+                || normalized.equals("bool")
+                || normalized.equals("float")
+                || normalized.equals("double")
+                || normalized.equals("pointer");
     }
 
     private void replayEvents(
@@ -374,7 +882,7 @@ public final class VisualProjectionBuilder {
                     "graph-" + name,
                     name,
                     kind,
-                    kind.equals("tree") || kind.equals("binary_tree") ? "hierarchical" : "force",
+                    "force",
                     state.nodes(),
                     state.edges(),
                     List.of(component),
@@ -477,6 +985,10 @@ public final class VisualProjectionBuilder {
         return index < 0 ? id : id.substring(index + 1);
     }
 
+    private String sanitize(String value) {
+        return value.replaceAll("[^A-Za-z0-9_-]", "_");
+    }
+
     private GraphNode nodeWithVisualState(GraphNode node, String state) {
         LinkedHashMap<String, String> metadata = new LinkedHashMap<>(node.metadata());
         putVisualState(metadata, state);
@@ -514,5 +1026,52 @@ public final class VisualProjectionBuilder {
     }
 
     private record GraphStateResult(List<GraphNode> nodes, List<GraphEdge> edges) {
+    }
+
+    private record PointerTarget(String label, TypedMemoryNode node) {
+    }
+
+    private record LayoutProjection(
+            VisualMemoryMirror mirror,
+            Map<String, TypedMemoryNode> typedByAddress,
+            Map<String, String> edgeLabels
+    ) {
+    }
+
+    private record NaturalMirrorBuild(
+            LinkedHashMap<String, VisualMemoryNode> nodes,
+            ArrayList<VisualMemoryEdge> edges,
+            LinkedHashMap<String, TypedMemoryNode> typedByAddress,
+            LinkedHashMap<String, String> edgeLabels,
+            List<String> rootAddresses
+    ) {
+    }
+
+    private static final class TypedNodeIndex {
+        private final Map<String, TypedMemoryNode> nodesByAddress;
+
+        private TypedNodeIndex(Map<String, TypedMemoryNode> nodesByAddress) {
+            this.nodesByAddress = nodesByAddress;
+        }
+
+        private static TypedNodeIndex from(TypedMemoryGraph graph) {
+            LinkedHashMap<String, TypedMemoryNode> nodesByAddress = new LinkedHashMap<>();
+            for (TypedMemoryNode root : graph.roots()) {
+                collect(root, nodesByAddress);
+            }
+            return new TypedNodeIndex(nodesByAddress);
+        }
+
+        private static void collect(TypedMemoryNode node, Map<String, TypedMemoryNode> nodesByAddress) {
+            if (node.address() != null) {
+                nodesByAddress.putIfAbsent(node.address(), node);
+            }
+            node.fields().forEach(field -> collect(field.value(), nodesByAddress));
+            node.elements().forEach(element -> collect(element.value(), nodesByAddress));
+        }
+
+        private TypedMemoryNode nodeByAddress(String address) {
+            return nodesByAddress.get(address);
+        }
     }
 }

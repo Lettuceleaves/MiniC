@@ -1,4 +1,4 @@
-// @visual root=root kind=binary-tree label=key
+// @visual root=root type=[Node] name=tree
 struct Node {
     int key;
     struct Node *left;

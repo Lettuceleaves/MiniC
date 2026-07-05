@@ -16,7 +16,7 @@ import java.util.stream.Stream;
  */
 public final class MiniCUiApiSnapshotFixtureWriter {
     private static final String OBSERVATION_SOURCE = """
-            // @visual root=root kind=binary-tree label=key
+            // @visual root=node type=[Node] name=node
             struct Node { int key; struct Node *left; struct Node *right; };
             int inc(int value) {
                 return value + 1;

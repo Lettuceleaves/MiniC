@@ -16,6 +16,7 @@ public final class VisualAnnotationParser {
     private static final Pattern VARIABLE_NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final Pattern SIMPLE_VALUE = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*|-?[0-9]+|true|false");
     private static final Pattern VISUAL_PATH = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*(->[A-Za-z_][A-Za-z0-9_]*)*|-?[0-9]+|true|false|null");
+    private static final List<String> SUPPORTED_LAYOUTS = List.of("natural", "unidirectional");
 
     /**
      * 解析源码中的 @visual 注释。
@@ -62,6 +63,10 @@ public final class VisualAnnotationParser {
             return;
         }
         String text = line.substring(comment + 2).trim();
+        if (text.startsWith("@style")) {
+            parseStyleLine(text, lineNumber, specs, warnings);
+            return;
+        }
         if (!text.startsWith("@visual")) {
             return;
         }
@@ -94,6 +99,46 @@ public final class VisualAnnotationParser {
         ));
     }
 
+    private void parseStyleLine(
+            String text,
+            int lineNumber,
+            ArrayList<VisualSpec> specs,
+            ArrayList<String> warnings
+    ) {
+        String[] parts = text.split("\\s+");
+        if (!parts[0].equals("@style")) {
+            return;
+        }
+        if (specs.isEmpty()) {
+            warnings.add("第 " + lineNumber + " 行 @style 必须跟在 @visual 之后");
+            return;
+        }
+        LinkedHashMap<String, String> attributes = parseAttributes(parts, 1, lineNumber, warnings);
+        String type = attributes.get("type");
+        if (type == null || type.isBlank()) {
+            warnings.add("第 " + lineNumber + " 行 @style 缺少 type");
+            return;
+        }
+        if (attributes.keySet().stream().anyMatch(key -> !key.equals("type") && !key.equals("template"))) {
+            warnings.add("第 " + lineNumber + " 行 @style 只允许 type 和 template");
+            return;
+        }
+        if (!attributes.containsKey("template") || attributes.get("template").isBlank()) {
+            warnings.add("第 " + lineNumber + " 行 @style 缺少 template");
+            return;
+        }
+        if (!specs.getLast().styleRules().isEmpty()) {
+            warnings.add("第 " + lineNumber + " 行每个 @visual 只允许一条 @style");
+            return;
+        }
+        VisualStyleRule rule = new VisualStyleRule(
+                type,
+                attributes.get("template"),
+                lineNumber
+        );
+        specs.set(specs.size() - 1, specs.getLast().withStyleRule(rule));
+    }
+
     private LinkedHashMap<String, String> parseAttributes(
             String[] parts,
             int attributeStart,
@@ -117,13 +162,22 @@ public final class VisualAnnotationParser {
             int lineNumber,
             ArrayList<String> warnings
     ) {
+        List<String> roots = parseRoots(attributes.get("roots"), lineNumber, warnings);
         String root = attributes.get("root");
+        if (root == null && !roots.isEmpty()) {
+            root = roots.getFirst();
+        }
         if (root == null) {
-            warnings.add("第 " + lineNumber + " 行 @visual 缺少 root");
+            warnings.add("第 " + lineNumber + " 行 @visual 缺少 root 或 roots");
             return null;
         }
         if (!VARIABLE_NAME.matcher(root).matches()) {
             warnings.add("第 " + lineNumber + " 行 root 只允许变量名：" + root);
+            return null;
+        }
+        String layout = attributes.getOrDefault("layout", "natural");
+        if (!SUPPORTED_LAYOUTS.contains(layout)) {
+            warnings.add("第 " + lineNumber + " 行 layout 不支持：" + layout);
             return null;
         }
         String rawKind = attributes.getOrDefault("kind", "auto");
@@ -139,6 +193,32 @@ public final class VisualAnnotationParser {
                 VisualSpec.parseFields(attributes.get("fields")),
                 lineNumber
         );
+    }
+
+    private List<String> parseRoots(String value, int lineNumber, ArrayList<String> warnings) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        String normalized = value.trim();
+        if (normalized.startsWith("[") && normalized.endsWith("]")) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
+        ArrayList<String> roots = new ArrayList<>();
+        for (String root : normalized.split(",")) {
+            String trimmed = root.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            if (!VARIABLE_NAME.matcher(trimmed).matches()) {
+                warnings.add("第 " + lineNumber + " 行 roots 只允许变量名：" + trimmed);
+                return List.of();
+            }
+            roots.add(trimmed);
+        }
+        if (roots.isEmpty()) {
+            warnings.add("第 " + lineNumber + " 行 roots 至少需要一个变量名");
+        }
+        return roots;
     }
 
     private boolean validate(

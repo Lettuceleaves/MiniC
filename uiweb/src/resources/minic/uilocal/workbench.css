@@ -888,8 +888,35 @@
     -fx-stroke-width: 1.6px;
 }
 
+.debug-grid-node {
+    -fx-fill: {{background.secondary}};
+    -fx-stroke: {{accent.blue}};
+    -fx-stroke-width: 1.6px;
+}
+
+.debug-grid-square {
+    -fx-fill: {{background.secondary}};
+    -fx-stroke: {{accent.blue}};
+    -fx-stroke-width: 1.6px;
+}
+
+.debug-grid-table-line {
+    -fx-stroke: {{background.tertiary}};
+    -fx-stroke-width: 1px;
+}
+
 .debug-graph-node {
     -fx-fill: {{background.secondary}};
     -fx-stroke: {{accent.blue}};
     -fx-stroke-width: 1.6px;
+}
+
+.debug-tree-node-black {
+    -fx-fill: #1f2329;
+    -fx-stroke: #aeb7c5;
+}
+
+.debug-tree-node-red {
+    -fx-fill: #8f2633;
+    -fx-stroke: #f1a1aa;
 }

@@ -1,4 +1,5 @@
-// @visual root=root kind=binary-tree label=key
+// @visual root=root type=[RBNode] name=rb
+// @style type=RBNode template=red-black
 struct RBNode {
     int key;
     int color;

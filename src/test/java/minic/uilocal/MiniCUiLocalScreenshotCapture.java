@@ -46,7 +46,7 @@ public final class MiniCUiLocalScreenshotCapture {
             "execution"
     );
     private static final String WORKFLOW_SOURCE = String.join("\n",
-            "// @visual root=node kind=binary-tree label=key",
+            "// @visual root=node type=[Node] name=node",
             "struct Node { int key; struct Node *left; struct Node *right; };",
             "",
             "int inc(int value) {",

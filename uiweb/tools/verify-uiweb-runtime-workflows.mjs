@@ -555,7 +555,7 @@ async function verifyDebugger(page, baseUrl) {
     const viewText = await page.locator(".debug-view-content").innerText();
     assert(viewText.trim().length > expectedText.length, `debug view ${viewName} should render real DTO content`);
     if (viewName === "数据结构" && !viewText.includes("(empty)")) {
-      const diagramElements = await page.locator(".debug-visual-diagram .debug-graph-node, .debug-visual-diagram .debug-array-cell, .debug-visual-diagram .debug-null-node").count();
+      const diagramElements = await page.locator(".debug-visual-diagram .debug-graph-node, .debug-visual-diagram .debug-grid-node, .debug-visual-diagram .debug-grid-square, .debug-visual-diagram .debug-array-cell, .debug-visual-diagram .debug-null-node").count();
       assert(diagramElements > 0, "debug data structure view should render SVG graph or array elements");
     }
     if (viewName === "IR" || viewName === "ASM") {

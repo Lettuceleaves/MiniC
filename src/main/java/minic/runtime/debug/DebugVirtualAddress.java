@@ -30,6 +30,12 @@ public record DebugVirtualAddress(String segment, long offset) {
      * @return 展示文本
      */
     public String display() {
+        if (segment.equals("stack")) {
+            return "s@" + Long.toHexString(offset);
+        }
+        if (segment.equals("heap")) {
+            return "h@" + Long.toHexString(offset);
+        }
         return segment + ":0x" + Long.toHexString(offset);
     }
 }

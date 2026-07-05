@@ -46,7 +46,7 @@ export const matrixStates = [
 ];
 
 const workflowSource = [
-  "// @visual root=node kind=binary-tree label=key",
+  "// @visual root=node type=[Node] name=node",
   "struct Node { int key; struct Node *left; struct Node *right; };",
   "",
   "int inc(int value) {",

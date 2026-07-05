@@ -995,8 +995,35 @@
     stroke-width: 1.6px;
 }
 
+.debug-grid-node {
+    fill: var(--minic-background-secondary);
+    stroke: var(--minic-accent-blue);
+    stroke-width: 1.6px;
+}
+
+.debug-grid-square {
+    fill: var(--minic-background-secondary);
+    stroke: var(--minic-accent-blue);
+    stroke-width: 1.6px;
+}
+
+.debug-grid-table-line {
+    stroke: var(--minic-background-tertiary);
+    stroke-width: 1px;
+}
+
 .debug-graph-node {
     fill: var(--minic-background-secondary);
     stroke: var(--minic-accent-blue);
     stroke-width: 1.6px;
+}
+
+.debug-tree-node-black {
+    fill: #1f2329;
+    stroke: #aeb7c5;
+}
+
+.debug-tree-node-red {
+    fill: #8f2633;
+    stroke: #f1a1aa;
 }
