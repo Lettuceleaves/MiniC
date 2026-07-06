@@ -573,6 +573,20 @@
     -fx-padding: 0 6px;
 }
 
+.compiler-controls-cycle-button {
+    -fx-padding: 0;
+}
+
+.compiler-controls-cycle-icon {
+    -fx-fill: transparent;
+    -fx-stroke: {{text.panel_title}};
+    -fx-stroke-width: 2;
+    -fx-stroke-line-cap: round;
+    -fx-stroke-line-join: round;
+    -fx-scale-x: 0.72;
+    -fx-scale-y: 0.72;
+}
+
 .compiler-controls-dock-button.active {
     -fx-background-color: {{background.running}};
     -fx-text-fill: {{text.active}};

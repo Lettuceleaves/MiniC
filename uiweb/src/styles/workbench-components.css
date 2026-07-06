@@ -662,6 +662,23 @@
     padding: 0 6px;
 }
 
+.compiler-controls-cycle-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.compiler-controls-cycle-icon {
+    width: 16px;
+    height: 16px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
 .compiler-controls-dock-button.active {
     background-color: var(--minic-background-running);
     color: var(--minic-text-active);

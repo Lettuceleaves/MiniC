@@ -91,6 +91,7 @@ public final class MiniCWorkbenchShell {
     private boolean pipelineLeftSidebarCollapsed = MiniCSettings.pipelineLeftSidebarCollapsed();
     private boolean pipelineRightSidebarCollapsed = MiniCSettings.pipelineRightSidebarCollapsed();
     private String compilerControlsDock = MiniCSettings.compilerControlsDock();
+    private boolean compilerControlsDockCycleTowardRight = compilerControlsDock.equals("LEFT_PIPELINE_BOTTOM");
     private int nextUntitledIndex = 1;
     private int draggedTabIndex = -1;
 
@@ -308,28 +309,68 @@ public final class MiniCWorkbenchShell {
         header.getChildren().addAll(
                 title,
                 spacer,
-                dockButton("右", "RIGHT_METADATA_TOP"),
-                dockButton("左", "LEFT_PIPELINE_BOTTOM"),
-                dockButton("浮", "FLOATING")
+                dockCycleButton()
         );
         host.getChildren().addAll(header, new MiniCCompilerControlsView(viewModel, controlHub));
         return host;
     }
 
-    private Button dockButton(String text, String dock) {
-        Button button = new Button(text);
+    private Button dockCycleButton() {
+        Button button = new Button();
         button.getStyleClass().add("compiler-controls-dock-button");
-        if (dock.equals(compilerControlsDock)) {
-            button.getStyleClass().add("active");
-        }
-        button.setOnAction(event -> setCompilerControlsDock(dock));
+        button.getStyleClass().add("compiler-controls-cycle-button");
+        SVGPath icon = new SVGPath();
+        icon.getStyleClass().add("compiler-controls-cycle-icon");
+        icon.setContent("M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5 M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16 M16 16h5v5");
+        button.setGraphic(icon);
+        button.setAccessibleText("切换控制台位置");
+        button.setTooltip(new Tooltip("切换控制台位置：" + dockLabel(nextCompilerControlsDock())));
+        button.setOnAction(event -> cycleCompilerControlsDock());
         return button;
     }
 
+    private void cycleCompilerControlsDock() {
+        setCompilerControlsDock(nextCompilerControlsDock());
+    }
+
+    private String nextCompilerControlsDock() {
+        return switch (compilerControlsDock) {
+            case "LEFT_PIPELINE_BOTTOM", "RIGHT_METADATA_TOP" -> "FLOATING";
+            case "FLOATING" -> compilerControlsDockCycleTowardRight ? "RIGHT_METADATA_TOP" : "LEFT_PIPELINE_BOTTOM";
+            default -> "RIGHT_METADATA_TOP";
+        };
+    }
+
+    private String dockLabel(String dock) {
+        return switch (dock) {
+            case "LEFT_PIPELINE_BOTTOM" -> "左侧";
+            case "FLOATING" -> "中间";
+            default -> "右侧";
+        };
+    }
+
     private void setCompilerControlsDock(String dock) {
+        String previousDock = compilerControlsDock;
         compilerControlsDock = normalizeCompilerControlsDock(dock);
+        compilerControlsDockCycleTowardRight = nextDockCycleDirection(previousDock, compilerControlsDock);
         MiniCSettings.setCompilerControlsDock(compilerControlsDock);
         rebuildWorkbenchBody();
+    }
+
+    private boolean nextDockCycleDirection(String previousDock, String nextDock) {
+        if ("LEFT_PIPELINE_BOTTOM".equals(nextDock)) {
+            return true;
+        }
+        if ("RIGHT_METADATA_TOP".equals(nextDock)) {
+            return false;
+        }
+        if ("LEFT_PIPELINE_BOTTOM".equals(previousDock)) {
+            return true;
+        }
+        if ("RIGHT_METADATA_TOP".equals(previousDock)) {
+            return false;
+        }
+        return compilerControlsDockCycleTowardRight;
     }
 
     private String normalizeCompilerControlsDock(String dock) {

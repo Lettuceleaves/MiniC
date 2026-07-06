@@ -245,29 +245,41 @@ async function verifyEditor(page, baseUrl) {
     nativeSelectionBackground === "rgba(0, 0, 0, 0)" || nativeSelectionBackground === "transparent",
     `native textarea selection should be hidden, got ${nativeSelectionBackground}`,
   );
-  const keywordCount = await page.locator(".source-editor-render .token-keyword").count();
-  assert(keywordCount > 0, "source editor should render UIAPI token highlighting");
+  const highlightedTokenCount = await page.locator(codeHighlightedTokenSelector(".source-editor-render")).count();
+  assert(highlightedTokenCount > 0, "source editor should render UIAPI token highlighting");
 }
 
 async function verifyEditorHighlighting(page, label) {
-  await page.waitForFunction(() => document.querySelectorAll(".source-editor-render .token-keyword").length > 0);
-  const colors = await page.evaluate(() => {
-    const keyword = document.querySelector(".source-editor-render .token-keyword");
+  await page.waitForFunction((selector) => document.querySelectorAll(selector).length > 0, codeHighlightedTokenSelector(".source-editor-render"));
+  const colors = await page.evaluate((selector) => {
+    const highlighted = document.querySelector(selector);
     const plain = document.querySelector(".source-editor-render .token-plain");
     const textarea = document.querySelector("textarea.source-editor-input");
     return {
-      keyword: keyword === null ? "" : window.getComputedStyle(keyword).color,
+      highlighted: highlighted === null ? "" : window.getComputedStyle(highlighted).color,
       plain: plain === null ? "" : window.getComputedStyle(plain).color,
       textarea: textarea === null ? "" : window.getComputedStyle(textarea).color,
     };
-  });
-  assert(colors.keyword !== "", `${label} should expose keyword token color`);
+  }, codeHighlightedTokenSelector(".source-editor-render"));
+  assert(colors.highlighted !== "", `${label} should expose highlighted token color`);
   assert(colors.plain !== "", `${label} should expose plain token color`);
-  assert(colors.keyword !== colors.plain, `${label} keyword color should differ from plain text (${JSON.stringify(colors)})`);
+  assert(colors.highlighted !== colors.plain, `${label} highlighted token color should differ from plain text (${JSON.stringify(colors)})`);
   assert(
     colors.textarea === "rgba(0, 0, 0, 0)" || colors.textarea === "transparent",
     `${label} textarea text should stay transparent above highlighted render layer (${JSON.stringify(colors)})`,
   );
+}
+
+function codeHighlightedTokenSelector(rootSelector) {
+  return [
+    `${rootSelector} .token-keyword`,
+    `${rootSelector} .mc-text-code-type`,
+    `${rootSelector} .mc-text-code-control`,
+    `${rootSelector} .mc-text-code-function`,
+    `${rootSelector} .mc-text-code-string`,
+    `${rootSelector} .mc-text-code-literal`,
+    `${rootSelector} .mc-text-code-operator`,
+  ].join(", ");
 }
 
 async function verifyCompilerPipeline(page, baseUrl) {
@@ -318,7 +330,7 @@ async function verifyCompilerPipeline(page, baseUrl) {
     assert(visualText.trim().length > stageTitle.length, `stage ${stageId} should render non-empty visual content`);
     if (stageId === "lexer") {
       assert(
-        (await page.locator(".source-flow-text .token-keyword, .source-flow-text .mc-text-code-keyword").count()) > 0,
+        (await page.locator(codeHighlightedTokenSelector(".source-flow-text")).count()) > 0,
         "pipeline source flow should syntax-highlight source tokens",
       );
       await verifyPipelineInspector(page, ".token-row[role='button']", "Token");
@@ -330,12 +342,29 @@ async function verifyCompilerPipeline(page, baseUrl) {
       await verifySemanticScopePane(page);
     }
   }
-  await clickControlForApi(page, baseUrl, ".inspector", "下一步", "POST", ["/api/observation/", "/next"], 90_000);
-  await page.waitForFunction(() => document.querySelector(".workspace-group.right") === null);
+  await finishPipelineAndWaitForTabsClose(page, baseUrl);
   await page.waitForFunction(() =>
     [...document.querySelectorAll(".tab-title")]
       .every((node) => !/\s(before|after)$/.test(node.textContent?.trim() ?? "")),
   );
+}
+
+async function finishPipelineAndWaitForTabsClose(page, baseUrl) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if ((await page.locator(".workspace-group.right").count()) === 0) {
+      return;
+    }
+    await clickControlForApi(page, baseUrl, ".inspector", "下一步", "POST", ["/api/observation/", "/next"], 90_000);
+    await page.waitForFunction(() => {
+      if (document.querySelector(".workspace-group.right") === null) {
+        return true;
+      }
+      const nextButton = [...document.querySelectorAll(".inspector button")]
+        .find((node) => (node.textContent?.trim() ?? "") === "下一步");
+      return nextButton !== undefined && !nextButton.disabled;
+    }, undefined, { timeout: 90_000 });
+  }
+  await page.waitForFunction(() => document.querySelector(".workspace-group.right") === null);
 }
 
 async function verifyReusablePipelineTabsAutoSplit(page) {
@@ -362,19 +391,27 @@ async function verifyPipelineLayoutControls(page) {
     "right metadata dock should render the six compiler controls",
   );
 
-  await page.locator(".right-metadata-controls .compiler-controls-dock-button", { hasText: "左" }).click();
+  await page.locator(".right-metadata-controls .compiler-controls-dock-button").click();
+  await page.locator(".floating-compiler-controls").waitFor({ state: "visible" });
+  await page.waitForFunction(() => {
+    const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
+    return settings.compilerControlsDock === "FLOATING";
+  });
+
+  await page.locator(".floating-compiler-controls .compiler-controls-dock-button").click();
   await page.locator(".left-pipeline-controls").waitFor({ state: "visible" });
   await page.waitForFunction(() => {
     const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
     return settings.compilerControlsDock === "LEFT_PIPELINE_BOTTOM";
   });
 
-  await page.locator(".left-pipeline-controls .compiler-controls-dock-button", { hasText: "浮" }).click();
+  await page.locator(".left-pipeline-controls .compiler-controls-dock-button").click();
   await page.locator(".floating-compiler-controls").waitFor({ state: "visible" });
   await page.waitForFunction(() => {
     const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
     return settings.compilerControlsDock === "FLOATING";
   });
+
   const floatingBounds = await page.evaluate(() => {
     const workspace = document.querySelector(".workspace-split")?.getBoundingClientRect();
     const floating = document.querySelector(".floating-compiler-controls")?.getBoundingClientRect();
@@ -404,7 +441,7 @@ async function verifyPipelineLayoutControls(page) {
     return Number(settings.compilerControlsFloatingX) > 24 || Number(settings.compilerControlsFloatingY) > 24;
   });
 
-  await page.locator(".floating-compiler-controls .compiler-controls-dock-button", { hasText: "右" }).click();
+  await page.locator(".floating-compiler-controls .compiler-controls-dock-button").click();
   await page.locator(".right-metadata-controls").waitFor({ state: "visible" });
   await page.waitForFunction(() => {
     const settings = JSON.parse(window.localStorage.getItem("minic.uiweb.settings") ?? "{}");
@@ -597,7 +634,7 @@ async function verifySettingsAndInfo(page, baseUrl) {
   await page.getByRole("button", { name: "信息", exact: true }).click();
   await page.locator(".info-scroll").waitFor({ state: "visible" });
   await tokenizeWait;
-  await page.locator(".info-code-block .token-keyword").first().waitFor({ state: "visible" });
+  await page.locator(codeHighlightedTokenSelector(".info-code-block")).first().waitFor({ state: "visible" });
 }
 
 async function verifySettingsShortcutExecution(page) {

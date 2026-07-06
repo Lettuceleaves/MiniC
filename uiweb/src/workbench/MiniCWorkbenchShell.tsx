@@ -94,6 +94,10 @@ export const miniCWorkbenchShellMirror = {
       "signature": "private String compilerControlsDock="
     },
     {
+      "name": "compilerControlsDockCycleTowardRight",
+      "signature": "private boolean compilerControlsDockCycleTowardRight="
+    },
+    {
       "name": "activeSection",
       "signature": "private ActivitySection activeSection="
     },
@@ -308,8 +312,16 @@ export const miniCWorkbenchShellMirror = {
       "signature": "compilerControlsHost(String styleClass)"
     },
     {
-      "name": "dockButton",
-      "signature": "dockButton(String text,String dock)"
+      "name": "cycleCompilerControlsDock",
+      "signature": "cycleCompilerControlsDock()"
+    },
+    {
+      "name": "dockCycleButton",
+      "signature": "dockCycleButton()"
+    },
+    {
+      "name": "dockLabel",
+      "signature": "dockLabel(String dock)"
     },
     {
       "name": "ensureStageTab",
@@ -532,6 +544,14 @@ export const miniCWorkbenchShellMirror = {
       "signature": "normalizeCompilerControlsDock(String dock)"
     },
     {
+      "name": "nextCompilerControlsDock",
+      "signature": "nextCompilerControlsDock()"
+    },
+    {
+      "name": "nextDockCycleDirection",
+      "signature": "nextDockCycleDirection(String previousDock,String nextDock)"
+    },
+    {
       "name": "positionFloatingCompilerControls",
       "signature": "positionFloatingCompilerControls(Region host,MiniCSettings.FloatingRect rect)"
     },
@@ -733,6 +753,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
   const [pipelineLeftSidebarCollapsed, setPipelineLeftSidebarCollapsedState] = useState(() => MiniCSettings.pipelineLeftSidebarCollapsed());
   const [pipelineRightSidebarCollapsed, setPipelineRightSidebarCollapsedState] = useState(() => MiniCSettings.pipelineRightSidebarCollapsed());
   const [compilerControlsDock, setCompilerControlsDockState] = useState<CompilerControlsDock>(() => MiniCSettings.compilerControlsDock());
+  const [compilerControlsDockCycleTowardRight, setCompilerControlsDockCycleTowardRight] = useState(() => compilerControlsDock === "LEFT_PIPELINE_BOTTOM");
   const [compilerControlsFloatingRect, setCompilerControlsFloatingRectState] = useState<MiniCFloatingRect>(() => MiniCSettings.compilerControlsFloatingRect());
   const [editingTabIndex, setEditingTabIndex] = useState<number | null>(null);
   const [editingTabName, setEditingTabName] = useState("");
@@ -962,8 +983,15 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
     setPipelineRightSidebarCollapsedState(collapsed);
   };
   const setCompilerControlsDock = (dock: CompilerControlsDock): void => {
+    const previousDock = compilerControlsDock;
     MiniCSettings.setCompilerControlsDock(dock);
-    setCompilerControlsDockState(MiniCSettings.compilerControlsDock());
+    const nextDock = MiniCSettings.compilerControlsDock();
+    setCompilerControlsDockCycleTowardRight((currentDirection) => nextDockCycleDirection(previousDock, nextDock, currentDirection));
+    setCompilerControlsDockState(nextDock);
+  };
+
+  const cycleCompilerControlsDock = (): void => {
+    setCompilerControlsDock(nextCompilerControlsDock(compilerControlsDock, compilerControlsDockCycleTowardRight));
   };
   const setCompilerControlsFloatingRect = (rect: MiniCFloatingRect): void => {
     MiniCSettings.setCompilerControlsFloatingRect(rect);
@@ -1088,6 +1116,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
         pipelineLeftSidebarCollapsed,
         pipelineRightSidebarCollapsed,
         compilerControlsDock,
+        compilerControlsDockCycleTowardRight,
         compilerControlsFloatingRect,
         workspaceSplitRef,
         editingTabIndex,
@@ -1103,6 +1132,7 @@ export function MiniCWorkbenchShell({ title = "MiniC Workbench" }: MiniCWorkbenc
         setPipelineLeftSidebarCollapsed,
         setPipelineRightSidebarCollapsed,
         setCompilerControlsDock,
+        cycleCompilerControlsDock,
         setCompilerControlsFloatingRect,
         closeDocument,
         newDocument,
@@ -1130,6 +1160,7 @@ interface ShellActions {
   readonly pipelineLeftSidebarCollapsed: boolean;
   readonly pipelineRightSidebarCollapsed: boolean;
   readonly compilerControlsDock: CompilerControlsDock;
+  readonly compilerControlsDockCycleTowardRight: boolean;
   readonly compilerControlsFloatingRect: MiniCFloatingRect;
   readonly workspaceSplitRef: MutableRefObject<HTMLDivElement | null>;
   readonly editingTabIndex: number | null;
@@ -1145,6 +1176,7 @@ interface ShellActions {
   readonly setPipelineLeftSidebarCollapsed: (collapsed: boolean) => void;
   readonly setPipelineRightSidebarCollapsed: (collapsed: boolean) => void;
   readonly setCompilerControlsDock: (dock: CompilerControlsDock) => void;
+  readonly cycleCompilerControlsDock: () => void;
   readonly setCompilerControlsFloatingRect: (rect: MiniCFloatingRect) => void;
   readonly closeDocument: (index: number) => void;
   readonly newDocument: () => void;
@@ -1307,25 +1339,68 @@ function compilerControlsHost(
       <div className="compiler-controls-dock-bar">
         <span className="compiler-controls-title">控制台</span>
         <span className="compiler-controls-spacer" />
-        {dockButton("右", "RIGHT_METADATA_TOP", actions)}
-        {dockButton("左", "LEFT_PIPELINE_BOTTOM", actions)}
-        {dockButton("浮", "FLOATING", actions)}
+        {dockCycleButton(actions)}
       </div>
       <MiniCCompilerControlsView playbackController={playbackController} viewModel={viewModel} />
     </div>
   );
 }
 
-function dockButton(label: string, dock: CompilerControlsDock, actions: ShellActions) {
+function dockCycleButton(actions: ShellActions) {
+  const nextDock = nextCompilerControlsDock(actions.compilerControlsDock, actions.compilerControlsDockCycleTowardRight);
   return (
     <button
-      className={`compiler-controls-dock-button${actions.compilerControlsDock === dock ? " active" : ""}`}
-      onClick={() => actions.setCompilerControlsDock(dock)}
+      aria-label="切换控制台位置"
+      className="compiler-controls-dock-button compiler-controls-cycle-button"
+      onClick={actions.cycleCompilerControlsDock}
+      title={`切换控制台位置：${dockLabel(nextDock)}`}
       type="button"
     >
-      {label}
+      <svg className="compiler-controls-cycle-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8 M3 3v5h5 M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16 M16 16h5v5" />
+      </svg>
     </button>
   );
+}
+
+export function nextCompilerControlsDock(
+  dock: CompilerControlsDock,
+  cycleTowardRight: boolean,
+): CompilerControlsDock {
+  if (dock === "LEFT_PIPELINE_BOTTOM" || dock === "RIGHT_METADATA_TOP") {
+    return "FLOATING";
+  }
+  return cycleTowardRight ? "RIGHT_METADATA_TOP" : "LEFT_PIPELINE_BOTTOM";
+}
+
+function nextDockCycleDirection(
+  previousDock: CompilerControlsDock,
+  nextDock: CompilerControlsDock,
+  currentDirection: boolean,
+): boolean {
+  if (nextDock === "LEFT_PIPELINE_BOTTOM") {
+    return true;
+  }
+  if (nextDock === "RIGHT_METADATA_TOP") {
+    return false;
+  }
+  if (previousDock === "LEFT_PIPELINE_BOTTOM") {
+    return true;
+  }
+  if (previousDock === "RIGHT_METADATA_TOP") {
+    return false;
+  }
+  return currentDirection;
+}
+
+function dockLabel(dock: CompilerControlsDock): string {
+  if (dock === "LEFT_PIPELINE_BOTTOM") {
+    return "左侧";
+  }
+  if (dock === "FLOATING") {
+    return "中间";
+  }
+  return "右侧";
 }
 
 function floatingCompilerControls(actions: ShellActions, playbackController: MiniCPlaybackController) {

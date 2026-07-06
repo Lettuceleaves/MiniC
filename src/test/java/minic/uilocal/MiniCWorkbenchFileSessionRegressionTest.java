@@ -3,6 +3,7 @@ package minic.uilocal;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.Parent;
+import javafx.scene.control.Button;
 import javafx.scene.control.SplitPane;
 
 import minic.settings.MiniCSettings;
@@ -388,6 +389,55 @@ class MiniCWorkbenchFileSessionRegressionTest {
     }
 
     @Test
+    void pipelineControlsDockButtonCyclesThroughSideCenterSidePositions() throws Exception {
+        ensureFxStarted();
+        String originalSettings = backup(SETTINGS_FILE);
+        try {
+            Files.writeString(SETTINGS_FILE, """
+                    {
+                      "theme": "dark",
+                      "compilerControlsDock": "RIGHT_METADATA_TOP",
+                      "pipelineLeftSidebarCollapsed": "false",
+                      "pipelineRightSidebarCollapsed": "false"
+                    }
+                    """, StandardCharsets.UTF_8);
+            MiniCSettings.load();
+            MiniCWorkbenchViewModel model = new MiniCWorkbenchViewModel();
+            MiniCWorkbenchShell shell = new MiniCWorkbenchShell(model);
+
+            runFx(() -> {
+                model.loadSource("layout.mc", "int main() { return 0; }");
+                Parent root = shell.createRoot();
+                model.startSession();
+
+                assertThat(root.lookupAll(".compiler-controls-dock-button")).hasSize(1);
+                assertThat(root.lookupAll(".right-metadata-controls")).hasSize(1);
+
+                dockCycleButton(root).fire();
+                assertThat(MiniCSettings.compilerControlsDock()).isEqualTo("FLOATING");
+                assertThat(root.lookupAll(".floating-compiler-controls")).hasSize(1);
+                assertThat(root.lookupAll(".compiler-controls-dock-button")).hasSize(1);
+
+                dockCycleButton(root).fire();
+                assertThat(MiniCSettings.compilerControlsDock()).isEqualTo("LEFT_PIPELINE_BOTTOM");
+                assertThat(root.lookupAll(".left-pipeline-controls")).hasSize(1);
+                assertThat(root.lookupAll(".compiler-controls-dock-button")).hasSize(1);
+
+                dockCycleButton(root).fire();
+                assertThat(MiniCSettings.compilerControlsDock()).isEqualTo("FLOATING");
+                assertThat(root.lookupAll(".floating-compiler-controls")).hasSize(1);
+
+                dockCycleButton(root).fire();
+                assertThat(MiniCSettings.compilerControlsDock()).isEqualTo("RIGHT_METADATA_TOP");
+                assertThat(root.lookupAll(".right-metadata-controls")).hasSize(1);
+            });
+        } finally {
+            restore(SETTINGS_FILE, originalSettings);
+            MiniCSettings.load();
+        }
+    }
+
+    @Test
     void workspaceTabsMoveLeftAndReflowWhenLeftGroupBecomesEmpty() throws Exception {
         ensureFxStarted();
         String originalSettings = backup(SETTINGS_FILE);
@@ -459,6 +509,14 @@ class MiniCWorkbenchFileSessionRegressionTest {
         Field field = MiniCWorkbenchShell.class.getDeclaredField("body");
         field.setAccessible(true);
         return ((javafx.scene.layout.Pane) field.get(shell)).getChildren().get(index);
+    }
+
+    private static Button dockCycleButton(Parent root) {
+        return root.lookupAll(".compiler-controls-dock-button").stream()
+                .filter(Button.class::isInstance)
+                .map(Button.class::cast)
+                .findFirst()
+                .orElseThrow();
     }
 
     private static void ensureFxStarted() throws Exception {
