@@ -3,7 +3,7 @@ package minic.runtime.step;
 import minic.compiler.codegen.AssemblySource;
 import minic.compiler.toolchain.Toolchain;
 import minic.compiler.toolchain.ToolchainResult;
-import minic.compiler.toolchain.WindowsMsvcToolchain;
+import minic.compiler.toolchain.WindowsNativeToolchain;
 import minic.source.SourceFile;
 
 import java.nio.file.Path;
@@ -30,7 +30,7 @@ public final class ToolchainStageStepper implements StageStepper {
      * @param assemblySource 汇编输出
      */
     public ToolchainStageStepper(SourceFile sourceFile, AssemblySource assemblySource) {
-        this(sourceFile, assemblySource, new WindowsMsvcToolchain());
+        this(sourceFile, assemblySource, new WindowsNativeToolchain());
     }
 
     /**

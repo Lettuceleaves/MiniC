@@ -3,6 +3,7 @@ package minic.cli;
 import minic.compiler.pipeline.CompileOptions;
 import minic.compiler.pipeline.CompileResult;
 import minic.compiler.pipeline.MiniCompiler;
+import minic.compiler.toolchain.WindowsNativeToolchain;
 import minic.compiler.toolchain.WindowsMsvcToolchain;
 import minic.diagnostics.Diagnostic;
 import minic.source.SourceFile;
@@ -87,7 +88,7 @@ public final class MiniCli {
                 "compile-run".equals(options.command()),
                 options.hasExplicitToolchainCommands()
                         ? new WindowsMsvcToolchain(options.assemblerCommand(), options.linkerCommand())
-                        : new WindowsMsvcToolchain()
+                        : new WindowsNativeToolchain()
         );
         CompileResult result = compiler.apply(sourceFile, compileOptions);
         printRequestedStages(result, options.showStages());
