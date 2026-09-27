@@ -11,6 +11,8 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -46,15 +48,39 @@ public final class WindowsPeLinker {
      * 链接一个由 MiniC 生成的 COFF 对象。当前阶段要求所有符号均在对象内定义。
      */
     public PeImage link(CoffObjectFile objectFile, String entrySymbol) {
+        return link(objectFile, entrySymbol, Map.of());
+    }
+
+    /**
+     * 链接 COFF 对象并直接构建指定 DLL imports，不需要 import library。
+     *
+     * @param imports 外部符号到 DLL 文件名的映射
+     */
+    public PeImage link(CoffObjectFile objectFile, String entrySymbol, Map<String, String> imports) {
         Objects.requireNonNull(objectFile, "objectFile");
         Objects.requireNonNull(entrySymbol, "entrySymbol");
+        Objects.requireNonNull(imports, "imports");
         ParsedCoffObject object = reader.read(objectFile);
         if (object.sections().isEmpty()) {
             throw new IllegalArgumentException("COFF object has no sections");
         }
 
+        List<String> importedSymbols = object.symbols().stream()
+                .filter(symbol -> !symbol.defined())
+                .map(CoffSymbol::name)
+                .distinct()
+                .sorted()
+                .toList();
+        for (String symbol : importedSymbols) {
+            String dll = imports.get(symbol);
+            if (dll == null || dll.isBlank()) {
+                throw new IllegalArgumentException("undefined symbol: " + symbol);
+            }
+        }
+        ImportPlan importPlan = importedSymbols.isEmpty() ? null : ImportPlan.plan(importedSymbols, imports);
+        int outputSectionCount = object.sections().size() + (importPlan == null ? 0 : 1);
         int headersSize = align(
-                PE_OFFSET + 4 + 20 + OPTIONAL_HEADER_SIZE + object.sections().size() * 40,
+                PE_OFFSET + 4 + 20 + OPTIONAL_HEADER_SIZE + outputSectionCount * 40,
                 FILE_ALIGNMENT
         );
         ArrayList<LinkedSection> sections = new ArrayList<>();
@@ -63,6 +89,12 @@ public final class WindowsPeLinker {
         for (int index = 0; index < object.sections().size(); index++) {
             CoffSection section = object.sections().get(index);
             byte[] data = section.data();
+            if (importPlan != null && ".text".equals(section.name())) {
+                int thunkStart = align(data.length, 16);
+                data = Arrays.copyOf(data, thunkStart + importedSymbols.size() * 6);
+                importPlan.thunkSectionNumber = index + 1;
+                importPlan.thunkStart = thunkStart;
+            }
             LinkedSection linked = new LinkedSection(
                     index + 1,
                     section.name(),
@@ -77,7 +109,48 @@ public final class WindowsPeLinker {
             nextRaw += linked.rawSize;
         }
 
+        if (importPlan != null) {
+            if (importPlan.thunkSectionNumber == 0) {
+                throw new IllegalArgumentException("imports require a .text section");
+            }
+            LinkedSection idata = new LinkedSection(
+                    sections.size() + 1,
+                    ".idata",
+                    new byte[importPlan.size],
+                    nextRva,
+                    nextRaw,
+                    align(importPlan.size, FILE_ALIGNMENT),
+                    0xC0000040
+            );
+            sections.add(idata);
+            nextRva = align(nextRva + Math.max(importPlan.size, 1), SECTION_ALIGNMENT);
+            nextRaw += idata.rawSize;
+            byte[] importData = importPlan.build(idata.rva);
+            System.arraycopy(importData, 0, idata.data, 0, importData.length);
+        }
+
         LinkedHashMap<String, ResolvedSymbol> symbols = resolveSymbols(object.symbols(), sections);
+        ImportDirectory importDirectory = ImportDirectory.empty();
+        if (importPlan != null) {
+            LinkedSection text = sections.get(importPlan.thunkSectionNumber - 1);
+            LinkedSection idata = sections.getLast();
+            for (int index = 0; index < importedSymbols.size(); index++) {
+                String symbol = importedSymbols.get(index);
+                int thunkOffset = importPlan.thunkStart + index * 6;
+                int thunkRva = text.rva + thunkOffset;
+                int iatRva = idata.rva + importPlan.iatOffsets.get(symbol);
+                text.data[thunkOffset] = (byte) 0xFF;
+                text.data[thunkOffset + 1] = 0x25;
+                putInt(text.data, thunkOffset + 2, iatRva - (thunkRva + 6));
+                symbols.put(symbol, new ResolvedSymbol(thunkRva));
+            }
+            importDirectory = new ImportDirectory(
+                    idata.rva,
+                    importPlan.descriptorSize,
+                    idata.rva + importPlan.firstIatOffset,
+                    importPlan.totalIatSize
+            );
+        }
         ResolvedSymbol entry = symbols.get(entrySymbol);
         if (entry == null) {
             throw new IllegalArgumentException("entry symbol is not defined: " + entrySymbol);
@@ -90,7 +163,7 @@ public final class WindowsPeLinker {
         output.position(PE_OFFSET);
         output.putInt(0x00004550);
         writeCoffHeader(output, sections.size());
-        writeOptionalHeader(output, sections, entry.rva, nextRva, headersSize);
+        writeOptionalHeader(output, sections, entry.rva, nextRva, headersSize, importDirectory);
         for (LinkedSection section : sections) {
             writeSectionHeader(output, section);
         }
@@ -191,6 +264,7 @@ public final class WindowsPeLinker {
             int entryRva,
             int imageSize,
             int headersSize
+            , ImportDirectory imports
     ) {
         int codeSize = sections.stream()
                 .filter(section -> (section.characteristics & 0x20) != 0)
@@ -236,7 +310,15 @@ public final class WindowsPeLinker {
         output.putInt(0);
         output.putInt(16);
         for (int index = 0; index < 16; index++) {
-            output.putLong(0);
+            if (index == 1) {
+                output.putInt(imports.importRva);
+                output.putInt(imports.importSize);
+            } else if (index == 12) {
+                output.putInt(imports.iatRva);
+                output.putInt(imports.iatSize);
+            } else {
+                output.putLong(0);
+            }
         }
     }
 
@@ -262,6 +344,13 @@ public final class WindowsPeLinker {
 
     private static int align(int value, int alignment) {
         return (value + alignment - 1) & -alignment;
+    }
+
+    private static void putInt(byte[] target, int offset, int value) {
+        target[offset] = (byte) value;
+        target[offset + 1] = (byte) (value >>> 8);
+        target[offset + 2] = (byte) (value >>> 16);
+        target[offset + 3] = (byte) (value >>> 24);
     }
 
     private static final class LinkedSection {
@@ -293,5 +382,116 @@ public final class WindowsPeLinker {
     }
 
     private record ResolvedSymbol(int rva) {
+    }
+
+    private record ImportDirectory(int importRva, int importSize, int iatRva, int iatSize) {
+        private static ImportDirectory empty() {
+            return new ImportDirectory(0, 0, 0, 0);
+        }
+    }
+
+    private static final class ImportPlan {
+        private final List<ImportDll> dlls;
+        private final Map<String, Integer> iatOffsets = new LinkedHashMap<>();
+        private final int descriptorSize;
+        private final int firstIatOffset;
+        private final int totalIatSize;
+        private final int size;
+        private int thunkSectionNumber;
+        private int thunkStart;
+
+        private ImportPlan(
+                List<ImportDll> dlls,
+                int descriptorSize,
+                int firstIatOffset,
+                int totalIatSize,
+                int size
+        ) {
+            this.dlls = dlls;
+            this.descriptorSize = descriptorSize;
+            this.firstIatOffset = firstIatOffset;
+            this.totalIatSize = totalIatSize;
+            this.size = size;
+            for (ImportDll dll : dlls) {
+                for (int index = 0; index < dll.symbols.size(); index++) {
+                    iatOffsets.put(dll.symbols.get(index), dll.iatOffset + index * Long.BYTES);
+                }
+            }
+        }
+
+        private static ImportPlan plan(List<String> symbols, Map<String, String> imports) {
+            LinkedHashMap<String, ArrayList<String>> byDll = new LinkedHashMap<>();
+            symbols.stream()
+                    .sorted(Comparator.comparing((String symbol) -> imports.get(symbol)).thenComparing(Comparator.naturalOrder()))
+                    .forEach(symbol -> byDll.computeIfAbsent(imports.get(symbol), ignored -> new ArrayList<>()).add(symbol));
+            int descriptorSize = (byDll.size() + 1) * 20;
+            int cursor = descriptorSize;
+            ArrayList<ImportDll> dlls = new ArrayList<>();
+            for (Map.Entry<String, ArrayList<String>> entry : byDll.entrySet()) {
+                ImportDll dll = new ImportDll(entry.getKey(), List.copyOf(entry.getValue()));
+                dll.iltOffset = cursor;
+                cursor += (dll.symbols.size() + 1) * Long.BYTES;
+                dlls.add(dll);
+            }
+            int firstIat = cursor;
+            for (ImportDll dll : dlls) {
+                dll.iatOffset = cursor;
+                cursor += (dll.symbols.size() + 1) * Long.BYTES;
+            }
+            int totalIat = cursor - firstIat;
+            for (ImportDll dll : dlls) {
+                for (String symbol : dll.symbols) {
+                    cursor = align(cursor, 2);
+                    dll.hintNameOffsets.put(symbol, cursor);
+                    cursor += 2 + symbol.getBytes(StandardCharsets.US_ASCII).length + 1;
+                }
+                dll.nameOffset = cursor;
+                cursor += dll.name.getBytes(StandardCharsets.US_ASCII).length + 1;
+            }
+            return new ImportPlan(List.copyOf(dlls), descriptorSize, firstIat, totalIat, cursor);
+        }
+
+        private byte[] build(int sectionRva) {
+            byte[] result = new byte[size];
+            ByteBuffer output = ByteBuffer.wrap(result).order(ByteOrder.LITTLE_ENDIAN);
+            for (int dllIndex = 0; dllIndex < dlls.size(); dllIndex++) {
+                ImportDll dll = dlls.get(dllIndex);
+                int descriptor = dllIndex * 20;
+                output.putInt(descriptor, sectionRva + dll.iltOffset);
+                output.putInt(descriptor + 12, sectionRva + dll.nameOffset);
+                output.putInt(descriptor + 16, sectionRva + dll.iatOffset);
+                for (int symbolIndex = 0; symbolIndex < dll.symbols.size(); symbolIndex++) {
+                    String symbol = dll.symbols.get(symbolIndex);
+                    long hintNameRva = Integer.toUnsignedLong(sectionRva + dll.hintNameOffsets.get(symbol));
+                    output.putLong(dll.iltOffset + symbolIndex * 8, hintNameRva);
+                    output.putLong(dll.iatOffset + symbolIndex * 8, hintNameRva);
+                    int hintOffset = dll.hintNameOffsets.get(symbol);
+                    output.putShort(hintOffset, (short) 0);
+                    putAsciiZ(result, hintOffset + 2, symbol);
+                }
+                putAsciiZ(result, dll.nameOffset, dll.name);
+            }
+            return result;
+        }
+
+        private static void putAsciiZ(byte[] target, int offset, String value) {
+            byte[] bytes = value.getBytes(StandardCharsets.US_ASCII);
+            System.arraycopy(bytes, 0, target, offset, bytes.length);
+            target[offset + bytes.length] = 0;
+        }
+    }
+
+    private static final class ImportDll {
+        private final String name;
+        private final List<String> symbols;
+        private final Map<String, Integer> hintNameOffsets = new LinkedHashMap<>();
+        private int iltOffset;
+        private int iatOffset;
+        private int nameOffset;
+
+        private ImportDll(String name, List<String> symbols) {
+            this.name = name;
+            this.symbols = symbols;
+        }
     }
 }

@@ -9,12 +9,14 @@ import minic.compiler.codegen.machine.MachineModule;
 import minic.compiler.codegen.machine.MachineSection;
 import minic.compiler.codegen.machine.MachineSectionKind;
 import minic.compiler.codegen.machine.RegisterOperand;
+import minic.compiler.codegen.machine.SymbolOperand;
 import minic.compiler.codegen.target.TargetPlatform;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -55,5 +57,32 @@ class WindowsPeLinkerRegressionTest {
         assertThat(buffer.getInt(sectionHeader + 20)).isEqualTo(0x200);
         assertThat(image[0x200] & 0xFF).isEqualTo(0xB8);
         assertThat(new WindowsPeLinker().link(object, "entry").bytes()).isEqualTo(image);
+
+        MachineModule importedModule = new MachineModule(
+                TargetPlatform.WINDOWS_X86_64,
+                "entry",
+                List.of(new MachineSection(
+                        ".text",
+                        MachineSectionKind.CODE,
+                        16,
+                        List.of(
+                                new MachineLabel("entry", true),
+                                new MachineInstruction("mov", new RegisterOperand("ecx"), new ImmediateOperand(0)),
+                                new MachineInstruction("call", new SymbolOperand("ExitProcess")),
+                                new MachineInstruction("ret")
+                        )
+                )),
+                List.of("ExitProcess")
+        );
+        byte[] importedImage = new WindowsPeLinker().link(
+                new CoffObjectWriter().write(importedModule),
+                "entry",
+                Map.of("ExitProcess", "KERNEL32.dll")
+        ).bytes();
+        ByteBuffer importedBuffer = ByteBuffer.wrap(importedImage).order(ByteOrder.LITTLE_ENDIAN);
+        int importedOptional = importedBuffer.getInt(0x3C) + 4 + 20;
+        assertThat(importedBuffer.getInt(importedOptional + 112 + 8)).isNotZero();
+        assertThat(new String(importedImage, java.nio.charset.StandardCharsets.US_ASCII))
+                .contains("ExitProcess", "KERNEL32.dll");
     }
 }

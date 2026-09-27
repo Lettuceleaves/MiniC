@@ -3,6 +3,7 @@ package minic.compiler.codegen.x64;
 import minic.compiler.codegen.machine.ImmediateOperand;
 import minic.compiler.codegen.machine.MachineInstruction;
 import minic.compiler.codegen.machine.MachineLabel;
+import minic.compiler.codegen.machine.MemoryOperand;
 import minic.compiler.codegen.machine.MachineSection;
 import minic.compiler.codegen.machine.MachineSectionKind;
 import minic.compiler.codegen.machine.RegisterOperand;
@@ -45,5 +46,23 @@ class X64EncoderRegressionTest {
         assertThat(encoded.relocations()).containsExactly(
                 new MachineRelocation(14, "runtime_print", MachineRelocationKind.REL32, 0)
         );
+
+        MachineSection memorySection = new MachineSection(
+                ".text",
+                MachineSectionKind.CODE,
+                16,
+                List.of(
+                        new MachineInstruction("mov", MemoryOperand.base(32, "rbp", -36), new RegisterOperand("ecx")),
+                        new MachineInstruction("cmp", MemoryOperand.base(32, "rbp", -40), new ImmediateOperand(0)),
+                        new MachineInstruction("lea", new RegisterOperand("rax"), MemoryOperand.ripRelative(0, "message")),
+                        new MachineInstruction("movsd", new RegisterOperand("xmm0"), MemoryOperand.base(64, "rbp", -48)),
+                        new MachineInstruction("ret")
+                )
+        );
+        EncodedMachineSection memoryEncoded = new X64Encoder().encode(memorySection);
+        assertThat(memoryEncoded.bytes()).isNotEmpty();
+        assertThat(memoryEncoded.relocations())
+                .extracting(MachineRelocation::symbol)
+                .containsExactly("message");
     }
 }
