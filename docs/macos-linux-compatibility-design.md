@@ -1,870 +1,109 @@
-# MiniC macOS / Linux 兼容技术调查与设计
+# MiniC 多平台兼容设计
 
-调查日期：2026-06-05
+## 当前状态
 
-本文基于当前仓库只读调查，目标是给 MiniC 提供 macOS、Linux 兼容的步骤、选型和设计建议。本文只描述现状与方案，不代表当前代码已经具备完整跨平台能力。
-
-## 结论摘要
-
-MiniC 的 Java、Gradle、JavaFX 基础设施具备跨平台潜力，但“源码到真实可执行文件”的闭环目前是 Windows 专属。当前阻塞点不在 lexer/parser/semantic/IR，也不主要在 JavaFX，而在后端目标平台、ABI、汇编方言、工具链、CLI 默认行为和观测流水线默认实现。
-
-建议把兼容目标拆成四层推进：
-
-| 层级 | 目标 | 当前可行性 | 推荐优先级 |
-|------|------|------------|------------|
-| L0 | macOS/Linux 可构建、可跑非原生工具链测试 | 高，主要是 JDK/Gradle/CI 文档与配置问题 | 最高 |
-| L1 | JavaFX Workbench 与 IR Debugger 跨平台运行 | 较高，但需处理配置目录、快捷键、字体、JavaFX headless 验证 | 最高 |
-| L2 | Linux x86_64 生成 ELF 可执行文件 | 中，需要 SysV ABI + ELF/clang 工具链后端 | 高 |
-| L3 | macOS 原生可执行文件 | 中低，x86_64 可复用部分 SysV 设计；Apple Silicon 需要 AArch64 后端 | 中 |
-
-短期不要把 macOS/Linux 兼容理解为“一次性补齐所有原生产物”。更稳妥的路线是先让跨平台用户能打开 Workbench、运行编译观察到 ASM 阶段、使用 IR Debugger；再补 Linux x86_64 原生目标；最后处理 macOS Mach-O 与 Apple Silicon。
-
-## Agent 执行协议
-
-本节面向后续 agent。任何 agent 接到“做平台兼容、发版、打包、更新包、平台适配”任务时，必须先按本协议执行，避免在错误平台上盲目实现，或绕过发版工厂直接手工拼包。
-
-### 第一步：识别当前 agent 所在平台
-
-agent 先读取宿主平台，再决定本轮只能完成哪个平台的兼容闭环。不要假设自己在 Windows，也不要因为文档提到 macOS/Linux 就跨平台硬写。
-
-推荐检查命令：
-
-Windows PowerShell：
-
-```powershell
-$PSVersionTable.Platform
-[System.Runtime.InteropServices.RuntimeInformation]::OSDescription
-[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-java -XshowSettings:properties -version 2>&1 | Select-String 'os.name|os.arch|java.home'
-```
-
-Linux/macOS shell：
-
-```bash
-uname -s
-uname -m
-java -XshowSettings:properties -version 2>&1 | grep -E 'os.name|os.arch|java.home'
-```
-
-平台归一化规则：
-
-| 检测结果 | 归一化平台 id | 本轮兼容目标 |
-|----------|---------------|--------------|
-| Windows + x86_64 / amd64 | `windows-x64` | Windows 全依赖发版包 |
-| Linux + x86_64 / amd64 | `linux-x64` | Linux runtime 包；若后端已完成再补 clang/native |
-| Darwin + x86_64 | `macos-x64` | macOS Intel runtime 包；若后端已完成再补 native |
-| Darwin + arm64 / aarch64 | `macos-aarch64` | macOS Apple Silicon runtime 包；若后端已完成再补 native |
-
-如果当前平台无法识别，agent 必须先补平台检测文档或脚本，不得继续打包。
-
-### 第二步：检查发版工厂是否完整
-
-平台兼容工作开始前，agent 必须检查仓库是否已有完整发版工厂。若没有完成整套工厂，先做工厂；工厂完成后再做当前平台兼容。
-
-最低完整工厂定义：
+MiniC 应用层使用 Java 21。当前唯一完成原生产物闭环的目标是 `windows-x86_64`：
 
 ```text
-release/factory/
-  release.config.json
-  platforms/
-    windows-x64.json
-    linux-x64.json
-    macos-x64.json
-    macos-aarch64.json
-  scripts/
-    release.ps1
-    package-platform.ps1
-    collect-deps.ps1
-    verify-package.ps1
-    test-release-factory.ps1
-    common.sh
-    release.sh
-    package-platform.sh
-    collect-deps.sh
-    verify-package.sh
-    test-release-factory.sh
-  templates/
-    release.json
-    README.txt
+source -> frontend -> IR -> assembly view -> MachineModule
+       -> x64 encoder -> COFF object -> PE32+ linker -> executable
 ```
 
-agent 检查清单：
+Windows 后端完全由项目内 Java 代码实现，不启动外部汇编器或链接器，也不读取宿主机 SDK、静态库或工具链配置。汇编文本是教学和调试视图，不是二进制生成输入之外的外部工具协议。
 
-- 是否存在 `release/factory/release.config.json`。
-- 是否存在当前平台对应的 `release/factory/platforms/<platform>.json`。
-- 是否存在统一包内引导配置模板 `release/factory/templates/release.json`。
-- 是否存在 Windows PowerShell 总入口和 macOS/Linux shell 总入口，且分别支持单平台和全平台发版。
-- 是否定义统一包目录：`app/`、`runtime/`、`toolchain/`、`config/`、`bin/`、`cache/`。
-- 是否输出 `release-manifest.json`，记录版本、平台、文件名、sha256、大小、依赖摘要。
+## 分层目标
 
-只要上述任一项缺失，agent 当前任务的第一目标就是补齐发版工厂。不要先补某个平台的零散脚本，也不要继续复制旧 `release/0.4.0` 目录结构。
-
-### 第三步：只完成当前平台兼容闭环
-
-工厂存在后，agent 只完成自己所在平台的兼容闭环，不承诺其他平台已完成。
-
-当前平台完成定义：
-
-| 平台 | 最低完成内容 | 不得声称完成的内容 |
-|------|--------------|--------------------|
-| `windows-x64` | 打包 Java runtime、应用 lib、Windows launcher、MSVC、Windows Kits、`release.json`、`release-manifest.json`，并能启动 CLI `--help` | 不得声称 Linux/macOS native 已完成 |
-| `linux-x64` | 打包 Linux Java runtime、应用 lib、shell launcher、`release.json`、`release-manifest.json`；没有 Linux 后端时 toolchain 标记为 `none` 或 `system-clang-pending` | 不得声称能生成 ELF 原生产物，除非 Linux 后端和 clang 工具链已验证 |
-| `macos-x64` | 打包 macOS x64 Java runtime、应用 lib、shell launcher 或 app bundle 引导、`release.json`、`release-manifest.json` | 不得声称 Apple Silicon 原生后端已完成 |
-| `macos-aarch64` | 打包 macOS arm64 Java runtime、应用 lib、shell launcher 或 app bundle 引导、`release.json`、`release-manifest.json` | 不得声称 x86_64 或 Linux 后端已完成 |
-
-如果 agent 所在平台不能构建其他平台 runtime 或 launcher，只能生成其他平台的配置占位和工厂规则，不能生成“已完成”状态的产物。
-
-### 第四步：记录平台状态
-
-每个平台配置必须有状态字段，避免用户误解：
-
-```json
-{
-  "platform": "linux-x64",
-  "status": "runtime-only",
-  "nativeToolchain": "pending",
-  "launcher": "shell",
-  "runtimeBundled": true
-}
-```
-
-推荐状态：
-
-| 状态 | 含义 |
+| 层级 | 能力 |
 |------|------|
-| `factory-only` | 只有工厂配置，尚无该平台产物 |
-| `runtime-only` | 可运行 Java CLI / Workbench / IR Debugger，不包含原生 MiniC 可执行生成能力 |
-| `native-toolchain-ready` | 已包含或可定位该平台工具链，但后端未必完整 |
-| `native-compile-ready` | 当前平台原生后端、工具链、compile-run smoke 均通过 |
+| L0 | Java 前端、IR、Debugger 和 UI 可在支持 Java 21 的 host 上运行 |
+| L1 | 可以选择目标平台并生成目标汇编/机器模块，不要求在 host 上执行 |
+| L2 | 项目内编码器和对象 writer 能生成目标对象文件 |
+| L3 | 项目内 linker 能生成并在对应系统执行原生程序 |
 
-## 当前项目事实
+当前状态：
 
-### 构建与运行
+- Windows x86-64：L3。
+- Linux x86-64：未实现。
+- macOS x86-64：未实现。
+- macOS arm64：未实现。
 
-- `build.gradle` 使用 Java plugin、application plugin、OpenJFX Gradle plugin `0.1.0`，Java toolchain 指定 Java 21，JavaFX 版本为 `21.0.2`，模块为 `javafx.controls`。
-- CLI 入口是 `minic.Main`，Gradle `application.mainClass` 指向该类。
-- UI 入口是 `runUi` 任务，主类为 `minic.ui.MiniCWorkbenchLauncher`，再由它调用 `Application.launch(MiniCWorkbenchApp.class, args)`。
-- Gradle Wrapper 使用 Gradle `8.7`。
-- 仓库同时有 `gradlew` 和 `gradlew.bat`，但当前 git 索引中 `gradlew` 是 `100644`，在 macOS/Linux 上直接 `./gradlew` 可能因缺少可执行位失败。
-- `gradle.properties` 写死 `org.gradle.java.installations.paths=.local/tools/jdk-21.0.10+7`，这是当前机器本地 JDK 路径，不是跨平台可复现路径。
-- README 当前启动、测试、编译命令均以 PowerShell / Windows 路径为主。
+## 后端边界
 
-### 编译器与工具链
-
-- `TargetPlatform` 当前只有 `WINDOWS_X86_64("windows-x86_64")`。
-- `MiniCompiler()` 默认构造 `WindowsX64AssemblyEmitter`。
-- `MiniCli` 默认构造 `WindowsMsvcToolchain`，CLI 参数只暴露 `--ml64` 和 `--link`。
-- `CodegenStageStepper` 直接持有 `WindowsX64CodegenStepState`。
-- `ToolchainStageStepper` 默认构造 `WindowsMsvcToolchain`，并固定输出到 `build/minic`。
-- `WindowsMsvcToolchain` 写出 `.asm`，调用 `ml64 /c /Fo` 生成 `.obj`，再调用 `link /ENTRY:<entry> /SUBSYSTEM:CONSOLE /OUT:<exe>` 生成 `.exe`。
-- `WindowsX64CodegenStepState` 输出 MASM 风格汇编：`PUBLIC`、`EXTERN ...:PROC`、`.const`、`.code`、`PROC`、`ENDP`、`END`。
-- Windows 入口为 `minic$entry`，手动 `call main`，再调用 `ExitProcess`。这不是 Linux/macOS 的 CRT `main` 启动模型。
-- Windows x64 调用约定固定使用 `rcx/rdx/r8/r9` 与 32 字节 shadow space；Linux/macOS x86_64 需要 SysV ABI。
-
-### UI 与资源
-
-- classpath 资源加载较健康：CSS、解释模板、默认快捷键从 `src/main/resources` 读取。
-- 用户设置、快捷键覆盖、主题目录当前使用相对进程工作目录的 `config/`，包括 `config/settings.json`、`config/keybindings.json`、`config/themes`。从非项目根目录启动、打包后启动或 CI 并发测试时会有路径和污染风险。
-- 默认快捷键资源使用 `Ctrl`，虽然解析器支持 `Meta` / `Command`，但默认绑定没有面向 macOS 的 Command 版本。
-- CSS 默认字体偏 Windows：`Segoe UI`、`Microsoft YaHei`、`Consolas`、`Courier New`。macOS/Linux 会 fallback，但中文字体、等宽宽度、行高和图形布局需要实机验证。
-- 图形缩放和平移依赖 JavaFX 鼠标事件、滚轮 `deltaY` 和右键拖拽；macOS 触控板自然滚动、惯性滚动和双指右键需要单独验收。
-
-### Debugger 与可视化 ASM
-
-- Debugger 第一版执行 IR Interpreter，不调试真实 exe，不接 Windows Debug API。这个设计本身利于跨平台。
-- 但 ASM 映射展示当前也直接使用 Windows 后端：`DebugMappingIndex.collectAsm()` 和 `UiDebugAsmViewBuilder` 都构造 `WindowsX64CodegenStepState`。
-- 因此 L1 阶段可以跨平台运行 Debugger，但 ASM 视图必须明确“展示默认目标汇编”，或后续通过目标平台选择切换。
-
-### 发布形态
-
-- `release/launcher/MiniCLauncher.cs` 是 Windows 启动器，固定 `java.exe`、MSVC `ml64.exe/link.exe`、Windows Kits 路径和 `.exe` 生态。
-- macOS/Linux 发布不应复用该启动器。短期可提供 shell 启动脚本；正式分发建议使用每个平台本地构建的 `jpackage` 或平台专属 launcher。
-
-## 兼容目标定义
-
-### L0：构建和测试跨平台
-
-目标是在 macOS/Linux 上完成：
-
-```bash
-export JAVA_HOME=/path/to/jdk-21
-export PATH="$JAVA_HOME/bin:$PATH"
-export GRADLE_USER_HOME="$PWD/.gradle-home"
-sh ./gradlew test
-```
-
-如果修正 `gradlew` 可执行位，也可以使用：
-
-```bash
-chmod +x ./gradlew
-./gradlew test
-```
-
-L0 不要求生成 Linux/macOS 原生可执行文件，只要求 Java 层编译、单元测试、非 MSVC 依赖路径可控。
-
-关键设计：
-
-- 不再把 `.local/tools/jdk-21.0.10+7` 作为跨平台默认说明。
-- CI 使用 `actions/setup-java` 或等价机制安装 JDK 21。
-- 测试中涉及真实 MSVC 的部分应拆成 host/工具链条件测试，或用 fake toolchain 验证命令构造。
-- JavaFX UI 测试在 Linux CI 使用 `xvfb-run` 或改造为 headless 可测的 UI API / view model 测试。
-
-### L1：Workbench 与 IR Debugger 跨平台
-
-目标是在 macOS/Linux 上完成：
-
-```bash
-export JAVA_HOME=/path/to/jdk-21
-export PATH="$JAVA_HOME/bin:$PATH"
-export GRADLE_USER_HOME="$PWD/.gradle-home"
-sh ./gradlew runUi
-```
-
-L1 允许编译观察流水线在没有目标工具链时停在 ASM 或 Toolchain 诊断阶段，但 UI 不应因为默认 MSVC 不存在而失去基本可用性。IR Debugger 应继续使用解释器路径，不依赖真实 exe。
-
-关键设计：
-
-- Workbench 目标平台选择必须从“默认 Windows 工具链”中解耦。
-- 非 Windows host 默认进入 `NoOpToolchain`、`--emit-asm-only` 或明确的“未配置工具链”状态，而不是尝试发现 `ml64.exe/link.exe`。
-- 配置目录应支持注入，例如系统属性 `minic.config.dir` 或环境变量 `MINIC_CONFIG_DIR`；默认再落回项目 `config/`。
-- 默认快捷键应支持平台感知：macOS 使用 `Meta` / `Command`，Windows/Linux 使用 `Ctrl`。
-- 字体栈应增加跨平台候选，例如 UI 字体加入 `Inter`、`Noto Sans CJK SC`、`PingFang SC`、`Arial`，等宽字体加入 `JetBrains Mono`、`Menlo`、`Monaco`、`DejaVu Sans Mono`、`Consolas`。
-
-### L2：Linux x86_64 原生可执行文件
-
-目标是在 Linux x86_64 上完成：
-
-```bash
-sh ./gradlew run --args="compile samples/main.mc --target linux-x86_64 --out-dir build/minic --emit-asm"
-./build/minic/main
-echo $?
-```
-
-推荐选型：
-
-- 汇编方言：优先生成 GNU as / clang integrated assembler 可消费的 AT&T 或 Intel 语法。为降低学习成本，可选择 `.intel_syntax noprefix` 的 GNU as 风格。
-- 工具链：优先 `clang`，由 clang 负责汇编、链接、CRT 启动文件和 libc 连接；避免第一版直接手写 `as` + `ld` 参数。
-- ABI：System V AMD64 ABI。
-- 产物：汇编 `.s`，目标文件 `.o`，可执行文件无扩展名。
-- 入口：优先直接导出 `main`，让 C runtime 调用 `main` 并处理退出码。不要在第一版 Linux 后端手写 `_start`。
-
-Linux x86_64 关键差异：
-
-| 项目 | Windows x64 当前实现 | Linux x86_64 设计 |
-|------|----------------------|-------------------|
-| 整数/指针参数 | `rcx`, `rdx`, `r8`, `r9` | `rdi`, `rsi`, `rdx`, `rcx`, `r8`, `r9` |
-| 浮点参数 | `xmm0`-`xmm3` | `xmm0`-`xmm7` |
-| shadow space | 调用方保留 32 字节 | 无 |
-| 栈对齐 | 当前按 Windows 规则 | call 前 16 字节对齐 |
-| 外部退出 | `ExitProcess` | `main` return 交给 CRT |
-| 汇编声明 | `PUBLIC` / `EXTERN ...:PROC` | `.globl` / 外部符号直接引用 |
-| 段 | `.const` / `.code` | `.section .rodata` / `.text` |
-| 工具链 | `ml64` + `link` | `clang` |
-
-可变参数 `printf` 需要单独验收。SysV AMD64 对 variadic call 有 `%al` 表示向量寄存器参数数量的规则；若 MiniC 第一版只传整数和指针给 `printf`，可先设置 `eax=0` 并补覆盖测试。若支持浮点传入 `printf`，需要实现更完整的 varargs ABI。
-
-### L3：macOS 原生可执行文件
-
-macOS 应拆成两个目标：
-
-- `macos-x86_64`：Mach-O + x86_64 SysV 派生 ABI + clang。
-- `macos-aarch64`：Mach-O + Apple arm64 ABI + clang。
-
-推荐顺序：
-
-1. 先做 `macos-x86_64` 的设计验证，因为它可复用 Linux x86_64 的一部分寄存器、栈对齐和 IR 指令映射。
-2. 再做 `macos-aarch64`，不要试图从 x64 emitter 小修小补得到 ARM64 后端。
-
-macOS x86_64 关键差异：
-
-- Mach-O 汇编通常需要符号下划线，例如 `_main`、`_printf`。
-- 段声明不同，例如 `__TEXT,__text`、`__TEXT,__cstring` 或由 clang assembler 接受的简化形式。
-- 工具链仍建议用 `clang` 负责汇编链接。
-- Apple Silicon 上运行 x86_64 产物需要 Rosetta，不应作为长期原生兼容方案。
-
-macOS arm64 关键差异：
-
-- 整数/指针参数使用 `x0`-`x7`。
-- 浮点参数使用 `v0`-`v7` / `d0` / `s0`。
-- 指令、寻址、栈帧、调用约定全部不同。
-- 当前 `WindowsX64ValueEmitter`、`WindowsX64InstructionEmitter`、`WindowsX64FrameLayout` 不能复用为 arm64 后端，只能复用更高层 IR。
-
-## 架构设计
-
-### 目标平台抽象
-
-建议把目标平台从单一 enum 扩展为可描述目标特性的模型：
+平台后端必须共享 IR，但不得共享平台相关文本模板、调用约定或二进制格式实现。推荐结构：
 
 ```text
-TargetPlatform
-  id: windows-x86_64 | linux-x86_64 | macos-x86_64 | macos-aarch64
-  hostOs: windows | linux | macos
-  architecture: x86_64 | aarch64
-  objectFormat: coff | elf | macho
-  assemblySyntax: masm | gas-intel | macho-clang | arm64-clang
-  objectExtension: .obj | .o
-  executableExtension: .exe | ""
+minic.compiler.codegen.machine   结构化机器模块
+minic.compiler.codegen.x64       x86-64 指令编码
+minic.compiler.coff              Windows COFF 对象读写
+minic.compiler.pe                PE32+ 链接
+minic.compiler.runtime           目标运行时
 ```
 
-现有 `AssemblySource` 已携带 `targetPlatform` 和 `entrySymbol`，可继续保留，但 `entrySymbol` 对 POSIX/clang 工具链应允许“用于展示，不一定传给 linker”。Windows 可以继续使用 `/ENTRY:minic$entry`，Linux/macOS 可以让 clang 默认找 `main`。
+新增平台时应增加独立实现：
 
-### BackendFactory
+- Linux x86-64：SysV ABI、ELF object、ELF linker 和 Linux runtime。
+- macOS x86-64：Darwin ABI、Mach-O object、Mach-O linker。
+- macOS arm64：AArch64 指令选择、编码器和 Mach-O linker。
 
-引入后端工厂，集中替代 scattered `new WindowsX64...`：
+不得通过替换汇编字符串把 Windows 后端伪装成其他平台后端。
+
+## Windows 原生产物
+
+Windows 后端负责：
+
+- Windows x64 参数、返回值、shadow space 和栈对齐；
+- x86-64 opcode、REX、ModRM、SIB、立即数和相对位移；
+- COFF sections、symbols、string table 和 relocations；
+- PE32+ headers、section layout、entry point、imports 和 IAT；
+- MiniC 最小运行时以及 `printf`；
+- 通过 `KERNEL32.dll` 使用稳定的 Windows 用户态 API。
+
+链接器当前只承诺消费 MiniC 自己生成的 COFF，不承诺兼容第三方 C/C++ 对象、调试数据库、资源文件、COMDAT 或静态库。
+
+## CLI 和流水线
+
+CLI 默认使用目标平台的内置二进制流水线：
 
 ```text
-BackendFactory
-  createAssemblyEmitter(TargetPlatform)
-  createCodegenStepState(TargetPlatform, IrModule)
-  createToolchain(TargetPlatform, ToolchainOptions)
-  defaultTargetForHost()
+minic compile <source.mc> --out-dir <dir> [--emit-asm]
+minic compile-run <source.mc> --out-dir <dir> [--emit-asm]
 ```
 
-应被替换的装配点：
-
-- `MiniCompiler()` 默认后端。
-- `MiniCli` 根据 `--target` 创建 emitter 和 toolchain。
-- `CodegenStageStepper` 通过 target 创建 codegen state。
-- `ToolchainStageStepper` 不再默认 Windows MSVC。
-- `DebugMappingIndex` 和 `UiDebugAsmViewBuilder` 通过 target 创建 ASM 映射视图。
-
-### Codegen 层拆分
-
-当前 Windows 后端已经按职责拆出 calling convention、frame layout、instruction emitter、value emitter。新增平台时，不建议硬复用 MASM 文本生成，而是抽出共同概念、各平台独立实现：
+产物包括：
 
 ```text
-minic.compiler.codegen
-  AssemblyEmitter
-  AssemblySource
-  CodegenStepState 接口或适配器
-  TargetPlatform
-  TargetDescriptor
-
-minic.compiler.codegen.windows
-  WindowsX64AssemblyEmitter
-  WindowsX64CodegenStepState
-  WindowsX64CallingConvention
-  WindowsX64FrameLayout
-
-minic.compiler.codegen.sysv
-  SysVX64AssemblyEmitter
-  SysVX64CodegenStepState
-  SysVX64CallingConvention
-  SysVX64FrameLayout
-  GasIntelDialect
-
-minic.compiler.codegen.macos
-  MacOsX64AssemblyEmitter
-  MacOsSymbolMangler
-
-minic.compiler.codegen.arm64
-  AArch64AssemblyEmitter
-  AArch64CallingConvention
+<name>.asm   教学展示
+<name>.obj   项目内生成的 COFF
+<name>.exe   项目内链接的 PE32+
 ```
 
-第一版 Linux 可允许 `SysVX64CodegenStepState` 和 `SysVX64AssemblyEmitter` 比 Windows 实现少一些 UI 元数据，但必须保持 `UiAssemblyLineVisualDto` 所需字段可构造。
+非 Windows host 可以生成 Windows 产物，但不能直接执行 `.exe`。`compile-run` 必须在 host 与产物格式不兼容时给出明确诊断。
 
-### Toolchain 层设计
+## 发布要求
 
-保留现有 `Toolchain` 接口，新增：
+Windows 发布包只需要：
 
-```text
-ToolchainOptions
-  assemblerCommand / compilerCommand
-  linkerCommand
-  libraryPaths
-  extraArgs
-  runMode: asmOnly | assembleOnly | linkExecutable
+- MiniC 应用及 Java runtime；
+- 配置、文档和样例；
+- UIWeb 静态资源。
 
-NoOpToolchain
-WindowsMsvcToolchain
-ClangToolchain
-```
+发布包不得携带本机编译器、汇编器、链接器、SDK 库或 C 运行时 redistributable。打包验收必须扫描这些额外目录和旧环境变量。
 
-`ClangToolchain` 推荐承担 Linux/macOS 第一版：
+## 测试矩阵
 
-```bash
-clang -x assembler -c main.s -o main.o
-clang main.o -o main
-```
+| 验证 | Windows | Linux | macOS |
+|------|---------|-------|-------|
+| Java 编译与单元测试 | 必跑 | 必跑 | 必跑 |
+| Windows COFF/PE 结构测试 | 必跑 | 必跑 | 必跑 |
+| Windows EXE 实际执行 | 必跑 | 可选交叉执行 | 可选交叉执行 |
+| 当前 host UI smoke | 必跑 | 必跑 | 必跑 |
 
-若后续需要更稳定的链接控制，再拆 `AssemblerToolchain` 与 `LinkerToolchain`。
+Windows 端到端测试至少覆盖整数、长整数、浮点、数组、结构体、指针、函数指针、四个以上参数、控制流、stdout、退出码和自带格式化输出。
 
-工具链结果应避免语义上假设 `.exe`：
+## 后续顺序
 
-- `ToolchainResult.objectPathOptional()` 继续适用。
-- `ExecutableArtifact` 建议后续携带 `TargetPlatform` 或 `ExecutableKind`。
-- UI 和测试展示应使用 “executable path” 而不是 “exe path”。
-
-### CLI 设计
-
-建议新增参数：
-
-```text
---target <windows-x86_64|linux-x86_64|macos-x86_64|macos-aarch64>
---toolchain <auto|msvc|clang|none>
---cc <path-or-command>
---assembler <path-or-command>
---linker <path-or-command>
---emit-asm-only
---no-run
-```
-
-兼容策略：
-
-- 保留 `--ml64` 和 `--link` 作为 Windows/MSVC 别名，避免破坏现有 README 命令。
-- `compile` 默认不应强制真实链接；可考虑改成“生成到当前 target 的汇编，若工具链配置完整则链接”，或新增 `compile-native` 区分。
-- `compile-run` 必须要求 target 工具链可用，否则返回结构化 `TOOL001` / `RUN001`，并在 CLI 中输出明确诊断。
-
-### Workbench 设计
-
-Workbench 应把“编译观察”拆成可用等级：
-
-1. 前端到 IR：所有平台可用。
-2. ASM 生成：按已实现 target 可用。
-3. Toolchain：按 host 和工具链配置可用。
-4. Execution：仅当 toolchain 生成了当前 host 可执行产物时可用。
-
-UI 上不应默认假定 Windows MSVC。非 Windows 平台可以：
-
-- 默认 target 为 `host` 对应 target，但若后端未实现，降级到 `windows-x86_64` ASM 展示并标注。
-- 或默认 target 为 `windows-x86_64`，但 Toolchain/Execution 显示“未配置 Windows MSVC 工具链”。
-
-更推荐前者：host target 优先，后端未实现时明确提示“当前平台只支持前端、IR Debugger 和默认 Windows ASM 展示”。
-
-### 配置目录设计
-
-新增统一配置目录解析，避免多个类各自 `Path.of("config", ...)`：
-
-```text
-MiniCPathConfig
-  configRoot()
-  settingsFile()
-  keybindingsFile()
-  themesDirectory()
-```
-
-解析顺序：
-
-1. 系统属性 `minic.config.dir`
-2. 环境变量 `MINIC_CONFIG_DIR`
-3. 开发模式默认 `config/`
-4. 打包模式默认用户配置目录
-
-用户配置目录建议：
-
-| 平台 | 默认目录 |
-|------|----------|
-| Windows | `%APPDATA%/MiniC` |
-| macOS | `~/Library/Application Support/MiniC` |
-| Linux | `${XDG_CONFIG_HOME:-~/.config}/minic` |
-
-这一步能同时解决 CI 并发污染、从非项目根启动、打包启动找不到主题的问题。
-
-## 发版工厂设计
-
-发版工厂是平台兼容的前置基础设施。它的目标不是只打出一个 zip，而是把每个平台的硬依赖、运行时、launcher、引导配置和校验清单都收敛到统一结构中。后续升级时，只改版本和依赖来源，即可一键重建所有平台包。
-
-### 工厂源码目录
-
-```text
-release/factory/
-  release.config.json
-  platforms/
-    windows-x64.json
-    linux-x64.json
-    macos-x64.json
-    macos-aarch64.json
-  scripts/
-    release.ps1
-    package-platform.ps1
-    collect-deps.ps1
-    verify-package.ps1
-    test-release-factory.ps1
-    common.sh
-    release.sh
-    package-platform.sh
-    collect-deps.sh
-    verify-package.sh
-    test-release-factory.sh
-  templates/
-    release.json
-    README.txt
-    launchers/
-      windows/
-      posix/
-```
-
-职责说明：
-
-| 文件/目录 | 职责 |
-|-----------|------|
-| `release.config.json` | 总版本、项目名、输出目录、通用 app classpath、所有平台列表 |
-| `platforms/*.json` | 单个平台的 runtime 来源、硬依赖来源、launcher 类型、toolchain 状态 |
-| `scripts/release.ps1` | Windows / PowerShell 总入口，支持单平台和全平台 |
-| `scripts/package-platform.ps1` | PowerShell 单平台打包入口 |
-| `scripts/collect-deps.ps1` | PowerShell 依赖收集脚本 |
-| `scripts/verify-package.ps1` | PowerShell 包结构和 smoke 校验 |
-| `scripts/test-release-factory.ps1` | PowerShell 工厂完整性校验 |
-| `scripts/common.sh` | macOS/Linux shell 脚本共享函数：平台识别、JSON 读取、hash、路径处理 |
-| `scripts/release.sh` | macOS/Linux / POSIX shell 总入口，支持单平台和全平台 |
-| `scripts/package-platform.sh` | shell 单平台打包入口 |
-| `scripts/collect-deps.sh` | shell 依赖收集脚本 |
-| `scripts/verify-package.sh` | shell 包结构和 smoke 校验 |
-| `scripts/test-release-factory.sh` | shell 工厂完整性校验 |
-| `templates/release.json` | 包内引导配置模板 |
-| `templates/launchers` | 平台启动器模板 |
-
-脚本必须双轨提供：Windows agent 默认使用 PowerShell `.ps1`，macOS/Linux agent 默认使用 POSIX shell `.sh`。两套脚本读取同一份 `release.config.json` 和 `platforms/*.json`，生成同一包目录和同一 `release-manifest.json`。如果当前 agent 只在 Windows PowerShell 环境工作，允许先完成 Windows 包和其他平台配置骨架；如果当前 agent 在 macOS/Linux，则必须优先使用 `release.sh` 验证本平台脚本链路。任何平台都不得声称未实机 smoke 的产物已经完成。
-
-### 统一包内目录
-
-每个平台最终产物目录必须一致：
-
-```text
-MiniC-<version>-<platform>/
-  app/
-    MiniC/
-      lib/
-  runtime/
-    java/
-  toolchain/
-    msvc/
-    windows-kits/
-    clang/
-  config/
-    release.json
-  bin/
-    minic
-    minic.exe
-    minic-workbench
-    minic-workbench.exe
-  cache/
-    javafx/
-  README.txt
-```
-
-平台不需要的目录可以不存在，但路径语义不能变化：
-
-- Windows 全依赖包使用 `toolchain/msvc` 和 `toolchain/windows-kits`。
-- Linux/macOS runtime-only 包不内置工具链时，`toolchain/` 可以为空或不存在，但 `release.json` 必须把 toolchain 标为 `none` 或 `system-clang-pending`。
-- 如果后续内置 clang，统一放到 `toolchain/clang`。
-- Java runtime 一律放到 `runtime/java`，launcher 不读取用户机器的全局 `JAVA_HOME`，除非平台配置明确选择 `system-java`。
-
-### 包内引导配置
-
-每个包必须生成 `config/release.json`。launcher 只读这个文件和相对路径，不硬编码旧 release 目录。
-
-Windows 示例：
-
-```json
-{
-  "version": "1.0.0",
-  "platform": "windows-x64",
-  "status": "native-toolchain-ready",
-  "app": {
-    "cliMainClass": "minic.Main",
-    "workbenchMainClass": "minic.ui.MiniCWorkbenchLauncher",
-    "classpath": "app/MiniC/lib/*"
-  },
-  "runtime": {
-    "mode": "bundled",
-    "javaHome": "runtime/java"
-  },
-  "toolchain": {
-    "type": "msvc",
-    "root": "toolchain/msvc",
-    "windowsKitsRoot": "toolchain/windows-kits",
-    "ml64": "toolchain/msvc/bin/Hostx64/x64/ml64.exe",
-    "link": "toolchain/msvc/bin/Hostx64/x64/link.exe",
-    "libPaths": [
-      "toolchain/msvc/lib/x64",
-      "toolchain/windows-kits/Lib/10.0.26100.0/um/x64",
-      "toolchain/windows-kits/Lib/10.0.26100.0/ucrt/x64"
-    ]
-  },
-  "env": {
-    "MINIC_MSVC_TOOLCHAIN_ROOT": "toolchain/msvc",
-    "MINIC_WINDOWS_KITS_ROOT": "toolchain/windows-kits",
-    "MINIC_MSVC_LIB_PATHS": "toolchain/msvc/lib/x64;toolchain/windows-kits/Lib/10.0.26100.0/um/x64;toolchain/windows-kits/Lib/10.0.26100.0/ucrt/x64"
-  },
-  "cache": {
-    "javafx": "cache/javafx"
-  }
-}
-```
-
-Linux runtime-only 示例：
-
-```json
-{
-  "version": "1.0.0",
-  "platform": "linux-x64",
-  "status": "runtime-only",
-  "app": {
-    "cliMainClass": "minic.Main",
-    "workbenchMainClass": "minic.ui.MiniCWorkbenchLauncher",
-    "classpath": "app/MiniC/lib/*"
-  },
-  "runtime": {
-    "mode": "bundled",
-    "javaHome": "runtime/java"
-  },
-  "toolchain": {
-    "type": "none",
-    "nativeBackend": "pending"
-  },
-  "cache": {
-    "javafx": "cache/javafx"
-  }
-}
-```
-
-### 总发版入口
-
-总入口必须支持：
-
-```powershell
-release/factory/scripts/release.ps1 -Version 1.0.0 -Platform windows-x64
-release/factory/scripts/release.ps1 -Version 1.0.0 -Platform linux-x64
-release/factory/scripts/release.ps1 -Version 1.0.0 -AllPlatforms
-```
-
-```bash
-sh release/factory/scripts/release.sh --version 1.0.0 --platform linux-x64
-sh release/factory/scripts/release.sh --version 1.0.0 --platform macos-aarch64
-sh release/factory/scripts/release.sh --version 1.0.0 --all-platforms
-```
-
-行为要求：
-
-1. 读取当前 host，输出日志说明 agent 所在平台。
-2. 读取总配置和平台配置。
-3. 若工厂必需文件缺失，失败并提示先补工厂。
-4. 运行 Gradle 构建或读取已构建 app lib。
-5. 创建 `build/release-factory/<version>/<platform>/MiniC-<version>-<platform>/`。
-6. 复制 app lib、runtime、平台硬依赖和 launcher。
-7. 渲染 `config/release.json`。
-8. 对当前 host 平台运行 smoke；对非当前 host 平台只做结构校验。
-9. 输出压缩包和 `release-manifest.json`。
-
-### release-manifest
-
-每次发版必须生成总清单：
-
-```json
-{
-  "version": "1.0.0",
-  "createdAt": "2026-06-06T00:00:00+08:00",
-  "packages": [
-    {
-      "platform": "windows-x64",
-      "status": "native-toolchain-ready",
-      "file": "MiniC-1.0.0-windows-x64.zip",
-      "sha256": "<hash>",
-      "sizeBytes": 0,
-      "verifiedOnHost": true
-    },
-    {
-      "platform": "linux-x64",
-      "status": "runtime-only",
-      "file": "MiniC-1.0.0-linux-x64.tar.gz",
-      "sha256": "<hash>",
-      "sizeBytes": 0,
-      "verifiedOnHost": false
-    }
-  ]
-}
-```
-
-`verifiedOnHost=false` 不是失败，它表示当前 agent 不在该平台上，只完成结构校验。后续对应平台 agent 接手时，应先读取这个清单，再完成本平台 smoke 和兼容闭环。
-
-## 分阶段实施步骤
-
-### 阶段 0：发版工厂优先落地
-
-目标：
-
-- 如果 `release/factory` 不完整，先完成工厂骨架、平台配置、包内 `release.json` 模板和总 manifest。
-- 将现有 Windows launcher 的硬编码相对路径迁移到读取 `config/release.json` 的设计中。
-- 明确所有平台包统一目录：`app/`、`runtime/`、`toolchain/`、`config/`、`bin/`、`cache/`。
-
-验收：
-
-- `release/factory/scripts/release.ps1 -Platform windows-x64` 能生成结构完整的 Windows 包目录。
-- `sh release/factory/scripts/release.sh --platform linux-x64` 和 `--platform macos-aarch64` 至少能生成 `factory-only` 或 `runtime-only` 状态的包目录和 manifest。
-- `release/factory/scripts/release.ps1 -AllPlatforms` 至少能为未实机验证的平台生成 `factory-only` 或 `runtime-only` 状态的配置清单。
-- `sh release/factory/scripts/release.sh --all-platforms` 至少能遍历所有平台配置，非当前 host 平台只做结构校验。
-- 每个产物都有 `config/release.json` 和总 `release-manifest.json`。
-
-### 阶段 1：当前平台 L0/L1 最小跨平台可运行
-
-目标：
-
-- README 或 docs 增加 macOS/Linux JDK、Gradle、UI 启动命令。
-- CI 增加 Windows / Ubuntu / macOS matrix，先跑 Java 层测试。
-- Linux CI 处理 `gradlew` 可执行位：修正 git mode 或统一 `sh ./gradlew`。
-- JavaFX 测试明确 headless 策略。
-
-验收：
-
-- Windows 现有测试仍可运行。
-- Ubuntu JDK 21 下 `test` 可运行，平台专属 MSVC 测试被跳过或使用 fake toolchain。
-- macOS JDK 21 下 `test` 可运行，UI 非 headless 测试不误挂。
-
-### 阶段 2：目标平台和工具链选择抽象
-
-目标：
-
-- 扩展 `TargetPlatform`。
-- 新增 `BackendFactory` / `ToolchainFactory`。
-- CLI 支持 `--target` 和 `--toolchain none`。
-- Workbench codegen/toolchain stepper 不再直接默认 Windows。
-- Debug ASM 视图通过 target 获取 codegen state。
-
-验收：
-
-- `windows-x86_64` 行为保持不变。
-- `--target windows-x86_64 --toolchain none --emit-asm` 可只生成汇编，不要求 MSVC。
-- 非 Windows host 上不会无条件尝试发现 `ml64.exe/link.exe`。
-
-### 阶段 3：Linux x86_64 后端
-
-目标：
-
-- 新增 `linux-x86_64` target。
-- 新增 SysV x86_64 calling convention、frame layout、gas/clang 汇编 emitter。
-- 新增 `ClangToolchain`。
-- 支持 `main` 返回退出码、整数/指针/数组/结构体基础路径、内部函数调用、`printf` 整数/字符串调用。
-
-验收：
-
-- Linux 上 `samples/main.mc` 生成可执行文件并返回预期退出码。
-- `samples/arithmetic.mc` 可通过 `compile-run` 返回预期退出码。
-- 对应 codegen 测试只断言关键 ABI 片段，不使用整段黄金汇编。
-
-### 阶段 4：macOS x86_64 后端
-
-目标：
-
-- 新增 `macos-x86_64` target。
-- 在 SysV x86_64 后端基础上补 Mach-O 符号命名、段声明、clang 调用参数。
-- 明确 Intel Mac 或 Rosetta 环境支持边界。
-
-验收：
-
-- macOS x86_64 环境下 `samples/main.mc` 可生成并运行。
-- `_main`、`_printf` 等符号命名测试覆盖。
-- UI/Debugger 与 target 切换不冲突。
-
-### 阶段 5：macOS arm64 后端
-
-目标：
-
-- 新增 `macos-aarch64` target。
-- 实现 AArch64 指令选择、调用约定、栈帧、常量和数据段输出。
-- clang 负责 Mach-O arm64 汇编链接。
-
-验收：
-
-- Apple Silicon 上生成 arm64 原生产物。
-- 常用样例退出码和 stdout 正确。
-- 与 x86_64 后端共享 IR 层测试，不共享汇编实现细节断言。
-
-### 阶段 6：发布与安装
-
-目标：
-
-- 在发版工厂基础上完成每个平台的真实 runtime、launcher 和硬依赖收集。
-- Windows 全依赖包包含 MSVC 与 Windows Kits，并由 `release.json` 注入 `MINIC_MSVC_*` 环境。
-- macOS/Linux 提供 shell launcher 或平台 app bundle 引导。
-- 原生工具链是否内置由平台配置决定；若未内置，必须在 `release.json` 和 manifest 中标注状态。
-
-验收：
-
-- 从非项目根目录启动可加载主题、设置、样例。
-- 用户配置写入平台标准目录。
-- CLI 和 Workbench 启动脚本都能定位 runtime、classpath、config。
-- 当前 host 平台包通过 CLI `--help` smoke；已完成 native 后端的平台还需通过 `compile-run` smoke。
-
-## 测试矩阵建议
-
-| 测试层 | Windows | Linux | macOS |
-|--------|---------|-------|-------|
-| Java unit/regression | 必跑 | 必跑 | 必跑 |
-| JavaFX view model / UI API | 必跑 | 必跑 | 必跑 |
-| JavaFX Stage smoke | 必跑 | xvfb 或专用 job | 专用 job |
-| Windows MSVC toolchain | 必跑或条件跑 | 不跑 | 不跑 |
-| Linux clang toolchain | 不跑 | 条件跑 | 不跑 |
-| macOS clang x86_64 | 不跑 | 不跑 | 条件跑 |
-| macOS arm64 | 不跑 | 不跑 | Apple Silicon runner 条件跑 |
-
-测试设计原则：
-
-- 保留 Windows 回归测试，避免跨平台改造时破坏既有闭环。
-- 新增 target-agnostic pipeline 测试，验证前端到 IR 和 target 选择。
-- 工具链发现和命令构造用 fake command / fake toolchain 测试，不依赖真实本机安装。
-- 真实原生产物测试按 host 和工具可用性条件启用。
-- UI 配置目录测试使用临时目录注入，避免改写仓库 `config/`。
-
-## 风险清单
-
-| 风险 | 影响 | 缓解 |
-|------|------|------|
-| 把 UI 跨平台和原生产物跨平台混为一谈 | 计划过大，验收模糊 | 使用 L0-L3 分层目标 |
-| 默认 `WindowsMsvcToolchain` 在非 Windows 上硬失败 | Workbench/CLI 体验差 | 增加 target/toolchain factory 和 NoOp/none 模式 |
-| MASM emitter 被强行拼成 ELF/Mach-O | 后端难维护 | 新增平台独立 emitter，共享 IR 不共享文本模板 |
-| SysV varargs 处理不足 | `printf` 浮点等调用错误 | 第一版限制并测试整数/字符串，后续补 `%al` 与浮点路径 |
-| macOS Apple Silicon 被忽略 | 新 Mac 用户无法原生运行产物 | 明确 `macos-aarch64` 是独立阶段 |
-| `config/` 相对目录污染 | CI、打包、非根目录启动异常 | 引入配置目录解析和测试注入 |
-| JavaFX headless 不稳定 | CI 偶发失败 | UI API/view model 测试为主，Stage smoke 单独 job |
-| 字体/快捷键平台体验差 | Workbench 可用但不好用 | 平台默认绑定和字体 fallback |
-
-## 推荐最终选型
-
-- 构建：继续使用 Gradle Wrapper + Java 21。
-- JDK 获取：开发文档使用系统 JDK 21；CI 使用 setup-java；后续可再引入 toolchain resolver。
-- UI：继续 JavaFX + RichTextFX，补平台快捷键、字体和配置目录。
-- Linux 原生后端：`linux-x86_64` + SysV AMD64 ABI + clang + `.s/.o/无扩展可执行文件`。
-- macOS x86_64 后端：Mach-O + clang + 符号下划线 mangling。
-- macOS arm64 后端：独立 AArch64 后端，不从 x64 emitter 派生。
-- 工具链抽象：保留 `Toolchain`，新增 `ClangToolchain`、`ToolchainOptions`、`ToolchainFactory`。
-- 编译器装配：新增 `BackendFactory`，移除 CLI、stepper、debug ASM 中的直接 Windows 默认构造。
-- 发布：优先完成 `release/factory` 清单驱动发版工厂；Windows 先做全依赖包，macOS/Linux 先做 runtime-only 包，再随 native 后端补工具链。
-
-## 当前不建议做的事
-
-- 不建议把 Windows MASM 文本用字符串替换改成 Linux/macOS 汇编。
-- 不建议第一版 Linux/macOS 后端直接手写 `_start` 和裸 `ld` 参数。
-- 不建议在未抽象 target 前直接往 CLI 塞 `--clang`。
-- 不建议把 macOS arm64 视为 macOS x86_64 的小改动。
-- 不建议让 UI 层继续直接知道 Windows codegen 类型。
-
-## 关键文件索引
-
-| 主题 | 文件 |
-|------|------|
-| Gradle / JavaFX / runUi | `build.gradle` |
-| Wrapper 版本 | `gradle/wrapper/gradle-wrapper.properties` |
-| 本地 JDK 路径 | `gradle.properties` |
-| Windows 命令文档 | `README.md` |
-| 平台扩展规范依据 | `SPEC.md` |
-| 当前唯一目标平台 | `src/main/java/minic/compiler/codegen/target/TargetPlatform.java` |
-| 默认 Windows compiler | `src/main/java/minic/compiler/pipeline/MiniCompiler.java` |
-| CLI 默认 MSVC | `src/main/java/minic/cli/MiniCli.java` |
-| Windows MSVC 工具链 | `src/main/java/minic/compiler/toolchain/WindowsMsvcToolchain.java` |
-| Toolchain 接口 | `src/main/java/minic/compiler/toolchain/Toolchain.java` |
-| Windows codegen stepper | `src/main/java/minic/compiler/codegen/windows/WindowsX64CodegenStepState.java` |
-| Windows ABI | `src/main/java/minic/compiler/codegen/windows/WindowsX64CallingConvention.java` |
-| 观测 codegen stepper | `src/main/java/minic/runtime/step/CodegenStageStepper.java` |
-| 观测 toolchain stepper | `src/main/java/minic/runtime/step/ToolchainStageStepper.java` |
-| 可执行运行器 | `src/main/java/minic/runtime/execution/ExecutableRunner.java` |
-| Debug ASM 视图 | `src/main/java/minic/uiapi/debug/UiDebugAsmViewBuilder.java` |
-| Debug ASM 映射 | `src/main/java/minic/runtime/debug/DebugMappingIndex.java` |
-| 设置路径 | `src/main/java/minic/settings/MiniCSettings.java` |
-| 快捷键路径和解析 | `src/main/java/minic/ui/workbench/MiniCKeyBindingConfig.java` |
-| 主题路径 | `src/main/java/minic/color/ThemeManager.java` |
-| Windows 发布 launcher | `release/launcher/MiniCLauncher.cs` |
-| 发版工厂建议根目录 | `release/factory/` |
-| 包内引导配置 | `config/release.json` |
-| 总发版清单 | `release-manifest.json` |
+1. 完成 Windows unwind metadata、base relocation 和 ASLR 验收。
+2. 抽取与格式无关的 object/link layout 公共模型。
+3. 实现 Linux x86-64 ELF 后端。
+4. 实现 macOS x86-64 Mach-O 后端。
+5. 独立实现 macOS arm64 后端。

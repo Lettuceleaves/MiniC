@@ -10,6 +10,7 @@ import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -60,5 +61,43 @@ class WindowsNativeToolchainRegressionTest {
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         assertThat(process.waitFor()).isEqualTo(9);
         assertThat(output).isEqualTo("1 2 3 4 1234567890123 A ok %\n");
+
+        List<ExecutionCase> cases = List.of(
+                new ExecutionCase("function-pointer", """
+                        int inc(int value) { return value + 1; }
+                        int main() { int (*fn)(int) = inc; return fn(3); }
+                        """, 4),
+                new ExecutionCase("integer-ops", """
+                        int main() {
+                            long x = 100L;
+                            int y = 7;
+                            return (x / y) + (x % y) + ((y << 2) >> 1) + (~0 & 3);
+                        }
+                        """, 33),
+                new ExecutionCase("floating", """
+                        int main() {
+                            float f = 1.5f;
+                            double d = 2.0;
+                            double e = f + d;
+                            return e;
+                        }
+                        """, 3)
+        );
+        for (ExecutionCase executionCase : cases) {
+            SourceFile caseSource = new SourceFile(executionCase.name() + ".mc", executionCase.source());
+            var caseAssembly = new MiniCompiler().compile(caseSource).assemblySourceOptional().orElseThrow();
+            ToolchainResult caseResult = new WindowsNativeToolchain().buildExecutable(
+                    caseSource,
+                    caseAssembly,
+                    tempDir,
+                    executionCase.name()
+            );
+            assertThat(caseResult.diagnostics()).as(executionCase.name()).isEmpty();
+            Process caseProcess = new ProcessBuilder(tempDir.resolve(executionCase.name() + ".exe").toString()).start();
+            assertThat(caseProcess.waitFor()).as(executionCase.name()).isEqualTo(executionCase.exitCode());
+        }
+    }
+
+    private record ExecutionCase(String name, String source, int exitCode) {
     }
 }

@@ -6,7 +6,7 @@ The suite favors workflow-level regression tests over one-assertion micro-tests.
 
 Current ownership:
 
-- Compiler tests cover preprocessing, lexing, parsing, semantic analysis, full pipeline behavior, IR lowering, Windows x64 code generation, and MSVC toolchain command behavior.
+- Compiler tests cover preprocessing, lexing, parsing, semantic analysis, full pipeline behavior, IR lowering, Windows x64 instruction encoding, COFF writing, PE linking, imports, and the built-in runtime.
 - Runtime tests cover IR debug execution, breakpoints, reverse stepping controls, data-flow events, typed memory graphs, visual projections, stage stepping, and observation sessions.
 - UI tests cover the UI API boundary, workbench shell/controller/view-model/control flows, editor diagnostics, viewport control, reusable text styles, and IR/assembly highlighting.
 - Utility tests cover CLI behavior, project identity, source mapping, diagnostics, samples, and theme CSS smoke behavior.

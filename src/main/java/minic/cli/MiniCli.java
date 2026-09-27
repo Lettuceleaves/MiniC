@@ -4,7 +4,6 @@ import minic.compiler.pipeline.CompileOptions;
 import minic.compiler.pipeline.CompileResult;
 import minic.compiler.pipeline.MiniCompiler;
 import minic.compiler.toolchain.WindowsNativeToolchain;
-import minic.compiler.toolchain.WindowsMsvcToolchain;
 import minic.diagnostics.Diagnostic;
 import minic.source.SourceFile;
 
@@ -86,9 +85,7 @@ public final class MiniCli {
                 artifactName,
                 true,
                 "compile-run".equals(options.command()),
-                options.hasExplicitToolchainCommands()
-                        ? new WindowsMsvcToolchain(options.assemblerCommand(), options.linkerCommand())
-                        : new WindowsNativeToolchain()
+                new WindowsNativeToolchain()
         );
         CompileResult result = compiler.apply(sourceFile, compileOptions);
         printRequestedStages(result, options.showStages());
@@ -163,28 +160,16 @@ public final class MiniCli {
             Path outputDirectory,
             boolean emitAssembly,
             boolean help,
-            String assemblerCommand,
-            String linkerCommand,
-            boolean explicitAssemblerCommand,
-            boolean explicitLinkerCommand,
             Set<String> showStages
     ) {
-        private boolean hasExplicitToolchainCommands() {
-            return explicitAssemblerCommand || explicitLinkerCommand;
-        }
-
         private static CliOptions parse(String[] args) {
             if (args.length == 0 || contains(args, "--help") || contains(args, "-h")) {
-                return new CliOptions("help", null, Path.of("build", "minic"), false, true, "ml64", "link", false, false, Set.of());
+                return new CliOptions("help", null, Path.of("build", "minic"), false, true, Set.of());
             }
             String command = args[0];
             Path sourcePath = null;
             Path outputDirectory = Path.of("build", "minic");
             boolean emitAssembly = false;
-            String assemblerCommand = "ml64";
-            String linkerCommand = "link";
-            boolean explicitAssemblerCommand = false;
-            boolean explicitLinkerCommand = false;
             LinkedHashSet<String> showStages = new LinkedHashSet<>();
             int index = 1;
             while (index < args.length) {
@@ -198,22 +183,6 @@ public final class MiniCli {
                         outputDirectory = Path.of(args[index]);
                     }
                     case "--emit-asm" -> emitAssembly = true;
-                    case "--ml64" -> {
-                        index++;
-                        if (index >= args.length) {
-                            throw new IllegalArgumentException("--ml64 需要命令或路径参数");
-                        }
-                        assemblerCommand = args[index];
-                        explicitAssemblerCommand = true;
-                    }
-                    case "--link" -> {
-                        index++;
-                        if (index >= args.length) {
-                            throw new IllegalArgumentException("--link 需要命令或路径参数");
-                        }
-                        linkerCommand = args[index];
-                        explicitLinkerCommand = true;
-                    }
                     case "--show" -> {
                         index++;
                         if (index >= args.length) {
@@ -240,10 +209,6 @@ public final class MiniCli {
                     outputDirectory,
                     emitAssembly,
                     false,
-                    assemblerCommand,
-                    linkerCommand,
-                    explicitAssemblerCommand,
-                    explicitLinkerCommand,
                     Set.copyOf(showStages)
             );
         }

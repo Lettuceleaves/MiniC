@@ -138,9 +138,10 @@ argumentList   ::= expression ("," expression)* ;
 ## v0.1 产物约定
 
 - 合法输入最终应生成真实可执行文件；v0.1 最低目标是单平台 `.exe` 产物。
-- v0.1 首个目标平台是 `Windows x86_64`，早期汇编文本输出采用 MASM 风格；新增平台必须先补充目标平台抽象和产物测试。
+- 首个目标平台是 `Windows x86_64`；汇编文本只用于教学展示，真实产物由结构化机器指令生成。
 - `main` 的返回值作为进程退出码。
-- 后端可以先生成文本汇编，再调用本地工具链完成汇编和链接；v0.1 不要求直接手写 PE/COFF 二进制。
+- 后端必须使用内置 x64 编码器生成机器码、内置 COFF writer 生成 `.obj`、内置 PE linker 生成 `.exe`，不得调用外部汇编器或链接器。
+- Windows 产物不得依赖 UCRT 或 VC Runtime；`printf` 由 MiniC 最小运行时提供，系统 API 通过 PE import table 直接导入。
 - 编译、汇编、链接和运行时检查相关失败都必须转换为结构化 diagnostics，不能只打印 console。
 
 ## 扩展类型系统目标

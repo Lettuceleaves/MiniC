@@ -107,18 +107,12 @@ $env:GRADLE_USER_HOME=(Resolve-Path '.gradle-home').Path
 
 ## 本地编译为 exe
 
-Windows x64 可执行文件生成依赖 Visual Studio 2022 Build Tools 的 C++ 工具链，必须能使用 `ml64.exe` 和 `link.exe`。
-
-在普通 PowerShell 中可通过 `VsDevCmd.bat` 临时启用 x64 工具链环境：
-
-```powershell
-cmd /c "`"%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat`" -arch=x64 && where ml64 && where link"
-```
+Windows x64 可执行文件由 MiniC 内置的 x64 编码器、COFF writer 和 PE32+ 链接器生成。无需安装 Visual Studio、Windows SDK 或其他本机编译工具。
 
 编译样例并生成可执行文件：
 
 ```powershell
-cmd /c '"%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && set "JAVA_HOME=%CD%\.local\tools\jdk-21.0.10+7" && set "PATH=%CD%\.local\tools\jdk-21.0.10+7\bin;%PATH%" && set "GRADLE_USER_HOME=%CD%\.gradle-home" && .\gradlew --no-daemon run --args="compile samples\main.mc --out-dir build\minic --emit-asm --ml64 \"ml64\" --link \"link\""'
+.\gradlew.bat run --args="compile samples\main.mc --out-dir build\minic --emit-asm"
 ```
 
 成功后产物位于：
@@ -139,8 +133,10 @@ $LASTEXITCODE
 也可以使用 `compile-run` 一次完成编译、链接、运行，并捕获 stdout、stderr 和退出码：
 
 ```powershell
-cmd /c '"%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\Common7\Tools\VsDevCmd.bat" -arch=x64 && set "JAVA_HOME=%CD%\.local\tools\jdk-21.0.10+7" && set "PATH=%CD%\.local\tools\jdk-21.0.10+7\bin;%PATH%" && set "GRADLE_USER_HOME=%CD%\.gradle-home" && .\gradlew --no-daemon run --args="compile-run samples\printf.mc --out-dir build\minic --emit-asm --ml64 \"ml64\" --link \"link\""'
+.\gradlew.bat run --args="compile-run samples\main.mc --out-dir build\minic --emit-asm"
 ```
+
+生成的 `.exe` 不依赖 UCRT 或 VC Runtime。教学型 `printf` 由 MiniC 自带运行时实现，Windows 系统调用通过链接器直接生成的 PE import table 解析。
 
 ## 协作规则摘要
 
