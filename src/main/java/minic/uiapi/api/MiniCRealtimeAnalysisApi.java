@@ -14,6 +14,9 @@ import minic.source.SourceRange;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.function.BooleanSupplier;
 
 /**
  * UI clients use this facade for realtime MiniC source analysis and source tokenization.
@@ -31,26 +34,63 @@ public final class MiniCRealtimeAnalysisApi {
      * @return realtime analysis DTO
      */
     public UiRealtimeAnalysisDto analyze(String sourceName, String sourceText, long version) {
+        return analyzeInterruptibly(sourceName, sourceText, version, () -> false).orElseThrow();
+    }
+
+    /**
+     * Analyze source text while allowing a realtime caller to abandon an obsolete version between compiler stages.
+     *
+     * @param sourceName source name
+     * @param sourceText source text
+     * @param version caller supplied version
+     * @param invalidated returns {@code true} when a newer source version exists
+     * @return the completed analysis, or empty when the source changed during analysis
+     */
+    public Optional<UiRealtimeAnalysisDto> analyzeInterruptibly(
+            String sourceName,
+            String sourceText,
+            long version,
+            BooleanSupplier invalidated
+    ) {
+        Objects.requireNonNull(invalidated, "invalidated");
         SourceFile sourceFile = new SourceFile(sourceName, sourceText);
         ArrayList<Diagnostic> diagnostics = new ArrayList<>();
         LexResult lexResult = new Lexer(sourceFile).lex();
+        if (invalidated.getAsBoolean()) {
+            return Optional.empty();
+        }
         List<UiLexerTokenVisualDto> tokens = tokensFrom(lexResult);
         PreprocessResult preprocessResult = new MiniCPreprocessor().preprocess(sourceFile);
+        if (invalidated.getAsBoolean()) {
+            return Optional.empty();
+        }
         diagnostics.addAll(preprocessResult.diagnostics());
         if (diagnostics.isEmpty()) {
             LexResult preprocessedLexResult = new Lexer(preprocessResult.sourceFile()).lex();
+            if (invalidated.getAsBoolean()) {
+                return Optional.empty();
+            }
             diagnostics.addAll(mapDiagnostics(preprocessedLexResult.diagnostics(), sourceFile, preprocessResult));
             if (!diagnostics.isEmpty()) {
-                return realtimeResult(sourceName, sourceText, diagnostics, tokens, version);
+                return Optional.of(realtimeResult(sourceName, sourceText, diagnostics, tokens, version));
             }
             ParseResult parseResult = new Parser(preprocessedLexResult.tokens()).parse();
+            if (invalidated.getAsBoolean()) {
+                return Optional.empty();
+            }
             diagnostics.addAll(mapDiagnostics(parseResult.diagnostics(), sourceFile, preprocessResult));
             if (diagnostics.isEmpty()) {
                 SemanticResult semanticResult = new SemanticAnalyzer().analyze(parseResult.program());
+                if (invalidated.getAsBoolean()) {
+                    return Optional.empty();
+                }
                 diagnostics.addAll(mapDiagnostics(semanticResult.diagnostics(), sourceFile, preprocessResult));
             }
         }
-        return realtimeResult(sourceName, sourceText, diagnostics, tokens, version);
+        if (invalidated.getAsBoolean()) {
+            return Optional.empty();
+        }
+        return Optional.of(realtimeResult(sourceName, sourceText, diagnostics, tokens, version));
     }
 
     /**
