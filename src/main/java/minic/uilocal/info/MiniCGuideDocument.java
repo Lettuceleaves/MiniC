@@ -8,7 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 final class MiniCGuideDocument {
-    private static final Path DEFAULT_GUIDE = Path.of("docs", "GUIDE.md");
+    private static final Path DEFAULT_GUIDE = Path.of("README.md");
     private static final String DEFAULT_VERSION = "1.0.0";
 
     private MiniCGuideDocument() {}
@@ -33,7 +33,7 @@ final class MiniCGuideDocument {
         try {
             return Files.readString(guidePath, StandardCharsets.UTF_8);
         } catch (IOException exception) {
-            return "# MiniC 使用指南\n\nGUIDE.md 未找到: `" + guidePath + "`\n";
+            return "# MiniC\n\nREADME 未找到: `" + guidePath + "`\n";
         }
     }
 

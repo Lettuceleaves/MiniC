@@ -14,21 +14,12 @@ java {
 }
 
 dependencies {
-    implementation 'com.fasterxml.jackson.core:jackson-databind:2.22.0'
     implementation 'org.fxmisc.richtext:richtextfx:0.11.7'
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
-    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.10.2'
-    testImplementation 'org.assertj:assertj-core:3.25.3'
 }
 
 javafx {
     version = '21.0.2'
     modules = ['javafx.controls', 'javafx.swing']
-}
-
-test {
-    useJUnitPlatform()
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -56,49 +47,4 @@ tasks.register('runUi', JavaExec) {
             '-Duser.language=en',
             '-Duser.country=US'
     ]
-}
-
-tasks.register('runUiApi', JavaExec) {
-    group = 'application'
-    description = '启动 MiniC UIAPI HTTP 服务'
-    classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'minic.uiapi.web.MiniCUiApiServerLauncher'
-    args = [String.valueOf(project.findProperty('uiApiPort') ?: '18080')]
-    javaLauncher.set(javaToolchains.launcherFor {
-        languageVersion = JavaLanguageVersion.of(21)
-    })
-    jvmArgs = [
-            '-Dfile.encoding=UTF-8',
-            '-Dsun.stdout.encoding=UTF-8',
-            '-Dsun.stderr.encoding=UTF-8'
-    ]
-}
-
-tasks.register('captureUiLocalScreenshots', JavaExec) {
-    group = 'verification'
-    description = 'Capture JavaFX UI reference screenshots for UIWeb parity checks'
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'minic.uilocal.MiniCUiLocalScreenshotCapture'
-    args = [String.valueOf(project.findProperty('uiLocalScreenshotOutput')
-            ?: layout.projectDirectory.dir('uiweb-render-check/parity-report/uilocal').asFile.absolutePath)]
-    workingDir = layout.buildDirectory.dir('tmp/ui-local-screenshot-cwd').get().asFile
-    javaLauncher.set(javaToolchains.launcherFor {
-        languageVersion = JavaLanguageVersion.of(21)
-    })
-    jvmArgs = [
-            '--module-path', configurations.testRuntimeClasspath.asPath,
-            '--add-modules', javafx.modules.join(','),
-            '-Dfile.encoding=UTF-8',
-            '-Dsun.stdout.encoding=UTF-8',
-            '-Dsun.stderr.encoding=UTF-8',
-            '-Duser.language=en',
-            '-Duser.country=US'
-    ]
-    doFirst {
-        workingDir.mkdirs()
-        copy {
-            from layout.projectDirectory.dir('config/themes')
-            into new File(workingDir, 'config/themes')
-        }
-    }
 }
