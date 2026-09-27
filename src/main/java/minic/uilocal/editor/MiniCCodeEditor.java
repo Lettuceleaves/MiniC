@@ -344,37 +344,6 @@ public final class MiniCCodeEditor extends StackPane {
     }
 
     /**
-     * 判断当前执行行或范围是否完整可见。
-     *
-     * @return 完整可见时返回 {@code true}
-     */
-    public boolean isCurrentExecutionFullyVisible() {
-        return currentExecutionViewport()
-                .map(this::isExecutionViewportFullyVisible)
-                .orElse(true);
-    }
-
-    /**
-     * 当前执行行或范围不可见时居中显示。
-     */
-    public void centerCurrentExecutionIfNeeded() {
-        if (!isCurrentExecutionFullyVisible()) {
-            centerCurrentExecution();
-        }
-    }
-
-    /**
-     * 居中显示当前执行行或范围。
-     */
-    public void centerCurrentExecution() {
-        currentExecutionViewport().ifPresent(viewport -> {
-            input.showParagraphAtCenter(viewport.startLine() - 1);
-            double target = viewport.centerY() - visibleViewportHeight() / 2.0;
-            scrollYToPixel(target);
-        });
-    }
-
-    /**
      * 根据实时分析结果重绘高亮。
      *
      * @param analysis 实时分析结果
@@ -388,9 +357,7 @@ public final class MiniCCodeEditor extends StackPane {
             latestAnalysis = analysis;
         }
         latestDiagnostics = analysis == null ? List.of() : analysis.diagnostics();
-        double scrollY = estimatedScrollY();
         input.setStyleSpans(0, styleSpans(source, analysis));
-        scrollYToPixel(scrollY);
         Platform.runLater(this::drawDiagnostics);
         updateDiagnosticDetails();
         if (source.isEmpty()) {
@@ -624,45 +591,6 @@ public final class MiniCCodeEditor extends StackPane {
             height = scrollPane.getHeight();
         }
         return Math.max(editorLineHeight(), height / editorDisplayScale);
-    }
-
-    private boolean isExecutionViewportFullyVisible(ExecutionViewport viewport) {
-        double scrollY = estimatedScrollY();
-        double viewportBottom = scrollY + visibleViewportHeight();
-        return viewport.topY() >= scrollY && viewport.bottomY() <= viewportBottom;
-    }
-
-    private java.util.Optional<ExecutionViewport> currentExecutionViewport() {
-        if (currentExecutionRangeStart >= 0 && currentExecutionRangeEnd > currentExecutionRangeStart) {
-            String source = input.getText();
-            int startLine = lineForOffset(source, currentExecutionRangeStart);
-            int endLine = lineForOffset(source, Math.max(currentExecutionRangeStart, currentExecutionRangeEnd - 1));
-            return java.util.Optional.of(executionViewport(startLine, endLine));
-        }
-        if (currentExecutionLine > 0) {
-            int line = Math.min(currentExecutionLine, lineCount());
-            return java.util.Optional.of(executionViewport(line, line));
-        }
-        return java.util.Optional.empty();
-    }
-
-    private ExecutionViewport executionViewport(int startLine, int endLine) {
-        int safeStart = Math.max(1, Math.min(startLine, lineCount()));
-        int safeEnd = Math.max(safeStart, Math.min(endLine, lineCount()));
-        double topY = (safeStart - 1) * editorLineHeight();
-        double bottomY = safeEnd * editorLineHeight();
-        return new ExecutionViewport(safeStart, topY, bottomY);
-    }
-
-    private int lineForOffset(String source, int offset) {
-        int safeOffset = safeOffset(source, offset);
-        int line = 1;
-        for (int index = 0; index < safeOffset; index++) {
-            if (source.charAt(index) == '\n') {
-                line++;
-            }
-        }
-        return line;
     }
 
     private int lineCount() {
@@ -984,9 +912,4 @@ public final class MiniCCodeEditor extends StackPane {
     private record SourcePosition(int line, int byteOffsetInLine) {
     }
 
-    private record ExecutionViewport(int startLine, double topY, double bottomY) {
-        private double centerY() {
-            return (topY + bottomY) / 2.0;
-        }
-    }
 }

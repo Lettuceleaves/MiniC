@@ -574,9 +574,6 @@ public final class MiniCWorkbenchShell {
 
     private List<MiniCViewportAdapter> activeViewportAdapters() {
         WorkspaceTab active = activeLeftWorkspaceTab();
-        if (active.kind() == WorkspaceTabKind.SOURCE && sourceLoader != null) {
-            return List.of(sourceLoader.viewportAdapter());
-        }
         if (active.kind() == WorkspaceTabKind.STAGE && visualPane != null) {
             return visualPane.activeViewportAdapters();
         }

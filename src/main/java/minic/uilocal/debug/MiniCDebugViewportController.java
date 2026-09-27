@@ -100,9 +100,8 @@ final class MiniCDebugViewportController {
         });
     }
 
-    List<MiniCViewportAdapter> activeViewportAdapters(Node root, MiniCViewportAdapter sourceAdapter) {
+    List<MiniCViewportAdapter> activeViewportAdapters(Node root) {
         ArrayList<MiniCViewportAdapter> adapters = new ArrayList<>();
-        adapters.add(sourceAdapter);
         collectScrollViewportAdapters(root, adapters);
         collectGraphViewportAdapters(root, adapters);
         return adapters;

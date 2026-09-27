@@ -37,18 +37,4 @@ public final class MiniCTextViewportAdapter implements MiniCViewportAdapter {
         editor.scrollVerticalBy(delta);
     }
 
-    @Override
-    public boolean isActiveFullyVisible() {
-        return editor.isCurrentExecutionFullyVisible();
-    }
-
-    @Override
-    public void centerActiveIfNeeded() {
-        editor.centerCurrentExecutionIfNeeded();
-    }
-
-    @Override
-    public void centerActive() {
-        editor.centerCurrentExecution();
-    }
 }

@@ -122,7 +122,7 @@ public final class MiniCDebugPane extends VBox {
         sourceView.usePersistentEditorScrollBars("debug-source-editor-scroll");
         sourceView.installViewportTarget(controlHub);
         controlHub.addActiveTrackingAction(new MiniCActiveTrackingService(
-                () -> viewportController.activeViewportAdapters(this, sourceView.viewportAdapter())
+                () -> viewportController.activeViewportAdapters(this)
         )::trackActiveViewports);
         registerDebuggerCommands();
         HBox controls = controls();
