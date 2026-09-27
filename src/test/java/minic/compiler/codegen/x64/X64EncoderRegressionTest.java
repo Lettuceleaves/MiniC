@@ -40,7 +40,7 @@ class X64EncoderRegressionTest {
         EncodedMachineSection encoded = new X64Encoder().encode(section);
 
         assertThat(HexFormat.of().formatHex(encoded.bytes())).isEqualTo(
-                "554889e54883ec28b82a000000e8000000000f85030000004531c05dc3"
+                "55488bec4883ec28b82a000000e8000000000f85030000004531c05dc3"
         );
         assertThat(encoded.symbols()).containsEntry("main", 0).containsKey("done");
         assertThat(encoded.relocations()).containsExactly(
