@@ -97,6 +97,7 @@ public final class X64Encoder {
             case "jmp" -> branch(w, i, 0xE9, null, symbols, relocs);
             case "je" -> branch(w, i, 0x0F, 0x84, symbols, relocs);
             case "jne" -> branch(w, i, 0x0F, 0x85, symbols, relocs);
+            case "jge" -> branch(w, i, 0x0F, 0x8D, symbols, relocs);
             case "movss" -> sseMove(w, i, 0xF3, symbols, relocs);
             case "movsd" -> sseMove(w, i, 0xF2, symbols, relocs);
             case "movd" -> movdMovq(w, i, false, symbols, relocs);
