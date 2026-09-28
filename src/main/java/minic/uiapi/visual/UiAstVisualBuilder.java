@@ -1,6 +1,8 @@
 package minic.uiapi;
 
-import minic.compiler.ast.decl.Program;
+import minic.compiler.SourceFile;
+import minic.compiler.parser.node.AstNode;
+import minic.compiler.parser.node.Declaration.Program;
 import minic.source.SourceRange;
 
 import java.lang.reflect.RecordComponent;
@@ -14,7 +16,12 @@ import java.util.Set;
  * 将内部 AST record 转换为 UI 专用树 DTO。
  */
 final class UiAstVisualBuilder {
+    private final SourceFile sourceFile;
     private int nextId;
+
+    UiAstVisualBuilder(SourceFile sourceFile) {
+        this.sourceFile = sourceFile;
+    }
 
     UiAstNodeVisualDto buildProgram(Program program, Object activeNode) {
         return buildProgram(program, activeNode, null);
@@ -34,7 +41,7 @@ final class UiAstVisualBuilder {
                 "ast-root",
                 "Program",
                 "Program",
-                UiSourceSpanDto.from(program.range()),
+                UiSourceSpanDto.from(sourceFile, program.range()),
                 program.equals(activeNode),
                 children
         );
@@ -119,7 +126,7 @@ final class UiAstVisualBuilder {
             if (component.getName().equals("range")) {
                 Object value = read(component, node);
                 if (value instanceof SourceRange sourceRange) {
-                    return UiSourceSpanDto.from(sourceRange);
+                    return UiSourceSpanDto.from(sourceFile, sourceRange);
                 }
             }
         }
@@ -127,6 +134,6 @@ final class UiAstVisualBuilder {
     }
 
     private boolean isAstNode(Object value) {
-        return value != null && value.getClass().getPackageName().startsWith("minic.compiler.ast.");
+        return value instanceof AstNode;
     }
 }

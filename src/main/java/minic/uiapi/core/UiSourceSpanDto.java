@@ -1,5 +1,6 @@
 package minic.uiapi;
 
+import minic.compiler.SourceFile;
 import minic.source.SourceRange;
 
 import java.util.Objects;
@@ -28,15 +29,17 @@ public record UiSourceSpanDto(
         Objects.requireNonNull(sourceName, "sourceName");
     }
 
-    public static UiSourceSpanDto from(SourceRange range) {
+    public static UiSourceSpanDto from(SourceFile sourceFile, SourceRange range) {
+        Objects.requireNonNull(sourceFile, "sourceFile");
+        Objects.requireNonNull(range, "range");
         return new UiSourceSpanDto(
-                range.sourceFile().path(),
-                range.startOffset(),
-                range.endOffset(),
-                range.startPosition().line(),
-                range.startPosition().column(),
-                range.endPosition().line(),
-                range.endPosition().column()
+                sourceFile.path(),
+                sourceFile.offsetAt(range.startLine(), range.startByte()),
+                sourceFile.offsetAt(range.endLine(), range.endByte()),
+                range.startLine(),
+                range.startByte() + 1,
+                range.endLine(),
+                range.endByte() + 1
         );
     }
 }

@@ -14,7 +14,7 @@ import java.util.Objects;
  */
 public record Diagnostic(
         String code,
-        DiagnosticSeverity severity,
+        Severity severity,
         String message,
         SourceRange range
 ) {
@@ -37,5 +37,19 @@ public record Diagnostic(
         if (message.isBlank()) {
             throw new IllegalArgumentException("message must not be blank");
         }
+    }
+
+    /**
+     * 诊断严重级别。
+     */
+    public enum Severity {
+        /** 阻止当前阶段继续成功完成的错误。 */
+        ERROR,
+
+        /** 不阻止继续执行但需要展示给用户的警告。 */
+        WARNING,
+
+        /** 辅助说明信息。 */
+        INFO
     }
 }

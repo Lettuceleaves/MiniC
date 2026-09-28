@@ -1,20 +1,20 @@
 package minic.uiapi;
 
-import minic.runtime.debug.DebugProcessSpace;
-import minic.runtime.debug.DebugHeapBlock;
-import minic.runtime.debug.DebugMemoryEntry;
-import minic.runtime.debug.dataflow.DataFlowEvent;
-import minic.runtime.debug.visual.VisualEvent;
-import minic.runtime.debug.visual.ArrayStructure;
-import minic.runtime.debug.visual.CompositeStructure;
-import minic.runtime.debug.visual.GraphStructure;
-import minic.runtime.debug.visual.VisualAnnotationParseResult;
-import minic.runtime.debug.visual.VisualAnnotationParser;
-import minic.runtime.debug.visual.VisualProjection;
-import minic.runtime.debug.visual.VisualProjectionBuilder;
-import minic.runtime.debug.visual.VisualKind;
-import minic.runtime.debug.visual.VisualStructure;
-import minic.source.SourceFile;
+import minic.debug.DebugProcessSpace;
+import minic.debug.DebugHeapBlock;
+import minic.debug.DebugMemoryEntry;
+import minic.debug.dataflow.DataFlowEvent;
+import minic.debug.visual.VisualEvent;
+import minic.debug.visual.ArrayStructure;
+import minic.debug.visual.CompositeStructure;
+import minic.debug.visual.GraphStructure;
+import minic.debug.visual.VisualAnnotationParseResult;
+import minic.debug.visual.VisualAnnotationParser;
+import minic.debug.visual.VisualProjection;
+import minic.debug.visual.VisualProjectionBuilder;
+import minic.debug.visual.VisualKind;
+import minic.debug.visual.VisualStructure;
+import minic.compiler.SourceFile;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -75,7 +75,7 @@ public final class UiDebugDataStructureViewBuilder {
             List<DataFlowEvent> dataFlowEvents
     ) {
         VisualAnnotationParseResult parseResult = new VisualAnnotationParser().parse(sourceFile);
-        List<minic.runtime.debug.visual.VisualAnnotation> annotations = parseResult.annotations();
+        List<minic.debug.visual.VisualAnnotation> annotations = parseResult.annotations();
         VisualProjection projection = new VisualProjectionBuilder().build(
                 processSpace,
                 visibleAnnotations(annotations, state),
@@ -86,7 +86,7 @@ public final class UiDebugDataStructureViewBuilder {
         Map<String, String> rootTypeNames = rootTypeNames(processSpace);
         List<DataFlowEvent> visibleDataFlowEvents = visibleDataFlowEvents(dataFlowEvents, state.currentSnapshot().snapshotId());
         return new UiDebugDataStructureViewDto(
-                UiDebugDtoMapper.processSpace(processSpace),
+                UiDebugDtoMapper.processSpace(sourceFile, processSpace),
                 projection.structures().stream()
                         .map(structure -> visual(structure, rootTypeNames, visibleDataFlowEvents))
                         .toList(),
@@ -94,14 +94,14 @@ public final class UiDebugDataStructureViewBuilder {
         );
     }
 
-    private List<minic.runtime.debug.visual.VisualAnnotation> visibleAnnotations(
-            List<minic.runtime.debug.visual.VisualAnnotation> annotations,
+    private List<minic.debug.visual.VisualAnnotation> visibleAnnotations(
+            List<minic.debug.visual.VisualAnnotation> annotations,
             UiDebugStateDto state
     ) {
         Set<String> recursiveGraphs = annotations.stream()
                 .filter(annotation -> annotation.directive().equals("@visual"))
                 .filter(annotation -> annotation.attributes().getOrDefault("reveal", "").equals("recursive"))
-                .map(minic.runtime.debug.visual.VisualAnnotation::name)
+                .map(minic.debug.visual.VisualAnnotation::name)
                 .collect(Collectors.toSet());
         if (recursiveGraphs.isEmpty()) {
             return annotations;
@@ -121,11 +121,11 @@ public final class UiDebugDataStructureViewBuilder {
     }
 
     private Map<String, Set<String>> revealedRecursiveValues(
-            List<minic.runtime.debug.visual.VisualAnnotation> annotations,
+            List<minic.debug.visual.VisualAnnotation> annotations,
             UiDebugStateDto state
     ) {
         LinkedHashMap<String, Set<String>> values = new LinkedHashMap<>();
-        for (minic.runtime.debug.visual.VisualAnnotation annotation : annotations) {
+        for (minic.debug.visual.VisualAnnotation annotation : annotations) {
             if (!annotation.directive().equals("@visual")
                     || !annotation.attributes().getOrDefault("reveal", "").equals("recursive")) {
                 continue;
@@ -149,7 +149,7 @@ public final class UiDebugDataStructureViewBuilder {
     }
 
     private boolean isRevealedRecursiveElement(
-            minic.runtime.debug.visual.VisualAnnotation annotation,
+            minic.debug.visual.VisualAnnotation annotation,
             Set<String> revealedValues
     ) {
         if (revealedValues == null || revealedValues.isEmpty()) {

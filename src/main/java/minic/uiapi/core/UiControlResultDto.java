@@ -1,6 +1,7 @@
 package minic.uiapi;
 
-import minic.runtime.step.StepResult;
+import minic.compiler.SourceFile;
+import minic.session.Observation.ControlResult;
 
 import java.util.List;
 import java.util.Objects;
@@ -30,13 +31,13 @@ public record UiControlResultDto(
         diagnostics = List.copyOf(diagnostics);
     }
 
-    static UiControlResultDto from(StepResult result) {
+    static UiControlResultDto from(SourceFile sourceFile, ControlResult result) {
         return new UiControlResultDto(
                 result.outcome().name(),
                 result.stage().id(),
                 result.title(),
                 result.description(),
-                result.diagnostics().stream().map(UiDiagnosticDto::from).toList()
+                result.diagnostics().stream().map(diagnostic -> UiDiagnosticDto.from(sourceFile, diagnostic)).toList()
         );
     }
 }

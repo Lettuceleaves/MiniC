@@ -1,6 +1,8 @@
 package minic.compiler.semantic;
 
-import minic.compiler.ast.expr.Expression;
+import minic.compiler.parser.node.Expression;
+import minic.compiler.semantic.model.Scope;
+import minic.compiler.semantic.model.StructLayout;
 import minic.compiler.type.MiniType;
 import minic.diagnostics.Diagnostic;
 

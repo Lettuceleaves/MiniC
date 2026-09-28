@@ -1,36 +1,37 @@
 package minic.uiapi;
 
+import minic.compiler.SourceFile;
 import minic.compiler.ir.instruction.IrInstruction;
-import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
-import minic.compiler.ir.instruction.IrBinaryInstruction;
-import minic.compiler.ir.instruction.IrBranchInstruction;
-import minic.compiler.ir.instruction.IrCallInstruction;
-import minic.compiler.ir.instruction.IrCastInstruction;
-import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
-import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
-import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
-import minic.compiler.ir.instruction.IrElementAddressInstruction;
-import minic.compiler.ir.instruction.IrFieldAddressInstruction;
-import minic.compiler.ir.instruction.IrIndirectCallInstruction;
-import minic.compiler.ir.instruction.IrJumpInstruction;
-import minic.compiler.ir.instruction.IrLoadLocalInstruction;
-import minic.compiler.ir.instruction.IrLoadPointerInstruction;
-import minic.compiler.ir.instruction.IrMoveInstruction;
-import minic.compiler.ir.instruction.IrReturnInstruction;
-import minic.compiler.ir.instruction.IrStoreLocalInstruction;
-import minic.compiler.ir.instruction.IrStorePointerInstruction;
-import minic.compiler.ir.instruction.IrSelectInstruction;
-import minic.compiler.ir.instruction.IrUnaryInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrAddressOfLocalInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryInstruction;
+import minic.compiler.ir.instruction.ControlInstruction.IrBranchInstruction;
+import minic.compiler.ir.instruction.CallInstruction.IrCallInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrCastInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrCheckInitializedInstruction;
+import minic.compiler.ir.instruction.ControlInstruction.IrCheckNonZeroInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrElementAddressInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrFieldAddressInstruction;
+import minic.compiler.ir.instruction.CallInstruction.IrIndirectCallInstruction;
+import minic.compiler.ir.instruction.ControlInstruction.IrJumpInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrLoadLocalInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrLoadPointerInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrMoveInstruction;
+import minic.compiler.ir.instruction.ControlInstruction.IrReturnInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrStoreLocalInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrStorePointerInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrSelectInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrUnaryInstruction;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrLocal;
-import minic.compiler.ir.model.IrModule;
-import minic.compiler.ir.value.IrConstant;
-import minic.compiler.ir.value.IrFloatConstant;
-import minic.compiler.ir.value.IrFunctionAddress;
-import minic.compiler.ir.value.IrParameterRef;
-import minic.compiler.ir.value.IrStringLiteral;
-import minic.compiler.ir.value.IrTemporary;
+import minic.compiler.ir.IrResult;
+import minic.compiler.ir.value.IrValue.IrConstant;
+import minic.compiler.ir.value.IrValue.IrFloatConstant;
+import minic.compiler.ir.value.IrValue.IrFunctionAddress;
+import minic.compiler.ir.value.IrValue.IrParameterRef;
+import minic.compiler.ir.value.IrValue.IrStringLiteral;
+import minic.compiler.ir.value.IrValue.IrTemporary;
 import minic.compiler.ir.value.IrValue;
 
 import java.util.ArrayList;
@@ -45,22 +46,22 @@ public final class UiDebugIrViewBuilder {
     /**
      * 构建 IR Debug 视图。
      *
-     * @param module IR 模块
+     * @param irResult IR 结果
      * @param state Debug 状态
      * @return IR Debug 视图
      */
-    public UiDebugIrViewDto build(IrModule module, UiDebugStateDto state) {
+    public UiDebugIrViewDto build(SourceFile sourceFile, IrResult irResult, UiDebugStateDto state) {
         UiDebugSnapshotDto snapshot = state.currentSnapshot();
         UiSourceSpanDto activeRange = snapshot.sourceRange();
         ArrayList<UiIrLineVisualDto> lines = new ArrayList<>();
-        for (IrFunction function : module.functions()) {
-            lines.add(new UiIrLineVisualDto(lines.size() + 1, "function " + function.name(), UiSourceSpanDto.from(function.range()), false));
+        for (IrFunction function : irResult.functions()) {
+            lines.add(new UiIrLineVisualDto(lines.size() + 1, "function " + function.name(), UiSourceSpanDto.from(sourceFile, function.range()), false));
             for (IrBlock block : function.blocks()) {
                 lines.add(new UiIrLineVisualDto(lines.size() + 1, "  block " + block.label(), null, false));
                 for (int i = 0; i < block.instructions().size(); i++) {
                     IrInstruction instruction = block.instructions().get(i);
                     String instructionId = block.label() + "#" + i;
-                    UiSourceSpanDto range = UiSourceSpanDto.from(instruction.range());
+                    UiSourceSpanDto range = UiSourceSpanDto.from(sourceFile, instruction.range());
                     lines.add(new UiIrLineVisualDto(
                             lines.size() + 1,
                             "    " + formatInstruction(instruction),

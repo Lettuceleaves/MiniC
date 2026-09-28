@@ -83,9 +83,9 @@ final class MiniCVisualExplanationFormatter {
             roleKey = "default";
         }
         Map<String, String> variables = assemblyVariables(line);
-        String role = ExplanationTemplates.render("codegen", roleKey, variables);
-        String header = ExplanationTemplates.renderHeader("codegen", variables);
-        String footer = ExplanationTemplates.renderFooter("codegen", variables);
+        String role = ExplanationTemplates.render("asm", roleKey, variables);
+        String header = ExplanationTemplates.renderHeader("asm", variables);
+        String footer = ExplanationTemplates.renderFooter("asm", variables);
         return header + "\n\n解释: " + role + "\n\n" + footer;
     }
 

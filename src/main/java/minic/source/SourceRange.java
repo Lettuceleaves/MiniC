@@ -1,59 +1,51 @@
 package minic.source;
 
-import java.util.Objects;
-
 /**
- * 表示源码中的半开区间 {@code [startOffset, endOffset)}。
+ * IDE 中的源码半开区间。
  *
- * @param sourceFile 区间所属源码文件
- * @param startOffset 起始 offset，包含
- * @param endOffset 结束 offset，不包含
+ * <p>行号从 1 开始；字节下标从 0 开始，并按 UTF-8 编码计算。结束位置不包含
+ * 在范围内。该对象只描述位置，不持有源码文本或文件身份。</p>
+ *
+ * @param startLine 起始行号
+ * @param startByte 起始行内 UTF-8 字节下标
+ * @param endLine 结束行号
+ * @param endByte 结束行内 UTF-8 字节下标
  */
-public record SourceRange(SourceFile sourceFile, int startOffset, int endOffset) {
-    /**
-     * 创建源码区间。
-     *
-     * @param sourceFile 区间所属源码文件
-     * @param startOffset 起始 offset，包含
-     * @param endOffset 结束 offset，不包含
-     */
+public record SourceRange(int startLine, int startByte, int endLine, int endByte) {
     public SourceRange {
-        Objects.requireNonNull(sourceFile, "sourceFile");
-        if (startOffset < 0) {
-            throw new IllegalArgumentException("startOffset must be non-negative");
+        if (startLine < 1 || endLine < 1) {
+            throw new IllegalArgumentException("source lines must be 1-based");
         }
-        if (endOffset < startOffset) {
-            throw new IllegalArgumentException("endOffset must be greater than or equal to startOffset");
+        if (startByte < 0 || endByte < 0) {
+            throw new IllegalArgumentException("source byte indexes must not be negative");
         }
-        if (endOffset > sourceFile.content().length()) {
-            throw new IllegalArgumentException("endOffset out of bounds: " + endOffset);
+        if (endLine < startLine || (endLine == startLine && endByte < startByte)) {
+            throw new IllegalArgumentException("range end must not precede range start");
         }
     }
 
-    /**
-     * 返回区间起点位置。
-     *
-     * @return 起点源码位置
-     */
-    public SourcePosition startPosition() {
-        return sourceFile.positionAt(startOffset);
+    /** 返回从 first 起点到 last 终点的范围。 */
+    public static SourceRange span(SourceRange first, SourceRange last) {
+        if (first == null || last == null) {
+            throw new NullPointerException("source ranges must not be null");
+        }
+        return new SourceRange(first.startLine, first.startByte, last.endLine, last.endByte);
     }
 
-    /**
-     * 返回区间终点位置。
-     *
-     * @return 终点源码位置
-     */
-    public SourcePosition endPosition() {
-        return sourceFile.positionAt(endOffset);
+    /** 返回当前范围是否完整包含另一个范围。 */
+    public boolean contains(SourceRange other) {
+        return compare(startLine, startByte, other.startLine, other.startByte) <= 0
+                && compare(endLine, endByte, other.endLine, other.endByte) >= 0;
     }
 
-    /**
-     * 返回该半开区间覆盖的源码文本。
-     *
-     * @return 区间文本
-     */
-    public String text() {
-        return sourceFile.content().substring(startOffset, endOffset);
+    /** 返回两个范围是否相交。 */
+    public boolean overlaps(SourceRange other) {
+        return compare(startLine, startByte, other.endLine, other.endByte) < 0
+                && compare(other.startLine, other.startByte, endLine, endByte) < 0;
+    }
+
+    private static int compare(int leftLine, int leftByte, int rightLine, int rightByte) {
+        int lineComparison = Integer.compare(leftLine, rightLine);
+        return lineComparison != 0 ? lineComparison : Integer.compare(leftByte, rightByte);
     }
 }

@@ -46,7 +46,7 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiStageVisualDto> astVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageVisualDto> semanticVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiStageVisualDto> irVisualData = new ReadOnlyObjectWrapper<>();
-    private final ReadOnlyObjectWrapper<UiStageVisualDto> codegenVisualData = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<UiStageVisualDto> asmVisualData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiGlobalDataDto> globalData = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiRealtimeAnalysisDto> realtimeAnalysis = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<UiControlResultDto> lastControlResult = new ReadOnlyObjectWrapper<>();
@@ -114,7 +114,7 @@ public final class MiniCWorkbenchViewModel {
         astVisualData.set(null);
         semanticVisualData.set(null);
         irVisualData.set(null);
-        codegenVisualData.set(null);
+        asmVisualData.set(null);
         globalData.set(null);
         realtimeAnalysis.set(null);
         lastControlResult.set(null);
@@ -581,7 +581,7 @@ public final class MiniCWorkbenchViewModel {
         astVisualData.set(api.astVisualData());
         semanticVisualData.set(api.semanticVisualData());
         irVisualData.set("ir".equals(currentVisual.stage()) ? currentVisual : api.irVisualData());
-        codegenVisualData.set(api.codegenVisualData());
+        asmVisualData.set(api.asmVisualData());
         globalData.set(api.globalData());
     }
 
@@ -685,12 +685,12 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
-     * Codegen 汇编图形化 DTO 属性。
+     * Asm 汇编图形化 DTO 属性。
      *
      * @return 汇编图形化 DTO 属性
      */
-    public ReadOnlyObjectProperty<UiStageVisualDto> codegenVisualDataProperty() {
-        return codegenVisualData.getReadOnlyProperty();
+    public ReadOnlyObjectProperty<UiStageVisualDto> asmVisualDataProperty() {
+        return asmVisualData.getReadOnlyProperty();
     }
 
     /**

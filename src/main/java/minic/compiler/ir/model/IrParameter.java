@@ -1,6 +1,6 @@
 package minic.compiler.ir.model;
 
-import minic.compiler.ir.value.IrParameterRef;
+import minic.compiler.ir.value.IrValue.IrParameterRef;
 import minic.source.SourceRange;
 
 import java.util.Objects;

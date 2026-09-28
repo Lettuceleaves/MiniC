@@ -1,6 +1,7 @@
 package minic.uiapi;
 
-import minic.runtime.step.CurrentStepState;
+import minic.compiler.SourceFile;
+import minic.session.Observation.CurrentState;
 
 import java.util.List;
 import java.util.Objects;
@@ -53,7 +54,7 @@ public record UiCurrentStateDto(
         diagnostics = List.copyOf(diagnostics);
     }
 
-    static UiCurrentStateDto from(CurrentStepState state) {
+    static UiCurrentStateDto from(SourceFile sourceFile, CurrentState state) {
         return new UiCurrentStateDto(
                 state.sourceName(),
                 state.currentStage().id(),
@@ -61,10 +62,10 @@ public record UiCurrentStateDto(
                 state.stageStepIndex(),
                 state.playbackMode().name(),
                 state.frameInterval().toMillis(),
-                state.sourceRangeOptional().map(UiSourceRangeDto::from).orElse(null),
+                state.sourceRangeOptional().map(range -> UiSourceRangeDto.from(sourceFile, range)).orElse(null),
                 state.title(),
                 state.description(),
-                state.diagnostics().stream().map(UiDiagnosticDto::from).toList(),
+                state.diagnostics().stream().map(diagnostic -> UiDiagnosticDto.from(sourceFile, diagnostic)).toList(),
                 state.canNext(),
                 state.canPrevious(),
                 state.canPlay(),

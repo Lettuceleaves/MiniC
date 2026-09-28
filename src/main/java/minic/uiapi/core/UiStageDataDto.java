@@ -1,6 +1,7 @@
 package minic.uiapi;
 
-import minic.runtime.step.StageStepData;
+import minic.compiler.SourceFile;
+import minic.session.Observation.StageData;
 
 import java.util.List;
 import java.util.Objects;
@@ -38,7 +39,7 @@ public record UiStageDataDto(
         diagnostics = List.copyOf(diagnostics);
     }
 
-    static UiStageDataDto from(StageStepData data) {
+    static UiStageDataDto from(SourceFile sourceFile, StageData data) {
         return new UiStageDataDto(
                 data.stage().id(),
                 data.progress().completedSteps(),
@@ -47,7 +48,7 @@ public record UiStageDataDto(
                 data.inputSummary(),
                 data.currentItem(),
                 data.accumulatedOutput(),
-                data.diagnostics().stream().map(UiDiagnosticDto::from).toList()
+                data.diagnostics().stream().map(diagnostic -> UiDiagnosticDto.from(sourceFile, diagnostic)).toList()
         );
     }
 }

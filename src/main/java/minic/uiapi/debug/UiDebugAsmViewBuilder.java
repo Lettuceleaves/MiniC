@@ -1,8 +1,9 @@
 package minic.uiapi;
 
-import minic.compiler.codegen.windows.WindowsX64AssemblyLine;
-import minic.compiler.codegen.windows.WindowsX64CodegenStepState;
-import minic.compiler.ir.model.IrModule;
+import minic.compiler.SourceFile;
+import minic.compiler.asm.Assembler;
+import minic.source.SourceRange;
+import minic.compiler.ir.IrResult;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -15,24 +16,26 @@ public final class UiDebugAsmViewBuilder {
     /**
      * 构建 ASM Debug 视图。
      *
-     * @param module IR 模块
+     * @param irResult IR 结果
      * @param state Debug 状态
      * @return ASM Debug 视图
      */
-    public UiDebugAsmViewDto build(IrModule module, UiDebugStateDto state) {
-        WindowsX64CodegenStepState codegen = new WindowsX64CodegenStepState(module);
-        codegen.toAssemblySource();
+    public UiDebugAsmViewDto build(SourceFile sourceFile, IrResult irResult, UiDebugStateDto state) {
+        Assembler asm = new Assembler(irResult);
+        asm.assemble();
         UiSourceSpanDto activeRange = state.currentSnapshot().sourceRange();
         ArrayList<UiAssemblyLineVisualDto> lines = new ArrayList<>();
         int lineNumber = 1;
-        for (WindowsX64AssemblyLine line : codegen.work().assemblyLineData()) {
-            UiSourceSpanDto range = line.sourceRange() == null ? null : UiSourceSpanDto.from(line.sourceRange());
+        List<String> assemblyLines = asm.work().assemblyLines();
+        for (int index = 0; index < assemblyLines.size(); index++) {
+            SourceRange sourceRange = asm.work().sourceRangeAt(index).orElse(null);
+            UiSourceSpanDto range = sourceRange == null ? null : UiSourceSpanDto.from(sourceFile, sourceRange);
             lines.add(new UiAssemblyLineVisualDto(
                     lineNumber++,
-                    line.text(),
-                    line.kind().name(),
+                    assemblyLines.get(index),
+                    "ASM_LINE",
                     "debug-asm",
-                    line.subject(),
+                    "",
                     range,
                     overlaps(range, activeRange)
             ));

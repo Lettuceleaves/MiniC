@@ -1,8 +1,8 @@
 package minic.uiapi;
 
-import minic.compiler.ir.model.IrModule;
+import minic.compiler.ir.IrResult;
 import minic.session.CompileObservationSession;
-import minic.source.SourceFile;
+import minic.compiler.SourceFile;
 
 import java.util.List;
 import java.util.Objects;
@@ -50,7 +50,7 @@ public final class MiniCObservationApi {
      * @return 单步结果
      */
     public synchronized UiControlResultDto next() {
-        return UiControlResultDto.from(requireSession().next());
+        return UiControlResultDto.from(sourceFile, requireSession().next());
     }
 
     /**
@@ -59,7 +59,7 @@ public final class MiniCObservationApi {
      * @return 控制结果
      */
     public synchronized UiControlResultDto nextStage() {
-        return UiControlResultDto.from(requireSession().nextStage());
+        return UiControlResultDto.from(sourceFile, requireSession().nextStage());
     }
 
     /**
@@ -68,36 +68,7 @@ public final class MiniCObservationApi {
      * @return 最后一次控制结果
      */
     public synchronized UiControlResultDto runToExecution() {
-        CompileObservationSession currentSession = requireSession();
-        UiControlResultDto result = null;
-        int guard = 0;
-        UiCurrentStateDto state = UiCurrentStateDto.from(currentSession.currentState());
-        while (!"execution".equals(state.currentStage()) && state.canNext() && guard++ < 1000) {
-            result = UiControlResultDto.from(currentSession.nextStage());
-            if ("FAILED".equals(result.outcome()) || "CANNOT_ADVANCE".equals(result.outcome())) {
-                return result;
-            }
-            state = UiCurrentStateDto.from(currentSession.currentState());
-        }
-        if (result != null) {
-            return result;
-        }
-        if ("execution".equals(state.currentStage())) {
-            return new UiControlResultDto(
-                    "CANNOT_ADVANCE",
-                    "execution",
-                    "已在执行阶段",
-                    "当前已经位于执行阶段入口。",
-                    List.of()
-            );
-        }
-        return new UiControlResultDto(
-                "CANNOT_ADVANCE",
-                state.currentStage(),
-                "无法推进到执行阶段",
-                "当前状态不能继续推进到执行阶段。",
-                state.diagnostics()
-        );
+        return UiControlResultDto.from(sourceFile, requireSession().runToCompileEnd());
     }
 
     /**
@@ -106,7 +77,7 @@ public final class MiniCObservationApi {
      * @return 控制结果
      */
     public synchronized UiControlResultDto play() {
-        return UiControlResultDto.from(requireSession().play());
+        return UiControlResultDto.from(sourceFile, requireSession().play());
     }
 
     /**
@@ -115,7 +86,7 @@ public final class MiniCObservationApi {
      * @return 控制结果
      */
     public synchronized UiControlResultDto playFast() {
-        return UiControlResultDto.from(requireSession().playFast());
+        return UiControlResultDto.from(sourceFile, requireSession().playFast());
     }
 
     /**
@@ -124,7 +95,7 @@ public final class MiniCObservationApi {
      * @return 单步结果
      */
     public synchronized UiControlResultDto tick() {
-        return UiControlResultDto.from(requireSession().tick());
+        return UiControlResultDto.from(sourceFile, requireSession().tick());
     }
 
     /**
@@ -133,7 +104,7 @@ public final class MiniCObservationApi {
      * @return 控制结果
      */
     public synchronized UiControlResultDto pause() {
-        return UiControlResultDto.from(requireSession().pause());
+        return UiControlResultDto.from(sourceFile, requireSession().pause());
     }
 
     /**
@@ -143,7 +114,7 @@ public final class MiniCObservationApi {
      * @return 控制结果
      */
     public synchronized UiControlResultDto confirmExecutionInput(String standardInput) {
-        return UiControlResultDto.from(requireSession().confirmExecutionInput(standardInput));
+        return UiControlResultDto.from(sourceFile, requireSession().confirmExecutionInput(standardInput));
     }
 
     /**
@@ -152,7 +123,7 @@ public final class MiniCObservationApi {
      * @return unsupported 结果
      */
     public synchronized UiControlResultDto previous() {
-        return UiControlResultDto.from(requireSession().previous());
+        return UiControlResultDto.from(sourceFile, requireSession().previous());
     }
 
     /**
@@ -161,7 +132,7 @@ public final class MiniCObservationApi {
      * @return unsupported 结果
      */
     public synchronized UiControlResultDto reversePlay() {
-        return UiControlResultDto.from(requireSession().reversePlay());
+        return UiControlResultDto.from(sourceFile, requireSession().reversePlay());
     }
 
     /**
@@ -170,7 +141,7 @@ public final class MiniCObservationApi {
      * @return 当前状态数据
      */
     public synchronized UiCurrentStateDto currentState() {
-        return UiCurrentStateDto.from(requireSession().currentState());
+        return UiCurrentStateDto.from(sourceFile, requireSession().currentState());
     }
 
     /**
@@ -179,7 +150,7 @@ public final class MiniCObservationApi {
      * @return 当前阶段数据
      */
     public synchronized UiStageDataDto currentStageData() {
-        return UiStageDataDto.from(requireSession().currentStageData());
+        return UiStageDataDto.from(sourceFile, requireSession().currentStageData());
     }
 
     /**
@@ -189,53 +160,14 @@ public final class MiniCObservationApi {
      */
     public synchronized UiStageVisualDto currentStageVisualData() {
         CompileObservationSession currentSession = requireSession();
-        if (currentSession.currentStepper() instanceof minic.runtime.step.PreprocessStageStepper) {
-            return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
-        }
-        if (currentSession.currentStepper() instanceof minic.runtime.step.LexerStageStepper lexerStepper) {
-            return UiStageVisualDto.fromLexerTokens(
-                    currentSession.currentStageData(),
-                    lexerStepper.lexerState().tokens(),
-                    lexerStepper.lexerState().currentToken().orElse(null),
-                    lexerStepper.sourceFile().content()
-            );
-        }
-        if (currentSession.currentStepper() instanceof minic.runtime.step.ParserStageStepper parserStepper) {
-            return UiStageVisualDto.fromAst(
-                    currentSession.currentStageData(),
-                    parserStepper.previewProgram(),
-                    parserStepper.currentObservationNode().orElse(null),
-                    parserStepper.revealedAstNodes()
-            );
-        }
-        if (currentSession.currentStepper() instanceof minic.runtime.step.SemanticStageStepper semanticStepper) {
-            return UiStageVisualDto.fromSemanticAstAndScope(
-                    currentSession.currentStageData(),
-                    semanticStepper.program(),
-                    semanticStepper.semanticState().work().globalScope(),
-                    semanticStepper.semanticState().currentAction().orElse(null)
-            );
-        }
-        if (currentSession.currentStepper() instanceof minic.runtime.step.IrStageStepper irStepper) {
-            minic.compiler.semantic.SemanticResult semanticResult = currentSession.semanticResult().orElseThrow(() ->
-                    new IllegalStateException("semantic result is required for IR visual data"));
-            return UiStageVisualDto.fromIrAstAndScope(
-                    currentSession.currentStageData(),
-                    irStepper.program(),
-                    semanticResult.globalScope(),
-                    irStepper.irState().currentAction().orElse(null),
-                    currentSession.irModule().orElseGet(() -> irStepper.irState().currentModule())
-            );
-        }
-        if (currentSession.currentStepper() instanceof minic.runtime.step.CodegenStageStepper codegenStepper) {
-            return UiStageVisualDto.fromCodegen(
-                    currentSession.currentStageData(),
-                    codegenStepper.module(),
-                    codegenStepper.codegenState().work().assemblyLineData(),
-                    codegenStepper.codegenState().work().currentSection()
-            );
-        }
-        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+        return switch (currentSession.currentStage().id()) {
+            case "lexer" -> lexerVisualData();
+            case "parser" -> astVisualData();
+            case "semantic" -> semanticVisualData();
+            case "ir" -> irVisualData();
+            case "asm" -> asmVisualData();
+            default -> UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(sourceFile, currentSession.currentState()));
+        };
     }
 
     /**
@@ -245,23 +177,24 @@ public final class MiniCObservationApi {
      */
     public synchronized UiStageVisualDto lexerVisualData() {
         CompileObservationSession currentSession = requireSession();
-        minic.compiler.lexer.LexResult cachedLexResult = currentSession.lexResult().orElse(null);
-        if (cachedLexResult != null) {
+        minic.compiler.lexer.LexerResult cachedLexerResult = currentSession.lexResult().orElse(null);
+        if (cachedLexerResult != null) {
             return UiStageVisualDto.fromLexerTokens(
                     currentSession.currentStageData(),
-                    cachedLexResult.tokens(),
+                    sourceFile,
+                    cachedLexerResult.tokens(),
                     null
             );
         }
-        if (currentSession.currentStepper() instanceof minic.runtime.step.LexerStageStepper lexerStepper) {
+        if ("lexer".equals(currentSession.currentStage().id())) {
             return UiStageVisualDto.fromLexerTokens(
                     currentSession.currentStageData(),
-                    lexerStepper.lexerState().tokens(),
-                    lexerStepper.lexerState().currentToken().orElse(null),
-                    lexerStepper.sourceFile().content()
+                    sourceFile,
+                    currentSession.lexer().tokens(),
+                    currentSession.lexer().currentToken().orElse(null)
             );
         }
-        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(sourceFile, currentSession.currentState()));
     }
 
     /**
@@ -271,23 +204,25 @@ public final class MiniCObservationApi {
      */
     public synchronized UiStageVisualDto astVisualData() {
         CompileObservationSession currentSession = requireSession();
-        minic.compiler.parser.ParseResult cachedParseResult = currentSession.parseResult().orElse(null);
-        if (cachedParseResult != null) {
+        minic.compiler.parser.ParserResult cachedParserResult = currentSession.parseResult().orElse(null);
+        if (cachedParserResult != null) {
             return UiStageVisualDto.fromAst(
+                    sourceFile,
                     currentSession.currentStageData(),
-                    cachedParseResult.program(),
+                    cachedParserResult.program(),
                     null
             );
         }
-        if (currentSession.currentStepper() instanceof minic.runtime.step.ParserStageStepper parserStepper) {
+        if ("parser".equals(currentSession.currentStage().id()) && !currentSession.parser().tokens().isEmpty()) {
             return UiStageVisualDto.fromAst(
+                    sourceFile,
                     currentSession.currentStageData(),
-                    parserStepper.previewProgram(),
-                    parserStepper.currentObservationNode().orElse(null),
-                    parserStepper.revealedAstNodes()
+                    currentSession.parser().currentResult().program(),
+                    currentSession.parser().currentNode().orElse(null),
+                    currentSession.parser().completedNodes().stream().map(node -> (Object) node).toList()
             );
         }
-        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(sourceFile, currentSession.currentState()));
     }
 
     /**
@@ -299,24 +234,26 @@ public final class MiniCObservationApi {
         CompileObservationSession currentSession = requireSession();
         minic.compiler.semantic.SemanticResult cachedSemanticResult = currentSession.semanticResult().orElse(null);
         if (cachedSemanticResult != null) {
-            minic.compiler.parser.ParseResult cachedParseResult = currentSession.parseResult().orElseThrow(() ->
+            minic.compiler.parser.ParserResult cachedParserResult = currentSession.parseResult().orElseThrow(() ->
                     new IllegalStateException("parse result is required for completed semantic visual data"));
             return UiStageVisualDto.fromSemanticAstAndScope(
+                    sourceFile,
                     currentSession.currentStageData(),
-                    cachedParseResult.program(),
+                    cachedParserResult.program(),
                     cachedSemanticResult.globalScope(),
                     null
             );
         }
-        if (currentSession.currentStepper() instanceof minic.runtime.step.SemanticStageStepper semanticStepper) {
+        if ("semantic".equals(currentSession.currentStage().id()) && currentSession.semanticAnalyzer().stepCount() > 0) {
             return UiStageVisualDto.fromSemanticAstAndScope(
+                    sourceFile,
                     currentSession.currentStageData(),
-                    semanticStepper.program(),
-                    semanticStepper.semanticState().work().globalScope(),
-                    semanticStepper.semanticState().currentAction().orElse(null)
+                    currentSession.semanticAnalyzer().program(),
+                    currentSession.semanticAnalyzer().globalScope(),
+                    currentSession.semanticAnalyzer().currentAction().orElse(null)
             );
         }
-        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(sourceFile, currentSession.currentState()));
     }
 
     /**
@@ -326,50 +263,52 @@ public final class MiniCObservationApi {
      */
     public synchronized UiStageVisualDto irVisualData() {
         CompileObservationSession currentSession = requireSession();
-        minic.compiler.parser.ParseResult cachedParseResult = currentSession.parseResult().orElse(null);
+        minic.compiler.parser.ParserResult cachedParserResult = currentSession.parseResult().orElse(null);
         minic.compiler.semantic.SemanticResult cachedSemanticResult = currentSession.semanticResult().orElse(null);
-        if (cachedParseResult != null && cachedSemanticResult != null) {
-            IrModule module = currentSession.irModule().orElse(null);
-            minic.compiler.ir.lowering.IrLoweringAction currentAction = null;
-            if (currentSession.currentStepper() instanceof minic.runtime.step.IrStageStepper irStepper) {
-                module = currentSession.irModule().orElseGet(() -> irStepper.irState().currentModule());
-                currentAction = irStepper.irState().currentAction().orElse(null);
+        if (cachedParserResult != null && cachedSemanticResult != null) {
+            IrResult irResult = currentSession.irResult().orElse(null);
+            Object activeAstNode = null;
+            if ("ir".equals(currentSession.currentStage().id())) {
+                irResult = currentSession.irResult().orElseGet(() -> currentSession.irLowerer().currentResult());
+                activeAstNode = currentSession.irLowerer().currentAstNode().orElse(null);
             }
             return UiStageVisualDto.fromIrAstAndScope(
+                    sourceFile,
                     currentSession.currentStageData(),
-                    cachedParseResult.program(),
+                    cachedParserResult.program(),
                     cachedSemanticResult.globalScope(),
-                    currentAction,
-                    module
+                    activeAstNode,
+                    irResult
             );
         }
-        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(sourceFile, currentSession.currentState()));
     }
 
     /**
-     * 查询当前可用的 Codegen 汇编可视化数据。Codegen 尚未准备时返回当前阶段 fallback。
+     * 查询当前可用的 Asm 汇编可视化数据。Asm 尚未准备时返回当前阶段 fallback。
      *
      * @return 汇编可视化数据
      */
-    public synchronized UiStageVisualDto codegenVisualData() {
+    public synchronized UiStageVisualDto asmVisualData() {
         CompileObservationSession currentSession = requireSession();
-        minic.compiler.codegen.AssemblySource cachedAssemblySource = currentSession.assemblySource().orElse(null);
-        if (cachedAssemblySource != null) {
-            return UiStageVisualDto.fromAssemblySource(
+        minic.compiler.asm.AsmResult cachedAsmResult = currentSession.asmResult().orElse(null);
+        if (cachedAsmResult != null) {
+            return UiStageVisualDto.fromAsmResult(
+                    sourceFile,
                     currentSession.currentStageData(),
-                    cachedAssemblySource,
-                    currentSession.irModule().orElse(null)
+                    cachedAsmResult,
+                    currentSession.irResult().orElse(null)
             );
         }
-        if (currentSession.currentStepper() instanceof minic.runtime.step.CodegenStageStepper codegenStepper) {
-            return UiStageVisualDto.fromCodegen(
+        if ("asm".equals(currentSession.currentStage().id())) {
+            return UiStageVisualDto.fromAsm(
+                    sourceFile,
                     currentSession.currentStageData(),
-                    codegenStepper.module(),
-                    codegenStepper.codegenState().work().assemblyLineData(),
-                    codegenStepper.codegenState().work().currentSection()
+                    currentSession.irResult().orElseThrow(),
+                    currentSession.assembler().work()
             );
         }
-        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(currentSession.currentState()));
+        return UiStageVisualDto.from(currentSession.currentStageData(), UiCurrentStateDto.from(sourceFile, currentSession.currentState()));
     }
 
     /**
@@ -378,7 +317,7 @@ public final class MiniCObservationApi {
      * @return 全局数据
      */
     public synchronized UiGlobalDataDto globalData() {
-        return UiGlobalDataDto.from(requireSession().globalData());
+        return UiGlobalDataDto.from(sourceFile, requireSession().globalData());
     }
 
     /**

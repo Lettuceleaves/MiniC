@@ -1,5 +1,6 @@
 package minic.uiapi;
 
+import minic.compiler.SourceFile;
 import minic.source.SourceRange;
 
 import java.util.Objects;
@@ -16,11 +17,11 @@ public record UiSourceRangeDto(String sourceName, int startOffset, int endOffset
         Objects.requireNonNull(sourceName, "sourceName");
     }
 
-    static UiSourceRangeDto from(SourceRange range) {
+    static UiSourceRangeDto from(SourceFile sourceFile, SourceRange range) {
         return new UiSourceRangeDto(
-                range.sourceFile().path(),
-                range.startOffset(),
-                range.endOffset()
+                sourceFile.path(),
+                sourceFile.offsetAt(range.startLine(), range.startByte()),
+                sourceFile.offsetAt(range.endLine(), range.endByte())
         );
     }
 }

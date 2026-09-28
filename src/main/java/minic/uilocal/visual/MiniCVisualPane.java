@@ -130,7 +130,7 @@ public final class MiniCVisualPane extends VBox {
         viewModel.astVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.semanticVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.irVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
-        viewModel.codegenVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
+        viewModel.asmVisualDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.globalDataProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
         viewModel.selectedVisualStageProperty().addListener((observable, oldValue, newValue) -> requestRefresh());
     }
@@ -203,8 +203,8 @@ public final class MiniCVisualPane extends VBox {
                 leftColumn.setContent("AST", List.of(astGraphRenderer.zoomableSemanticAstGraph(visual)));
                 rightColumn.setContent("作用域", activeScopeRows(visual));
             }
-            case "codegen" -> {
-                leftColumn.setContent("IR", codegenIrRows(visual));
+            case "asm" -> {
+                leftColumn.setContent("IR", asmIrRows(visual));
                 rightColumn.setContent("汇编", assemblyRows(visual));
             }
             case "source" -> {
@@ -214,13 +214,13 @@ public final class MiniCVisualPane extends VBox {
             case "ir" -> {
                 leftColumn.setContent("AST", List.of(astGraphRenderer.zoomableSemanticAstGraph(visual)));
                 if (selectedSemanticScopeId == null || selectedSemanticScopeId.isBlank()) {
-                    rightColumn.setContent("IR", codegenIrRows(visual));
+                    rightColumn.setContent("IR", asmIrRows(visual));
                 } else {
                     rightColumn.setContent("作用域", activeScopeRows(visual));
                 }
             }
-            case "toolchain" -> {
-                leftColumn.setContent("汇编", assemblyRows(visualForStage("codegen")));
+            case "native-build" -> {
+                leftColumn.setContent("汇编", assemblyRows(visualForStage("asm")));
                 rightColumn.setContent("工具链", globalRows(stage));
             }
             case "execution" -> {
@@ -240,7 +240,7 @@ public final class MiniCVisualPane extends VBox {
             case "parser" -> viewModel.astVisualDataProperty().get();
             case "semantic" -> viewModel.semanticVisualDataProperty().get();
             case "ir" -> viewModel.irVisualDataProperty().get();
-            case "codegen" -> viewModel.codegenVisualDataProperty().get();
+            case "asm" -> viewModel.asmVisualDataProperty().get();
             default -> viewModel.currentStageVisualDataProperty().get();
         };
     }
@@ -253,8 +253,8 @@ public final class MiniCVisualPane extends VBox {
             case "parser" -> "语法分析";
             case "semantic" -> "语义分析";
             case "ir" -> "IR 降级";
-            case "codegen" -> "代码生成";
-            case "toolchain" -> "工具链";
+            case "asm" -> "汇编生成";
+            case "native-build" -> "本机构建";
             case "execution" -> "执行";
             case "pending" -> "等待中";
             default -> stage;
@@ -340,7 +340,7 @@ public final class MiniCVisualPane extends VBox {
         }
         List<String> rows = switch (stage) {
             case "ir" -> viewModel.globalDataProperty().get().irSummary();
-            case "toolchain" -> viewModel.globalDataProperty().get().artifactSummary();
+            case "native-build" -> viewModel.globalDataProperty().get().artifactSummary();
             default -> List.of();
         };
         if (rows.isEmpty()) {
@@ -359,12 +359,12 @@ public final class MiniCVisualPane extends VBox {
                 .toList();
     }
 
-    private List<HBox> codegenIrRows(UiStageVisualDto codegenVisual) {
-        if (codegenVisual == null || codegenVisual.irLines().isEmpty()) {
+    private List<HBox> asmIrRows(UiStageVisualDto asmVisual) {
+        if (asmVisual == null || asmVisual.irLines().isEmpty()) {
             return List.of(textRow("IR 暂无输出。", "assembly-row", "assembly-text"));
         }
-        return codegenVisual.irLines().stream()
-                .map(line -> irRow(line, codegenVisual))
+        return asmVisual.irLines().stream()
+                .map(line -> irRow(line, asmVisual))
                 .toList();
     }
 
@@ -617,7 +617,7 @@ public final class MiniCVisualPane extends VBox {
                 viewModel.semanticVisualDataProperty().get(),
                 viewModel.astVisualDataProperty().get(),
                 viewModel.lexerVisualDataProperty().get(),
-                viewModel.codegenVisualDataProperty().get()
+                viewModel.asmVisualDataProperty().get()
         }) {
             String source = sourceTextFromVisual(range, visual);
             if (!source.isBlank()) {

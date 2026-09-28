@@ -46,7 +46,7 @@ public final class MiniCVisualModelFactory {
             case "parser" -> globalData.astSummary();
             case "semantic" -> globalData.semanticSummary();
             case "ir" -> globalData.irSummary();
-            case "codegen" -> globalData.assemblySummary();
+            case "asm" -> globalData.assemblySummary();
             default -> stageData.accumulatedOutput();
         };
     }

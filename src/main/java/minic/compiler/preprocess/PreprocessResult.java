@@ -1,10 +1,13 @@
 package minic.compiler.preprocess;
 
 import minic.diagnostics.Diagnostic;
-import minic.source.SourceFile;
+import minic.compiler.SourceFile;
+import minic.source.SourceRange;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * 一次预编译阶段的结果。
@@ -46,35 +49,59 @@ public record PreprocessResult(
         sourceMap = sourceMap.clone();
     }
 
-    public PreprocessResult(
-            SourceFile sourceFile,
-            List<Diagnostic> diagnostics,
-            List<IncludeSummary> includes,
-            List<MacroSummary> macros
-    ) {
-        this(sourceFile, diagnostics, includes, macros, identityMap(sourceFile.content().length()));
-    }
-
     @Override
     public int[] sourceMap() {
         return sourceMap.clone();
     }
 
     /**
-     * 创建直通预编译结果。
+     * 一条 include 指令的处理摘要。
      *
-     * @param sourceFile 原始源码
-     * @return 预编译结果
+     * @param requestedPath 源码中请求的 include 路径
+     * @param resolvedPath 实际解析到的路径；尚未解析时为空
+     * @param sourceRange include 指令在来源文件中的范围
+     * @param expanded 是否已展开
      */
-    public static PreprocessResult passthrough(SourceFile sourceFile) {
-        return new PreprocessResult(sourceFile, List.of(), List.of(), List.of());
+    public record IncludeSummary(
+            String requestedPath,
+            Path resolvedPath,
+            SourceRange sourceRange,
+            boolean expanded
+    ) {
+        public IncludeSummary {
+            Objects.requireNonNull(requestedPath, "requestedPath");
+            Objects.requireNonNull(sourceRange, "sourceRange");
+            if (requestedPath.isBlank()) {
+                throw new IllegalArgumentException("requestedPath must not be blank");
+            }
+        }
+
+        public Optional<Path> resolvedPathOptional() {
+            return Optional.ofNullable(resolvedPath);
+        }
     }
 
-    private static int[] identityMap(int length) {
-        int[] sourceMap = new int[length];
-        for (int index = 0; index < sourceMap.length; index++) {
-            sourceMap[index] = index;
+    /**
+     * 一条对象宏定义状态变化摘要。
+     *
+     * @param name 宏名称
+     * @param replacement 宏替换文本
+     * @param sourceRange 宏定义来源范围
+     * @param defined 是否处于已定义状态
+     */
+    public record MacroSummary(
+            String name,
+            String replacement,
+            SourceRange sourceRange,
+            boolean defined
+    ) {
+        public MacroSummary {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(replacement, "replacement");
+            Objects.requireNonNull(sourceRange, "sourceRange");
+            if (name.isBlank()) {
+                throw new IllegalArgumentException("name must not be blank");
+            }
         }
-        return sourceMap;
     }
 }

@@ -5,7 +5,8 @@ import minic.source.SourceRange;
 /**
  * IR 指令的基接口。
  */
-public interface IrInstruction {
+public sealed interface IrInstruction
+        permits MemoryInstruction, ComputeInstruction, ControlInstruction, CallInstruction {
     /**
      * 返回该指令对应的源码范围。
      *

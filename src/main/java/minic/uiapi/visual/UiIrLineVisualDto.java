@@ -8,7 +8,7 @@ import java.util.Objects;
  * @param lineNumber 行号
  * @param text IR 行文本
  * @param range 对应源码范围；没有直接对应时为 {@code null}
- * @param active 是否为当前 codegen 正在消费的 IR 行
+ * @param active 是否为当前 asm 正在消费的 IR 行
  */
 public record UiIrLineVisualDto(int lineNumber, String text, UiSourceSpanDto range, boolean active) {
     public UiIrLineVisualDto {

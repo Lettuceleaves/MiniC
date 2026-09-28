@@ -998,8 +998,8 @@ public final class MiniCWorkbenchShell {
             case "parser" -> "语法分析";
             case "semantic" -> "语义分析";
             case "ir" -> "IR 降级";
-            case "codegen" -> "代码生成";
-            case "toolchain" -> "工具链";
+            case "asm" -> "汇编生成";
+            case "native-build" -> "本机构建";
             case "execution" -> "执行";
             default -> stage;
         };

@@ -1,8 +1,9 @@
 package minic.uiapi;
 
-import minic.compiler.semantic.Scope;
-import minic.compiler.semantic.SemanticAction;
-import minic.compiler.semantic.Symbol;
+import minic.compiler.SourceFile;
+import minic.compiler.semantic.model.Scope;
+import minic.compiler.semantic.model.SemanticAction;
+import minic.compiler.semantic.model.Symbol;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,7 +12,12 @@ import java.util.List;
  * 将内部 Scope 树转换为 UI 专用作用域 DTO。
  */
 final class UiSemanticScopeVisualBuilder {
+    private final SourceFile sourceFile;
     private int nextId;
+
+    UiSemanticScopeVisualBuilder(SourceFile sourceFile) {
+        this.sourceFile = sourceFile;
+    }
 
     UiSemanticScopeVisualDto build(Scope globalScope, SemanticAction currentAction) {
         Scope activeScope = currentAction == null ? null : currentAction.scope();
@@ -45,11 +51,11 @@ final class UiSemanticScopeVisualBuilder {
 
     private UiSourceSpanDto scopeRange(Scope scope) {
         return scope.range()
-                .map(UiSourceSpanDto::from)
+                .map(range -> UiSourceSpanDto.from(sourceFile, range))
                 .or(() -> scope.symbols().stream()
                 .findFirst()
                 .map(Symbol::declarationRange)
-                .map(UiSourceSpanDto::from))
+                .map(range -> UiSourceSpanDto.from(sourceFile, range)))
                 .orElse(null);
     }
 }

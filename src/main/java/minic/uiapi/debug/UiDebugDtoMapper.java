@@ -1,14 +1,15 @@
 package minic.uiapi;
 
-import minic.runtime.debug.DebugEvent;
-import minic.runtime.debug.DebugHeapBlock;
-import minic.runtime.debug.DebugMemoryEntry;
-import minic.runtime.debug.DebugProcessSpace;
-import minic.runtime.debug.DebugSession;
-import minic.runtime.debug.DebugSnapshot;
-import minic.runtime.debug.DebugStackFrame;
-import minic.runtime.debug.DebugValue;
-import minic.runtime.debug.DebugValueKind;
+import minic.compiler.SourceFile;
+import minic.debug.DebugEvent;
+import minic.debug.DebugHeapBlock;
+import minic.debug.DebugMemoryEntry;
+import minic.debug.DebugProcessSpace;
+import minic.debug.DebugSession;
+import minic.debug.DebugSnapshot;
+import minic.debug.DebugStackFrame;
+import minic.debug.DebugValue;
+import minic.debug.DebugValueKind;
 
 import java.util.List;
 
@@ -23,37 +24,39 @@ final class UiDebugDtoMapper {
         return new UiDebugStateDto(
                 session.sourceFile().path(),
                 session.state().name(),
-                snapshot(session.currentSnapshot()),
-                session.snapshots().stream().map(UiDebugDtoMapper::snapshot).toList(),
-                session.events().stream().map(UiDebugDtoMapper::event).toList(),
+                snapshot(session.sourceFile(), session.currentSnapshot()),
+                session.snapshots().stream().map(snapshot -> snapshot(session.sourceFile(), snapshot)).toList(),
+                session.events().stream().map(event -> event(session.sourceFile(), event)).toList(),
                 session.breakpoints().stream()
                         .map(breakpoint -> UiDebugBreakpointDto.fromLine(breakpoint.line(), breakpoint.enabled()))
                         .toList()
         );
     }
 
-    private static UiDebugSnapshotDto snapshot(DebugSnapshot snapshot) {
+    private static UiDebugSnapshotDto snapshot(SourceFile sourceFile, DebugSnapshot snapshot) {
         return new UiDebugSnapshotDto(
                 snapshot.snapshotId(),
                 snapshot.visibleStepIndex(),
                 snapshot.cursor().functionName(),
                 snapshot.cursor().basicBlockId(),
                 snapshot.cursor().instructionId(),
-                snapshot.cursor().sourceRangeOptional().map(UiSourceSpanDto::from).orElse(null),
+                snapshot.cursor().sourceRangeOptional()
+                        .map(range -> UiSourceSpanDto.from(sourceFile, range))
+                        .orElse(null),
                 snapshot.callStackSummary(),
-                processSpace(snapshot.processSpace()),
+                processSpace(sourceFile, snapshot.processSpace()),
                 snapshot.breakpointHit(),
                 snapshot.stopReason().name()
         );
     }
 
-    static UiDebugProcessSpaceDto processSpace(DebugProcessSpace processSpace) {
+    static UiDebugProcessSpaceDto processSpace(SourceFile sourceFile, DebugProcessSpace processSpace) {
         return new UiDebugProcessSpaceDto(
                 processSpace.code().currentFunctionOptional().orElse(""),
                 processSpace.code().currentInstructionOptional().orElse(""),
                 processSpace.code().functions(),
                 processSpace.staticData().stringLiterals().stream().map(UiDebugDtoMapper::variable).toList(),
-                processSpace.stack().frames().stream().map(UiDebugDtoMapper::frame).toList(),
+                processSpace.stack().frames().stream().map(frame -> frame(sourceFile, frame)).toList(),
                 heapVariables(processSpace.heap().blocks()),
                 processSpace.io().stdin(),
                 processSpace.io().stdout(),
@@ -61,14 +64,16 @@ final class UiDebugDtoMapper {
         );
     }
 
-    private static UiDebugFrameDto frame(DebugStackFrame frame) {
+    private static UiDebugFrameDto frame(SourceFile sourceFile, DebugStackFrame frame) {
         return new UiDebugFrameDto(
                 frame.frameId(),
                 frame.functionName(),
                 frame.parameters().stream().map(UiDebugDtoMapper::variable).toList(),
                 frame.locals().stream().map(UiDebugDtoMapper::variable).toList(),
                 frame.returnTargetOptional().orElse(null),
-                frame.currentSourceRangeOptional().map(UiSourceSpanDto::from).orElse(null)
+                frame.currentSourceRangeOptional()
+                        .map(range -> UiSourceSpanDto.from(sourceFile, range))
+                        .orElse(null)
         );
     }
 
@@ -93,7 +98,7 @@ final class UiDebugDtoMapper {
     private static UiDebugVariableDto variable(DebugMemoryEntry entry) {
         return variable(
                 entry.name(),
-                entry.addressOptional().map(minic.runtime.debug.DebugVirtualAddress::display).orElse(""),
+                entry.addressOptional().map(minic.debug.DebugVirtualAddress::display).orElse(""),
                 entry.typeName(),
                 entry.value()
         );
@@ -107,7 +112,7 @@ final class UiDebugDtoMapper {
                 value.kind().name(),
                 value.summary(),
                 value.pointerTargetOptional()
-                        .map(minic.runtime.debug.DebugVirtualAddress::display)
+                        .map(minic.debug.DebugVirtualAddress::display)
                         .orElse(""),
                 typeShape(value),
                 false,
@@ -147,14 +152,14 @@ final class UiDebugDtoMapper {
         };
     }
 
-    private static UiDebugEventDto event(DebugEvent event) {
+    private static UiDebugEventDto event(SourceFile sourceFile, DebugEvent event) {
         return new UiDebugEventDto(
                 event.eventId(),
                 event.snapshotId(),
                 event.type(),
                 event.title(),
                 event.description(),
-                event.sourceRangeOptional().map(UiSourceSpanDto::from).orElse(null),
+                event.sourceRangeOptional().map(range -> UiSourceSpanDto.from(sourceFile, range)).orElse(null),
                 event.affectedValueRefs()
         );
     }

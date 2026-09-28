@@ -1,21 +1,20 @@
 package minic.uiapi;
 
-import minic.compiler.ast.decl.Program;
-import minic.compiler.ir.lowering.IrLowerer;
-import minic.compiler.ir.model.IrModule;
-import minic.compiler.lexer.LexResult;
+import minic.compiler.parser.node.Declaration.Program;
+import minic.compiler.ir.IrLowerer;
+import minic.compiler.ir.IrResult;
+import minic.compiler.lexer.LexerResult;
 import minic.compiler.lexer.Lexer;
-import minic.compiler.parser.ParseResult;
+import minic.compiler.parser.ParserResult;
 import minic.compiler.parser.Parser;
-import minic.compiler.preprocess.MiniCPreprocessor;
 import minic.compiler.preprocess.PreprocessResult;
 import minic.compiler.preprocess.Preprocessor;
 import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.semantic.SemanticResult;
-import minic.runtime.debug.DebugCommand;
-import minic.runtime.debug.DebugSession;
-import minic.runtime.debug.IrDebugInterpreter;
-import minic.source.SourceFile;
+import minic.debug.DebugCommand;
+import minic.debug.DebugSession;
+import minic.debug.IrDebugInterpreter;
+import minic.compiler.SourceFile;
 
 import java.util.Objects;
 
@@ -29,7 +28,7 @@ public final class MiniCDebugApi {
     private Lowered lowered;
 
     public MiniCDebugApi() {
-        this(new MiniCPreprocessor());
+        this(new Preprocessor());
     }
 
     public MiniCDebugApi(Preprocessor preprocessor) {
@@ -65,7 +64,7 @@ public final class MiniCDebugApi {
     public synchronized UiDebugStateDto startDebug() {
         ensureSourceLoaded();
         Lowered lowered = lowerWithProgram(sourceFile);
-        session = new IrDebugInterpreter().runMain(lowered.module(), sourceFile, lowered.semanticResult());
+        session = new IrDebugInterpreter().runMain(lowered.irResult(), sourceFile, lowered.semanticResult());
         session.control(DebugCommand.RESTART);
         return currentState();
     }
@@ -248,8 +247,9 @@ public final class MiniCDebugApi {
     public synchronized UiDebugAstViewDto astDebugView() {
         Lowered lowered = lowerWithProgram(requireSourceFile());
         return new UiDebugAstViewBuilder().build(
+                requireSourceFile(),
                 lowered.program(),
-                lowered.module(),
+                lowered.irResult(),
                 requireSession().currentSnapshot().cursor().sourceRange()
         );
     }
@@ -261,7 +261,7 @@ public final class MiniCDebugApi {
      */
     public synchronized UiDebugIrViewDto irDebugView() {
         Lowered lowered = lowerWithProgram(requireSourceFile());
-        return new UiDebugIrViewBuilder().build(lowered.module(), currentState());
+        return new UiDebugIrViewBuilder().build(requireSourceFile(), lowered.irResult(), currentState());
     }
 
     /**
@@ -271,7 +271,7 @@ public final class MiniCDebugApi {
      */
     public synchronized UiDebugAsmViewDto asmDebugView() {
         Lowered lowered = lowerWithProgram(requireSourceFile());
-        return new UiDebugAsmViewBuilder().build(lowered.module(), currentState());
+        return new UiDebugAsmViewBuilder().build(requireSourceFile(), lowered.irResult(), currentState());
     }
 
     /**
@@ -302,8 +302,8 @@ public final class MiniCDebugApi {
         return session;
     }
 
-    private IrModule lower(SourceFile sourceFile) {
-        return lowerWithProgram(sourceFile).module();
+    private IrResult lower(SourceFile sourceFile) {
+        return lowerWithProgram(sourceFile).irResult();
     }
 
     private Lowered lowerWithProgram(SourceFile sourceFile) {
@@ -314,12 +314,11 @@ public final class MiniCDebugApi {
         if (!preprocessResult.diagnostics().isEmpty()) {
             throw new IllegalStateException("debug source has preprocess diagnostics");
         }
-        SourceFile preprocessed = preprocessResult.sourceFile();
-        LexResult lexResult = new Lexer(preprocessed).lex();
+        LexerResult lexResult = new Lexer(preprocessor).lex();
         if (!lexResult.diagnostics().isEmpty()) {
             throw new IllegalStateException("debug source has lexer diagnostics");
         }
-        ParseResult parseResult = new Parser(lexResult.tokens()).parse();
+        ParserResult parseResult = new Parser(lexResult.tokens()).parse();
         if (!parseResult.diagnostics().isEmpty()) {
             throw new IllegalStateException("debug source has parser diagnostics");
         }
@@ -337,6 +336,6 @@ public final class MiniCDebugApi {
         return sourceFile;
     }
 
-    private record Lowered(SourceFile sourceFile, Program program, SemanticResult semanticResult, IrModule module) {
+    private record Lowered(SourceFile sourceFile, Program program, SemanticResult semanticResult, IrResult irResult) {
     }
 }

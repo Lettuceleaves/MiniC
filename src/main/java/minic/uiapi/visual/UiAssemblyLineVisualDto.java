@@ -3,7 +3,7 @@ package minic.uiapi;
 import java.util.Objects;
 
 /**
- * Codegen 阶段汇编行图形数据。
+ * Asm 阶段汇编行图形数据。
  *
  * @param lineNumber 稳定行号
  * @param text 汇编文本或当前摘要

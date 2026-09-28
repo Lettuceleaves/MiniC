@@ -1,42 +1,42 @@
 package minic.uiapi;
 
-import minic.runtime.step.StageStepData;
-import minic.compiler.ast.decl.Program;
-import minic.compiler.codegen.AssemblySource;
-import minic.compiler.ir.lowering.IrLoweringAction;
-import minic.compiler.ir.instruction.IrAddressOfLocalInstruction;
-import minic.compiler.ir.instruction.IrBinaryInstruction;
-import minic.compiler.ir.instruction.IrBranchInstruction;
-import minic.compiler.ir.instruction.IrCallInstruction;
-import minic.compiler.ir.instruction.IrCastInstruction;
-import minic.compiler.ir.instruction.IrCheckInitializedInstruction;
-import minic.compiler.ir.instruction.IrCheckNonZeroInstruction;
-import minic.compiler.ir.instruction.IrDeclareLocalInstruction;
-import minic.compiler.ir.instruction.IrElementAddressInstruction;
-import minic.compiler.ir.instruction.IrFieldAddressInstruction;
-import minic.compiler.ir.instruction.IrIndirectCallInstruction;
+import minic.compiler.SourceFile;
+import minic.session.Observation.StageData;
+import minic.compiler.parser.node.Declaration.Program;
+import minic.compiler.asm.AsmResult;
+import minic.compiler.asm.Assembler;
+import minic.compiler.ir.instruction.MemoryInstruction.IrAddressOfLocalInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryInstruction;
+import minic.compiler.ir.instruction.ControlInstruction.IrBranchInstruction;
+import minic.compiler.ir.instruction.CallInstruction.IrCallInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrCastInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrCheckInitializedInstruction;
+import minic.compiler.ir.instruction.ControlInstruction.IrCheckNonZeroInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrElementAddressInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrFieldAddressInstruction;
+import minic.compiler.ir.instruction.CallInstruction.IrIndirectCallInstruction;
 import minic.compiler.ir.instruction.IrInstruction;
-import minic.compiler.ir.instruction.IrJumpInstruction;
-import minic.compiler.ir.instruction.IrLoadLocalInstruction;
-import minic.compiler.ir.instruction.IrLoadPointerInstruction;
-import minic.compiler.ir.instruction.IrReturnInstruction;
-import minic.compiler.ir.instruction.IrStoreLocalInstruction;
-import minic.compiler.ir.instruction.IrStorePointerInstruction;
+import minic.compiler.ir.instruction.ControlInstruction.IrJumpInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrLoadLocalInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrLoadPointerInstruction;
+import minic.compiler.ir.instruction.ControlInstruction.IrReturnInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrStoreLocalInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrStorePointerInstruction;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrLocal;
-import minic.compiler.ir.model.IrModule;
-import minic.compiler.ir.value.IrConstant;
-import minic.compiler.ir.value.IrFloatConstant;
-import minic.compiler.ir.value.IrFunctionAddress;
-import minic.compiler.ir.value.IrParameterRef;
-import minic.compiler.ir.value.IrStringLiteral;
-import minic.compiler.ir.value.IrTemporary;
+import minic.compiler.ir.IrResult;
+import minic.compiler.ir.value.IrValue.IrConstant;
+import minic.compiler.ir.value.IrValue.IrFloatConstant;
+import minic.compiler.ir.value.IrValue.IrFunctionAddress;
+import minic.compiler.ir.value.IrValue.IrParameterRef;
+import minic.compiler.ir.value.IrValue.IrStringLiteral;
+import minic.compiler.ir.value.IrValue.IrTemporary;
 import minic.compiler.ir.value.IrValue;
-import minic.compiler.lexer.Token;
-import minic.compiler.semantic.Scope;
-import minic.compiler.semantic.SemanticAction;
-import minic.compiler.codegen.windows.WindowsX64AssemblyLine;
+import minic.compiler.lexer.token.Token;
+import minic.compiler.semantic.model.Scope;
+import minic.compiler.semantic.model.SemanticAction;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -83,108 +83,102 @@ public record UiStageVisualDto(
         assemblyLines = List.copyOf(assemblyLines);
     }
 
-    static UiStageVisualDto from(StageStepData data, UiCurrentStateDto state) {
+    static UiStageVisualDto from(StageData data, UiCurrentStateDto state) {
         return switch (data.stage().id()) {
             case "lexer" -> lexerVisual(data, state);
             case "parser" -> parserVisual(data, state);
             case "semantic" -> semanticVisual(data, state);
-            case "codegen" -> codegenVisual(data);
+            case "asm" -> asmVisual(data);
             default -> genericVisual(data);
         };
     }
 
-    static UiStageVisualDto fromLexerTokens(StageStepData data, List<Token> sourceTokens, Token currentToken) {
-        return fromLexerTokens(data, sourceTokens, currentToken, "");
-    }
-
     static UiStageVisualDto fromLexerTokens(
-            StageStepData data,
+            StageData data,
+            SourceFile sourceFile,
             List<Token> sourceTokens,
-            Token currentToken,
-            String fallbackSourceText
+            Token currentToken
     ) {
         List<UiLexerTokenVisualDto> tokens = sourceTokens.stream()
                 .map(token -> new UiLexerTokenVisualDto(
-                        token.kind().name(),
+                        token.type().name(),
                         token.lexeme(),
-                        UiSourceSpanDto.from(token.range()),
+                        UiSourceSpanDto.from(sourceFile, token.range()),
                         token.equals(currentToken)
                 ))
                 .toList();
-        String sourceText = sourceTokens.isEmpty() ? fallbackSourceText : sourceTokens.getFirst().range().sourceFile().content();
-        return new UiStageVisualDto(data.stage().id(), "lexer", sourceText, List.of(), tokens, null, null, false, List.of(), List.of());
+        return new UiStageVisualDto(data.stage().id(), "lexer", sourceFile.content(), List.of(), tokens, null, null, false, List.of(), List.of());
     }
 
-    static UiStageVisualDto fromAst(StageStepData data, Program program, Object activeNode) {
-        UiAstNodeVisualDto root = new UiAstVisualBuilder().buildProgram(program, activeNode);
-        return new UiStageVisualDto(data.stage().id(), "ast", sourceText(program), List.of(), List.of(), root, null, false, List.of(), List.of());
+    static UiStageVisualDto fromAst(SourceFile sourceFile, StageData data, Program program, Object activeNode) {
+        UiAstNodeVisualDto root = new UiAstVisualBuilder(sourceFile).buildProgram(program, activeNode);
+        return new UiStageVisualDto(data.stage().id(), "ast", sourceFile.content(), List.of(), List.of(), root, null, false, List.of(), List.of());
     }
 
     static UiStageVisualDto fromAst(
-            StageStepData data,
+            SourceFile sourceFile,
+            StageData data,
             Program program,
             Object activeNode,
             List<Object> visibleNodes
     ) {
-        UiAstNodeVisualDto root = new UiAstVisualBuilder().buildProgram(program, activeNode, visibleNodes);
-        return new UiStageVisualDto(data.stage().id(), "ast", sourceText(program), List.of(), List.of(), root, null, false, List.of(), List.of());
+        UiAstNodeVisualDto root = new UiAstVisualBuilder(sourceFile).buildProgram(program, activeNode, visibleNodes);
+        return new UiStageVisualDto(data.stage().id(), "ast", sourceFile.content(), List.of(), List.of(), root, null, false, List.of(), List.of());
     }
 
-    static UiStageVisualDto fromSemanticScope(StageStepData data, Scope globalScope, SemanticAction currentAction) {
-        UiSemanticScopeVisualDto root = new UiSemanticScopeVisualBuilder().build(globalScope, currentAction);
+    static UiStageVisualDto fromSemanticScope(
+            SourceFile sourceFile,
+            StageData data,
+            Scope globalScope,
+            SemanticAction currentAction
+    ) {
+        UiSemanticScopeVisualDto root = new UiSemanticScopeVisualBuilder(sourceFile).build(globalScope, currentAction);
         return new UiStageVisualDto(data.stage().id(), "semantic-scope", "", List.of(), List.of(), null, root, true, List.of(), List.of());
     }
 
     static UiStageVisualDto fromSemanticAstAndScope(
-            StageStepData data,
+            SourceFile sourceFile,
+            StageData data,
             Program program,
             Scope globalScope,
             SemanticAction currentAction
     ) {
         Object activeAstNode = currentAction == null ? null : currentAction.astNode();
-        UiAstNodeVisualDto astRoot = new UiAstVisualBuilder().buildProgram(program, activeAstNode);
-        UiSemanticScopeVisualDto semanticRoot = new UiSemanticScopeVisualBuilder().build(globalScope, currentAction);
-        return new UiStageVisualDto(data.stage().id(), "semantic-ast-scope", sourceText(program), List.of(), List.of(), astRoot, semanticRoot, true, List.of(), List.of());
+        UiAstNodeVisualDto astRoot = new UiAstVisualBuilder(sourceFile).buildProgram(program, activeAstNode);
+        UiSemanticScopeVisualDto semanticRoot = new UiSemanticScopeVisualBuilder(sourceFile).build(globalScope, currentAction);
+        return new UiStageVisualDto(data.stage().id(), "semantic-ast-scope", sourceFile.content(), List.of(), List.of(), astRoot, semanticRoot, true, List.of(), List.of());
     }
 
     static UiStageVisualDto fromIrAstAndScope(
-            StageStepData data,
+            SourceFile sourceFile,
+            StageData data,
             Program program,
             Scope globalScope,
-            IrLoweringAction currentAction
+            Object activeAstNode,
+            IrResult irResult
     ) {
-        return fromIrAstAndScope(data, program, globalScope, currentAction, null);
-    }
-
-    static UiStageVisualDto fromIrAstAndScope(
-            StageStepData data,
-            Program program,
-            Scope globalScope,
-            IrLoweringAction currentAction,
-            IrModule module
-    ) {
-        Object activeAstNode = currentAction == null ? null : currentAction.astNode();
-        UiAstNodeVisualDto astRoot = new UiAstVisualBuilder().buildProgram(program, activeAstNode);
-        UiSemanticScopeVisualDto semanticRoot = new UiSemanticScopeVisualBuilder().build(globalScope, null);
-        List<UiIrLineVisualDto> irLines = module == null ? List.of() : irLines(module, null);
-        return new UiStageVisualDto(data.stage().id(), "ir-ast-scope", sourceText(program), List.of(), List.of(), astRoot, semanticRoot, true, irLines, List.of());
+        UiAstNodeVisualDto astRoot = new UiAstVisualBuilder(sourceFile).buildProgram(program, activeAstNode);
+        UiSemanticScopeVisualDto semanticRoot = new UiSemanticScopeVisualBuilder(sourceFile).build(globalScope, null);
+        List<UiIrLineVisualDto> irLines = irResult == null ? List.of() : irLines(sourceFile, irResult, null);
+        return new UiStageVisualDto(data.stage().id(), "ir-ast-scope", sourceFile.content(), List.of(), List.of(), astRoot, semanticRoot, true, irLines, List.of());
     }
 
     static UiStageVisualDto fromAssemblyLines(
-            StageStepData data,
-            List<WindowsX64AssemblyLine> sourceLines,
-            String currentSection
+            SourceFile sourceFile,
+            StageData data,
+            Assembler.Work work
     ) {
         ArrayList<UiAssemblyLineVisualDto> lines = new ArrayList<>();
+        List<String> sourceLines = work.assemblyLines();
         int lineNumber = 1;
-        for (WindowsX64AssemblyLine line : sourceLines) {
+        for (int index = 0; index < sourceLines.size(); index++) {
             lines.add(new UiAssemblyLineVisualDto(
                     lineNumber,
-                    line.text(),
-                    line.kind().name(),
-                    currentSection,
-                    line.subject(),
-                    line.sourceRange() == null ? null : UiSourceSpanDto.from(line.sourceRange()),
+                    sourceLines.get(index),
+                    "ASM_LINE",
+                    work.currentSection(),
+                    "",
+                    work.sourceRangeAt(index).map(range -> UiSourceSpanDto.from(sourceFile, range)).orElse(null),
                     lineNumber == sourceLines.size()
             ));
             lineNumber++;
@@ -192,13 +186,13 @@ public record UiStageVisualDto(
         return new UiStageVisualDto(data.stage().id(), "assembly", "", List.of(), List.of(), null, null, false, List.of(), lines);
     }
 
-    static UiStageVisualDto fromCodegen(
-            StageStepData data,
-            IrModule module,
-            List<WindowsX64AssemblyLine> sourceLines,
-            String currentSection
+    static UiStageVisualDto fromAsm(
+            SourceFile sourceFile,
+            StageData data,
+            IrResult irResult,
+            Assembler.Work work
     ) {
-        UiStageVisualDto assembly = fromAssemblyLines(data, sourceLines, currentSection);
+        UiStageVisualDto assembly = fromAssemblyLines(sourceFile, data, work);
         UiSourceSpanDto activeRange = assembly.assemblyLines().stream()
                 .filter(UiAssemblyLineVisualDto::active)
                 .map(UiAssemblyLineVisualDto::range)
@@ -214,19 +208,23 @@ public record UiStageVisualDto(
                 assembly.astRoot(),
                 assembly.semanticRoot(),
                 assembly.semanticEdgesPointChildToParent(),
-                irLines(module, activeRange),
+                irLines(sourceFile, irResult, activeRange),
                 assembly.assemblyLines()
         );
     }
 
-    private static List<UiIrLineVisualDto> irLines(IrModule module, UiSourceSpanDto activeRange) {
+    private static List<UiIrLineVisualDto> irLines(
+            SourceFile sourceFile,
+            IrResult irResult,
+            UiSourceSpanDto activeRange
+    ) {
         ArrayList<UiIrLineVisualDto> lines = new ArrayList<>();
-        for (IrFunction function : module.functions()) {
-            lines.add(new UiIrLineVisualDto(lines.size() + 1, "function " + function.name(), UiSourceSpanDto.from(function.range()), false));
+        for (IrFunction function : irResult.functions()) {
+            lines.add(new UiIrLineVisualDto(lines.size() + 1, "function " + function.name(), UiSourceSpanDto.from(sourceFile, function.range()), false));
             for (IrBlock block : function.blocks()) {
                 lines.add(new UiIrLineVisualDto(lines.size() + 1, "  block " + block.label(), null, false));
                 for (IrInstruction instruction : block.instructions()) {
-                    UiSourceSpanDto range = UiSourceSpanDto.from(instruction.range());
+                    UiSourceSpanDto range = UiSourceSpanDto.from(sourceFile, instruction.range());
                     lines.add(new UiIrLineVisualDto(
                             lines.size() + 1,
                             "    " + formatInstruction(instruction),
@@ -360,24 +358,28 @@ public record UiStageVisualDto(
                 && left.endOffset() == right.endOffset();
     }
 
-    static UiStageVisualDto fromAssemblySource(StageStepData data, AssemblySource assemblySource) {
-        return fromAssemblySource(data, assemblySource, null);
+    static UiStageVisualDto fromAsmResult(SourceFile sourceFile, StageData data, AsmResult asmResult) {
+        return fromAsmResult(sourceFile, data, asmResult, null);
     }
 
-    static UiStageVisualDto fromAssemblySource(StageStepData data, AssemblySource assemblySource, IrModule module) {
+    static UiStageVisualDto fromAsmResult(SourceFile sourceFile, StageData data, AsmResult asmResult, IrResult irResult) {
         ArrayList<UiAssemblyLineVisualDto> lines = new ArrayList<>();
         int lineNumber = 1;
-        for (String line : assemblySource.text().replace("\r\n", "\n").replace('\r', '\n').split("\n")) {
-            if (!line.isEmpty()) {
-                lines.add(new UiAssemblyLineVisualDto(lineNumber, line, "ASSEMBLY", "", assemblySource.entrySymbol(), false));
-                lineNumber++;
-            }
+        for (String line : asmResult.text().lines().toList()) {
+            lines.add(new UiAssemblyLineVisualDto(
+                    lineNumber++,
+                    line,
+                    "ASM_LINE",
+                    "",
+                    "",
+                    false
+            ));
         }
-        List<UiIrLineVisualDto> irLines = module == null ? List.of() : irLines(module, null);
-        return new UiStageVisualDto("codegen", "assembly", "", List.of(), List.of(), null, null, false, irLines, lines);
+        List<UiIrLineVisualDto> irLines = irResult == null ? List.of() : irLines(sourceFile, irResult, null);
+        return new UiStageVisualDto("asm", "assembly", "", List.of(), List.of(), null, null, false, irLines, lines);
     }
 
-    private static UiStageVisualDto lexerVisual(StageStepData data, UiCurrentStateDto state) {
+    private static UiStageVisualDto lexerVisual(StageData data, UiCurrentStateDto state) {
         List<UiLexerTokenVisualDto> tokens = new ArrayList<>();
         for (String item : data.accumulatedOutput()) {
             boolean active = item.equals(data.currentItem());
@@ -396,11 +398,7 @@ public record UiStageVisualDto(
         return new UiLexerTokenVisualDto(kind, text, range, active);
     }
 
-    private static String sourceText(Program program) {
-        return program.range().sourceFile().content();
-    }
-
-    private static UiStageVisualDto parserVisual(StageStepData data, UiCurrentStateDto state) {
+    private static UiStageVisualDto parserVisual(StageData data, UiCurrentStateDto state) {
         ArrayList<UiAstNodeVisualDto> children = new ArrayList<>();
         int index = 0;
         for (String item : data.accumulatedOutput()) {
@@ -413,7 +411,7 @@ public record UiStageVisualDto(
         return new UiStageVisualDto(data.stage().id(), "ast", "", List.of(), List.of(), root, null, false, List.of(), List.of());
     }
 
-    private static UiStageVisualDto semanticVisual(StageStepData data, UiCurrentStateDto state) {
+    private static UiStageVisualDto semanticVisual(StageData data, UiCurrentStateDto state) {
         ArrayList<String> symbols = new ArrayList<>();
         ArrayList<UiSemanticScopeVisualDto> children = new ArrayList<>();
         int index = 0;
@@ -437,7 +435,7 @@ public record UiStageVisualDto(
         return new UiStageVisualDto(data.stage().id(), "semantic-scope", "", List.of(), List.of(), null, root, true, List.of(), List.of());
     }
 
-    private static UiStageVisualDto codegenVisual(StageStepData data) {
+    private static UiStageVisualDto asmVisual(StageData data) {
         ArrayList<UiAssemblyLineVisualDto> lines = new ArrayList<>();
         int lineNumber = 1;
         for (String item : data.accumulatedOutput()) {
@@ -448,7 +446,7 @@ public record UiStageVisualDto(
         return new UiStageVisualDto(data.stage().id(), "assembly", "", List.of(), List.of(), null, null, false, List.of(), lines);
     }
 
-    private static UiStageVisualDto genericVisual(StageStepData data) {
+    private static UiStageVisualDto genericVisual(StageData data) {
         ArrayList<String> items = new ArrayList<>();
         if (!data.currentItem().isBlank()) {
             items.add(data.currentItem());

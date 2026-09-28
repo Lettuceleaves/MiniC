@@ -1,5 +1,6 @@
 package minic.uiapi;
 
+import minic.compiler.SourceFile;
 import minic.diagnostics.Diagnostic;
 
 import java.util.Objects;
@@ -29,14 +30,14 @@ public record UiDiagnosticDto(
         Objects.requireNonNull(sourceName, "sourceName");
     }
 
-    static UiDiagnosticDto from(Diagnostic diagnostic) {
+    static UiDiagnosticDto from(SourceFile sourceFile, Diagnostic diagnostic) {
         return new UiDiagnosticDto(
                 diagnostic.code(),
                 diagnostic.severity().name(),
                 diagnostic.message(),
-                diagnostic.range().sourceFile().path(),
-                diagnostic.range().startOffset(),
-                diagnostic.range().endOffset()
+                sourceFile.path(),
+                sourceFile.offsetAt(diagnostic.range().startLine(), diagnostic.range().startByte()),
+                sourceFile.offsetAt(diagnostic.range().endLine(), diagnostic.range().endByte())
         );
     }
 }

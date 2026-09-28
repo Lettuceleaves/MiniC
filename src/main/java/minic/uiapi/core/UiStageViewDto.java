@@ -27,8 +27,8 @@ public record UiStageViewDto(
             new StageInfo("parser", "语法分析"),
             new StageInfo("semantic", "语义分析"),
             new StageInfo("ir", "IR 降级"),
-            new StageInfo("codegen", "代码生成"),
-            new StageInfo("toolchain", "工具链"),
+            new StageInfo("asm", "汇编生成"),
+            new StageInfo("native-build", "本机构建"),
             new StageInfo("execution", "执行")
     );
 
@@ -150,8 +150,8 @@ public record UiStageViewDto(
             case "parser" -> globalData.astSummary().size() + " 个 AST 项";
             case "semantic" -> globalData.semanticSummary().size() + " 个语义项";
             case "ir" -> globalData.irSummary().size() + " 个 IR 项";
-            case "codegen" -> globalData.assemblySummary().size() + " 行汇编";
-            case "toolchain" -> globalData.artifactSummary().isEmpty() ? "尚未生成产物" : "产物已就绪";
+            case "asm" -> globalData.assemblySummary().size() + " 行汇编";
+            case "native-build" -> globalData.artifactSummary().isEmpty() ? "尚未生成产物" : "产物已就绪";
             case "execution" -> globalData.executionOutputSummary().isEmpty() ? "等待输入" : "运行完成";
             default -> "排队中";
         };

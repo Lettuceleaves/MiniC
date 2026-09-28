@@ -1,6 +1,7 @@
 package minic.uiapi;
 
-import minic.runtime.step.GlobalStepData;
+import minic.compiler.SourceFile;
+import minic.session.Observation.GlobalData;
 
 import java.util.List;
 import java.util.Objects;
@@ -103,11 +104,11 @@ public record UiGlobalDataDto(
         return summary != null && summary.stream().anyMatch(line -> line.equals(marker));
     }
 
-    static UiGlobalDataDto from(GlobalStepData data) {
+    static UiGlobalDataDto from(SourceFile sourceFile, GlobalData data) {
         return new UiGlobalDataDto(
                 data.source(),
                 data.stageSummaries(),
-                data.diagnostics().stream().map(UiDiagnosticDto::from).toList(),
+                data.diagnostics().stream().map(diagnostic -> UiDiagnosticDto.from(sourceFile, diagnostic)).toList(),
                 data.preprocessSummary(),
                 data.tokenSummary(),
                 data.astSummary(),
