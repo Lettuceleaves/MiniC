@@ -29,6 +29,7 @@ final class StandardLibraryContractTest {
             "minic_stdout_stream",
             "minic_set_process_error_mode",
             "minic_isctype",
+            "minic_string_malloc",
             "setvbuf",
             "fputs"
     );

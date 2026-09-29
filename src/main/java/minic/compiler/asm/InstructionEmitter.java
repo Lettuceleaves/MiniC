@@ -163,9 +163,11 @@ final class InstructionEmitter {
                 );
             }
             case IrStorePointerInstruction storePointer -> {
-                valueEmitter.emitLoadValue(builder, storePointer.address(), "rax");
                 String register = storeValueRegister(storePointer.value().type());
                 valueEmitter.emitLoadValue(builder, storePointer.value(), register);
+                // Float constants use eax/rax as a bit-pattern scratch register.
+                // Materialize the value before reserving rax for the destination address.
+                valueEmitter.emitLoadValue(builder, storePointer.address(), "rax");
                 emitStoreRegisterToMemory(
                         builder,
                         memoryPrefix(storePointer.value().type()) + " [rax]",

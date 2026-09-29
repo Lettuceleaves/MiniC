@@ -15,6 +15,7 @@ final class DebugMemoryLibraryProvider implements DebugLibraryProvider {
     DebugMemoryLibraryProvider() {
         LinkedHashMap<String, DebugLibraryFunction> registered = new LinkedHashMap<>();
         registered.put("malloc", this::malloc);
+        registered.put("minic_string_malloc", this::malloc);
         registered.put("calloc", this::calloc);
         registered.put("realloc", this::realloc);
         registered.put("free", this::free);
@@ -33,18 +34,23 @@ final class DebugMemoryLibraryProvider implements DebugLibraryProvider {
 
     private DebugLibraryCallResult malloc(DebugRuntime runtime, List<Value> arguments) {
         DebugLibrarySupport.requireCount("malloc", arguments, 1);
-        int size = DebugLibrarySupport.allocationSize("malloc", arguments.getFirst().integer());
-        return new Returned(Value.of(IrType.POINTER, runtime.allocate(size, 16, "heap", "malloc")));
+        try {
+            int size = DebugLibrarySupport.allocationSize("malloc", arguments.getFirst().integer());
+            return pointer(runtime.allocate(size, 16, "heap", "malloc"));
+        } catch (IllegalStateException exception) {
+            return outOfMemory(runtime);
+        }
     }
 
     private DebugLibraryCallResult calloc(DebugRuntime runtime, List<Value> arguments) {
         DebugLibrarySupport.requireCount("calloc", arguments, 2);
-        long bytes = Math.multiplyExact(arguments.get(0).integer(), arguments.get(1).integer());
-        int size = DebugLibrarySupport.allocationSize("calloc", bytes);
-        return new Returned(Value.of(
-                IrType.POINTER,
-                runtime.allocateZeroed(size, 16, "heap", "calloc")
-        ));
+        try {
+            long bytes = Math.multiplyExact(arguments.get(0).integer(), arguments.get(1).integer());
+            int size = DebugLibrarySupport.allocationSize("calloc", bytes);
+            return pointer(runtime.allocateZeroed(size, 16, "heap", "calloc"));
+        } catch (ArithmeticException | IllegalStateException exception) {
+            return outOfMemory(runtime);
+        }
     }
 
     private DebugLibraryCallResult free(DebugRuntime runtime, List<Value> arguments) {
@@ -65,9 +71,19 @@ final class DebugMemoryLibraryProvider implements DebugLibraryProvider {
             runtime.setErrno(DebugLibrarySupport.ENOMEM);
             return new Returned(Value.of(IrType.POINTER, 0));
         }
-        return new Returned(Value.of(
-                IrType.POINTER,
-                runtime.reallocate(address, Math.toIntExact(requested))
-        ));
+        try {
+            return pointer(runtime.reallocate(address, Math.toIntExact(requested)));
+        } catch (DebugRuntime.HeapAllocationException exception) {
+            return outOfMemory(runtime);
+        }
+    }
+
+    private Returned outOfMemory(DebugRuntime runtime) {
+        runtime.setErrno(DebugLibrarySupport.ENOMEM);
+        return pointer(0);
+    }
+
+    private Returned pointer(long address) {
+        return new Returned(Value.of(IrType.POINTER, address));
     }
 }

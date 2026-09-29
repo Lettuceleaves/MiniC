@@ -8,7 +8,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** C17 string.h 的窄字符与原始内存函数，全部访问 DebugRuntime 虚拟内存。 */
+/** C23 string.h 的窄字符与原始内存函数，全部访问 DebugRuntime 虚拟内存。 */
 final class DebugStringLibraryProvider implements DebugLibraryProvider {
     private static final int MAX_STRING_BYTES = 1024 * 1024;
     private static final Map<Integer, String> ERROR_MESSAGES = Map.ofEntries(
@@ -32,6 +32,7 @@ final class DebugStringLibraryProvider implements DebugLibraryProvider {
         registered.put("memmove", this::memmove);
         registered.put("memchr", this::memchr);
         registered.put("memcmp", this::memcmp);
+        registered.put("memccpy", this::memccpy);
         registered.put("memset", this::memset);
         registered.put("strcpy", this::strcpy);
         registered.put("strncpy", this::strncpy);
@@ -48,6 +49,7 @@ final class DebugStringLibraryProvider implements DebugLibraryProvider {
         registered.put("strstr", this::strstr);
         registered.put("strtok", this::strtok);
         registered.put("strerror", this::strerror);
+        registered.put("strdup", this::strdup);
         registered.put("strlen", this::strlen);
         registered.put("strxfrm", this::strxfrm);
         functions = Map.copyOf(registered);
@@ -108,6 +110,22 @@ final class DebugStringLibraryProvider implements DebugLibraryProvider {
             }
         }
         return integer(0);
+    }
+
+    private DebugLibraryCallResult memccpy(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("memccpy", arguments, 4);
+        long destination = pointer(arguments, 0);
+        long source = pointer(arguments, 1);
+        int expected = (int) arguments.get(2).integer() & 0xff;
+        int count = size("memccpy", arguments, 3);
+        for (int index = 0; index < count; index++) {
+            int value = runtime.readUnsignedByte(source + index);
+            runtime.writeByte(destination + index, value);
+            if (value == expected) {
+                return pointer(destination + index + 1L);
+            }
+        }
+        return pointer(0);
     }
 
     private DebugLibraryCallResult memset(DebugRuntime runtime, List<Value> arguments) {
@@ -330,6 +348,20 @@ final class DebugStringLibraryProvider implements DebugLibraryProvider {
     private DebugLibraryCallResult strlen(DebugRuntime runtime, List<Value> arguments) {
         DebugLibrarySupport.requireCount("strlen", arguments, 1);
         return length(stringLength(runtime, pointer(arguments, 0)));
+    }
+
+    private DebugLibraryCallResult strdup(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("strdup", arguments, 1);
+        long source = pointer(arguments, 0);
+        int bytes = stringLength(runtime, source) + 1;
+        try {
+            long duplicate = runtime.allocate(bytes, 16, "heap", "strdup");
+            runtime.copy(duplicate, source, bytes);
+            return pointer(duplicate);
+        } catch (DebugRuntime.HeapAllocationException exception) {
+            runtime.setErrno(DebugLibrarySupport.ENOMEM);
+            return pointer(0);
+        }
     }
 
     private DebugLibraryCallResult strxfrm(DebugRuntime runtime, List<Value> arguments) {

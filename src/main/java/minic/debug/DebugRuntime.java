@@ -18,6 +18,7 @@ import java.util.*;
 
 /** 解释器的可变运行空间；历史状态由 Debugger 保存为不可变 RuntimeState。 */
 public final class DebugRuntime {
+    static final int DEFAULT_HEAP_CAPACITY = 16 * 1024 * 1024;
     private static final int STRERROR_BUFFER_SIZE = 256;
     private static final int LOCALE_CATEGORY_COUNT = 6;
     private static final int LCONV_POINTER_FIELD_COUNT = 10;
@@ -26,6 +27,7 @@ public final class DebugRuntime {
             + LCONV_CHAR_FIELD_COUNT;
     private final DebugProgram code;
     private final DebugTimeSource timeSource;
+    private final int heapCapacity;
     final ArrayList<Frame> stack = new ArrayList<>();
     private final NavigableMap<Long, Allocation> memory = new TreeMap<>();
     private final Map<String, Long> symbols = new LinkedHashMap<>();
@@ -66,9 +68,17 @@ public final class DebugRuntime {
     }
 
     DebugRuntime(DebugProgram code, String input, DebugTimeSource timeSource) {
+        this(code, input, timeSource, DEFAULT_HEAP_CAPACITY);
+    }
+
+    DebugRuntime(DebugProgram code, String input, DebugTimeSource timeSource, int heapCapacity) {
         this.code = code;
         this.input = Objects.requireNonNull(input, "input");
         this.timeSource = Objects.requireNonNull(timeSource, "timeSource");
+        if (heapCapacity < 0) {
+            throw new IllegalArgumentException("heapCapacity must not be negative");
+        }
+        this.heapCapacity = heapCapacity;
         long functionAddress = 0x1000;
         LinkedHashSet<String> names = new LinkedHashSet<>();
         code.ir().functions().forEach(f -> names.add(f.name()));
@@ -167,9 +177,27 @@ public final class DebugRuntime {
     }
 
     long allocate(int size, int alignment, String segment, String label) {
-        if (size <= 0 || size > 16 * 1024 * 1024) throw new IllegalStateException("Invalid allocation size: " + size);
+        return allocate(size, alignment, segment, label, 0);
+    }
+
+    private long allocate(int size, int alignment, String segment, String label, int replacedHeapBytes) {
+        if (size <= 0 || size > DEFAULT_HEAP_CAPACITY) {
+            if (segment.equals("heap") && size > 0) {
+                throw new HeapAllocationException(size);
+            }
+            throw new IllegalStateException("Invalid allocation size: " + size);
+        }
         if (alignment <= 0 || (alignment & (alignment - 1)) != 0)
             throw new IllegalStateException("Invalid allocation alignment: " + alignment);
+        if (segment.equals("heap")) {
+            long allocated = memory.values().stream()
+                    .filter(allocation -> allocation.segment.equals("heap"))
+                    .mapToLong(allocation -> allocation.bytes.length)
+                    .sum();
+            if (allocated - replacedHeapBytes + size > heapCapacity) {
+                throw new HeapAllocationException(size);
+            }
+        }
         nextAddress = (nextAddress + alignment - 1) & -alignment;
         long address = nextAddress;
         nextAddress = Math.addExact(nextAddress, size + 16L);
@@ -205,7 +233,7 @@ public final class DebugRuntime {
         if (previous.bytes.length == size) {
             return address;
         }
-        long replacementAddress = allocate(size, 16, "heap", "realloc");
+        long replacementAddress = allocate(size, 16, "heap", "realloc", previous.bytes.length);
         Allocation replacement = memory.get(replacementAddress);
         int copied = Math.min(previous.bytes.length, size);
         System.arraycopy(previous.bytes, 0, replacement.bytes, 0, copied);
@@ -702,6 +730,12 @@ public final class DebugRuntime {
         final String segment, label;
         Allocation(long address, int size, String segment, String label) {
             this.address = address; this.bytes = new byte[size]; this.segment = segment; this.label = label;
+        }
+    }
+
+    static final class HeapAllocationException extends IllegalStateException {
+        HeapAllocationException(int size) {
+            super("Debug heap capacity exceeded by allocation: " + size);
         }
     }
 }

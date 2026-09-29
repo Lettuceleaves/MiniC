@@ -1,12 +1,14 @@
 package minic.compiler.library;
 
+import minic.compiler.SourceFile;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static minic.compiler.library.LibraryBinding.NativeCallingConvention.WINDOWS_X64;
 import static minic.compiler.library.LibraryBinding.NativeKind.DLL_IMPORT;
@@ -33,33 +35,30 @@ final class NarrowCLibraryCatalogTest {
             "islower", "isprint", "ispunct", "isspace", "isupper", "isxdigit", "tolower", "toupper"
     );
 
-    static final Set<String> STRING_DIRECT_FUNCTIONS = Set.of(
+    static final Set<String> STRING_LEGACY_DIRECT_FUNCTIONS = Set.of(
             "memcpy", "memmove", "strcpy", "strncpy", "strcat", "strncat", "memcmp",
             "strcmp", "strcoll", "strncmp", "strxfrm", "memchr", "strchr", "strcspn",
             "strpbrk", "strrchr", "strspn", "strstr", "strtok", "memset", "strerror",
             "strlen"
     );
 
-    private static final Set<String> WINDOWS_SIZE_T_SIGNATURES = Set.of(
-            "extern void *memcpy(void *destination, void *source, unsigned long long count);",
-            "extern void *memmove(void *destination, void *source, unsigned long long count);",
-            "extern char *strncpy(char *destination, char *source, unsigned long long count);",
-            "extern char *strncat(char *destination, char *source, unsigned long long count);",
-            "extern int memcmp(void *left, void *right, unsigned long long count);",
-            "extern int strncmp(char *left, char *right, unsigned long long count);",
-            "extern unsigned long long strxfrm(char *destination, char *source, unsigned long long count);",
-            "extern void *memchr(void *buffer, int character, unsigned long long count);",
-            "extern unsigned long long strcspn(char *string, char *reject);",
-            "extern unsigned long long strspn(char *string, char *accept);",
-            "extern void *memset(void *destination, int character, unsigned long long count);",
-            "extern unsigned long long strlen(char *string);"
+    static final Set<String> STRING_PUBLIC_FUNCTIONS = Set.of(
+            "memcpy", "memmove", "memccpy", "strcpy", "strncpy", "strdup", "strndup",
+            "strcat", "strncat", "memcmp", "strcmp", "strcoll", "strncmp", "strxfrm",
+            "memchr", "strchr", "strcspn", "strpbrk", "strrchr", "strspn", "strstr",
+            "strtok", "memset", "memset_explicit", "strerror", "strlen"
+    );
+
+    static final Set<String> STRING_HEADER_FUNCTIONS = union(
+            STRING_PUBLIC_FUNCTIONS,
+            Set.of("minic_string_malloc")
     );
 
     @Test
     void everySupportedNarrowLibraryFunctionHasAnMsvcrtBinding() {
         SystemLibraryCatalog catalog = SystemLibraryCatalog.defaults();
         LinkedHashSet<String> expected = new LinkedHashSet<>(CTYPE_DIRECT_FUNCTIONS);
-        expected.addAll(STRING_DIRECT_FUNCTIONS);
+        expected.addAll(STRING_LEGACY_DIRECT_FUNCTIONS);
 
         for (String sourceName : expected) {
             LibraryBinding binding = catalog.binding(sourceName).orElseThrow();
@@ -78,8 +77,8 @@ final class NarrowCLibraryCatalogTest {
         String ctype = catalog.header("ctype.mh").orElseThrow().content();
         String string = catalog.header("string.mh").orElseThrow().content();
 
-        assertEquals(CTYPE_HEADER_FUNCTIONS, declaredFunctions(ctype));
-        assertEquals(STRING_DIRECT_FUNCTIONS, declaredFunctions(string));
+        assertEquals(CTYPE_HEADER_FUNCTIONS, declaredFunctions("ctype.mh"));
+        assertEquals(STRING_HEADER_FUNCTIONS, declaredFunctions("string.mh"));
 
         assertTrue(ctype.contains("int isblank(int character) {"),
                 "isblank must be implemented by the header-owned once-evaluating adapter");
@@ -94,33 +93,35 @@ final class NarrowCLibraryCatalogTest {
     }
 
     @Test
-    void stringHeaderUsesTheWindowsX64SizeTypeContract() {
+    void stringHeaderUsesThePortableNameForTheWindowsX64SizeTypeContract() {
         String header = SystemLibraryCatalog.defaults().header("string.mh").orElseThrow().content();
 
-        assertEquals(13, Pattern.compile("unsigned long long").matcher(header).results().count());
-        for (String signature : WINDOWS_SIZE_T_SIGNATURES) {
-            assertTrue(header.contains(signature), signature);
-        }
-        assertFalse(
-                Pattern.compile("\\blong\\b").matcher(header.replace("unsigned long long", "")).find(),
-                "Windows x64 size_t must never collapse to LLP64 long"
-        );
-        assertEquals(
-                1,
-                Pattern.compile("extern unsigned long long strlen\\(char \\*string\\);")
-                        .matcher(header)
-                        .results()
-                        .count(),
-                "strlen must return the 64-bit Windows size_t representation"
-        );
+        assertTrue(header.contains("#include \"stddef.mh\""));
+        assertTrue(header.contains("extern size_t strlen(const char *string);"));
+        assertFalse(header.contains("unsigned long long"),
+                "string.h must name size_t instead of exposing its LLP64 representation");
+        assertFalse(header.contains("__STDC_VERSION_STRING_H__"),
+                "the partial header must not claim C23 type-generic search support");
     }
 
-    private static Set<String> declaredFunctions(String header) {
-        Matcher matcher = Pattern.compile("\\b([A-Za-z_][A-Za-z0-9_]*)\\s*\\(").matcher(header);
-        LinkedHashSet<String> names = new LinkedHashSet<>();
-        while (matcher.find()) {
-            names.add(matcher.group(1));
-        }
-        return Set.copyOf(names);
+    private static Set<String> declaredFunctions(String headerName) {
+        var preprocessed = new Preprocessor().preprocess(new SourceFile(
+                "contract-" + headerName + ".mc",
+                "#include \"" + headerName + "\"\n"
+        ));
+        assertTrue(preprocessed.diagnostics().isEmpty(), preprocessed.diagnostics()::toString);
+        var lexed = new Lexer(preprocessed.sourceFile()).lex();
+        assertTrue(lexed.diagnostics().isEmpty(), lexed.diagnostics()::toString);
+        var parsed = new Parser(lexed.tokens()).parse();
+        assertTrue(parsed.diagnostics().isEmpty(), parsed.diagnostics()::toString);
+        return parsed.program().functions().stream()
+                .map(function -> function.name())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    private static Set<String> union(Set<String> left, Set<String> right) {
+        LinkedHashSet<String> values = new LinkedHashSet<>(left);
+        values.addAll(right);
+        return Set.copyOf(values);
     }
 }

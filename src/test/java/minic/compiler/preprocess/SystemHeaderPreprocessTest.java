@@ -49,4 +49,23 @@ final class SystemHeaderPreprocessTest {
         assertEquals(1, result.includes().size());
         assertTrue(result.includes().getFirst().expanded());
     }
+
+    @Test
+    @Tag("stdlib-contract")
+    void allowsAHeaderToUseATypedefExpandedByAnEarlierHeader() {
+        String source = """
+                #include "stddef.mh"
+                #include "string.mh"
+
+                int main() {
+                    return strlen("MiniC") == 5 ? 0 : 1;
+                }
+                """;
+
+        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("dependent-headers.mc", source));
+
+        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(result.sourceFile().content().contains("typedef unsigned long long size_t;"));
+        assertTrue(result.sourceFile().content().contains("extern size_t strlen(const char *string);"));
+    }
 }

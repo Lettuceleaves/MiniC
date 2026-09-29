@@ -20,7 +20,7 @@ final class DebugSystemLibraryRegistryTest {
 
         assertEquals(
                 Set.of(
-                        "malloc", "calloc", "realloc", "free",
+                        "malloc", "minic_string_malloc", "calloc", "realloc", "free",
                         "printf", "scanf", "getchar", "putchar", "puts",
                         "sprintf", "snprintf", "sscanf", "remove", "rename",
                         "clock", "difftime", "time", "mktime", "gmtime", "localtime", "strftime",
@@ -39,10 +39,10 @@ final class DebugSystemLibraryRegistryTest {
                         "minic_isctype", "isalnum", "isalpha", "iscntrl", "isdigit", "isgraph",
                         "islower", "isprint", "ispunct", "isspace", "isupper", "isxdigit",
                         "tolower", "toupper",
-                        "memcpy", "memmove", "memchr", "memcmp", "memset",
+                        "memcpy", "memmove", "memchr", "memcmp", "memccpy", "memset",
                         "strcpy", "strncpy", "strcat", "strncat", "strcmp", "strncmp",
                         "strcoll", "strchr", "strrchr", "strspn", "strcspn", "strpbrk",
-                        "strstr", "strtok", "strerror", "strlen", "strxfrm"
+                        "strstr", "strtok", "strerror", "strdup", "strlen", "strxfrm"
                 ),
                 library.functionNames()
         );

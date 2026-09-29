@@ -62,6 +62,53 @@ final class DebugStringLibraryParityTest {
     }
 
     @Test
+    void memccpyCopiesThroughTheMatchingByteAndReturnsTheFollowingDestination() {
+        long source = bytes('a', 'b', 'c', 'd', 'e');
+        long matched = bytes(9, 9, 9, 9, 9);
+
+        assertEquals(
+                matched + 3,
+                call("memccpy", ptr(matched), ptr(source), integer('c'), size(5)).integer()
+        );
+        assertArrayEquals(new int[]{'a', 'b', 'c', 9, 9}, readBytes(matched, 5));
+
+        long missing = bytes(8, 8, 8, 8, 8);
+        assertEquals(0, call("memccpy", ptr(missing), ptr(source), integer('z'), size(5)).integer());
+        assertArrayEquals(new int[]{'a', 'b', 'c', 'd', 'e'}, readBytes(missing, 5));
+
+        assertEquals(0, call("memccpy", ptr(0), ptr(0), integer('a'), size(0)).integer());
+    }
+
+    @Test
+    void strdupReturnsIndependentHeapStorageAndReportsDeterministicOutOfMemory() {
+        long source = cString("copy-me");
+        long duplicate = call("strdup", ptr(source)).integer();
+        assertNotEquals(0, duplicate);
+        assertNotEquals(source, duplicate);
+        assertEquals("copy-me", runtime.readCString(duplicate));
+
+        runtime.writeByte(source, 'X');
+        assertEquals("copy-me", runtime.readCString(duplicate));
+
+        SourceFile file = new SourceFile("strdup-oom.mc", "");
+        runtime = new DebugRuntime(
+                new DebugProgram(file, new IrResult(List.of())),
+                "",
+                DebugTimeSource.system(),
+                3
+        );
+        library = new DebugSystemLibrary();
+        long tooLarge = runtime.allocateZeroed(4, 1, "library", "strdup source");
+        runtime.writeByte(tooLarge, 'o');
+        runtime.writeByte(tooLarge + 1, 'o');
+        runtime.writeByte(tooLarge + 2, 'm');
+
+        assertEquals(0, call("strdup", ptr(tooLarge)).integer());
+        assertEquals(DebugLibrarySupport.ENOMEM, runtime.errno());
+        assertTrue(runtime.heap().isEmpty());
+    }
+
+    @Test
     void implementsStringCopyAndConcatenationFunctions() {
         long alpha = cString("alpha");
         long destination = zeroed(32);

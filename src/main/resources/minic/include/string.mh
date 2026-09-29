@@ -1,25 +1,52 @@
 #ifndef MINIC_STRING_MH
 #define MINIC_STRING_MH
-extern void *memcpy(void *destination, void *source, unsigned long long count);
-extern void *memmove(void *destination, void *source, unsigned long long count);
-extern char *strcpy(char *destination, char *source);
-extern char *strncpy(char *destination, char *source, unsigned long long count);
-extern char *strcat(char *destination, char *source);
-extern char *strncat(char *destination, char *source, unsigned long long count);
-extern int memcmp(void *left, void *right, unsigned long long count);
-extern int strcmp(char *left, char *right);
-extern int strcoll(char *left, char *right);
-extern int strncmp(char *left, char *right, unsigned long long count);
-extern unsigned long long strxfrm(char *destination, char *source, unsigned long long count);
-extern void *memchr(void *buffer, int character, unsigned long long count);
-extern char *strchr(char *string, int character);
-extern unsigned long long strcspn(char *string, char *reject);
-extern char *strpbrk(char *string, char *accept);
-extern char *strrchr(char *string, int character);
-extern unsigned long long strspn(char *string, char *accept);
-extern char *strstr(char *string, char *substring);
-extern char *strtok(char *string, char *delimiters);
-extern void *memset(void *destination, int character, unsigned long long count);
+
+#include "stddef.mh"
+
+extern void *memcpy(void * restrict destination, const void * restrict source, size_t count);
+extern void *memmove(void *destination, const void *source, size_t count);
+extern void *memccpy(void * restrict destination, const void * restrict source, int character, size_t count);
+extern char *strcpy(char * restrict destination, const char * restrict source);
+extern char *strncpy(char * restrict destination, const char * restrict source, size_t count);
+extern char *strcat(char * restrict destination, const char * restrict source);
+extern char *strncat(char * restrict destination, const char * restrict source, size_t count);
+extern int memcmp(const void *left, const void *right, size_t count);
+extern int strcmp(const char *left, const char *right);
+extern int strcoll(const char *left, const char *right);
+extern int strncmp(const char *left, const char *right, size_t count);
+extern size_t strxfrm(char * restrict destination, const char * restrict source, size_t count);
+extern void *memchr(const void *buffer, int character, size_t count);
+extern char *strchr(const char *string, int character);
+extern size_t strcspn(const char *string, const char *reject);
+extern char *strpbrk(const char *string, const char *accept);
+extern char *strrchr(const char *string, int character);
+extern size_t strspn(const char *string, const char *accept);
+extern char *strstr(const char *string, const char *substring);
+extern char *strtok(char * restrict string, const char * restrict delimiters);
+extern void *memset(void *destination, int character, size_t count);
 extern char *strerror(int errorNumber);
-extern unsigned long long strlen(char *string);
+extern size_t strlen(const char *string);
+extern char *strdup(const char *string);
+extern void *minic_string_malloc(size_t size);
+
+char *strndup(const char *string, size_t count) {
+    size_t length = 0;
+    while (length < count && string[length] != 0) {
+        length = length + 1;
+    }
+
+    char *copy = (char *)minic_string_malloc(length + 1);
+    if (copy == NULL) {
+        return NULL;
+    }
+
+    memcpy(copy, string, length);
+    copy[length] = 0;
+    return copy;
+}
+
+void *memset_explicit(void *destination, int character, size_t count) {
+    return memset(destination, character, count);
+}
+
 #endif

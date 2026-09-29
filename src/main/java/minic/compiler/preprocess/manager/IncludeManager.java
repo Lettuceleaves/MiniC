@@ -2,8 +2,6 @@ package minic.compiler.preprocess;
 
 import minic.compiler.lexer.LexerResult;
 import minic.compiler.lexer.Lexer;
-import minic.compiler.parser.ParserResult;
-import minic.compiler.parser.Parser;
 import minic.compiler.SourceFile;
 import minic.compiler.library.SystemLibraryCatalog;
 import minic.source.SourceRange;
@@ -160,15 +158,11 @@ final class IncludeManager {
             ));
             return;
         }
-        ParserResult parseResult = new Parser(lexResult.tokens()).parse();
-        if (!parseResult.diagnostics().isEmpty()) {
-            work.diagnostics.add(Preprocessor.diagnostic(
-                    originalHeader,
-                    0,
-                    originalHeader.content().length(),
-                    "头文件包含无法解析的顶层声明"
-            ));
-        }
+        // Header expansion is textual: a header may depend on declarations that
+        // appeared before the include, or the include itself may occur inside a
+        // declaration/function body. Parsing this isolated fragment here would
+        // therefore reject valid translation units. The complete preprocessed
+        // source is parsed by the normal compiler pipeline.
     }
 
     private ResolvedInclude resolveInclude(Path currentDirectory, String requestedPath, List<Path> includeRoots) {

@@ -705,20 +705,45 @@ final class ExpressionLowerer {
         }
         if (target instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenType.STAR) {
             IrValue address = lowerExpression(unaryExpr.operand());
-            builder.addInstruction(new IrStorePointerInstruction(address, value, volatileAccess(target), range));
+            builder.addInstruction(new IrStorePointerInstruction(
+                    address,
+                    castStoreValue(targetType, value, range),
+                    volatileAccess(target),
+                    range
+            ));
             return;
         }
         if (target instanceof IndexExpr indexExpr) {
             IrValue address = lowerElementAddress(indexExpr);
-            builder.addInstruction(new IrStorePointerInstruction(address, value, volatileAccess(target), range));
+            builder.addInstruction(new IrStorePointerInstruction(
+                    address,
+                    castStoreValue(targetType, value, range),
+                    volatileAccess(target),
+                    range
+            ));
             return;
         }
         if (target instanceof FieldAccessExpr fieldAccessExpr) {
             IrValue address = lowerFieldAddress(fieldAccessExpr);
-            builder.addInstruction(new IrStorePointerInstruction(address, value, volatileAccess(target), range));
+            builder.addInstruction(new IrStorePointerInstruction(
+                    address,
+                    castStoreValue(targetType, value, range),
+                    volatileAccess(target),
+                    range
+            ));
             return;
         }
         throw new IllegalArgumentException("unsupported assignment target: " + target.getClass().getSimpleName());
+    }
+
+    private IrValue castStoreValue(
+            MiniType targetType,
+            IrValue value,
+            minic.source.SourceRange range
+    ) {
+        return targetType == null
+                ? value
+                : castIfNeeded(value, IrTypeLowerer.lower(targetType), range);
     }
 
     private IrValue lowerElementAddress(IndexExpr indexExpr) {
