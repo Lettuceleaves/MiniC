@@ -3,13 +3,17 @@ package minic.compiler.lexer;
 import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
 import minic.compiler.lexer.token.Token;
+import minic.compiler.lexer.token.Token.IntegerLiteralKind;
+import minic.compiler.lexer.token.Token.IntegerLiteralValue;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.type.MiniType;
 import minic.diagnostics.Diagnostic;
 import minic.compiler.SourceFile;
 import minic.source.SourceRange;
 
 import java.util.ArrayList;
+import java.math.BigInteger;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -125,6 +129,8 @@ public final class Lexer extends Stage {
             case '/' -> {
                 if (match('/')) {
                     skipLineComment();
+                } else if (match('*')) {
+                    skipBlockComment(startOffset);
                 } else {
                     addToken(match('=') ? TokenType.SLASH_EQUAL : TokenType.SLASH, startOffset);
                 }
@@ -151,7 +157,13 @@ public final class Lexer extends Stage {
             case ']' -> addToken(TokenType.RIGHT_BRACKET, startOffset);
             case ';' -> addToken(TokenType.SEMICOLON, startOffset);
             case ',' -> addToken(TokenType.COMMA, startOffset);
-            case '.' -> lexDotOrEllipsis(startOffset);
+            case '.' -> {
+                if (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) {
+                    lexDecimalFloatingLiteral(startOffset);
+                } else {
+                    lexDotOrEllipsis(startOffset);
+                }
+            }
             case '?' -> addToken(TokenType.QUESTION, startOffset);
             case ':' -> addToken(TokenType.COLON, startOffset);
             case '"' -> lexStringLiteral(startOffset);
@@ -332,6 +344,25 @@ public final class Lexer extends Stage {
         }
     }
 
+    /** C block comments are whitespace and do not nest. */
+    private void skipBlockComment(int startOffset) {
+        while (!isAtEnd()) {
+            if (sourceFile.content().charAt(currentOffset) == '*'
+                    && currentOffset + 1 < sourceFile.content().length()
+                    && sourceFile.content().charAt(currentOffset + 1) == '/') {
+                currentOffset += 2;
+                return;
+            }
+            currentOffset++;
+        }
+        diagnostics.add(new Diagnostic(
+                "LEX006",
+                Diagnostic.Severity.ERROR,
+                "块注释缺少结束符 */",
+                range(startOffset, currentOffset)
+        ));
+    }
+
     private void lexIdentifier(int startOffset) {
         while (!isAtEnd() && isIdentifierPart(sourceFile.content().charAt(currentOffset))) {
             currentOffset++;
@@ -343,11 +374,16 @@ public final class Lexer extends Stage {
             case "char" -> TokenType.CHAR;
             case "int" -> TokenType.INT;
             case "long" -> TokenType.LONG;
+            case "short" -> TokenType.SHORT;
+            case "signed" -> TokenType.SIGNED;
+            case "unsigned" -> TokenType.UNSIGNED;
             case "float" -> TokenType.FLOAT;
             case "double" -> TokenType.DOUBLE;
             case "void" -> TokenType.VOID;
             case "extern" -> TokenType.EXTERN;
             case "struct" -> TokenType.STRUCT;
+            case "union" -> TokenType.UNION;
+            case "enum" -> TokenType.ENUM;
             case "return" -> TokenType.RETURN;
             case "if" -> TokenType.IF;
             case "else" -> TokenType.ELSE;
@@ -372,92 +408,226 @@ public final class Lexer extends Stage {
     }
 
     private void lexIntegerLiteral(int startOffset) {
-        while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) {
-            currentOffset++;
-        }
-        boolean floating = false;
-        if (!isAtEnd()
-                && sourceFile.content().charAt(currentOffset) == '.'
-                && hasNextAsciiDigit()) {
-            floating = true;
-            currentOffset++;
-            while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) {
+        int radix = 10;
+        int digitsStart = startOffset;
+        if (sourceFile.content().charAt(startOffset) == '0' && currentOffset < sourceFile.content().length()) {
+            char prefix = sourceFile.content().charAt(currentOffset);
+            if (prefix == 'x' || prefix == 'X') {
+                radix = 16;
                 currentOffset++;
+                digitsStart = currentOffset;
+                while (!isAtEnd() && isHexDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+            } else if (prefix == 'b' || prefix == 'B') {
+                radix = 2;
+                currentOffset++;
+                digitsStart = currentOffset;
+                while (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == '0'
+                        || sourceFile.content().charAt(currentOffset) == '1')) currentOffset++;
+            } else {
+                radix = 8;
+                while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
             }
-        }
-        boolean longLiteral = false;
-        boolean floatLiteral = false;
-        if (!isAtEnd()) {
-            char suffix = sourceFile.content().charAt(currentOffset);
-            if (!floating && (suffix == 'l' || suffix == 'L')) {
-                longLiteral = true;
-                currentOffset++;
-            } else if (floating && (suffix == 'f' || suffix == 'F')) {
-                floatLiteral = true;
-                currentOffset++;
-            }
+        } else {
+            while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
         }
 
-        String lexeme = sourceFile.content().substring(startOffset, currentOffset);
-        if (floating) {
-            String valueLexeme = floatLiteral ? lexeme.substring(0, lexeme.length() - 1) : lexeme;
-            Object literalValue;
-            try {
-                if (floatLiteral) {
-                    literalValue = Float.parseFloat(valueLexeme);
-                    if (!Float.isFinite((Float) literalValue)) {
-                        addNumericOverflowDiagnostic(startOffset, currentOffset, "浮点字面量超出范围");
-                        return;
-                    }
-                } else {
-                    literalValue = Double.parseDouble(valueLexeme);
-                    if (!Double.isFinite((Double) literalValue)) {
-                        addNumericOverflowDiagnostic(startOffset, currentOffset, "浮点字面量超出范围");
-                        return;
-                    }
-                }
-            } catch (NumberFormatException exception) {
-                addNumericOverflowDiagnostic(startOffset, currentOffset, "浮点字面量超出范围");
-                return;
-            }
-            tokens.add(new Token(
-                    floatLiteral ? TokenType.FLOAT_LITERAL : TokenType.DOUBLE_LITERAL,
-                    lexeme,
-                    range(startOffset, currentOffset),
-                    literalValue
-            ));
+        if (radix == 16 && !isAtEnd()
+                && (sourceFile.content().charAt(currentOffset) == '.'
+                || sourceFile.content().charAt(currentOffset) == 'p'
+                || sourceFile.content().charAt(currentOffset) == 'P')) {
+            lexHexadecimalFloatingLiteral(startOffset);
             return;
         }
-        if (longLiteral) {
-            String valueLexeme = lexeme.substring(0, lexeme.length() - 1);
-            long literalValue;
-            try {
-                literalValue = Long.parseLong(valueLexeme);
-            } catch (NumberFormatException exception) {
-                addNumericOverflowDiagnostic(startOffset, currentOffset, "long 字面量超出范围");
-                return;
-            }
-            tokens.add(new Token(
-                    TokenType.LONG_LITERAL,
-                    lexeme,
-                    range(startOffset, currentOffset),
-                    literalValue
-            ));
+
+        // Decimal floating constants retain the existing float/double representation.
+        if ((radix == 10 || radix == 8 && sourceFile.content().charAt(startOffset) == '0') && !isAtEnd()
+                && (sourceFile.content().charAt(currentOffset) == '.'
+                || sourceFile.content().charAt(currentOffset) == 'e'
+                || sourceFile.content().charAt(currentOffset) == 'E')) {
+            lexDecimalFloatingLiteral(startOffset);
             return;
         }
-        int literalValue;
+
+        if (digitsStart == currentOffset) {
+            addNumericOverflowDiagnostic(startOffset, currentOffset, "数值字面量缺少数字");
+            return;
+        }
+
+        int suffixStart = currentOffset;
+        while (!isAtEnd()) {
+            char suffix = sourceFile.content().charAt(currentOffset);
+            if (suffix != 'u' && suffix != 'U' && suffix != 'l' && suffix != 'L') break;
+            currentOffset++;
+        }
+        String suffix = sourceFile.content().substring(suffixStart, currentOffset).toLowerCase(java.util.Locale.ROOT);
+        if (!suffix.matches("(?:u(?:l|ll)?|(?:l|ll)u?)?")) {
+            addNumericOverflowDiagnostic(startOffset, currentOffset, "无效的整数后缀");
+            return;
+        }
+
+        String digits = sourceFile.content().substring(digitsStart, suffixStart);
+        BigInteger magnitude;
         try {
-            literalValue = Integer.parseInt(lexeme);
+            magnitude = new BigInteger(digits, radix);
         } catch (NumberFormatException exception) {
-            addNumericOverflowDiagnostic(startOffset, currentOffset, "整数字面量超出范围");
+            addNumericOverflowDiagnostic(startOffset, suffixStart, "无效的整数数字");
             return;
         }
-        tokens.add(new Token(
-                TokenType.INTEGER_LITERAL,
-                lexeme,
-                range(startOffset, currentOffset),
-                literalValue
-        ));
+        boolean unsigned = suffix.contains("u");
+        int longCount = suffix.contains("ll") ? 2 : suffix.contains("l") ? 1 : 0;
+        MiniType type = selectIntegerLiteralType(magnitude, radix, unsigned, longCount);
+        if (type == null) {
+            addNumericOverflowDiagnostic(startOffset, currentOffset, "整数字面量超出 unsigned long long 范围");
+            return;
+        }
+        long value = magnitude.longValue();
+        TokenType tokenType = TypeLayoutForLexer.sizeOf(type) > 4 ? TokenType.LONG_LITERAL : TokenType.INTEGER_LITERAL;
+        Object literalValue = type.equals(MiniType.INT)
+                ? magnitude.intValue()
+                : new IntegerLiteralValue(value, literalKind(type));
+        tokens.add(new Token(tokenType, sourceFile.content().substring(startOffset, currentOffset),
+                range(startOffset, currentOffset), literalValue));
+    }
+
+    private void lexDecimalFloatingLiteral(int startOffset) {
+        if (sourceFile.content().charAt(startOffset) == '.') {
+            while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+        } else if (!isAtEnd() && sourceFile.content().charAt(currentOffset) == '.') {
+            currentOffset++;
+            while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+        }
+        if (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == 'e'
+                || sourceFile.content().charAt(currentOffset) == 'E')) {
+            currentOffset++;
+            if (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == '+'
+                    || sourceFile.content().charAt(currentOffset) == '-')) currentOffset++;
+            int exponentStart = currentOffset;
+            while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+            if (exponentStart == currentOffset) {
+                addNumericOverflowDiagnostic(startOffset, currentOffset, "浮点指数缺少数字");
+                return;
+            }
+        }
+        boolean floatLiteral = false;
+        if (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == 'f'
+                || sourceFile.content().charAt(currentOffset) == 'F')) {
+            floatLiteral = true;
+            currentOffset++;
+        } else if (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == 'l'
+                || sourceFile.content().charAt(currentOffset) == 'L')) {
+            // Windows long double has the same representation as double.
+            currentOffset++;
+        }
+        String lexeme = sourceFile.content().substring(startOffset, currentOffset);
+        String valueLexeme = lexeme;
+        if (!valueLexeme.isEmpty() && "fFlL".indexOf(valueLexeme.charAt(valueLexeme.length() - 1)) >= 0) {
+            valueLexeme = valueLexeme.substring(0, valueLexeme.length() - 1);
+        }
+        try {
+            Object value;
+            if (floatLiteral) {
+                value = Float.valueOf(Float.parseFloat(valueLexeme));
+            } else {
+                value = Double.valueOf(Double.parseDouble(valueLexeme));
+            }
+            tokens.add(new Token(floatLiteral ? TokenType.FLOAT_LITERAL : TokenType.DOUBLE_LITERAL,
+                    lexeme, range(startOffset, currentOffset), value));
+        } catch (NumberFormatException exception) {
+            addNumericOverflowDiagnostic(startOffset, currentOffset, "浮点字面量超出范围");
+        }
+    }
+
+    private void lexHexadecimalFloatingLiteral(int startOffset) {
+        if (!isAtEnd() && sourceFile.content().charAt(currentOffset) == '.') {
+            currentOffset++;
+            while (!isAtEnd() && isHexDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+        }
+        if (isAtEnd() || (sourceFile.content().charAt(currentOffset) != 'p'
+                && sourceFile.content().charAt(currentOffset) != 'P')) {
+            addNumericOverflowDiagnostic(startOffset, currentOffset, "十六进制浮点字面量缺少 p 指数");
+            return;
+        }
+        currentOffset++;
+        if (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == '+'
+                || sourceFile.content().charAt(currentOffset) == '-')) currentOffset++;
+        int exponentStart = currentOffset;
+        while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+        if (exponentStart == currentOffset) {
+            addNumericOverflowDiagnostic(startOffset, currentOffset, "十六进制浮点指数缺少数字");
+            return;
+        }
+        boolean floatLiteral = false;
+        if (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == 'f'
+                || sourceFile.content().charAt(currentOffset) == 'F')) {
+            floatLiteral = true;
+            currentOffset++;
+        } else if (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == 'l'
+                || sourceFile.content().charAt(currentOffset) == 'L')) {
+            currentOffset++;
+        }
+        String lexeme = sourceFile.content().substring(startOffset, currentOffset);
+        String valueText = "fFlL".indexOf(lexeme.charAt(lexeme.length() - 1)) >= 0
+                ? lexeme.substring(0, lexeme.length() - 1) : lexeme;
+        try {
+            Object value;
+            if (floatLiteral) value = Float.valueOf(Float.parseFloat(valueText));
+            else value = Double.valueOf(Double.parseDouble(valueText));
+            tokens.add(new Token(floatLiteral ? TokenType.FLOAT_LITERAL : TokenType.DOUBLE_LITERAL,
+                    lexeme, range(startOffset, currentOffset), value));
+        } catch (NumberFormatException exception) {
+            addNumericOverflowDiagnostic(startOffset, currentOffset, "十六进制浮点字面量超出范围");
+        }
+    }
+
+    private MiniType selectIntegerLiteralType(BigInteger value, int radix, boolean unsigned, int longCount) {
+        java.util.List<MiniType> candidates;
+        if (longCount >= 2) {
+            candidates = unsigned ? java.util.List.of(MiniType.UNSIGNED_LONG_LONG)
+                    : radix == 10 ? java.util.List.of(MiniType.LONG_LONG)
+                    : java.util.List.of(MiniType.LONG_LONG, MiniType.UNSIGNED_LONG_LONG);
+        } else if (longCount == 1) {
+            candidates = unsigned
+                    ? java.util.List.of(MiniType.UNSIGNED_LONG, MiniType.UNSIGNED_LONG_LONG)
+                    : radix == 10
+                    ? java.util.List.of(MiniType.LONG, MiniType.LONG_LONG)
+                    : java.util.List.of(MiniType.LONG, MiniType.UNSIGNED_LONG, MiniType.LONG_LONG, MiniType.UNSIGNED_LONG_LONG);
+        } else if (unsigned) {
+            candidates = java.util.List.of(MiniType.UNSIGNED_INT, MiniType.UNSIGNED_LONG, MiniType.UNSIGNED_LONG_LONG);
+        } else if (radix == 10) {
+            candidates = java.util.List.of(MiniType.INT, MiniType.LONG, MiniType.LONG_LONG);
+        } else {
+            candidates = java.util.List.of(MiniType.INT, MiniType.UNSIGNED_INT, MiniType.LONG,
+                    MiniType.UNSIGNED_LONG, MiniType.LONG_LONG, MiniType.UNSIGNED_LONG_LONG);
+        }
+        for (MiniType candidate : candidates) {
+            int bits = TypeLayoutForLexer.sizeOf(candidate) * 8;
+            boolean signedType = ((MiniType.ScalarType) candidate).kind().signed();
+            BigInteger max = signedType ? BigInteger.ONE.shiftLeft(bits - 1).subtract(BigInteger.ONE)
+                    : BigInteger.ONE.shiftLeft(bits).subtract(BigInteger.ONE);
+            if (value.compareTo(max) <= 0) return candidate;
+        }
+        return null;
+    }
+
+    private IntegerLiteralKind literalKind(MiniType type) {
+        if (type.equals(MiniType.UNSIGNED_INT)) return IntegerLiteralKind.UNSIGNED_INT;
+        if (type.equals(MiniType.UNSIGNED_LONG)) return IntegerLiteralKind.UNSIGNED_LONG;
+        if (type.equals(MiniType.LONG_LONG)) return IntegerLiteralKind.LONG_LONG;
+        if (type.equals(MiniType.UNSIGNED_LONG_LONG)) return IntegerLiteralKind.UNSIGNED_LONG_LONG;
+        return IntegerLiteralKind.LONG;
+    }
+
+    private boolean isHexDigit(char character) {
+        return isAsciiDigit(character)
+                || character >= 'a' && character <= 'f'
+                || character >= 'A' && character <= 'F';
+    }
+
+    /** Avoids coupling the lexer to contextual aggregate layout. */
+    private static final class TypeLayoutForLexer {
+        private static int sizeOf(MiniType type) {
+            return ((MiniType.ScalarType) type).kind().sizeBytes();
+        }
     }
 
     private void lexDotOrEllipsis(int startOffset) {
@@ -475,12 +645,6 @@ public final class Lexer extends Stage {
             return;
         }
         addToken(TokenType.DOT, startOffset);
-    }
-
-    private boolean hasNextAsciiDigit() {
-        int nextOffset = currentOffset + 1;
-        return nextOffset < sourceFile.content().length()
-                && isAsciiDigit(sourceFile.content().charAt(nextOffset));
     }
 
     private void lexStringLiteral(int startOffset) {

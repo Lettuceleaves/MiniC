@@ -12,6 +12,7 @@ import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.parser.node.Declaration.Program;
 import minic.compiler.parser.node.Declaration.StructDecl;
+import minic.compiler.parser.node.Declaration.EnumDecl;
 import minic.compiler.type.MiniType;
 import minic.diagnostics.Diagnostic;
 import minic.source.SourceRange;
@@ -34,6 +35,8 @@ public final class Parser extends Stage {
     private Context context;
     private DeclarationManager declarationManager;
     private final ArrayList<StructDecl> structs = new ArrayList<>();
+    private final ArrayList<EnumDecl> enums = new ArrayList<>();
+    private final java.util.Map<String, Long> enumConstants = new java.util.LinkedHashMap<>();
     private final ArrayList<FunctionDecl> functions = new ArrayList<>();
     private final ArrayList<AstNode> completedNodes = new ArrayList<>();
 
@@ -70,9 +73,9 @@ public final class Parser extends Stage {
         tokens = List.copyOf(Objects.requireNonNull(sourceTokens, "tokens"));
         context = new Context(tokens, traceEnabled);
         TypeReader typeReader = new TypeReader(context);
-        ExpressionManager expressionManager = new ExpressionManager(context, typeReader);
+        ExpressionManager expressionManager = new ExpressionManager(context, typeReader, enumConstants);
         StatementManager statementManager = new StatementManager(context, expressionManager, typeReader);
-        declarationManager = new DeclarationManager(context, statementManager, typeReader);
+        declarationManager = new DeclarationManager(context, statementManager, typeReader, enumConstants);
     }
 
     /** 循环执行 {@link #step()}，直到独立的最后空步骤发出。 */
@@ -113,7 +116,12 @@ public final class Parser extends Stage {
             return context.peek().range();
         }
 
-        if (context.check(TokenType.STRUCT) && isStructDeclaration()) {
+        if (context.check(TokenType.ENUM) && context.peekAt(1).type() == TokenType.IDENTIFIER
+                && context.peekAt(2).type() == TokenType.LEFT_BRACE) {
+            EnumDecl enumDecl = declarationManager.parseEnumDecl();
+            if (enumDecl != null) { enums.add(enumDecl); captureNode(enumDecl); }
+            else context.synchronizeFunction();
+        } else if ((context.check(TokenType.STRUCT) || context.check(TokenType.UNION)) && isStructDeclaration()) {
             StructDecl structDecl = declarationManager.parseStructDecl();
             if (structDecl != null) {
                 structs.add(structDecl);
@@ -196,11 +204,12 @@ public final class Parser extends Stage {
 
     private boolean isStructDeclaration() {
         return context.peekAt(1).type() == TokenType.IDENTIFIER
-                && context.peekAt(2).type() == TokenType.LEFT_BRACE;
+                && (context.peekAt(2).type() == TokenType.LEFT_BRACE
+                || context.peekAt(2).type() == TokenType.SEMICOLON);
     }
 
     private ParserResult buildResult() {
-        return new ParserResult(new Program(structs, functions, programRange()), context.diagnostics());
+        return new ParserResult(new Program(structs, enums, functions, programRange()), context.diagnostics());
     }
 
     private SourceRange programRange() {
@@ -371,17 +380,19 @@ public final class Parser extends Stage {
                 offset++;
             }
             TokenType type = peekAt(offset).type();
-            if (type == TokenType.STRUCT) {
+            if (type == TokenType.STRUCT || type == TokenType.UNION || type == TokenType.ENUM) {
                 if (peekAt(offset + 1).type() != TokenType.IDENTIFIER) {
                     return false;
                 }
                 offset += 2;
+            } else if (isIntegerTypeSpecifier(type)) {
+                do {
+                    offset++;
+                } while (isIntegerTypeSpecifier(peekAt(offset).type()));
             } else if (type == TokenType.BOOL
-                    || type == TokenType.CHAR
-                    || type == TokenType.INT
-                    || type == TokenType.LONG
                     || type == TokenType.FLOAT
-                    || type == TokenType.DOUBLE) {
+                    || type == TokenType.DOUBLE
+                    || type == TokenType.VOID) {
                 offset++;
             } else {
                 return false;
@@ -391,6 +402,15 @@ public final class Parser extends Stage {
             }
             return peekAt(offset).type() == TokenType.IDENTIFIER
                     && peekAt(offset + 1).type() == TokenType.LEFT_PAREN;
+        }
+
+        private boolean isIntegerTypeSpecifier(TokenType type) {
+            return type == TokenType.CHAR
+                    || type == TokenType.SHORT
+                    || type == TokenType.INT
+                    || type == TokenType.LONG
+                    || type == TokenType.SIGNED
+                    || type == TokenType.UNSIGNED;
         }
 
         public void synchronizeStatement() {
@@ -462,14 +482,24 @@ public final class Parser extends Stage {
         }
 
         public boolean canStartType() {
-            return context.check(TokenType.BOOL)
-                    || context.check(TokenType.CHAR)
-                    || context.check(TokenType.INT)
-                    || context.check(TokenType.LONG)
-                    || context.check(TokenType.FLOAT)
-                    || context.check(TokenType.DOUBLE)
-                    || context.check(TokenType.VOID)
-                    || context.check(TokenType.STRUCT);
+            return canStartTypeAt(0);
+        }
+
+        public boolean canStartTypeAt(int offset) {
+            TokenType type = context.peekAt(offset).type();
+            return type == TokenType.BOOL
+                    || type == TokenType.CHAR
+                    || type == TokenType.INT
+                    || type == TokenType.LONG
+                    || type == TokenType.SHORT
+                    || type == TokenType.SIGNED
+                    || type == TokenType.UNSIGNED
+                    || type == TokenType.FLOAT
+                    || type == TokenType.DOUBLE
+                    || type == TokenType.VOID
+                    || type == TokenType.STRUCT
+                    || type == TokenType.UNION
+                    || type == TokenType.ENUM;
         }
 
         private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired) {
@@ -500,15 +530,26 @@ public final class Parser extends Stage {
 
             while (context.check(TokenType.LEFT_BRACKET) || context.check(TokenType.LEFT_PAREN)) {
                 if (context.match(TokenType.LEFT_BRACKET)) {
-                    Token lengthToken = context.consume(TokenType.INTEGER_LITERAL, "期望数组长度");
+                    Token lengthToken;
+                    if (context.check(TokenType.INTEGER_LITERAL) || context.check(TokenType.LONG_LITERAL)) {
+                        lengthToken = context.advance();
+                    } else {
+                        context.report(context.peek(), "期望数组长度");
+                        lengthToken = null;
+                    }
                     Token endToken = context.consume(TokenType.RIGHT_BRACKET, "期望 ']'");
                     if (lengthToken == null || endToken == null) {
                         return null;
                     }
-                    int length = (Integer) lengthToken.literalValue();
-                    if (length <= 0) {
-                        context.report(lengthToken, "数组长度必须大于 0");
+                    long parsedLength = lengthToken.literalValue() instanceof Integer integer
+                            ? integer.longValue()
+                            : ((Token.IntegerLiteralValue) lengthToken.literalValue()).value();
+                    int length;
+                    if (parsedLength <= 0 || parsedLength > Integer.MAX_VALUE) {
+                        context.report(lengthToken, "数组长度必须位于 1..2147483647");
                         length = 1;
+                    } else {
+                        length = (int) parsedLength;
                     }
                     direct.modifiers().add(new ArrayModifier(length));
                     direct = direct.withEnd(endToken);
@@ -598,17 +639,8 @@ public final class Parser extends Stage {
                 Token token = context.advance();
                 return new BaseType(MiniType.BOOL, token, token);
             }
-            if (context.check(TokenType.CHAR)) {
-                Token token = context.advance();
-                return new BaseType(MiniType.CHAR, token, token);
-            }
-            if (context.check(TokenType.INT)) {
-                Token token = context.advance();
-                return new BaseType(MiniType.INT, token, token);
-            }
-            if (context.check(TokenType.LONG)) {
-                Token token = context.advance();
-                return new BaseType(MiniType.LONG, token, token);
+            if (isIntegerTypeSpecifier(context.peek().type())) {
+                return parseIntegerBaseType();
             }
             if (context.check(TokenType.FLOAT)) {
                 Token token = context.advance();
@@ -625,14 +657,96 @@ public final class Parser extends Stage {
             if (context.check(TokenType.STRUCT)) {
                 return parseStructType();
             }
+            if (context.check(TokenType.UNION)) {
+                return parseUnionType();
+            }
+            if (context.check(TokenType.ENUM)) {
+                Token startToken = context.advance();
+                Token nameToken = context.consume(TokenType.IDENTIFIER, "期望枚举类型名");
+                return nameToken == null ? null : new BaseType(MiniType.INT, startToken, nameToken);
+            }
             context.report(context.peek(), expectedMessage);
             return null;
+        }
+
+        private BaseType parseIntegerBaseType() {
+            Token start = context.peek();
+            Token end = start;
+            boolean signed = false;
+            boolean unsigned = false;
+            boolean character = false;
+            boolean shortType = false;
+            boolean explicitInt = false;
+            int longCount = 0;
+
+            while (isIntegerTypeSpecifier(context.peek().type())) {
+                Token token = context.advance();
+                end = token;
+                switch (token.type()) {
+                    case SIGNED -> {
+                        if (signed || unsigned) context.report(token, "整数类型的 signed/unsigned 说明重复或冲突");
+                        signed = true;
+                    }
+                    case UNSIGNED -> {
+                        if (signed || unsigned) context.report(token, "整数类型的 signed/unsigned 说明重复或冲突");
+                        unsigned = true;
+                    }
+                    case CHAR -> {
+                        if (character) context.report(token, "char 类型说明重复");
+                        character = true;
+                    }
+                    case SHORT -> {
+                        if (shortType) context.report(token, "short 类型说明重复");
+                        shortType = true;
+                    }
+                    case INT -> {
+                        if (explicitInt) context.report(token, "int 类型说明重复");
+                        explicitInt = true;
+                    }
+                    case LONG -> longCount++;
+                    default -> throw new IllegalStateException("unexpected integer type specifier " + token.type());
+                }
+            }
+
+            if (longCount > 2 || character && (shortType || longCount > 0) || shortType && longCount > 0) {
+                context.report(SourceRange.span(start.range(), end.range()), "无效的整数类型说明符组合");
+            }
+
+            MiniType type;
+            if (character) {
+                type = unsigned ? MiniType.UNSIGNED_CHAR : signed ? MiniType.SIGNED_CHAR : MiniType.CHAR;
+            } else if (shortType) {
+                type = unsigned ? MiniType.UNSIGNED_SHORT : MiniType.SHORT;
+            } else if (longCount >= 2) {
+                type = unsigned ? MiniType.UNSIGNED_LONG_LONG : MiniType.LONG_LONG;
+            } else if (longCount == 1) {
+                type = unsigned ? MiniType.UNSIGNED_LONG : MiniType.LONG;
+            } else {
+                type = unsigned ? MiniType.UNSIGNED_INT : MiniType.INT;
+            }
+            return new BaseType(type, start, end);
+        }
+
+        private boolean isIntegerTypeSpecifier(TokenType type) {
+            return type == TokenType.CHAR
+                    || type == TokenType.SHORT
+                    || type == TokenType.INT
+                    || type == TokenType.LONG
+                    || type == TokenType.SIGNED
+                    || type == TokenType.UNSIGNED;
         }
 
         private BaseType parseStructType() {
             Token startToken = context.advance();
             Token nameToken = context.consume(TokenType.IDENTIFIER, "期望结构体类型名");
             return nameToken == null ? null : new BaseType(MiniType.struct(nameToken.lexeme()), startToken, nameToken);
+        }
+
+        private BaseType parseUnionType() {
+            Token startToken = context.advance();
+            Token nameToken = context.consume(TokenType.IDENTIFIER, "期望联合体类型名");
+            return nameToken == null ? null
+                    : new BaseType(MiniType.struct("$union$" + nameToken.lexeme()), startToken, nameToken);
         }
 
         private record BaseType(MiniType type, Token startToken, Token endToken) {

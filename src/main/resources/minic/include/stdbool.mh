@@ -1,0 +1,5 @@
+#ifndef MINIC_STDBOOL_MH
+#define MINIC_STDBOOL_MH
+#define _Bool bool
+#define __bool_true_false_are_defined 1
+#endif

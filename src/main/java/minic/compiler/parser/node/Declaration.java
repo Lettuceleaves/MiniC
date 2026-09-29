@@ -15,15 +15,38 @@ public interface Declaration extends AstNode {
 
     record Program(
             List<StructDecl> structs,
+            List<EnumDecl> enums,
             List<FunctionDecl> functions,
             SourceRange range
     ) implements Declaration {
         public Program {
             Objects.requireNonNull(structs, "structs");
+            Objects.requireNonNull(enums, "enums");
             Objects.requireNonNull(functions, "functions");
             Objects.requireNonNull(range, "range");
             structs = List.copyOf(structs);
+            enums = List.copyOf(enums);
             functions = List.copyOf(functions);
+        }
+
+        public Program(List<StructDecl> structs, List<FunctionDecl> functions, SourceRange range) {
+            this(structs, List.of(), functions, range);
+        }
+    }
+
+    record EnumDecl(String name, List<Enumerator> enumerators, SourceRange range) implements Declaration {
+        public EnumDecl {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(enumerators, "enumerators");
+            Objects.requireNonNull(range, "range");
+            enumerators = List.copyOf(enumerators);
+        }
+    }
+
+    record Enumerator(String name, long value, SourceRange range) implements Declaration {
+        public Enumerator {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(range, "range");
         }
     }
 
@@ -67,7 +90,7 @@ public interface Declaration extends AstNode {
         }
     }
 
-    record StructDecl(String name, List<StructField> fields, SourceRange range) implements Declaration {
+    record StructDecl(String name, List<StructField> fields, boolean definition, boolean union, SourceRange range) implements Declaration {
         public StructDecl {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(fields, "fields");
@@ -76,6 +99,14 @@ public interface Declaration extends AstNode {
                 throw new IllegalArgumentException("name must not be blank");
             }
             fields = List.copyOf(fields);
+        }
+
+        public StructDecl(String name, List<StructField> fields, SourceRange range) {
+            this(name, fields, true, false, range);
+        }
+
+        public StructDecl(String name, List<StructField> fields, boolean definition, SourceRange range) {
+            this(name, fields, definition, false, range);
         }
     }
 

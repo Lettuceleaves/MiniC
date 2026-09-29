@@ -105,6 +105,27 @@ public interface Expression extends AstNode {
         }
     }
 
+    /** Explicit C cast expression. */
+    record CastExpr(MiniType targetType, Expression operand, SourceRange range) implements Expression {
+        public CastExpr {
+            Objects.requireNonNull(targetType, "targetType");
+            Objects.requireNonNull(operand, "operand");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
+    /** Left-to-right comma expression; its value is the final operand. */
+    record CommaExpr(List<Expression> expressions, SourceRange range) implements Expression {
+        public CommaExpr {
+            Objects.requireNonNull(expressions, "expressions");
+            Objects.requireNonNull(range, "range");
+            expressions = List.copyOf(expressions);
+            if (expressions.size() < 2) {
+                throw new IllegalArgumentException("comma expression needs at least two operands");
+            }
+        }
+    }
+
     record DoubleLiteralExpr(double value, String lexeme, SourceRange range) implements Expression {
         public DoubleLiteralExpr {
             Objects.requireNonNull(lexeme, "lexeme");
@@ -152,6 +173,15 @@ public interface Expression extends AstNode {
 
     record IntegerLiteralExpr(int value, String lexeme, SourceRange range) implements Expression {
         public IntegerLiteralExpr {
+            Objects.requireNonNull(lexeme, "lexeme");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
+    /** Integer constant whose exact C type is determined by radix, suffix and value. */
+    record IntegerConstantExpr(long value, MiniType type, String lexeme, SourceRange range) implements Expression {
+        public IntegerConstantExpr {
+            Objects.requireNonNull(type, "type");
             Objects.requireNonNull(lexeme, "lexeme");
             Objects.requireNonNull(range, "range");
         }
@@ -222,6 +252,29 @@ public interface Expression extends AstNode {
             Objects.requireNonNull(values, "values");
             Objects.requireNonNull(range, "range");
             values = List.copyOf(values);
+        }
+    }
+
+    /** One initializer value preceded by one or more .field or [index] designators. */
+    record DesignatedInitExpr(List<Designator> designators, Expression value, SourceRange range) implements Expression {
+        public DesignatedInitExpr {
+            Objects.requireNonNull(designators, "designators");
+            Objects.requireNonNull(value, "value");
+            Objects.requireNonNull(range, "range");
+            designators = List.copyOf(designators);
+            if (designators.isEmpty()) throw new IllegalArgumentException("designators must not be empty");
+        }
+    }
+
+    interface Designator {
+        SourceRange range();
+
+        record Field(String name, SourceRange range) implements Designator {
+            public Field { Objects.requireNonNull(name, "name"); Objects.requireNonNull(range, "range"); }
+        }
+
+        record Index(int index, SourceRange range) implements Designator {
+            public Index { if (index < 0) throw new IllegalArgumentException("index must be non-negative"); Objects.requireNonNull(range, "range"); }
         }
     }
 

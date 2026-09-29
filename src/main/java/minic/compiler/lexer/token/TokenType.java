@@ -75,6 +75,21 @@ public enum TokenType {
     LONG,
 
     /**
+     * {@code short} keyword.
+     */
+    SHORT,
+
+    /**
+     * {@code signed} keyword.
+     */
+    SIGNED,
+
+    /**
+     * {@code unsigned} keyword.
+     */
+    UNSIGNED,
+
+    /**
      * {@code float} 关键字。
      */
     FLOAT,
@@ -98,6 +113,16 @@ public enum TokenType {
      * {@code struct} 关键字。
      */
     STRUCT,
+
+    /**
+     * {@code union} keyword.
+     */
+    UNION,
+
+    /**
+     * {@code enum} keyword.
+     */
+    ENUM,
 
     /**
      * {@code return} 关键字。

@@ -69,8 +69,11 @@ public final class Debugger {
             }
             return remember(new Stop(Status.COMPLETED, range, null, function, block, index, ""));
         } catch (RuntimeException error) {
-            return remember(new Stop(Status.FAILED, range, null, function, block, index,
-                    error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage()));
+            String message = error.getMessage() == null
+                    ? error.getClass().getSimpleName()
+                    : error.getMessage();
+            runtime.fail(message);
+            return remember(new Stop(Status.FAILED, range, null, function, block, index, message));
         }
     }
 
@@ -164,10 +167,30 @@ public final class Debugger {
             runtime.push(function.get(), arguments, target);
             return;
         }
-        Value result = systemLibrary.invoke(name, runtime, arguments)
+        DebugLibraryCallResult result = systemLibrary.invoke(name, runtime, arguments)
                 .orElseThrow(() -> new IllegalStateException("Unsupported external function: " + name));
-        if (target != null) {
-            put(frame, target, result);
+        switch (result) {
+            case DebugLibraryCallResult.Returned returned -> {
+                if (target == null) {
+                    return;
+                }
+                if (returned.value() == null) {
+                    throw new IllegalStateException(
+                            "Value-returning external function completed without a value: " + name
+                    );
+                }
+                put(frame, target, returned.value());
+            }
+            case DebugLibraryCallResult.Terminated terminated ->
+                    runtime.terminate(terminated.status(), terminated.reason());
+            case DebugLibraryCallResult.Failed failed ->
+                    throw new IllegalStateException(failed.code() + ": " + failed.message());
+            case DebugLibraryCallResult.Suspended suspended ->
+                    throw new IllegalStateException(
+                            "External continuation is not implemented: " + suspended.continuationId()
+                    );
+            case DebugLibraryCallResult.Jumped jumped ->
+                    throw new IllegalStateException("External jump is not implemented: " + jumped.target());
         }
     }
 

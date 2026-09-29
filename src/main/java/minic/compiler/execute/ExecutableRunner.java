@@ -10,10 +10,12 @@ import minic.source.SourceRange;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 运行可执行产物并捕获输出的流水线阶段。
@@ -22,6 +24,9 @@ import java.util.concurrent.ExecutionException;
  * 最后一步为不处理数据的结束步。</p>
  */
 public final class ExecutableRunner extends Stage {
+    private static final Duration DEFAULT_PROCESS_TIMEOUT = Duration.ofSeconds(5);
+
+    private final Duration processTimeout;
     private SourceFile sourceFile;
     private Linker linkStage;
     private ExecutableArtifact artifact;
@@ -35,10 +40,22 @@ public final class ExecutableRunner extends Stage {
 
     /** 创建等待 {@link #begin(SourceFile, ExecutableArtifact, String)} 提供输入的执行阶段。 */
     public ExecutableRunner() {
+        this(DEFAULT_PROCESS_TIMEOUT);
+    }
+
+    /** 创建使用指定墙钟超时的执行阶段。 */
+    public ExecutableRunner(Duration processTimeout) {
+        this.processTimeout = requirePositiveTimeout(processTimeout);
     }
 
     /** 创建由 Link 阶段提供输入的执行阶段。 */
     public ExecutableRunner(SourceFile sourceFile, Linker linkStage) {
+        this(sourceFile, linkStage, DEFAULT_PROCESS_TIMEOUT);
+    }
+
+    /** 创建由 Link 阶段提供输入且使用指定墙钟超时的执行阶段。 */
+    public ExecutableRunner(SourceFile sourceFile, Linker linkStage, Duration processTimeout) {
+        this.processTimeout = requirePositiveTimeout(processTimeout);
         this.sourceFile = Objects.requireNonNull(sourceFile, "sourceFile");
         this.linkStage = Objects.requireNonNull(linkStage, "linkStage");
         reset();
@@ -165,7 +182,11 @@ public final class ExecutableRunner extends Stage {
             process.getOutputStream().close();
             CompletableFuture<String> stdoutFuture = readUtf8(process.getInputStream());
             CompletableFuture<String> stderrFuture = readUtf8(process.getErrorStream());
-            int exitCode = process.waitFor();
+            if (!process.waitFor(processTimeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                terminateProcessTree(process);
+                return failed(sourceFile, "RUN002", "运行可执行文件超时：" + processTimeout.toMillis() + " ms");
+            }
+            int exitCode = process.exitValue();
             String stdout = stdoutFuture.get();
             String stderr = stderrFuture.get();
             return new ExecutionResult(stdout, stderr, exitCode, List.of());
@@ -218,17 +239,41 @@ public final class ExecutableRunner extends Stage {
     }
 
     private ExecutionResult failed(SourceFile sourceFile, String message) {
+        return failed(sourceFile, "RUN001", message);
+    }
+
+    private ExecutionResult failed(SourceFile sourceFile, String code, String message) {
         return new ExecutionResult(
                 "",
                 "",
                 null,
                 List.of(new Diagnostic(
-                        "RUN001",
+                        code,
                         Diagnostic.Severity.ERROR,
                         message,
                         sourceFile.range(0, 0)
                 ))
         );
+    }
+
+    private static Duration requirePositiveTimeout(Duration timeout) {
+        Objects.requireNonNull(timeout, "processTimeout");
+        if (timeout.isZero() || timeout.isNegative()) {
+            throw new IllegalArgumentException("processTimeout must be positive");
+        }
+        return timeout;
+    }
+
+    private static void terminateProcessTree(Process process) throws InterruptedException {
+        List<ProcessHandle> descendants = process.descendants().toList();
+        descendants.forEach(ProcessHandle::destroy);
+        process.destroy();
+        if (process.waitFor(250, TimeUnit.MILLISECONDS)) {
+            return;
+        }
+        descendants.stream().filter(ProcessHandle::isAlive).forEach(ProcessHandle::destroyForcibly);
+        process.destroyForcibly();
+        process.waitFor(1, TimeUnit.SECONDS);
     }
 
     public enum Phase {

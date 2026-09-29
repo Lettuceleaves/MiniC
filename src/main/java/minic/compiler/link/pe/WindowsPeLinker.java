@@ -1,5 +1,7 @@
 package minic.compiler.link.pe;
 
+import minic.compiler.library.LibraryBinding;
+import minic.compiler.library.LibrarySymbol;
 import minic.compiler.obj.coff.CoffObjectFile;
 import minic.compiler.obj.coff.CoffObjectReader;
 import minic.compiler.obj.coff.CoffObjectReader.CoffRelocation;
@@ -54,12 +56,16 @@ public final class WindowsPeLinker {
     /**
      * 链接 COFF 对象并直接构建指定 DLL imports，不需要 import library。
      *
-     * @param imports 外部符号到 DLL 文件名的映射
+     * @param bindings MiniC 源符号到 Windows 原生导出的绑定
      */
-    public PeImage link(CoffObjectFile objectFile, String entrySymbol, Map<String, String> imports) {
+    public PeImage link(
+            CoffObjectFile objectFile,
+            String entrySymbol,
+            Map<String, LibraryBinding> bindings
+    ) {
         Objects.requireNonNull(objectFile, "objectFile");
         Objects.requireNonNull(entrySymbol, "entrySymbol");
-        Objects.requireNonNull(imports, "imports");
+        Objects.requireNonNull(bindings, "bindings");
         ParsedCoffObject object = reader.read(objectFile);
         if (object.sections().isEmpty()) {
             throw new IllegalArgumentException("COFF object has no sections");
@@ -75,12 +81,13 @@ public final class WindowsPeLinker {
                 .sorted()
                 .toList();
         for (String symbol : importedSymbols) {
-            String dll = imports.get(symbol);
-            if (dll == null || dll.isBlank()) {
+            LibraryBinding binding = bindings.get(symbol);
+            if (binding == null) {
                 throw new IllegalArgumentException("undefined symbol: " + symbol);
             }
+            validateImportBinding(symbol, binding);
         }
-        ImportPlan importPlan = importedSymbols.isEmpty() ? null : ImportPlan.plan(importedSymbols, imports);
+        ImportPlan importPlan = importedSymbols.isEmpty() ? null : ImportPlan.plan(importedSymbols, bindings);
         int outputSectionCount = object.sections().size() + (importPlan == null ? 0 : 1);
         int headersSize = align(
                 PE_OFFSET + 4 + 20 + OPTIONAL_HEADER_SIZE + outputSectionCount * 40,
@@ -174,6 +181,27 @@ public final class WindowsPeLinker {
             System.arraycopy(section.data, 0, image, section.rawPointer, section.data.length);
         }
         return new PeImage(image);
+    }
+
+    private static void validateImportBinding(String sourceName, LibraryBinding binding) {
+        if (!sourceName.equals(binding.sourceName())) {
+            throw new IllegalArgumentException("library binding key does not match source symbol: " + sourceName);
+        }
+        if (binding.symbolKind() != LibrarySymbol.SymbolKind.FUNCTION) {
+            throw new UnsupportedOperationException(
+                    "unsupported imported symbol kind for " + sourceName + ": " + binding.symbolKind()
+            );
+        }
+        if (binding.nativeKind() != LibraryBinding.NativeKind.DLL_IMPORT) {
+            throw new UnsupportedOperationException(
+                    "unsupported native binding kind for " + sourceName + ": " + binding.nativeKind()
+            );
+        }
+        if (binding.callingConvention() != LibraryBinding.NativeCallingConvention.WINDOWS_X64) {
+            throw new UnsupportedOperationException(
+                    "unsupported calling convention for " + sourceName + ": " + binding.callingConvention()
+            );
+        }
     }
 
     private static LinkedHashMap<String, ResolvedSymbol> resolveSymbols(
@@ -416,37 +444,44 @@ public final class WindowsPeLinker {
             this.totalIatSize = totalIatSize;
             this.size = size;
             for (ImportDll dll : dlls) {
-                for (int index = 0; index < dll.symbols.size(); index++) {
-                    iatOffsets.put(dll.symbols.get(index), dll.iatOffset + index * Long.BYTES);
+                for (int index = 0; index < dll.entries.size(); index++) {
+                    iatOffsets.put(dll.entries.get(index).sourceName(), dll.iatOffset + index * Long.BYTES);
                 }
             }
         }
 
-        private static ImportPlan plan(List<String> symbols, Map<String, String> imports) {
-            LinkedHashMap<String, ArrayList<String>> byDll = new LinkedHashMap<>();
+        private static ImportPlan plan(List<String> symbols, Map<String, LibraryBinding> bindings) {
+            LinkedHashMap<String, ArrayList<ImportEntry>> byDll = new LinkedHashMap<>();
             symbols.stream()
-                    .sorted(Comparator.comparing((String symbol) -> imports.get(symbol)).thenComparing(Comparator.naturalOrder()))
-                    .forEach(symbol -> byDll.computeIfAbsent(imports.get(symbol), ignored -> new ArrayList<>()).add(symbol));
+                    .sorted(Comparator
+                            .comparing((String symbol) -> bindings.get(symbol).dllName())
+                            .thenComparing(symbol -> bindings.get(symbol).exportName())
+                            .thenComparing(Comparator.naturalOrder()))
+                    .forEach(sourceName -> {
+                        LibraryBinding binding = bindings.get(sourceName);
+                        byDll.computeIfAbsent(binding.dllName(), ignored -> new ArrayList<>())
+                                .add(new ImportEntry(sourceName, binding.exportName()));
+                    });
             int descriptorSize = (byDll.size() + 1) * 20;
             int cursor = descriptorSize;
             ArrayList<ImportDll> dlls = new ArrayList<>();
-            for (Map.Entry<String, ArrayList<String>> entry : byDll.entrySet()) {
+            for (Map.Entry<String, ArrayList<ImportEntry>> entry : byDll.entrySet()) {
                 ImportDll dll = new ImportDll(entry.getKey(), List.copyOf(entry.getValue()));
                 dll.iltOffset = cursor;
-                cursor += (dll.symbols.size() + 1) * Long.BYTES;
+                cursor += (dll.entries.size() + 1) * Long.BYTES;
                 dlls.add(dll);
             }
             int firstIat = cursor;
             for (ImportDll dll : dlls) {
                 dll.iatOffset = cursor;
-                cursor += (dll.symbols.size() + 1) * Long.BYTES;
+                cursor += (dll.entries.size() + 1) * Long.BYTES;
             }
             int totalIat = cursor - firstIat;
             for (ImportDll dll : dlls) {
-                for (String symbol : dll.symbols) {
+                for (ImportEntry entry : dll.entries) {
                     cursor = align(cursor, 2);
-                    dll.hintNameOffsets.put(symbol, cursor);
-                    cursor += 2 + symbol.getBytes(StandardCharsets.US_ASCII).length + 1;
+                    dll.hintNameOffsets.put(entry.sourceName(), cursor);
+                    cursor += 2 + entry.exportName().getBytes(StandardCharsets.US_ASCII).length + 1;
                 }
                 dll.nameOffset = cursor;
                 cursor += dll.name.getBytes(StandardCharsets.US_ASCII).length + 1;
@@ -463,14 +498,16 @@ public final class WindowsPeLinker {
                 output.putInt(descriptor, sectionRva + dll.iltOffset);
                 output.putInt(descriptor + 12, sectionRva + dll.nameOffset);
                 output.putInt(descriptor + 16, sectionRva + dll.iatOffset);
-                for (int symbolIndex = 0; symbolIndex < dll.symbols.size(); symbolIndex++) {
-                    String symbol = dll.symbols.get(symbolIndex);
-                    long hintNameRva = Integer.toUnsignedLong(sectionRva + dll.hintNameOffsets.get(symbol));
+                for (int symbolIndex = 0; symbolIndex < dll.entries.size(); symbolIndex++) {
+                    ImportEntry entry = dll.entries.get(symbolIndex);
+                    long hintNameRva = Integer.toUnsignedLong(
+                            sectionRva + dll.hintNameOffsets.get(entry.sourceName())
+                    );
                     output.putLong(dll.iltOffset + symbolIndex * 8, hintNameRva);
                     output.putLong(dll.iatOffset + symbolIndex * 8, hintNameRva);
-                    int hintOffset = dll.hintNameOffsets.get(symbol);
+                    int hintOffset = dll.hintNameOffsets.get(entry.sourceName());
                     output.putShort(hintOffset, (short) 0);
-                    putAsciiZ(result, hintOffset + 2, symbol);
+                    putAsciiZ(result, hintOffset + 2, entry.exportName());
                 }
                 putAsciiZ(result, dll.nameOffset, dll.name);
             }
@@ -486,15 +523,18 @@ public final class WindowsPeLinker {
 
     private static final class ImportDll {
         private final String name;
-        private final List<String> symbols;
+        private final List<ImportEntry> entries;
         private final Map<String, Integer> hintNameOffsets = new LinkedHashMap<>();
         private int iltOffset;
         private int iatOffset;
         private int nameOffset;
 
-        private ImportDll(String name, List<String> symbols) {
+        private ImportDll(String name, List<ImportEntry> entries) {
             this.name = name;
-            this.symbols = symbols;
+            this.entries = entries;
         }
+    }
+
+    private record ImportEntry(String sourceName, String exportName) {
     }
 }

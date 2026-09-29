@@ -223,10 +223,12 @@ record FrameLayout(
     }
 
     private static String memoryPrefix(IrType type) {
-        return switch (type) {
-            case BOOL, CHAR -> "BYTE PTR";
-            case LONG, POINTER, DOUBLE -> "QWORD PTR";
-            case INT, FLOAT -> "DWORD PTR";
+        return switch (type.sizeBytes()) {
+            case 1 -> "BYTE PTR";
+            case 2 -> "WORD PTR";
+            case 4 -> "DWORD PTR";
+            case 8 -> "QWORD PTR";
+            default -> throw new IllegalArgumentException("unsupported IR type size: " + type);
         };
     }
 }

@@ -3,12 +3,14 @@ package minic.compiler;
 import minic.compiler.execute.ExecutableRunner;
 import minic.session.CompileObservationSession;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class SystemLibraryEndToEndTest {
     @Test
+    @Tag("stdlib-native")
     void linksAndRunsWindowsCrtFunctions() {
         String source = """
                 #include "stdlib.mh"

@@ -235,6 +235,7 @@ public final class StatementSemanticAnalyzer {
 
     private boolean isSupportedCaseConstant(Expression expression) {
         return expression instanceof minic.compiler.parser.node.Expression.IntegerLiteralExpr
+                || expression instanceof minic.compiler.parser.node.Expression.IntegerConstantExpr
                 || expression instanceof minic.compiler.parser.node.Expression.LongLiteralExpr
                 || expression instanceof minic.compiler.parser.node.Expression.CharLiteralExpr
                 || expression instanceof minic.compiler.parser.node.Expression.BoolLiteralExpr;

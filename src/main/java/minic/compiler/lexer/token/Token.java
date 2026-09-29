@@ -52,4 +52,22 @@ public record Token(
     public Optional<Object> literalValueOptional() {
         return Optional.ofNullable(literalValue);
     }
+
+    /** 非 {@code int} 十进制整数字面量的语义类别。 */
+    public enum IntegerLiteralKind {
+        LONG,
+        UNSIGNED_INT,
+        UNSIGNED_LONG,
+        LONG_LONG,
+        UNSIGNED_LONG_LONG
+    }
+
+    /**
+     * 保存最多 64 位的整数字面量。无符号 64 位值以相同位模式保存在 {@code long} 中。
+     */
+    public record IntegerLiteralValue(long value, IntegerLiteralKind kind) {
+        public IntegerLiteralValue {
+            Objects.requireNonNull(kind, "kind");
+        }
+    }
 }

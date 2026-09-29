@@ -1,0 +1,25 @@
+#ifndef MINIC_STRING_MH
+#define MINIC_STRING_MH
+extern void *memcpy(void *destination, void *source, unsigned long long count);
+extern void *memmove(void *destination, void *source, unsigned long long count);
+extern char *strcpy(char *destination, char *source);
+extern char *strncpy(char *destination, char *source, unsigned long long count);
+extern char *strcat(char *destination, char *source);
+extern char *strncat(char *destination, char *source, unsigned long long count);
+extern int memcmp(void *left, void *right, unsigned long long count);
+extern int strcmp(char *left, char *right);
+extern int strcoll(char *left, char *right);
+extern int strncmp(char *left, char *right, unsigned long long count);
+extern unsigned long long strxfrm(char *destination, char *source, unsigned long long count);
+extern void *memchr(void *buffer, int character, unsigned long long count);
+extern char *strchr(char *string, int character);
+extern unsigned long long strcspn(char *string, char *reject);
+extern char *strpbrk(char *string, char *accept);
+extern char *strrchr(char *string, int character);
+extern unsigned long long strspn(char *string, char *accept);
+extern char *strstr(char *string, char *substring);
+extern char *strtok(char *string, char *delimiters);
+extern void *memset(void *destination, int character, unsigned long long count);
+extern char *strerror(int errorNumber);
+extern unsigned long long strlen(char *string);
+#endif

@@ -79,8 +79,8 @@ public final class X64Encoder {
             case "pop" -> pushPop(w, i, 0x58);
             case "mov" -> mov(w, i, symbols, relocs);
             case "lea" -> lea(w, i, symbols, relocs);
-            case "movzx" -> extension(w, i, 0xB6, false, symbols, relocs);
-            case "movsx" -> extension(w, i, 0xBE, false, symbols, relocs);
+            case "movzx" -> extension(w, i, false, symbols, relocs);
+            case "movsx" -> extension(w, i, true, symbols, relocs);
             case "movsxd" -> extension(w, i, 0x63, true, symbols, relocs);
             case "add" -> integerBinary(w, i, 0x01, 0, symbols, relocs);
             case "or" -> integerBinary(w, i, 0x09, 1, symbols, relocs);
@@ -90,9 +90,11 @@ public final class X64Encoder {
             case "cmp" -> integerBinary(w, i, 0x39, 7, symbols, relocs);
             case "imul" -> imul(w, i, symbols, relocs);
             case "idiv" -> unaryGroup(w, i, 7, symbols, relocs);
+            case "div" -> unaryGroup(w, i, 6, symbols, relocs);
             case "not" -> unaryGroup(w, i, 2, symbols, relocs);
             case "neg" -> unaryGroup(w, i, 3, symbols, relocs);
             case "shl" -> shift(w, i, 4, symbols, relocs);
+            case "shr" -> shift(w, i, 5, symbols, relocs);
             case "sar" -> shift(w, i, 7, symbols, relocs);
             case "sete" -> setcc(w, i, 0x94, symbols, relocs);
             case "setne" -> setcc(w, i, 0x95, symbols, relocs);
@@ -141,20 +143,20 @@ public final class X64Encoder {
         count(i, 2);
         MachineOperand dst = i.operands().get(0), src = i.operands().get(1);
         if (dst instanceof RegisterOperand && src instanceof ImmediateOperand imm) {
-            Register r = reg(dst); requireGpr(r); rex(w, r.width == 64, false, false, r.extended(), r.requiresRex);
+            Register r = reg(dst); requireGpr(r); operandSizePrefix(w, r.width); rex(w, r.width == 64, false, false, r.extended(), r.requiresRex);
             if (r.width == 8) { w.u8(0xB0 + r.low()); w.u8((int) imm.value()); }
-            else { w.u8(0xB8 + r.low()); if (r.width == 64) w.i64(imm.value()); else if (r.width == 32) w.i32((int) imm.value()); else throw unsupported(i); }
+            else { w.u8(0xB8 + r.low()); if (r.width == 64) w.i64(imm.value()); else if (r.width == 32) w.i32((int) imm.value()); else if (r.width == 16) w.i16((int) imm.value()); else throw unsupported(i); }
             return;
         }
         if (dst instanceof RegisterOperand) {
-            Register r = reg(dst); requireGpr(r); emitRm(w, 0, r.width == 64, new int[]{r.width == 8 ? 0x8A : 0x8B}, r, src, symbols, relocs); return;
+            Register r = reg(dst); requireGpr(r); emitRm(w, operandSizePrefix(r.width), r.width == 64, new int[]{r.width == 8 ? 0x8A : 0x8B}, r, src, symbols, relocs); return;
         }
         if (dst instanceof MemoryOperand mem && src instanceof RegisterOperand) {
-            Register r = reg(src); requireGpr(r); emitRm(w, 0, r.width == 64, new int[]{r.width == 8 ? 0x88 : 0x89}, r, mem, symbols, relocs); return;
+            Register r = reg(src); requireGpr(r); emitRm(w, operandSizePrefix(r.width), r.width == 64, new int[]{r.width == 8 ? 0x88 : 0x89}, r, mem, symbols, relocs); return;
         }
         if (dst instanceof MemoryOperand mem && src instanceof ImmediateOperand imm) {
-            int width = memoryWidth(mem, i); emitRm(w, 0, width == 64, new int[]{width == 8 ? 0xC6 : 0xC7}, 0, mem, symbols, relocs);
-            if (width == 8) w.u8((int) imm.value()); else w.i32(Math.toIntExact(imm.value())); return;
+            int width = memoryWidth(mem, i); emitRm(w, operandSizePrefix(width), width == 64, new int[]{width == 8 ? 0xC6 : 0xC7}, 0, mem, symbols, relocs);
+            if (width == 8) w.u8((int) imm.value()); else if (width == 16) w.i16((int) imm.value()); else w.i32(Math.toIntExact(imm.value())); return;
         }
         throw unsupported(i);
     }
@@ -171,13 +173,25 @@ public final class X64Encoder {
         emitRm(w, 0, dst.width == 64, movsxd ? new int[]{opcode} : new int[]{0x0F, opcode}, dst, i.operands().get(1), symbols, relocs);
     }
 
+    private void extension(ByteWriter w, MachineInstruction i, boolean signed, Map<String, Integer> symbols, List<MachineRelocation> relocs) {
+        count(i, 2);
+        Register dst = reg(i.operands().get(0));
+        int sourceWidth = width(i.operands().get(1));
+        int opcode = switch (sourceWidth) {
+            case 8 -> signed ? 0xBE : 0xB6;
+            case 16 -> signed ? 0xBF : 0xB7;
+            default -> throw unsupported(i);
+        };
+        emitRm(w, 0, dst.width == 64, new int[]{0x0F, opcode}, dst, i.operands().get(1), symbols, relocs);
+    }
+
     private void integerBinary(ByteWriter w, MachineInstruction i, int registerOpcode, int immediateGroup, Map<String, Integer> symbols, List<MachineRelocation> relocs) {
         count(i, 2); MachineOperand dst = i.operands().get(0), src = i.operands().get(1); int width = width(dst);
-        if (src instanceof RegisterOperand) { emitRm(w, 0, width == 64, new int[]{registerOpcode}, reg(src), dst, symbols, relocs); return; }
+        if (src instanceof RegisterOperand) { emitRm(w, operandSizePrefix(width), width == 64, new int[]{registerOpcode}, reg(src), dst, symbols, relocs); return; }
         if (src instanceof ImmediateOperand imm) {
             boolean small = imm.value() >= -128 && imm.value() <= 127; int opcode = width == 8 ? 0x80 : small ? 0x83 : 0x81;
-            emitRm(w, 0, width == 64, new int[]{opcode}, immediateGroup, dst, symbols, relocs);
-            if (width == 8 || small) w.u8((int) imm.value()); else w.i32(Math.toIntExact(imm.value())); return;
+            emitRm(w, operandSizePrefix(width), width == 64, new int[]{opcode}, immediateGroup, dst, symbols, relocs);
+            if (width == 8 || small) w.u8((int) imm.value()); else if (width == 16) w.i16((int) imm.value()); else w.i32(Math.toIntExact(imm.value())); return;
         }
         throw unsupported(i);
     }
@@ -185,20 +199,21 @@ public final class X64Encoder {
     private void imul(ByteWriter w, MachineInstruction i, Map<String, Integer> symbols, List<MachineRelocation> relocs) {
         count(i, 2); Register dst = reg(i.operands().get(0)); MachineOperand src = i.operands().get(1);
         if (src instanceof ImmediateOperand imm) {
-            boolean small = imm.value() >= -128 && imm.value() <= 127; emitRm(w, 0, dst.width == 64, new int[]{small ? 0x6B : 0x69}, dst, i.operands().get(0), symbols, relocs);
-            if (small) w.u8((int) imm.value()); else w.i32(Math.toIntExact(imm.value())); return;
+            boolean small = imm.value() >= -128 && imm.value() <= 127; emitRm(w, operandSizePrefix(dst.width), dst.width == 64, new int[]{small ? 0x6B : 0x69}, dst, i.operands().get(0), symbols, relocs);
+            if (small) w.u8((int) imm.value()); else if (dst.width == 16) w.i16((int) imm.value()); else w.i32(Math.toIntExact(imm.value())); return;
         }
-        emitRm(w, 0, dst.width == 64, new int[]{0x0F, 0xAF}, dst, src, symbols, relocs);
+        emitRm(w, operandSizePrefix(dst.width), dst.width == 64, new int[]{0x0F, 0xAF}, dst, src, symbols, relocs);
     }
 
     private void unaryGroup(ByteWriter w, MachineInstruction i, int group, Map<String, Integer> symbols, List<MachineRelocation> relocs) {
         count(i, 1); MachineOperand op = i.operands().getFirst(); int width = width(op);
-        emitRm(w, 0, width == 64, new int[]{width == 8 ? 0xF6 : 0xF7}, group, op, symbols, relocs);
+        emitRm(w, operandSizePrefix(width), width == 64, new int[]{width == 8 ? 0xF6 : 0xF7}, group, op, symbols, relocs);
     }
 
     private void shift(ByteWriter w, MachineInstruction i, int group, Map<String, Integer> symbols, List<MachineRelocation> relocs) {
         count(i, 2); if (!reg(i.operands().get(1)).name.equals("cl")) throw new IllegalArgumentException("variable shift count must use cl");
-        MachineOperand target = i.operands().get(0); emitRm(w, 0, width(target) == 64, new int[]{0xD3}, group, target, symbols, relocs);
+        MachineOperand target = i.operands().get(0); int width = width(target);
+        emitRm(w, operandSizePrefix(width), width == 64, new int[]{width == 8 ? 0xD2 : 0xD3}, group, target, symbols, relocs);
     }
 
     private void setcc(ByteWriter w, MachineInstruction i, int opcode, Map<String, Integer> symbols, List<MachineRelocation> relocs) {
@@ -284,6 +299,8 @@ public final class X64Encoder {
     private static void rex(ByteWriter w, boolean rw, boolean rr, boolean rx, boolean rb, boolean force) { int value = 0x40 | (rw ? 8 : 0) | (rr ? 4 : 0) | (rx ? 2 : 0) | (rb ? 1 : 0); if (value != 0x40 || force) w.u8(value); }
     private static int modRm(int mod, int reg, int rm) { return (mod << 6) | ((reg & 7) << 3) | (rm & 7); }
     private static int align(int value, int alignment) { return (value + alignment - 1) & -alignment; }
+    private static int operandSizePrefix(int width) { return width == 16 ? 0x66 : 0; }
+    private static void operandSizePrefix(ByteWriter w, int width) { if (width == 16) w.u8(0x66); }
 
     private enum Kind { GPR, XMM }
     private record Register(String name, int code, int width, Kind kind, boolean requiresRex) {
@@ -294,9 +311,10 @@ public final class X64Encoder {
         private static Map<String, Register> create() {
             String[] n64={"rax","rcx","rdx","rbx","rsp","rbp","rsi","rdi","r8","r9","r10","r11","r12","r13","r14","r15"};
             String[] n32={"eax","ecx","edx","ebx","esp","ebp","esi","edi","r8d","r9d","r10d","r11d","r12d","r13d","r14d","r15d"};
+            String[] n16={"ax","cx","dx","bx","sp","bp","si","di","r8w","r9w","r10w","r11w","r12w","r13w","r14w","r15w"};
             String[] n8={"al","cl","dl","bl","spl","bpl","sil","dil","r8b","r9b","r10b","r11b","r12b","r13b","r14b","r15b"};
             LinkedHashMap<String,Register> map=new LinkedHashMap<>();
-            for(int x=0;x<16;x++){map.put(n64[x],new Register(n64[x],x,64,Kind.GPR,false));map.put(n32[x],new Register(n32[x],x,32,Kind.GPR,false));map.put(n8[x],new Register(n8[x],x,8,Kind.GPR,x>=4));String q="xmm"+x;map.put(q,new Register(q,x,128,Kind.XMM,false));}
+            for(int x=0;x<16;x++){map.put(n64[x],new Register(n64[x],x,64,Kind.GPR,false));map.put(n32[x],new Register(n32[x],x,32,Kind.GPR,false));map.put(n16[x],new Register(n16[x],x,16,Kind.GPR,false));map.put(n8[x],new Register(n8[x],x,8,Kind.GPR,x>=4));String q="xmm"+x;map.put(q,new Register(q,x,128,Kind.XMM,false));}
             return Map.copyOf(map);
         }
     }
@@ -319,6 +337,6 @@ public final class X64Encoder {
     }
 
     private static final class ByteWriter {
-        final ByteArrayOutputStream out=new ByteArrayOutputStream(); int size(){return out.size();} void align(int a){while((size()&(a-1))!=0)u8(0);} void u8(int v){out.write(v&255);} void i32(int v){u8(v);u8(v>>>8);u8(v>>>16);u8(v>>>24);} void i64(long v){i32((int)v);i32((int)(v>>>32));} void bytes(byte[] b){out.writeBytes(b);} byte[] toByteArray(){return out.toByteArray();}
+        final ByteArrayOutputStream out=new ByteArrayOutputStream(); int size(){return out.size();} void align(int a){while((size()&(a-1))!=0)u8(0);} void u8(int v){out.write(v&255);} void i16(int v){u8(v);u8(v>>>8);} void i32(int v){u8(v);u8(v>>>8);u8(v>>>16);u8(v>>>24);} void i64(long v){i32((int)v);i32((int)(v>>>32));} void bytes(byte[] b){out.writeBytes(b);} byte[] toByteArray(){return out.toByteArray();}
     }
 }

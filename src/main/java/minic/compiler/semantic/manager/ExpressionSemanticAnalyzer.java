@@ -6,6 +6,8 @@ import minic.compiler.parser.node.Expression.BoolLiteralExpr;
 import minic.compiler.parser.node.Expression.CallExpr;
 import minic.compiler.parser.node.Expression.CharLiteralExpr;
 import minic.compiler.parser.node.Expression.ConditionalExpr;
+import minic.compiler.parser.node.Expression.CastExpr;
+import minic.compiler.parser.node.Expression.CommaExpr;
 import minic.compiler.parser.node.Expression.DoubleLiteralExpr;
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.Expression.FieldAccessExpr;
@@ -13,12 +15,15 @@ import minic.compiler.parser.node.Expression.FloatLiteralExpr;
 import minic.compiler.parser.node.Expression.GroupingExpr;
 import minic.compiler.parser.node.Expression.IndexExpr;
 import minic.compiler.parser.node.Expression.IntegerLiteralExpr;
+import minic.compiler.parser.node.Expression.IntegerConstantExpr;
 import minic.compiler.parser.node.Expression.LongLiteralExpr;
 import minic.compiler.parser.node.Expression.NameExpr;
 import minic.compiler.parser.node.Expression.NullLiteralExpr;
 import minic.compiler.parser.node.Expression.SizeofExpr;
 import minic.compiler.parser.node.Expression.StringLiteralExpr;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
+import minic.compiler.parser.node.Expression.DesignatedInitExpr;
+import minic.compiler.parser.node.Expression.Designator;
 import minic.compiler.parser.node.Expression.UnaryExpr;
 import minic.compiler.type.MiniType;
 import minic.compiler.type.TypeLayout;
@@ -68,6 +73,7 @@ final class ExpressionSemanticAnalyzer {
             case BoolLiteralExpr ignored -> MiniType.BOOL;
             case CharLiteralExpr ignored -> MiniType.CHAR;
             case IntegerLiteralExpr ignored -> MiniType.INT;
+            case IntegerConstantExpr integerConstantExpr -> integerConstantExpr.type();
             case LongLiteralExpr ignored -> MiniType.LONG;
             case FloatLiteralExpr ignored -> MiniType.FLOAT;
             case DoubleLiteralExpr ignored -> MiniType.DOUBLE;
@@ -88,6 +94,8 @@ final class ExpressionSemanticAnalyzer {
             case FieldAccessExpr fieldAccessExpr -> analyzeFieldAccess(fieldAccessExpr, scope);
             case UnaryExpr unaryExpr -> analyzeUnary(unaryExpr, scope);
             case ConditionalExpr conditionalExpr -> analyzeConditional(conditionalExpr, scope);
+            case CastExpr castExpr -> analyzeCast(castExpr, scope);
+            case CommaExpr commaExpr -> analyzeComma(commaExpr, scope);
             case SizeofExpr sizeofExpr -> analyzeSizeof(sizeofExpr, scope);
             case CallExpr callExpr -> {
                 ArrayList<MiniType> argumentTypes = new ArrayList<>();
@@ -100,10 +108,33 @@ final class ExpressionSemanticAnalyzer {
                 yield returnType;
             }
             case AggregateInitExpr aggregateInitExpr -> analyzeAggregateInit(aggregateInitExpr, scope);
+            case DesignatedInitExpr designated -> {
+                report(designated.range(), "指定初始化器只能出现在初始化列表中");
+                yield analyzeExpression(designated.value(), scope);
+            }
             default -> throw new IllegalArgumentException("unsupported expression: "
                     + expression.getClass().getSimpleName());
         };
         expressionTypes.put(expression, type);
+        return type;
+    }
+
+    private MiniType analyzeCast(CastExpr castExpr, Scope scope) {
+        MiniType source = TypeCompatibility.decay(analyzeExpression(castExpr.operand(), scope));
+        MiniType target = castExpr.targetType();
+        boolean sourceScalar = source.isScalar() || source.isPointer() || source.isNullPointer();
+        boolean targetScalar = target.isScalar() || target.isPointer();
+        if (!target.isVoid() && !(sourceScalar && targetScalar)) {
+            report(castExpr.range(), "类型转换要求标量、指针或 void 目标类型");
+        }
+        return target;
+    }
+
+    private MiniType analyzeComma(CommaExpr commaExpr, Scope scope) {
+        MiniType type = MiniType.INT;
+        for (Expression expression : commaExpr.expressions()) {
+            type = analyzeExpression(expression, scope);
+        }
         return type;
     }
 
@@ -130,7 +161,7 @@ final class ExpressionSemanticAnalyzer {
             if (!operandType.isIntegerScalar()) {
                 report(unaryExpr.range(), "~ 操作数必须是整数类型");
             }
-            return operandType.isIntegerScalar() ? operandType : MiniType.INT;
+            return operandType.isIntegerScalar() ? TypeCompatibility.integerPromotion(operandType) : MiniType.INT;
         }
         if (unaryExpr.operator() == TokenType.PLUS_PLUS || unaryExpr.operator() == TokenType.MINUS_MINUS) {
             MiniType targetType = analyzeAssignmentTarget(unaryExpr.operand(), scope, unaryExpr.range());
@@ -144,12 +175,17 @@ final class ExpressionSemanticAnalyzer {
             if (!operandType.isScalar()) {
                 report(unaryExpr.range(), "一元 +/- 操作数必须是标量类型");
             }
-            return operandType.isScalar() ? operandType : MiniType.INT;
+            return operandType.isIntegerScalar()
+                    ? TypeCompatibility.integerPromotion(operandType)
+                    : operandType.isScalar() ? operandType : MiniType.INT;
         }
         throw new IllegalArgumentException("unsupported unary operator: " + unaryExpr.operator());
     }
 
     private MiniType analyzeAddressOperand(Expression operand, Scope scope, SourceRange range) {
+        if (operand instanceof GroupingExpr groupingExpr) {
+            return analyzeAddressOperand(groupingExpr.expression(), scope, range);
+        }
         if (operand instanceof NameExpr nameExpr) {
             scope.resolve(nameExpr.name()).ifPresent(symbol -> {
                 if (symbol.kind() == SymbolKind.VARIABLE && currentParameterNames.contains(nameExpr.name())) {
@@ -233,7 +269,7 @@ final class ExpressionSemanticAnalyzer {
         if (!TypeLayout.hasFixedLayout(queriedType) && !hasStructLayout(queriedType)) {
             report(sizeofExpr.range(), "sizeof 只支持固定布局类型");
         }
-        return MiniType.LONG;
+        return MiniType.UNSIGNED_LONG_LONG;
     }
 
     private boolean hasStructLayout(MiniType type) {
@@ -267,14 +303,23 @@ final class ExpressionSemanticAnalyzer {
     }
 
     private void analyzeArrayInit(AggregateInitExpr initializer, Scope scope, MiniType.ArrayType arrayType) {
-        if (initializer.values().size() != arrayType.length()) {
+        if (initializer.values().size() > arrayType.length()) {
             report(initializer.range(),
-                    "数组初始化值数量不匹配：期望 " + arrayType.length()
+                    "数组初始化值过多：容量 " + arrayType.length()
                             + " 个，实际 " + initializer.values().size() + " 个");
         }
-        int count = Math.min(initializer.values().size(), arrayType.length());
-        for (int index = 0; index < count; index++) {
-            analyzeInitializerValue(initializer.values().get(index), scope, arrayType.elementType(), "数组元素");
+        int current = 0;
+        for (Expression value : initializer.values()) {
+            if (value instanceof DesignatedInitExpr designated
+                    && designated.designators().getFirst() instanceof Designator.Index index) {
+                current = index.index();
+            }
+            if (current >= arrayType.length()) {
+                report(value.range(), "指定初始化数组下标越界：" + current);
+            } else {
+                analyzeDesignatedValue(value, scope, arrayType.elementType(), 1, "数组元素");
+            }
+            current++;
         }
     }
 
@@ -288,21 +333,57 @@ final class ExpressionSemanticAnalyzer {
             report(initializer.range(), "未知结构体类型：" + targetStruct.name());
             return;
         }
-        if (initializer.values().size() != fields.size()) {
+        if (initializer.values().size() > fields.size()) {
             report(initializer.range(),
-                    "结构体初始化值数量不匹配：期望 " + fields.size()
+                    "结构体初始化值过多：字段 " + fields.size()
                             + " 个，实际 " + initializer.values().size() + " 个");
         }
-        int count = Math.min(initializer.values().size(), fields.size());
-        for (int index = 0; index < count; index++) {
-            StructFieldLayout field = fields.get(index);
-            analyzeInitializerValue(
-                    initializer.values().get(index),
-                    scope,
-                    field.type(),
-                    "结构体字段 " + field.name()
-            );
+        int current = 0;
+        for (Expression value : initializer.values()) {
+            if (value instanceof DesignatedInitExpr designated
+                    && designated.designators().getFirst() instanceof Designator.Field fieldDesignator) {
+                current = -1;
+                for (int index = 0; index < fields.size(); index++) {
+                    if (fields.get(index).name().equals(fieldDesignator.name())) { current = index; break; }
+                }
+                if (current < 0) {
+                    report(value.range(), "未知结构体字段：" + fieldDesignator.name());
+                    continue;
+                }
+            }
+            if (current >= fields.size()) {
+                report(value.range(), "结构体初始化值过多");
+                continue;
+            }
+            StructFieldLayout field = fields.get(current);
+            analyzeDesignatedValue(value, scope, field.type(), 1, "结构体字段 " + field.name());
+            current++;
         }
+    }
+
+    private void analyzeDesignatedValue(Expression expression, Scope scope, MiniType targetType,
+                                        int consumedDesignators, String subject) {
+        if (!(expression instanceof DesignatedInitExpr designated)) {
+            analyzeInitializerValue(expression, scope, targetType, subject);
+            return;
+        }
+        MiniType nestedTarget = targetType;
+        for (int index = consumedDesignators; index < designated.designators().size(); index++) {
+            Designator designator = designated.designators().get(index);
+            if (designator instanceof Designator.Index arrayIndex && nestedTarget instanceof MiniType.ArrayType array) {
+                if (arrayIndex.index() >= array.length()) report(arrayIndex.range(), "指定初始化数组下标越界");
+                nestedTarget = array.elementType();
+            } else if (designator instanceof Designator.Field field && nestedTarget instanceof MiniType.StructType) {
+                var layout = structRegistry.field(nestedTarget, field.name());
+                if (layout.isEmpty()) { report(field.range(), "未知结构体字段：" + field.name()); return; }
+                nestedTarget = layout.orElseThrow().type();
+            } else {
+                report(designator.range(), "指定初始化路径与目标类型不匹配");
+                return;
+            }
+        }
+        analyzeInitializerValue(designated.value(), scope, nestedTarget, subject);
+        expressionTypes.put(designated, nestedTarget);
     }
 
     private void analyzeInitializerValue(

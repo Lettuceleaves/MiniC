@@ -34,6 +34,13 @@ public final class StructRegistry {
 
     public void defineStructs(Program program) {
         for (StructDecl structDecl : program.structs()) {
+            if (!structDecl.definition()) {
+                if (globalScope.resolve(structDecl.name()).isEmpty()) {
+                    globalScope.define(new Symbol(structDecl.name(), SymbolKind.STRUCT, structDecl.range(),
+                            MiniType.struct(structDecl.name()), null));
+                }
+                continue;
+            }
             Symbol symbol = new Symbol(
                     structDecl.name(),
                     SymbolKind.STRUCT,
@@ -41,9 +48,10 @@ public final class StructRegistry {
                     MiniType.struct(structDecl.name()),
                     null
             );
-            if (!globalScope.define(symbol)) {
+            if (structDecls.containsKey(structDecl.name())) {
                 report(structDecl.range(), "重复结构体定义：" + structDecl.name());
             } else {
+                if (globalScope.resolve(structDecl.name()).isEmpty()) globalScope.define(symbol);
                 structDecls.put(structDecl.name(), structDecl);
             }
             validateFields(structDecl);
@@ -51,7 +59,7 @@ public final class StructRegistry {
     }
 
     public void validateProgramTypes(Program program) {
-        program.structs().forEach(this::validateStructFieldTypes);
+        program.structs().stream().filter(StructDecl::definition).forEach(this::validateStructFieldTypes);
         validateRecursiveStructValues();
         program.functions().forEach(functionDecl -> {
             validateFunctionReturnType(functionDecl.returnType(), functionDecl.range());
@@ -234,9 +242,9 @@ public final class StructRegistry {
             for (StructField field : structDecl.fields()) {
                 int fieldAlignment = alignmentOf(field.type());
                 int fieldSize = sizeOf(field.type());
-                offset = alignTo(offset, fieldAlignment);
+                offset = structDecl.union() ? 0 : alignTo(offset, fieldAlignment);
                 fieldLayouts.add(new StructFieldLayout(field.name(), field.type(), offset, fieldSize, fieldAlignment));
-                offset += fieldSize;
+                offset = structDecl.union() ? Math.max(offset, fieldSize) : offset + fieldSize;
                 if (fieldAlignment > structAlignment) {
                     structAlignment = fieldAlignment;
                 }

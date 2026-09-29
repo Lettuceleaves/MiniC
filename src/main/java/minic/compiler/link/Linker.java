@@ -76,7 +76,7 @@ public final class Linker extends Stage {
                     peImage = peLinker.link(
                             objResult.objectFile(),
                             objResult.entrySymbol(),
-                            systemLibraries.imports()
+                            systemLibraries.bindings()
                     );
                     phase = Phase.WRITE_EXECUTABLE;
                 }

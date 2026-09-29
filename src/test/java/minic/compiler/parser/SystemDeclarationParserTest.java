@@ -4,12 +4,14 @@ import minic.compiler.SourceFile;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.type.MiniType;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class SystemDeclarationParserTest {
     @Test
+    @Tag("stdlib-contract")
     void parsesVoidPointersVoidReturnsAndVariadicFunctions() {
         String source = """
                 extern void *malloc(long size);

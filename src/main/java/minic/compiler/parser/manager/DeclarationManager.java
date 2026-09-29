@@ -6,6 +6,8 @@ import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.parser.node.Declaration.Parameter;
 import minic.compiler.parser.node.Declaration.StructDecl;
 import minic.compiler.parser.node.Declaration.StructField;
+import minic.compiler.parser.node.Declaration.EnumDecl;
+import minic.compiler.parser.node.Declaration.Enumerator;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
@@ -18,11 +20,55 @@ public final class DeclarationManager {
     private final Parser.Context state;
     private final StatementManager statementManager;
     private final Parser.TypeReader typeReader;
+    private final java.util.Map<String, Long> enumConstants;
 
     public DeclarationManager(Parser.Context state, StatementManager statementManager, Parser.TypeReader typeReader) {
+        this(state, statementManager, typeReader, new java.util.LinkedHashMap<>());
+    }
+
+    public DeclarationManager(Parser.Context state, StatementManager statementManager, Parser.TypeReader typeReader,
+                              java.util.Map<String, Long> enumConstants) {
         this.state = state;
         this.statementManager = statementManager;
         this.typeReader = typeReader;
+        this.enumConstants = enumConstants;
+    }
+
+    public EnumDecl parseEnumDecl() {
+        Token start = state.consume(TokenType.ENUM, "期望 enum");
+        Token name = state.consume(TokenType.IDENTIFIER, "期望枚举名称");
+        state.consume(TokenType.LEFT_BRACE, "期望 '{'");
+        ArrayList<Enumerator> values = new ArrayList<>();
+        long next = 0;
+        while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
+            Token item = state.consume(TokenType.IDENTIFIER, "期望枚举常量名称");
+            if (item == null) break;
+            long value = next;
+            if (state.match(TokenType.EQUAL)) {
+                boolean negative = state.match(TokenType.MINUS);
+                Token literal = state.peek();
+                if (state.match(TokenType.INTEGER_LITERAL)) {
+                    Object raw = literal.literalValue();
+                    value = raw instanceof Integer integer ? integer.longValue()
+                            : raw instanceof minic.compiler.lexer.token.Token.IntegerLiteralValue integer ? integer.value() : 0;
+                    if (negative) value = -value;
+                } else if (state.match(TokenType.IDENTIFIER) && enumConstants.containsKey(literal.lexeme())) {
+                    value = enumConstants.get(literal.lexeme());
+                    if (negative) value = -value;
+                } else {
+                    state.report(literal, "枚举值必须是已知整数常量");
+                }
+            }
+            if (enumConstants.putIfAbsent(item.lexeme(), value) != null) state.report(item, "重复枚举常量");
+            values.add(new Enumerator(item.lexeme(), value, item.range()));
+            next = value + 1;
+            if (!state.match(TokenType.COMMA)) break;
+            if (state.check(TokenType.RIGHT_BRACE)) break;
+        }
+        Token close = state.consume(TokenType.RIGHT_BRACE, "期望 '}'");
+        Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
+        if (start == null || name == null || close == null || semicolon == null) return null;
+        return new EnumDecl(name.lexeme(), values, SourceRange.span(start.range(), semicolon.range()));
     }
 
     public FunctionDecl parseFunctionDecl() {
@@ -86,8 +132,19 @@ public final class DeclarationManager {
 
     public StructDecl parseStructDecl() {
         state.enter("structDecl");
-        Token startToken = state.consume(TokenType.STRUCT, "期望 struct");
+        boolean union = state.check(TokenType.UNION);
+        Token startToken = state.advance();
         Token nameToken = state.consume(TokenType.IDENTIFIER, "期望结构体名");
+        if (state.match(TokenType.SEMICOLON)) {
+            Token end = state.previous();
+            if (startToken == null || nameToken == null) return null;
+            String internalName = union ? unionName(nameToken.lexeme()) : nameToken.lexeme();
+            StructDecl forward = new StructDecl(internalName, java.util.List.of(), false, union,
+                    SourceRange.span(startToken.range(), end.range()));
+            state.build(forward, "StructForwardDecl " + forward.name(), forward.range());
+            state.exit("structDecl", forward.range());
+            return forward;
+        }
         state.consume(TokenType.LEFT_BRACE, "期望 '{'");
         ArrayList<StructField> fields = new ArrayList<>();
         while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
@@ -104,13 +161,19 @@ public final class DeclarationManager {
             return null;
         }
         StructDecl structDecl = new StructDecl(
-                nameToken.lexeme(),
+                union ? unionName(nameToken.lexeme()) : nameToken.lexeme(),
                 fields,
+                true,
+                union,
                 SourceRange.span(startToken.range(), semicolonToken.range())
         );
         state.build(structDecl, "StructDecl " + structDecl.name(), structDecl.range());
         state.exit("structDecl", structDecl.range());
         return structDecl;
+    }
+
+    private static String unionName(String sourceName) {
+        return "$union$" + sourceName;
     }
 
     private StructField parseStructField() {

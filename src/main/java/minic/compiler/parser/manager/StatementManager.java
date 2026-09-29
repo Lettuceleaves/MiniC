@@ -4,6 +4,8 @@ import minic.compiler.parser.Parser;
 
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
+import minic.compiler.parser.node.Expression.DesignatedInitExpr;
+import minic.compiler.parser.node.Expression.Designator;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.parser.node.Statement.BreakStmt;
 import minic.compiler.parser.node.Statement.ContinueStmt;
@@ -303,7 +305,7 @@ public final class StatementManager {
             if (state.check(TokenType.LEFT_BRACE)) {
                 initializer = parseAggregateInitializer();
             } else {
-                initializer = expressionManager.parseExpression();
+                initializer = expressionManager.parseAssignmentExpression();
             }
         }
         Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");
@@ -325,13 +327,10 @@ public final class StatementManager {
         Token startToken = state.advance();
         ArrayList<Expression> values = new ArrayList<>();
         if (!state.check(TokenType.RIGHT_BRACE)) {
-            values.add(state.check(TokenType.LEFT_BRACE)
-                    ? parseAggregateInitializer()
-                    : expressionManager.parseExpression());
+            values.add(parseInitializerElement());
             while (state.match(TokenType.COMMA)) {
-                values.add(state.check(TokenType.LEFT_BRACE)
-                        ? parseAggregateInitializer()
-                        : expressionManager.parseExpression());
+                if (state.check(TokenType.RIGHT_BRACE)) break;
+                values.add(parseInitializerElement());
             }
         }
         Token endToken = state.consume(TokenType.RIGHT_BRACE, "期望 '}'");
@@ -342,6 +341,38 @@ public final class StatementManager {
                 values,
                 SourceRange.span(startToken.range(), endToken.range())
         );
+    }
+
+    private Expression parseInitializerElement() {
+        if (!state.check(TokenType.DOT) && !state.check(TokenType.LEFT_BRACKET)) {
+            return state.check(TokenType.LEFT_BRACE)
+                    ? parseAggregateInitializer()
+                    : expressionManager.parseAssignmentExpression();
+        }
+        ArrayList<Designator> designators = new ArrayList<>();
+        SourceRange start = state.peek().range();
+        while (state.match(TokenType.DOT) || state.match(TokenType.LEFT_BRACKET)) {
+            Token opener = state.previous();
+            if (opener.type() == TokenType.DOT) {
+                Token field = state.consume(TokenType.IDENTIFIER, "期望指定初始化字段名");
+                if (field == null) return null;
+                designators.add(new Designator.Field(field.lexeme(), SourceRange.span(opener.range(), field.range())));
+            } else {
+                Token index = state.consume(TokenType.INTEGER_LITERAL, "期望指定初始化数组下标");
+                Token close = state.consume(TokenType.RIGHT_BRACKET, "期望 ']'");
+                if (index == null || close == null || !(index.literalValue() instanceof Integer integer) || integer < 0) {
+                    state.report(opener, "指定初始化数组下标必须是非负 int 常量");
+                    return null;
+                }
+                designators.add(new Designator.Index(integer, SourceRange.span(opener.range(), close.range())));
+            }
+        }
+        state.consume(TokenType.EQUAL, "指定初始化器需要 '='");
+        Expression value = state.check(TokenType.LEFT_BRACE)
+                ? parseAggregateInitializer()
+                : expressionManager.parseAssignmentExpression();
+        if (value == null) return null;
+        return new DesignatedInitExpr(designators, value, SourceRange.span(start, value.range()));
     }
 
     private ReturnStmt parseReturnStmt() {
@@ -385,9 +416,14 @@ public final class StatementManager {
                 || state.check(TokenType.CHAR)
                 || state.check(TokenType.INT)
                 || state.check(TokenType.LONG)
+                || state.check(TokenType.SHORT)
+                || state.check(TokenType.SIGNED)
+                || state.check(TokenType.UNSIGNED)
                 || state.check(TokenType.FLOAT)
                 || state.check(TokenType.DOUBLE)
                 || state.check(TokenType.VOID)
-                || state.check(TokenType.STRUCT);
+                || state.check(TokenType.STRUCT)
+                || state.check(TokenType.UNION)
+                || state.check(TokenType.ENUM);
     }
 }

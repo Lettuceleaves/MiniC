@@ -54,14 +54,17 @@ final class TypeCompatibility {
         if (isComparison(operator)) {
             return MiniType.INT;
         }
-        if (isBitwise(operator) || isShift(operator)) {
+        if (isShift(operator)) {
+            return integerPromotion(leftType);
+        }
+        if (isBitwise(operator)) {
             return usualArithmeticType(leftType, rightType);
         }
         if (isPointerArithmetic(leftType, rightType, operator)) {
             return leftType.isPointer() ? leftType : rightType;
         }
         if (isPointerDifference(leftType, rightType, operator)) {
-            return MiniType.LONG;
+            return MiniType.LONG_LONG;
         }
         if (leftType.isScalar() && rightType.isScalar()) {
             return usualArithmeticType(leftType, rightType);
@@ -101,6 +104,9 @@ final class TypeCompatibility {
     static MiniType conditionalResultType(MiniType thenType, MiniType elseType) {
         thenType = decay(thenType);
         elseType = decay(elseType);
+        if (thenType.isScalar() && elseType.isScalar()) {
+            return usualArithmeticType(thenType, elseType);
+        }
         if (thenType.equals(elseType) || isAssignmentCompatible(thenType, elseType)) {
             return thenType;
         }
@@ -131,17 +137,59 @@ final class TypeCompatibility {
         return type.isPointer() && !type.pointee().isFunction();
     }
 
-    private static MiniType usualArithmeticType(MiniType leftType, MiniType rightType) {
+    static MiniType usualArithmeticType(MiniType leftType, MiniType rightType) {
         if (leftType.equals(MiniType.DOUBLE) || rightType.equals(MiniType.DOUBLE)) {
             return MiniType.DOUBLE;
         }
         if (leftType.equals(MiniType.FLOAT) || rightType.equals(MiniType.FLOAT)) {
             return MiniType.FLOAT;
         }
-        if (leftType.equals(MiniType.LONG) || rightType.equals(MiniType.LONG)) {
-            return MiniType.LONG;
+        leftType = integerPromotion(leftType);
+        rightType = integerPromotion(rightType);
+        if (leftType.equals(rightType)) {
+            return leftType;
         }
-        return MiniType.INT;
+        MiniType.ScalarKind leftKind = scalarKind(leftType);
+        MiniType.ScalarKind rightKind = scalarKind(rightType);
+        if (leftKind.signed() == rightKind.signed()) {
+            return leftKind.integerRank() >= rightKind.integerRank() ? leftType : rightType;
+        }
+
+        MiniType unsignedType = leftKind.signed() ? rightType : leftType;
+        MiniType signedType = leftKind.signed() ? leftType : rightType;
+        MiniType.ScalarKind unsignedKind = scalarKind(unsignedType);
+        MiniType.ScalarKind signedKind = scalarKind(signedType);
+        if (unsignedKind.integerRank() >= signedKind.integerRank()) {
+            return unsignedType;
+        }
+        if (signedKind.sizeBytes() > unsignedKind.sizeBytes()) {
+            return signedType;
+        }
+        return unsignedCounterpart(signedType);
+    }
+
+    static MiniType integerPromotion(MiniType type) {
+        if (!type.isIntegerScalar()) {
+            return type;
+        }
+        MiniType.ScalarKind kind = scalarKind(type);
+        return kind.integerRank() < MiniType.ScalarKind.INT.integerRank() ? MiniType.INT : type;
+    }
+
+    private static MiniType.ScalarKind scalarKind(MiniType type) {
+        if (type instanceof MiniType.ScalarType scalarType && scalarType.kind().integer()) {
+            return scalarType.kind();
+        }
+        throw new IllegalArgumentException("not an integer scalar type: " + type);
+    }
+
+    private static MiniType unsignedCounterpart(MiniType type) {
+        if (type.equals(MiniType.INT)) return MiniType.UNSIGNED_INT;
+        if (type.equals(MiniType.LONG)) return MiniType.UNSIGNED_LONG;
+        if (type.equals(MiniType.LONG_LONG)) return MiniType.UNSIGNED_LONG_LONG;
+        if (type.equals(MiniType.SHORT)) return MiniType.UNSIGNED_SHORT;
+        if (type.equals(MiniType.CHAR) || type.equals(MiniType.SIGNED_CHAR)) return MiniType.UNSIGNED_CHAR;
+        return type;
     }
 
     /** C 数组仅在值上下文中退化一层；声明、sizeof 和取址仍保留完整数组节点。 */

@@ -13,10 +13,13 @@ import minic.compiler.parser.node.Statement;
 import minic.compiler.parser.node.Statement.SwitchCase;
 import minic.compiler.parser.node.Statement.SwitchStmt;
 import minic.compiler.parser.node.Expression.IntegerLiteralExpr;
+import minic.compiler.parser.node.Expression.IntegerConstantExpr;
 import minic.compiler.parser.node.Expression.LongLiteralExpr;
 import minic.compiler.parser.node.Expression.CharLiteralExpr;
 import minic.compiler.parser.node.Expression.BoolLiteralExpr;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
+import minic.compiler.parser.node.Expression.DesignatedInitExpr;
+import minic.compiler.parser.node.Expression.Designator;
 import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator;
 import minic.compiler.parser.node.Statement.VarDeclStmt;
@@ -328,6 +331,10 @@ final class StatementLowerer {
         if (expression instanceof IntegerLiteralExpr integerLiteralExpr) {
             return new minic.compiler.ir.value.IrValue.IrConstant(integerLiteralExpr.value());
         }
+        if (expression instanceof IntegerConstantExpr integerConstantExpr) {
+            return new minic.compiler.ir.value.IrValue.IrConstant(
+                    integerConstantExpr.value(), IrTypeLowerer.lower(integerConstantExpr.type()));
+        }
         if (expression instanceof LongLiteralExpr longLiteralExpr) {
             return new minic.compiler.ir.value.IrValue.IrConstant(longLiteralExpr.value(), IrType.LONG);
         }
@@ -377,8 +384,13 @@ final class StatementLowerer {
             minic.source.SourceRange range
     ) {
         if (aggregateType instanceof MiniType.ArrayType arrayType) {
-            int count = Math.min(initializer.values().size(), arrayType.length());
-            for (int index = 0; index < count; index++) {
+            int index = 0;
+            for (Expression value : initializer.values()) {
+                if (value instanceof DesignatedInitExpr designated
+                        && designated.designators().getFirst() instanceof Designator.Index selected) {
+                    index = selected.index();
+                }
+                if (index >= arrayType.length()) break;
                 IrTemporary elementAddress = builder.newTemporary(IrType.POINTER);
                 builder.addInstruction(new IrElementAddressInstruction(
                         elementAddress,
@@ -388,14 +400,23 @@ final class StatementLowerer {
                         builder.sizeOf(arrayType.elementType()),
                         range
                 ));
-                lowerInitializerAt(elementAddress, arrayType.elementType(), initializer.values().get(index), range);
+                lowerDesignatedAt(elementAddress, arrayType.elementType(), value, 1, range);
+                index++;
             }
             return;
         }
 
         MiniType.StructType structType = (MiniType.StructType) aggregateType;
         String structName = structType.name();
-        for (int i = 0; i < initializer.values().size(); i++) {
+        int i = 0;
+        for (Expression value : initializer.values()) {
+            if (value instanceof DesignatedInitExpr designated
+                    && designated.designators().getFirst() instanceof Designator.Field selected) {
+                var selectedField = builder.fieldLayout(structName, selected.name());
+                for (int index = 0; ; index++) {
+                    if (builder.fieldLayout(structName, index).name().equals(selectedField.name())) { i = index; break; }
+                }
+            }
             var field = builder.fieldLayout(structName, i);
             IrTemporary fieldAddr = builder.newTemporary(IrType.POINTER);
             builder.addInstruction(new IrFieldAddressInstruction(
@@ -407,8 +428,37 @@ final class StatementLowerer {
                     field.type(),
                     range
             ));
-            lowerInitializerAt(fieldAddr, field.type(), initializer.values().get(i), range);
+            lowerDesignatedAt(fieldAddr, field.type(), value, 1, range);
+            i++;
         }
+    }
+
+    private void lowerDesignatedAt(IrValue address, MiniType targetType, Expression initializer,
+                                   int consumed, minic.source.SourceRange range) {
+        if (!(initializer instanceof DesignatedInitExpr designated)) {
+            lowerInitializerAt(address, targetType, initializer, range);
+            return;
+        }
+        IrValue currentAddress = address;
+        MiniType currentType = targetType;
+        for (int index = consumed; index < designated.designators().size(); index++) {
+            Designator designator = designated.designators().get(index);
+            if (designator instanceof Designator.Index arrayIndex && currentType instanceof MiniType.ArrayType array) {
+                IrTemporary nested = builder.newTemporary(IrType.POINTER);
+                builder.addInstruction(new IrElementAddressInstruction(nested, currentAddress,
+                        new IrConstant(arrayIndex.index()), array.elementType(), builder.sizeOf(array.elementType()), range));
+                currentAddress = nested;
+                currentType = array.elementType();
+            } else if (designator instanceof Designator.Field field && currentType instanceof MiniType.StructType struct) {
+                var layout = builder.fieldLayout(struct.name(), field.name());
+                IrTemporary nested = builder.newTemporary(IrType.POINTER);
+                builder.addInstruction(new IrFieldAddressInstruction(nested, currentAddress, struct.name(),
+                        layout.name(), layout.offset(), layout.type(), range));
+                currentAddress = nested;
+                currentType = layout.type();
+            }
+        }
+        lowerInitializerAt(currentAddress, currentType, designated.value(), range);
     }
 
     private void lowerInitializerAt(

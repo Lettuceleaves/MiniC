@@ -1,10 +1,12 @@
 package minic.debug;
 
 import minic.compiler.SourceFile;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+@Tag("stdlib-debug")
 final class DebugSystemLibraryParityTest {
     @Test
     void interpretsTheSystemLibraryAcceptanceProgram() {

@@ -1,6 +1,10 @@
 package minic.compiler.link;
 
 import minic.compiler.SourceFile;
+import minic.compiler.library.LibraryBinding;
+import minic.compiler.library.LibrarySymbol;
+import minic.compiler.link.pe.PeImage;
+import minic.compiler.link.pe.WindowsPeLinker;
 import minic.session.CompileObservationSession;
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +18,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class PeImportIntegrationTest {
@@ -71,7 +76,119 @@ final class PeImportIntegrationTest {
                 .anyMatch(diagnostic -> diagnostic.message().contains("undefined symbol: unavailable_system_call")));
     }
 
-    private static Map<String, Set<String>> readImports(byte[] image) {
+    @Test
+    void importsTheNativeExportNameWhileRelocationsKeepTheSourceName() {
+        CompileObservationSession session = compiledMinimalProgram();
+        LibraryBinding aliasedExit = binding(
+                "ExitProcess",
+                "KERNEL32.dll",
+                "NativeExitAlias",
+                LibrarySymbol.SymbolKind.FUNCTION,
+                LibraryBinding.NativeKind.DLL_IMPORT
+        );
+        LibraryBinding unused = binding(
+                "unused_source_symbol",
+                "example.dll",
+                "UnusedNativeExport",
+                LibrarySymbol.SymbolKind.FUNCTION,
+                LibraryBinding.NativeKind.DLL_IMPORT
+        );
+
+        PeImage image = new WindowsPeLinker().link(
+                session.objBuilder().result().objectFile(),
+                session.objBuilder().result().entrySymbol(),
+                Map.of(aliasedExit.sourceName(), aliasedExit, unused.sourceName(), unused)
+        );
+
+        Map<String, Set<String>> imports = readImports(image.bytes());
+        assertEquals(Map.of("KERNEL32.dll", Set.of("NativeExitAlias")), imports);
+        assertFalse(imports.containsKey("example.dll"), "unused bindings must not create an import descriptor");
+    }
+
+    @Test
+    void rejectsReferencedBindingsThatThePeLinkerCannotImplement() {
+        CompileObservationSession session = compiledMinimalProgram();
+        LibraryBinding dataBinding = binding(
+                "ExitProcess",
+                "KERNEL32.dll",
+                "ExitProcess",
+                LibrarySymbol.SymbolKind.DATA,
+                LibraryBinding.NativeKind.DLL_IMPORT
+        );
+
+        UnsupportedOperationException exception = assertThrows(
+                UnsupportedOperationException.class,
+                () -> new WindowsPeLinker().link(
+                        session.objBuilder().result().objectFile(),
+                        session.objBuilder().result().entrySymbol(),
+                        Map.of(dataBinding.sourceName(), dataBinding)
+                )
+        );
+        assertTrue(exception.getMessage().contains("unsupported imported symbol kind"));
+
+        LibraryBinding staticWrapper = binding(
+                "ExitProcess",
+                "KERNEL32.dll",
+                "ExitProcess",
+                LibrarySymbol.SymbolKind.FUNCTION,
+                LibraryBinding.NativeKind.STATIC_WRAPPER
+        );
+        UnsupportedOperationException nativeKindException = assertThrows(
+                UnsupportedOperationException.class,
+                () -> new WindowsPeLinker().link(
+                        session.objBuilder().result().objectFile(),
+                        session.objBuilder().result().entrySymbol(),
+                        Map.of(staticWrapper.sourceName(), staticWrapper)
+                )
+        );
+        assertTrue(nativeKindException.getMessage().contains("unsupported native binding kind"));
+
+        LibraryBinding mismatched = binding(
+                "different_source_name",
+                "KERNEL32.dll",
+                "ExitProcess",
+                LibrarySymbol.SymbolKind.FUNCTION,
+                LibraryBinding.NativeKind.DLL_IMPORT
+        );
+        IllegalArgumentException mismatchException = assertThrows(
+                IllegalArgumentException.class,
+                () -> new WindowsPeLinker().link(
+                        session.objBuilder().result().objectFile(),
+                        session.objBuilder().result().entrySymbol(),
+                        Map.of("ExitProcess", mismatched)
+                )
+        );
+        assertTrue(mismatchException.getMessage().contains("does not match source symbol"));
+    }
+
+    private static CompileObservationSession compiledMinimalProgram() {
+        CompileObservationSession session = CompileObservationSession.fromSource(
+                new SourceFile("minimal-import.mc", "int main() { return 0; }")
+        );
+        session.compilerApi().run();
+        assertTrue(session.objBuilder().succeeded(), () -> session.objBuilder().diagnostics().toString());
+        return session;
+    }
+
+    private static LibraryBinding binding(
+            String sourceName,
+            String dllName,
+            String exportName,
+            LibrarySymbol.SymbolKind symbolKind,
+            LibraryBinding.NativeKind nativeKind
+    ) {
+        return new LibraryBinding(
+                sourceName,
+                dllName,
+                exportName,
+                symbolKind,
+                LibraryBinding.RuntimeFamily.WINDOWS,
+                LibraryBinding.NativeCallingConvention.WINDOWS_X64,
+                nativeKind
+        );
+    }
+
+    static Map<String, Set<String>> readImports(byte[] image) {
         ByteBuffer bytes = ByteBuffer.wrap(image).order(ByteOrder.LITTLE_ENDIAN);
         int pe = bytes.getInt(0x3c);
         int sectionCount = Short.toUnsignedInt(bytes.getShort(pe + 6));

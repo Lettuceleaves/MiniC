@@ -76,13 +76,10 @@ final class ValueEmitter {
                     .append(System.lineSeparator());
             return;
         }
-        if (type == IrType.BOOL && !isByteRegister(register)) {
-            builder.append("    movzx ").append(intRegister(register)).append(", ").append(slot)
-                    .append(System.lineSeparator());
-            return;
-        }
-        if (type == IrType.CHAR && !isByteRegister(register)) {
-            builder.append("    movsx ").append(intRegister(register)).append(", ").append(slot)
+        if (type.isIntegerScalar() && type.sizeBytes() < Integer.BYTES
+                && !isNarrowRegister(register, type.sizeBytes())) {
+            builder.append(type.isSignedInteger() ? "    movsx " : "    movzx ")
+                    .append(intRegister(register)).append(", ").append(slot)
                     .append(System.lineSeparator());
             return;
         }
@@ -114,12 +111,11 @@ final class ValueEmitter {
     }
 
     private String registerForType(String register, IrType type) {
-        return switch (type) {
-            case BOOL, CHAR -> byteRegister(register);
-            case LONG, POINTER -> pointerRegister(register);
-            case FLOAT, DOUBLE -> floatRegister(register);
-            case INT -> intRegister(register);
-        };
+        if (type.isFloatingScalar()) return floatRegister(register);
+        if (type == IrType.POINTER || type.sizeBytes() == 8) return pointerRegister(register);
+        if (type.sizeBytes() == 1) return byteRegister(register);
+        if (type.sizeBytes() == 2) return wordRegister(register);
+        return intRegister(register);
     }
 
     private String intRegister(String register) {
@@ -140,6 +136,17 @@ final class ValueEmitter {
             case "rdx" -> "dl";
             case "r8" -> "r8b";
             case "r9" -> "r9b";
+            default -> register;
+        };
+    }
+
+    private String wordRegister(String register) {
+        return switch (pointerRegister(register)) {
+            case "rax" -> "ax";
+            case "rcx" -> "cx";
+            case "rdx" -> "dx";
+            case "r8" -> "r8w";
+            case "r9" -> "r9w";
             default -> register;
         };
     }
@@ -165,10 +172,12 @@ final class ValueEmitter {
     }
 
     String memoryPrefix(IrType type) {
-        return switch (type) {
-            case BOOL, CHAR -> "BYTE PTR";
-            case LONG, POINTER, DOUBLE -> "QWORD PTR";
-            case INT, FLOAT -> "DWORD PTR";
+        return switch (type.sizeBytes()) {
+            case 1 -> "BYTE PTR";
+            case 2 -> "WORD PTR";
+            case 4 -> "DWORD PTR";
+            case 8 -> "QWORD PTR";
+            default -> throw new IllegalArgumentException("unsupported IR type size: " + type);
         };
     }
 
@@ -180,7 +189,7 @@ final class ValueEmitter {
         if (type.isFloatingScalar()) {
             return floatRegister(preferredRegister);
         }
-        if (type == IrType.LONG) {
+        if (type == IrType.POINTER || type.sizeBytes() == 8) {
             return pointerRegister(preferredRegister);
         }
         return intRegister(preferredRegister);
@@ -202,5 +211,16 @@ final class ValueEmitter {
             case "al", "cl", "dl", "r8b", "r9b" -> true;
             default -> false;
         };
+    }
+
+    private boolean isWordRegister(String register) {
+        return switch (register) {
+            case "ax", "cx", "dx", "r8w", "r9w" -> true;
+            default -> false;
+        };
+    }
+
+    private boolean isNarrowRegister(String register, int sizeBytes) {
+        return sizeBytes == 1 ? isByteRegister(register) : sizeBytes == 2 && isWordRegister(register);
     }
 }

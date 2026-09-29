@@ -4,17 +4,19 @@ import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
 import minic.session.CompileObservationSession;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class VariadicCallingConventionTest {
     @Test
+    @Tag("stdlib-abi")
     void appliesDefaultPromotionsAndDuplicatesFloatingRegisterArguments() {
         String source = """
                 #include "stdio.mh"
                 int main() {
-                    long big = 5000000000L;
+                    long long big = 5000000000LL;
                     float ratio = 1.5f;
                     char tag = 'A';
                     int printed = printf("%I64d %.1f %d %s\\n", big, ratio, tag, "ok");

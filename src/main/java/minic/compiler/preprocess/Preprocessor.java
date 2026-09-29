@@ -129,11 +129,17 @@ public final class Preprocessor extends Stage {
             return sourceFile.range(content.length(), content.length());
         }
 
-        int currentLineStart = lineStart;
+        LogicalLine logicalLine = readLogicalLine(sourceFile, lineStart);
+        int currentLineStart = logicalLine.startOffset();
         int beforeDiagnostics = work.diagnostics.size();
-        int lineEnd = content.indexOf('\n', currentLineStart);
-        int nextLineStart = lineEnd < 0 ? content.length() : lineEnd + 1;
-        String line = content.substring(currentLineStart, lineEnd < 0 ? content.length() : lineEnd);
+        if (logicalLine.danglingContinuation()) {
+            work.diagnostics.add(diagnostic(
+                    sourceFile,
+                    Math.max(currentLineStart, logicalLine.endOffset() - 1),
+                    logicalLine.endOffset(),
+                    "反斜杠续行缺少下一行"
+            ));
+        }
         currentOperation = processLine(
                 sourceFile,
                 currentDirectory,
@@ -141,14 +147,16 @@ public final class Preprocessor extends Stage {
                 work,
                 output,
                 currentLineStart,
-                nextLineStart,
-                line,
+                logicalLine.endOffset(),
+                logicalLine.directiveText(),
+                logicalLine.outputText(),
+                logicalLine.sourceOffsets(),
                 true
         );
-        lineStart = nextLineStart;
+        lineStart = logicalLine.endOffset();
         captureDiagnostic(beforeDiagnostics);
         stepCount++;
-        return sourceFile.range(currentLineStart, nextLineStart);
+        return sourceFile.range(currentLineStart, logicalLine.endOffset());
     }
 
     /** @return 当前是否还可以执行下一步 */
@@ -217,9 +225,15 @@ public final class Preprocessor extends Stage {
         int nestedLineStart = 0;
         String content = sourceFile.content();
         while (nestedLineStart < content.length()) {
-            int lineEnd = content.indexOf('\n', nestedLineStart);
-            int nextLineStart = lineEnd < 0 ? content.length() : lineEnd + 1;
-            String line = content.substring(nestedLineStart, lineEnd < 0 ? content.length() : lineEnd);
+            LogicalLine logicalLine = readLogicalLine(sourceFile, nestedLineStart);
+            if (logicalLine.danglingContinuation()) {
+                work.diagnostics.add(diagnostic(
+                        sourceFile,
+                        Math.max(nestedLineStart, logicalLine.endOffset() - 1),
+                        logicalLine.endOffset(),
+                        "反斜杠续行缺少下一行"
+                ));
+            }
             processLine(
                     sourceFile,
                     currentDirectory,
@@ -227,11 +241,13 @@ public final class Preprocessor extends Stage {
                     work,
                     output,
                     nestedLineStart,
-                    nextLineStart,
-                    line,
+                    logicalLine.endOffset(),
+                    logicalLine.directiveText(),
+                    logicalLine.outputText(),
+                    logicalLine.sourceOffsets(),
                     mapToThisSource
             );
-            nestedLineStart = nextLineStart;
+            nestedLineStart = logicalLine.endOffset();
         }
         conditionalCompilationManager.closeUnterminatedConditions(work, initialDepth);
     }
@@ -244,10 +260,13 @@ public final class Preprocessor extends Stage {
             StringBuilder output,
             int lineStart,
             int nextLineStart,
-            String line,
+            String directiveLine,
+            String outputLine,
+            int[] sourceOffsets,
             boolean mapToThisSource
     ) {
-        if (conditionalCompilationManager.handleDirective(sourceFile, work, lineStart, nextLineStart, line)) {
+        if (conditionalCompilationManager.handleDirective(
+                sourceFile, work, lineStart, nextLineStart, directiveLine, textReplacementManager)) {
             return "CONDITIONAL_COMPILATION";
         }
         if (!conditionalCompilationManager.isActive(work)) {
@@ -261,19 +280,20 @@ public final class Preprocessor extends Stage {
                 output,
                 lineStart,
                 nextLineStart,
-                line,
+                directiveLine,
                 mapToThisSource
         )) {
             return "INCLUDE";
         }
-        if (textReplacementManager.handleDirective(sourceFile, work, lineStart, nextLineStart, line)) {
+        if (textReplacementManager.handleDirective(sourceFile, work, lineStart, nextLineStart, directiveLine)) {
             return "TEXT_REPLACEMENT_DIRECTIVE";
         }
         textReplacementManager.appendExpandedLine(
                 output,
                 work,
-                sourceFile.content().substring(lineStart, nextLineStart),
-                lineStart,
+                sourceFile,
+                outputLine,
+                sourceOffsets,
                 mapToThisSource
         );
         return "TEXT_REPLACEMENT";
@@ -311,6 +331,72 @@ public final class Preprocessor extends Stage {
         return parent.toAbsolutePath().normalize();
     }
 
+    /** Translation phase 2: delete every backslash-newline pair before directive handling. */
+    private LogicalLine readLogicalLine(SourceFile sourceFile, int startOffset) {
+        String content = sourceFile.content();
+        StringBuilder text = new StringBuilder();
+        ArrayList<Integer> offsets = new ArrayList<>();
+        int cursor = startOffset;
+        int directiveLength;
+        int endOffset;
+        boolean danglingContinuation = false;
+
+        while (true) {
+            int newlineOffset = content.indexOf('\n', cursor);
+            int physicalEnd = newlineOffset < 0 ? content.length() : newlineOffset;
+            int bodyEnd = physicalEnd;
+            if (newlineOffset >= 0 && bodyEnd > cursor && content.charAt(bodyEnd - 1) == '\r') {
+                bodyEnd--;
+            }
+            boolean continued = newlineOffset >= 0
+                    && bodyEnd > cursor
+                    && content.charAt(bodyEnd - 1) == '\\';
+            int retainedEnd = continued ? bodyEnd - 1 : bodyEnd;
+            appendOriginal(text, offsets, content, cursor, retainedEnd);
+
+            if (continued) {
+                cursor = newlineOffset + 1;
+                continue;
+            }
+
+            directiveLength = text.length();
+            if (newlineOffset >= 0) {
+                appendOriginal(text, offsets, content, bodyEnd, newlineOffset + 1);
+                endOffset = newlineOffset + 1;
+            } else {
+                endOffset = content.length();
+                danglingContinuation = bodyEnd > cursor && content.charAt(bodyEnd - 1) == '\\';
+            }
+            break;
+        }
+
+        int[] sourceOffsets = new int[offsets.size()];
+        for (int index = 0; index < offsets.size(); index++) {
+            sourceOffsets[index] = offsets.get(index);
+        }
+        return new LogicalLine(
+                startOffset,
+                endOffset,
+                text.substring(0, directiveLength),
+                text.toString(),
+                sourceOffsets,
+                danglingContinuation
+        );
+    }
+
+    private void appendOriginal(
+            StringBuilder target,
+            List<Integer> offsets,
+            String content,
+            int startOffset,
+            int endOffset
+    ) {
+        for (int offset = startOffset; offset < endOffset; offset++) {
+            target.append(content.charAt(offset));
+            offsets.add(offset);
+        }
+    }
+
     static Diagnostic diagnostic(SourceFile sourceFile, int startOffset, int endOffset, String message) {
         return new Diagnostic(
                 "PRE001",
@@ -340,6 +426,16 @@ public final class Preprocessor extends Stage {
             }
             return result;
         }
+    }
+
+    private record LogicalLine(
+            int startOffset,
+            int endOffset,
+            String directiveText,
+            String outputText,
+            int[] sourceOffsets,
+            boolean danglingContinuation
+    ) {
     }
 
     /**

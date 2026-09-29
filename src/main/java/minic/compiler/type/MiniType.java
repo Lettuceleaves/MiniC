@@ -32,15 +32,31 @@ public sealed interface MiniType permits
      */
     MiniType CHAR = new ScalarType(ScalarKind.CHAR);
 
+    MiniType SIGNED_CHAR = new ScalarType(ScalarKind.SIGNED_CHAR);
+
+    MiniType UNSIGNED_CHAR = new ScalarType(ScalarKind.UNSIGNED_CHAR);
+
+    MiniType SHORT = new ScalarType(ScalarKind.SHORT);
+
+    MiniType UNSIGNED_SHORT = new ScalarType(ScalarKind.UNSIGNED_SHORT);
+
     /**
      * MiniC int 类型。
      */
     MiniType INT = new ScalarType(ScalarKind.INT);
 
+    MiniType UNSIGNED_INT = new ScalarType(ScalarKind.UNSIGNED_INT);
+
     /**
      * MiniC long 类型。
      */
     MiniType LONG = new ScalarType(ScalarKind.LONG);
+
+    MiniType UNSIGNED_LONG = new ScalarType(ScalarKind.UNSIGNED_LONG);
+
+    MiniType LONG_LONG = new ScalarType(ScalarKind.LONG_LONG);
+
+    MiniType UNSIGNED_LONG_LONG = new ScalarType(ScalarKind.UNSIGNED_LONG_LONG);
 
     /**
      * MiniC float 类型。
@@ -168,6 +184,21 @@ public sealed interface MiniType permits
         return this instanceof ScalarType scalarType && scalarType.kind().integer();
     }
 
+    /** @return 当前类型是否为有符号整数标量。 */
+    default boolean isSignedIntegerScalar() {
+        return this instanceof ScalarType scalarType
+                && scalarType.kind().integer()
+                && scalarType.kind().signed();
+    }
+
+    /** @return 当前类型是否为无符号整数标量（bool 除外）。 */
+    default boolean isUnsignedIntegerScalar() {
+        return this instanceof ScalarType scalarType
+                && scalarType.kind().integer()
+                && !scalarType.kind().signed()
+                && scalarType.kind() != ScalarKind.BOOL;
+    }
+
     /**
      * 判断当前类型是否为浮点标量。
      *
@@ -257,12 +288,20 @@ public sealed interface MiniType permits
     }
 
     enum ScalarKind {
-        BOOL("bool", 1, 1, false, true, false),
-        CHAR("char", 1, 1, true, true, false),
-        INT("int", 4, 4, true, true, false),
-        LONG("long", 8, 8, true, true, false),
-        FLOAT("float", 4, 4, true, false, true),
-        DOUBLE("double", 8, 8, true, false, true);
+        BOOL("bool", 1, 1, false, true, false, 0),
+        CHAR("char", 1, 1, true, true, false, 1),
+        SIGNED_CHAR("signed char", 1, 1, true, true, false, 1),
+        UNSIGNED_CHAR("unsigned char", 1, 1, false, true, false, 1),
+        SHORT("short", 2, 2, true, true, false, 2),
+        UNSIGNED_SHORT("unsigned short", 2, 2, false, true, false, 2),
+        INT("int", 4, 4, true, true, false, 3),
+        UNSIGNED_INT("unsigned int", 4, 4, false, true, false, 3),
+        LONG("long", 4, 4, true, true, false, 4),
+        UNSIGNED_LONG("unsigned long", 4, 4, false, true, false, 4),
+        LONG_LONG("long long", 8, 8, true, true, false, 5),
+        UNSIGNED_LONG_LONG("unsigned long long", 8, 8, false, true, false, 5),
+        FLOAT("float", 4, 4, true, false, true, -1),
+        DOUBLE("double", 8, 8, true, false, true, -1);
 
         private final String displayName;
         private final int sizeBytes;
@@ -270,6 +309,7 @@ public sealed interface MiniType permits
         private final boolean signed;
         private final boolean integer;
         private final boolean floating;
+        private final int integerRank;
 
         ScalarKind(
                 String displayName,
@@ -277,7 +317,8 @@ public sealed interface MiniType permits
                 int alignmentBytes,
                 boolean signed,
                 boolean integer,
-                boolean floating
+                boolean floating,
+                int integerRank
         ) {
             this.displayName = displayName;
             this.sizeBytes = sizeBytes;
@@ -285,6 +326,7 @@ public sealed interface MiniType permits
             this.signed = signed;
             this.integer = integer;
             this.floating = floating;
+            this.integerRank = integerRank;
         }
 
         public String displayName() {
@@ -309,6 +351,11 @@ public sealed interface MiniType permits
 
         public boolean floating() {
             return floating;
+        }
+
+        /** C 整数转换等级；非整数类型返回 -1。 */
+        public int integerRank() {
+            return integerRank;
         }
     }
 

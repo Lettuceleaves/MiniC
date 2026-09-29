@@ -10,6 +10,7 @@ import java.util.*;
 
 /** 解释器的可变运行空间；历史状态由 Debugger 保存为不可变 RuntimeState。 */
 public final class DebugRuntime {
+    private static final int STRERROR_BUFFER_SIZE = 256;
     private final DebugProgram code;
     final ArrayList<Frame> stack = new ArrayList<>();
     private final NavigableMap<Long, Allocation> memory = new TreeMap<>();
@@ -19,6 +20,13 @@ public final class DebugRuntime {
     private final String input;
     private int inputOffset;
     final StringBuilder output = new StringBuilder();
+    final StringBuilder errorOutput = new StringBuilder();
+    private int errno;
+    private long randomState = 1;
+    private long strtokCursor;
+    private long strerrorPointer;
+    private String strerrorMessage = "";
+    private TerminationState termination = new TerminationState(TerminationKind.RUNNING, null, "");
     Value returnValue;
 
     DebugRuntime(DebugProgram code) {
@@ -49,6 +57,14 @@ public final class DebugRuntime {
 
     public DebugProgram code() { return code; }
     public String stdout() { return output.toString(); }
+    public String stderr() { return errorOutput.toString(); }
+    public int stdinCursor() { return inputOffset; }
+    public int errno() { return errno; }
+    public long randomState() { return randomState; }
+    public long strtokCursor() { return strtokCursor; }
+    public long strerrorPointer() { return strerrorPointer; }
+    public String strerrorMessage() { return strerrorMessage; }
+    public TerminationState termination() { return termination; }
     public Value returnValue() { return returnValue; }
 
     /** 返回只读的当前栈视图；地址随调用帧分配，递归调用不会共用局部变量。 */
@@ -59,10 +75,26 @@ public final class DebugRuntime {
 
     public List<MemoryBlock> heap() { return blocks("heap"); }
     public List<MemoryBlock> stackMemory() { return blocks("stack"); }
+    public List<MemoryBlock> libraryMemory() { return blocks("library"); }
 
     /** 将当前堆、栈和输出合成为一个与后续执行完全隔离的运行时对象。 */
     public RuntimeState snapshot() {
-        return new RuntimeState(stack(), stackMemory(), heap(), stdout(), returnValue());
+        return new RuntimeState(
+                stack(),
+                stackMemory(),
+                heap(),
+                libraryMemory(),
+                stdout(),
+                returnValue(),
+                stdinCursor(),
+                stderr(),
+                errno(),
+                randomState(),
+                strtokCursor(),
+                strerrorPointer(),
+                strerrorMessage(),
+                termination()
+        );
     }
 
     private List<MemoryBlock> blocks(String segment) {
@@ -115,8 +147,69 @@ public final class DebugRuntime {
         throw new IllegalStateException("String is not null terminated");
     }
 
+    int readUnsignedByte(long address) {
+        return (int) read(address, IrType.UNSIGNED_CHAR).integer();
+    }
+
+    void writeByte(long address, int value) {
+        write(address, Value.of(IrType.UNSIGNED_CHAR, value));
+    }
+
+    void fill(long address, int value, int size) {
+        if (size == 0) {
+            return;
+        }
+        Allocation allocation = allocation(address, size);
+        if (allocation.segment.equals("static")) {
+            throw new IllegalStateException("Write to read-only data");
+        }
+        int offset = (int) (address - allocation.address);
+        Arrays.fill(allocation.bytes, offset, offset + size, (byte) value);
+        allocation.initialized.set(offset, offset + size);
+    }
+
     void appendOutput(String text) {
         output.append(text);
+    }
+
+    void appendError(String text) {
+        errorOutput.append(text);
+    }
+
+    void setErrno(int value) {
+        errno = value;
+    }
+
+    void seedRandom(long seed) {
+        randomState = seed;
+    }
+
+    int nextRandom() {
+        randomState = (randomState * 1103515245 + 12345) & 0x7fff_ffffL;
+        return (int) ((randomState >>> 16) & 0x7fff);
+    }
+
+    void setStrtokCursor(long address) {
+        strtokCursor = address;
+    }
+
+    long setStrerrorMessage(String message) {
+        Objects.requireNonNull(message, "message");
+        byte[] bytes = (message + '\0').getBytes(StandardCharsets.UTF_8);
+        if (bytes.length > STRERROR_BUFFER_SIZE) {
+            throw new IllegalStateException("strerror message is too long");
+        }
+        Allocation allocation = strerrorPointer == 0 ? null : memory.get(strerrorPointer);
+        if (allocation == null) {
+            strerrorPointer = allocate(STRERROR_BUFFER_SIZE, 1, "library", "strerror");
+            allocation = memory.get(strerrorPointer);
+        }
+        Arrays.fill(allocation.bytes, (byte) 0);
+        System.arraycopy(bytes, 0, allocation.bytes, 0, bytes.length);
+        allocation.initialized.clear();
+        allocation.initialized.set(0, allocation.bytes.length);
+        strerrorMessage = message;
+        return strerrorPointer;
     }
 
     void skipInputWhitespace() {
@@ -157,12 +250,18 @@ public final class DebugRuntime {
             throw new IllegalStateException("Read of uninitialized memory: " + allocation.label);
         ByteBuffer buffer = ByteBuffer.wrap(allocation.bytes).order(ByteOrder.LITTLE_ENDIAN);
         return switch (type) {
-            case BOOL, CHAR -> Value.of(type, buffer.get(offset));
-            case INT -> Value.of(type, buffer.getInt(offset));
-            case LONG, POINTER -> Value.of(type, buffer.getLong(offset));
+            case BOOL, CHAR, SIGNED_CHAR -> Value.of(type, buffer.get(offset));
+            case UNSIGNED_CHAR -> Value.of(type, Byte.toUnsignedInt(buffer.get(offset)));
+            case SHORT -> Value.of(type, buffer.getShort(offset));
+            case UNSIGNED_SHORT -> Value.of(type, Short.toUnsignedInt(buffer.getShort(offset)));
+            case INT, LONG -> Value.of(type, buffer.getInt(offset));
+            case UNSIGNED_INT, UNSIGNED_LONG -> Value.of(
+                    type,
+                    Integer.toUnsignedLong(buffer.getInt(offset))
+            );
+            case LONG_LONG, UNSIGNED_LONG_LONG, POINTER -> Value.of(type, buffer.getLong(offset));
             case FLOAT -> Value.of(type, buffer.getFloat(offset));
             case DOUBLE -> Value.of(type, buffer.getDouble(offset));
-            default -> throw new IllegalStateException("Aggregate must be accessed by address");
         };
     }
 
@@ -172,12 +271,15 @@ public final class DebugRuntime {
         int offset = (int) (address - allocation.address);
         ByteBuffer buffer = ByteBuffer.wrap(allocation.bytes).order(ByteOrder.LITTLE_ENDIAN);
         switch (value.type) {
-            case BOOL, CHAR -> buffer.put(offset, (byte) value.integer());
-            case INT -> buffer.putInt(offset, (int) value.integer());
-            case LONG, POINTER -> buffer.putLong(offset, value.integer());
+            case BOOL, CHAR, SIGNED_CHAR, UNSIGNED_CHAR ->
+                    buffer.put(offset, (byte) value.integer());
+            case SHORT, UNSIGNED_SHORT -> buffer.putShort(offset, (short) value.integer());
+            case INT, UNSIGNED_INT, LONG, UNSIGNED_LONG ->
+                    buffer.putInt(offset, (int) value.integer());
+            case LONG_LONG, UNSIGNED_LONG_LONG, POINTER ->
+                    buffer.putLong(offset, value.integer());
             case FLOAT -> buffer.putFloat(offset, (float) value.real());
             case DOUBLE -> buffer.putDouble(offset, value.real());
-            default -> throw new IllegalStateException("Aggregate must be copied by address");
         }
         allocation.initialized.set(offset, offset + value.type.sizeBytes());
     }
@@ -214,13 +316,27 @@ public final class DebugRuntime {
     void pop(Value value) {
         Frame frame = stack.removeLast();
         frame.locals.values().forEach(memory::remove);
-        if (stack.isEmpty()) returnValue = value;
-        else if (frame.target != null) {
+        if (stack.isEmpty()) {
+            returnValue = value;
+            int status = value == null ? 0 : (int) value.integer();
+            termination = new TerminationState(TerminationKind.RETURNED, status, "");
+        } else if (frame.target != null) {
             if (value == null) {
                 throw new IllegalStateException("Value-returning call completed without a value");
             }
             stack.getLast().temps.put(frame.target.name(), value.cast(frame.target.type()));
         }
+    }
+
+    void terminate(int status, String reason) {
+        stack.forEach(frame -> frame.locals.values().forEach(memory::remove));
+        stack.clear();
+        returnValue = Value.of(IrType.INT, status);
+        termination = new TerminationState(TerminationKind.EXITED, status, reason);
+    }
+
+    void fail(String message) {
+        termination = new TerminationState(TerminationKind.FAILED, null, message);
     }
 
     long local(Frame frame, IrLocal local) {
@@ -236,12 +352,16 @@ public final class DebugRuntime {
         static Value of(IrType type, Number number) {
             Number normalized = switch (type) {
                 case BOOL -> Long.valueOf(number.doubleValue() == 0 ? 0 : 1);
-                case CHAR -> Long.valueOf(number.byteValue());
-                case INT -> Long.valueOf(number.intValue());
-                case LONG, POINTER -> Long.valueOf(number.longValue());
+                case CHAR, SIGNED_CHAR -> Long.valueOf(number.byteValue());
+                case UNSIGNED_CHAR -> Long.valueOf(number.longValue() & 0xffL);
+                case SHORT -> Long.valueOf(number.shortValue());
+                case UNSIGNED_SHORT -> Long.valueOf(number.longValue() & 0xffffL);
+                case INT, LONG -> Long.valueOf(number.intValue());
+                case UNSIGNED_INT, UNSIGNED_LONG ->
+                        Long.valueOf(number.longValue() & 0xffff_ffffL);
+                case LONG_LONG, UNSIGNED_LONG_LONG, POINTER -> Long.valueOf(number.longValue());
                 case FLOAT -> Float.valueOf(number.floatValue());
                 case DOUBLE -> Double.valueOf(number.doubleValue());
-                default -> throw new IllegalStateException("Not a scalar value: " + type);
             };
             return new Value(type, normalized);
         }
@@ -256,13 +376,41 @@ public final class DebugRuntime {
             List<StackFrame> stack,
             List<MemoryBlock> stackMemory,
             List<MemoryBlock> heap,
+            List<MemoryBlock> libraryMemory,
             String stdout,
-            Value returnValue
+            Value returnValue,
+            int stdinCursor,
+            String stderr,
+            int errno,
+            long randomState,
+            long strtokCursor,
+            long strerrorPointer,
+            String strerrorMessage,
+            TerminationState termination
     ) {
         public RuntimeState {
             stack = List.copyOf(stack);
             stackMemory = List.copyOf(stackMemory);
             heap = List.copyOf(heap);
+            libraryMemory = List.copyOf(libraryMemory);
+            Objects.requireNonNull(stdout, "stdout");
+            Objects.requireNonNull(stderr, "stderr");
+            Objects.requireNonNull(strerrorMessage, "strerrorMessage");
+            Objects.requireNonNull(termination, "termination");
+        }
+    }
+
+    public enum TerminationKind {
+        RUNNING,
+        RETURNED,
+        EXITED,
+        FAILED
+    }
+
+    public record TerminationState(TerminationKind kind, Integer status, String detail) {
+        public TerminationState {
+            Objects.requireNonNull(kind, "kind");
+            Objects.requireNonNull(detail, "detail");
         }
     }
 

@@ -6,6 +6,8 @@ import minic.compiler.parser.node.Expression.BoolLiteralExpr;
 import minic.compiler.parser.node.Expression.CallExpr;
 import minic.compiler.parser.node.Expression.CharLiteralExpr;
 import minic.compiler.parser.node.Expression.ConditionalExpr;
+import minic.compiler.parser.node.Expression.CastExpr;
+import minic.compiler.parser.node.Expression.CommaExpr;
 import minic.compiler.parser.node.Expression.DoubleLiteralExpr;
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.Expression.FieldAccessExpr;
@@ -13,6 +15,7 @@ import minic.compiler.parser.node.Expression.FloatLiteralExpr;
 import minic.compiler.parser.node.Expression.GroupingExpr;
 import minic.compiler.parser.node.Expression.IndexExpr;
 import minic.compiler.parser.node.Expression.IntegerLiteralExpr;
+import minic.compiler.parser.node.Expression.IntegerConstantExpr;
 import minic.compiler.parser.node.Expression.LongLiteralExpr;
 import minic.compiler.parser.node.Expression.NameExpr;
 import minic.compiler.parser.node.Expression.NullLiteralExpr;
@@ -81,6 +84,9 @@ final class ExpressionLowerer {
         if (expression instanceof IntegerLiteralExpr integerLiteralExpr) {
             return new IrConstant(integerLiteralExpr.value());
         }
+        if (expression instanceof IntegerConstantExpr integerConstantExpr) {
+            return new IrConstant(integerConstantExpr.value(), IrTypeLowerer.lower(integerConstantExpr.type()));
+        }
         if (expression instanceof LongLiteralExpr longLiteralExpr) {
             return new IrConstant(longLiteralExpr.value(), IrType.LONG);
         }
@@ -95,6 +101,16 @@ final class ExpressionLowerer {
         }
         if (expression instanceof StringLiteralExpr stringLiteralExpr) {
             return stringLiteralRegistry.define(stringLiteralExpr.value());
+        }
+        if (expression instanceof CastExpr castExpr) {
+            IrValue operand = lowerExpression(castExpr.operand());
+            if (castExpr.targetType().isVoid()) return new IrConstant(0);
+            return castIfNeeded(operand, IrTypeLowerer.lower(castExpr.targetType()), castExpr.range());
+        }
+        if (expression instanceof CommaExpr commaExpr) {
+            IrValue result = new IrConstant(0);
+            for (Expression item : commaExpr.expressions()) result = lowerExpression(item);
+            return result;
         }
         if (expression instanceof NameExpr nameExpr) {
             MiniType nameType = expressionTypes.get(nameExpr);
@@ -165,7 +181,8 @@ final class ExpressionLowerer {
                 return pointerResult;
             }
             IrTemporary result = builder.newTemporary(irTypeOf(binaryExpr));
-            IrType operandType = arithmeticOperandType(left.type(), right.type(), result.type());
+            IrType operandType = arithmeticOperandType(
+                    left.type(), right.type(), result.type(), binaryExpr.operator());
             left = castIfNeeded(left, operandType, binaryExpr.left().range());
             right = castIfNeeded(right, operandType, binaryExpr.right().range());
             if (binaryExpr.operator() == TokenType.SLASH || binaryExpr.operator() == TokenType.PERCENT) {
@@ -187,7 +204,7 @@ final class ExpressionLowerer {
             MiniType queriedType = sizeofExpr.queriedTypeOptional()
                     .orElseGet(() -> expressionTypes.get(sizeofExpr.expressionOptional().orElseThrow()));
             int size = sizeOfType(queriedType);
-            return new IrConstant(size, IrType.LONG);
+            return new IrConstant(size, IrType.UNSIGNED_LONG_LONG);
         }
         if (expression instanceof CallExpr callExpr) {
             MiniType callResultType = expressionTypes.get(callExpr);
@@ -268,7 +285,7 @@ final class ExpressionLowerer {
             return pointerResult;
         }
         IrTemporary result = builder.newTemporary(irTypeOf(assignmentExpr));
-        IrType operandType = arithmeticOperandType(currentValue.type(), value.type(), result.type());
+        IrType operandType = arithmeticOperandType(currentValue.type(), value.type(), result.type(), binaryOperator);
         currentValue = castIfNeeded(currentValue, operandType, assignmentExpr.target().range());
         value = castIfNeeded(value, operandType, assignmentExpr.value().range());
         if (binaryOperator == TokenType.SLASH || binaryOperator == TokenType.PERCENT) {
@@ -386,14 +403,8 @@ final class ExpressionLowerer {
         if (type == IrType.POINTER) {
             return new IrConstant(0, IrType.POINTER);
         }
-        if (type == IrType.LONG) {
-            return new IrConstant(0, IrType.LONG);
-        }
-        if (type == IrType.BOOL) {
-            return new IrConstant(0, IrType.BOOL);
-        }
-        if (type == IrType.CHAR) {
-            return new IrConstant(0, IrType.CHAR);
+        if (type.isIntegerScalar()) {
+            return new IrConstant(0, type);
         }
         return new IrConstant(0);
     }
@@ -447,7 +458,7 @@ final class ExpressionLowerer {
                     ? sizeOfType(operandType.pointee())
                     : 1;
             IrConstant one = new IrConstant(amount, currentValue.type() == IrType.POINTER
-                    ? IrType.LONG
+                    ? IrType.LONG_LONG
                     : currentValue.type());
             IrTemporary updated = builder.newTemporary(currentValue.type());
             builder.addInstruction(new IrBinaryInstruction(
@@ -481,7 +492,7 @@ final class ExpressionLowerer {
         if (operator == TokenType.MINUS
                 && leftType != null && leftType.isPointer()
                 && rightType != null && rightType.isPointer()) {
-            IrTemporary byteDifference = builder.newTemporary(IrType.LONG);
+            IrTemporary byteDifference = builder.newTemporary(IrType.LONG_LONG);
             builder.addInstruction(new IrBinaryInstruction(
                     byteDifference,
                     minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.SUBTRACT,
@@ -493,12 +504,12 @@ final class ExpressionLowerer {
             if (stride == 1) {
                 return byteDifference;
             }
-            IrTemporary elementDifference = builder.newTemporary(IrType.LONG);
+            IrTemporary elementDifference = builder.newTemporary(IrType.LONG_LONG);
             builder.addInstruction(new IrBinaryInstruction(
                     elementDifference,
                     minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.DIVIDE,
                     byteDifference,
-                    new IrConstant(stride, IrType.LONG),
+                    new IrConstant(stride, IrType.LONG_LONG),
                     range
             ));
             return elementDifference;
@@ -530,16 +541,16 @@ final class ExpressionLowerer {
     }
 
     private IrValue scalePointerIndex(IrValue index, int stride, minic.source.SourceRange range) {
-        IrValue wideIndex = castIfNeeded(index, IrType.LONG, range);
+        IrValue wideIndex = castIfNeeded(index, IrType.LONG_LONG, range);
         if (stride == 1) {
             return wideIndex;
         }
-        IrTemporary scaled = builder.newTemporary(IrType.LONG);
+        IrTemporary scaled = builder.newTemporary(IrType.LONG_LONG);
         builder.addInstruction(new IrBinaryInstruction(
                 scaled,
                 minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.MULTIPLY,
                 wideIndex,
-                new IrConstant(stride, IrType.LONG),
+                new IrConstant(stride, IrType.LONG_LONG),
                 range
         ));
         return scaled;
@@ -646,6 +657,9 @@ final class ExpressionLowerer {
     }
 
     private IrValue lowerAddress(Expression expression) {
+        if (expression instanceof GroupingExpr groupingExpr) {
+            return lowerAddress(groupingExpr.expression());
+        }
         if (expression instanceof NameExpr nameExpr) {
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local == null) {
@@ -696,7 +710,12 @@ final class ExpressionLowerer {
                 : type;
     }
 
-    private IrType arithmeticOperandType(IrType leftType, IrType rightType, IrType resultType) {
+    private IrType arithmeticOperandType(
+            IrType leftType,
+            IrType rightType,
+            IrType resultType,
+            TokenType operator
+    ) {
         if (resultType.isFloatingScalar()) {
             return resultType;
         }
@@ -706,11 +725,57 @@ final class ExpressionLowerer {
             }
             return IrType.FLOAT;
         }
-        if (resultType == IrType.INT && (leftType == IrType.LONG || rightType == IrType.LONG
-                || leftType == IrType.POINTER || rightType == IrType.POINTER)) {
-            return IrType.LONG;
+        if (leftType == IrType.POINTER || rightType == IrType.POINTER) {
+            return IrType.UNSIGNED_LONG_LONG;
+        }
+        if (leftType.isIntegerScalar() && rightType.isIntegerScalar()) {
+            if (operator == TokenType.LESS_LESS || operator == TokenType.GREATER_GREATER) {
+                return integerPromotion(leftType);
+            }
+            return usualIntegerType(leftType, rightType);
         }
         return resultType;
+    }
+
+    private IrType usualIntegerType(IrType leftType, IrType rightType) {
+        leftType = integerPromotion(leftType);
+        rightType = integerPromotion(rightType);
+        if (leftType == rightType) return leftType;
+        if (leftType.isSignedInteger() == rightType.isSignedInteger()) {
+            return integerRank(leftType) >= integerRank(rightType) ? leftType : rightType;
+        }
+        IrType unsignedType = leftType.isUnsignedInteger() ? leftType : rightType;
+        IrType signedType = leftType.isSignedInteger() ? leftType : rightType;
+        if (integerRank(unsignedType) >= integerRank(signedType)) return unsignedType;
+        if (signedType.sizeBytes() > unsignedType.sizeBytes()) return signedType;
+        return unsignedCounterpart(signedType);
+    }
+
+    private IrType integerPromotion(IrType type) {
+        return integerRank(type) < integerRank(IrType.INT) ? IrType.INT : type;
+    }
+
+    private int integerRank(IrType type) {
+        return switch (type) {
+            case BOOL -> 0;
+            case CHAR, SIGNED_CHAR, UNSIGNED_CHAR -> 1;
+            case SHORT, UNSIGNED_SHORT -> 2;
+            case INT, UNSIGNED_INT -> 3;
+            case LONG, UNSIGNED_LONG -> 4;
+            case LONG_LONG, UNSIGNED_LONG_LONG -> 5;
+            default -> throw new IllegalArgumentException("not an integer type: " + type);
+        };
+    }
+
+    private IrType unsignedCounterpart(IrType type) {
+        return switch (type) {
+            case CHAR, SIGNED_CHAR -> IrType.UNSIGNED_CHAR;
+            case SHORT -> IrType.UNSIGNED_SHORT;
+            case INT -> IrType.UNSIGNED_INT;
+            case LONG -> IrType.UNSIGNED_LONG;
+            case LONG_LONG -> IrType.UNSIGNED_LONG_LONG;
+            default -> type;
+        };
     }
 
     private IrValue castIfNeeded(IrValue value, IrType targetType, minic.source.SourceRange range) {
@@ -792,7 +857,7 @@ final class ExpressionLowerer {
 
     private IrType defaultArgumentPromotion(IrType type) {
         return switch (type) {
-            case BOOL, CHAR -> IrType.INT;
+            case BOOL, CHAR, SIGNED_CHAR, UNSIGNED_CHAR, SHORT, UNSIGNED_SHORT -> IrType.INT;
             case FLOAT -> IrType.DOUBLE;
             default -> type;
         };

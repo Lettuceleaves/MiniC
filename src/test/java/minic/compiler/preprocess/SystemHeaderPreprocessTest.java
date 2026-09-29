@@ -2,12 +2,14 @@ package minic.compiler.preprocess;
 
 import minic.compiler.SourceFile;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class SystemHeaderPreprocessTest {
     @Test
+    @Tag("stdlib-contract")
     void expandsBuiltInHeadersAndFunctionLikeMinMacro() {
         String source = """
                 #include "stdlib.mh"
@@ -22,7 +24,7 @@ final class SystemHeaderPreprocessTest {
         PreprocessResult result = new Preprocessor().preprocess(new SourceFile("system-library.mc", source));
 
         assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
-        assertTrue(result.sourceFile().content().contains("extern void *malloc(long size);"));
+        assertTrue(result.sourceFile().content().contains("extern void *malloc(unsigned long long size);"));
         assertTrue(result.sourceFile().content().contains("extern int printf(char *format, ...);"));
         assertTrue(result.sourceFile().content().contains("(((abs(-7)) < (4)) ? (abs(-7)) : (4))"));
         assertEquals(3, result.includes().size());

@@ -8,6 +8,8 @@ import minic.compiler.parser.node.Expression.BoolLiteralExpr;
 import minic.compiler.parser.node.Expression.CallExpr;
 import minic.compiler.parser.node.Expression.CharLiteralExpr;
 import minic.compiler.parser.node.Expression.ConditionalExpr;
+import minic.compiler.parser.node.Expression.CastExpr;
+import minic.compiler.parser.node.Expression.CommaExpr;
 import minic.compiler.parser.node.Expression.DoubleLiteralExpr;
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.Expression.FieldAccessExpr;
@@ -15,6 +17,7 @@ import minic.compiler.parser.node.Expression.FloatLiteralExpr;
 import minic.compiler.parser.node.Expression.GroupingExpr;
 import minic.compiler.parser.node.Expression.IndexExpr;
 import minic.compiler.parser.node.Expression.IntegerLiteralExpr;
+import minic.compiler.parser.node.Expression.IntegerConstantExpr;
 import minic.compiler.parser.node.Expression.LongLiteralExpr;
 import minic.compiler.parser.node.Expression.NameExpr;
 import minic.compiler.parser.node.Expression.NullLiteralExpr;
@@ -23,26 +26,54 @@ import minic.compiler.parser.node.Expression.StringLiteralExpr;
 import minic.compiler.parser.node.Expression.UnaryExpr;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
+import minic.compiler.lexer.token.Token.IntegerLiteralKind;
+import minic.compiler.lexer.token.Token.IntegerLiteralValue;
 import minic.source.SourceRange;
+import minic.compiler.type.MiniType;
 
 import java.util.ArrayList;
 
 public final class ExpressionManager {
     private final Parser.Context state;
     private final Parser.TypeReader typeReader;
+    private final java.util.Map<String, Long> enumConstants;
 
     public ExpressionManager(Parser.Context state, Parser.TypeReader typeReader) {
+        this(state, typeReader, java.util.Map.of());
+    }
+
+    public ExpressionManager(Parser.Context state, Parser.TypeReader typeReader,
+                             java.util.Map<String, Long> enumConstants) {
         this.state = state;
         this.typeReader = typeReader;
+        this.enumConstants = enumConstants;
     }
 
     public Expression parseExpression() {
         state.enter("expression");
         Expression expression = parseAssignment();
+        if (expression != null && state.match(TokenType.COMMA)) {
+            ArrayList<Expression> expressions = new ArrayList<>();
+            expressions.add(expression);
+            do {
+                Expression next = parseAssignment();
+                if (next != null) expressions.add(next);
+            } while (state.match(TokenType.COMMA));
+            if (expressions.size() > 1) {
+                expression = new CommaExpr(expressions,
+                        SourceRange.span(expressions.getFirst().range(), expressions.getLast().range()));
+                state.build(expression, "CommaExpr", expression.range());
+            }
+        }
         if (expression != null) {
             state.exit("expression", expression.range());
         }
         return expression;
+    }
+
+    /** Parse an assignment-expression where comma is a surrounding-list separator. */
+    public Expression parseAssignmentExpression() {
+        return parseAssignment();
     }
 
     private Expression parseAssignment() {
@@ -199,13 +230,27 @@ public final class ExpressionManager {
     }
 
     private Expression parseMultiplicative() {
-        Expression expression = parseUnary();
+        Expression expression = parseCast();
         while (state.match(TokenType.STAR) || state.match(TokenType.SLASH) || state.match(TokenType.PERCENT)) {
             Token operator = state.previous();
-            Expression right = parseUnary();
+            Expression right = parseCast();
             expression = combineBinary(expression, operator, right);
         }
         return expression;
+    }
+
+    private Expression parseCast() {
+        if (state.check(TokenType.LEFT_PAREN) && typeReader.canStartTypeAt(1)) {
+            Token start = state.advance();
+            Parser.ParsedType target = typeReader.parseType("期望转换目标类型");
+            Token close = state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
+            Expression operand = parseCast();
+            if (target == null || close == null || operand == null) return operand;
+            CastExpr cast = new CastExpr(target.type(), operand, SourceRange.span(start.range(), operand.range()));
+            state.build(cast, "CastExpr " + target.type(), cast.range());
+            return cast;
+        }
+        return parseUnary();
     }
 
     private Expression parseUnary() {
@@ -345,6 +390,12 @@ public final class ExpressionManager {
     private Expression parsePrimary() {
         if (state.match(TokenType.INTEGER_LITERAL)) {
             Token integerToken = state.previous();
+            if (integerToken.literalValue() instanceof IntegerLiteralValue literal) {
+                IntegerConstantExpr expr = new IntegerConstantExpr(
+                        literal.value(), literalType(literal.kind()), integerToken.lexeme(), integerToken.range());
+                state.build(expr, "IntegerConstantExpr " + expr.value(), expr.range());
+                return expr;
+            }
             IntegerLiteralExpr expr = new IntegerLiteralExpr(
                     (Integer) integerToken.literalValue(),
                     integerToken.lexeme(),
@@ -355,6 +406,12 @@ public final class ExpressionManager {
         }
         if (state.match(TokenType.LONG_LITERAL)) {
             Token longToken = state.previous();
+            if (longToken.literalValue() instanceof IntegerLiteralValue literal) {
+                IntegerConstantExpr expr = new IntegerConstantExpr(
+                        literal.value(), literalType(literal.kind()), longToken.lexeme(), longToken.range());
+                state.build(expr, "IntegerConstantExpr " + expr.value(), expr.range());
+                return expr;
+            }
             LongLiteralExpr expr = new LongLiteralExpr(
                     (Long) longToken.literalValue(),
                     longToken.lexeme(),
@@ -421,6 +478,13 @@ public final class ExpressionManager {
         }
         if (state.match(TokenType.IDENTIFIER)) {
             Token nameToken = state.previous();
+            Long enumValue = enumConstants.get(nameToken.lexeme());
+            if (enumValue != null) {
+                IntegerConstantExpr expr = new IntegerConstantExpr(enumValue, MiniType.INT,
+                        nameToken.lexeme(), nameToken.range());
+                state.build(expr, "EnumConstantExpr " + nameToken.lexeme(), expr.range());
+                return expr;
+            }
             NameExpr expr = new NameExpr(nameToken.lexeme(), nameToken.range());
             state.build(expr, "NameExpr " + expr.name(), expr.range());
             return expr;
@@ -451,7 +515,7 @@ public final class ExpressionManager {
         ArrayList<Expression> arguments = new ArrayList<>();
         if (!state.check(TokenType.RIGHT_PAREN)) {
             do {
-                Expression argument = parseExpression();
+                Expression argument = parseAssignment();
                 if (argument != null) {
                     arguments.add(argument);
                 }
@@ -481,6 +545,16 @@ public final class ExpressionManager {
                 right,
                 SourceRange.span(left.range(), right.range())
         ));
+    }
+
+    private MiniType literalType(IntegerLiteralKind kind) {
+        return switch (kind) {
+            case LONG -> MiniType.LONG;
+            case UNSIGNED_INT -> MiniType.UNSIGNED_INT;
+            case UNSIGNED_LONG -> MiniType.UNSIGNED_LONG;
+            case LONG_LONG -> MiniType.LONG_LONG;
+            case UNSIGNED_LONG_LONG -> MiniType.UNSIGNED_LONG_LONG;
+        };
     }
 
     private Expression traceBinary(BinaryExpr binaryExpr) {
