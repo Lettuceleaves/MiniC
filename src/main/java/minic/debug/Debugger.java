@@ -31,9 +31,13 @@ public final class Debugger {
     }
 
     public Debugger(SourceFile source, String standardInput) {
+        this(source, standardInput, DebugTimeSource.system());
+    }
+
+    Debugger(SourceFile source, String standardInput, DebugTimeSource timeSource) {
         var pipeline = CompileObservationSession.fromSource(source);
         var ir = pipeline.compilerApi().runToIr();
-        runtime = new DebugRuntime(new DebugProgram(source, ir), standardInput);
+        runtime = new DebugRuntime(new DebugProgram(source, ir), standardInput, timeSource);
         runtime.push(runtime.code().ir().findFunction("main")
                 .orElseThrow(() -> new IllegalStateException("Missing main function")), List.of(), null);
         remember(latestStop);

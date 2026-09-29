@@ -20,6 +20,7 @@ import java.util.*;
 public final class DebugRuntime {
     private static final int STRERROR_BUFFER_SIZE = 256;
     private final DebugProgram code;
+    private final DebugTimeSource timeSource;
     final ArrayList<Frame> stack = new ArrayList<>();
     private final NavigableMap<Long, Allocation> memory = new TreeMap<>();
     private final Map<String, Long> symbols = new LinkedHashMap<>();
@@ -35,6 +36,11 @@ public final class DebugRuntime {
     private long strtokCursor;
     private long strerrorPointer;
     private String strerrorMessage = "";
+    private long clockTicks;
+    private int clockReads;
+    private long epochSeconds;
+    private int timeReads;
+    private long timeStructPointer;
     private TerminationState termination = new TerminationState(TerminationKind.RUNNING, null, "");
     Value returnValue;
 
@@ -43,8 +49,13 @@ public final class DebugRuntime {
     }
 
     DebugRuntime(DebugProgram code, String input) {
+        this(code, input, DebugTimeSource.system());
+    }
+
+    DebugRuntime(DebugProgram code, String input, DebugTimeSource timeSource) {
         this.code = code;
         this.input = Objects.requireNonNull(input, "input");
+        this.timeSource = Objects.requireNonNull(timeSource, "timeSource");
         long functionAddress = 0x1000;
         LinkedHashSet<String> names = new LinkedHashSet<>();
         code.ir().functions().forEach(f -> names.add(f.name()));
@@ -77,6 +88,11 @@ public final class DebugRuntime {
     public long strtokCursor() { return strtokCursor; }
     public long strerrorPointer() { return strerrorPointer; }
     public String strerrorMessage() { return strerrorMessage; }
+    public long clockTicks() { return clockTicks; }
+    public int clockReads() { return clockReads; }
+    public long epochSeconds() { return epochSeconds; }
+    public int timeReads() { return timeReads; }
+    public long timeStructPointer() { return timeStructPointer; }
     public TerminationState termination() { return termination; }
     public Value returnValue() { return returnValue; }
 
@@ -106,6 +122,11 @@ public final class DebugRuntime {
                 strtokCursor(),
                 strerrorPointer(),
                 strerrorMessage(),
+                clockTicks(),
+                clockReads(),
+                epochSeconds(),
+                timeReads(),
+                timeStructPointer(),
                 termination()
         );
     }
@@ -306,6 +327,29 @@ public final class DebugRuntime {
         return (int) ((randomState >>> 16) & 0x7fff);
     }
 
+    long readClockTicks() {
+        clockTicks = timeSource.clockTicks();
+        clockReads++;
+        return clockTicks;
+    }
+
+    long readEpochSeconds() {
+        epochSeconds = timeSource.epochSeconds();
+        timeReads++;
+        return epochSeconds;
+    }
+
+    java.time.ZoneId localTimeZone() {
+        return timeSource.localZone();
+    }
+
+    long timeStructAddress() {
+        if (timeStructPointer == 0) {
+            timeStructPointer = allocateZeroed(9 * IrType.INT.sizeBytes(), 4, "library", "struct tm");
+        }
+        return timeStructPointer;
+    }
+
     void setStrtokCursor(long address) {
         strtokCursor = address;
     }
@@ -503,6 +547,11 @@ public final class DebugRuntime {
             long strtokCursor,
             long strerrorPointer,
             String strerrorMessage,
+            long clockTicks,
+            int clockReads,
+            long epochSeconds,
+            int timeReads,
+            long timeStructPointer,
             TerminationState termination
     ) {
         public RuntimeState {

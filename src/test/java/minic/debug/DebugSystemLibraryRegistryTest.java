@@ -23,6 +23,7 @@ final class DebugSystemLibraryRegistryTest {
                         "malloc", "calloc", "realloc", "free",
                         "printf", "scanf", "getchar", "putchar", "puts",
                         "sprintf", "snprintf", "sscanf", "remove", "rename",
+                        "clock", "difftime", "time", "mktime", "gmtime", "localtime", "strftime",
                         "abort", "exit", "minic_immediate_exit", "minic_assert_fail",
                         "abs", "labs", "llabs",
                         "atof", "atoi", "atol", "atoll", "strtod", "strtof",
