@@ -19,6 +19,11 @@ import java.util.*;
 /** 解释器的可变运行空间；历史状态由 Debugger 保存为不可变 RuntimeState。 */
 public final class DebugRuntime {
     private static final int STRERROR_BUFFER_SIZE = 256;
+    private static final int LOCALE_CATEGORY_COUNT = 6;
+    private static final int LCONV_POINTER_FIELD_COUNT = 10;
+    private static final int LCONV_CHAR_FIELD_COUNT = 8;
+    private static final int LCONV_SIZE = LCONV_POINTER_FIELD_COUNT * Long.BYTES
+            + LCONV_CHAR_FIELD_COUNT;
     private final DebugProgram code;
     private final DebugTimeSource timeSource;
     final ArrayList<Frame> stack = new ArrayList<>();
@@ -41,6 +46,14 @@ public final class DebugRuntime {
     private long epochSeconds;
     private int timeReads;
     private long timeStructPointer;
+    private final String[] localeCategories = {
+            "C", "C", "C", "C", "C", "C"
+    };
+    private int localeCalls;
+    private int localeSetCalls;
+    private int localeConventionCalls;
+    private long localeNamePointer;
+    private long localeConventionPointer;
     private TerminationState termination = new TerminationState(TerminationKind.RUNNING, null, "");
     Value returnValue;
 
@@ -93,6 +106,12 @@ public final class DebugRuntime {
     public long epochSeconds() { return epochSeconds; }
     public int timeReads() { return timeReads; }
     public long timeStructPointer() { return timeStructPointer; }
+    public List<String> localeCategories() { return List.of(localeCategories.clone()); }
+    public int localeCalls() { return localeCalls; }
+    public int localeSetCalls() { return localeSetCalls; }
+    public int localeConventionCalls() { return localeConventionCalls; }
+    public long localeNamePointer() { return localeNamePointer; }
+    public long localeConventionPointer() { return localeConventionPointer; }
     public TerminationState termination() { return termination; }
     public Value returnValue() { return returnValue; }
 
@@ -127,6 +146,12 @@ public final class DebugRuntime {
                 epochSeconds(),
                 timeReads(),
                 timeStructPointer(),
+                localeCategories(),
+                localeCalls(),
+                localeSetCalls(),
+                localeConventionCalls(),
+                localeNamePointer(),
+                localeConventionPointer(),
                 termination()
         );
     }
@@ -350,6 +375,63 @@ public final class DebugRuntime {
         return timeStructPointer;
     }
 
+    long setLocale(int category, long localePointer) {
+        localeCalls++;
+        if (category < 0 || category >= LOCALE_CATEGORY_COUNT) {
+            return 0;
+        }
+        if (localePointer == 0) {
+            return localeNameAddress();
+        }
+
+        String requested = readCString(localePointer);
+        if (!requested.equals("C")) {
+            // The Debug runtime deliberately has no dependency on the host locale/code page.
+            // In particular, the implementation-defined empty-string locale remains deferred.
+            return 0;
+        }
+        if (category == 0) {
+            Arrays.fill(localeCategories, "C");
+        } else {
+            localeCategories[category] = "C";
+        }
+        localeSetCalls++;
+        return localeNameAddress();
+    }
+
+    long localeConventionAddress() {
+        localeConventionCalls++;
+        if (localeConventionPointer != 0) {
+            return localeConventionPointer;
+        }
+
+        long decimalPoint = allocateLibraryCString(".", "locale decimal_point");
+        long empty = allocateLibraryCString("", "locale empty string");
+        localeConventionPointer = allocateZeroed(LCONV_SIZE, Long.BYTES, "library", "struct lconv");
+        for (int field = 0; field < LCONV_POINTER_FIELD_COUNT; field++) {
+            long value = field == 0 ? decimalPoint : empty;
+            write(localeConventionPointer + field * (long) Long.BYTES, Value.of(IrType.POINTER, value));
+        }
+        for (int field = 0; field < LCONV_CHAR_FIELD_COUNT; field++) {
+            writeByte(localeConventionPointer + LCONV_POINTER_FIELD_COUNT * (long) Long.BYTES + field, 127);
+        }
+        return localeConventionPointer;
+    }
+
+    private long localeNameAddress() {
+        if (localeNamePointer == 0) {
+            localeNamePointer = allocateLibraryCString("C", "locale name");
+        }
+        return localeNamePointer;
+    }
+
+    private long allocateLibraryCString(String value, String label) {
+        int size = value.getBytes(StandardCharsets.ISO_8859_1).length + 1;
+        long address = allocateZeroed(size, 1, "library", label);
+        writeCString(address, value, size);
+        return address;
+    }
+
     void setStrtokCursor(long address) {
         strtokCursor = address;
     }
@@ -552,6 +634,12 @@ public final class DebugRuntime {
             long epochSeconds,
             int timeReads,
             long timeStructPointer,
+            List<String> localeCategories,
+            int localeCalls,
+            int localeSetCalls,
+            int localeConventionCalls,
+            long localeNamePointer,
+            long localeConventionPointer,
             TerminationState termination
     ) {
         public RuntimeState {
@@ -559,6 +647,7 @@ public final class DebugRuntime {
             stackMemory = List.copyOf(stackMemory);
             heap = List.copyOf(heap);
             libraryMemory = List.copyOf(libraryMemory);
+            localeCategories = List.copyOf(localeCategories);
             Objects.requireNonNull(stdout, "stdout");
             Objects.requireNonNull(stderr, "stderr");
             Objects.requireNonNull(strerrorMessage, "strerrorMessage");

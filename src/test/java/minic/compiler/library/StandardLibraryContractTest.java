@@ -28,6 +28,7 @@ final class StandardLibraryContractTest {
             "ExitProcess",
             "minic_stdout_stream",
             "minic_set_process_error_mode",
+            "minic_isctype",
             "setvbuf",
             "fputs"
     );

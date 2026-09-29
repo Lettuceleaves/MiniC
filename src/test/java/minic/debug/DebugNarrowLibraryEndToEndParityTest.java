@@ -20,6 +20,12 @@ final class DebugNarrowLibraryEndToEndParityTest {
         String source = """
                 #include "ctype.mh"
                 #include "string.mh"
+
+                int next_ctype_character(int *calls, int character) {
+                    *calls += 1;
+                    return character;
+                }
+
                 int main() {
                     if (!isalnum('A') || !isalnum('7') || isalnum('-')) return 1;
                     if (!isalpha('z') || isalpha('4') || !iscntrl('\\n')) return 2;
@@ -27,6 +33,9 @@ final class DebugNarrowLibraryEndToEndParityTest {
                     if (!islower('a') || !isprint(' ') || !ispunct('?')) return 4;
                     if (!isspace('\\r') || !isupper('Q') || !isxdigit('f')) return 5;
                     if (tolower('A') != 'a' || toupper('z') != 'Z') return 6;
+                    int blank_calls = 0;
+                    if (!isblank(next_ctype_character(&blank_calls, '\\t')) || blank_calls != 1
+                            || isblank(next_ctype_character(&blank_calls, '\\n')) || blank_calls != 2) return 7;
 
                     char first[32];
                     char second[32];

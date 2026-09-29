@@ -30,4 +30,23 @@ final class SystemHeaderPreprocessTest {
         assertEquals(3, result.includes().size());
         assertTrue(result.includes().stream().allMatch(PreprocessResult.IncludeSummary::expanded));
     }
+
+    @Test
+    @Tag("stdlib-contract")
+    void allowsAFunctionAdapterDefinedByABuiltInHeader() {
+        String source = """
+                #include "ctype.mh"
+
+                int main() {
+                    return isblank(' ') ? 0 : 1;
+                }
+                """;
+
+        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("header-adapter.mc", source));
+
+        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(result.sourceFile().content().contains("int isblank(int character) {"));
+        assertEquals(1, result.includes().size());
+        assertTrue(result.includes().getFirst().expanded());
+    }
 }

@@ -24,6 +24,7 @@ final class DebugSystemLibrary {
                 new DebugStdioLibraryProvider(),
                 new DebugStdioFileLibraryProvider(),
                 new DebugTimeLibraryProvider(),
+                new DebugLocaleLibraryProvider(),
                 new DebugMathLibraryProvider(),
                 new DebugFloatingMathLibraryProvider(),
                 new DebugStdlibConversionProvider(),

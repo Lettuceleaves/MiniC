@@ -13,4 +13,15 @@ extern int isupper(int character);
 extern int isxdigit(int character);
 extern int tolower(int character);
 extern int toupper(int character);
+
+/*
+ * Legacy MSVCRT has no public isblank export. Its real _isctype export uses
+ * _BLANK == 0x40, with horizontal tab handled separately by the CRT header.
+ * A header-owned function preserves the standard addressable interface and
+ * evaluates the caller's argument exactly once.
+ */
+extern int minic_isctype(int character, int mask);
+int isblank(int character) {
+    return character == '\t' || minic_isctype(character, 0x40);
+}
 #endif

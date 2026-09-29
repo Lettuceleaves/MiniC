@@ -54,11 +54,22 @@ final class DebugCtypeLibraryParityTest {
         assertThrows(IllegalStateException.class, () -> invoke("toupper", 256));
     }
 
-    private int invoke(String name, int input) {
+    @Test
+    void privateBlankMaskAdapterMatchesTheMsvcrtTableContract() {
+        assertEquals(1, invoke("minic_isctype", ' ', 0x40));
+        assertEquals(0, invoke("minic_isctype", '\t', 0x40));
+        assertEquals(0, invoke("minic_isctype", '\n', 0x40));
+        assertEquals(0, invoke("minic_isctype", -1, 0x40));
+        assertThrows(IllegalStateException.class, () -> invoke("minic_isctype", ' ', 0x20));
+    }
+
+    private int invoke(String name, int... inputs) {
         DebugLibraryCallResult result = library.invoke(
                 name,
                 runtime,
-                java.util.List.of(Value.of(IrType.INT, input))
+                java.util.Arrays.stream(inputs)
+                        .mapToObj(input -> Value.of(IrType.INT, input))
+                        .toList()
         ).orElseThrow();
         return (int) ((Returned) result).value().integer();
     }
@@ -68,8 +79,6 @@ final class DebugCtypeLibraryParityTest {
                 Arguments.of("isalnum", 'A', 1), Arguments.of("isalnum", '7', 1),
                 Arguments.of("isalnum", '-', 0),
                 Arguments.of("isalpha", 'z', 1), Arguments.of("isalpha", 0xe9, 0),
-                Arguments.of("isblank", ' ', 1), Arguments.of("isblank", '\t', 1),
-                Arguments.of("isblank", '\n', 0),
                 Arguments.of("iscntrl", 0, 1), Arguments.of("iscntrl", 127, 1),
                 Arguments.of("iscntrl", 128, 0),
                 Arguments.of("isdigit", '0', 1), Arguments.of("isdigit", 'a', 0),

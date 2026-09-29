@@ -1,5 +1,6 @@
 package minic.compiler.library;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashSet;
@@ -15,10 +16,21 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+@Tag("stdlib-contract")
 final class NarrowCLibraryCatalogTest {
     static final Set<String> CTYPE_DIRECT_FUNCTIONS = Set.of(
             "isalnum", "isalpha", "iscntrl", "isdigit", "isgraph", "islower", "isprint",
             "ispunct", "isspace", "isupper", "isxdigit", "tolower", "toupper"
+    );
+
+    static final Set<String> CTYPE_PUBLIC_FUNCTIONS = Set.of(
+            "isalnum", "isalpha", "isblank", "iscntrl", "isdigit", "isgraph", "islower",
+            "isprint", "ispunct", "isspace", "isupper", "isxdigit", "tolower", "toupper"
+    );
+
+    static final Set<String> CTYPE_HEADER_FUNCTIONS = Set.of(
+            "minic_isctype", "isalnum", "isalpha", "isblank", "iscntrl", "isdigit", "isgraph",
+            "islower", "isprint", "ispunct", "isspace", "isupper", "isxdigit", "tolower", "toupper"
     );
 
     static final Set<String> STRING_DIRECT_FUNCTIONS = Set.of(
@@ -61,16 +73,24 @@ final class NarrowCLibraryCatalogTest {
     }
 
     @Test
-    void compatibleHeadersDeclareExactlyTheDirectlySupportedFunctions() {
+    void compatibleHeadersExposeEveryStandardFunctionWithoutInventingAnIsblankImport() {
         SystemLibraryCatalog catalog = SystemLibraryCatalog.defaults();
         String ctype = catalog.header("ctype.mh").orElseThrow().content();
         String string = catalog.header("string.mh").orElseThrow().content();
 
-        assertEquals(CTYPE_DIRECT_FUNCTIONS, declaredFunctions(ctype));
+        assertEquals(CTYPE_HEADER_FUNCTIONS, declaredFunctions(ctype));
         assertEquals(STRING_DIRECT_FUNCTIONS, declaredFunctions(string));
 
-        assertFalse(ctype.contains(" isblank("), "MSVCRT has no direct C17 isblank export");
+        assertTrue(ctype.contains("int isblank(int character) {"),
+                "isblank must be implemented by the header-owned once-evaluating adapter");
         assertFalse(catalog.bindings().containsKey("isblank"));
+        LibraryBinding adapter = catalog.binding("minic_isctype").orElseThrow();
+        assertEquals("_isctype", adapter.exportName());
+        assertEquals("msvcrt.dll", adapter.dllName());
+        assertEquals(FUNCTION, adapter.symbolKind());
+        assertEquals(MSVCRT, adapter.runtimeFamily());
+        assertEquals(WINDOWS_X64, adapter.callingConvention());
+        assertEquals(DLL_IMPORT, adapter.nativeKind());
     }
 
     @Test

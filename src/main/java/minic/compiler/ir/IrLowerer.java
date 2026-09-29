@@ -286,10 +286,14 @@ public final class IrLowerer extends Stage {
     }
 
     private IrResult buildResult() {
-        return new IrResult(
+        IrReachability.Result reachable = IrReachability.prune(
                 work.functions,
+                work.externalFunctionNames
+        );
+        return new IrResult(
+                reachable.functions(),
                 work.stringLiteralRegistry.stringData(),
-                work.externalFunctionNames,
+                reachable.externalFunctionNames(),
                 input.structLayouts
         );
     }

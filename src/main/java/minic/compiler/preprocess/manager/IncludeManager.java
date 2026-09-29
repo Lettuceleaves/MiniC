@@ -1,6 +1,5 @@
 package minic.compiler.preprocess;
 
-import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.lexer.LexerResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParserResult;
@@ -167,19 +166,9 @@ final class IncludeManager {
                     originalHeader,
                     0,
                     originalHeader.content().length(),
-                    "头文件只能包含函数声明、外部函数声明和结构体声明"
+                    "头文件包含无法解析的顶层声明"
             ));
-            return;
         }
-        parseResult.program().functions().stream()
-                .filter(FunctionDecl::hasBody)
-                .findFirst()
-                .ifPresent(function -> work.diagnostics.add(Preprocessor.diagnostic(
-                        originalHeader,
-                        0,
-                        originalHeader.content().length(),
-                        "头文件不能包含函数定义：" + function.name()
-                )));
     }
 
     private ResolvedInclude resolveInclude(Path currentDirectory, String requestedPath, List<Path> includeRoots) {
