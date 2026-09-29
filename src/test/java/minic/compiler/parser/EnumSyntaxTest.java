@@ -12,10 +12,10 @@ final class EnumSyntaxTest {
     @Test
     void supportsExplicitImplicitAndTrailingCommaEnumerators() {
         String source = """
-                enum Color { RED = 0x10, GREEN, BLUE = 0b100000, };
+                enum Color { RED = 0x10, GREEN, BLUE = (GREEN << 1) + 2, };
                 int main(void) {
                     enum Color color = GREEN;
-                    return color == 17 && BLUE == 32 ? 0 : 1;
+                    return color == 17 && BLUE == 36 ? 0 : 1;
                 }
                 """;
         SourceFile sourceFile = new SourceFile("enum.mc", source);

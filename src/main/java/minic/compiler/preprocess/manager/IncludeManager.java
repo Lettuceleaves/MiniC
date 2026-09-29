@@ -19,7 +19,9 @@ import java.util.regex.Pattern;
  * 处理 include 指令、路径解析、循环检测和头文件展开。
  */
 final class IncludeManager {
-    private static final Pattern INCLUDE_PATTERN = Pattern.compile("^\\s*#\\s*include\\s+\"([^\"]+)\"\\s*$");
+    private static final Pattern INCLUDE_PATTERN = Pattern.compile(
+            "^\\s*#\\s*include\\s*(?:\"([^\"]+)\"|<([^>]+)>)\\s*$"
+    );
     private static final Pattern INCLUDE_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*include\\b.*$");
 
     private final Preprocessor preprocessor;
@@ -42,6 +44,27 @@ final class IncludeManager {
     ) {
         Matcher matcher = INCLUDE_PATTERN.matcher(line);
         if (matcher.matches()) {
+            boolean systemHeader = matcher.group(2) != null;
+            String requestedPath = systemHeader ? matcher.group(2).strip() : matcher.group(1);
+            String resolvedName = requestedPath;
+            if (systemHeader) {
+                if (!requestedPath.matches("[A-Za-z0-9_.-]+\\.h")) {
+                    work.includes.add(new PreprocessResult.IncludeSummary(
+                            requestedPath,
+                            null,
+                            sourceFile.range(startOffset, endOffset),
+                            false
+                    ));
+                    work.diagnostics.add(Preprocessor.diagnostic(
+                            sourceFile,
+                            startOffset,
+                            endOffset,
+                            "尖括号 include 必须是 .h 标准头文件名：" + requestedPath
+                    ));
+                    return true;
+                }
+                resolvedName = requestedPath.substring(0, requestedPath.length() - 2) + ".mh";
+            }
             expandInclude(
                     sourceFile,
                     currentDirectory,
@@ -50,7 +73,9 @@ final class IncludeManager {
                     output,
                     startOffset,
                     endOffset,
-                    matcher.group(1),
+                    requestedPath,
+                    resolvedName,
+                    systemHeader,
                     mapToThisSource
             );
             return true;
@@ -60,7 +85,7 @@ final class IncludeManager {
                     sourceFile,
                     startOffset,
                     endOffset,
-                    "include 指令必须使用双引号路径，例如 #include \"name.mh\""
+                    "include 指令必须使用 \"name.mh\" 或 <name.h>"
             ));
             return true;
         }
@@ -76,10 +101,12 @@ final class IncludeManager {
             int startOffset,
             int endOffset,
             String requestedPath,
+            String resolvedName,
+            boolean systemHeader,
             boolean mapToThisSource
     ) {
         SourceRange directiveRange = sourceFile.range(startOffset, endOffset);
-        if (!requestedPath.endsWith(".mh")) {
+        if (!systemHeader && !requestedPath.endsWith(".mh")) {
             work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, null, directiveRange, false));
             work.diagnostics.add(Preprocessor.diagnostic(
                     sourceFile,
@@ -92,7 +119,12 @@ final class IncludeManager {
 
         ResolvedInclude resolved;
         try {
-            resolved = resolveInclude(currentDirectory, requestedPath, work.options.includeRoots());
+            resolved = resolveInclude(
+                    currentDirectory,
+                    resolvedName,
+                    work.options.includeRoots(),
+                    systemHeader
+            );
         } catch (IncludeReadException exception) {
             work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, null, directiveRange, false));
             work.diagnostics.add(Preprocessor.diagnostic(
@@ -165,14 +197,21 @@ final class IncludeManager {
         // source is parsed by the normal compiler pipeline.
     }
 
-    private ResolvedInclude resolveInclude(Path currentDirectory, String requestedPath, List<Path> includeRoots) {
+    private ResolvedInclude resolveInclude(
+            Path currentDirectory,
+            String requestedPath,
+            List<Path> includeRoots,
+            boolean systemHeader
+    ) {
         ArrayList<Path> candidates = new ArrayList<>();
-        if (currentDirectory != null) {
-            candidates.add(currentDirectory.resolve(requestedPath));
+        if (!systemHeader) {
+            if (currentDirectory != null) {
+                candidates.add(currentDirectory.resolve(requestedPath));
+            }
+            includeRoots.stream()
+                    .map(root -> root.resolve(requestedPath))
+                    .forEach(candidates::add);
         }
-        includeRoots.stream()
-                .map(root -> root.resolve(requestedPath))
-                .forEach(candidates::add);
         Path file = candidates.stream()
                 .map(Path::toAbsolutePath)
                 .map(Path::normalize)
@@ -186,14 +225,21 @@ final class IncludeManager {
                 throw new IncludeReadException("读取 include 文件失败：" + requestedPath, exception);
             }
         }
-        return systemLibraries.header(requestedPath)
-                .map(header -> {
-                    Path identity = Path.of("minic-system-include", header.name())
-                            .toAbsolutePath()
-                            .normalize();
-                    return new ResolvedInclude(identity, header.resourceName(), header.content(), null);
-                })
-                .orElse(null);
+        try {
+            return systemLibraries.header(requestedPath)
+                    .map(header -> {
+                        Path identity = Path.of(header.resourceName()).toAbsolutePath().normalize();
+                        return new ResolvedInclude(
+                                identity,
+                                identity.toString(),
+                                header.content(),
+                                identity.getParent()
+                        );
+                    })
+                    .orElse(null);
+        } catch (IllegalStateException exception) {
+            throw new IncludeReadException("读取 include 文件失败：" + requestedPath, exception);
+        }
     }
 
     private record ResolvedInclude(Path identity, String sourceName, String content, Path currentDirectory) {

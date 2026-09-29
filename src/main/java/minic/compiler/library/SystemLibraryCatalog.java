@@ -5,6 +5,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -20,12 +22,13 @@ import static minic.compiler.library.LibrarySymbol.SymbolKind;
 /**
  * 编译器内置系统库目录。
  *
- * <p>源符号到原生导出的绑定和 MiniC 兼容声明头都来自资源文件；Parser、IR、ASM 和 Linker
- * 不按函数名实现特例。</p>
+ * <p>源符号到原生导出的绑定来自资源文件；MiniC 兼容声明头来自项目根目录的 {@code lib}。
+ * Parser、IR、ASM 和 Linker 不按函数名实现特例。</p>
  */
 public final class SystemLibraryCatalog {
     private static final String IMPORTS_RESOURCE = "/minic/system/imports.properties";
-    private static final String INCLUDE_ROOT = "/minic/include/";
+    private static final String PROJECT_ROOT_PROPERTY = "minic.project.root";
+    private static final String LIBRARY_DIRECTORY = "lib";
     private static final SystemLibraryCatalog DEFAULT = loadDefault();
 
     private final Map<String, LibraryBinding> bindings;
@@ -61,19 +64,32 @@ public final class SystemLibraryCatalog {
         return new SystemLibraryCatalog(bindings);
     }
 
-    /** 返回项目提供的 MiniC 兼容系统声明头。 */
+    /** 返回当前项目根目录下的 MiniC 系统声明目录。 */
+    public Path includeRoot() {
+        String configuredRoot = System.getProperty(PROJECT_ROOT_PROPERTY);
+        Path projectRoot = configuredRoot == null || configuredRoot.isBlank()
+                ? Path.of("")
+                : Path.of(configuredRoot);
+        return projectRoot.toAbsolutePath().normalize().resolve(LIBRARY_DIRECTORY);
+    }
+
+    /** 返回项目 {@code lib} 目录中提供的 MiniC 兼容系统声明头。 */
     public Optional<Header> header(String requestedName) {
         Objects.requireNonNull(requestedName, "requestedName");
         if (!requestedName.matches("[A-Za-z0-9_.-]+")) {
             return Optional.empty();
         }
-        String resourceName = INCLUDE_ROOT + requestedName;
-        try (InputStream input = SystemLibraryCatalog.class.getResourceAsStream(resourceName)) {
-            if (input == null) {
-                return Optional.empty();
-            }
-            String content = new String(input.readAllBytes(), StandardCharsets.UTF_8);
-            return Optional.of(new Header(requestedName, resourceName, content));
+        Path includeRoot = includeRoot();
+        Path headerPath = includeRoot.resolve(requestedName).normalize();
+        if (!headerPath.startsWith(includeRoot) || !Files.isRegularFile(headerPath)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new Header(
+                    requestedName,
+                    headerPath.toString(),
+                    Files.readString(headerPath, StandardCharsets.UTF_8)
+            ));
         } catch (IOException exception) {
             throw new IllegalStateException("failed to read system header: " + requestedName, exception);
         }

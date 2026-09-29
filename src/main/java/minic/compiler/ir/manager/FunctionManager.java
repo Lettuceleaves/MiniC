@@ -33,7 +33,8 @@ public final class FunctionManager {
             StringLiteralRegistry stringLiteralRegistry,
             Map<String, StructLayout> structLayouts,
             Map<Expression, MiniType> expressionTypes,
-            Map<String, IrFunctionSignature> functionSignatures
+            Map<String, IrFunctionSignature> functionSignatures,
+            Map<String, MiniType> globalTypes
     ) {
         this.function = Objects.requireNonNull(function, "function");
         builder = new IrFunctionBuilder(structLayouts);
@@ -44,6 +45,7 @@ public final class FunctionManager {
                 Objects.requireNonNull(stringLiteralRegistry, "stringLiteralRegistry"),
                 expressionTypes,
                 functionSignatures,
+                globalTypes,
                 irReturnType,
                 function.variadic(),
                 function.parameters().size() + (structReturn ? 1 : 0)

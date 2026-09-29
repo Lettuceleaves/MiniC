@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <errno.h>. */
 #ifndef MINIC_ERRNO_MH
 #define MINIC_ERRNO_MH
 #define EDOM 33

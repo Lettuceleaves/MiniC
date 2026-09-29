@@ -14,6 +14,8 @@ import minic.compiler.parser.node.Declaration.Program;
 import minic.compiler.parser.node.Declaration.StructDecl;
 import minic.compiler.parser.node.Declaration.EnumDecl;
 import minic.compiler.parser.node.Declaration.TypedefDecl;
+import minic.compiler.parser.node.Declaration.GlobalVarDecl;
+import minic.compiler.parser.node.Declaration;
 import minic.compiler.type.MiniType;
 import minic.diagnostics.Diagnostic;
 import minic.source.SourceRange;
@@ -38,6 +40,7 @@ public final class Parser extends Stage {
     private final ArrayList<StructDecl> structs = new ArrayList<>();
     private final ArrayList<EnumDecl> enums = new ArrayList<>();
     private final ArrayList<TypedefDecl> typedefs = new ArrayList<>();
+    private final ArrayList<GlobalVarDecl> globals = new ArrayList<>();
     private final java.util.Map<String, Long> enumConstants = new java.util.LinkedHashMap<>();
     private final ArrayList<FunctionDecl> functions = new ArrayList<>();
     private final ArrayList<AstNode> completedNodes = new ArrayList<>();
@@ -74,10 +77,10 @@ public final class Parser extends Stage {
     private void initialize(List<Token> sourceTokens) {
         tokens = List.copyOf(Objects.requireNonNull(sourceTokens, "tokens"));
         context = new Context(tokens, traceEnabled);
-        TypeReader typeReader = new TypeReader(context);
+        TypeReader typeReader = new TypeReader(context, structs::add);
         ExpressionManager expressionManager = new ExpressionManager(context, typeReader, enumConstants);
         StatementManager statementManager = new StatementManager(context, expressionManager, typeReader);
-        declarationManager = new DeclarationManager(context, statementManager, typeReader, enumConstants);
+        declarationManager = new DeclarationManager(context, statementManager, expressionManager, typeReader, enumConstants);
     }
 
     /** 循环执行 {@link #step()}，直到独立的最后空步骤发出。 */
@@ -140,10 +143,13 @@ public final class Parser extends Stage {
                 context.synchronizeFunction();
             }
         } else {
-            FunctionDecl functionDecl = declarationManager.parseFunctionDecl();
-            if (functionDecl != null) {
+            Declaration declaration = declarationManager.parseFunctionOrGlobalDecl();
+            if (declaration instanceof FunctionDecl functionDecl) {
                 functions.add(functionDecl);
                 captureNode(functionDecl);
+            } else if (declaration instanceof GlobalVarDecl global) {
+                globals.add(global);
+                captureNode(global);
             } else {
                 context.synchronizeFunction();
             }
@@ -219,17 +225,18 @@ public final class Parser extends Stage {
     }
 
     private ParserResult buildResult() {
-        return new ParserResult(new Program(structs, enums, typedefs, functions, programRange()), context.diagnostics());
+        return new ParserResult(new Program(structs, enums, typedefs, globals, functions, programRange()), context.diagnostics());
     }
 
     private SourceRange programRange() {
-        if (structs.isEmpty() && enums.isEmpty() && typedefs.isEmpty() && functions.isEmpty()) {
+        if (structs.isEmpty() && enums.isEmpty() && typedefs.isEmpty() && globals.isEmpty() && functions.isEmpty()) {
             return context.peek().range();
         }
         ArrayList<SourceRange> ranges = new ArrayList<>();
         structs.forEach(declaration -> ranges.add(declaration.range()));
         enums.forEach(declaration -> ranges.add(declaration.range()));
         typedefs.forEach(declaration -> ranges.add(declaration.range()));
+        globals.forEach(declaration -> ranges.add(declaration.range()));
         functions.forEach(declaration -> ranges.add(declaration.range()));
         SourceRange first = ranges.stream().min(Parser::compareRangeStart).orElseThrow();
         SourceRange last = ranges.stream().max(Parser::compareRangeEnd).orElseThrow();
@@ -455,9 +462,16 @@ public final class Parser extends Stage {
         private final Context context;
         private final java.util.Deque<java.util.Map<String, MiniType>> typedefScopes = new java.util.ArrayDeque<>();
         private final java.util.Deque<java.util.Set<String>> ordinaryNameScopes = new java.util.ArrayDeque<>();
+        private final java.util.function.Consumer<StructDecl> aggregateSink;
+        private int anonymousAggregateIndex;
 
         public TypeReader(Context context) {
+            this(context, ignored -> { });
+        }
+
+        public TypeReader(Context context, java.util.function.Consumer<StructDecl> aggregateSink) {
             this.context = Objects.requireNonNull(context, "context");
+            this.aggregateSink = Objects.requireNonNull(aggregateSink, "aggregateSink");
             enterScope(List.of());
         }
 
@@ -937,16 +951,54 @@ public final class Parser extends Stage {
         }
 
         private BaseType parseStructType() {
-            Token startToken = context.advance();
-            Token nameToken = context.consume(TokenType.IDENTIFIER, "期望结构体类型名");
-            return nameToken == null ? null : new BaseType(MiniType.struct(nameToken.lexeme()), startToken, nameToken);
+            return parseAggregateType(false);
         }
 
         private BaseType parseUnionType() {
+            return parseAggregateType(true);
+        }
+
+        private BaseType parseAggregateType(boolean union) {
             Token startToken = context.advance();
-            Token nameToken = context.consume(TokenType.IDENTIFIER, "期望联合体类型名");
-            return nameToken == null ? null
-                    : new BaseType(MiniType.struct("$union$" + nameToken.lexeme()), startToken, nameToken);
+            Token nameToken = context.check(TokenType.IDENTIFIER) ? context.advance() : null;
+            if (!context.match(TokenType.LEFT_BRACE)) {
+                if (nameToken == null) {
+                    context.report(context.peek(), union ? "期望联合体名称或定义" : "期望结构体名称或定义");
+                    return null;
+                }
+                String name = union ? "$union$" + nameToken.lexeme() : nameToken.lexeme();
+                return new BaseType(MiniType.struct(name), startToken, nameToken);
+            }
+            String sourceName = nameToken == null ? "$anonymous$" + anonymousAggregateIndex++ : nameToken.lexeme();
+            String internalName = union ? "$union$" + sourceName : sourceName;
+            ArrayList<minic.compiler.parser.node.Declaration.StructField> fields = new ArrayList<>();
+            while (!context.check(TokenType.RIGHT_BRACE) && !context.isAtEnd()) {
+                List<minic.compiler.parser.node.Declaration.AlignmentSpec> specs = parseAlignmentSpecs();
+                BaseType fieldBase = parseBaseType("期望字段类型");
+                if (fieldBase == null) { context.synchronizeStatement(); continue; }
+                if (context.check(TokenType.SEMICOLON)
+                        && fieldBase.type().unqualified() instanceof MiniType.StructType) {
+                    Token end = context.advance();
+                    fields.add(new minic.compiler.parser.node.Declaration.StructField(
+                            "", fieldBase.type(), true, specs,
+                            SourceRange.span(fieldBase.startToken().range(), end.range())));
+                    continue;
+                }
+                Declarator declarator = parseDeclarator("期望字段名", true);
+                Token end = context.consume(TokenType.SEMICOLON, "期望 ';'");
+                if (declarator != null && end != null) {
+                    fields.add(new minic.compiler.parser.node.Declaration.StructField(
+                            declarator.name(), declarator.resolve(fieldBase.type()), false, specs,
+                            SourceRange.span(fieldBase.startToken().range(), end.range())));
+                }
+            }
+            Token close = context.consume(TokenType.RIGHT_BRACE, "期望 '}'");
+            if (close == null) return null;
+            StructDecl declaration = new StructDecl(internalName, fields, true, union,
+                    SourceRange.span(startToken.range(), close.range()));
+            aggregateSink.accept(declaration);
+            context.build(declaration, "AnonymousAggregate " + internalName, declaration.range());
+            return new BaseType(MiniType.struct(internalName), startToken, close);
         }
 
         private record BaseType(MiniType type, Token startToken, Token endToken) {

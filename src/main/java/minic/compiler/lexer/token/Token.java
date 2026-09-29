@@ -70,4 +70,15 @@ public record Token(
             Objects.requireNonNull(kind, "kind");
         }
     }
+
+    public enum LiteralEncoding { ORDINARY, UTF8, UTF16, UTF32 }
+
+    /** Used for prefixed literals; ordinary literals retain their legacy String/Character value. */
+    public record StringLiteralValue(String value, LiteralEncoding encoding) {
+        public StringLiteralValue { Objects.requireNonNull(value); Objects.requireNonNull(encoding); }
+    }
+
+    public record CharacterLiteralValue(int value, LiteralEncoding encoding) {
+        public CharacterLiteralValue { Objects.requireNonNull(encoding); }
+    }
 }

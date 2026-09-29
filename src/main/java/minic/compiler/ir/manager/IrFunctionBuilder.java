@@ -151,6 +151,8 @@ final class IrFunctionBuilder {
         return structLayout(structName).fields().get(fieldIndex);
     }
 
+    int fieldCount(String structName) { return structLayout(structName).fields().size(); }
+
     int structSize(String structName) {
         StructLayout layout = structLayout(structName);
         return layout.size();

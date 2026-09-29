@@ -485,8 +485,24 @@ public final class ExpressionManager {
         }
         if (state.match(TokenType.CHAR_LITERAL)) {
             Token charToken = state.previous();
+            int charValue;
+            minic.compiler.parser.node.Expression.LiteralEncoding charEncoding;
+            if (charToken.literalValue() instanceof Character character) {
+                charValue = character;
+                charEncoding = minic.compiler.parser.node.Expression.LiteralEncoding.ORDINARY;
+            } else {
+                Token.CharacterLiteralValue literal = (Token.CharacterLiteralValue) charToken.literalValue();
+                charValue = literal.value();
+                charEncoding = switch (literal.encoding()) {
+                    case ORDINARY -> minic.compiler.parser.node.Expression.LiteralEncoding.ORDINARY;
+                    case UTF8 -> minic.compiler.parser.node.Expression.LiteralEncoding.UTF8;
+                    case UTF16 -> minic.compiler.parser.node.Expression.LiteralEncoding.UTF16;
+                    case UTF32 -> minic.compiler.parser.node.Expression.LiteralEncoding.UTF32;
+                };
+            }
             CharLiteralExpr expr = new CharLiteralExpr(
-                    (Character) charToken.literalValue(),
+                    charValue,
+                    charEncoding,
                     charToken.lexeme(),
                     charToken.range()
             );
@@ -512,18 +528,32 @@ public final class ExpressionManager {
         if (state.match(TokenType.STRING_LITERAL)) {
             Token firstToken = state.previous();
             Token lastToken = firstToken;
-            StringBuilder value = new StringBuilder((String) firstToken.literalValue());
+            Token.StringLiteralValue first = stringLiteral(firstToken);
+            StringBuilder value = new StringBuilder(first.value());
+            minic.compiler.parser.node.Expression.LiteralEncoding encoding = literalEncoding(first.encoding());
             StringBuilder lexeme = new StringBuilder(firstToken.lexeme());
             // ISO C translation phase 6 concatenates adjacent string literal
             // tokens.  Format macros such as "%" PRId64 depend on this being
             // done after preprocessing but before expression semantics.
             while (state.match(TokenType.STRING_LITERAL)) {
                 lastToken = state.previous();
-                value.append((String) lastToken.literalValue());
+                Token.StringLiteralValue next = stringLiteral(lastToken);
+                var nextEncoding = literalEncoding(next.encoding());
+                if ((encoding == minic.compiler.parser.node.Expression.LiteralEncoding.UTF8
+                        && nextEncoding != minic.compiler.parser.node.Expression.LiteralEncoding.ORDINARY
+                        && nextEncoding != minic.compiler.parser.node.Expression.LiteralEncoding.UTF8)
+                        || (nextEncoding == minic.compiler.parser.node.Expression.LiteralEncoding.UTF8
+                        && encoding != minic.compiler.parser.node.Expression.LiteralEncoding.ORDINARY
+                        && encoding != minic.compiler.parser.node.Expression.LiteralEncoding.UTF8)) {
+                    state.report(lastToken, "u8 字符串不能与宽字符串拼接");
+                }
+                if (encoding == minic.compiler.parser.node.Expression.LiteralEncoding.ORDINARY) encoding = nextEncoding;
+                value.append(next.value());
                 lexeme.append(lastToken.lexeme());
             }
             StringLiteralExpr expr = new StringLiteralExpr(
                     value.toString(),
+                    encoding,
                     lexeme.toString(),
                     SourceRange.span(firstToken.range(), lastToken.range())
             );
@@ -563,6 +593,21 @@ public final class ExpressionManager {
             state.advance();
         }
         return null;
+    }
+
+    private static Token.StringLiteralValue stringLiteral(Token token) {
+        return token.literalValue() instanceof String value
+                ? new Token.StringLiteralValue(value, Token.LiteralEncoding.ORDINARY)
+                : (Token.StringLiteralValue) token.literalValue();
+    }
+
+    private static minic.compiler.parser.node.Expression.LiteralEncoding literalEncoding(Token.LiteralEncoding encoding) {
+        return switch (encoding) {
+            case ORDINARY -> minic.compiler.parser.node.Expression.LiteralEncoding.ORDINARY;
+            case UTF8 -> minic.compiler.parser.node.Expression.LiteralEncoding.UTF8;
+            case UTF16 -> minic.compiler.parser.node.Expression.LiteralEncoding.UTF16;
+            case UTF32 -> minic.compiler.parser.node.Expression.LiteralEncoding.UTF32;
+        };
     }
 
     private Expression parseVaStart(Token intrinsic) {

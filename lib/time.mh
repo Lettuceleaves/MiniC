@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <time.h>. */
 #ifndef MINIC_TIME_MH
 #define MINIC_TIME_MH
 

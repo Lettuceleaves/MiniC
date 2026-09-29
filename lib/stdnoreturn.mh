@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <stdnoreturn.h>. */
 #ifndef MINIC_STDNORETURN_MH
 #define MINIC_STDNORETURN_MH
 #define noreturn _Noreturn

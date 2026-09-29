@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <stdint.h>. */
 #ifndef MINIC_STDINT_MH
 #define MINIC_STDINT_MH
 typedef signed char int8_t;

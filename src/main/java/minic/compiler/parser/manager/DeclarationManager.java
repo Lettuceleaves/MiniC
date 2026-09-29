@@ -9,6 +9,9 @@ import minic.compiler.parser.node.Declaration.StructField;
 import minic.compiler.parser.node.Declaration.EnumDecl;
 import minic.compiler.parser.node.Declaration.Enumerator;
 import minic.compiler.parser.node.Declaration.TypedefDecl;
+import minic.compiler.parser.node.Declaration.GlobalVarDecl;
+import minic.compiler.parser.node.Declaration;
+import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
@@ -20,17 +23,21 @@ import java.util.ArrayList;
 public final class DeclarationManager {
     private final Parser.Context state;
     private final StatementManager statementManager;
+    private final ExpressionManager expressionManager;
     private final Parser.TypeReader typeReader;
     private final java.util.Map<String, Long> enumConstants;
 
-    public DeclarationManager(Parser.Context state, StatementManager statementManager, Parser.TypeReader typeReader) {
-        this(state, statementManager, typeReader, new java.util.LinkedHashMap<>());
+    public DeclarationManager(Parser.Context state, StatementManager statementManager,
+                              ExpressionManager expressionManager, Parser.TypeReader typeReader) {
+        this(state, statementManager, expressionManager, typeReader, new java.util.LinkedHashMap<>());
     }
 
-    public DeclarationManager(Parser.Context state, StatementManager statementManager, Parser.TypeReader typeReader,
+    public DeclarationManager(Parser.Context state, StatementManager statementManager,
+                              ExpressionManager expressionManager, Parser.TypeReader typeReader,
                               java.util.Map<String, Long> enumConstants) {
         this.state = state;
         this.statementManager = statementManager;
+        this.expressionManager = expressionManager;
         this.typeReader = typeReader;
         this.enumConstants = enumConstants;
     }
@@ -46,19 +53,9 @@ public final class DeclarationManager {
             if (item == null) break;
             long value = next;
             if (state.match(TokenType.EQUAL)) {
-                boolean negative = state.match(TokenType.MINUS);
-                Token literal = state.peek();
-                if (state.match(TokenType.INTEGER_LITERAL)) {
-                    Object raw = literal.literalValue();
-                    value = raw instanceof Integer integer ? integer.longValue()
-                            : raw instanceof minic.compiler.lexer.token.Token.IntegerLiteralValue integer ? integer.value() : 0;
-                    if (negative) value = -value;
-                } else if (state.match(TokenType.IDENTIFIER) && enumConstants.containsKey(literal.lexeme())) {
-                    value = enumConstants.get(literal.lexeme());
-                    if (negative) value = -value;
-                } else {
-                    state.report(literal, "枚举值必须是已知整数常量");
-                }
+                Expression expression = expressionManager.parseAssignmentExpression();
+                try { value = enumConstant(expression); }
+                catch (IllegalArgumentException error) { state.report(item, "枚举值必须是整数常量表达式"); }
             }
             if (enumConstants.putIfAbsent(item.lexeme(), value) != null) state.report(item, "重复枚举常量");
             values.add(new Enumerator(item.lexeme(), value, item.range()));
@@ -70,6 +67,47 @@ public final class DeclarationManager {
         Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
         if (start == null || name == null || close == null || semicolon == null) return null;
         return new EnumDecl(name.lexeme(), values, SourceRange.span(start.range(), semicolon.range()));
+    }
+
+    private long enumConstant(Expression expression) {
+        return switch (expression) {
+            case minic.compiler.parser.node.Expression.IntegerLiteralExpr value -> value.value();
+            case minic.compiler.parser.node.Expression.IntegerConstantExpr value -> value.value();
+            case minic.compiler.parser.node.Expression.LongLiteralExpr value -> value.value();
+            case minic.compiler.parser.node.Expression.CharLiteralExpr value -> value.value();
+            case minic.compiler.parser.node.Expression.BoolLiteralExpr value -> value.value() ? 1 : 0;
+            case minic.compiler.parser.node.Expression.GroupingExpr group -> enumConstant(group.expression());
+            case minic.compiler.parser.node.Expression.CastExpr cast -> enumConstant(cast.operand());
+            case minic.compiler.parser.node.Expression.UnaryExpr unary -> switch (unary.operator()) {
+                case PLUS -> enumConstant(unary.operand());
+                case MINUS -> -enumConstant(unary.operand());
+                case TILDE -> ~enumConstant(unary.operand());
+                case BANG -> enumConstant(unary.operand()) == 0 ? 1 : 0;
+                default -> throw new IllegalArgumentException();
+            };
+            case minic.compiler.parser.node.Expression.BinaryExpr binary -> enumBinary(
+                    binary.operator(), enumConstant(binary.left()), enumConstant(binary.right()));
+            case minic.compiler.parser.node.Expression.ConditionalExpr conditional ->
+                    enumConstant(conditional.condition()) != 0
+                            ? enumConstant(conditional.thenExpression())
+                            : enumConstant(conditional.elseExpression());
+            default -> throw new IllegalArgumentException();
+        };
+    }
+
+    private long enumBinary(TokenType operator, long left, long right) {
+        return switch (operator) {
+            case PLUS -> left + right; case MINUS -> left - right; case STAR -> left * right;
+            case SLASH -> left / right; case PERCENT -> left % right;
+            case AMPERSAND -> left & right; case PIPE -> left | right; case CARET -> left ^ right;
+            case LESS_LESS -> left << right; case GREATER_GREATER -> left >> right;
+            case EQUAL_EQUAL -> left == right ? 1 : 0; case BANG_EQUAL -> left != right ? 1 : 0;
+            case LESS -> left < right ? 1 : 0; case LESS_EQUAL -> left <= right ? 1 : 0;
+            case GREATER -> left > right ? 1 : 0; case GREATER_EQUAL -> left >= right ? 1 : 0;
+            case AMPERSAND_AMPERSAND -> left != 0 && right != 0 ? 1 : 0;
+            case PIPE_PIPE -> left != 0 || right != 0 ? 1 : 0;
+            default -> throw new IllegalArgumentException();
+        };
     }
 
     public TypedefDecl parseTypedefDecl() {
@@ -89,7 +127,7 @@ public final class DeclarationManager {
         return typedefDecl;
     }
 
-    public FunctionDecl parseFunctionDecl() {
+    public Declaration parseFunctionOrGlobalDecl() {
         state.enter("functionDecl");
         Token startToken = state.peek();
         boolean external = false;
@@ -112,8 +150,18 @@ public final class DeclarationManager {
             return null;
         }
         if (!(declaration.type() instanceof MiniType.FunctionType functionType)) {
-            state.report(state.peek(), "顶层声明必须是函数");
-            return null;
+            if (noReturn) state.report(startToken, "noreturn 只能用于函数");
+            Expression initializer = null;
+            if (state.match(TokenType.EQUAL)) initializer = statementManager.parseInitializer();
+            Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
+            if (semicolon == null) return null;
+            GlobalVarDecl global = new GlobalVarDecl(
+                    declaration.name(), declaration.type(), initializer, external,
+                    declaration.alignmentSpecs(), SourceRange.span(startToken.range(), semicolon.range()));
+            typeReader.declareOrdinaryName(global.name(), global.range());
+            state.build(global, "GlobalVarDecl " + global.name(), global.range());
+            state.exit("functionDecl", global.range());
+            return global;
         }
         if (!declaration.alignmentSpecs().isEmpty()) {
             state.report(declaration.range(), "函数声明不能使用 alignas");
@@ -164,6 +212,12 @@ public final class DeclarationManager {
         return functionDecl;
     }
 
+    /** 兼容旧调用方；新代码应使用 parseFunctionOrGlobalDecl。 */
+    public FunctionDecl parseFunctionDecl() {
+        Declaration declaration = parseFunctionOrGlobalDecl();
+        return declaration instanceof FunctionDecl function ? function : null;
+    }
+
     public StructDecl parseStructDecl() {
         state.enter("structDecl");
         boolean union = state.check(TokenType.UNION);
@@ -211,6 +265,14 @@ public final class DeclarationManager {
     }
 
     private StructField parseStructField() {
+        if ((state.check(TokenType.STRUCT) || state.check(TokenType.UNION))
+                && state.peekAt(1).type() == TokenType.LEFT_BRACE) {
+            Parser.ParsedType anonymousType = typeReader.parseType("期望匿名聚合类型");
+            Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
+            if (anonymousType == null || semicolon == null) return null;
+            return new StructField("", anonymousType.type(), true, java.util.List.of(),
+                    SourceRange.span(anonymousType.range(), semicolon.range()));
+        }
         Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望字段类型", "期望字段名");
         Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");
         if (declaration == null || semicolonToken == null) {

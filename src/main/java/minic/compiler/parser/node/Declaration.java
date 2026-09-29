@@ -17,6 +17,7 @@ public interface Declaration extends AstNode {
             List<StructDecl> structs,
             List<EnumDecl> enums,
             List<TypedefDecl> typedefs,
+            List<GlobalVarDecl> globals,
             List<FunctionDecl> functions,
             SourceRange range
     ) implements Declaration {
@@ -24,20 +25,45 @@ public interface Declaration extends AstNode {
             Objects.requireNonNull(structs, "structs");
             Objects.requireNonNull(enums, "enums");
             Objects.requireNonNull(typedefs, "typedefs");
+            Objects.requireNonNull(globals, "globals");
             Objects.requireNonNull(functions, "functions");
             Objects.requireNonNull(range, "range");
             structs = List.copyOf(structs);
             enums = List.copyOf(enums);
             typedefs = List.copyOf(typedefs);
+            globals = List.copyOf(globals);
             functions = List.copyOf(functions);
         }
 
         public Program(List<StructDecl> structs, List<FunctionDecl> functions, SourceRange range) {
-            this(structs, List.of(), List.of(), functions, range);
+            this(structs, List.of(), List.of(), List.of(), functions, range);
         }
 
         public Program(List<StructDecl> structs, List<EnumDecl> enums, List<FunctionDecl> functions, SourceRange range) {
-            this(structs, enums, List.of(), functions, range);
+            this(structs, enums, List.of(), List.of(), functions, range);
+        }
+    }
+
+    /** 文件作用域对象声明；initializer 为 null 时按 C 规则零初始化。 */
+    record GlobalVarDecl(
+            String name,
+            MiniType type,
+            minic.compiler.parser.node.Expression initializer,
+            boolean external,
+            List<AlignmentSpec> alignmentSpecs,
+            SourceRange range
+    ) implements Declaration {
+        public GlobalVarDecl {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(alignmentSpecs, "alignmentSpecs");
+            Objects.requireNonNull(range, "range");
+            if (name.isBlank()) throw new IllegalArgumentException("name must not be blank");
+            alignmentSpecs = List.copyOf(alignmentSpecs);
+        }
+
+        public Optional<minic.compiler.parser.node.Expression> initializerOptional() {
+            return Optional.ofNullable(initializer);
         }
     }
 
@@ -159,6 +185,7 @@ public interface Declaration extends AstNode {
     record StructField(
             String name,
             MiniType type,
+            boolean anonymous,
             List<AlignmentSpec> alignmentSpecs,
             SourceRange range
     ) implements Declaration {
@@ -167,14 +194,18 @@ public interface Declaration extends AstNode {
             Objects.requireNonNull(type, "type");
             Objects.requireNonNull(alignmentSpecs, "alignmentSpecs");
             Objects.requireNonNull(range, "range");
-            if (name.isBlank()) {
+            if (name.isBlank() && !anonymous) {
                 throw new IllegalArgumentException("name must not be blank");
             }
             alignmentSpecs = List.copyOf(alignmentSpecs);
         }
 
         public StructField(String name, MiniType type, SourceRange range) {
-            this(name, type, List.of(), range);
+            this(name, type, false, List.of(), range);
+        }
+
+        public StructField(String name, MiniType type, List<AlignmentSpec> alignmentSpecs, SourceRange range) {
+            this(name, type, false, alignmentSpecs, range);
         }
     }
 }

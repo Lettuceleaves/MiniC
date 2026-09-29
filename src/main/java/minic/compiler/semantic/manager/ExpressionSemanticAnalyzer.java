@@ -85,14 +85,22 @@ final class ExpressionSemanticAnalyzer {
     MiniType analyzeExpression(Expression expression, Scope scope) {
         MiniType type = switch (expression) {
             case BoolLiteralExpr ignored -> MiniType.BOOL;
-            case CharLiteralExpr ignored -> MiniType.CHAR;
+            case CharLiteralExpr value -> switch (value.encoding()) {
+                case ORDINARY, UTF8 -> MiniType.CHAR;
+                case UTF16 -> MiniType.UNSIGNED_SHORT;
+                case UTF32 -> MiniType.UNSIGNED_INT;
+            };
             case IntegerLiteralExpr ignored -> MiniType.INT;
             case IntegerConstantExpr integerConstantExpr -> integerConstantExpr.type();
             case LongLiteralExpr ignored -> MiniType.LONG;
             case FloatLiteralExpr ignored -> MiniType.FLOAT;
             case DoubleLiteralExpr ignored -> MiniType.DOUBLE;
             case NullLiteralExpr ignored -> MiniType.NULL;
-            case StringLiteralExpr ignored -> MiniType.CHAR.pointerTo();
+            case StringLiteralExpr value -> switch (value.encoding()) {
+                case ORDINARY, UTF8 -> MiniType.CHAR.pointerTo();
+                case UTF16 -> MiniType.UNSIGNED_SHORT.pointerTo();
+                case UTF32 -> MiniType.UNSIGNED_INT.pointerTo();
+            };
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case AssignmentExpr assignmentExpr -> analyzeAssignment(assignmentExpr, scope);
             case BinaryExpr binaryExpr -> {
@@ -470,7 +478,14 @@ final class ExpressionSemanticAnalyzer {
                     if (fields.get(index).name().equals(fieldDesignator.name())) { current = index; break; }
                 }
                 if (current < 0) {
-                    report(value.range(), "未知结构体字段：" + fieldDesignator.name());
+                    var promoted = structRegistry.field(targetStruct, fieldDesignator.name());
+                    if (promoted.isEmpty()) {
+                        report(value.range(), "未知结构体字段：" + fieldDesignator.name());
+                        continue;
+                    }
+                    analyzeDesignatedValue(value, scope, promoted.orElseThrow().type(), 1,
+                            "结构体字段 " + fieldDesignator.name());
+                    current = fields.size();
                     continue;
                 }
             }

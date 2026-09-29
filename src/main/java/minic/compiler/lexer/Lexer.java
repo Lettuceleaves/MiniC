@@ -5,6 +5,9 @@ import minic.compiler.Stage;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.Token.IntegerLiteralKind;
 import minic.compiler.lexer.token.Token.IntegerLiteralValue;
+import minic.compiler.lexer.token.Token.LiteralEncoding;
+import minic.compiler.lexer.token.Token.StringLiteralValue;
+import minic.compiler.lexer.token.Token.CharacterLiteralValue;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.preprocess.Preprocessor;
 import minic.compiler.type.MiniType;
@@ -169,7 +172,9 @@ public final class Lexer extends Stage {
             case '"' -> lexStringLiteral(startOffset);
             case '\'' -> lexCharLiteral(startOffset);
             default -> {
-                if (isIdentifierStart(character)) {
+                if (isLiteralPrefix(character)) {
+                    lexPrefixedLiteral(startOffset, character);
+                } else if (isIdentifierStart(character)) {
                     lexIdentifier(startOffset);
                 } else if (isAsciiDigit(character)) {
                     lexIntegerLiteral(startOffset);
@@ -428,19 +433,18 @@ public final class Lexer extends Stage {
                 radix = 16;
                 currentOffset++;
                 digitsStart = currentOffset;
-                while (!isAtEnd() && isHexDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+                consumeDigits(16);
             } else if (prefix == 'b' || prefix == 'B') {
                 radix = 2;
                 currentOffset++;
                 digitsStart = currentOffset;
-                while (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == '0'
-                        || sourceFile.content().charAt(currentOffset) == '1')) currentOffset++;
+                consumeDigits(2);
             } else {
                 radix = 8;
-                while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+                consumeDigits(10); // consume first, then validate octal digits as one token
             }
         } else {
-            while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+            consumeDigits(10);
         }
 
         if (radix == 16 && !isAtEnd()
@@ -477,7 +481,12 @@ public final class Lexer extends Stage {
             return;
         }
 
-        String digits = sourceFile.content().substring(digitsStart, suffixStart);
+        if (!isAtEnd() && isIdentifierPart(sourceFile.content().charAt(currentOffset))) {
+            while (!isAtEnd() && isIdentifierPart(sourceFile.content().charAt(currentOffset))) currentOffset++;
+            addNumericOverflowDiagnostic(startOffset, currentOffset, "数值字面量包含无效数字或后缀");
+            return;
+        }
+        String digits = sourceFile.content().substring(digitsStart, suffixStart).replace("'", "");
         BigInteger magnitude;
         try {
             magnitude = new BigInteger(digits, radix);
@@ -503,10 +512,10 @@ public final class Lexer extends Stage {
 
     private void lexDecimalFloatingLiteral(int startOffset) {
         if (sourceFile.content().charAt(startOffset) == '.') {
-            while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+            consumeDigits(10);
         } else if (!isAtEnd() && sourceFile.content().charAt(currentOffset) == '.') {
             currentOffset++;
-            while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+            consumeDigits(10);
         }
         if (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == 'e'
                 || sourceFile.content().charAt(currentOffset) == 'E')) {
@@ -514,7 +523,7 @@ public final class Lexer extends Stage {
             if (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == '+'
                     || sourceFile.content().charAt(currentOffset) == '-')) currentOffset++;
             int exponentStart = currentOffset;
-            while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+            consumeDigits(10);
             if (exponentStart == currentOffset) {
                 addNumericOverflowDiagnostic(startOffset, currentOffset, "浮点指数缺少数字");
                 return;
@@ -535,6 +544,7 @@ public final class Lexer extends Stage {
         if (!valueLexeme.isEmpty() && "fFlL".indexOf(valueLexeme.charAt(valueLexeme.length() - 1)) >= 0) {
             valueLexeme = valueLexeme.substring(0, valueLexeme.length() - 1);
         }
+        valueLexeme = valueLexeme.replace("'", "");
         try {
             Object value;
             if (floatLiteral) {
@@ -552,7 +562,7 @@ public final class Lexer extends Stage {
     private void lexHexadecimalFloatingLiteral(int startOffset) {
         if (!isAtEnd() && sourceFile.content().charAt(currentOffset) == '.') {
             currentOffset++;
-            while (!isAtEnd() && isHexDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+            consumeDigits(16);
         }
         if (isAtEnd() || (sourceFile.content().charAt(currentOffset) != 'p'
                 && sourceFile.content().charAt(currentOffset) != 'P')) {
@@ -563,7 +573,7 @@ public final class Lexer extends Stage {
         if (!isAtEnd() && (sourceFile.content().charAt(currentOffset) == '+'
                 || sourceFile.content().charAt(currentOffset) == '-')) currentOffset++;
         int exponentStart = currentOffset;
-        while (!isAtEnd() && isAsciiDigit(sourceFile.content().charAt(currentOffset))) currentOffset++;
+        consumeDigits(10);
         if (exponentStart == currentOffset) {
             addNumericOverflowDiagnostic(startOffset, currentOffset, "十六进制浮点指数缺少数字");
             return;
@@ -580,6 +590,7 @@ public final class Lexer extends Stage {
         String lexeme = sourceFile.content().substring(startOffset, currentOffset);
         String valueText = "fFlL".indexOf(lexeme.charAt(lexeme.length() - 1)) >= 0
                 ? lexeme.substring(0, lexeme.length() - 1) : lexeme;
+        valueText = valueText.replace("'", "");
         try {
             Object value;
             if (floatLiteral) value = Float.valueOf(Float.parseFloat(valueText));
@@ -635,6 +646,28 @@ public final class Lexer extends Stage {
                 || character >= 'A' && character <= 'F';
     }
 
+    private void consumeDigits(int radix) {
+        boolean previousWasDigit = currentOffset > 0
+                && Character.digit(sourceFile.content().charAt(currentOffset - 1), radix) >= 0;
+        while (!isAtEnd()) {
+            char character = sourceFile.content().charAt(currentOffset);
+            boolean digit = Character.digit(character, radix) >= 0;
+            if (digit) {
+                currentOffset++;
+                previousWasDigit = true;
+                continue;
+            }
+            if (character == '\'' && previousWasDigit
+                    && currentOffset + 1 < sourceFile.content().length()
+                    && Character.digit(sourceFile.content().charAt(currentOffset + 1), radix) >= 0) {
+                currentOffset++;
+                previousWasDigit = false;
+                continue;
+            }
+            break;
+        }
+    }
+
     /** Avoids coupling the lexer to contextual aggregate layout. */
     private static final class TypeLayoutForLexer {
         private static int sizeOf(MiniType type) {
@@ -660,9 +693,13 @@ public final class Lexer extends Stage {
     }
 
     private void lexStringLiteral(int startOffset) {
+        lexStringLiteral(startOffset, LiteralEncoding.ORDINARY);
+    }
+
+    private void lexStringLiteral(int startOffset, LiteralEncoding encoding) {
         StringBuilder value = new StringBuilder();
         while (!isAtEnd() && sourceFile.content().charAt(currentOffset) != '"') {
-            char character = advanceChar();
+            int character = readCodePoint();
             if (character == '\n' || character == '\r') {
                 diagnostics.add(new Diagnostic(
                         "LEX002",
@@ -677,9 +714,9 @@ public final class Lexer extends Stage {
                     addUnterminatedStringDiagnostic(startOffset);
                     return;
                 }
-                value.append(lexEscape(startOffset));
+                value.appendCodePoint(lexEscape(startOffset));
             } else {
-                value.append(character);
+                value.appendCodePoint(character);
             }
         }
 
@@ -693,11 +730,13 @@ public final class Lexer extends Stage {
                 TokenType.STRING_LITERAL,
                 sourceFile.content().substring(startOffset, currentOffset),
                 range(startOffset, currentOffset),
-                value.toString()
+                encoding == LiteralEncoding.ORDINARY
+                        ? value.toString()
+                        : new StringLiteralValue(value.toString(), encoding)
         ));
     }
 
-    private char lexEscape(int startOffset) {
+    private int lexEscape(int startOffset) {
         char escaped = advanceChar();
         return switch (escaped) {
             case 'n' -> '\n';
@@ -706,6 +745,16 @@ public final class Lexer extends Stage {
             case '\\' -> '\\';
             case '"' -> '"';
             case '0' -> '\0';
+            case 'a' -> 7;
+            case 'b' -> 8;
+            case 'f' -> 12;
+            case 'v' -> 11;
+            case '\'' -> '\'';
+            case '?' -> '?';
+            case 'x' -> readVariableHexEscape(startOffset);
+            case 'u' -> readFixedHexEscape(startOffset, 4);
+            case 'U' -> readFixedHexEscape(startOffset, 8);
+            case '1', '2', '3', '4', '5', '6', '7' -> readOctalEscape(escaped);
             default -> {
                 diagnostics.add(new Diagnostic(
                         "LEX003",
@@ -719,11 +768,15 @@ public final class Lexer extends Stage {
     }
 
     private void lexCharLiteral(int startOffset) {
+        lexCharLiteral(startOffset, LiteralEncoding.ORDINARY);
+    }
+
+    private void lexCharLiteral(int startOffset, LiteralEncoding encoding) {
         if (isAtEnd()) {
             addUnterminatedCharDiagnostic(startOffset);
             return;
         }
-        char value = advanceChar();
+        int value = readCodePoint();
         if (value == '\n' || value == '\r') {
             diagnostics.add(new Diagnostic(
                     "LEX004",
@@ -760,8 +813,83 @@ public final class Lexer extends Stage {
                 TokenType.CHAR_LITERAL,
                 sourceFile.content().substring(startOffset, currentOffset),
                 range(startOffset, currentOffset),
-                value
+                encoding == LiteralEncoding.ORDINARY && value <= Character.MAX_VALUE
+                        ? Character.valueOf((char) value)
+                        : new CharacterLiteralValue(value, encoding)
         ));
+    }
+
+    private boolean isLiteralPrefix(char first) {
+        if (isAtEnd()) return false;
+        char next = sourceFile.content().charAt(currentOffset);
+        if ((first == 'L' || first == 'U') && (next == '\'' || next == '"')) return true;
+        if (first != 'u') return false;
+        if (next == '\'' || next == '"') return true;
+        return next == '8' && currentOffset + 1 < sourceFile.content().length()
+                && sourceFile.content().charAt(currentOffset + 1) == '"';
+    }
+
+    private void lexPrefixedLiteral(int startOffset, char first) {
+        LiteralEncoding encoding;
+        if (first == 'u' && sourceFile.content().charAt(currentOffset) == '8') {
+            currentOffset++;
+            encoding = LiteralEncoding.UTF8;
+        } else if (first == 'U') encoding = LiteralEncoding.UTF32;
+        else encoding = LiteralEncoding.UTF16; // Windows wchar_t and char16_t are 16-bit.
+        char quote = advanceChar();
+        if (quote == '"') lexStringLiteral(startOffset, encoding);
+        else lexCharLiteral(startOffset, encoding);
+    }
+
+    private int readCodePoint() {
+        int result = sourceFile.content().codePointAt(currentOffset);
+        currentOffset += Character.charCount(result);
+        return result;
+    }
+
+    private int readFixedHexEscape(int startOffset, int digits) {
+        long value = 0;
+        for (int i = 0; i < digits; i++) {
+            if (isAtEnd() || !isHexDigit(sourceFile.content().charAt(currentOffset))) {
+                diagnostics.add(new Diagnostic("LEX003", Diagnostic.Severity.ERROR,
+                        "Unicode 转义必须包含 " + digits + " 个十六进制数字",
+                        range(startOffset, currentOffset)));
+                return 0xfffd;
+            }
+            value = value * 16 + Character.digit(advanceChar(), 16);
+        }
+        if (!Character.isValidCodePoint((int) value)
+                || value >= Character.MIN_SURROGATE && value <= Character.MAX_SURROGATE) {
+            diagnostics.add(new Diagnostic("LEX003", Diagnostic.Severity.ERROR,
+                    "Unicode 转义不是有效码点", range(startOffset, currentOffset)));
+            return 0xfffd;
+        }
+        return (int) value;
+    }
+
+    private int readVariableHexEscape(int startOffset) {
+        if (isAtEnd() || !isHexDigit(sourceFile.content().charAt(currentOffset))) {
+            diagnostics.add(new Diagnostic("LEX003", Diagnostic.Severity.ERROR,
+                    "\\x 后至少需要一个十六进制数字", range(startOffset, currentOffset)));
+            return 0;
+        }
+        long value = 0;
+        while (!isAtEnd() && isHexDigit(sourceFile.content().charAt(currentOffset))) {
+            value = (value << 4) + Character.digit(advanceChar(), 16);
+        }
+        return (int) value;
+    }
+
+    private int readOctalEscape(char first) {
+        int value = first - '0';
+        int count = 1;
+        while (count < 3 && !isAtEnd()) {
+            char next = sourceFile.content().charAt(currentOffset);
+            if (next < '0' || next > '7') break;
+            value = value * 8 + (advanceChar() - '0');
+            count++;
+        }
+        return value;
     }
 
     private void addUnterminatedStringDiagnostic(int startOffset) {

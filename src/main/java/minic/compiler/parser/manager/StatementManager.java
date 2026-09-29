@@ -366,6 +366,12 @@ public final class StatementManager {
         return statement;
     }
 
+    public Expression parseInitializer() {
+        return state.check(TokenType.LEFT_BRACE)
+                ? parseAggregateInitializer()
+                : expressionManager.parseAssignmentExpression();
+    }
+
     private Expression parseAggregateInitializer() {
         Token startToken = state.advance();
         ArrayList<Expression> values = new ArrayList<>();

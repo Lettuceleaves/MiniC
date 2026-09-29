@@ -65,6 +65,7 @@ public final class StructRegistry {
         program.typedefs().forEach(typedefDecl -> {
             validateTypedefType(typedefDecl.type(), typedefDecl.range());
         });
+        program.globals().forEach(global -> validateDeclaredType(global.type(), global.range()));
         program.functions().forEach(functionDecl -> {
             validateFunctionReturnType(functionDecl.returnType(), functionDecl.range());
             functionDecl.parameters().forEach(parameter -> validateDeclaredType(parameter.type(), parameter.range()));
@@ -169,6 +170,7 @@ public final class StructRegistry {
     private void validateFields(StructDecl structDecl) {
         Set<String> fieldNames = new HashSet<>();
         for (StructField field : structDecl.fields()) {
+            if (field.anonymous()) continue;
             if (!fieldNames.add(field.name())) {
                 report(field.range(), "重复结构体字段：" + field.name());
             }
@@ -252,20 +254,39 @@ public final class StructRegistry {
 
         try {
             ArrayList<StructFieldLayout> fieldLayouts = new ArrayList<>();
+            LinkedHashMap<String, StructFieldLayout> promotedFields = new LinkedHashMap<>();
             int offset = 0;
             int structAlignment = 1;
+            int anonymousIndex = 0;
             for (StructField field : structDecl.fields()) {
                 int fieldAlignment = resolveAlignment(field.alignmentSpecs(), field.type(), field.range());
                 int fieldSize = sizeOf(field.type());
                 offset = structDecl.union() ? 0 : alignTo(offset, fieldAlignment);
-                fieldLayouts.add(new StructFieldLayout(field.name(), field.type(), offset, fieldSize, fieldAlignment));
+                String physicalName = field.anonymous() ? "$anonymous$" + anonymousIndex++ : field.name();
+                fieldLayouts.add(new StructFieldLayout(physicalName, field.type(), offset, fieldSize, fieldAlignment));
+                if (field.anonymous() && field.type().unqualified() instanceof MiniType.StructType nestedType) {
+                    StructLayout nested = layoutOf(nestedType.name());
+                    if (nested != null) {
+                        ArrayList<StructFieldLayout> visible = new ArrayList<>(nested.fields());
+                        visible.addAll(nested.promotedFields().values());
+                        for (StructFieldLayout child : visible) {
+                            if (child.name().startsWith("$anonymous$")) continue;
+                            StructFieldLayout promoted = new StructFieldLayout(
+                                    child.name(), child.type(), offset + child.offset(), child.size(), child.alignment());
+                            if (promotedFields.putIfAbsent(child.name(), promoted) != null
+                                    || fieldLayouts.stream().anyMatch(direct -> direct.name().equals(child.name()))) {
+                                report(field.range(), "匿名成员提升后字段名冲突：" + child.name());
+                            }
+                        }
+                    }
+                }
                 offset = structDecl.union() ? Math.max(offset, fieldSize) : offset + fieldSize;
                 if (fieldAlignment > structAlignment) {
                     structAlignment = fieldAlignment;
                 }
             }
             int structSize = alignTo(offset == 0 ? 1 : offset, structAlignment);
-            StructLayout layout = new StructLayout(structName, structSize, structAlignment, fieldLayouts);
+            StructLayout layout = new StructLayout(structName, structSize, structAlignment, fieldLayouts, promotedFields);
             structLayouts.put(structName, layout);
             return layout;
         } finally {

@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <stdarg.h>. */
 #ifndef MINIC_STDARG_MH
 #define MINIC_STDARG_MH
 

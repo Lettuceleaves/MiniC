@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <locale.h>. */
 #ifndef MINIC_LOCALE_MH
 #define MINIC_LOCALE_MH
 

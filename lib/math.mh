@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <math.h>. */
 #ifndef MINIC_MATH_MH
 #define MINIC_MATH_MH
 extern double acos(double value);

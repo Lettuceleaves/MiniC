@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <ctype.h>. */
 #ifndef MINIC_CTYPE_MH
 #define MINIC_CTYPE_MH
 extern int isalnum(int character);

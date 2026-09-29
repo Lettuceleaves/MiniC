@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <inttypes.h>. */
 #ifndef MINIC_INTTYPES_MH
 #define MINIC_INTTYPES_MH
 

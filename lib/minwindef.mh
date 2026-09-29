@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <minwindef.h>. */
 #ifndef MINIC_MINWINDEF_MH
 #define MINIC_MINWINDEF_MH
 #define min(a, b) (((a) < (b)) ? (a) : (b))

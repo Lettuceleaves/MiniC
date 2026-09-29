@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <float.h>. */
 #ifndef MINIC_FLOAT_MH
 #define MINIC_FLOAT_MH
 

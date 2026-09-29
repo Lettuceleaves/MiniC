@@ -2,6 +2,7 @@ package minic.compiler.semantic.manager;
 
 import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.parser.node.Declaration.Parameter;
+import minic.compiler.parser.node.Declaration.GlobalVarDecl;
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.parser.node.Statement.BlockStmt;
@@ -78,6 +79,44 @@ public final class StatementSemanticAnalyzer {
 
     public void analyzeCurrentFunctionTopLevelStatement(Statement statement) {
         analyzeStatement(statement, currentFunctionContextScope());
+    }
+
+    /** 注册并检查文件作用域对象，使所有函数共享同一组全局符号。 */
+    public void analyzeGlobals(List<GlobalVarDecl> globals) {
+        java.util.LinkedHashMap<String, GlobalVarDecl> declarations = new java.util.LinkedHashMap<>();
+        java.util.HashSet<String> initialized = new java.util.HashSet<>();
+        for (GlobalVarDecl global : globals) {
+            GlobalVarDecl previous = declarations.putIfAbsent(global.name(), global);
+            if (previous != null && !previous.type().equals(global.type())) {
+                report(global.range(), "全局对象重复声明的类型不兼容：" + global.name());
+            }
+            if (global.initializerOptional().isPresent() && !initialized.add(global.name())) {
+                report(global.range(), "全局对象只能定义一次：" + global.name());
+            }
+            structRegistry.resolveAlignment(global.alignmentSpecs(), global.type(), global.range());
+        }
+        declarations.values().forEach(global -> {
+            if (!globalScope.define(new Symbol(global.name(), SymbolKind.VARIABLE,
+                    global.range(), global.type(), null))) {
+                report(global.range(), "全局名称重复：" + global.name());
+            }
+        });
+        for (GlobalVarDecl global : globals) {
+            global.initializerOptional().ifPresent(initializer -> {
+                boolean aggregate = initializer instanceof AggregateInitExpr;
+                if (aggregate) expressionAnalyzer.setAggregateInitTargetType(global.type());
+                MiniType initializerType;
+                try {
+                    initializerType = expressionAnalyzer.analyzeExpression(initializer, globalScope);
+                } finally {
+                    expressionAnalyzer.setAggregateInitTargetType(null);
+                }
+                if (!aggregate && !global.type().isArray()
+                        && !isInitializerCompatible(global.type(), initializerType)) {
+                    report(global.range(), "全局变量初始化类型不匹配：" + global.name());
+                }
+            });
+        }
     }
 
     public Scope currentFunctionScope() {

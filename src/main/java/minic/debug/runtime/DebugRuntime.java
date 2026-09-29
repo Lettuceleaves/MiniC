@@ -89,12 +89,20 @@ public final class DebugRuntime {
             functionAddress += 8;
         }
         for (IrStringData string : code.ir().stringData()) {
-            byte[] bytes = (string.value() + '\0').getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = string.bytes();
             long address = allocate(bytes.length, "static", string.label());
             Allocation allocation = memory.get(address);
             System.arraycopy(bytes, 0, allocation.bytes, 0, bytes.length);
             allocation.initialized.set(0, bytes.length);
             symbols.put(string.label(), address);
+        }
+        for (IrGlobalData global : code.ir().globalData()) {
+            byte[] bytes = global.bytes();
+            long address = allocate(bytes.length, global.alignment(), "global", global.label());
+            Allocation allocation = memory.get(address);
+            System.arraycopy(bytes, 0, allocation.bytes, 0, bytes.length);
+            allocation.initialized.set(0, bytes.length);
+            symbols.put(global.label(), address);
         }
     }
 
@@ -134,6 +142,7 @@ public final class DebugRuntime {
     public List<MemoryBlock> heap() { return blocks("heap"); }
     public List<MemoryBlock> stackMemory() { return blocks("stack"); }
     public List<MemoryBlock> libraryMemory() { return blocks("library"); }
+    public List<MemoryBlock> globalMemory() { return blocks("global"); }
 
     /** 将当前堆、栈和输出合成为一个与后续执行完全隔离的运行时对象。 */
     public RuntimeState snapshot() {
@@ -142,6 +151,7 @@ public final class DebugRuntime {
                 stackMemory(),
                 heap(),
                 libraryMemory(),
+                globalMemory(),
                 stdout(),
                 returnValue(),
                 stdinCursor(),
@@ -648,6 +658,7 @@ public final class DebugRuntime {
             List<MemoryBlock> stackMemory,
             List<MemoryBlock> heap,
             List<MemoryBlock> libraryMemory,
+            List<MemoryBlock> globalMemory,
             String stdout,
             Value returnValue,
             int stdinCursor,
@@ -675,6 +686,7 @@ public final class DebugRuntime {
             stackMemory = List.copyOf(stackMemory);
             heap = List.copyOf(heap);
             libraryMemory = List.copyOf(libraryMemory);
+            globalMemory = List.copyOf(globalMemory);
             localeCategories = List.copyOf(localeCategories);
             Objects.requireNonNull(stdout, "stdout");
             Objects.requireNonNull(stderr, "stderr");

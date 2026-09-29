@@ -65,7 +65,9 @@ public final class DebugProgram {
         ir = new IrResult(
                 functions,
                 original.stringData(),
+                original.globalData(),
                 original.externalFunctionNames(),
+                original.externalObjectNames(),
                 original.structLayouts()
         );
         lines = lineIndex.stream().map(List::copyOf).toList();

@@ -34,6 +34,7 @@ public final class WindowsX64MachineAssembler {
         Objects.requireNonNull(source, "source");
         ArrayList<MachineItem> text = new ArrayList<>();
         ArrayList<MachineItem> readOnlyData = new ArrayList<>();
+        ArrayList<MachineItem> writableData = new ArrayList<>();
         ArrayList<String> externals = new ArrayList<>();
         Section section = Section.NONE;
 
@@ -51,6 +52,10 @@ public final class WindowsX64MachineAssembler {
                 section = Section.CODE;
                 continue;
             }
+            if (line.equalsIgnoreCase(".data")) {
+                section = Section.DATA;
+                continue;
+            }
             if (line.equalsIgnoreCase("END") || line.startsWith("PUBLIC ")) {
                 continue;
             }
@@ -64,6 +69,10 @@ public final class WindowsX64MachineAssembler {
             }
             if (section == Section.CONST) {
                 parseDataLine(line, readOnlyData);
+                continue;
+            }
+            if (section == Section.DATA) {
+                parseDataLine(line, writableData);
                 continue;
             }
             if (section != Section.CODE) {
@@ -89,6 +98,9 @@ public final class WindowsX64MachineAssembler {
         }
         if (!readOnlyData.isEmpty()) {
             sections.add(new MachineSection(".rdata", MachineSectionKind.READ_ONLY_DATA, 8, readOnlyData));
+        }
+        if (!writableData.isEmpty()) {
+            sections.add(new MachineSection(".data", MachineSectionKind.WRITABLE_DATA, 8, writableData));
         }
         return new MachineModule(source.entrySymbol(), sections, externals);
     }
@@ -292,6 +304,7 @@ public final class WindowsX64MachineAssembler {
     private enum Section {
         NONE,
         CONST,
+        DATA,
         CODE
     }
 

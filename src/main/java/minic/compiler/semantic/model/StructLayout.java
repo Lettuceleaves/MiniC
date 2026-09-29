@@ -14,7 +14,8 @@ import java.util.Optional;
  * @param alignment 结构体对齐字节数
  * @param fields 字段布局列表
  */
-public record StructLayout(String name, int size, int alignment, List<StructFieldLayout> fields) {
+public record StructLayout(String name, int size, int alignment, List<StructFieldLayout> fields,
+                           java.util.Map<String, StructFieldLayout> promotedFields) {
     /**
      * 创建结构体布局，并防御性复制字段布局。
      *
@@ -26,6 +27,7 @@ public record StructLayout(String name, int size, int alignment, List<StructFiel
     public StructLayout {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(fields, "fields");
+        Objects.requireNonNull(promotedFields, "promotedFields");
         if (name.isBlank()) {
             throw new IllegalArgumentException("name must not be blank");
         }
@@ -36,6 +38,11 @@ public record StructLayout(String name, int size, int alignment, List<StructFiel
             throw new IllegalArgumentException("alignment must be positive");
         }
         fields = List.copyOf(fields);
+        promotedFields = java.util.Map.copyOf(promotedFields);
+    }
+
+    public StructLayout(String name, int size, int alignment, List<StructFieldLayout> fields) {
+        this(name, size, alignment, fields, java.util.Map.of());
     }
 
     /**
@@ -46,9 +53,10 @@ public record StructLayout(String name, int size, int alignment, List<StructFiel
      */
     public Optional<StructFieldLayout> field(String fieldName) {
         Objects.requireNonNull(fieldName, "fieldName");
-        return fields.stream()
+        Optional<StructFieldLayout> direct = fields.stream()
                 .filter(field -> field.name().equals(fieldName))
                 .findFirst();
+        return direct.isPresent() ? direct : Optional.ofNullable(promotedFields.get(fieldName));
     }
 
     /**

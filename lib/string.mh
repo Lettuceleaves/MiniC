@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <string.h>. */
 #ifndef MINIC_STRING_MH
 #define MINIC_STRING_MH
 

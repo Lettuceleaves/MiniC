@@ -84,10 +84,17 @@ public interface Expression extends AstNode {
         }
     }
 
-    record CharLiteralExpr(char value, String lexeme, SourceRange range) implements Expression {
+    enum LiteralEncoding { ORDINARY, UTF8, UTF16, UTF32 }
+
+    record CharLiteralExpr(int value, LiteralEncoding encoding, String lexeme, SourceRange range) implements Expression {
         public CharLiteralExpr {
             Objects.requireNonNull(lexeme, "lexeme");
+            Objects.requireNonNull(encoding, "encoding");
             Objects.requireNonNull(range, "range");
+        }
+
+        public CharLiteralExpr(char value, String lexeme, SourceRange range) {
+            this(value, LiteralEncoding.ORDINARY, lexeme, range);
         }
     }
 
@@ -291,11 +298,16 @@ public interface Expression extends AstNode {
         }
     }
 
-    record StringLiteralExpr(String value, String lexeme, SourceRange range) implements Expression {
+    record StringLiteralExpr(String value, LiteralEncoding encoding, String lexeme, SourceRange range) implements Expression {
         public StringLiteralExpr {
             Objects.requireNonNull(value, "value");
+            Objects.requireNonNull(encoding, "encoding");
             Objects.requireNonNull(lexeme, "lexeme");
             Objects.requireNonNull(range, "range");
+        }
+
+        public StringLiteralExpr(String value, String lexeme, SourceRange range) {
+            this(value, LiteralEncoding.ORDINARY, lexeme, range);
         }
     }
 

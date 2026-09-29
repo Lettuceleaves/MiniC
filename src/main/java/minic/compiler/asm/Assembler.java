@@ -8,6 +8,7 @@ import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrStringData;
+import minic.compiler.ir.model.IrGlobalData;
 import minic.source.SourceRange;
 
 import java.util.ArrayDeque;
@@ -25,10 +26,15 @@ public final class Assembler extends Stage {
     private final Work work = new Work();
     private Section section = Section.HEADER_PUBLIC;
     private int externalIndex;
+    private int externalObjectIndex;
     private int stringDataIndex;
     private List<String> pendingStringDataLines = List.of();
     private int pendingStringDataLineIndex;
     private String pendingStringDataLabel = "";
+    private int globalDataIndex;
+    private List<String> pendingGlobalDataLines = List.of();
+    private int pendingGlobalDataLineIndex;
+    private String pendingGlobalDataLabel = "";
     private int entryLineIndex;
     private int functionIndex;
     private FunctionState functionState;
@@ -92,7 +98,8 @@ public final class Assembler extends Stage {
                             "PUBLIC " + CallingConvention.ENTRY_SYMBOL, null);
                 }
                 case HEADER_EXIT_PROCESS -> {
-                    section = input.irResult.externalFunctionNames().isEmpty() ? Section.CONST_SECTION : Section.EXTERNS;
+                    section = input.externalFunctionNames.isEmpty() && input.externalObjectNames.isEmpty()
+                            ? Section.CONST_SECTION : Section.EXTERNS;
                     return emit("header", "ExitProcess", "EXTERN ExitProcess:PROC", null);
                 }
                 case EXTERNS -> {
@@ -100,10 +107,16 @@ public final class Assembler extends Stage {
                         String externalName = input.externalFunctionNames.get(externalIndex++);
                         return emit("header", externalName, "EXTERN " + externalName + ":PROC", null);
                     }
+                    if (externalObjectIndex < input.externalObjectNames.size()) {
+                        String externalName = input.externalObjectNames.get(externalObjectIndex++);
+                        return emit("header", externalName, "EXTERN " + externalName + ":BYTE", null);
+                    }
                     section = Section.CONST_SECTION;
                 }
                 case CONST_SECTION -> {
-                    section = input.irResult.stringData().isEmpty() ? Section.CODE_SECTION : Section.STRING_DATA;
+                    section = input.irResult.stringData().isEmpty()
+                            ? (input.irResult.globalData().isEmpty() ? Section.CODE_SECTION : Section.DATA_SECTION)
+                            : Section.STRING_DATA;
                     if (!input.irResult.stringData().isEmpty()) {
                         return emit("const", ".const", ".const", null);
                     }
@@ -128,6 +141,25 @@ public final class Assembler extends Stage {
                                 pendingStringDataLines.get(pendingStringDataLineIndex++),
                                 null
                         );
+                    }
+                    section = input.irResult.globalData().isEmpty() ? Section.CODE_SECTION : Section.DATA_SECTION;
+                }
+                case DATA_SECTION -> {
+                    section = Section.GLOBAL_DATA;
+                    return emit("data", ".data", ".data", null);
+                }
+                case GLOBAL_DATA -> {
+                    if (pendingGlobalDataLineIndex < pendingGlobalDataLines.size()) {
+                        return emit("data", pendingGlobalDataLabel,
+                                pendingGlobalDataLines.get(pendingGlobalDataLineIndex++), null);
+                    }
+                    if (globalDataIndex < input.irResult.globalData().size()) {
+                        IrGlobalData data = input.irResult.globalData().get(globalDataIndex++);
+                        pendingGlobalDataLines = formatByteDataLines(data.label(), data.bytes());
+                        pendingGlobalDataLineIndex = 0;
+                        pendingGlobalDataLabel = data.label();
+                        return emit("data", pendingGlobalDataLabel,
+                                pendingGlobalDataLines.get(pendingGlobalDataLineIndex++), null);
                     }
                     section = Section.CODE_SECTION;
                 }
@@ -245,10 +277,7 @@ public final class Assembler extends Stage {
 
     private static List<String> formatStringDataLines(IrStringData stringData) {
         ArrayList<Integer> bytes = new ArrayList<>();
-        for (int index = 0; index < stringData.value().length(); index++) {
-            bytes.add((int) stringData.value().charAt(index));
-        }
-        bytes.add(0);
+        for (byte value : stringData.bytes()) bytes.add(Byte.toUnsignedInt(value));
 
         ArrayList<String> lines = new ArrayList<>();
         int index = 0;
@@ -261,6 +290,19 @@ public final class Assembler extends Stage {
                     .collect(java.util.stream.Collectors.joining(", ")));
             index = end;
             firstLine = false;
+        }
+        return List.copyOf(lines);
+    }
+
+    private static List<String> formatByteDataLines(String label, byte[] data) {
+        ArrayList<Integer> bytes = new ArrayList<>(data.length);
+        for (byte value : data) bytes.add(Byte.toUnsignedInt(value));
+        ArrayList<String> lines = new ArrayList<>();
+        for (int index = 0; index < bytes.size(); index += 16) {
+            int end = Math.min(index + 16, bytes.size());
+            String prefix = index == 0 ? label + " BYTE " : "    BYTE ";
+            lines.add(prefix + bytes.subList(index, end).stream()
+                    .map(String::valueOf).collect(java.util.stream.Collectors.joining(", ")));
         }
         return List.copyOf(lines);
     }
@@ -282,6 +324,8 @@ public final class Assembler extends Stage {
         EXTERNS,
         CONST_SECTION,
         STRING_DATA,
+        DATA_SECTION,
+        GLOBAL_DATA,
         CODE_SECTION,
         ENTRY_POINT,
         FUNCTIONS,
@@ -467,7 +511,7 @@ public final class Assembler extends Stage {
      *
      * @param irResult IR 阶段最终结果
      */
-    public record Input(IrResult irResult, List<String> externalFunctionNames) {
+    public record Input(IrResult irResult, List<String> externalFunctionNames, List<String> externalObjectNames) {
         /**
          * 创建输入数据。
          *
@@ -477,11 +521,14 @@ public final class Assembler extends Stage {
         public Input {
             Objects.requireNonNull(irResult, "irResult");
             Objects.requireNonNull(externalFunctionNames, "externalFunctionNames");
+            Objects.requireNonNull(externalObjectNames, "externalObjectNames");
             externalFunctionNames = List.copyOf(externalFunctionNames);
+            externalObjectNames = List.copyOf(externalObjectNames);
         }
 
         private Input(IrResult irResult) {
-            this(irResult, irResult.externalFunctionNames().stream().toList());
+            this(irResult, irResult.externalFunctionNames().stream().toList(),
+                    irResult.externalObjectNames().stream().toList());
         }
     }
 

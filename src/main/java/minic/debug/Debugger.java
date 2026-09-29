@@ -159,6 +159,8 @@ public final class Debugger {
             case IrParameterRef p -> frame.parameters.get(p.name());
             case IrStringLiteral s -> Value.of(IrType.POINTER, runtime.symbol(s.label()));
             case IrFunctionAddress f -> Value.of(IrType.POINTER, runtime.symbol(f.functionName()));
+            case minic.compiler.ir.value.IrValue.IrGlobalAddress g ->
+                    Value.of(IrType.POINTER, runtime.symbol(g.globalName()));
         };
         if (resolved == null) throw new IllegalStateException("Undefined IR value: " + value);
         return resolved;

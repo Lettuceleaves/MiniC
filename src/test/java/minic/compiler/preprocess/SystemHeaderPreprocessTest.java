@@ -4,10 +4,28 @@ import minic.compiler.SourceFile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
+import java.nio.file.Path;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class SystemHeaderPreprocessTest {
+    @Test
+    @Tag("stdlib-contract")
+    void mapsAngleBracketCHeaderToProjectLibraryMhFile() {
+        String source = "#include<stdio.h>\nint main() { return printf(\"ok\"); }\n";
+
+        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("angle-header.mc", source));
+
+        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(result.sourceFile().content().contains("extern int printf(char *format, ...);"));
+        assertEquals(1, result.includes().size());
+        PreprocessResult.IncludeSummary include = result.includes().getFirst();
+        assertEquals("stdio.h", include.requestedPath());
+        assertEquals(Path.of("lib", "stdio.mh").toAbsolutePath().normalize(), include.resolvedPath());
+        assertTrue(include.expanded());
+    }
+
     @Test
     @Tag("stdlib-contract")
     void expandsBuiltInHeadersAndFunctionLikeMinMacro() {

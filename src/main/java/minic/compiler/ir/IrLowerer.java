@@ -5,9 +5,11 @@ import minic.compiler.Stage;
 import minic.compiler.ir.manager.FunctionManager;
 import minic.compiler.ir.manager.IrFunctionSignature;
 import minic.compiler.ir.manager.IrTypeLowerer;
+import minic.compiler.ir.manager.GlobalDataLowerer;
 import minic.compiler.ir.manager.StringLiteralRegistry;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrType;
+import minic.compiler.ir.model.IrGlobalData;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.parser.node.Declaration.Program;
@@ -25,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 可逐步执行的 IR lowering 阶段。
@@ -162,7 +165,8 @@ public final class IrLowerer extends Stage {
                         work.stringLiteralRegistry,
                         input.structLayouts,
                         input.expressionTypes,
-                        work.functionSignatures
+                        work.functionSignatures,
+                        collectGlobalTypes(input.program)
                 );
                 currentFunctionManager.begin();
                 currentStatements = function.bodyOptional().orElseThrow().statements();
@@ -232,7 +236,9 @@ public final class IrLowerer extends Stage {
         return new IrResult(
                 functions,
                 work.stringLiteralRegistry.stringData(),
+                work.globalData,
                 work.externalFunctionNames,
+                work.externalObjectNames,
                 input.structLayouts
         );
     }
@@ -252,7 +258,9 @@ public final class IrLowerer extends Stage {
             Map<Expression, MiniType> expressionTypes
     ) {
         input = new Input(program, structLayouts, expressionTypes);
-        work = new Work(collectFunctionSignatures(program));
+        work = new Work(collectFunctionSignatures(program),
+                new GlobalDataLowerer(structLayouts).lower(program.globals()));
+        work.externalObjectNames.addAll(collectExternalObjectNames(program));
         clearCurrentOperation();
         result = null;
         nextFunctionIndex = 0;
@@ -293,7 +301,9 @@ public final class IrLowerer extends Stage {
         return new IrResult(
                 reachable.functions(),
                 work.stringLiteralRegistry.stringData(),
+                work.globalData,
                 reachable.externalFunctionNames(),
+                work.externalObjectNames,
                 input.structLayouts
         );
     }
@@ -333,6 +343,25 @@ public final class IrLowerer extends Stage {
             ));
         }
         return signatures;
+    }
+
+    private static Map<String, MiniType> collectGlobalTypes(Program program) {
+        java.util.LinkedHashMap<String, MiniType> globals = new java.util.LinkedHashMap<>();
+        program.globals().forEach(global -> globals.put(global.name(), global.type()));
+        return Map.copyOf(globals);
+    }
+
+    private static Set<String> collectExternalObjectNames(Program program) {
+        java.util.LinkedHashMap<String, List<minic.compiler.parser.node.Declaration.GlobalVarDecl>> groups =
+                new java.util.LinkedHashMap<>();
+        program.globals().forEach(global -> groups.computeIfAbsent(global.name(), ignored -> new ArrayList<>()).add(global));
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        groups.forEach((name, declarations) -> {
+            boolean hasDefinition = declarations.stream().anyMatch(global -> !global.external()
+                    || global.initializerOptional().isPresent());
+            if (!hasDefinition) result.add(name);
+        });
+        return Set.copyOf(result);
     }
 
     private int plannedActionCount() {
@@ -386,9 +415,12 @@ public final class IrLowerer extends Stage {
         private final ArrayList<String> loweringLog = new ArrayList<>();
         private final StringLiteralRegistry stringLiteralRegistry = new StringLiteralRegistry();
         private final Map<String, IrFunctionSignature> functionSignatures;
+        private final List<IrGlobalData> globalData;
+        private final Set<String> externalObjectNames = new LinkedHashSet<>();
 
-        private Work(Map<String, IrFunctionSignature> functionSignatures) {
+        private Work(Map<String, IrFunctionSignature> functionSignatures, List<IrGlobalData> globalData) {
             this.functionSignatures = Map.copyOf(functionSignatures);
+            this.globalData = List.copyOf(globalData);
         }
 
         /**

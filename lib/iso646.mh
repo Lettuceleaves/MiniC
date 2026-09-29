@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <iso646.h>. */
 #ifndef MINIC_ISO646_MH
 #define MINIC_ISO646_MH
 #define and &&

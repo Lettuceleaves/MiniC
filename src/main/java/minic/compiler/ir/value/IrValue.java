@@ -60,6 +60,15 @@ public sealed interface IrValue {
         }
     }
 
+    /** Stable address of a writable file-scope object. */
+    record IrGlobalAddress(String globalName) implements IrValue {
+        public IrGlobalAddress {
+            Objects.requireNonNull(globalName, "globalName");
+            if (globalName.isBlank()) throw new IllegalArgumentException("globalName must not be blank");
+        }
+        @Override public IrType type() { return IrType.POINTER; }
+    }
+
     record IrParameterRef(String name, IrType type) implements IrValue {
         public IrParameterRef {
             Objects.requireNonNull(name, "name");

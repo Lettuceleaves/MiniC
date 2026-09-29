@@ -59,6 +59,7 @@ final class StatementLowerer {
             StringLiteralRegistry stringLiteralRegistry,
             Map<Expression, MiniType> expressionTypes,
             Map<String, IrFunctionSignature> functionSignatures,
+            Map<String, MiniType> globalTypes,
             IrType returnType,
             boolean variadicFunction,
             int firstVariadicArgumentIndex
@@ -70,6 +71,7 @@ final class StatementLowerer {
                 stringLiteralRegistry,
                 expressionTypes,
                 functionSignatures,
+                globalTypes,
                 variadicFunction,
                 firstVariadicArgumentIndex
         );
@@ -385,6 +387,7 @@ final class StatementLowerer {
     private void lowerAggregateInit(IrLocal local, VarDeclStmt varDeclStmt, AggregateInitExpr initializer) {
         IrTemporary baseAddress = builder.newTemporary(IrType.POINTER);
         builder.addInstruction(new IrAddressOfLocalInstruction(baseAddress, local, varDeclStmt.range()));
+        zeroInitializeAt(baseAddress, varDeclStmt.type(), varDeclStmt.range());
         lowerAggregateInitAt(
                 baseAddress,
                 varDeclStmt.type(),
@@ -431,10 +434,20 @@ final class StatementLowerer {
             if (value instanceof DesignatedInitExpr designated
                     && designated.designators().getFirst() instanceof Designator.Field selected) {
                 var selectedField = builder.fieldLayout(structName, selected.name());
-                for (int index = 0; ; index++) {
-                    if (builder.fieldLayout(structName, index).name().equals(selectedField.name())) { i = index; break; }
+                IrTemporary selectedAddress = builder.newTemporary(IrType.POINTER);
+                builder.addInstruction(new IrFieldAddressInstruction(selectedAddress, baseAddress, structName,
+                        selectedField.name(), selectedField.offset(), selectedField.type(), range));
+                lowerDesignatedAt(selectedAddress,
+                        inheritObjectQualifiers(aggregateType, selectedField.type()), value, 1, range);
+                for (int index = 0; index < builder.fieldCount(structName); index++) {
+                    if (builder.fieldLayout(structName, index).name().equals(selectedField.name())) {
+                        i = index + 1;
+                        break;
+                    }
                 }
+                continue;
             }
+            if (i >= builder.fieldCount(structName)) break;
             var field = builder.fieldLayout(structName, i);
             MiniType fieldType = inheritObjectQualifiers(aggregateType, field.type());
             IrTemporary fieldAddr = builder.newTemporary(IrType.POINTER);
@@ -450,6 +463,34 @@ final class StatementLowerer {
             lowerDesignatedAt(fieldAddr, fieldType, value, 1, range);
             i++;
         }
+    }
+
+    private void zeroInitializeAt(IrValue address, MiniType type, minic.source.SourceRange range) {
+        MiniType raw = type.unqualified();
+        if (raw instanceof MiniType.ArrayType array) {
+            for (int index = 0; index < array.length(); index++) {
+                IrTemporary element = builder.newTemporary(IrType.POINTER);
+                builder.addInstruction(new IrElementAddressInstruction(element, address,
+                        new IrConstant(index), array.elementType(), builder.sizeOf(array.elementType()), range));
+                zeroInitializeAt(element, array.elementType(), range);
+            }
+            return;
+        }
+        if (raw instanceof MiniType.StructType struct) {
+            for (int index = 0; index < builder.fieldCount(struct.name()); index++) {
+                var field = builder.fieldLayout(struct.name(), index);
+                IrTemporary member = builder.newTemporary(IrType.POINTER);
+                builder.addInstruction(new IrFieldAddressInstruction(member, address, struct.name(),
+                        field.name(), field.offset(), field.type(), range));
+                zeroInitializeAt(member, field.type(), range);
+            }
+            return;
+        }
+        IrType irType = IrTypeLowerer.lower(type);
+        IrValue zero = irType.isFloatingScalar()
+                ? new minic.compiler.ir.value.IrValue.IrFloatConstant(0.0, irType)
+                : new IrConstant(0, irType);
+        builder.addInstruction(new IrStorePointerInstruction(address, zero, type.isVolatileQualified(), range));
     }
 
     private void lowerDesignatedAt(IrValue address, MiniType targetType, Expression initializer,

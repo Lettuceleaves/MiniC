@@ -2,6 +2,7 @@ package minic.compiler.ir;
 
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrStringData;
+import minic.compiler.ir.model.IrGlobalData;
 import minic.compiler.semantic.model.StructLayout;
 
 import java.util.List;
@@ -22,25 +23,41 @@ import java.util.Map;
 public record IrResult(
         List<IrFunction> functions,
         List<IrStringData> stringData,
+        List<IrGlobalData> globalData,
         Set<String> externalFunctionNames,
+        Set<String> externalObjectNames,
         Map<String, StructLayout> structLayouts
 ) {
     public IrResult {
         Objects.requireNonNull(functions, "functions");
         Objects.requireNonNull(stringData, "stringData");
+        Objects.requireNonNull(globalData, "globalData");
         Objects.requireNonNull(externalFunctionNames, "externalFunctionNames");
+        Objects.requireNonNull(externalObjectNames, "externalObjectNames");
         Objects.requireNonNull(structLayouts, "structLayouts");
         functions = List.copyOf(functions);
         stringData = List.copyOf(stringData);
+        globalData = List.copyOf(globalData);
         // IR 结果是 ASM 阶段的输入边界：已有函数体的符号永远不能再作为外部函数输出。
         LinkedHashSet<String> normalizedExternals = new LinkedHashSet<>(externalFunctionNames);
         functions.stream().map(IrFunction::name).forEach(normalizedExternals::remove);
         externalFunctionNames = Set.copyOf(normalizedExternals);
+        externalObjectNames = Set.copyOf(externalObjectNames);
         structLayouts = Map.copyOf(structLayouts);
     }
 
     public IrResult(List<IrFunction> functions, List<IrStringData> stringData, Set<String> externalFunctionNames) {
-        this(functions, stringData, externalFunctionNames, Map.of());
+        this(functions, stringData, List.of(), externalFunctionNames, Set.of(), Map.of());
+    }
+
+    public IrResult(List<IrFunction> functions, List<IrStringData> stringData,
+                    Set<String> externalFunctionNames, Map<String, StructLayout> structLayouts) {
+        this(functions, stringData, List.of(), externalFunctionNames, Set.of(), structLayouts);
+    }
+
+    public IrResult(List<IrFunction> functions, List<IrStringData> stringData, List<IrGlobalData> globalData,
+                    Set<String> externalFunctionNames, Map<String, StructLayout> structLayouts) {
+        this(functions, stringData, globalData, externalFunctionNames, Set.of(), structLayouts);
     }
 
     public IrResult(List<IrFunction> functions, List<IrStringData> stringData) {

@@ -51,6 +51,7 @@ import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrValue.IrConstant;
 import minic.compiler.ir.value.IrValue.IrFloatConstant;
 import minic.compiler.ir.value.IrValue.IrFunctionAddress;
+import minic.compiler.ir.value.IrValue.IrGlobalAddress;
 import minic.compiler.ir.value.IrValue.IrTemporary;
 import minic.compiler.ir.value.IrValue;
 import minic.compiler.lexer.token.TokenType;
@@ -64,6 +65,7 @@ final class ExpressionLowerer {
     private final StringLiteralRegistry stringLiteralRegistry;
     private final Map<Expression, MiniType> expressionTypes;
     private final Map<String, IrFunctionSignature> functionSignatures;
+    private final Map<String, MiniType> globalTypes;
     private final boolean variadicFunction;
     private final int firstVariadicArgumentIndex;
 
@@ -72,6 +74,7 @@ final class ExpressionLowerer {
             StringLiteralRegistry stringLiteralRegistry,
             Map<Expression, MiniType> expressionTypes,
             Map<String, IrFunctionSignature> functionSignatures,
+            Map<String, MiniType> globalTypes,
             boolean variadicFunction,
             int firstVariadicArgumentIndex
     ) {
@@ -81,6 +84,7 @@ final class ExpressionLowerer {
                 new java.util.IdentityHashMap<>(expressionTypes)
         );
         this.functionSignatures = Map.copyOf(functionSignatures);
+        this.globalTypes = Map.copyOf(globalTypes);
         this.variadicFunction = variadicFunction;
         this.firstVariadicArgumentIndex = firstVariadicArgumentIndex;
     }
@@ -102,7 +106,7 @@ final class ExpressionLowerer {
             return new IrConstant(boolLiteralExpr.value() ? 1 : 0, IrType.BOOL);
         }
         if (expression instanceof CharLiteralExpr charLiteralExpr) {
-            return new IrConstant(charLiteralExpr.value(), IrType.CHAR);
+            return new IrConstant(charLiteralExpr.value(), irTypeOf(charLiteralExpr));
         }
         if (expression instanceof IntegerLiteralExpr integerLiteralExpr) {
             return new IrConstant(integerLiteralExpr.value());
@@ -123,7 +127,7 @@ final class ExpressionLowerer {
             return new IrConstant(0, IrType.POINTER);
         }
         if (expression instanceof StringLiteralExpr stringLiteralExpr) {
-            return stringLiteralRegistry.define(stringLiteralExpr.value());
+            return stringLiteralRegistry.define(stringLiteralExpr.value(), stringLiteralExpr.encoding());
         }
         if (expression instanceof CastExpr castExpr) {
             IrValue operand = lowerExpression(castExpr.operand());
@@ -156,6 +160,15 @@ final class ExpressionLowerer {
                         local.declaredType().isVolatileQualified(),
                         nameExpr.range()
                 ));
+                return result;
+            }
+            MiniType globalType = globalTypes.get(nameExpr.name());
+            if (globalType != null) {
+                IrGlobalAddress address = new IrGlobalAddress(nameExpr.name());
+                if (globalType.isArray() || globalType.isStruct()) return address;
+                IrTemporary result = builder.newTemporary(IrTypeLowerer.lower(globalType));
+                builder.addInstruction(new IrLoadPointerInstruction(
+                        result, address, globalType.isVolatileQualified(), nameExpr.range()));
                 return result;
             }
             return builder.resolveParameter(nameExpr.name());
@@ -689,7 +702,15 @@ final class ExpressionLowerer {
         if (target instanceof NameExpr nameExpr) {
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local == null) {
-                throw new IllegalArgumentException("assignment target must be a local variable: " + nameExpr.name());
+                MiniType globalType = globalTypes.get(nameExpr.name());
+                if (globalType == null) {
+                    throw new IllegalArgumentException("assignment target is unresolved: " + nameExpr.name());
+                }
+                builder.addInstruction(new IrStorePointerInstruction(
+                        new IrGlobalAddress(nameExpr.name()),
+                        castIfNeeded(value, IrTypeLowerer.lower(globalType), range),
+                        globalType.isVolatileQualified(), range));
+                return;
             }
             builder.addInstruction(new IrStoreLocalInstruction(
                     local,
@@ -795,8 +816,7 @@ final class ExpressionLowerer {
                 ? lowerExpression(fieldAccessExpr.target())
                 : lowerAddress(fieldAccessExpr.target());
         String structName = structName(fieldAccessExpr.target());
-        int fieldIndex = builder.fieldIndex(structName, fieldAccessExpr.fieldName());
-        var field = builder.fieldLayout(structName, fieldIndex);
+        var field = builder.fieldLayout(structName, fieldAccessExpr.fieldName());
         IrTemporary result = builder.newTemporary(IrType.POINTER);
         builder.addInstruction(new IrFieldAddressInstruction(
                 result,
@@ -817,6 +837,7 @@ final class ExpressionLowerer {
         if (expression instanceof NameExpr nameExpr) {
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local == null) {
+                if (globalTypes.containsKey(nameExpr.name())) return new IrGlobalAddress(nameExpr.name());
                 return builder.resolveParameter(nameExpr.name());
             }
             IrTemporary result = builder.newTemporary(IrType.POINTER);

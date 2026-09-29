@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <stdalign.h>. */
 #ifndef MINIC_STDALIGN_MH
 #define MINIC_STDALIGN_MH
 #define alignas _Alignas

@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <stdio.h>. */
 #ifndef MINIC_STDIO_MH
 #define MINIC_STDIO_MH
 #define EOF (-1)

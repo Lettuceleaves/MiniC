@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("stdlib-contract")
 final class StandardLibraryInventoryTest {
+    private static final Path LIBRARY_ROOT = Path.of("lib").toAbsolutePath().normalize();
     private static final String HEADER_RESOURCE = "/minic/stdlib/c23-headers.properties";
     private static final String ENTITY_RESOURCE = "/minic/stdlib/c23-entities.properties";
 
@@ -57,13 +60,11 @@ final class StandardLibraryInventoryTest {
             if (status.equals("DEFERRED")) {
                 continue;
             }
-            String resourceName = "/minic/include/" + entry.getKey();
-            try (InputStream input = StandardLibraryInventoryTest.class.getResourceAsStream(resourceName)) {
-                assertNotNull(input, resourceName);
-                String content = new String(input.readAllBytes(), StandardCharsets.UTF_8);
-                assertFalse(content.isBlank(), resourceName);
-                assertTrue(content.contains("#ifndef"), resourceName + " must have an include guard");
-            }
+            Path headerPath = LIBRARY_ROOT.resolve(entry.getKey());
+            assertTrue(Files.isRegularFile(headerPath), headerPath.toString());
+            String content = Files.readString(headerPath, StandardCharsets.UTF_8);
+            assertFalse(content.isBlank(), headerPath.toString());
+            assertTrue(content.contains("#ifndef"), headerPath + " must have an include guard");
         }
     }
 

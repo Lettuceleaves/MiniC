@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <limits.h>. */
 #ifndef MINIC_LIMITS_MH
 #define MINIC_LIMITS_MH
 

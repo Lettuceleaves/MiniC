@@ -1,3 +1,4 @@
+/* MiniC compatibility declarations for <stdbool.h>. */
 #ifndef MINIC_STDBOOL_MH
 #define MINIC_STDBOOL_MH
 #define _Bool bool

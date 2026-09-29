@@ -3,6 +3,7 @@ package minic.compiler.asm;
 import minic.compiler.ir.value.IrValue.IrConstant;
 import minic.compiler.ir.value.IrValue.IrFloatConstant;
 import minic.compiler.ir.value.IrValue.IrFunctionAddress;
+import minic.compiler.ir.value.IrValue.IrGlobalAddress;
 import minic.compiler.ir.value.IrValue.IrParameterRef;
 import minic.compiler.ir.value.IrValue.IrStringLiteral;
 import minic.compiler.ir.value.IrValue.IrTemporary;
@@ -48,6 +49,11 @@ final class ValueEmitter {
                             externalFunctionNames.contains(functionAddress.functionName())
                     ))
                     .append(System.lineSeparator());
+            return;
+        }
+        if (value instanceof IrGlobalAddress globalAddress) {
+            builder.append("    lea ").append(pointerRegister(register)).append(", ")
+                    .append(globalAddress.globalName()).append(System.lineSeparator());
             return;
         }
         throw new IllegalArgumentException("unsupported IR value: " + value.getClass().getSimpleName());
