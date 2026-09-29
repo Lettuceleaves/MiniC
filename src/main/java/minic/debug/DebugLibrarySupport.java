@@ -6,7 +6,11 @@ import java.util.List;
 
 /** 各系统库 provider 共用的参数校验。 */
 final class DebugLibrarySupport {
+    static final int ENOENT = 2;
+    static final int EIO = 5;
     static final int ENOMEM = 12;
+    static final int EACCES = 13;
+    static final int EEXIST = 17;
     static final int EINVAL = 22;
     static final int EDOM = 33;
     static final int ERANGE = 34;

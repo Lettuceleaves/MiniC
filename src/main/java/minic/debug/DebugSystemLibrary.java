@@ -22,6 +22,7 @@ final class DebugSystemLibrary {
         this(List.of(
                 new DebugMemoryLibraryProvider(),
                 new DebugStdioLibraryProvider(),
+                new DebugStdioFileLibraryProvider(),
                 new DebugMathLibraryProvider(),
                 new DebugFloatingMathLibraryProvider(),
                 new DebugStdlibConversionProvider(),

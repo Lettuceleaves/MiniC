@@ -17,6 +17,12 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         LinkedHashMap<String, DebugLibraryFunction> registered = new LinkedHashMap<>();
         registered.put("printf", this::printf);
         registered.put("scanf", this::scanf);
+        registered.put("getchar", this::getchar);
+        registered.put("putchar", this::putchar);
+        registered.put("puts", this::puts);
+        registered.put("sprintf", this::sprintf);
+        registered.put("snprintf", this::snprintf);
+        registered.put("sscanf", this::sscanf);
         functions = Map.copyOf(registered);
     }
 
@@ -34,9 +40,50 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         if (arguments.isEmpty()) {
             throw new IllegalStateException("printf requires a format argument");
         }
-        String format = runtime.readCString(arguments.getFirst().integer());
+        String rendered = render(runtime, arguments, 0);
+        runtime.appendOutput(rendered);
+        return integerResult(rendered.length());
+    }
+
+    private DebugLibraryCallResult getchar(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("getchar", arguments, 0);
+        return integerResult(runtime.readInputCharacter());
+    }
+
+    private DebugLibraryCallResult putchar(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("putchar", arguments, 1);
+        int character = (int) arguments.getFirst().integer() & 0xff;
+        runtime.appendOutput(Character.toString((char) character));
+        return integerResult(character);
+    }
+
+    private DebugLibraryCallResult puts(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("puts", arguments, 1);
+        runtime.appendOutput(runtime.readCString(arguments.getFirst().integer()) + "\n");
+        return integerResult(0);
+    }
+
+    private DebugLibraryCallResult sprintf(DebugRuntime runtime, List<Value> arguments) {
+        requireAtLeast("sprintf", arguments, 2);
+        String rendered = render(runtime, arguments, 1);
+        runtime.writeCString(arguments.getFirst().integer(), rendered, rendered.length() + 1L);
+        return integerResult(rendered.length());
+    }
+
+    private DebugLibraryCallResult snprintf(DebugRuntime runtime, List<Value> arguments) {
+        requireAtLeast("snprintf", arguments, 3);
+        long maximumSize = arguments.get(1).integer();
+        String rendered = render(runtime, arguments, 2);
+        if (maximumSize != 0) {
+            runtime.writeCString(arguments.getFirst().integer(), rendered, maximumSize);
+        }
+        return integerResult(rendered.length());
+    }
+
+    private String render(DebugRuntime runtime, List<Value> arguments, int formatIndex) {
+        String format = runtime.readCString(arguments.get(formatIndex).integer());
         StringBuilder rendered = new StringBuilder();
-        int argumentIndex = 1;
+        int argumentIndex = formatIndex + 1;
         for (int index = 0; index < format.length(); index++) {
             char current = format.charAt(index);
             if (current != '%') {
@@ -49,6 +96,7 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
                 continue;
             }
             FormatDirective directive = parseDirective(format, index + 1);
+            validatePrintfDirective(directive);
             index = directive.endOffset();
             if (argumentIndex >= arguments.size()) {
                 throw new IllegalStateException("printf argument count does not match format");
@@ -56,77 +104,104 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
             Value argument = arguments.get(argumentIndex++);
             rendered.append(formatValue(runtime, directive, argument));
         }
-        runtime.appendOutput(rendered.toString());
-        return new Returned(Value.of(IrType.INT, rendered.length()));
+        return rendered.toString();
     }
 
     private DebugLibraryCallResult scanf(DebugRuntime runtime, List<Value> arguments) {
         if (arguments.isEmpty()) {
             throw new IllegalStateException("scanf requires a format argument");
         }
-        String format = runtime.readCString(arguments.getFirst().integer());
-        int argumentIndex = 1;
+        return integerResult(scan(
+                runtime,
+                new RuntimeScanInput(runtime),
+                runtime.readCString(arguments.getFirst().integer()),
+                arguments,
+                1
+        ));
+    }
+
+    private DebugLibraryCallResult sscanf(DebugRuntime runtime, List<Value> arguments) {
+        requireAtLeast("sscanf", arguments, 2);
+        String input = runtime.readCString(arguments.get(0).integer());
+        String format = runtime.readCString(arguments.get(1).integer());
+        return integerResult(scan(runtime, new StringScanInput(input), format, arguments, 2));
+    }
+
+    private int scan(
+            DebugRuntime runtime,
+            ScanInput input,
+            String format,
+            List<Value> arguments,
+            int firstArgument
+    ) {
+        int argumentIndex = firstArgument;
         int assigned = 0;
         for (int index = 0; index < format.length(); index++) {
             char current = format.charAt(index);
             if (Character.isWhitespace(current)) {
-                runtime.skipInputWhitespace();
+                input.skipWhitespace();
                 continue;
             }
             if (current != '%') {
-                int input = runtime.readInputCharacter();
-                if (input != current) {
+                int character = input.readCharacter();
+                if (character != current) {
                     break;
                 }
                 continue;
             }
             if (index + 1 < format.length() && format.charAt(index + 1) == '%') {
-                if (runtime.readInputCharacter() != '%') {
+                if (input.readCharacter() != '%') {
                     break;
                 }
                 index++;
                 continue;
             }
             FormatDirective directive = parseDirective(format, index + 1);
+            validateScanfDirective(directive);
             index = directive.endOffset();
             if (argumentIndex >= arguments.size()) {
                 throw new IllegalStateException("scanf argument count does not match format");
             }
             long destination = arguments.get(argumentIndex++).integer();
-            if (!scanValue(runtime, directive, destination)) {
+            if (!scanValue(runtime, input, directive, destination)) {
                 break;
             }
             assigned++;
         }
-        return new Returned(Value.of(IrType.INT, assigned));
+        return assigned;
     }
 
-    private boolean scanValue(DebugRuntime runtime, FormatDirective directive, long destination) {
+    private boolean scanValue(
+            DebugRuntime runtime,
+            ScanInput input,
+            FormatDirective directive,
+            long destination
+    ) {
         try {
             return switch (directive.conversion()) {
                 case 'd', 'i' -> {
-                    String token = runtime.readInputToken(directive.maximumWidth());
+                    String token = input.readToken(directive.maximumWidth());
                     if (token.isEmpty()) yield false;
                     long value = Long.parseLong(token);
                     runtime.write(destination, Value.of(directive.integerType(false), value));
                     yield true;
                 }
                 case 'u' -> {
-                    String token = runtime.readInputToken(directive.maximumWidth());
+                    String token = input.readToken(directive.maximumWidth());
                     if (token.isEmpty()) yield false;
                     long value = Long.parseUnsignedLong(token);
                     runtime.write(destination, Value.of(directive.integerType(true), value));
                     yield true;
                 }
                 case 'f' -> {
-                    String token = runtime.readInputToken(directive.maximumWidth());
+                    String token = input.readToken(directive.maximumWidth());
                     if (token.isEmpty()) yield false;
                     double value = Double.parseDouble(token);
                     runtime.write(destination, Value.of(directive.longFloat() ? IrType.DOUBLE : IrType.FLOAT, value));
                     yield true;
                 }
                 case 's' -> {
-                    String token = runtime.readInputToken(directive.maximumWidth());
+                    String token = input.readToken(directive.maximumWidth());
                     if (token.isEmpty()) yield false;
                     for (int index = 0; index < token.length(); index++) {
                         runtime.write(destination + index, Value.of(IrType.CHAR, (int) token.charAt(index)));
@@ -135,7 +210,10 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
                     yield true;
                 }
                 case 'c' -> {
-                    int value = runtime.readInputCharacter();
+                    if (directive.width() > 1) {
+                        throw new IllegalStateException("Unsupported scanf width for %c");
+                    }
+                    int value = input.readCharacter();
                     if (value < 0) yield false;
                     runtime.write(destination, Value.of(IrType.CHAR, value));
                     yield true;
@@ -173,17 +251,73 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         };
     }
 
+    private void validatePrintfDirective(FormatDirective directive) {
+        if (!directive.flags().isEmpty()) {
+            throw new IllegalStateException("Unsupported printf flags: " + directive.flags());
+        }
+        if (directive.width() != 0) {
+            throw new IllegalStateException("Unsupported printf width: " + directive.width());
+        }
+        if (directive.precisionSpecified() && directive.conversion() != 'f') {
+            throw new IllegalStateException(
+                    "Unsupported printf precision for %" + directive.conversion()
+            );
+        }
+        boolean validLength = switch (directive.conversion()) {
+            case 'd', 'i', 'u', 'x', 'X' -> directive.length().isEmpty()
+                    || directive.length().equals("l")
+                    || directive.length().equals("ll")
+                    || directive.length().equals("I64");
+            case 'f' -> directive.length().isEmpty() || directive.length().equals("l");
+            case 's', 'c', 'p' -> directive.length().isEmpty();
+            default -> true;
+        };
+        if (!validLength) {
+            throw new IllegalStateException(
+                    "Unsupported printf length: %" + directive.length() + directive.conversion()
+            );
+        }
+    }
+
+    private void validateScanfDirective(FormatDirective directive) {
+        if (!directive.flags().isEmpty() || directive.precisionSpecified()) {
+            throw new IllegalStateException(
+                    "Unsupported scanf format modifier for %" + directive.conversion()
+            );
+        }
+        boolean validLength = switch (directive.conversion()) {
+            case 'd', 'i', 'u' -> directive.length().isEmpty()
+                    || directive.length().equals("h")
+                    || directive.length().equals("hh")
+                    || directive.length().equals("l")
+                    || directive.length().equals("ll")
+                    || directive.length().equals("I64");
+            case 'f' -> directive.length().isEmpty() || directive.length().equals("l");
+            case 's', 'c' -> directive.length().isEmpty();
+            default -> true;
+        };
+        if (!validLength) {
+            throw new IllegalStateException(
+                    "Unsupported scanf length: %" + directive.length() + directive.conversion()
+            );
+        }
+    }
+
     private FormatDirective parseDirective(String format, int start) {
         int index = start;
+        int flagsStart = index;
         while (index < format.length() && "-+ #0".indexOf(format.charAt(index)) >= 0) {
             index++;
         }
+        String flags = format.substring(flagsStart, index);
         int width = 0;
         while (index < format.length() && Character.isDigit(format.charAt(index))) {
             width = width * 10 + format.charAt(index++) - '0';
         }
         int precision = 6;
+        boolean precisionSpecified = false;
         if (index < format.length() && format.charAt(index) == '.') {
+            precisionSpecified = true;
             index++;
             precision = 0;
             while (index < format.length() && Character.isDigit(format.charAt(index))) {
@@ -205,10 +339,92 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         if (index >= format.length()) {
             throw new IllegalStateException("Incomplete format directive");
         }
-        return new FormatDirective(format.charAt(index), width, precision, length, index);
+        return new FormatDirective(
+                format.charAt(index),
+                flags,
+                width,
+                precision,
+                precisionSpecified,
+                length,
+                index
+        );
     }
 
-    private record FormatDirective(char conversion, int width, int precision, String length, int endOffset) {
+    private DebugLibraryCallResult integerResult(int value) {
+        return new Returned(Value.of(IrType.INT, value));
+    }
+
+    private void requireAtLeast(String function, List<Value> arguments, int count) {
+        if (arguments.size() < count) {
+            throw new IllegalStateException(function + " argument count: " + arguments.size());
+        }
+    }
+
+    private interface ScanInput {
+        void skipWhitespace();
+        String readToken(int maximumLength);
+        int readCharacter();
+    }
+
+    private record RuntimeScanInput(DebugRuntime runtime) implements ScanInput {
+        @Override
+        public void skipWhitespace() {
+            runtime.skipInputWhitespace();
+        }
+
+        @Override
+        public String readToken(int maximumLength) {
+            return runtime.readInputToken(maximumLength);
+        }
+
+        @Override
+        public int readCharacter() {
+            return runtime.readInputCharacter();
+        }
+    }
+
+    private static final class StringScanInput implements ScanInput {
+        private final String input;
+        private int offset;
+
+        private StringScanInput(String input) {
+            this.input = input;
+        }
+
+        @Override
+        public void skipWhitespace() {
+            while (offset < input.length() && Character.isWhitespace(input.charAt(offset))) {
+                offset++;
+            }
+        }
+
+        @Override
+        public String readToken(int maximumLength) {
+            skipWhitespace();
+            int start = offset;
+            while (offset < input.length()
+                    && !Character.isWhitespace(input.charAt(offset))
+                    && offset - start < maximumLength) {
+                offset++;
+            }
+            return input.substring(start, offset);
+        }
+
+        @Override
+        public int readCharacter() {
+            return offset >= input.length() ? -1 : input.charAt(offset++);
+        }
+    }
+
+    private record FormatDirective(
+            char conversion,
+            String flags,
+            int width,
+            int precision,
+            boolean precisionSpecified,
+            String length,
+            int endOffset
+    ) {
         int maximumWidth() {
             return width == 0 ? Integer.MAX_VALUE : width;
         }
@@ -227,6 +443,12 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
             }
             if (length.equals("l")) {
                 return unsigned ? IrType.UNSIGNED_LONG : IrType.LONG;
+            }
+            if (length.equals("h")) {
+                return unsigned ? IrType.UNSIGNED_SHORT : IrType.SHORT;
+            }
+            if (length.equals("hh")) {
+                return unsigned ? IrType.UNSIGNED_CHAR : IrType.SIGNED_CHAR;
             }
             return unsigned ? IrType.UNSIGNED_INT : IrType.INT;
         }

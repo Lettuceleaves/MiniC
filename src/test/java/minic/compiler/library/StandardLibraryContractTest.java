@@ -19,7 +19,8 @@ final class StandardLibraryContractTest {
 
     /** Source aliases that expose one public standard entity through a private binding name. */
     private static final Map<String, String> PUBLIC_BINDING_ALIASES = Map.of(
-            "minic_immediate_exit", "_Exit"
+            "minic_immediate_exit", "_Exit",
+            "minic_assert_fail", "assert"
     );
 
     /** Runtime bootstrap and native-test instrumentation, not published C entities. */
@@ -66,7 +67,9 @@ final class StandardLibraryContractTest {
             assertEquals(1, matchingEntities.size(), binding.sourceName() + " -> " + publicName);
 
             StandardLibraryProfile.NativeProvider expectedProvider =
-                    binding.runtimeFamily() == LibraryBinding.RuntimeFamily.WINDOWS
+                    binding.sourceName().equals("minic_assert_fail")
+                            ? StandardLibraryProfile.NativeProvider.MINIC_ADAPTER
+                    : binding.runtimeFamily() == LibraryBinding.RuntimeFamily.WINDOWS
                             ? StandardLibraryProfile.NativeProvider.WIN32_RUNTIME
                             : StandardLibraryProfile.NativeProvider.DLL_DIRECT;
             StandardLibraryProfile.Entity entity = matchingEntities.getFirst();

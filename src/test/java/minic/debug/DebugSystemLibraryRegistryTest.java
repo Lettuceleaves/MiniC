@@ -20,8 +20,10 @@ final class DebugSystemLibraryRegistryTest {
 
         assertEquals(
                 Set.of(
-                        "malloc", "calloc", "realloc", "free", "printf", "scanf",
-                        "abort", "exit", "minic_immediate_exit",
+                        "malloc", "calloc", "realloc", "free",
+                        "printf", "scanf", "getchar", "putchar", "puts",
+                        "sprintf", "snprintf", "sscanf", "remove", "rename",
+                        "abort", "exit", "minic_immediate_exit", "minic_assert_fail",
                         "abs", "labs", "llabs",
                         "atof", "atoi", "atol", "atoll", "strtod", "strtof",
                         "strtol", "strtoll", "strtoul", "strtoull",

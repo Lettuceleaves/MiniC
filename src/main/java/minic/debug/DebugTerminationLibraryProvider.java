@@ -16,6 +16,7 @@ final class DebugTerminationLibraryProvider implements DebugLibraryProvider {
     private final Map<String, DebugLibraryFunction> functions = Map.of(
             "abort", this::abort,
             "exit", this::exit,
+            "minic_assert_fail", this::assertFail,
             // _Exit 在 Windows CRT 中经由 stdlib.mh 的桥接名解析到 _exit。
             "minic_immediate_exit", this::immediateExit
     );
@@ -33,6 +34,15 @@ final class DebugTerminationLibraryProvider implements DebugLibraryProvider {
     private DebugLibraryCallResult abort(DebugRuntime runtime, List<Value> arguments) {
         DebugLibrarySupport.requireCount("abort", arguments, 0);
         return new Terminated(ABORT_STATUS, ABORT_REASON);
+    }
+
+    private DebugLibraryCallResult assertFail(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("minic_assert_fail", arguments, 3);
+        String expression = runtime.readCString(arguments.get(0).integer());
+        String file = runtime.readCString(arguments.get(1).integer());
+        long line = Integer.toUnsignedLong((int) arguments.get(2).integer());
+        runtime.appendError("Assertion failed: " + expression + ", file " + file + ", line " + line + "\n");
+        return new Terminated(ABORT_STATUS, "assert");
     }
 
     private DebugLibraryCallResult exit(DebugRuntime runtime, List<Value> arguments) {

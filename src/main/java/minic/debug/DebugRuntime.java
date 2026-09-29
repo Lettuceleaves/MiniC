@@ -3,9 +3,17 @@ package minic.debug;
 import minic.compiler.ir.model.*;
 import minic.compiler.ir.value.IrValue.IrTemporary;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
+import java.nio.file.Path;
 import java.util.*;
 
 /** 解释器的可变运行空间；历史状态由 Debugger 保存为不可变 RuntimeState。 */
@@ -172,6 +180,26 @@ public final class DebugRuntime {
         throw new IllegalStateException("String is not null terminated");
     }
 
+    void writeCString(long address, String value, long maximumSize) {
+        Objects.requireNonNull(value, "value");
+        if (maximumSize == 0) {
+            return;
+        }
+        int copied = value.length();
+        long available = maximumSize - 1;
+        if (Long.compareUnsigned(available, Integer.toUnsignedLong(copied)) < 0) {
+            copied = Math.toIntExact(available);
+        }
+        for (int index = 0; index < copied; index++) {
+            char character = value.charAt(index);
+            if (character > 0xff) {
+                throw new IllegalStateException("stdio narrow output contains a non-byte character");
+            }
+            writeByte(address + index, character);
+        }
+        writeByte(address + copied, 0);
+    }
+
     int readUnsignedByte(long address) {
         return (int) read(address, IrType.UNSIGNED_CHAR).integer();
     }
@@ -206,6 +234,53 @@ public final class DebugRuntime {
         if (errnoPointer != 0) {
             write(errnoPointer, Value.of(IrType.INT, value));
         }
+    }
+
+    int removeFile(String fileName) {
+        try {
+            Path path = Path.of(fileName);
+            if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+                setErrno(DebugLibrarySupport.EACCES);
+                return -1;
+            }
+            Files.delete(path);
+            return 0;
+        } catch (RuntimeException | IOException exception) {
+            setErrno(fileErrno(exception));
+            return -1;
+        }
+    }
+
+    int renameFile(String oldName, String newName) {
+        try {
+            Path source = Path.of(oldName);
+            Path target = Path.of(newName);
+            if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+                setErrno(DebugLibrarySupport.EEXIST);
+                return -1;
+            }
+            Files.move(source, target);
+            return 0;
+        } catch (RuntimeException | IOException exception) {
+            setErrno(fileErrno(exception));
+            return -1;
+        }
+    }
+
+    private int fileErrno(Exception exception) {
+        if (exception instanceof NoSuchFileException) {
+            return DebugLibrarySupport.ENOENT;
+        }
+        if (exception instanceof FileAlreadyExistsException) {
+            return DebugLibrarySupport.EEXIST;
+        }
+        if (exception instanceof AccessDeniedException || exception instanceof SecurityException) {
+            return DebugLibrarySupport.EACCES;
+        }
+        if (exception instanceof InvalidPathException) {
+            return DebugLibrarySupport.EINVAL;
+        }
+        return DebugLibrarySupport.EIO;
     }
 
     long errnoAddress() {

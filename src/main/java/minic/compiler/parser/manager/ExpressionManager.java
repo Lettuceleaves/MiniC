@@ -510,11 +510,22 @@ public final class ExpressionManager {
             return expr;
         }
         if (state.match(TokenType.STRING_LITERAL)) {
-            Token stringToken = state.previous();
+            Token firstToken = state.previous();
+            Token lastToken = firstToken;
+            StringBuilder value = new StringBuilder((String) firstToken.literalValue());
+            StringBuilder lexeme = new StringBuilder(firstToken.lexeme());
+            // ISO C translation phase 6 concatenates adjacent string literal
+            // tokens.  Format macros such as "%" PRId64 depend on this being
+            // done after preprocessing but before expression semantics.
+            while (state.match(TokenType.STRING_LITERAL)) {
+                lastToken = state.previous();
+                value.append((String) lastToken.literalValue());
+                lexeme.append(lastToken.lexeme());
+            }
             StringLiteralExpr expr = new StringLiteralExpr(
-                    (String) stringToken.literalValue(),
-                    stringToken.lexeme(),
-                    stringToken.range()
+                    value.toString(),
+                    lexeme.toString(),
+                    SourceRange.span(firstToken.range(), lastToken.range())
             );
             state.build(expr, "StringLiteralExpr " + expr.value(), expr.range());
             return expr;

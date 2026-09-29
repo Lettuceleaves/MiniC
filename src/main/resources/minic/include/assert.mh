@@ -1,0 +1,13 @@
+#ifndef MINIC_ASSERT_MH
+#define MINIC_ASSERT_MH
+extern void minic_assert_fail(char *expression, char *file, unsigned int line);
+#endif
+
+/* assert is deliberately redefined on every inclusion so NDEBUG is observed. */
+#undef assert
+
+#ifdef NDEBUG
+#define assert(expression) ((void) 0)
+#else
+#define assert(expression) ((expression) ? 0 : (minic_assert_fail(#expression, __FILE__, __LINE__), 0))
+#endif
