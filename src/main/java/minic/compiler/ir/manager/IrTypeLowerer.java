@@ -8,7 +8,8 @@ public final class IrTypeLowerer {
     }
 
     public static IrType lower(MiniType type) {
-        if (type.isPointer()) {
+        type = type.unqualified();
+        if (type.isPointer() || type.isVaList()) {
             return IrType.POINTER;
         }
         if (type.isArray() || type.isStruct()) {

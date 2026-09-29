@@ -27,13 +27,14 @@ public final class TypeLayout {
      */
     public static int sizeOf(MiniType type) {
         Objects.requireNonNull(type, "type");
+        type = type.unqualified();
         if (type.isVoid()) {
             throw new IllegalArgumentException("void has no object layout");
         }
         if (type instanceof MiniType.ScalarType scalarType) {
             return scalarType.kind().sizeBytes();
         }
-        if (type.isPointer()) {
+        if (type.isPointer() || type.isVaList()) {
             return POINTER_SIZE_BYTES;
         }
         if (type.isArray()) {
@@ -53,13 +54,14 @@ public final class TypeLayout {
      */
     public static int alignmentOf(MiniType type) {
         Objects.requireNonNull(type, "type");
+        type = type.unqualified();
         if (type.isVoid()) {
             throw new IllegalArgumentException("void has no object layout");
         }
         if (type instanceof MiniType.ScalarType scalarType) {
             return scalarType.kind().alignmentBytes();
         }
-        if (type.isPointer()) {
+        if (type.isPointer() || type.isVaList()) {
             return POINTER_ALIGNMENT_BYTES;
         }
         if (type.isArray()) {
@@ -79,6 +81,7 @@ public final class TypeLayout {
      */
     public static boolean hasFixedLayout(MiniType type) {
         Objects.requireNonNull(type, "type");
+        type = type.unqualified();
         if (type.isStruct() || type.isFunction() || type.isVoid()) {
             return false;
         }

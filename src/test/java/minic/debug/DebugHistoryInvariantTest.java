@@ -162,6 +162,69 @@ final class DebugHistoryInvariantTest {
         assertCachedRoundTrip(api, beforeStrerror, afterStrerror);
     }
 
+    @Test
+    void randomAndErrnoSideEffectsAreNotRepeatedWhenHistoryMoves() {
+        String source = """
+                #include "stdlib.mh"
+                #include "errno.mh"
+                int main() {
+                    srand(7);
+                    int random_value = rand();
+                    char *end = NULL;
+                    errno = 0;
+                    long parsed = strtol("2147483648", &end, 10);
+                    return random_value >= 0 && parsed == 2147483647 && errno == ERANGE ? 0 : 1;
+                }
+                """;
+        DebugApi api = new DebugApi(new SourceFile("debug-stdlib-state-history.mc", source));
+
+        Debugger.Context beforeSrand = advanceToNextCall(api);
+        Debugger.Context afterSrand = api.next();
+        assertEquals(1, beforeSrand.runtime().randomState());
+        assertEquals(7, afterSrand.runtime().randomState());
+        assertCachedRoundTrip(api, beforeSrand, afterSrand);
+
+        Debugger.Context beforeRand = advanceToNextCall(api);
+        Debugger.Context afterRand = api.next();
+        assertNotEquals(beforeRand.runtime().randomState(), afterRand.runtime().randomState());
+        assertCachedRoundTrip(api, beforeRand, afterRand);
+
+        Debugger.Context beforeErrno = advanceToNextCall(api);
+        Debugger.Context afterErrno = api.next();
+        assertEquals(0, beforeErrno.runtime().libraryMemory().size());
+        assertEquals(1, afterErrno.runtime().libraryMemory().size());
+        assertCachedRoundTrip(api, beforeErrno, afterErrno);
+
+        Debugger.Context beforeStrtol = advanceToNextCall(api);
+        Debugger.Context afterStrtol = api.next();
+        assertEquals(0, beforeStrtol.runtime().errno());
+        assertEquals(34, afterStrtol.runtime().errno());
+        assertCachedRoundTrip(api, beforeStrtol, afterStrtol);
+    }
+
+    @Test
+    void mathErrnoSideEffectIsStableAcrossHistoryNavigation() {
+        String source = """
+                #include "math.mh"
+                #include "errno.mh"
+                int main() {
+                    errno = 0;
+                    double value = exp(1000.0);
+                    return value > 1.0e308 && errno == ERANGE ? 0 : 1;
+                }
+                """;
+        DebugApi api = new DebugApi(new SourceFile("debug-math-history.mc", source));
+
+        advanceToNextCall(api);
+        api.next();
+        Debugger.Context beforeExp = advanceToNextCall(api);
+        Debugger.Context afterExp = api.next();
+
+        assertEquals(0, beforeExp.runtime().errno());
+        assertEquals(34, afterExp.runtime().errno());
+        assertCachedRoundTrip(api, beforeExp, afterExp);
+    }
+
     private static Debugger.Context advanceToNextCall(DebugApi api) {
         for (int remaining = 10_000; api.canNext() && remaining > 0; remaining--) {
             Debugger.Context context = api.next();

@@ -35,39 +35,55 @@ public sealed interface MemoryInstruction extends IrInstruction {
         }
     }
 
-    record IrLoadLocalInstruction(IrTemporary result, IrLocal local, SourceRange range)
+    record IrLoadLocalInstruction(IrTemporary result, IrLocal local, boolean volatileAccess, SourceRange range)
             implements MemoryInstruction {
         public IrLoadLocalInstruction {
             Objects.requireNonNull(result, "result");
             Objects.requireNonNull(local, "local");
             Objects.requireNonNull(range, "range");
         }
+
+        public IrLoadLocalInstruction(IrTemporary result, IrLocal local, SourceRange range) {
+            this(result, local, false, range);
+        }
     }
 
-    record IrStoreLocalInstruction(IrLocal local, IrValue value, SourceRange range)
+    record IrStoreLocalInstruction(IrLocal local, IrValue value, boolean volatileAccess, SourceRange range)
             implements MemoryInstruction {
         public IrStoreLocalInstruction {
             Objects.requireNonNull(local, "local");
             Objects.requireNonNull(value, "value");
             Objects.requireNonNull(range, "range");
         }
+
+        public IrStoreLocalInstruction(IrLocal local, IrValue value, SourceRange range) {
+            this(local, value, false, range);
+        }
     }
 
-    record IrLoadPointerInstruction(IrTemporary result, IrValue address, SourceRange range)
+    record IrLoadPointerInstruction(IrTemporary result, IrValue address, boolean volatileAccess, SourceRange range)
             implements MemoryInstruction {
         public IrLoadPointerInstruction {
             Objects.requireNonNull(result, "result");
             Objects.requireNonNull(address, "address");
             Objects.requireNonNull(range, "range");
         }
+
+        public IrLoadPointerInstruction(IrTemporary result, IrValue address, SourceRange range) {
+            this(result, address, false, range);
+        }
     }
 
-    record IrStorePointerInstruction(IrValue address, IrValue value, SourceRange range)
+    record IrStorePointerInstruction(IrValue address, IrValue value, boolean volatileAccess, SourceRange range)
             implements MemoryInstruction {
         public IrStorePointerInstruction {
             Objects.requireNonNull(address, "address");
             Objects.requireNonNull(value, "value");
             Objects.requireNonNull(range, "range");
+        }
+
+        public IrStorePointerInstruction(IrValue address, IrValue value, SourceRange range) {
+            this(address, value, false, range);
         }
     }
 
@@ -117,7 +133,13 @@ public sealed interface MemoryInstruction extends IrInstruction {
         }
     }
 
-    record IrMemCopyInstruction(IrValue destination, IrValue source, int sizeBytes, SourceRange range)
+    record IrMemCopyInstruction(
+            IrValue destination,
+            IrValue source,
+            int sizeBytes,
+            boolean volatileAccess,
+            SourceRange range
+    )
             implements MemoryInstruction {
         public IrMemCopyInstruction {
             Objects.requireNonNull(destination, "destination");
@@ -126,6 +148,10 @@ public sealed interface MemoryInstruction extends IrInstruction {
             if (sizeBytes <= 0) {
                 throw new IllegalArgumentException("sizeBytes must be positive: " + sizeBytes);
             }
+        }
+
+        public IrMemCopyInstruction(IrValue destination, IrValue source, int sizeBytes, SourceRange range) {
+            this(destination, source, sizeBytes, false, range);
         }
     }
 }

@@ -29,29 +29,31 @@ public final class FunctionRegistry {
             validateFunctionSignature(functionDecl);
             String name = functionDecl.name();
             List<MiniType> parameterTypes = parameterTypes(functionDecl);
+            MiniType returnType = functionDecl.returnType().unqualified();
             FunctionState existingState = functionStates.get(name);
             if (existingState == null) {
                 Symbol symbol = new Symbol(
                         name,
                         SymbolKind.FUNCTION,
                         functionDecl.range(),
-                        MiniType.function(functionDecl.returnType(), parameterTypes, functionDecl.variadic()),
+                        MiniType.function(returnType, parameterTypes, functionDecl.variadic()),
                         parameterTypes.size()
                 );
                 globalScope.define(symbol);
                 functionStates.put(name, new FunctionState(
-                        functionDecl.returnType(),
+                        returnType,
                         parameterTypes,
                         functionDecl.variadic(),
                         functionDecl.hasBody(),
-                        functionDecl.external()
+                        functionDecl.external(),
+                        functionDecl.noReturn()
                 ));
                 if (functionDecl.external() && functionDecl.hasBody()) {
                     report(functionDecl.range(), "外部函数不能携带函数体：" + name);
                 }
                 continue;
             }
-            if (!existingState.returnType().equals(functionDecl.returnType())
+            if (!existingState.returnType().equals(returnType)
                     || !existingState.parameterTypes().equals(parameterTypes)) {
                 report(functionDecl.range(), "函数声明签名不一致：" + name);
                 continue;
@@ -68,10 +70,12 @@ public final class FunctionRegistry {
                 if (existingState.defined()) {
                     report(functionDecl.range(), "重复函数定义：" + functionSignature(functionDecl));
                 } else {
-                    functionStates.put(name, existingState.asDefined());
+                    functionStates.put(name, existingState.asDefined().withNoReturn(functionDecl.noReturn()));
                 }
             } else if (functionDecl.external() && !existingState.external()) {
-                functionStates.put(name, existingState.asExternal());
+                functionStates.put(name, existingState.asExternal().withNoReturn(functionDecl.noReturn()));
+            } else if (functionDecl.noReturn() && !existingState.noReturn()) {
+                functionStates.put(name, existingState.withNoReturn(true));
             }
         }
     }
@@ -134,6 +138,11 @@ public final class FunctionRegistry {
         return functionSymbol.orElseThrow().type().pointerTo();
     }
 
+    boolean isNoReturn(String name) {
+        FunctionState state = functionStates.get(name);
+        return state != null && state.noReturn();
+    }
+
     private boolean isArgumentCompatible(MiniType parameterType, MiniType argumentType) {
         return TypeCompatibility.isArgumentCompatible(parameterType, argumentType);
     }
@@ -174,7 +183,7 @@ public final class FunctionRegistry {
             if (!functionDecl.parameters().isEmpty()) {
                 report(functionDecl.range(), "非法 main 函数签名：main 必须无参数");
             }
-            if (!functionDecl.returnType().equals(MiniType.INT)) {
+            if (!functionDecl.returnType().unqualified().equals(MiniType.INT)) {
                 report(functionDecl.range(), "非法 main 函数签名：main 必须返回 int");
             }
         }
@@ -187,6 +196,7 @@ public final class FunctionRegistry {
     private List<MiniType> parameterTypes(FunctionDecl functionDecl) {
         return functionDecl.parameters().stream()
                 .map(Parameter::type)
+                .map(MiniType::unqualified)
                 .toList();
     }
 
@@ -199,7 +209,8 @@ public final class FunctionRegistry {
             List<MiniType> parameterTypes,
             boolean variadic,
             boolean defined,
-            boolean external
+            boolean external,
+            boolean noReturn
     ) {
         private FunctionState {
             java.util.Objects.requireNonNull(returnType, "returnType");
@@ -207,11 +218,16 @@ public final class FunctionRegistry {
         }
 
         private FunctionState asDefined() {
-            return new FunctionState(returnType, parameterTypes, variadic, true, external);
+            return new FunctionState(returnType, parameterTypes, variadic, true, external, noReturn);
         }
 
         private FunctionState asExternal() {
-            return new FunctionState(returnType, parameterTypes, variadic, defined, true);
+            return new FunctionState(returnType, parameterTypes, variadic, defined, true, noReturn);
+        }
+
+        private FunctionState withNoReturn(boolean declaredNoReturn) {
+            return new FunctionState(returnType, parameterTypes, variadic, defined, external,
+                    noReturn || declaredNoReturn);
         }
     }
 }

@@ -20,7 +20,18 @@ final class DebugSystemLibraryRegistryTest {
 
         assertEquals(
                 Set.of(
-                        "malloc", "calloc", "free", "printf", "scanf", "abs",
+                        "malloc", "calloc", "realloc", "free", "printf", "scanf",
+                        "abort", "exit", "minic_immediate_exit",
+                        "abs", "labs", "llabs",
+                        "atof", "atoi", "atol", "atoll", "strtod", "strtof",
+                        "strtol", "strtoll", "strtoul", "strtoull",
+                        "rand", "srand", "minic_errno_location",
+                        "acos", "asin", "atan", "atan2", "ceil", "cos", "cosh",
+                        "exp", "fabs", "floor", "fmod", "frexp", "ldexp", "log",
+                        "log10", "modf", "pow", "sin", "sinh", "sqrt", "tan", "tanh",
+                        "acosf", "asinf", "atanf", "atan2f", "ceilf", "cosf", "coshf",
+                        "expf", "floorf", "fmodf", "logf", "log10f", "modff", "powf",
+                        "sinf", "sinhf", "sqrtf", "tanf", "tanhf",
                         "isalnum", "isalpha", "isblank", "iscntrl", "isdigit", "isgraph",
                         "islower", "isprint", "ispunct", "isspace", "isupper", "isxdigit",
                         "tolower", "toupper",

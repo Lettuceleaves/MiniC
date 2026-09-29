@@ -1,6 +1,7 @@
 package minic.compiler.semantic.manager;
 
 import minic.compiler.parser.node.Declaration.Program;
+import minic.compiler.parser.node.Declaration.AlignmentSpec;
 import minic.compiler.parser.node.Declaration.StructDecl;
 import minic.compiler.parser.node.Declaration.StructField;
 import minic.compiler.type.MiniType;
@@ -61,6 +62,9 @@ public final class StructRegistry {
     public void validateProgramTypes(Program program) {
         program.structs().stream().filter(StructDecl::definition).forEach(this::validateStructFieldTypes);
         validateRecursiveStructValues();
+        program.typedefs().forEach(typedefDecl -> {
+            validateTypedefType(typedefDecl.type(), typedefDecl.range());
+        });
         program.functions().forEach(functionDecl -> {
             validateFunctionReturnType(functionDecl.returnType(), functionDecl.range());
             functionDecl.parameters().forEach(parameter -> validateDeclaredType(parameter.type(), parameter.range()));
@@ -75,6 +79,11 @@ public final class StructRegistry {
         validateTypeShape(type, range, true);
     }
 
+    void validateTypedefType(MiniType type, SourceRange range) {
+        validateTypeReferences(type, range);
+        validateTypeShape(type, range, false);
+    }
+
     private void validateFunctionReturnType(MiniType type, SourceRange range) {
         validateTypeReferences(type, range);
         if (type.isArray() || type.isFunction()) {
@@ -84,6 +93,7 @@ public final class StructRegistry {
     }
 
     private void validateTypeReferences(MiniType type, SourceRange range) {
+        type = type.unqualified();
         if (type instanceof MiniType.StructType structType
                 && globalScope.resolve(structType.name())
                 .filter(symbol -> symbol.kind() == SymbolKind.STRUCT)
@@ -102,20 +112,24 @@ public final class StructRegistry {
     }
 
     private void validateTypeShape(MiniType type, SourceRange range, boolean objectRoot) {
+        if (type.isRestrictQualified() && !type.isPointer()) {
+            report(range, "restrict 只能限定指针类型");
+        }
+        MiniType unqualified = type.unqualified();
         if (objectRoot && type.isVoid()) {
             report(range, "对象不能声明为 void 类型");
         }
         if (objectRoot && type.isFunction()) {
             report(range, "对象不能直接声明为函数类型；请使用函数指针");
         }
-        if (type instanceof MiniType.ArrayType arrayType) {
+        if (unqualified instanceof MiniType.ArrayType arrayType) {
             if (arrayType.elementType().isFunction() || arrayType.elementType().isVoid()) {
                 report(range, "数组元素不能是函数或 void 类型");
             }
             validateTypeShape(arrayType.elementType(), range, false);
-        } else if (type instanceof MiniType.PointerType pointerType) {
+        } else if (unqualified instanceof MiniType.PointerType pointerType) {
             validateTypeShape(pointerType.pointee(), range, false);
-        } else if (type instanceof MiniType.FunctionType functionType) {
+        } else if (unqualified instanceof MiniType.FunctionType functionType) {
             if (functionType.returnType().isArray() || functionType.returnType().isFunction()) {
                 report(range, "函数不能直接返回数组或函数类型");
             }
@@ -138,7 +152,7 @@ public final class StructRegistry {
     }
 
     java.util.Optional<StructFieldLayout> field(MiniType type, String fieldName) {
-        if (type instanceof MiniType.StructType structType) {
+        if (type.unqualified() instanceof MiniType.StructType structType) {
             StructLayout layout = layoutOf(structType.name());
             if (layout != null) {
                 return layout.field(fieldName);
@@ -164,6 +178,7 @@ public final class StructRegistry {
     private void validateStructFieldTypes(StructDecl structDecl) {
         for (StructField field : structDecl.fields()) {
             validateDeclaredType(field.type(), field.range());
+            resolveAlignment(field.alignmentSpecs(), field.type(), field.range());
             if (directStructName(field.type()).filter(structDecl.name()::equals).isPresent()) {
                 report(field.range(), "结构体字段不能直接包含自身：" + structDecl.name());
             }
@@ -171,7 +186,7 @@ public final class StructRegistry {
     }
 
     private java.util.Optional<String> directStructName(MiniType type) {
-        if (type instanceof MiniType.StructType structType) {
+        if (type.unqualified() instanceof MiniType.StructType structType) {
             return java.util.Optional.of(structType.name());
         }
         if (type.isArray()) {
@@ -240,7 +255,7 @@ public final class StructRegistry {
             int offset = 0;
             int structAlignment = 1;
             for (StructField field : structDecl.fields()) {
-                int fieldAlignment = alignmentOf(field.type());
+                int fieldAlignment = resolveAlignment(field.alignmentSpecs(), field.type(), field.range());
                 int fieldSize = sizeOf(field.type());
                 offset = structDecl.union() ? 0 : alignTo(offset, fieldAlignment);
                 fieldLayouts.add(new StructFieldLayout(field.name(), field.type(), offset, fieldSize, fieldAlignment));
@@ -258,7 +273,8 @@ public final class StructRegistry {
         }
     }
 
-    private int sizeOf(MiniType type) {
+    int sizeOf(MiniType type) {
+        type = type.unqualified();
         // 非法函数对象已由 validateTypeShape 报错；占位布局只用于让诊断阶段安全完成。
         if (type.isFunction()) {
             return 1;
@@ -276,7 +292,8 @@ public final class StructRegistry {
         return TypeLayout.sizeOf(type);
     }
 
-    private int alignmentOf(MiniType type) {
+    int alignmentOf(MiniType type) {
+        type = type.unqualified();
         if (type.isFunction()) {
             return 1;
         }
@@ -291,6 +308,45 @@ public final class StructRegistry {
             return layout != null ? layout.alignment() : 1;
         }
         return TypeLayout.alignmentOf(type);
+    }
+
+    /** Validate and combine all alignment specifiers for one declared object. */
+    int resolveAlignment(List<AlignmentSpec> specifications, MiniType type, SourceRange declarationRange) {
+        int natural = alignmentOf(type);
+        int requested = 0;
+        SourceRange requestedRange = declarationRange;
+        for (AlignmentSpec specification : specifications) {
+            int alignment;
+            if (specification.constant() != null) {
+                alignment = specification.constant();
+            } else {
+                MiniType alignmentType = specification.type();
+                if (alignmentType.isVoid() || alignmentType.isFunction()) {
+                    report(specification.range(), "alignas 类型必须具有对象布局");
+                    continue;
+                }
+                alignment = alignmentOf(alignmentType);
+            }
+            if (alignment == 0) {
+                continue;
+            }
+            if (alignment < 0 || (alignment & (alignment - 1)) != 0) {
+                report(specification.range(), "alignas 对齐值必须是 2 的幂");
+                continue;
+            }
+            if (alignment > 16) {
+                report(specification.range(), "当前后端不支持超过 16 字节的显式对齐");
+                continue;
+            }
+            if (alignment > requested) {
+                requested = alignment;
+                requestedRange = specification.range();
+            }
+        }
+        if (requested > 0 && requested < natural) {
+            report(requestedRange, "alignas 指定对齐不能弱于自然对齐");
+        }
+        return Math.max(natural, requested);
     }
 
     private int alignTo(int value, int alignment) {

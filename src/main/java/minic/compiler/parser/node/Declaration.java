@@ -16,21 +16,54 @@ public interface Declaration extends AstNode {
     record Program(
             List<StructDecl> structs,
             List<EnumDecl> enums,
+            List<TypedefDecl> typedefs,
             List<FunctionDecl> functions,
             SourceRange range
     ) implements Declaration {
         public Program {
             Objects.requireNonNull(structs, "structs");
             Objects.requireNonNull(enums, "enums");
+            Objects.requireNonNull(typedefs, "typedefs");
             Objects.requireNonNull(functions, "functions");
             Objects.requireNonNull(range, "range");
             structs = List.copyOf(structs);
             enums = List.copyOf(enums);
+            typedefs = List.copyOf(typedefs);
             functions = List.copyOf(functions);
         }
 
         public Program(List<StructDecl> structs, List<FunctionDecl> functions, SourceRange range) {
-            this(structs, List.of(), functions, range);
+            this(structs, List.of(), List.of(), functions, range);
+        }
+
+        public Program(List<StructDecl> structs, List<EnumDecl> enums, List<FunctionDecl> functions, SourceRange range) {
+            this(structs, enums, List.of(), functions, range);
+        }
+    }
+
+    record TypedefDecl(String name, MiniType type, SourceRange range) implements Declaration {
+        public TypedefDecl {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
+    /** One _Alignas/alignas requirement, expressed either as a constant or as a type. */
+    record AlignmentSpec(Integer constant, MiniType type, SourceRange range) implements Declaration {
+        public AlignmentSpec {
+            Objects.requireNonNull(range, "range");
+            if ((constant == null) == (type == null)) {
+                throw new IllegalArgumentException("alignment spec must contain exactly one operand");
+            }
+        }
+
+        public static AlignmentSpec constant(int value, SourceRange range) {
+            return new AlignmentSpec(value, null, range);
+        }
+
+        public static AlignmentSpec type(MiniType type, SourceRange range) {
+            return new AlignmentSpec(null, Objects.requireNonNull(type, "type"), range);
         }
     }
 
@@ -57,6 +90,7 @@ public interface Declaration extends AstNode {
             boolean variadic,
             BlockStmt body,
             boolean external,
+            boolean noReturn,
             SourceRange range
     ) implements Declaration {
         public FunctionDecl {
@@ -76,6 +110,18 @@ public interface Declaration extends AstNode {
 
         public boolean hasBody() {
             return body != null;
+        }
+
+        public FunctionDecl(
+                String name,
+                MiniType returnType,
+                List<Parameter> parameters,
+                boolean variadic,
+                BlockStmt body,
+                boolean external,
+                SourceRange range
+        ) {
+            this(name, returnType, parameters, variadic, body, external, false, range);
         }
     }
 
@@ -110,14 +156,25 @@ public interface Declaration extends AstNode {
         }
     }
 
-    record StructField(String name, MiniType type, SourceRange range) implements Declaration {
+    record StructField(
+            String name,
+            MiniType type,
+            List<AlignmentSpec> alignmentSpecs,
+            SourceRange range
+    ) implements Declaration {
         public StructField {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(alignmentSpecs, "alignmentSpecs");
             Objects.requireNonNull(range, "range");
             if (name.isBlank()) {
                 throw new IllegalArgumentException("name must not be blank");
             }
+            alignmentSpecs = List.copyOf(alignmentSpecs);
+        }
+
+        public StructField(String name, MiniType type, SourceRange range) {
+            this(name, type, List.of(), range);
         }
     }
 }

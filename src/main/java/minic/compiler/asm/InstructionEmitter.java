@@ -40,6 +40,18 @@ final class InstructionEmitter {
     }
 
     void emitParameterStores(StringBuilder builder, IrFunction function) {
+        if (function.variadic()) {
+            // A va_list walks one contiguous array of eight-byte slots.  Home
+            // the four register arguments into the shadow space supplied by
+            // the caller so that slot 3 -> slot 4 is ordinary pointer advance.
+            for (int index = 0; index < CallingConvention.INTEGER_ARGUMENT_REGISTERS.size(); index++) {
+                builder.append("    mov QWORD PTR [rbp+")
+                        .append(CallingConvention.incomingArgumentSlotOffset(index))
+                        .append("], ")
+                        .append(CallingConvention.pointerArgumentRegister(index))
+                        .append(System.lineSeparator());
+            }
+        }
         for (int index = 0; index < function.parameters().size(); index++) {
             IrParameter parameter = function.parameters().get(index);
             String destination = frame.parameterSlot(parameter.name(), parameter.type());

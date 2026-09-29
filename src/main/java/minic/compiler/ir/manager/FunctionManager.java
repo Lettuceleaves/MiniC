@@ -44,10 +44,12 @@ public final class FunctionManager {
                 Objects.requireNonNull(stringLiteralRegistry, "stringLiteralRegistry"),
                 expressionTypes,
                 functionSignatures,
-                irReturnType
+                irReturnType,
+                function.variadic(),
+                function.parameters().size() + (structReturn ? 1 : 0)
         );
         if (structReturn) {
-            statementLowerer.setStructReturn(((MiniType.StructType) function.returnType()).name());
+            statementLowerer.setStructReturn(((MiniType.StructType) function.returnType().unqualified()).name());
         }
     }
 

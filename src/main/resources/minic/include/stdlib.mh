@@ -1,7 +1,28 @@
 #ifndef MINIC_STDLIB_MH
 #define MINIC_STDLIB_MH
+#define EXIT_SUCCESS 0
+#define EXIT_FAILURE 1
+#define RAND_MAX 32767
 extern void *malloc(unsigned long long size);
 extern void *calloc(unsigned long long count, unsigned long long size);
+extern void *realloc(void *pointer, unsigned long long size);
 extern void free(void *pointer);
+extern double atof(char *string);
+extern int atoi(char *string);
+extern long atol(char *string);
+extern long long atoll(char *string);
+extern double strtod(char *string, char **endPointer);
+extern long strtol(char *string, char **endPointer, int base);
+extern long long strtoll(char *string, char **endPointer, int base);
+extern unsigned long strtoul(char *string, char **endPointer, int base);
+extern unsigned long long strtoull(char *string, char **endPointer, int base);
 extern int abs(int value);
+extern long labs(long value);
+extern long long llabs(long long value);
+extern int rand(void);
+extern void srand(unsigned int seed);
+extern void abort(void);
+extern void exit(int status);
+extern int minic_immediate_exit(long long processHandle, int status);
+#define _Exit(status) minic_immediate_exit(-1LL, (status))
 #endif

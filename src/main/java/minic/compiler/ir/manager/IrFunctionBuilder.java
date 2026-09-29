@@ -91,7 +91,7 @@ final class IrFunctionBuilder {
                 declaredType,
                 irType,
                 sizeOf(declaredType),
-                alignmentOf(declaredType),
+                declaredAlignment(varDeclStmt),
                 varDeclStmt.range()
         );
         localScopes.peek().put(varDeclStmt.name(), local);
@@ -109,6 +109,15 @@ final class IrFunctionBuilder {
                 alignmentOf(declaredType),
                 range
         );
+    }
+
+    /**
+     * Returns a pseudo local whose address is the canonical Windows x64 argument
+     * slot in the caller-provided home/stack area.  It is intentionally not
+     * entered into a source scope and does not consume frame storage.
+     */
+    IrLocal incomingArgumentArea(int argumentIndex, minic.source.SourceRange range) {
+        return IrLocal.incomingArgumentArea(argumentIndex, range);
     }
 
     int fieldOffset(String structName, String fieldName) {
@@ -156,6 +165,7 @@ final class IrFunctionBuilder {
     }
 
     int sizeOf(MiniType declaredType) {
+        declaredType = declaredType.unqualified();
         if (declaredType instanceof MiniType.ArrayType arrayType) {
             return Math.multiplyExact(sizeOf(arrayType.elementType()), arrayType.length());
         }
@@ -167,6 +177,7 @@ final class IrFunctionBuilder {
     }
 
     int alignmentOf(MiniType declaredType) {
+        declaredType = declaredType.unqualified();
         if (declaredType instanceof MiniType.ArrayType arrayType) {
             return alignmentOf(arrayType.elementType());
         }
@@ -175,6 +186,19 @@ final class IrFunctionBuilder {
             return layout.alignment();
         }
         return TypeLayout.alignmentOf(declaredType);
+    }
+
+    private int declaredAlignment(VarDeclStmt declaration) {
+        int alignment = alignmentOf(declaration.type());
+        for (minic.compiler.parser.node.Declaration.AlignmentSpec specification : declaration.alignmentSpecs()) {
+            int requested = specification.constant() != null
+                    ? specification.constant()
+                    : alignmentOf(specification.type());
+            if (requested > alignment) {
+                alignment = requested;
+            }
+        }
+        return alignment;
     }
 
     IrLocal resolveLocal(String name) {

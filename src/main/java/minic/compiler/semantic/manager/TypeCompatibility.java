@@ -9,7 +9,7 @@ final class TypeCompatibility {
 
     static boolean isAssignmentCompatible(MiniType targetType, MiniType valueType) {
         valueType = decay(valueType);
-        if (targetType.equals(valueType)) {
+        if (targetType.unqualified().equals(valueType.unqualified())) {
             return true;
         }
         if (targetType.isPointer()) {
@@ -22,7 +22,10 @@ final class TypeCompatibility {
             // C 对象指针可以隐式转换为/从 void*；函数指针不参与该规则。
             MiniType targetPointee = targetType.pointee();
             MiniType valuePointee = valueType.pointee();
-            return targetPointee.equals(valuePointee)
+            if (!targetPointee.qualifiers().containsAll(valuePointee.qualifiers())) {
+                return false;
+            }
+            return targetPointee.unqualified().equals(valuePointee.unqualified())
                     || targetPointee.isVoid() && !valuePointee.isFunction()
                     || valuePointee.isVoid() && !targetPointee.isFunction();
         }
@@ -138,6 +141,8 @@ final class TypeCompatibility {
     }
 
     static MiniType usualArithmeticType(MiniType leftType, MiniType rightType) {
+        leftType = leftType.unqualified();
+        rightType = rightType.unqualified();
         if (leftType.equals(MiniType.DOUBLE) || rightType.equals(MiniType.DOUBLE)) {
             return MiniType.DOUBLE;
         }
@@ -169,6 +174,7 @@ final class TypeCompatibility {
     }
 
     static MiniType integerPromotion(MiniType type) {
+        type = type.unqualified();
         if (!type.isIntegerScalar()) {
             return type;
         }
@@ -177,6 +183,7 @@ final class TypeCompatibility {
     }
 
     private static MiniType.ScalarKind scalarKind(MiniType type) {
+        type = type.unqualified();
         if (type instanceof MiniType.ScalarType scalarType && scalarType.kind().integer()) {
             return scalarType.kind();
         }
@@ -184,6 +191,7 @@ final class TypeCompatibility {
     }
 
     private static MiniType unsignedCounterpart(MiniType type) {
+        type = type.unqualified();
         if (type.equals(MiniType.INT)) return MiniType.UNSIGNED_INT;
         if (type.equals(MiniType.LONG)) return MiniType.UNSIGNED_LONG;
         if (type.equals(MiniType.LONG_LONG)) return MiniType.UNSIGNED_LONG_LONG;
@@ -194,9 +202,22 @@ final class TypeCompatibility {
 
     /** C 数组仅在值上下文中退化一层；声明、sizeof 和取址仍保留完整数组节点。 */
     static MiniType decay(MiniType type) {
-        return type instanceof MiniType.ArrayType arrayType
-                ? arrayType.elementType().pointerTo()
+        MiniType unqualified = type.unqualified();
+        return unqualified instanceof MiniType.ArrayType arrayType
+                ? qualifiedElementType(type, arrayType.elementType()).pointerTo()
                 : type;
+    }
+
+    /** const/volatile on an array object qualify its elements for lvalue access. */
+    private static MiniType qualifiedElementType(MiniType arrayType, MiniType elementType) {
+        java.util.EnumSet<MiniType.TypeQualifier> qualifiers = java.util.EnumSet.noneOf(MiniType.TypeQualifier.class);
+        qualifiers.addAll(elementType.qualifiers());
+        for (MiniType.TypeQualifier qualifier : arrayType.qualifiers()) {
+            if (qualifier != MiniType.TypeQualifier.RESTRICT) {
+                qualifiers.add(qualifier);
+            }
+        }
+        return MiniType.qualified(elementType.unqualified(), qualifiers);
     }
 
     private static boolean isComparison(TokenType operator) {

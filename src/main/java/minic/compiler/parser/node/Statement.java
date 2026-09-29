@@ -1,6 +1,7 @@
 package minic.compiler.parser.node;
 
 import minic.compiler.type.MiniType;
+import minic.compiler.parser.node.Declaration.AlignmentSpec;
 import minic.source.SourceRange;
 
 import java.util.List;
@@ -128,19 +129,34 @@ public interface Statement extends AstNode {
             String name,
             MiniType type,
             Expression initializer,
+            List<AlignmentSpec> alignmentSpecs,
             SourceRange range
     ) implements Statement {
         public VarDeclStmt {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(alignmentSpecs, "alignmentSpecs");
             Objects.requireNonNull(range, "range");
             if (name.isBlank()) {
                 throw new IllegalArgumentException("name must not be blank");
             }
+            alignmentSpecs = List.copyOf(alignmentSpecs);
         }
 
         public Optional<Expression> initializerOptional() {
             return Optional.ofNullable(initializer);
+        }
+
+        public VarDeclStmt(String name, MiniType type, Expression initializer, SourceRange range) {
+            this(name, type, initializer, List.of(), range);
+        }
+    }
+
+    record TypedefStmt(String name, MiniType type, SourceRange range) implements Statement {
+        public TypedefStmt {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(range, "range");
         }
     }
 

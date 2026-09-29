@@ -14,6 +14,10 @@ import minic.compiler.parser.node.Expression.FieldAccessExpr;
 import minic.compiler.parser.node.Expression.GroupingExpr;
 import minic.compiler.parser.node.Expression.IndexExpr;
 import minic.compiler.parser.node.Expression.UnaryExpr;
+import minic.compiler.parser.node.Expression.VaArgExpr;
+import minic.compiler.parser.node.Expression.VaCopyExpr;
+import minic.compiler.parser.node.Expression.VaEndExpr;
+import minic.compiler.parser.node.Expression.VaStartExpr;
 import minic.compiler.parser.node.Statement;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.parser.node.Statement.ExprStmt;
@@ -381,6 +385,16 @@ public final class SemanticAnalyzer extends Stage {
             }
             case FieldAccessExpr fieldAccessExpr -> appendVisitNode(fieldAccessExpr.target(), nodes);
             case UnaryExpr unaryExpr -> appendVisitNode(unaryExpr.operand(), nodes);
+            case VaStartExpr vaStartExpr -> {
+                appendVisitNode(vaStartExpr.list(), nodes);
+                appendVisitNode(vaStartExpr.lastParameter(), nodes);
+            }
+            case VaArgExpr vaArgExpr -> appendVisitNode(vaArgExpr.list(), nodes);
+            case VaCopyExpr vaCopyExpr -> {
+                appendVisitNode(vaCopyExpr.destination(), nodes);
+                appendVisitNode(vaCopyExpr.source(), nodes);
+            }
+            case VaEndExpr vaEndExpr -> appendVisitNode(vaEndExpr.list(), nodes);
             case CallExpr callExpr -> {
                 appendVisitNode(callExpr.callee(), nodes);
                 callExpr.arguments().forEach(argument -> appendVisitNode(argument, nodes));

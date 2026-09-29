@@ -16,6 +16,7 @@ import minic.compiler.parser.node.Statement;
 import minic.compiler.parser.node.Statement.SwitchCase;
 import minic.compiler.parser.node.Statement.SwitchStmt;
 import minic.compiler.parser.node.Statement.VarDeclStmt;
+import minic.compiler.parser.node.Statement.TypedefStmt;
 import minic.compiler.parser.node.Statement.WhileStmt;
 import minic.compiler.type.MiniType;
 import minic.compiler.semantic.model.Scope;
@@ -29,6 +30,7 @@ import java.util.Map;
 
 public final class StatementSemanticAnalyzer {
     private final Scope globalScope;
+    private final FunctionRegistry functionRegistry;
     private final StructRegistry structRegistry;
     private final List<Diagnostic> diagnostics;
     private final ExpressionSemanticAnalyzer expressionAnalyzer;
@@ -44,6 +46,7 @@ public final class StatementSemanticAnalyzer {
             Map<Expression, MiniType> expressionTypes
     ) {
         this.globalScope = globalScope;
+        this.functionRegistry = functionRegistry;
         this.structRegistry = structRegistry;
         this.diagnostics = diagnostics;
         expressionAnalyzer = new ExpressionSemanticAnalyzer(functionRegistry, structRegistry, diagnostics, expressionTypes);
@@ -64,9 +67,7 @@ public final class StatementSemanticAnalyzer {
     public FunctionContext beginFunction(FunctionDecl functionDecl) {
         FunctionDecl previousFunction = currentFunction;
         currentFunction = functionDecl;
-        expressionAnalyzer.setCurrentParameterNames(functionDecl.parameters().stream()
-                .map(Parameter::name)
-                .toList());
+        expressionAnalyzer.setCurrentFunction(functionDecl);
         Scope functionScope = new Scope(globalScope, functionDecl.bodyOptional().map(BlockStmt::range).orElse(functionDecl.range()));
         for (Parameter parameter : functionDecl.parameters()) {
             defineVariable(functionScope, parameter.name(), parameter.range(), parameter.type());
@@ -85,7 +86,11 @@ public final class StatementSemanticAnalyzer {
 
     public void validateCurrentFunctionReturn() {
         BlockStmt body = currentFunction.bodyOptional().orElseThrow();
-        if (!currentFunction.returnType().isVoid() && !alwaysReturns(body)) {
+        if (currentFunctionIsNoReturn()) {
+            if (!neverReturns(body)) {
+                report(currentFunction.range(), "noreturn 函数可能返回：" + currentFunction.name());
+            }
+        } else if (!currentFunction.returnType().isVoid() && !alwaysReturns(body)) {
             report(currentFunction.range(), "函数必须在所有路径返回值：" + currentFunction.name());
         }
     }
@@ -94,9 +99,7 @@ public final class StatementSemanticAnalyzer {
         FunctionDecl previousFunction = currentContext == null ? null : currentContext.previousFunction();
         currentFunction = previousFunction;
         currentContext = null;
-        expressionAnalyzer.setCurrentParameterNames(previousFunction == null
-                ? List.of()
-                : previousFunction.parameters().stream().map(Parameter::name).toList());
+        expressionAnalyzer.setCurrentFunction(previousFunction);
     }
 
     private FunctionContext currentContext;
@@ -144,9 +147,21 @@ public final class StatementSemanticAnalyzer {
                             }
                         });
                 structRegistry.validateDeclaredType(varDeclStmt.type(), varDeclStmt.range());
+                structRegistry.resolveAlignment(
+                        varDeclStmt.alignmentSpecs(),
+                        varDeclStmt.type(),
+                        varDeclStmt.range()
+                );
                 defineVariable(scope, varDeclStmt.name(), varDeclStmt.range(), varDeclStmt.type());
             }
+            case TypedefStmt typedefStmt -> structRegistry.validateTypedefType(
+                    typedefStmt.type(),
+                    typedefStmt.range()
+            );
             case ReturnStmt returnStmt -> {
+                if (currentFunctionIsNoReturn()) {
+                    report(returnStmt.range(), "noreturn 函数不能执行 return：" + currentFunction.name());
+                }
                 if (currentFunction.returnType().isVoid()) {
                     if (returnStmt.expressionOptional().isPresent()) {
                         expressionAnalyzer.analyzeExpression(returnStmt.expressionOptional().orElseThrow(), scope);
@@ -284,6 +299,10 @@ public final class StatementSemanticAnalyzer {
         return TypeCompatibility.isAssignmentCompatible(targetType, initializerType);
     }
 
+    private boolean currentFunctionIsNoReturn() {
+        return currentFunction.noReturn() || functionRegistry.isNoReturn(currentFunction.name());
+    }
+
     private boolean alwaysReturns(Statement statement) {
         if (statement instanceof ReturnStmt) {
             return true;
@@ -297,6 +316,105 @@ public final class StatementSemanticAnalyzer {
                     .orElse(false);
         }
         return false;
+    }
+
+    private boolean neverReturns(Statement statement) {
+        if (statement instanceof ReturnStmt) {
+            // A return still terminates control flow, but is diagnosed separately for noreturn.
+            return true;
+        }
+        if (statement instanceof BlockStmt blockStmt) {
+            for (Statement child : blockStmt.statements()) {
+                if (neverReturns(child)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (statement instanceof IfStmt ifStmt) {
+            return ifStmt.elseBranchOptional()
+                    .map(elseBranch -> neverReturns(ifStmt.thenBranch()) && neverReturns(elseBranch))
+                    .orElse(false);
+        }
+        if (statement instanceof WhileStmt whileStmt) {
+            return isNonZeroIntegerConstant(whileStmt.condition())
+                    && !canBreakCurrentLoop(whileStmt.body(), 0);
+        }
+        if (statement instanceof DoWhileStmt doWhileStmt) {
+            return isNonZeroIntegerConstant(doWhileStmt.condition())
+                    && !canBreakCurrentLoop(doWhileStmt.body(), 0);
+        }
+        if (statement instanceof ForStmt forStmt) {
+            return (forStmt.conditionOptional().isEmpty()
+                    || isNonZeroIntegerConstant(forStmt.conditionOptional().orElseThrow()))
+                    && !canBreakCurrentLoop(forStmt.body(), 0);
+        }
+        if (statement instanceof ExprStmt exprStmt) {
+            return isNoReturnExpression(exprStmt.expression());
+        }
+        return false;
+    }
+
+    private boolean isNoReturnExpression(Expression expression) {
+        if (expression instanceof minic.compiler.parser.node.Expression.CallExpr callExpr
+                && callExpr.hasDirectCalleeName()) {
+            return functionRegistry.isNoReturn(callExpr.calleeName());
+        }
+        if (expression instanceof minic.compiler.parser.node.Expression.GroupingExpr groupingExpr) {
+            return isNoReturnExpression(groupingExpr.expression());
+        }
+        if (expression instanceof minic.compiler.parser.node.Expression.CommaExpr commaExpr) {
+            return !commaExpr.expressions().isEmpty()
+                    && isNoReturnExpression(commaExpr.expressions().getLast());
+        }
+        if (expression instanceof minic.compiler.parser.node.Expression.ConditionalExpr conditionalExpr) {
+            return isNoReturnExpression(conditionalExpr.thenExpression())
+                    && isNoReturnExpression(conditionalExpr.elseExpression());
+        }
+        return false;
+    }
+
+    private boolean canBreakCurrentLoop(Statement statement, int nestedLoopDepth) {
+        if (statement instanceof BreakStmt) {
+            return nestedLoopDepth == 0;
+        }
+        if (statement instanceof BlockStmt blockStmt) {
+            return blockStmt.statements().stream()
+                    .anyMatch(child -> canBreakCurrentLoop(child, nestedLoopDepth));
+        }
+        if (statement instanceof IfStmt ifStmt) {
+            return canBreakCurrentLoop(ifStmt.thenBranch(), nestedLoopDepth)
+                    || ifStmt.elseBranchOptional()
+                    .map(branch -> canBreakCurrentLoop(branch, nestedLoopDepth))
+                    .orElse(false);
+        }
+        if (statement instanceof WhileStmt whileStmt) {
+            return canBreakCurrentLoop(whileStmt.body(), nestedLoopDepth + 1);
+        }
+        if (statement instanceof DoWhileStmt doWhileStmt) {
+            return canBreakCurrentLoop(doWhileStmt.body(), nestedLoopDepth + 1);
+        }
+        if (statement instanceof ForStmt forStmt) {
+            return canBreakCurrentLoop(forStmt.body(), nestedLoopDepth + 1);
+        }
+        if (statement instanceof SwitchStmt) {
+            // A break in a switch exits the switch, not the surrounding loop.
+            return false;
+        }
+        return false;
+    }
+
+    private boolean isNonZeroIntegerConstant(Expression expression) {
+        return switch (expression) {
+            case minic.compiler.parser.node.Expression.IntegerLiteralExpr literal -> literal.value() != 0;
+            case minic.compiler.parser.node.Expression.IntegerConstantExpr literal -> literal.value() != 0;
+            case minic.compiler.parser.node.Expression.LongLiteralExpr literal -> literal.value() != 0;
+            case minic.compiler.parser.node.Expression.CharLiteralExpr literal -> literal.value() != 0;
+            case minic.compiler.parser.node.Expression.BoolLiteralExpr literal -> literal.value();
+            case minic.compiler.parser.node.Expression.GroupingExpr grouping ->
+                    isNonZeroIntegerConstant(grouping.expression());
+            default -> false;
+        };
     }
 
     private void report(SourceRange range, String message) {

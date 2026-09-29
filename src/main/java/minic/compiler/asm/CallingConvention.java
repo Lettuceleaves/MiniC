@@ -50,7 +50,22 @@ final class CallingConvention {
     }
 
     static int incomingStackArgumentOffset(int argumentIndex) {
-        return 48 + (argumentIndex - INTEGER_ARGUMENT_REGISTERS.size()) * 8;
+        if (isRegisterArgument(argumentIndex)) {
+            throw new IllegalArgumentException("register argument is in the incoming home area, not the stack tail");
+        }
+        return incomingArgumentSlotOffset(argumentIndex);
+    }
+
+    /**
+     * Canonical address of an argument's eight-byte Windows x64 slot relative
+     * to a frame pointer established after {@code push rbp}.  Slots 0..3 are
+     * the caller-provided home area; slot 4 and later are stack arguments.
+     */
+    static int incomingArgumentSlotOffset(int argumentIndex) {
+        if (argumentIndex < 0) {
+            throw new IllegalArgumentException("argument index must be non-negative");
+        }
+        return 16 + argumentIndex * 8;
     }
 
     static int outgoingStackArgumentOffset(int argumentIndex) {

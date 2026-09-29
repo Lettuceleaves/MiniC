@@ -18,6 +18,7 @@ import minic.compiler.parser.node.Statement;
 import minic.compiler.parser.node.Statement.SwitchCase;
 import minic.compiler.parser.node.Statement.SwitchStmt;
 import minic.compiler.parser.node.Statement.VarDeclStmt;
+import minic.compiler.parser.node.Statement.TypedefStmt;
 import minic.compiler.parser.node.Statement.WhileStmt;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
@@ -41,41 +42,56 @@ public final class StatementManager {
     }
 
     public BlockStmt parseBlock() {
+        return parseBlock(java.util.List.of());
+    }
+
+    public BlockStmt parseFunctionBlock(java.util.List<String> parameterNames) {
+        return parseBlock(parameterNames);
+    }
+
+    private BlockStmt parseBlock(java.util.List<String> initialOrdinaryNames) {
         state.enter("block");
         Token startToken = state.consume(TokenType.LEFT_BRACE, "期望 '{'");
         if (startToken == null) {
             return null;
         }
-
-        ArrayList<Statement> statements = new ArrayList<>();
-        while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
-            Statement statement = parseStatement();
-            if (statement != null) {
-                statements.add(statement);
-            } else {
-                state.synchronizeStatement();
+        typeReader.enterScope(initialOrdinaryNames);
+        try {
+            ArrayList<Statement> statements = new ArrayList<>();
+            while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
+                Statement statement = parseStatement();
+                if (statement != null) {
+                    statements.add(statement);
+                } else {
+                    state.synchronizeStatement();
+                }
             }
-        }
 
-        Token endToken = state.consume(TokenType.RIGHT_BRACE, "期望 '}'");
-        if (endToken == null) {
-            state.report(startToken.range(), "未闭合的 '{'，期望匹配的 '}'");
-            return null;
+            Token endToken = state.consume(TokenType.RIGHT_BRACE, "期望 '}'");
+            if (endToken == null) {
+                state.report(startToken.range(), "未闭合的 '{'，期望匹配的 '}'");
+                return null;
+            }
+            BlockStmt blockStmt = new BlockStmt(
+                    statements,
+                    SourceRange.span(startToken.range(), endToken.range())
+            );
+            state.build(blockStmt, "BlockStmt", blockStmt.range());
+            state.exit("block", blockStmt.range());
+            return blockStmt;
+        } finally {
+            typeReader.exitScope();
         }
-        BlockStmt blockStmt = new BlockStmt(
-                statements,
-                SourceRange.span(startToken.range(), endToken.range())
-        );
-        state.build(blockStmt, "BlockStmt", blockStmt.range());
-        state.exit("block", blockStmt.range());
-        return blockStmt;
     }
 
     private Statement parseStatement() {
         if (state.check(TokenType.LEFT_BRACE)) {
             return parseBlock();
         }
-        if (isTypeStart()) {
+        if (state.check(TokenType.TYPEDEF)) {
+            return parseTypedefStmt();
+        }
+        if (isDeclarationStart()) {
             return parseVarDeclStmt();
         }
         if (state.check(TokenType.RETURN)) {
@@ -197,31 +213,36 @@ public final class StatementManager {
     private ForStmt parseForStmt() {
         Token startToken = state.consume(TokenType.FOR, "期望 for");
         state.consume(TokenType.LEFT_PAREN, "期望 '('");
-        Statement initializer = parseForInitializer();
-        Expression condition = null;
-        if (!state.check(TokenType.SEMICOLON)) {
-            condition = expressionManager.parseExpression();
-        }
-        state.consume(TokenType.SEMICOLON, "期望 ';'");
-        Expression step = null;
-        if (!state.check(TokenType.RIGHT_PAREN)) {
-            step = expressionManager.parseExpression();
-        }
-        state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
-        Statement body = parseStatement();
+        typeReader.enterScope(java.util.List.of());
+        try {
+            Statement initializer = parseForInitializer();
+            Expression condition = null;
+            if (!state.check(TokenType.SEMICOLON)) {
+                condition = expressionManager.parseExpression();
+            }
+            state.consume(TokenType.SEMICOLON, "期望 ';'");
+            Expression step = null;
+            if (!state.check(TokenType.RIGHT_PAREN)) {
+                step = expressionManager.parseExpression();
+            }
+            state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
+            Statement body = parseStatement();
 
-        if (startToken == null || body == null) {
-            return null;
+            if (startToken == null || body == null) {
+                return null;
+            }
+            ForStmt forStmt = new ForStmt(
+                    initializer,
+                    condition,
+                    step,
+                    body,
+                    SourceRange.span(startToken.range(), body.range())
+            );
+            state.build(forStmt, "ForStmt", forStmt.range());
+            return forStmt;
+        } finally {
+            typeReader.exitScope();
         }
-        ForStmt forStmt = new ForStmt(
-                initializer,
-                condition,
-                step,
-                body,
-                SourceRange.span(startToken.range(), body.range())
-        );
-        state.build(forStmt, "ForStmt", forStmt.range());
-        return forStmt;
     }
 
     private SwitchStmt parseSwitchStmt() {
@@ -292,7 +313,10 @@ public final class StatementManager {
         if (state.match(TokenType.SEMICOLON)) {
             return null;
         }
-        if (isTypeStart()) {
+        if (state.check(TokenType.TYPEDEF)) {
+            return parseTypedefStmt();
+        }
+        if (isDeclarationStart()) {
             return parseVarDeclStmt();
         }
         return parseExprStmt();
@@ -317,10 +341,29 @@ public final class StatementManager {
                 declaration.name(),
                 declaration.type(),
                 initializer,
+                declaration.alignmentSpecs(),
                 SourceRange.span(declaration.range(), semicolonToken.range())
         );
+        typeReader.declareOrdinaryName(varDeclStmt.name(), varDeclStmt.range());
         state.build(varDeclStmt, "VarDeclStmt " + varDeclStmt.name(), varDeclStmt.range());
         return varDeclStmt;
+    }
+
+    private TypedefStmt parseTypedefStmt() {
+        Token start = state.consume(TokenType.TYPEDEF, "期望 typedef");
+        Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望 typedef 类型", "期望 typedef 名称");
+        Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
+        if (start == null || declaration == null || semicolon == null) {
+            return null;
+        }
+        if (!declaration.alignmentSpecs().isEmpty()) {
+            state.report(declaration.range(), "typedef 声明不能使用 alignas");
+        }
+        SourceRange range = SourceRange.span(start.range(), semicolon.range());
+        typeReader.defineTypedef(declaration.name(), declaration.type(), range);
+        TypedefStmt statement = new TypedefStmt(declaration.name(), declaration.type(), range);
+        state.build(statement, "TypedefStmt " + statement.name(), range);
+        return statement;
     }
 
     private Expression parseAggregateInitializer() {
@@ -411,19 +454,7 @@ public final class StatementManager {
         return exprStmt;
     }
 
-    private boolean isTypeStart() {
-        return state.check(TokenType.BOOL)
-                || state.check(TokenType.CHAR)
-                || state.check(TokenType.INT)
-                || state.check(TokenType.LONG)
-                || state.check(TokenType.SHORT)
-                || state.check(TokenType.SIGNED)
-                || state.check(TokenType.UNSIGNED)
-                || state.check(TokenType.FLOAT)
-                || state.check(TokenType.DOUBLE)
-                || state.check(TokenType.VOID)
-                || state.check(TokenType.STRUCT)
-                || state.check(TokenType.UNION)
-                || state.check(TokenType.ENUM);
+    private boolean isDeclarationStart() {
+        return state.check(TokenType.ALIGNAS) || typeReader.canStartType();
     }
 }

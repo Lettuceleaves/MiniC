@@ -13,6 +13,7 @@ import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.parser.node.Declaration.Program;
 import minic.compiler.parser.node.Declaration.StructDecl;
 import minic.compiler.parser.node.Declaration.EnumDecl;
+import minic.compiler.parser.node.Declaration.TypedefDecl;
 import minic.compiler.type.MiniType;
 import minic.diagnostics.Diagnostic;
 import minic.source.SourceRange;
@@ -36,6 +37,7 @@ public final class Parser extends Stage {
     private DeclarationManager declarationManager;
     private final ArrayList<StructDecl> structs = new ArrayList<>();
     private final ArrayList<EnumDecl> enums = new ArrayList<>();
+    private final ArrayList<TypedefDecl> typedefs = new ArrayList<>();
     private final java.util.Map<String, Long> enumConstants = new java.util.LinkedHashMap<>();
     private final ArrayList<FunctionDecl> functions = new ArrayList<>();
     private final ArrayList<AstNode> completedNodes = new ArrayList<>();
@@ -116,7 +118,15 @@ public final class Parser extends Stage {
             return context.peek().range();
         }
 
-        if (context.check(TokenType.ENUM) && context.peekAt(1).type() == TokenType.IDENTIFIER
+        if (context.check(TokenType.TYPEDEF)) {
+            TypedefDecl typedefDecl = declarationManager.parseTypedefDecl();
+            if (typedefDecl != null) {
+                typedefs.add(typedefDecl);
+                captureNode(typedefDecl);
+            } else {
+                context.synchronizeFunction();
+            }
+        } else if (context.check(TokenType.ENUM) && context.peekAt(1).type() == TokenType.IDENTIFIER
                 && context.peekAt(2).type() == TokenType.LEFT_BRACE) {
             EnumDecl enumDecl = declarationManager.parseEnumDecl();
             if (enumDecl != null) { enums.add(enumDecl); captureNode(enumDecl); }
@@ -209,16 +219,31 @@ public final class Parser extends Stage {
     }
 
     private ParserResult buildResult() {
-        return new ParserResult(new Program(structs, enums, functions, programRange()), context.diagnostics());
+        return new ParserResult(new Program(structs, enums, typedefs, functions, programRange()), context.diagnostics());
     }
 
     private SourceRange programRange() {
-        if (structs.isEmpty() && functions.isEmpty()) {
+        if (structs.isEmpty() && enums.isEmpty() && typedefs.isEmpty() && functions.isEmpty()) {
             return context.peek().range();
         }
-        SourceRange first = !structs.isEmpty() ? structs.getFirst().range() : functions.getFirst().range();
-        SourceRange last = !functions.isEmpty() ? functions.getLast().range() : structs.getLast().range();
+        ArrayList<SourceRange> ranges = new ArrayList<>();
+        structs.forEach(declaration -> ranges.add(declaration.range()));
+        enums.forEach(declaration -> ranges.add(declaration.range()));
+        typedefs.forEach(declaration -> ranges.add(declaration.range()));
+        functions.forEach(declaration -> ranges.add(declaration.range()));
+        SourceRange first = ranges.stream().min(Parser::compareRangeStart).orElseThrow();
+        SourceRange last = ranges.stream().max(Parser::compareRangeEnd).orElseThrow();
         return SourceRange.span(first, last);
+    }
+
+    private static int compareRangeStart(SourceRange left, SourceRange right) {
+        int line = Integer.compare(left.startLine(), right.startLine());
+        return line != 0 ? line : Integer.compare(left.startByte(), right.startByte());
+    }
+
+    private static int compareRangeEnd(SourceRange left, SourceRange right) {
+        int line = Integer.compare(left.endLine(), right.endLine());
+        return line != 0 ? line : Integer.compare(left.endByte(), right.endByte());
     }
 
     /** 三个 Manager 共享的 token 游标、诊断和 trace 上下文。 */
@@ -428,9 +453,59 @@ public final class Parser extends Stage {
     /** Manager 共用的类型语法读取器，不单独形成第四个 Manager。 */
     public static final class TypeReader {
         private final Context context;
+        private final java.util.Deque<java.util.Map<String, MiniType>> typedefScopes = new java.util.ArrayDeque<>();
+        private final java.util.Deque<java.util.Set<String>> ordinaryNameScopes = new java.util.ArrayDeque<>();
 
         public TypeReader(Context context) {
             this.context = Objects.requireNonNull(context, "context");
+            enterScope(List.of());
+        }
+
+        public void enterScope(java.util.Collection<String> ordinaryNames) {
+            typedefScopes.push(new java.util.LinkedHashMap<>());
+            ordinaryNameScopes.push(new java.util.LinkedHashSet<>(ordinaryNames));
+        }
+
+        public void exitScope() {
+            if (typedefScopes.size() <= 1) {
+                throw new IllegalStateException("cannot exit parser global type scope");
+            }
+            typedefScopes.pop();
+            ordinaryNameScopes.pop();
+        }
+
+        public boolean defineTypedef(String name, MiniType type, SourceRange range) {
+            if (typedefScopes.peek().containsKey(name) || ordinaryNameScopes.peek().contains(name)) {
+                context.report(range, "同一作用域中的 typedef 名称重复或与普通标识符冲突：" + name);
+                return false;
+            }
+            typedefScopes.peek().put(name, type);
+            return true;
+        }
+
+        public void declareOrdinaryName(String name, SourceRange range) {
+            if (typedefScopes.peek().containsKey(name)) {
+                context.report(range, "普通标识符与同一作用域的 typedef 名称冲突：" + name);
+                return;
+            }
+            ordinaryNameScopes.peek().add(name);
+        }
+
+        public MiniType resolveTypedef(String name) {
+            var typeIterator = typedefScopes.iterator();
+            var ordinaryIterator = ordinaryNameScopes.iterator();
+            while (typeIterator.hasNext() && ordinaryIterator.hasNext()) {
+                java.util.Map<String, MiniType> types = typeIterator.next();
+                java.util.Set<String> ordinary = ordinaryIterator.next();
+                if (ordinary.contains(name)) {
+                    return null;
+                }
+                MiniType type = types.get(name);
+                if (type != null) {
+                    return type;
+                }
+            }
+            return null;
         }
 
         public ParsedType parseType(String expectedMessage) {
@@ -463,6 +538,7 @@ public final class Parser extends Stage {
          * 绑定到命名叶子类型，因此可统一表达多级指针、多维数组、数组指针和函数指针。
          */
         public ParsedNamedType parseNamedType(String expectedTypeMessage, String expectedNameMessage) {
+            List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs = parseAlignmentSpecs();
             BaseType baseType = parseBaseType(expectedTypeMessage);
             if (baseType == null) {
                 return null;
@@ -471,13 +547,32 @@ public final class Parser extends Stage {
             if (declarator == null || declarator.name().isEmpty()) {
                 return null;
             }
+            MiniType resolvedType = declarator.resolve(baseType.type());
             FunctionModifier topFunction = declarator.topFunction();
+            List<ParsedParameter> resolvedParameters;
+            boolean resolvedVariadic;
+            if (topFunction != null) {
+                resolvedParameters = topFunction.parameters();
+                resolvedVariadic = topFunction.variadic();
+            } else if (resolvedType.unqualified() instanceof MiniType.FunctionType functionType) {
+                resolvedParameters = functionType.parameterTypes().stream()
+                        .map(type -> new ParsedParameter("", type, declarator.endToken().range()))
+                        .toList();
+                resolvedVariadic = functionType.variadic();
+            } else {
+                resolvedParameters = List.of();
+                resolvedVariadic = false;
+            }
+            SourceRange declarationRange = alignmentSpecs.isEmpty()
+                    ? SourceRange.span(baseType.startToken().range(), declarator.endToken().range())
+                    : SourceRange.span(alignmentSpecs.getFirst().range(), declarator.endToken().range());
             return new ParsedNamedType(
                     declarator.name(),
-                    declarator.resolve(baseType.type()),
-                    SourceRange.span(baseType.startToken().range(), declarator.endToken().range()),
-                    topFunction == null ? List.of() : topFunction.parameters(),
-                    topFunction != null && topFunction.variadic()
+                    resolvedType,
+                    declarationRange,
+                    resolvedParameters,
+                    resolvedVariadic,
+                    alignmentSpecs
             );
         }
 
@@ -486,6 +581,9 @@ public final class Parser extends Stage {
         }
 
         public boolean canStartTypeAt(int offset) {
+            while (isTypeQualifier(context.peekAt(offset).type())) {
+                offset++;
+            }
             TokenType type = context.peekAt(offset).type();
             return type == TokenType.BOOL
                     || type == TokenType.CHAR
@@ -499,13 +597,57 @@ public final class Parser extends Stage {
                     || type == TokenType.VOID
                     || type == TokenType.STRUCT
                     || type == TokenType.UNION
-                    || type == TokenType.ENUM;
+                    || type == TokenType.ENUM
+                    || type == TokenType.BUILTIN_VA_LIST
+                    || type == TokenType.IDENTIFIER
+                    && resolveTypedef(context.peekAt(offset).lexeme()) != null;
+        }
+
+        public List<minic.compiler.parser.node.Declaration.AlignmentSpec> parseAlignmentSpecs() {
+            ArrayList<minic.compiler.parser.node.Declaration.AlignmentSpec> specs = new ArrayList<>();
+            while (context.match(TokenType.ALIGNAS)) {
+                Token start = context.previous();
+                context.consume(TokenType.LEFT_PAREN, "alignas 后期望 '('");
+                if (canStartType()) {
+                    ParsedType parsedType = parseType("alignas 期望类型或整数常量");
+                    Token end = context.consume(TokenType.RIGHT_PAREN, "alignas 期望 ')'");
+                    if (parsedType != null && end != null) {
+                        specs.add(minic.compiler.parser.node.Declaration.AlignmentSpec.type(
+                                parsedType.type(), SourceRange.span(start.range(), end.range())));
+                    }
+                    continue;
+                }
+                boolean negative = context.match(TokenType.MINUS);
+                Token value = context.peek();
+                if (!context.match(TokenType.INTEGER_LITERAL) && !context.match(TokenType.LONG_LITERAL)) {
+                    context.report(value, "alignas 期望类型或整数常量");
+                    context.consume(TokenType.RIGHT_PAREN, "alignas 期望 ')'");
+                    continue;
+                }
+                long raw = value.literalValue() instanceof Integer integer
+                        ? integer.longValue()
+                        : ((Token.IntegerLiteralValue) value.literalValue()).value();
+                if (negative) {
+                    raw = -raw;
+                }
+                Token end = context.consume(TokenType.RIGHT_PAREN, "alignas 期望 ')'");
+                if (end != null) {
+                    if (raw < Integer.MIN_VALUE || raw > Integer.MAX_VALUE) {
+                        context.report(value, "alignas 整数超出支持范围");
+                        raw = -1;
+                    }
+                    specs.add(minic.compiler.parser.node.Declaration.AlignmentSpec.constant(
+                            (int) raw, SourceRange.span(start.range(), end.range())));
+                }
+            }
+            return List.copyOf(specs);
         }
 
         private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired) {
-            ArrayList<Token> pointerTokens = new ArrayList<>();
+            ArrayList<PointerLayer> pointerLayers = new ArrayList<>();
             while (context.match(TokenType.STAR)) {
-                pointerTokens.add(context.previous());
+                Token star = context.previous();
+                pointerLayers.add(new PointerLayer(star, parseTypeQualifiers()));
             }
 
             Declarator direct;
@@ -521,7 +663,7 @@ public final class Parser extends Stage {
                 }
                 direct = direct.withRange(startToken, endToken);
             } else if (!nameRequired) {
-                Token anchor = pointerTokens.isEmpty() ? context.peek() : pointerTokens.getFirst();
+                Token anchor = pointerLayers.isEmpty() ? context.peek() : pointerLayers.getFirst().token();
                 direct = new Declarator("", new ArrayList<>(), anchor, anchor);
             } else {
                 context.report(context.peek(), expectedNameMessage);
@@ -569,11 +711,14 @@ public final class Parser extends Stage {
                 direct = direct.withEnd(endToken);
             }
 
-            for (Token ignored : pointerTokens) {
-                direct.modifiers().add(PointerModifier.INSTANCE);
+            // The '*' nearest the identifier is the outermost pointer layer. Tokens are
+            // collected left-to-right, so append them in reverse to preserve qualifiers
+            // on their exact pointer level when Declarator.resolve walks inside-out.
+            for (int index = pointerLayers.size() - 1; index >= 0; index--) {
+                direct.modifiers().add(new PointerModifier(pointerLayers.get(index).qualifiers()));
             }
-            if (!pointerTokens.isEmpty()) {
-                direct = direct.withStart(pointerTokens.getFirst());
+            if (!pointerLayers.isEmpty()) {
+                direct = direct.withStart(pointerLayers.getFirst().token());
             }
             return direct;
         }
@@ -625,52 +770,85 @@ public final class Parser extends Stage {
         }
 
         private MiniType adjustParameterType(MiniType type) {
-            if (type instanceof MiniType.ArrayType arrayType) {
-                return arrayType.elementType().pointerTo();
+            MiniType unqualified = type.unqualified();
+            if (unqualified instanceof MiniType.ArrayType arrayType) {
+                java.util.EnumSet<MiniType.TypeQualifier> elementQualifiers =
+                        java.util.EnumSet.noneOf(MiniType.TypeQualifier.class);
+                elementQualifiers.addAll(arrayType.elementType().qualifiers());
+                type.qualifiers().stream()
+                        .filter(qualifier -> qualifier != MiniType.TypeQualifier.RESTRICT)
+                        .forEach(elementQualifiers::add);
+                return MiniType.qualified(arrayType.elementType().unqualified(), elementQualifiers).pointerTo();
             }
-            if (type instanceof MiniType.FunctionType) {
+            if (unqualified instanceof MiniType.FunctionType) {
                 return type.pointerTo();
             }
             return type;
         }
 
         private BaseType parseBaseType(String expectedMessage) {
-            if (context.check(TokenType.BOOL)) {
-                Token token = context.advance();
-                return new BaseType(MiniType.BOOL, token, token);
-            }
+            Token start = context.peek();
+            java.util.EnumSet<MiniType.TypeQualifier> qualifiers = java.util.EnumSet.noneOf(
+                    MiniType.TypeQualifier.class);
+            qualifiers.addAll(parseTypeQualifiers());
             if (isIntegerTypeSpecifier(context.peek().type())) {
-                return parseIntegerBaseType();
+                return parseIntegerBaseType(start, qualifiers);
             }
-            if (context.check(TokenType.FLOAT)) {
-                Token token = context.advance();
-                return new BaseType(MiniType.FLOAT, token, token);
-            }
-            if (context.check(TokenType.DOUBLE)) {
-                Token token = context.advance();
-                return new BaseType(MiniType.DOUBLE, token, token);
-            }
-            if (context.check(TokenType.VOID)) {
-                Token token = context.advance();
-                return new BaseType(MiniType.VOID, token, token);
-            }
-            if (context.check(TokenType.STRUCT)) {
-                return parseStructType();
-            }
-            if (context.check(TokenType.UNION)) {
-                return parseUnionType();
-            }
-            if (context.check(TokenType.ENUM)) {
+
+            MiniType type;
+            Token end;
+            if (context.check(TokenType.BOOL)) {
+                end = context.advance();
+                type = MiniType.BOOL;
+            } else if (context.check(TokenType.FLOAT)) {
+                end = context.advance();
+                type = MiniType.FLOAT;
+            } else if (context.check(TokenType.DOUBLE)) {
+                end = context.advance();
+                type = MiniType.DOUBLE;
+            } else if (context.check(TokenType.VOID)) {
+                end = context.advance();
+                type = MiniType.VOID;
+            } else if (context.check(TokenType.BUILTIN_VA_LIST)) {
+                end = context.advance();
+                type = MiniType.VA_LIST;
+            } else if (context.check(TokenType.STRUCT)) {
+                BaseType struct = parseStructType();
+                if (struct == null) return null;
+                type = struct.type();
+                end = struct.endToken();
+            } else if (context.check(TokenType.UNION)) {
+                BaseType union = parseUnionType();
+                if (union == null) return null;
+                type = union.type();
+                end = union.endToken();
+            } else if (context.check(TokenType.ENUM)) {
                 Token startToken = context.advance();
                 Token nameToken = context.consume(TokenType.IDENTIFIER, "期望枚举类型名");
-                return nameToken == null ? null : new BaseType(MiniType.INT, startToken, nameToken);
+                if (nameToken == null) return null;
+                type = MiniType.INT;
+                end = nameToken;
+            } else if (context.check(TokenType.IDENTIFIER)
+                    && resolveTypedef(context.peek().lexeme()) != null) {
+                Token alias = context.advance();
+                type = resolveTypedef(alias.lexeme());
+                end = alias;
+            } else {
+                context.report(context.peek(), expectedMessage);
+                return null;
             }
-            context.report(context.peek(), expectedMessage);
-            return null;
+            java.util.Set<MiniType.TypeQualifier> trailing = parseTypeQualifiers();
+            qualifiers.addAll(trailing);
+            if (!trailing.isEmpty()) {
+                end = context.previous();
+            }
+            return new BaseType(MiniType.qualified(type, qualifiers), start, end);
         }
 
-        private BaseType parseIntegerBaseType() {
-            Token start = context.peek();
+        private BaseType parseIntegerBaseType(
+                Token start,
+                java.util.EnumSet<MiniType.TypeQualifier> qualifiers
+        ) {
             Token end = start;
             boolean signed = false;
             boolean unsigned = false;
@@ -679,10 +857,13 @@ public final class Parser extends Stage {
             boolean explicitInt = false;
             int longCount = 0;
 
-            while (isIntegerTypeSpecifier(context.peek().type())) {
+            while (isIntegerTypeSpecifier(context.peek().type()) || isTypeQualifier(context.peek().type())) {
                 Token token = context.advance();
                 end = token;
                 switch (token.type()) {
+                    case CONST -> qualifiers.add(MiniType.TypeQualifier.CONST);
+                    case VOLATILE -> qualifiers.add(MiniType.TypeQualifier.VOLATILE);
+                    case RESTRICT -> qualifiers.add(MiniType.TypeQualifier.RESTRICT);
                     case SIGNED -> {
                         if (signed || unsigned) context.report(token, "整数类型的 signed/unsigned 说明重复或冲突");
                         signed = true;
@@ -724,7 +905,7 @@ public final class Parser extends Stage {
             } else {
                 type = unsigned ? MiniType.UNSIGNED_INT : MiniType.INT;
             }
-            return new BaseType(type, start, end);
+            return new BaseType(MiniType.qualified(type, qualifiers), start, end);
         }
 
         private boolean isIntegerTypeSpecifier(TokenType type) {
@@ -734,6 +915,25 @@ public final class Parser extends Stage {
                     || type == TokenType.LONG
                     || type == TokenType.SIGNED
                     || type == TokenType.UNSIGNED;
+        }
+
+        private boolean isTypeQualifier(TokenType type) {
+            return type == TokenType.CONST || type == TokenType.VOLATILE || type == TokenType.RESTRICT;
+        }
+
+        private java.util.Set<MiniType.TypeQualifier> parseTypeQualifiers() {
+            java.util.EnumSet<MiniType.TypeQualifier> qualifiers = java.util.EnumSet.noneOf(
+                    MiniType.TypeQualifier.class);
+            while (isTypeQualifier(context.peek().type())) {
+                Token token = context.advance();
+                qualifiers.add(switch (token.type()) {
+                    case CONST -> MiniType.TypeQualifier.CONST;
+                    case VOLATILE -> MiniType.TypeQualifier.VOLATILE;
+                    case RESTRICT -> MiniType.TypeQualifier.RESTRICT;
+                    default -> throw new IllegalStateException("not a type qualifier: " + token.type());
+                });
+            }
+            return java.util.Set.copyOf(qualifiers);
         }
 
         private BaseType parseStructType() {
@@ -756,13 +956,15 @@ public final class Parser extends Stage {
             MiniType apply(MiniType inner);
         }
 
-        private enum PointerModifier implements DeclaratorModifier {
-            INSTANCE;
-
+        private record PointerModifier(java.util.Set<MiniType.TypeQualifier> qualifiers)
+                implements DeclaratorModifier {
             @Override
             public MiniType apply(MiniType inner) {
-                return inner.pointerTo();
+                return MiniType.qualified(inner.pointerTo(), qualifiers);
             }
+        }
+
+        private record PointerLayer(Token token, java.util.Set<MiniType.TypeQualifier> qualifiers) {
         }
 
         private record ArrayModifier(int length) implements DeclaratorModifier {
@@ -783,8 +985,8 @@ public final class Parser extends Stage {
             @Override
             public MiniType apply(MiniType inner) {
                 return MiniType.function(
-                        inner,
-                        parameters.stream().map(ParsedParameter::type).toList(),
+                        inner.unqualified(),
+                        parameters.stream().map(ParsedParameter::type).map(MiniType::unqualified).toList(),
                         variadic
                 );
             }
@@ -838,10 +1040,12 @@ public final class Parser extends Stage {
             MiniType type,
             SourceRange range,
             List<ParsedParameter> parameters,
-            boolean variadic
+            boolean variadic,
+            List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs
     ) {
         public ParsedNamedType {
             parameters = List.copyOf(parameters);
+            alignmentSpecs = List.copyOf(alignmentSpecs);
         }
     }
 

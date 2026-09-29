@@ -22,8 +22,13 @@ import minic.compiler.parser.node.Expression.LongLiteralExpr;
 import minic.compiler.parser.node.Expression.NameExpr;
 import minic.compiler.parser.node.Expression.NullLiteralExpr;
 import minic.compiler.parser.node.Expression.SizeofExpr;
+import minic.compiler.parser.node.Expression.AlignofExpr;
 import minic.compiler.parser.node.Expression.StringLiteralExpr;
 import minic.compiler.parser.node.Expression.UnaryExpr;
+import minic.compiler.parser.node.Expression.VaArgExpr;
+import minic.compiler.parser.node.Expression.VaCopyExpr;
+import minic.compiler.parser.node.Expression.VaEndExpr;
+import minic.compiler.parser.node.Expression.VaStartExpr;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.lexer.token.Token.IntegerLiteralKind;
@@ -278,7 +283,33 @@ public final class ExpressionManager {
         if (state.match(TokenType.SIZEOF)) {
             return parseSizeof(state.previous());
         }
+        if (state.match(TokenType.ALIGNOF)) {
+            return parseAlignof(state.previous());
+        }
         return parsePostfix();
+    }
+
+    private Expression parseAlignof(Token alignofToken) {
+        if (!state.match(TokenType.LEFT_PAREN)) {
+            state.report(state.peek(), "alignof 后期望 '('");
+            return null;
+        }
+        if (typeReader.canStartType()) {
+            Parser.ParsedType type = typeReader.parseType("期望 alignof 类型");
+            Token endToken = state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
+            if (type == null || endToken == null) return null;
+            AlignofExpr expression = new AlignofExpr(
+                    null, type.type(), SourceRange.span(alignofToken.range(), endToken.range()));
+            state.build(expression, "AlignofExpr type", expression.range());
+            return expression;
+        }
+        Expression operand = parseExpression();
+        Token endToken = state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
+        if (operand == null || endToken == null) return operand;
+        AlignofExpr expression = new AlignofExpr(
+                operand, null, SourceRange.span(alignofToken.range(), endToken.range()));
+        state.build(expression, "AlignofExpr expression", expression.range());
+        return expression;
     }
 
     private Expression parseSizeof(Token sizeofToken) {
@@ -388,6 +419,18 @@ public final class ExpressionManager {
     }
 
     private Expression parsePrimary() {
+        if (state.match(TokenType.VA_START)) {
+            return parseVaStart(state.previous());
+        }
+        if (state.match(TokenType.VA_ARG)) {
+            return parseVaArg(state.previous());
+        }
+        if (state.match(TokenType.VA_COPY)) {
+            return parseVaCopy(state.previous());
+        }
+        if (state.match(TokenType.VA_END)) {
+            return parseVaEnd(state.previous());
+        }
         if (state.match(TokenType.INTEGER_LITERAL)) {
             Token integerToken = state.previous();
             if (integerToken.literalValue() instanceof IntegerLiteralValue literal) {
@@ -509,6 +552,55 @@ public final class ExpressionManager {
             state.advance();
         }
         return null;
+    }
+
+    private Expression parseVaStart(Token intrinsic) {
+        state.consume(TokenType.LEFT_PAREN, "va_start 后期望 '('");
+        Expression list = parseAssignment();
+        state.consume(TokenType.COMMA, "va_start 期望 ','");
+        Expression lastParameter = parseAssignment();
+        Token end = state.consume(TokenType.RIGHT_PAREN, "va_start 期望 ')'");
+        if (list == null || lastParameter == null || end == null) return null;
+        VaStartExpr expression = new VaStartExpr(
+                list, lastParameter, SourceRange.span(intrinsic.range(), end.range()));
+        state.build(expression, "VaStartExpr", expression.range());
+        return expression;
+    }
+
+    private Expression parseVaArg(Token intrinsic) {
+        state.consume(TokenType.LEFT_PAREN, "va_arg 后期望 '('");
+        Expression list = parseAssignment();
+        state.consume(TokenType.COMMA, "va_arg 期望 ','");
+        Parser.ParsedType requestedType = typeReader.parseType("va_arg 期望类型");
+        Token end = state.consume(TokenType.RIGHT_PAREN, "va_arg 期望 ')'");
+        if (list == null || requestedType == null || end == null) return null;
+        VaArgExpr expression = new VaArgExpr(
+                list, requestedType.type(), SourceRange.span(intrinsic.range(), end.range()));
+        state.build(expression, "VaArgExpr " + requestedType.type(), expression.range());
+        return expression;
+    }
+
+    private Expression parseVaCopy(Token intrinsic) {
+        state.consume(TokenType.LEFT_PAREN, "va_copy 后期望 '('");
+        Expression destination = parseAssignment();
+        state.consume(TokenType.COMMA, "va_copy 期望 ','");
+        Expression source = parseAssignment();
+        Token end = state.consume(TokenType.RIGHT_PAREN, "va_copy 期望 ')'");
+        if (destination == null || source == null || end == null) return null;
+        VaCopyExpr expression = new VaCopyExpr(
+                destination, source, SourceRange.span(intrinsic.range(), end.range()));
+        state.build(expression, "VaCopyExpr", expression.range());
+        return expression;
+    }
+
+    private Expression parseVaEnd(Token intrinsic) {
+        state.consume(TokenType.LEFT_PAREN, "va_end 后期望 '('");
+        Expression list = parseAssignment();
+        Token end = state.consume(TokenType.RIGHT_PAREN, "va_end 期望 ')'");
+        if (list == null || end == null) return null;
+        VaEndExpr expression = new VaEndExpr(list, SourceRange.span(intrinsic.range(), end.range()));
+        state.build(expression, "VaEndExpr", expression.range());
+        return expression;
     }
 
     private Expression finishCall(Expression callee) {

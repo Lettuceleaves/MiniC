@@ -1,0 +1,45 @@
+#ifndef MINIC_MATH_MH
+#define MINIC_MATH_MH
+extern double acos(double value);
+extern double asin(double value);
+extern double atan(double value);
+extern double atan2(double y, double x);
+extern double ceil(double value);
+extern double cos(double value);
+extern double cosh(double value);
+extern double exp(double value);
+extern double fabs(double value);
+extern double floor(double value);
+extern double fmod(double numerator, double denominator);
+extern double frexp(double value, int *exponent);
+extern double ldexp(double value, int exponent);
+extern double log(double value);
+extern double log10(double value);
+extern double modf(double value, double *integerPart);
+extern double pow(double base, double exponent);
+extern double sin(double value);
+extern double sinh(double value);
+extern double sqrt(double value);
+extern double tan(double value);
+extern double tanh(double value);
+
+extern float acosf(float value);
+extern float asinf(float value);
+extern float atanf(float value);
+extern float atan2f(float y, float x);
+extern float ceilf(float value);
+extern float cosf(float value);
+extern float coshf(float value);
+extern float expf(float value);
+extern float floorf(float value);
+extern float fmodf(float numerator, float denominator);
+extern float logf(float value);
+extern float log10f(float value);
+extern float modff(float value, float *integerPart);
+extern float powf(float base, float exponent);
+extern float sinf(float value);
+extern float sinhf(float value);
+extern float sqrtf(float value);
+extern float tanf(float value);
+extern float tanhf(float value);
+#endif

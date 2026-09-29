@@ -239,6 +239,58 @@ public interface Expression extends AstNode {
         }
     }
 
+    record AlignofExpr(Expression expression, MiniType queriedType, SourceRange range) implements Expression {
+        public AlignofExpr {
+            if ((expression == null) == (queriedType == null)) {
+                throw new IllegalArgumentException("alignof requires exactly one operand");
+            }
+            Objects.requireNonNull(range, "range");
+        }
+
+        public Optional<Expression> expressionOptional() {
+            return Optional.ofNullable(expression);
+        }
+
+        public Optional<MiniType> queriedTypeOptional() {
+            return Optional.ofNullable(queriedType);
+        }
+    }
+
+    /** Initializes a va_list cursor immediately after the function's final named argument. */
+    record VaStartExpr(Expression list, Expression lastParameter, SourceRange range) implements Expression {
+        public VaStartExpr {
+            Objects.requireNonNull(list, "list");
+            Objects.requireNonNull(lastParameter, "lastParameter");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
+    /** Reads one promoted argument and advances the va_list cursor by one Windows x64 slot. */
+    record VaArgExpr(Expression list, MiniType requestedType, SourceRange range) implements Expression {
+        public VaArgExpr {
+            Objects.requireNonNull(list, "list");
+            Objects.requireNonNull(requestedType, "requestedType");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
+    /** Copies a variadic cursor; both cursors subsequently advance independently. */
+    record VaCopyExpr(Expression destination, Expression source, SourceRange range) implements Expression {
+        public VaCopyExpr {
+            Objects.requireNonNull(destination, "destination");
+            Objects.requireNonNull(source, "source");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
+    /** Ends use of a variadic cursor. */
+    record VaEndExpr(Expression list, SourceRange range) implements Expression {
+        public VaEndExpr {
+            Objects.requireNonNull(list, "list");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
     record StringLiteralExpr(String value, String lexeme, SourceRange range) implements Expression {
         public StringLiteralExpr {
             Objects.requireNonNull(value, "value");

@@ -377,6 +377,18 @@ public final class Lexer extends Stage {
             case "short" -> TokenType.SHORT;
             case "signed" -> TokenType.SIGNED;
             case "unsigned" -> TokenType.UNSIGNED;
+            case "typedef" -> TokenType.TYPEDEF;
+            case "const" -> TokenType.CONST;
+            case "volatile" -> TokenType.VOLATILE;
+            case "restrict" -> TokenType.RESTRICT;
+            case "_Alignof", "alignof" -> TokenType.ALIGNOF;
+            case "_Alignas", "alignas" -> TokenType.ALIGNAS;
+            case "_Noreturn", "noreturn" -> TokenType.NORETURN;
+            case "__minic_va_list" -> TokenType.BUILTIN_VA_LIST;
+            case "va_start" -> TokenType.VA_START;
+            case "va_arg" -> TokenType.VA_ARG;
+            case "va_copy" -> TokenType.VA_COPY;
+            case "va_end" -> TokenType.VA_END;
             case "float" -> TokenType.FLOAT;
             case "double" -> TokenType.DOUBLE;
             case "void" -> TokenType.VOID;

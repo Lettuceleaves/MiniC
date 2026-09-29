@@ -7,9 +7,9 @@ import java.util.Objects;
 /**
  * 一次调试系统库调用的结果。
  *
- * <p>当前系统库函数只使用 {@link Returned}，但调用协议预留了回调挂起、进程终止、
- * 非局部跳转和结构化失败。后续接入 qsort、exit、longjmp 等函数时不需要再次改变
- * Debugger 与系统库之间的边界。</p>
+ * <p>系统库函数使用 {@link Returned} 或 {@link Terminated}；调用协议还预留了回调挂起、
+ * 非局部跳转和结构化失败。后续接入 qsort、longjmp 等函数时不需要再次改变 Debugger
+ * 与系统库之间的边界。</p>
  */
 sealed interface DebugLibraryCallResult permits
         DebugLibraryCallResult.Returned,

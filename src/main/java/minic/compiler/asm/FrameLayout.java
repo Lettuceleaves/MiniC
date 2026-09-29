@@ -80,10 +80,16 @@ record FrameLayout(
     }
 
     String localSlot(IrLocal local) {
+        if (local.incomingArgumentArea()) {
+            throw new IllegalArgumentException("incoming argument pseudo local has no frame slot");
+        }
         return stackSlot(localOffsets.get(local.name()), local.type());
     }
 
     String localInitializedSlot(IrLocal local) {
+        if (local.incomingArgumentArea()) {
+            throw new IllegalArgumentException("incoming argument pseudo local has no initialized flag");
+        }
         return stackSlot(localInitializedOffsets.get(local.name()), IrType.INT);
     }
 
@@ -99,6 +105,9 @@ record FrameLayout(
     }
 
     String localAddress(IrLocal local) {
+        if (local.incomingArgumentArea()) {
+            return "[rbp+" + CallingConvention.incomingArgumentSlotOffset(local.incomingArgumentIndex()) + "]";
+        }
         return stackAddress(localOffsets.get(local.name()));
     }
 
@@ -185,6 +194,9 @@ record FrameLayout(
             Map<String, Integer> localInitializedOffsets,
             int nextOffset
     ) {
+        if (local.incomingArgumentArea()) {
+            return nextOffset;
+        }
         if (!localOffsets.containsKey(local.name())) {
             nextOffset = alignTo(nextOffset + local.sizeBytes(), local.alignmentBytes());
             localOffsets.put(local.name(), nextOffset);

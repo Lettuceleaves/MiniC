@@ -22,9 +22,15 @@ import minic.compiler.parser.node.Expression.NullLiteralExpr;
 import minic.compiler.parser.node.Expression.SizeofExpr;
 import minic.compiler.parser.node.Expression.StringLiteralExpr;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
+import minic.compiler.parser.node.Expression.AlignofExpr;
 import minic.compiler.parser.node.Expression.DesignatedInitExpr;
 import minic.compiler.parser.node.Expression.Designator;
 import minic.compiler.parser.node.Expression.UnaryExpr;
+import minic.compiler.parser.node.Expression.VaArgExpr;
+import minic.compiler.parser.node.Expression.VaCopyExpr;
+import minic.compiler.parser.node.Expression.VaEndExpr;
+import minic.compiler.parser.node.Expression.VaStartExpr;
+import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.type.MiniType;
 import minic.compiler.type.TypeLayout;
 import minic.compiler.lexer.token.TokenType;
@@ -46,6 +52,7 @@ final class ExpressionSemanticAnalyzer {
     private final List<Diagnostic> diagnostics;
     private final Map<Expression, MiniType> expressionTypes;
     private Set<String> currentParameterNames = Set.of();
+    private FunctionDecl currentFunction;
     private MiniType aggregateInitTargetType;
 
     ExpressionSemanticAnalyzer(
@@ -62,6 +69,13 @@ final class ExpressionSemanticAnalyzer {
 
     void setCurrentParameterNames(Collection<String> parameterNames) {
         currentParameterNames = Set.copyOf(parameterNames);
+    }
+
+    void setCurrentFunction(FunctionDecl function) {
+        currentFunction = function;
+        setCurrentParameterNames(function == null
+                ? List.of()
+                : function.parameters().stream().map(minic.compiler.parser.node.Declaration.Parameter::name).toList());
     }
 
     void setAggregateInitTargetType(MiniType type) {
@@ -97,6 +111,11 @@ final class ExpressionSemanticAnalyzer {
             case CastExpr castExpr -> analyzeCast(castExpr, scope);
             case CommaExpr commaExpr -> analyzeComma(commaExpr, scope);
             case SizeofExpr sizeofExpr -> analyzeSizeof(sizeofExpr, scope);
+            case AlignofExpr alignofExpr -> analyzeAlignof(alignofExpr, scope);
+            case VaStartExpr vaStartExpr -> analyzeVaStart(vaStartExpr, scope);
+            case VaArgExpr vaArgExpr -> analyzeVaArg(vaArgExpr, scope);
+            case VaCopyExpr vaCopyExpr -> analyzeVaCopy(vaCopyExpr, scope);
+            case VaEndExpr vaEndExpr -> analyzeVaEnd(vaEndExpr, scope);
             case CallExpr callExpr -> {
                 ArrayList<MiniType> argumentTypes = new ArrayList<>();
                 for (Expression argument : callExpr.arguments()) {
@@ -225,7 +244,7 @@ final class ExpressionSemanticAnalyzer {
             report(assignmentExpr.range(), "数组不能整体赋值");
         }
         if (targetType.isStruct() || valueType.isStruct()) {
-            if (!targetType.equals(valueType)) {
+            if (!targetType.unqualified().equals(valueType.unqualified())) {
                 report(assignmentExpr.range(), "结构体赋值类型不匹配");
             }
             if (assignmentExpr.compoundBinaryOperator().isPresent()) {
@@ -272,7 +291,110 @@ final class ExpressionSemanticAnalyzer {
         return MiniType.UNSIGNED_LONG_LONG;
     }
 
+    private MiniType analyzeAlignof(AlignofExpr alignofExpr, Scope scope) {
+        MiniType queriedType = alignofExpr.queriedTypeOptional().orElse(null);
+        if (queriedType == null) {
+            queriedType = analyzeExpression(alignofExpr.expressionOptional().orElseThrow(), scope);
+        }
+        if (!TypeLayout.hasFixedLayout(queriedType) && !hasStructLayout(queriedType)) {
+            report(alignofExpr.range(), "alignof 只支持具有完整布局的对象类型");
+        }
+        return MiniType.UNSIGNED_LONG_LONG;
+    }
+
+    private MiniType analyzeVaStart(VaStartExpr expression, Scope scope) {
+        requireVariadicFunction(expression.range(), "va_start");
+        requireVaListLocal(expression.list(), scope, "va_start");
+        analyzeExpression(expression.lastParameter(), scope);
+        String expectedLast = currentFunction == null || currentFunction.parameters().isEmpty()
+                ? null
+                : currentFunction.parameters().getLast().name();
+        Expression last = unwrapGrouping(expression.lastParameter());
+        if (!(last instanceof NameExpr nameExpr) || expectedLast == null || !expectedLast.equals(nameExpr.name())) {
+            report(expression.lastParameter().range(),
+                    "va_start 的 last 参数必须是最后一个命名参数");
+        }
+        return MiniType.VOID;
+    }
+
+    private MiniType analyzeVaArg(VaArgExpr expression, Scope scope) {
+        requireVariadicFunction(expression.range(), "va_arg");
+        requireVaListLocal(expression.list(), scope, "va_arg");
+        MiniType requested = expression.requestedType().unqualified();
+        if (!isSupportedVaArgType(requested)) {
+            if (requested.equals(MiniType.FLOAT)) {
+                report(expression.range(), "va_arg 不能请求 float：可变参数默认提升为 double");
+            } else if (requested.equals(MiniType.CHAR)
+                    || requested.equals(MiniType.SIGNED_CHAR)
+                    || requested.equals(MiniType.UNSIGNED_CHAR)
+                    || requested.equals(MiniType.SHORT)
+                    || requested.equals(MiniType.UNSIGNED_SHORT)
+                    || requested.equals(MiniType.BOOL)) {
+                report(expression.range(), "va_arg 请求的窄整数类型会默认提升为 int");
+            } else {
+                report(expression.range(), "va_arg 暂不支持该类型：" + expression.requestedType());
+            }
+            return MiniType.INT;
+        }
+        return requested;
+    }
+
+    private MiniType analyzeVaCopy(VaCopyExpr expression, Scope scope) {
+        requireVariadicFunction(expression.range(), "va_copy");
+        requireVaListLocal(expression.destination(), scope, "va_copy");
+        requireVaListLocal(expression.source(), scope, "va_copy");
+        return MiniType.VOID;
+    }
+
+    private MiniType analyzeVaEnd(VaEndExpr expression, Scope scope) {
+        requireVariadicFunction(expression.range(), "va_end");
+        requireVaListLocal(expression.list(), scope, "va_end");
+        return MiniType.VOID;
+    }
+
+    private void requireVariadicFunction(SourceRange range, String intrinsic) {
+        if (currentFunction == null || !currentFunction.variadic()) {
+            report(range, intrinsic + " 只能在 variadic 函数中使用");
+        }
+    }
+
+    private void requireVaListLocal(Expression operand, Scope scope, String intrinsic) {
+        MiniType type = analyzeExpression(operand, scope);
+        if (!type.isVaList()) {
+            report(operand.range(), intrinsic + " 操作数必须是 va_list");
+            return;
+        }
+        Expression unwrapped = unwrapGrouping(operand);
+        if (!(unwrapped instanceof NameExpr nameExpr)) {
+            report(operand.range(), intrinsic + " 当前只支持局部 va_list 变量");
+        } else if (currentParameterNames.contains(nameExpr.name())) {
+            report(operand.range(), intrinsic + " 当前不支持 va_list 形参");
+        }
+    }
+
+    private Expression unwrapGrouping(Expression expression) {
+        Expression current = expression;
+        while (current instanceof GroupingExpr groupingExpr) {
+            current = groupingExpr.expression();
+        }
+        return current;
+    }
+
+    private boolean isSupportedVaArgType(MiniType type) {
+        if (type.isPointer()) {
+            return true;
+        }
+        return type.equals(MiniType.INT)
+                || type.equals(MiniType.UNSIGNED_INT)
+                || type.equals(MiniType.LONG)
+                || type.equals(MiniType.UNSIGNED_LONG)
+                || type.equals(MiniType.LONG_LONG)
+                || type.equals(MiniType.UNSIGNED_LONG_LONG)
+                || type.equals(MiniType.DOUBLE);
+    }
+
     private boolean hasStructLayout(MiniType type) {
+        type = type.unqualified();
         if (type instanceof MiniType.StructType structType) {
             return structRegistry.hasLayout(structType.name());
         }
@@ -292,12 +414,13 @@ final class ExpressionSemanticAnalyzer {
             expressionTypes.put(initializer, MiniType.INT);
             return MiniType.INT;
         }
-        if (targetType instanceof MiniType.ArrayType arrayType) {
+        MiniType unqualifiedTarget = targetType.unqualified();
+        if (unqualifiedTarget instanceof MiniType.ArrayType arrayType) {
             analyzeArrayInit(initializer, scope, arrayType);
             expressionTypes.put(initializer, targetType);
             return targetType;
         }
-        analyzeStructFields(initializer, scope, (MiniType.StructType) targetType);
+        analyzeStructFields(initializer, scope, (MiniType.StructType) unqualifiedTarget);
         expressionTypes.put(initializer, targetType);
         return targetType;
     }
@@ -370,10 +493,11 @@ final class ExpressionSemanticAnalyzer {
         MiniType nestedTarget = targetType;
         for (int index = consumedDesignators; index < designated.designators().size(); index++) {
             Designator designator = designated.designators().get(index);
-            if (designator instanceof Designator.Index arrayIndex && nestedTarget instanceof MiniType.ArrayType array) {
+            MiniType unqualifiedNestedTarget = nestedTarget.unqualified();
+            if (designator instanceof Designator.Index arrayIndex && unqualifiedNestedTarget instanceof MiniType.ArrayType array) {
                 if (arrayIndex.index() >= array.length()) report(arrayIndex.range(), "指定初始化数组下标越界");
                 nestedTarget = array.elementType();
-            } else if (designator instanceof Designator.Field field && nestedTarget instanceof MiniType.StructType) {
+            } else if (designator instanceof Designator.Field field && unqualifiedNestedTarget instanceof MiniType.StructType) {
                 var layout = structRegistry.field(nestedTarget, field.name());
                 if (layout.isEmpty()) { report(field.range(), "未知结构体字段：" + field.name()); return; }
                 nestedTarget = layout.orElseThrow().type();
@@ -403,17 +527,23 @@ final class ExpressionSemanticAnalyzer {
     }
 
     private MiniType analyzeAssignmentTarget(Expression target, Scope scope, SourceRange range) {
-        if (target instanceof NameExpr) {
-            return analyzeExpression(target, scope);
+        MiniType type;
+        if (target instanceof GroupingExpr groupingExpr) {
+            type = analyzeAssignmentTarget(groupingExpr.expression(), scope, range);
+            expressionTypes.put(target, type);
+        } else if (target instanceof NameExpr
+                || target instanceof IndexExpr
+                || target instanceof FieldAccessExpr
+                || target instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenType.STAR) {
+            type = analyzeExpression(target, scope);
+        } else {
+            report(range, "赋值左侧必须是变量或解引用表达式");
+            return MiniType.INT;
         }
-        if (target instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenType.STAR) {
-            return analyzeExpression(target, scope);
+        if (type.isConstQualified()) {
+            report(range, "不能修改 const 左值");
         }
-        if (target instanceof IndexExpr || target instanceof FieldAccessExpr) {
-            return analyzeExpression(target, scope);
-        }
-        report(range, "赋值左侧必须是变量或解引用表达式");
-        return MiniType.INT;
+        return type;
     }
 
     private MiniType analyzeIndex(IndexExpr indexExpr, Scope scope) {
@@ -423,7 +553,7 @@ final class ExpressionSemanticAnalyzer {
             report(indexExpr.index().range(), "数组下标必须是整数类型");
         }
         if (targetType.isArray()) {
-            return targetType.elementType();
+            return inheritObjectQualifiers(targetType, targetType.elementType());
         }
         if (targetType.isPointer()) {
             if (targetType.pointee().isFunction()) {
@@ -440,17 +570,19 @@ final class ExpressionSemanticAnalyzer {
         MiniType targetType = analyzeExpression(fieldAccessExpr.target(), scope);
         MiniType structType = targetType;
         if (fieldAccessExpr.viaPointer()) {
-            if (!targetType.isPointer() || !(targetType.pointee() instanceof MiniType.StructType)) {
+            if (!targetType.isPointer() || !(targetType.pointee().unqualified() instanceof MiniType.StructType)) {
                 report(fieldAccessExpr.range(), "指针字段访问目标必须是结构体指针");
                 return MiniType.INT;
             }
             structType = targetType.pointee();
-        } else if (!(targetType instanceof MiniType.StructType)) {
+        } else if (!(targetType.unqualified() instanceof MiniType.StructType)) {
             report(fieldAccessExpr.range(), "字段访问目标必须是结构体");
             return MiniType.INT;
         }
+        MiniType owningObjectType = structType;
         return structRegistry.field(structType, fieldAccessExpr.fieldName())
                 .map(StructFieldLayout::type)
+                .map(fieldType -> inheritObjectQualifiers(owningObjectType, fieldType))
                 .orElseGet(() -> {
                     report(fieldAccessExpr.range(), "未知结构体字段：" + fieldAccessExpr.fieldName());
                     return MiniType.INT;
@@ -476,7 +608,7 @@ final class ExpressionSemanticAnalyzer {
             return MiniType.INT;
         }
         MiniType functionType = calleeType.pointee();
-        MiniType.FunctionType signature = (MiniType.FunctionType) functionType;
+        MiniType.FunctionType signature = (MiniType.FunctionType) functionType.unqualified();
         if ((!signature.variadic() && signature.parameterTypes().size() != argumentTypes.size())
                 || (signature.variadic() && argumentTypes.size() < signature.parameterTypes().size())) {
             report(callExpr.range(), "函数指针调用实参数量不匹配");
@@ -491,6 +623,18 @@ final class ExpressionSemanticAnalyzer {
             }
         }
         return functionType.returnType();
+    }
+
+    private MiniType inheritObjectQualifiers(MiniType ownerType, MiniType memberType) {
+        java.util.EnumSet<MiniType.TypeQualifier> qualifiers = java.util.EnumSet.noneOf(MiniType.TypeQualifier.class);
+        qualifiers.addAll(memberType.qualifiers());
+        if (ownerType.isConstQualified()) {
+            qualifiers.add(MiniType.TypeQualifier.CONST);
+        }
+        if (ownerType.isVolatileQualified()) {
+            qualifiers.add(MiniType.TypeQualifier.VOLATILE);
+        }
+        return MiniType.qualified(memberType.unqualified(), qualifiers);
     }
 
     private boolean isDirectFunctionCall(CallExpr callExpr, Scope scope) {

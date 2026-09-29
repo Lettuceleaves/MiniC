@@ -2,6 +2,8 @@ package minic.compiler.type;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.EnumSet;
 
 /**
  * MiniC 前端类型。
@@ -9,12 +11,13 @@ import java.util.Objects;
 public sealed interface MiniType permits
         MiniType.NamedType,
         MiniType.CombinationType,
+        MiniType.QualifiedType,
         MiniType.NullPointerType,
         MiniType.VoidType {
     /**
      * 具有源码名称的叶子节点。标量名和 {@code struct Name} 都在这里终止递归。
      */
-    sealed interface NamedType extends MiniType permits ScalarType, StructType {
+    sealed interface NamedType extends MiniType permits ScalarType, StructType, VaListType {
     }
 
     /**
@@ -78,6 +81,9 @@ public sealed interface MiniType permits
      */
     MiniType NULL = new NullPointerType();
 
+    /** Opaque Windows x64 variadic cursor exposed by {@code stdarg.mh}. */
+    MiniType VA_LIST = new VaListType();
+
     /**
      * 返回指向当前类型的指针类型。
      *
@@ -130,13 +136,50 @@ public sealed interface MiniType permits
         return new FunctionType(returnType, parameterTypes, variadic);
     }
 
+    /** Apply C type qualifiers to exactly this type layer. */
+    static MiniType qualified(MiniType type, Set<TypeQualifier> qualifiers) {
+        Objects.requireNonNull(type, "type");
+        Objects.requireNonNull(qualifiers, "qualifiers");
+        if (qualifiers.isEmpty()) {
+            return type;
+        }
+        if (type instanceof QualifiedType qualifiedType) {
+            EnumSet<TypeQualifier> merged = EnumSet.copyOf(qualifiedType.qualifiers());
+            merged.addAll(qualifiers);
+            return new QualifiedType(qualifiedType.baseType(), merged);
+        }
+        return new QualifiedType(type, qualifiers);
+    }
+
+    /** Return this layer without its qualifiers. */
+    default MiniType unqualified() {
+        return this instanceof QualifiedType qualifiedType ? qualifiedType.baseType() : this;
+    }
+
+    /** Return qualifiers attached to exactly this type layer. */
+    default Set<TypeQualifier> qualifiers() {
+        return this instanceof QualifiedType qualifiedType ? qualifiedType.qualifiers() : Set.of();
+    }
+
+    default boolean isConstQualified() {
+        return qualifiers().contains(TypeQualifier.CONST);
+    }
+
+    default boolean isVolatileQualified() {
+        return qualifiers().contains(TypeQualifier.VOLATILE);
+    }
+
+    default boolean isRestrictQualified() {
+        return qualifiers().contains(TypeQualifier.RESTRICT);
+    }
+
     /**
      * 判断当前类型是否为指针。
      *
      * @return 指针类型返回 {@code true}
      */
     default boolean isPointer() {
-        return this instanceof PointerType;
+        return unqualified() instanceof PointerType;
     }
 
     /**
@@ -145,7 +188,7 @@ public sealed interface MiniType permits
      * @return 数组类型返回 {@code true}
      */
     default boolean isArray() {
-        return this instanceof ArrayType;
+        return unqualified() instanceof ArrayType;
     }
 
     /**
@@ -154,7 +197,7 @@ public sealed interface MiniType permits
      * @return 结构体类型返回 {@code true}
      */
     default boolean isStruct() {
-        return this instanceof StructType;
+        return unqualified() instanceof StructType;
     }
 
     /**
@@ -163,7 +206,7 @@ public sealed interface MiniType permits
      * @return 函数签名类型返回 {@code true}
      */
     default boolean isFunction() {
-        return this instanceof FunctionType;
+        return unqualified() instanceof FunctionType;
     }
 
     /**
@@ -172,7 +215,7 @@ public sealed interface MiniType permits
      * @return 基础标量返回 {@code true}
      */
     default boolean isScalar() {
-        return this instanceof ScalarType;
+        return unqualified() instanceof ScalarType;
     }
 
     /**
@@ -181,19 +224,19 @@ public sealed interface MiniType permits
      * @return bool、char、int、long 返回 {@code true}
      */
     default boolean isIntegerScalar() {
-        return this instanceof ScalarType scalarType && scalarType.kind().integer();
+        return unqualified() instanceof ScalarType scalarType && scalarType.kind().integer();
     }
 
     /** @return 当前类型是否为有符号整数标量。 */
     default boolean isSignedIntegerScalar() {
-        return this instanceof ScalarType scalarType
+        return unqualified() instanceof ScalarType scalarType
                 && scalarType.kind().integer()
                 && scalarType.kind().signed();
     }
 
     /** @return 当前类型是否为无符号整数标量（bool 除外）。 */
     default boolean isUnsignedIntegerScalar() {
-        return this instanceof ScalarType scalarType
+        return unqualified() instanceof ScalarType scalarType
                 && scalarType.kind().integer()
                 && !scalarType.kind().signed()
                 && scalarType.kind() != ScalarKind.BOOL;
@@ -205,7 +248,7 @@ public sealed interface MiniType permits
      * @return float、double 返回 {@code true}
      */
     default boolean isFloatingScalar() {
-        return this instanceof ScalarType scalarType && scalarType.kind().floating();
+        return unqualified() instanceof ScalarType scalarType && scalarType.kind().floating();
     }
 
     /**
@@ -214,12 +257,17 @@ public sealed interface MiniType permits
      * @return NULL 类型返回 {@code true}
      */
     default boolean isNullPointer() {
-        return this instanceof NullPointerType;
+        return unqualified() instanceof NullPointerType;
     }
 
     /** @return 当前类型是否为 {@code void}。 */
     default boolean isVoid() {
-        return this instanceof VoidType;
+        return unqualified() instanceof VoidType;
+    }
+
+    /** @return whether this is the opaque stdarg cursor type. */
+    default boolean isVaList() {
+        return unqualified() instanceof VaListType;
     }
 
     /**
@@ -229,7 +277,7 @@ public sealed interface MiniType permits
      * @throws IllegalStateException 当前类型不是指针时抛出
      */
     default MiniType pointee() {
-        if (this instanceof PointerType pointerType) {
+        if (unqualified() instanceof PointerType pointerType) {
             return pointerType.pointee();
         }
         throw new IllegalStateException("type is not a pointer: " + this);
@@ -242,7 +290,7 @@ public sealed interface MiniType permits
      * @throws IllegalStateException 当前类型不是数组时抛出
      */
     default MiniType elementType() {
-        if (this instanceof ArrayType arrayType) {
+        if (unqualified() instanceof ArrayType arrayType) {
             return arrayType.elementType();
         }
         throw new IllegalStateException("type is not an array: " + this);
@@ -255,7 +303,7 @@ public sealed interface MiniType permits
      * @throws IllegalStateException 当前类型不是数组时抛出
      */
     default int arrayLength() {
-        if (this instanceof ArrayType arrayType) {
+        if (unqualified() instanceof ArrayType arrayType) {
             return arrayType.length();
         }
         throw new IllegalStateException("type is not an array: " + this);
@@ -268,7 +316,7 @@ public sealed interface MiniType permits
      * @throws IllegalStateException 当前类型不是函数签名时抛出
      */
     default MiniType returnType() {
-        if (this instanceof FunctionType functionType) {
+        if (unqualified() instanceof FunctionType functionType) {
             return functionType.returnType();
         }
         throw new IllegalStateException("type is not a function: " + this);
@@ -281,7 +329,7 @@ public sealed interface MiniType permits
      * @throws IllegalStateException 当前类型不是函数签名时抛出
      */
     default List<MiniType> parameterTypes() {
-        if (this instanceof FunctionType functionType) {
+        if (unqualified() instanceof FunctionType functionType) {
             return functionType.parameterTypes();
         }
         throw new IllegalStateException("type is not a function: " + this);
@@ -359,6 +407,46 @@ public sealed interface MiniType permits
         }
     }
 
+    enum TypeQualifier {
+        CONST("const"),
+        VOLATILE("volatile"),
+        RESTRICT("restrict");
+
+        private final String spelling;
+
+        TypeQualifier(String spelling) {
+            this.spelling = spelling;
+        }
+
+        public String spelling() {
+            return spelling;
+        }
+    }
+
+    /** Qualifiers wrap one precise type layer, so pointer and pointee qualifiers remain distinct. */
+    record QualifiedType(MiniType baseType, Set<TypeQualifier> qualifiers) implements MiniType {
+        public QualifiedType {
+            Objects.requireNonNull(baseType, "baseType");
+            Objects.requireNonNull(qualifiers, "qualifiers");
+            if (baseType instanceof QualifiedType) {
+                throw new IllegalArgumentException("qualified types must be flattened");
+            }
+            if (qualifiers.isEmpty()) {
+                throw new IllegalArgumentException("qualified type requires at least one qualifier");
+            }
+            qualifiers = Set.copyOf(qualifiers);
+        }
+
+        @Override
+        public String toString() {
+            String prefix = String.join(" ", qualifiers.stream()
+                    .map(TypeQualifier::spelling)
+                    .sorted()
+                    .toList());
+            return prefix + " " + baseType;
+        }
+    }
+
     /**
      * MiniC 基础标量类型。
      *
@@ -387,6 +475,14 @@ public sealed interface MiniType permits
         @Override
         public String toString() {
             return "NULL";
+        }
+    }
+
+    /** Compiler-owned va_list representation; its native representation is one pointer. */
+    record VaListType() implements NamedType {
+        @Override
+        public String toString() {
+            return "va_list";
         }
     }
 

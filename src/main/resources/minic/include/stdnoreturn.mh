@@ -1,0 +1,4 @@
+#ifndef MINIC_STDNORETURN_MH
+#define MINIC_STDNORETURN_MH
+#define noreturn _Noreturn
+#endif

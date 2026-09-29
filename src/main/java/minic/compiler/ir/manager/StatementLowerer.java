@@ -23,6 +23,7 @@ import minic.compiler.parser.node.Expression.Designator;
 import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator;
 import minic.compiler.parser.node.Statement.VarDeclStmt;
+import minic.compiler.parser.node.Statement.TypedefStmt;
 import minic.compiler.parser.node.Statement.WhileStmt;
 import minic.compiler.ir.instruction.ControlInstruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.MemoryInstruction.IrAddressOfLocalInstruction;
@@ -58,11 +59,20 @@ final class StatementLowerer {
             StringLiteralRegistry stringLiteralRegistry,
             Map<Expression, MiniType> expressionTypes,
             Map<String, IrFunctionSignature> functionSignatures,
-            IrType returnType
+            IrType returnType,
+            boolean variadicFunction,
+            int firstVariadicArgumentIndex
     ) {
         this.builder = builder;
         this.returnType = returnType;
-        expressionLowerer = new ExpressionLowerer(builder, stringLiteralRegistry, expressionTypes, functionSignatures);
+        expressionLowerer = new ExpressionLowerer(
+                builder,
+                stringLiteralRegistry,
+                expressionTypes,
+                functionSignatures,
+                variadicFunction,
+                firstVariadicArgumentIndex
+        );
     }
 
     void setStructReturn(String structName) {
@@ -119,6 +129,7 @@ final class StatementLowerer {
                     builder.addInstruction(new IrStoreLocalInstruction(
                             local,
                             expressionLowerer.castForTarget(value, local.type(), varDeclStmt.range()),
+                            local.declaredType().isVolatileQualified(),
                             varDeclStmt.range()
                     ));
                 });
@@ -134,11 +145,16 @@ final class StatementLowerer {
                                 destAddress,
                                 srcAddress,
                                 builder.sizeOf(varDeclStmt.type()),
+                                varDeclStmt.type().isVolatileQualified(),
                                 varDeclStmt.range()
                         ));
                     }
                 });
             }
+            return;
+        }
+        if (statement instanceof TypedefStmt) {
+            // Typedefs are compile-time scope entries and emit no runtime instruction.
             return;
         }
         if (statement instanceof BreakStmt breakStmt) {
@@ -383,7 +399,8 @@ final class StatementLowerer {
             AggregateInitExpr initializer,
             minic.source.SourceRange range
     ) {
-        if (aggregateType instanceof MiniType.ArrayType arrayType) {
+        MiniType unqualifiedAggregateType = aggregateType.unqualified();
+        if (unqualifiedAggregateType instanceof MiniType.ArrayType arrayType) {
             int index = 0;
             for (Expression value : initializer.values()) {
                 if (value instanceof DesignatedInitExpr designated
@@ -391,22 +408,23 @@ final class StatementLowerer {
                     index = selected.index();
                 }
                 if (index >= arrayType.length()) break;
+                MiniType elementType = inheritObjectQualifiers(aggregateType, arrayType.elementType());
                 IrTemporary elementAddress = builder.newTemporary(IrType.POINTER);
                 builder.addInstruction(new IrElementAddressInstruction(
                         elementAddress,
                         baseAddress,
                         new IrConstant(index),
-                        arrayType.elementType(),
-                        builder.sizeOf(arrayType.elementType()),
+                        elementType,
+                        builder.sizeOf(elementType),
                         range
                 ));
-                lowerDesignatedAt(elementAddress, arrayType.elementType(), value, 1, range);
+                lowerDesignatedAt(elementAddress, elementType, value, 1, range);
                 index++;
             }
             return;
         }
 
-        MiniType.StructType structType = (MiniType.StructType) aggregateType;
+        MiniType.StructType structType = (MiniType.StructType) unqualifiedAggregateType;
         String structName = structType.name();
         int i = 0;
         for (Expression value : initializer.values()) {
@@ -418,6 +436,7 @@ final class StatementLowerer {
                 }
             }
             var field = builder.fieldLayout(structName, i);
+            MiniType fieldType = inheritObjectQualifiers(aggregateType, field.type());
             IrTemporary fieldAddr = builder.newTemporary(IrType.POINTER);
             builder.addInstruction(new IrFieldAddressInstruction(
                     fieldAddr,
@@ -425,10 +444,10 @@ final class StatementLowerer {
                     structName,
                     field.name(),
                     field.offset(),
-                    field.type(),
+                    fieldType,
                     range
             ));
-            lowerDesignatedAt(fieldAddr, field.type(), value, 1, range);
+            lowerDesignatedAt(fieldAddr, fieldType, value, 1, range);
             i++;
         }
     }
@@ -443,19 +462,23 @@ final class StatementLowerer {
         MiniType currentType = targetType;
         for (int index = consumed; index < designated.designators().size(); index++) {
             Designator designator = designated.designators().get(index);
-            if (designator instanceof Designator.Index arrayIndex && currentType instanceof MiniType.ArrayType array) {
+            MiniType unqualifiedCurrentType = currentType.unqualified();
+            if (designator instanceof Designator.Index arrayIndex
+                    && unqualifiedCurrentType instanceof MiniType.ArrayType array) {
+                MiniType elementType = inheritObjectQualifiers(currentType, array.elementType());
                 IrTemporary nested = builder.newTemporary(IrType.POINTER);
                 builder.addInstruction(new IrElementAddressInstruction(nested, currentAddress,
-                        new IrConstant(arrayIndex.index()), array.elementType(), builder.sizeOf(array.elementType()), range));
+                        new IrConstant(arrayIndex.index()), elementType, builder.sizeOf(elementType), range));
                 currentAddress = nested;
-                currentType = array.elementType();
-            } else if (designator instanceof Designator.Field field && currentType instanceof MiniType.StructType struct) {
+                currentType = elementType;
+            } else if (designator instanceof Designator.Field field
+                    && unqualifiedCurrentType instanceof MiniType.StructType struct) {
                 var layout = builder.fieldLayout(struct.name(), field.name());
                 IrTemporary nested = builder.newTemporary(IrType.POINTER);
                 builder.addInstruction(new IrFieldAddressInstruction(nested, currentAddress, struct.name(),
                         layout.name(), layout.offset(), layout.type(), range));
                 currentAddress = nested;
-                currentType = layout.type();
+                currentType = inheritObjectQualifiers(currentType, layout.type());
             }
         }
         lowerInitializerAt(currentAddress, currentType, designated.value(), range);
@@ -477,11 +500,22 @@ final class StatementLowerer {
                     address,
                     value,
                     builder.sizeOf(targetType),
+                    targetType.isVolatileQualified(),
                     range
             ));
         } else {
-            builder.addInstruction(new IrStorePointerInstruction(address, value, range));
+            builder.addInstruction(new IrStorePointerInstruction(
+                    address, value, targetType.isVolatileQualified(), range));
         }
+    }
+
+    private MiniType inheritObjectQualifiers(MiniType ownerType, MiniType memberType) {
+        java.util.EnumSet<MiniType.TypeQualifier> qualifiers =
+                java.util.EnumSet.noneOf(MiniType.TypeQualifier.class);
+        qualifiers.addAll(memberType.qualifiers());
+        if (ownerType.isConstQualified()) qualifiers.add(MiniType.TypeQualifier.CONST);
+        if (ownerType.isVolatileQualified()) qualifiers.add(MiniType.TypeQualifier.VOLATILE);
+        return MiniType.qualified(memberType.unqualified(), qualifiers);
     }
 
     private record LoopTarget(String breakLabel, String continueLabel) {

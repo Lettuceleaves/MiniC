@@ -89,6 +89,36 @@ public enum TokenType {
      */
     UNSIGNED,
 
+    /** {@code typedef} keyword. */
+    TYPEDEF,
+
+    /** {@code const} type qualifier. */
+    CONST,
+
+    /** {@code volatile} type qualifier. */
+    VOLATILE,
+
+    /** {@code restrict} type qualifier. */
+    RESTRICT,
+
+    /** {@code _Alignof} and C23 {@code alignof}. */
+    ALIGNOF,
+
+    /** {@code _Alignas} and C23 {@code alignas}. */
+    ALIGNAS,
+
+    /** {@code _Noreturn} and C23 {@code noreturn}. */
+    NORETURN,
+
+    /** Internal stdarg type spelling emitted by {@code stdarg.mh}. */
+    BUILTIN_VA_LIST,
+
+    /** Compiler stdarg intrinsics. */
+    VA_START,
+    VA_ARG,
+    VA_COPY,
+    VA_END,
+
     /**
      * {@code float} 关键字。
      */

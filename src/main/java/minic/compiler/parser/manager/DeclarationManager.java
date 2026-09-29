@@ -8,6 +8,7 @@ import minic.compiler.parser.node.Declaration.StructDecl;
 import minic.compiler.parser.node.Declaration.StructField;
 import minic.compiler.parser.node.Declaration.EnumDecl;
 import minic.compiler.parser.node.Declaration.Enumerator;
+import minic.compiler.parser.node.Declaration.TypedefDecl;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
@@ -71,12 +72,37 @@ public final class DeclarationManager {
         return new EnumDecl(name.lexeme(), values, SourceRange.span(start.range(), semicolon.range()));
     }
 
+    public TypedefDecl parseTypedefDecl() {
+        Token start = state.consume(TokenType.TYPEDEF, "期望 typedef");
+        Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望 typedef 类型", "期望 typedef 名称");
+        Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
+        if (start == null || declaration == null || semicolon == null) {
+            return null;
+        }
+        if (!declaration.alignmentSpecs().isEmpty()) {
+            state.report(declaration.range(), "typedef 声明不能使用 alignas");
+        }
+        SourceRange range = SourceRange.span(start.range(), semicolon.range());
+        typeReader.defineTypedef(declaration.name(), declaration.type(), range);
+        TypedefDecl typedefDecl = new TypedefDecl(declaration.name(), declaration.type(), range);
+        state.build(typedefDecl, "TypedefDecl " + typedefDecl.name(), typedefDecl.range());
+        return typedefDecl;
+    }
+
     public FunctionDecl parseFunctionDecl() {
         state.enter("functionDecl");
         Token startToken = state.peek();
-        boolean external = state.match(TokenType.EXTERN);
-        if (external) {
-            startToken = state.previous();
+        boolean external = false;
+        boolean noReturn = false;
+        while (state.check(TokenType.EXTERN) || state.check(TokenType.NORETURN)) {
+            Token specifier = state.advance();
+            if (specifier.type() == TokenType.EXTERN) {
+                if (external) state.report(specifier, "extern 函数说明符重复");
+                external = true;
+            } else {
+                if (noReturn) state.report(specifier, "noreturn 函数说明符重复");
+                noReturn = true;
+            }
         }
         Parser.ParsedNamedType declaration = typeReader.parseNamedType(
                 "期望函数返回类型",
@@ -89,6 +115,9 @@ public final class DeclarationManager {
             state.report(state.peek(), "顶层声明必须是函数");
             return null;
         }
+        if (!declaration.alignmentSpecs().isEmpty()) {
+            state.report(declaration.range(), "函数声明不能使用 alignas");
+        }
         Token semicolonToken = null;
         BlockStmt body = null;
         if (state.match(TokenType.SEMICOLON)) {
@@ -99,7 +128,10 @@ public final class DeclarationManager {
                 state.synchronizeMissingFunctionBody();
                 return null;
             }
-            body = statementManager.parseBlock();
+            body = statementManager.parseFunctionBlock(declaration.parameters().stream()
+                    .map(Parser.ParsedParameter::name)
+                    .filter(name -> !name.isEmpty())
+                    .toList());
         }
 
         if (body == null && semicolonToken == null) {
@@ -123,8 +155,10 @@ public final class DeclarationManager {
                 functionType.variadic(),
                 body,
                 external,
+                noReturn,
                 SourceRange.span(startToken.range(), endRange)
         );
+        typeReader.declareOrdinaryName(functionDecl.name(), functionDecl.range());
         state.build(functionDecl, "FunctionDecl " + functionDecl.name(), functionDecl.range());
         state.exit("functionDecl", functionDecl.range());
         return functionDecl;
@@ -185,6 +219,7 @@ public final class DeclarationManager {
         return new StructField(
                 declaration.name(),
                 declaration.type(),
+                declaration.alignmentSpecs(),
                 SourceRange.span(declaration.range(), semicolonToken.range())
         );
     }

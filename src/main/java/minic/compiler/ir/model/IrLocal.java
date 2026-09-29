@@ -18,6 +18,8 @@ import java.util.Objects;
  * @param type 标量访问类型；聚合存储为 POINTER（仅表示其地址）
  * @param sizeBytes 完整存储大小
  * @param alignmentBytes 存储对齐
+ * @param storageKind 普通帧槽或入参区域伪槽
+ * @param incomingArgumentIndex 入参区域对应的 Windows x64 参数序号
  * @param range 声明源码范围
  */
 public record IrLocal(
@@ -27,6 +29,8 @@ public record IrLocal(
         IrType type,
         int sizeBytes,
         int alignmentBytes,
+        StorageKind storageKind,
+        int incomingArgumentIndex,
         SourceRange range
 ) {
     public IrLocal {
@@ -34,6 +38,7 @@ public record IrLocal(
         Objects.requireNonNull(sourceName, "sourceName");
         Objects.requireNonNull(declaredType, "declaredType");
         Objects.requireNonNull(type, "type");
+        Objects.requireNonNull(storageKind, "storageKind");
         Objects.requireNonNull(range, "range");
         if (name.isBlank() || sourceName.isBlank()) {
             throw new IllegalArgumentException("local names must not be blank");
@@ -41,10 +46,52 @@ public record IrLocal(
         if (sizeBytes <= 0 || alignmentBytes <= 0) {
             throw new IllegalArgumentException("local layout must be positive");
         }
+        if (storageKind == StorageKind.INCOMING_ARGUMENT_AREA && incomingArgumentIndex < 0) {
+            throw new IllegalArgumentException("incoming argument index must be non-negative");
+        }
+        if (storageKind == StorageKind.FRAME && incomingArgumentIndex != -1) {
+            throw new IllegalArgumentException("frame local must not carry an incoming argument index");
+        }
+    }
+
+    public IrLocal(
+            String name,
+            String sourceName,
+            MiniType declaredType,
+            IrType type,
+            int sizeBytes,
+            int alignmentBytes,
+            SourceRange range
+    ) {
+        this(name, sourceName, declaredType, type, sizeBytes, alignmentBytes,
+                StorageKind.FRAME, -1, range);
+    }
+
+    public static IrLocal incomingArgumentArea(int argumentIndex, SourceRange range) {
+        return new IrLocal(
+                "__va_area#" + argumentIndex,
+                "__va_area",
+                MiniType.VA_LIST,
+                IrType.POINTER,
+                Long.BYTES,
+                Long.BYTES,
+                StorageKind.INCOMING_ARGUMENT_AREA,
+                argumentIndex,
+                range
+        );
+    }
+
+    public boolean incomingArgumentArea() {
+        return storageKind == StorageKind.INCOMING_ARGUMENT_AREA;
     }
 
     /** 聚合对象只能通过地址、字段地址、元素地址和内存复制指令访问。 */
     public boolean aggregate() {
         return declaredType.isArray() || declaredType.isStruct();
+    }
+
+    public enum StorageKind {
+        FRAME,
+        INCOMING_ARGUMENT_AREA
     }
 }

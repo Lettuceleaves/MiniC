@@ -20,8 +20,13 @@ import minic.compiler.parser.node.Expression.LongLiteralExpr;
 import minic.compiler.parser.node.Expression.NameExpr;
 import minic.compiler.parser.node.Expression.NullLiteralExpr;
 import minic.compiler.parser.node.Expression.SizeofExpr;
+import minic.compiler.parser.node.Expression.AlignofExpr;
 import minic.compiler.parser.node.Expression.StringLiteralExpr;
 import minic.compiler.parser.node.Expression.UnaryExpr;
+import minic.compiler.parser.node.Expression.VaArgExpr;
+import minic.compiler.parser.node.Expression.VaCopyExpr;
+import minic.compiler.parser.node.Expression.VaEndExpr;
+import minic.compiler.parser.node.Expression.VaStartExpr;
 import minic.compiler.ir.instruction.MemoryInstruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.CallInstruction.IrCallInstruction;
@@ -59,12 +64,16 @@ final class ExpressionLowerer {
     private final StringLiteralRegistry stringLiteralRegistry;
     private final Map<Expression, MiniType> expressionTypes;
     private final Map<String, IrFunctionSignature> functionSignatures;
+    private final boolean variadicFunction;
+    private final int firstVariadicArgumentIndex;
 
     ExpressionLowerer(
             IrFunctionBuilder builder,
             StringLiteralRegistry stringLiteralRegistry,
             Map<Expression, MiniType> expressionTypes,
-            Map<String, IrFunctionSignature> functionSignatures
+            Map<String, IrFunctionSignature> functionSignatures,
+            boolean variadicFunction,
+            int firstVariadicArgumentIndex
     ) {
         this.builder = builder;
         this.stringLiteralRegistry = stringLiteralRegistry;
@@ -72,9 +81,23 @@ final class ExpressionLowerer {
                 new java.util.IdentityHashMap<>(expressionTypes)
         );
         this.functionSignatures = Map.copyOf(functionSignatures);
+        this.variadicFunction = variadicFunction;
+        this.firstVariadicArgumentIndex = firstVariadicArgumentIndex;
     }
 
     IrValue lowerExpression(Expression expression) {
+        if (expression instanceof VaStartExpr vaStartExpr) {
+            return lowerVaStart(vaStartExpr);
+        }
+        if (expression instanceof VaArgExpr vaArgExpr) {
+            return lowerVaArg(vaArgExpr);
+        }
+        if (expression instanceof VaCopyExpr vaCopyExpr) {
+            return lowerVaCopy(vaCopyExpr);
+        }
+        if (expression instanceof VaEndExpr vaEndExpr) {
+            return lowerVaEnd(vaEndExpr);
+        }
         if (expression instanceof BoolLiteralExpr boolLiteralExpr) {
             return new IrConstant(boolLiteralExpr.value() ? 1 : 0, IrType.BOOL);
         }
@@ -127,7 +150,12 @@ final class ExpressionLowerer {
                 }
                 builder.addInstruction(new IrCheckInitializedInstruction(local, nameExpr.range()));
                 IrTemporary result = builder.newTemporary(local.type());
-                builder.addInstruction(new IrLoadLocalInstruction(result, local, nameExpr.range()));
+                builder.addInstruction(new IrLoadLocalInstruction(
+                        result,
+                        local,
+                        local.declaredType().isVolatileQualified(),
+                        nameExpr.range()
+                ));
                 return result;
             }
             return builder.resolveParameter(nameExpr.name());
@@ -149,7 +177,8 @@ final class ExpressionLowerer {
                 return address;
             }
             IrTemporary result = builder.newTemporary(irTypeOf(indexExpr));
-            builder.addInstruction(new IrLoadPointerInstruction(result, address, indexExpr.range()));
+            builder.addInstruction(new IrLoadPointerInstruction(
+                    result, address, volatileAccess(indexExpr), indexExpr.range()));
             return result;
         }
         if (expression instanceof FieldAccessExpr fieldAccessExpr) {
@@ -158,7 +187,8 @@ final class ExpressionLowerer {
                 return address;
             }
             IrTemporary result = builder.newTemporary(irTypeOf(fieldAccessExpr));
-            builder.addInstruction(new IrLoadPointerInstruction(result, address, fieldAccessExpr.range()));
+            builder.addInstruction(new IrLoadPointerInstruction(
+                    result, address, volatileAccess(fieldAccessExpr), fieldAccessExpr.range()));
             return result;
         }
         if (expression instanceof BinaryExpr binaryExpr) {
@@ -206,6 +236,11 @@ final class ExpressionLowerer {
             int size = sizeOfType(queriedType);
             return new IrConstant(size, IrType.UNSIGNED_LONG_LONG);
         }
+        if (expression instanceof AlignofExpr alignofExpr) {
+            MiniType queriedType = alignofExpr.queriedTypeOptional()
+                    .orElseGet(() -> expressionTypes.get(alignofExpr.expressionOptional().orElseThrow()));
+            return new IrConstant(builder.alignmentOf(queriedType), IrType.UNSIGNED_LONG_LONG);
+        }
         if (expression instanceof CallExpr callExpr) {
             MiniType callResultType = expressionTypes.get(callExpr);
             boolean structReturn = callResultType != null && callResultType.isStruct();
@@ -226,7 +261,11 @@ final class ExpressionLowerer {
                 IrValue argValue = lowerExpression(argument);
                 MiniType argType = expressionTypes.get(argument);
                 if (argType != null && argType.isStruct()) {
-                    argValue = copyStructForArg(argValue, (MiniType.StructType) argType, callExpr.range());
+                    argValue = copyStructForArg(
+                            argValue,
+                            (MiniType.StructType) argType.unqualified(),
+                            callExpr.range()
+                    );
                 }
                 arguments.add(argValue);
             }
@@ -264,6 +303,85 @@ final class ExpressionLowerer {
             return result == null ? new IrConstant(0) : result;
         }
         throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
+    }
+
+    private IrValue lowerVaStart(VaStartExpr expression) {
+        requireVariadicFunction("va_start");
+        IrLocal list = resolveVaListLocal(expression.list(), "va_start");
+        IrLocal firstArgumentSlot = builder.incomingArgumentArea(
+                firstVariadicArgumentIndex,
+                expression.range()
+        );
+        IrTemporary cursor = builder.newTemporary(IrType.POINTER);
+        builder.addInstruction(new IrAddressOfLocalInstruction(cursor, firstArgumentSlot, expression.range()));
+        builder.addInstruction(new IrStoreLocalInstruction(list, cursor, expression.range()));
+        return new IrConstant(0);
+    }
+
+    private IrValue lowerVaArg(VaArgExpr expression) {
+        requireVariadicFunction("va_arg");
+        IrLocal list = resolveVaListLocal(expression.list(), "va_arg");
+        builder.addInstruction(new IrCheckInitializedInstruction(list, expression.range()));
+
+        IrTemporary cursor = builder.newTemporary(IrType.POINTER);
+        builder.addInstruction(new IrLoadLocalInstruction(cursor, list, expression.range()));
+
+        IrType requestedType = IrTypeLowerer.lower(expression.requestedType());
+        IrTemporary value = builder.newTemporary(requestedType);
+        builder.addInstruction(new IrLoadPointerInstruction(value, cursor, expression.range()));
+
+        IrTemporary next = builder.newTemporary(IrType.POINTER);
+        builder.addInstruction(new IrBinaryInstruction(
+                next,
+                minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.ADD,
+                cursor,
+                new IrConstant(Long.BYTES, IrType.LONG_LONG),
+                expression.range()
+        ));
+        builder.addInstruction(new IrStoreLocalInstruction(list, next, expression.range()));
+        return value;
+    }
+
+    private IrValue lowerVaCopy(VaCopyExpr expression) {
+        requireVariadicFunction("va_copy");
+        IrLocal destination = resolveVaListLocal(expression.destination(), "va_copy");
+        IrLocal source = resolveVaListLocal(expression.source(), "va_copy");
+        builder.addInstruction(new IrCheckInitializedInstruction(source, expression.range()));
+        IrTemporary cursor = builder.newTemporary(IrType.POINTER);
+        builder.addInstruction(new IrLoadLocalInstruction(cursor, source, expression.range()));
+        builder.addInstruction(new IrStoreLocalInstruction(destination, cursor, expression.range()));
+        return new IrConstant(0);
+    }
+
+    private IrValue lowerVaEnd(VaEndExpr expression) {
+        requireVariadicFunction("va_end");
+        IrLocal list = resolveVaListLocal(expression.list(), "va_end");
+        builder.addInstruction(new IrStoreLocalInstruction(
+                list,
+                new IrConstant(0, IrType.POINTER),
+                expression.range()
+        ));
+        return new IrConstant(0);
+    }
+
+    private IrLocal resolveVaListLocal(Expression expression, String intrinsic) {
+        Expression unwrapped = expression;
+        while (unwrapped instanceof GroupingExpr groupingExpr) {
+            unwrapped = groupingExpr.expression();
+        }
+        if (unwrapped instanceof NameExpr nameExpr) {
+            IrLocal local = builder.resolveLocal(nameExpr.name());
+            if (local != null && local.declaredType().isVaList()) {
+                return local;
+            }
+        }
+        throw new IllegalArgumentException(intrinsic + " requires a local va_list");
+    }
+
+    private void requireVariadicFunction(String intrinsic) {
+        if (!variadicFunction) {
+            throw new IllegalArgumentException(intrinsic + " requires a variadic function");
+        }
     }
 
     private IrValue lowerAssignmentValue(AssignmentExpr assignmentExpr) {
@@ -423,7 +541,8 @@ final class ExpressionLowerer {
                 return address;
             }
             IrTemporary result = builder.newTemporary(irTypeOf(unaryExpr));
-            builder.addInstruction(new IrLoadPointerInstruction(result, address, unaryExpr.range()));
+            builder.addInstruction(new IrLoadPointerInstruction(
+                    result, address, volatileAccess(unaryExpr), unaryExpr.range()));
             return result;
         }
         if (unaryExpr.operator() == TokenType.BANG || unaryExpr.operator() == TokenType.TILDE) {
@@ -561,9 +680,10 @@ final class ExpressionLowerer {
         if (targetType != null && targetType.isStruct()) {
             IrValue destAddress = lowerAddress(target);
             IrValue srcAddress = value;
-            String structName = ((MiniType.StructType) targetType).name();
+            String structName = ((MiniType.StructType) targetType.unqualified()).name();
             int size = builder.structSize(structName);
-            builder.addInstruction(new IrMemCopyInstruction(destAddress, srcAddress, size, range));
+            builder.addInstruction(new IrMemCopyInstruction(
+                    destAddress, srcAddress, size, targetType.isVolatileQualified(), range));
             return;
         }
         if (target instanceof NameExpr nameExpr) {
@@ -571,22 +691,31 @@ final class ExpressionLowerer {
             if (local == null) {
                 throw new IllegalArgumentException("assignment target must be a local variable: " + nameExpr.name());
             }
-            builder.addInstruction(new IrStoreLocalInstruction(local, castIfNeeded(value, local.type(), range), range));
+            builder.addInstruction(new IrStoreLocalInstruction(
+                    local,
+                    castIfNeeded(value, local.type(), range),
+                    local.declaredType().isVolatileQualified(),
+                    range
+            ));
+            return;
+        }
+        if (target instanceof GroupingExpr groupingExpr) {
+            lowerStore(groupingExpr.expression(), value, range);
             return;
         }
         if (target instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenType.STAR) {
             IrValue address = lowerExpression(unaryExpr.operand());
-            builder.addInstruction(new IrStorePointerInstruction(address, value, range));
+            builder.addInstruction(new IrStorePointerInstruction(address, value, volatileAccess(target), range));
             return;
         }
         if (target instanceof IndexExpr indexExpr) {
             IrValue address = lowerElementAddress(indexExpr);
-            builder.addInstruction(new IrStorePointerInstruction(address, value, range));
+            builder.addInstruction(new IrStorePointerInstruction(address, value, volatileAccess(target), range));
             return;
         }
         if (target instanceof FieldAccessExpr fieldAccessExpr) {
             IrValue address = lowerFieldAddress(fieldAccessExpr);
-            builder.addInstruction(new IrStorePointerInstruction(address, value, range));
+            builder.addInstruction(new IrStorePointerInstruction(address, value, volatileAccess(target), range));
             return;
         }
         throw new IllegalArgumentException("unsupported assignment target: " + target.getClass().getSimpleName());
@@ -683,10 +812,11 @@ final class ExpressionLowerer {
 
     private String structName(Expression expression) {
         MiniType type = expressionTypes.get(expression);
-        if (type instanceof MiniType.StructType structType) {
+        if (type != null && type.unqualified() instanceof MiniType.StructType structType) {
             return structType.name();
         }
-        if (type != null && type.isPointer() && type.pointee() instanceof MiniType.StructType structType) {
+        if (type != null && type.isPointer()
+                && type.pointee().unqualified() instanceof MiniType.StructType structType) {
             return structType.name();
         }
         throw new IllegalArgumentException("unsupported field access target: " + expression.getClass().getSimpleName());
@@ -705,9 +835,14 @@ final class ExpressionLowerer {
     }
 
     private MiniType decay(MiniType type) {
-        return type instanceof MiniType.ArrayType arrayType
+        return type != null && type.unqualified() instanceof MiniType.ArrayType arrayType
                 ? arrayType.elementType().pointerTo()
                 : type;
+    }
+
+    private boolean volatileAccess(Expression expression) {
+        MiniType type = expressionTypes.get(expression);
+        return type != null && type.isVolatileQualified();
     }
 
     private IrType arithmeticOperandType(
@@ -823,7 +958,7 @@ final class ExpressionLowerer {
         return castArguments(
                 arguments,
                 parameterTypes,
-                ((MiniType.FunctionType) calleeType.pointee()).variadic(),
+                ((MiniType.FunctionType) calleeType.pointee().unqualified()).variadic(),
                 callExpr
         );
     }
@@ -872,7 +1007,7 @@ final class ExpressionLowerer {
         MiniType calleeType = expressionTypes.get(callExpr.callee());
         return calleeType != null
                 && calleeType.isPointer()
-                && calleeType.pointee() instanceof MiniType.FunctionType functionType
+                && calleeType.pointee().unqualified() instanceof MiniType.FunctionType functionType
                 && functionType.variadic();
     }
 }

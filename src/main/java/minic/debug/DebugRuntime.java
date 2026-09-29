@@ -22,6 +22,7 @@ public final class DebugRuntime {
     final StringBuilder output = new StringBuilder();
     final StringBuilder errorOutput = new StringBuilder();
     private int errno;
+    private long errnoPointer;
     private long randomState = 1;
     private long strtokCursor;
     private long strerrorPointer;
@@ -59,7 +60,11 @@ public final class DebugRuntime {
     public String stdout() { return output.toString(); }
     public String stderr() { return errorOutput.toString(); }
     public int stdinCursor() { return inputOffset; }
-    public int errno() { return errno; }
+    public int errno() {
+        return errnoPointer == 0
+                ? errno
+                : (int) read(errnoPointer, IrType.INT).integer();
+    }
     public long randomState() { return randomState; }
     public long strtokCursor() { return strtokCursor; }
     public long strerrorPointer() { return strerrorPointer; }
@@ -135,6 +140,26 @@ public final class DebugRuntime {
         memory.remove(address);
     }
 
+    long reallocate(long address, int size) {
+        if (address == 0) {
+            return allocate(size, 16, "heap", "realloc");
+        }
+        Allocation previous = memory.get(address);
+        if (previous == null || !previous.segment.equals("heap")) {
+            throw new IllegalStateException("Invalid heap realloc: " + address);
+        }
+        if (previous.bytes.length == size) {
+            return address;
+        }
+        long replacementAddress = allocate(size, 16, "heap", "realloc");
+        Allocation replacement = memory.get(replacementAddress);
+        int copied = Math.min(previous.bytes.length, size);
+        System.arraycopy(previous.bytes, 0, replacement.bytes, 0, copied);
+        replacement.initialized.or(previous.initialized.get(0, copied));
+        memory.remove(address);
+        return replacementAddress;
+    }
+
     String readCString(long address) {
         StringBuilder value = new StringBuilder();
         for (int index = 0; index < 1024 * 1024; index++) {
@@ -178,14 +203,31 @@ public final class DebugRuntime {
 
     void setErrno(int value) {
         errno = value;
+        if (errnoPointer != 0) {
+            write(errnoPointer, Value.of(IrType.INT, value));
+        }
+    }
+
+    long errnoAddress() {
+        if (errnoPointer == 0) {
+            errnoPointer = allocateZeroed(
+                    IrType.INT.sizeBytes(),
+                    IrType.INT.sizeBytes(),
+                    "library",
+                    "errno"
+            );
+            write(errnoPointer, Value.of(IrType.INT, errno));
+        }
+        return errnoPointer;
     }
 
     void seedRandom(long seed) {
-        randomState = seed;
+        randomState = seed & 0xffff_ffffL;
     }
 
     int nextRandom() {
-        randomState = (randomState * 1103515245 + 12345) & 0x7fff_ffffL;
+        // Windows msvcrt/ucrt rand 使用 32-bit LCG；默认种子按 C 约定为 1。
+        randomState = (randomState * 214013 + 2531011) & 0xffff_ffffL;
         return (int) ((randomState >>> 16) & 0x7fff);
     }
 
