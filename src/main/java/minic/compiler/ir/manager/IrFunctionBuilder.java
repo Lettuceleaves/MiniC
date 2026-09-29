@@ -64,6 +64,12 @@ final class IrFunctionBuilder {
         }
     }
 
+    void addVoidReturnIfOpen(minic.source.SourceRange range) {
+        if (!currentBlock.isTerminated()) {
+            addInstruction(new IrReturnInstruction(null, range));
+        }
+    }
+
     void defineParameter(String name, IrParameterRef parameterRef) {
         parameterRefs.put(name, parameterRef);
     }
@@ -82,18 +88,27 @@ final class IrFunctionBuilder {
         IrLocal local = new IrLocal(
                 varDeclStmt.name() + "#" + nextLocalIndex++,
                 varDeclStmt.name(),
+                declaredType,
                 irType,
-                IrTypeLowerer.elementCount(declaredType),
-                sizeBytes(declaredType, irType),
+                sizeOf(declaredType),
+                alignmentOf(declaredType),
                 varDeclStmt.range()
         );
         localScopes.peek().put(varDeclStmt.name(), local);
         return local;
     }
 
-    IrLocal declareAnonymousLocal(IrType type, int sizeBytes, minic.source.SourceRange range) {
+    IrLocal declareAnonymousLocal(MiniType declaredType, minic.source.SourceRange range) {
         String name = "__copy#" + nextLocalIndex++;
-        return new IrLocal(name, name, type, 1, sizeBytes, range);
+        return new IrLocal(
+                name,
+                name,
+                declaredType,
+                IrTypeLowerer.lower(declaredType),
+                sizeOf(declaredType),
+                alignmentOf(declaredType),
+                range
+        );
     }
 
     int fieldOffset(String structName, String fieldName) {
@@ -118,25 +133,6 @@ final class IrFunctionBuilder {
         throw new IllegalArgumentException("missing struct field: " + structName + "." + fieldName);
     }
 
-    int pointerFieldIndex(String structName, int declaredFieldIndex) {
-        StructLayout layout = structLayout(structName);
-        StructFieldLayout declaredField = layout.fields().get(declaredFieldIndex);
-        if (!declaredField.type().isPointer()) {
-            return -1;
-        }
-        int pointerIndex = 0;
-        for (int i = 0; i < declaredFieldIndex; i++) {
-            if (layout.fields().get(i).type().isPointer()) {
-                pointerIndex++;
-            }
-        }
-        return pointerIndex;
-    }
-
-    String fieldType(String structName, int fieldIndex) {
-        return fieldLayout(structName, fieldIndex).type().toString();
-    }
-
     StructFieldLayout fieldLayout(String structName, String fieldName) {
         return structLayout(structName).field(fieldName)
                 .orElseThrow(() -> new IllegalArgumentException("missing struct field: " + structName + "." + fieldName));
@@ -159,22 +155,26 @@ final class IrFunctionBuilder {
         return layout;
     }
 
-    private int sizeBytes(MiniType declaredType, IrType irType) {
+    int sizeOf(MiniType declaredType) {
+        if (declaredType instanceof MiniType.ArrayType arrayType) {
+            return Math.multiplyExact(sizeOf(arrayType.elementType()), arrayType.length());
+        }
         if (declaredType instanceof MiniType.StructType structType) {
             StructLayout layout = structLayout(structType.name());
             return layout.size();
         }
-        if (declaredType.isArray() && declaredType.elementType() instanceof MiniType.StructType structType) {
-            StructLayout layout = structLayout(structType.name());
-            return layout.size() * declaredType.arrayLength();
-        }
-        if (irType == IrType.INT_ARRAY) {
-            return TypeLayout.sizeOf(declaredType);
-        }
-        if (irType == IrType.POINTER) {
-            return TypeLayout.sizeOf(declaredType);
-        }
         return TypeLayout.sizeOf(declaredType);
+    }
+
+    int alignmentOf(MiniType declaredType) {
+        if (declaredType instanceof MiniType.ArrayType arrayType) {
+            return alignmentOf(arrayType.elementType());
+        }
+        if (declaredType instanceof MiniType.StructType structType) {
+            StructLayout layout = structLayout(structType.name());
+            return layout.alignment();
+        }
+        return TypeLayout.alignmentOf(declaredType);
     }
 
     IrLocal resolveLocal(String name) {

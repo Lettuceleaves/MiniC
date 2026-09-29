@@ -948,46 +948,9 @@ public final class MiniCWorkbenchShell {
         if (document == null) {
             return;
         }
-        if (pipelineCompleted(model)) {
-            if (closePipelineTabs(document)) {
-                refreshTabs();
-            }
-            return;
-        }
         if (model.currentStateProperty().get() != null && ensurePipelineTabs(document)) {
             refreshTabs();
         }
-    }
-
-    private boolean pipelineCompleted(MiniCWorkbenchViewModel model) {
-        var state = model.currentStateProperty().get();
-        var result = model.lastControlResultProperty().get();
-        if (state == null || result == null) {
-            return false;
-        }
-        if (!"execution".equals(state.currentStage()) || !"execution".equals(result.stage()) || state.canNext()) {
-            return false;
-        }
-        return "STAGE_COMPLETED".equals(result.outcome())
-                || "FAILED".equals(result.outcome())
-                || "CANNOT_ADVANCE".equals(result.outcome());
-    }
-
-    private boolean closePipelineTabs(DocumentTab document) {
-        String beforeId = stageTabId(document, MiniCVisualPane.VisualSide.BEFORE);
-        String afterId = stageTabId(document, MiniCVisualPane.VisualSide.AFTER);
-        boolean changed = stageTabs.removeIf(tab -> tab.id().equals(beforeId) || tab.id().equals(afterId));
-        changed |= rightWorkspaceTabIds.remove(beforeId);
-        changed |= rightWorkspaceTabIds.remove(afterId);
-        if (beforeId.equals(activeLeftWorkspaceTabId) || afterId.equals(activeLeftWorkspaceTabId)) {
-            activeLeftWorkspaceTabId = sourceTabId(document);
-            changed = true;
-        }
-        if (beforeId.equals(activeRightWorkspaceTabId) || afterId.equals(activeRightWorkspaceTabId)) {
-            activeRightWorkspaceTabId = rightWorkspaceTabIds.stream().findFirst().orElse(null);
-            changed = true;
-        }
-        return changed;
     }
 
     private String stageName(String stage) {
@@ -999,7 +962,8 @@ public final class MiniCWorkbenchShell {
             case "semantic" -> "语义分析";
             case "ir" -> "IR 降级";
             case "asm" -> "汇编生成";
-            case "native-build" -> "本机构建";
+            case "obj" -> "Obj 生成";
+            case "link" -> "链接";
             case "execution" -> "执行";
             default -> stage;
         };

@@ -1,6 +1,6 @@
 package minic.compiler.lexer;
 
-import minic.compiler.Loop;
+import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
@@ -71,7 +71,7 @@ public final class Lexer extends Stage {
      * @return 词法分析结果
      */
     public LexerResult lex() {
-        new Loop(List.of(this)).run();
+        new CompilerApi(List.of(this)).run();
         return toLexerResult();
     }
 
@@ -345,6 +345,7 @@ public final class Lexer extends Stage {
             case "long" -> TokenType.LONG;
             case "float" -> TokenType.FLOAT;
             case "double" -> TokenType.DOUBLE;
+            case "void" -> TokenType.VOID;
             case "extern" -> TokenType.EXTERN;
             case "struct" -> TokenType.STRUCT;
             case "return" -> TokenType.RETURN;

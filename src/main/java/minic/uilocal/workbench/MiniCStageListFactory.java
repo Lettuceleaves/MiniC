@@ -1,9 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiCurrentStateDto;
-import minic.uiapi.UiGlobalDataDto;
-import minic.uiapi.UiStageDataDto;
-import minic.uiapi.UiStageViewDto;
 
 import java.util.List;
 

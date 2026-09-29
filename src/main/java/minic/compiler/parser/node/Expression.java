@@ -217,8 +217,8 @@ public interface Expression extends AstNode {
         }
     }
 
-    record StructInitExpr(List<Expression> values, SourceRange range) implements Expression {
-        public StructInitExpr {
+    record AggregateInitExpr(List<Expression> values, SourceRange range) implements Expression {
+        public AggregateInitExpr {
             Objects.requireNonNull(values, "values");
             Objects.requireNonNull(range, "range");
             values = List.copyOf(values);

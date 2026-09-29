@@ -118,7 +118,7 @@ final class ValueEmitter {
             case BOOL, CHAR -> byteRegister(register);
             case LONG, POINTER -> pointerRegister(register);
             case FLOAT, DOUBLE -> floatRegister(register);
-            case INT, INT_ARRAY, STRUCT -> intRegister(register);
+            case INT -> intRegister(register);
         };
     }
 
@@ -168,7 +168,7 @@ final class ValueEmitter {
         return switch (type) {
             case BOOL, CHAR -> "BYTE PTR";
             case LONG, POINTER, DOUBLE -> "QWORD PTR";
-            case INT, INT_ARRAY, STRUCT, FLOAT -> "DWORD PTR";
+            case INT, FLOAT -> "DWORD PTR";
         };
     }
 

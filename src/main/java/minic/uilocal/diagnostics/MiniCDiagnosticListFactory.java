@@ -1,10 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiDiagnosticDto;
-import minic.uiapi.UiGlobalDataDto;
-import minic.uiapi.UiRealtimeAnalysisDto;
-import minic.uiapi.UiSourceRangeDto;
-import minic.uiapi.UiStageDataDto;
 
 import java.util.List;
 

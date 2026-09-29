@@ -95,7 +95,7 @@ record FrameLayout(
         if (offset == null) {
             throw new IllegalArgumentException("missing stack slot");
         }
-        return "[rbp-" + (outgoingArgumentAreaSize + offset) + "]";
+        return "[rbp-" + offset + "]";
     }
 
     String localAddress(IrLocal local) {
@@ -153,9 +153,13 @@ record FrameLayout(
         } else if (instruction instanceof IrMoveInstruction move) {
             nextOffset = ensureTemporary(move.result(), temporaryOffsets, nextOffset);
         } else if (instruction instanceof IrCallInstruction call) {
-            nextOffset = ensureTemporary(call.result(), temporaryOffsets, nextOffset);
+            if (call.result() != null) {
+                nextOffset = ensureTemporary(call.result(), temporaryOffsets, nextOffset);
+            }
         } else if (instruction instanceof IrIndirectCallInstruction call) {
-            nextOffset = ensureTemporary(call.result(), temporaryOffsets, nextOffset);
+            if (call.result() != null) {
+                nextOffset = ensureTemporary(call.result(), temporaryOffsets, nextOffset);
+            }
         } else if (instruction instanceof IrAddressOfLocalInstruction addressOfLocal) {
             nextOffset = ensureLocal(addressOfLocal.local(), localOffsets, localInitializedOffsets, nextOffset);
             nextOffset = ensureTemporary(addressOfLocal.result(), temporaryOffsets, nextOffset);
@@ -182,12 +186,17 @@ record FrameLayout(
             int nextOffset
     ) {
         if (!localOffsets.containsKey(local.name())) {
-            nextOffset += local.sizeBytes();
+            nextOffset = alignTo(nextOffset + local.sizeBytes(), local.alignmentBytes());
             localOffsets.put(local.name(), nextOffset);
             nextOffset += 4;
             localInitializedOffsets.put(local.name(), nextOffset);
         }
         return nextOffset;
+    }
+
+    private static int alignTo(int value, int alignment) {
+        int remainder = value % alignment;
+        return remainder == 0 ? value : value + alignment - remainder;
     }
 
     private static int ensureTemporary(
@@ -203,13 +212,6 @@ record FrameLayout(
     }
 
     private static int slotSize(IrType type) {
-        return slotSize(type, 1);
-    }
-
-    private static int slotSize(IrType type, int elementCount) {
-        if (type == IrType.INT_ARRAY) {
-            return 4 * elementCount;
-        }
         return type.sizeBytes();
     }
 
@@ -217,14 +219,14 @@ record FrameLayout(
         if (offset == null) {
             throw new IllegalArgumentException("missing stack slot");
         }
-        return memoryPrefix(type) + " [rbp-" + (outgoingArgumentAreaSize + offset) + "]";
+        return memoryPrefix(type) + " [rbp-" + offset + "]";
     }
 
     private static String memoryPrefix(IrType type) {
         return switch (type) {
             case BOOL, CHAR -> "BYTE PTR";
             case LONG, POINTER, DOUBLE -> "QWORD PTR";
-            case INT, INT_ARRAY, STRUCT, FLOAT -> "DWORD PTR";
+            case INT, FLOAT -> "DWORD PTR";
         };
     }
 }

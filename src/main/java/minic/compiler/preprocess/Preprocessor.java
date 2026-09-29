@@ -1,6 +1,6 @@
 package minic.compiler.preprocess;
 
-import minic.compiler.Loop;
+import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
 import minic.diagnostics.Diagnostic;
 import minic.compiler.SourceFile;
@@ -71,7 +71,7 @@ public final class Preprocessor extends Stage {
      */
     public PreprocessResult preprocess(SourceFile sourceFile, Options options) {
         begin(sourceFile, options);
-        new Loop(List.of(this)).run();
+        new CompilerApi(List.of(this)).run();
         return preprocessResult();
     }
 

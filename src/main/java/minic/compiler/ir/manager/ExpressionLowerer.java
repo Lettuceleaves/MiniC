@@ -65,7 +65,9 @@ final class ExpressionLowerer {
     ) {
         this.builder = builder;
         this.stringLiteralRegistry = stringLiteralRegistry;
-        this.expressionTypes = Map.copyOf(expressionTypes);
+        this.expressionTypes = java.util.Collections.unmodifiableMap(
+                new java.util.IdentityHashMap<>(expressionTypes)
+        );
         this.functionSignatures = Map.copyOf(functionSignatures);
     }
 
@@ -104,7 +106,7 @@ final class ExpressionLowerer {
             }
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local != null) {
-                if (local.type() == IrType.INT_ARRAY || local.type() == IrType.STRUCT) {
+                if (local.aggregate()) {
                     return lowerAddress(nameExpr);
                 }
                 builder.addInstruction(new IrCheckInitializedInstruction(local, nameExpr.range()));
@@ -127,12 +129,18 @@ final class ExpressionLowerer {
         }
         if (expression instanceof IndexExpr indexExpr) {
             IrValue address = lowerElementAddress(indexExpr);
+            if (isAggregateType(expressionTypes.get(indexExpr))) {
+                return address;
+            }
             IrTemporary result = builder.newTemporary(irTypeOf(indexExpr));
             builder.addInstruction(new IrLoadPointerInstruction(result, address, indexExpr.range()));
             return result;
         }
         if (expression instanceof FieldAccessExpr fieldAccessExpr) {
             IrValue address = lowerFieldAddress(fieldAccessExpr);
+            if (isAggregateType(expressionTypes.get(fieldAccessExpr))) {
+                return address;
+            }
             IrTemporary result = builder.newTemporary(irTypeOf(fieldAccessExpr));
             builder.addInstruction(new IrLoadPointerInstruction(result, address, fieldAccessExpr.range()));
             return result;
@@ -143,6 +151,19 @@ final class ExpressionLowerer {
             }
             IrValue left = lowerExpression(binaryExpr.left());
             IrValue right = lowerExpression(binaryExpr.right());
+            MiniType leftType = expressionTypes.get(binaryExpr.left());
+            MiniType rightType = expressionTypes.get(binaryExpr.right());
+            IrValue pointerResult = lowerPointerBinary(
+                    leftType,
+                    rightType,
+                    binaryExpr.operator(),
+                    left,
+                    right,
+                    binaryExpr.range()
+            );
+            if (pointerResult != null) {
+                return pointerResult;
+            }
             IrTemporary result = builder.newTemporary(irTypeOf(binaryExpr));
             IrType operandType = arithmeticOperandType(left.type(), right.type(), result.type());
             left = castIfNeeded(left, operandType, binaryExpr.left().range());
@@ -175,8 +196,7 @@ final class ExpressionLowerer {
             ArrayList<IrValue> arguments = new ArrayList<>();
             IrValue returnSlotAddress = null;
             if (structReturn) {
-                int size = sizeOfType(callResultType);
-                IrLocal returnSlot = builder.declareAnonymousLocal(IrType.STRUCT, size, callExpr.range());
+                IrLocal returnSlot = builder.declareAnonymousLocal(callResultType, callExpr.range());
                 builder.addInstruction(new IrDeclareLocalInstruction(returnSlot, callExpr.range()));
                 IrTemporary addr = builder.newTemporary(IrType.POINTER);
                 builder.addInstruction(new IrAddressOfLocalInstruction(addr, returnSlot, callExpr.range()));
@@ -193,16 +213,38 @@ final class ExpressionLowerer {
                 }
                 arguments.add(argValue);
             }
-            IrTemporary result = builder.newTemporary(structReturn ? IrType.POINTER : irTypeOf(callExpr));
+            boolean returnsVoid = callResultType != null && callResultType.isVoid();
+            IrTemporary result = returnsVoid
+                    ? null
+                    : builder.newTemporary(structReturn ? IrType.POINTER : irTypeOf(callExpr));
             if (isDirectFunctionCall(callExpr)) {
+                boolean variadic = isVariadicDirectCall(callExpr.calleeName());
                 arguments = castArguments(callExpr.calleeName(), arguments, callExpr);
-                builder.addInstruction(new IrCallInstruction(result, callExpr.calleeName(), arguments, callExpr.range()));
+                builder.addInstruction(new IrCallInstruction(
+                        result,
+                        callExpr.calleeName(),
+                        arguments,
+                        variadic,
+                        callExpr.range()
+                ));
             } else {
                 IrValue calleeAddress = lowerExpression(callExpr.callee());
+                boolean variadic = isVariadicIndirectCall(callExpr);
                 arguments = castArguments(callExpr, arguments);
-                builder.addInstruction(new IrIndirectCallInstruction(result, calleeAddress, arguments, callExpr.range()));
+                builder.addInstruction(new IrIndirectCallInstruction(
+                        result,
+                        calleeAddress,
+                        arguments,
+                        variadic,
+                        callExpr.range()
+                ));
             }
-            return structReturn ? returnSlotAddress : result;
+            if (structReturn) {
+                return returnSlotAddress;
+            }
+            // void 调用只作为副作用表达式存在；零常量仅满足 lowering 方法的统一返回协议，
+            // 不会成为调用指令的结果或占用栈槽。
+            return result == null ? new IrConstant(0) : result;
         }
         throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
     }
@@ -213,11 +255,22 @@ final class ExpressionLowerer {
             return value;
         }
         IrValue currentValue = lowerExpression(assignmentExpr.target());
+        TokenType binaryOperator = assignmentExpr.compoundBinaryOperator().orElseThrow();
+        IrValue pointerResult = lowerPointerBinary(
+                expressionTypes.get(assignmentExpr.target()),
+                expressionTypes.get(assignmentExpr.value()),
+                binaryOperator,
+                currentValue,
+                value,
+                assignmentExpr.range()
+        );
+        if (pointerResult != null) {
+            return pointerResult;
+        }
         IrTemporary result = builder.newTemporary(irTypeOf(assignmentExpr));
         IrType operandType = arithmeticOperandType(currentValue.type(), value.type(), result.type());
         currentValue = castIfNeeded(currentValue, operandType, assignmentExpr.target().range());
         value = castIfNeeded(value, operandType, assignmentExpr.value().range());
-        TokenType binaryOperator = assignmentExpr.compoundBinaryOperator().orElseThrow();
         if (binaryOperator == TokenType.SLASH || binaryOperator == TokenType.PERCENT) {
             builder.addInstruction(new IrCheckNonZeroInstruction(value, assignmentExpr.range()));
         }
@@ -355,6 +408,9 @@ final class ExpressionLowerer {
         }
         if (unaryExpr.operator() == TokenType.STAR) {
             IrValue address = lowerExpression(unaryExpr.operand());
+            if (isAggregateType(expressionTypes.get(unaryExpr))) {
+                return address;
+            }
             IrTemporary result = builder.newTemporary(irTypeOf(unaryExpr));
             builder.addInstruction(new IrLoadPointerInstruction(result, address, unaryExpr.range()));
             return result;
@@ -386,7 +442,13 @@ final class ExpressionLowerer {
         }
         if (unaryExpr.operator() == TokenType.PLUS_PLUS || unaryExpr.operator() == TokenType.MINUS_MINUS) {
             IrValue currentValue = lowerExpression(unaryExpr.operand());
-            IrConstant one = new IrConstant(1, currentValue.type());
+            MiniType operandType = expressionTypes.get(unaryExpr.operand());
+            long amount = operandType != null && operandType.isPointer()
+                    ? sizeOfType(operandType.pointee())
+                    : 1;
+            IrConstant one = new IrConstant(amount, currentValue.type() == IrType.POINTER
+                    ? IrType.LONG
+                    : currentValue.type());
             IrTemporary updated = builder.newTemporary(currentValue.type());
             builder.addInstruction(new IrBinaryInstruction(
                     updated,
@@ -401,6 +463,86 @@ final class ExpressionLowerer {
             return updated;
         }
         throw new IllegalArgumentException("unsupported unary expression: " + unaryExpr.operator());
+    }
+
+    /**
+     * 按 C 的元素步长降低指针运算。返回 {@code null} 表示这不是指针算术。
+     */
+    private IrValue lowerPointerBinary(
+            MiniType leftType,
+            MiniType rightType,
+            TokenType operator,
+            IrValue left,
+            IrValue right,
+            minic.source.SourceRange range
+    ) {
+        leftType = decay(leftType);
+        rightType = decay(rightType);
+        if (operator == TokenType.MINUS
+                && leftType != null && leftType.isPointer()
+                && rightType != null && rightType.isPointer()) {
+            IrTemporary byteDifference = builder.newTemporary(IrType.LONG);
+            builder.addInstruction(new IrBinaryInstruction(
+                    byteDifference,
+                    minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.SUBTRACT,
+                    left,
+                    right,
+                    range
+            ));
+            int stride = sizeOfType(leftType.pointee());
+            if (stride == 1) {
+                return byteDifference;
+            }
+            IrTemporary elementDifference = builder.newTemporary(IrType.LONG);
+            builder.addInstruction(new IrBinaryInstruction(
+                    elementDifference,
+                    minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.DIVIDE,
+                    byteDifference,
+                    new IrConstant(stride, IrType.LONG),
+                    range
+            ));
+            return elementDifference;
+        }
+
+        boolean leftPointer = leftType != null && leftType.isPointer();
+        boolean rightPointer = rightType != null && rightType.isPointer();
+        boolean addition = operator == TokenType.PLUS && leftPointer != rightPointer;
+        boolean subtraction = operator == TokenType.MINUS && leftPointer && !rightPointer;
+        if (!addition && !subtraction) {
+            return null;
+        }
+
+        MiniType pointerType = leftPointer ? leftType : rightType;
+        IrValue pointer = leftPointer ? left : right;
+        IrValue index = leftPointer ? right : left;
+        IrValue scaledIndex = scalePointerIndex(index, sizeOfType(pointerType.pointee()), range);
+        IrTemporary result = builder.newTemporary(IrType.POINTER);
+        builder.addInstruction(new IrBinaryInstruction(
+                result,
+                subtraction
+                        ? minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.SUBTRACT
+                        : minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.ADD,
+                pointer,
+                scaledIndex,
+                range
+        ));
+        return result;
+    }
+
+    private IrValue scalePointerIndex(IrValue index, int stride, minic.source.SourceRange range) {
+        IrValue wideIndex = castIfNeeded(index, IrType.LONG, range);
+        if (stride == 1) {
+            return wideIndex;
+        }
+        IrTemporary scaled = builder.newTemporary(IrType.LONG);
+        builder.addInstruction(new IrBinaryInstruction(
+                scaled,
+                minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.MULTIPLY,
+                wideIndex,
+                new IrConstant(stride, IrType.LONG),
+                range
+        ));
+        return scaled;
     }
 
     private void lowerStore(Expression target, IrValue value, minic.source.SourceRange range) {
@@ -440,43 +582,42 @@ final class ExpressionLowerer {
     }
 
     private IrValue lowerElementAddress(IndexExpr indexExpr) {
-        IrValue baseAddress = lowerAddress(indexExpr.target());
+        MiniType targetType = expressionTypes.get(indexExpr.target());
+        IrValue baseAddress = targetType != null && targetType.isPointer()
+                ? lowerExpression(indexExpr.target())
+                : lowerAddress(indexExpr.target());
         IrValue index = lowerExpression(indexExpr.index());
         IrTemporary result = builder.newTemporary(IrType.POINTER);
+        MiniType elementType = elementType(indexExpr);
         builder.addInstruction(new IrElementAddressInstruction(
                 result,
                 baseAddress,
                 index,
-                elementSizeBytes(indexExpr),
+                elementType,
+                sizeOfType(elementType),
                 indexExpr.range()
         ));
         return result;
     }
 
-    private int elementSizeBytes(IndexExpr indexExpr) {
+    private MiniType elementType(IndexExpr indexExpr) {
         MiniType targetType = expressionTypes.get(indexExpr.target());
-        MiniType elementType = MiniType.INT;
         if (targetType != null && targetType.isArray()) {
-            elementType = targetType.elementType();
-        } else if (targetType != null && targetType.isPointer()) {
-            elementType = targetType.pointee();
+            return targetType.elementType();
         }
-        return sizeOfType(elementType);
+        if (targetType != null && targetType.isPointer()) {
+            return targetType.pointee();
+        }
+        return MiniType.INT;
     }
 
     private int sizeOfType(MiniType type) {
-        if (type instanceof MiniType.StructType structType) {
-            return builder.structSize(structType.name());
-        }
-        if (type.isArray() && type.elementType() instanceof MiniType.StructType structType) {
-            return builder.structSize(structType.name()) * type.arrayLength();
-        }
-        return minic.compiler.type.TypeLayout.sizeOf(type);
+        return builder.sizeOf(type);
     }
 
     private IrValue copyStructForArg(IrValue srcAddress, MiniType.StructType structType, minic.source.SourceRange range) {
-        int size = builder.structSize(structType.name());
-        IrLocal copy = builder.declareAnonymousLocal(IrType.STRUCT, size, range);
+        int size = sizeOfType(structType);
+        IrLocal copy = builder.declareAnonymousLocal(structType, range);
         builder.addInstruction(new IrDeclareLocalInstruction(copy, range));
         IrTemporary destAddress = builder.newTemporary(IrType.POINTER);
         builder.addInstruction(new IrAddressOfLocalInstruction(destAddress, copy, range));
@@ -489,19 +630,16 @@ final class ExpressionLowerer {
                 ? lowerExpression(fieldAccessExpr.target())
                 : lowerAddress(fieldAccessExpr.target());
         String structName = structName(fieldAccessExpr.target());
-        int declaredFieldIndex = builder.fieldIndex(structName, fieldAccessExpr.fieldName());
-        int pointerFieldIndex = builder.pointerFieldIndex(structName, declaredFieldIndex);
-        int offset = builder.fieldOffset(structName, declaredFieldIndex);
+        int fieldIndex = builder.fieldIndex(structName, fieldAccessExpr.fieldName());
+        var field = builder.fieldLayout(structName, fieldIndex);
         IrTemporary result = builder.newTemporary(IrType.POINTER);
         builder.addInstruction(new IrFieldAddressInstruction(
                 result,
                 baseAddress,
                 structName,
                 fieldAccessExpr.fieldName(),
-                declaredFieldIndex,
-                pointerFieldIndex,
-                offset,
-                builder.fieldType(structName, declaredFieldIndex),
+                field.offset(),
+                field.type(),
                 fieldAccessExpr.range()
         ));
         return result;
@@ -546,6 +684,16 @@ final class ExpressionLowerer {
             return IrTypeLowerer.lower(type);
         }
         return IrType.INT;
+    }
+
+    private boolean isAggregateType(MiniType type) {
+        return type != null && (type.isArray() || type.isStruct());
+    }
+
+    private MiniType decay(MiniType type) {
+        return type instanceof MiniType.ArrayType arrayType
+                ? arrayType.elementType().pointerTo()
+                : type;
     }
 
     private IrType arithmeticOperandType(IrType leftType, IrType rightType, IrType resultType) {
@@ -595,7 +743,7 @@ final class ExpressionLowerer {
         if (signature == null) {
             return arguments;
         }
-        return castArguments(arguments, signature.parameterTypes(), callExpr);
+        return castArguments(arguments, signature.parameterTypes(), signature.variadic(), callExpr);
     }
 
     private ArrayList<IrValue> castArguments(CallExpr callExpr, ArrayList<IrValue> arguments) {
@@ -607,20 +755,59 @@ final class ExpressionLowerer {
         for (MiniType parameterType : calleeType.pointee().parameterTypes()) {
             parameterTypes.add(IrTypeLowerer.lower(parameterType));
         }
-        return castArguments(arguments, parameterTypes, callExpr);
+        return castArguments(
+                arguments,
+                parameterTypes,
+                ((MiniType.FunctionType) calleeType.pointee()).variadic(),
+                callExpr
+        );
     }
 
-    private ArrayList<IrValue> castArguments(ArrayList<IrValue> arguments, java.util.List<IrType> parameterTypes, CallExpr callExpr) {
-        if (arguments.size() != parameterTypes.size()) {
+    private ArrayList<IrValue> castArguments(
+            ArrayList<IrValue> arguments,
+            java.util.List<IrType> parameterTypes,
+            boolean variadic,
+            CallExpr callExpr
+    ) {
+        if (arguments.size() < parameterTypes.size()) {
             return arguments;
         }
         ArrayList<IrValue> casted = new ArrayList<>();
-        for (int index = 0; index < arguments.size(); index++) {
+        for (int index = 0; index < parameterTypes.size(); index++) {
             minic.source.SourceRange range = index < callExpr.arguments().size()
                     ? callExpr.arguments().get(index).range()
                     : callExpr.range();
             casted.add(castIfNeeded(arguments.get(index), parameterTypes.get(index), range));
         }
+        for (int index = parameterTypes.size(); index < arguments.size(); index++) {
+            IrValue argument = arguments.get(index);
+            IrType promotedType = variadic ? defaultArgumentPromotion(argument.type()) : argument.type();
+            minic.source.SourceRange range = index < callExpr.arguments().size()
+                    ? callExpr.arguments().get(index).range()
+                    : callExpr.range();
+            casted.add(castIfNeeded(argument, promotedType, range));
+        }
         return casted;
+    }
+
+    private IrType defaultArgumentPromotion(IrType type) {
+        return switch (type) {
+            case BOOL, CHAR -> IrType.INT;
+            case FLOAT -> IrType.DOUBLE;
+            default -> type;
+        };
+    }
+
+    private boolean isVariadicDirectCall(String functionName) {
+        IrFunctionSignature signature = functionSignatures.get(functionName);
+        return signature != null && signature.variadic();
+    }
+
+    private boolean isVariadicIndirectCall(CallExpr callExpr) {
+        MiniType calleeType = expressionTypes.get(callExpr.callee());
+        return calleeType != null
+                && calleeType.isPointer()
+                && calleeType.pointee() instanceof MiniType.FunctionType functionType
+                && functionType.variadic();
     }
 }

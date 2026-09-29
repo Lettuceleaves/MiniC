@@ -1,10 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.ExplanationTemplates;
-import minic.uiapi.UiAstNodeVisualDto;
-import minic.uiapi.UiIrLineVisualDto;
-import minic.uiapi.UiLexerTokenVisualDto;
-import minic.uiapi.UiSourceSpanDto;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

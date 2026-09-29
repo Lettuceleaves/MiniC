@@ -1,7 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiSemanticScopeVisualDto;
-import minic.uiapi.UiStageVisualDto;
 
 import java.util.ArrayList;
 import java.util.List;

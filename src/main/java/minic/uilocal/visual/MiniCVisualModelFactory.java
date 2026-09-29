@@ -1,7 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiGlobalDataDto;
-import minic.uiapi.UiStageDataDto;
 
 import java.util.ArrayList;
 import java.util.List;

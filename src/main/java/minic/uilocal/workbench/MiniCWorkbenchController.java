@@ -1,6 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiControlResultDto;
 
 import java.util.Objects;
 

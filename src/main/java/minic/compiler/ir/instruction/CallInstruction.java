@@ -15,10 +15,10 @@ public sealed interface CallInstruction extends IrInstruction {
             IrTemporary result,
             String calleeName,
             List<IrValue> arguments,
+            boolean variadic,
             SourceRange range
     ) implements CallInstruction {
         public IrCallInstruction {
-            Objects.requireNonNull(result, "result");
             Objects.requireNonNull(calleeName, "calleeName");
             Objects.requireNonNull(arguments, "arguments");
             Objects.requireNonNull(range, "range");
@@ -27,20 +27,28 @@ public sealed interface CallInstruction extends IrInstruction {
             }
             arguments = List.copyOf(arguments);
         }
+
+        public java.util.Optional<IrTemporary> resultOptional() {
+            return java.util.Optional.ofNullable(result);
+        }
     }
 
     record IrIndirectCallInstruction(
             IrTemporary result,
             IrValue calleeAddress,
             List<IrValue> arguments,
+            boolean variadic,
             SourceRange range
     ) implements CallInstruction {
         public IrIndirectCallInstruction {
-            Objects.requireNonNull(result, "result");
             Objects.requireNonNull(calleeAddress, "calleeAddress");
             Objects.requireNonNull(arguments, "arguments");
             Objects.requireNonNull(range, "range");
             arguments = List.copyOf(arguments);
+        }
+
+        public java.util.Optional<IrTemporary> resultOptional() {
+            return java.util.Optional.ofNullable(result);
         }
     }
 }

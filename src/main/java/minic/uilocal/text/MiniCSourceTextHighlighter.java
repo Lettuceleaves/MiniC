@@ -1,7 +1,8 @@
 package minic.uilocal.text;
 
-import minic.uiapi.MiniCRealtimeAnalysisApi;
-import minic.uiapi.UiLexerTokenVisualDto;
+import minic.uilocal.MiniCRealtimeAnalysisApi;
+import minic.uilocal.UiLexerTokenVisualDto;
+
 
 import java.util.ArrayList;
 import java.util.Comparator;

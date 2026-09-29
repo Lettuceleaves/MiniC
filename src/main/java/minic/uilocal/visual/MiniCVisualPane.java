@@ -23,12 +23,6 @@ import minic.uilocal.control.MiniCWorkbenchControlHub;
 import minic.uilocal.text.MiniCAssemblyTextHighlighter;
 import minic.uilocal.text.MiniCIrTextHighlighter;
 import minic.uilocal.text.MiniCTextFlowFactory;
-import minic.uiapi.UiAstNodeVisualDto;
-import minic.uiapi.UiAssemblyLineVisualDto;
-import minic.uiapi.UiIrLineVisualDto;
-import minic.uiapi.UiSemanticScopeVisualDto;
-import minic.uiapi.UiSourceSpanDto;
-import minic.uiapi.UiStageVisualDto;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -219,9 +213,9 @@ public final class MiniCVisualPane extends VBox {
                     rightColumn.setContent("作用域", activeScopeRows(visual));
                 }
             }
-            case "native-build" -> {
+            case "obj", "link" -> {
                 leftColumn.setContent("汇编", assemblyRows(visualForStage("asm")));
-                rightColumn.setContent("工具链", globalRows(stage));
+                rightColumn.setContent(stageName(stage), globalRows(stage));
             }
             case "execution" -> {
                 leftColumn.setContent("STDIN", List.of(executionInputPane()));
@@ -254,7 +248,8 @@ public final class MiniCVisualPane extends VBox {
             case "semantic" -> "语义分析";
             case "ir" -> "IR 降级";
             case "asm" -> "汇编生成";
-            case "native-build" -> "本机构建";
+            case "obj" -> "Obj 生成";
+            case "link" -> "链接";
             case "execution" -> "执行";
             case "pending" -> "等待中";
             default -> stage;
@@ -340,7 +335,7 @@ public final class MiniCVisualPane extends VBox {
         }
         List<String> rows = switch (stage) {
             case "ir" -> viewModel.globalDataProperty().get().irSummary();
-            case "native-build" -> viewModel.globalDataProperty().get().artifactSummary();
+            case "obj", "link" -> viewModel.globalDataProperty().get().artifactSummary();
             default -> List.of();
         };
         if (rows.isEmpty()) {

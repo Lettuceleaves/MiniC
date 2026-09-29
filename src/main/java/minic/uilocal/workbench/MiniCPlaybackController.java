@@ -4,7 +4,6 @@ import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.util.Duration;
 import minic.settings.MiniCSettings;
-import minic.uiapi.UiControlResultDto;
 
 import java.util.Objects;
 

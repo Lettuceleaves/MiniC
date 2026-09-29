@@ -6,34 +6,30 @@ import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.beans.property.ReadOnlyStringProperty;
 import javafx.beans.property.ReadOnlyStringWrapper;
-import minic.uiapi.MiniCObservationApi;
-import minic.uiapi.MiniCDebugApi;
-import minic.uiapi.UiControlResultDto;
-import minic.uiapi.UiCurrentStateDto;
-import minic.uiapi.UiDebugAsmViewDto;
-import minic.uiapi.UiDebugAstViewDto;
-import minic.uiapi.UiDebugDataStructureViewDto;
-import minic.uiapi.UiDebugIrViewDto;
-import minic.uiapi.UiDebugMetadataViewDto;
-import minic.uiapi.UiDebugStateDto;
-import minic.uiapi.UiGlobalDataDto;
-import minic.uiapi.UiRealtimeAnalysisDto;
-import minic.uiapi.UiStageDataDto;
-import minic.uiapi.UiStageVisualDto;
+import minic.compiler.SourceFile;
+import minic.compiler.ir.instruction.MemoryInstruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.model.IrLocal;
+import minic.compiler.ir.model.IrType;
+import minic.debug.DebugApi;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 
 /**
- * JavaFX UI 使用的 MiniC 观测状态模型。
- *
- * <p>该类型只持有 UI API 门面和 DTO，不暴露 compiler、runtime 或 session 内部对象。</p>
+ * JavaFX UI 使用的 MiniC 观测状态模型，直接连接编译会话与 DebugApi。
  */
 public final class MiniCWorkbenchViewModel {
+    private static final int DEBUG_NAVIGATION_LIMIT = 100_000;
     private final MiniCObservationApi api;
-    private final MiniCDebugApi debugApi = new MiniCDebugApi();
+    private DebugApi debugApi;
+    private SourceFile debugSource;
     private final MiniCRealtimeAnalyzer realtimeAnalyzer;
     private final ReadOnlyStringWrapper sourceName = new ReadOnlyStringWrapper("");
     private final ReadOnlyStringWrapper sourceText = new ReadOnlyStringWrapper("");
@@ -52,15 +48,11 @@ public final class MiniCWorkbenchViewModel {
     private final ReadOnlyObjectWrapper<UiControlResultDto> lastControlResult = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyStringWrapper selectedVisualStage = new ReadOnlyStringWrapper("");
     private final ReadOnlyBooleanWrapper debugStarted = new ReadOnlyBooleanWrapper(false);
-    private final ReadOnlyObjectWrapper<UiDebugStateDto> debugState = new ReadOnlyObjectWrapper<>();
-    private final ReadOnlyObjectWrapper<UiDebugMetadataViewDto> debugMetadataView = new ReadOnlyObjectWrapper<>();
-    private final ReadOnlyObjectWrapper<UiDebugDataStructureViewDto> debugDataStructureView = new ReadOnlyObjectWrapper<>();
-    private final ReadOnlyObjectWrapper<UiDebugAstViewDto> debugAstView = new ReadOnlyObjectWrapper<>();
-    private final ReadOnlyObjectWrapper<UiDebugIrViewDto> debugIrView = new ReadOnlyObjectWrapper<>();
-    private final ReadOnlyObjectWrapper<UiDebugAsmViewDto> debugAsmView = new ReadOnlyObjectWrapper<>();
+    private final ReadOnlyObjectWrapper<DebugState> debugState = new ReadOnlyObjectWrapper<>();
     private final ReadOnlyObjectWrapper<List<Integer>> debugBreakpointLines = new ReadOnlyObjectWrapper<>(List.of());
     private final Map<String, UiViewportState> viewportStates = new ConcurrentHashMap<>();
     private String executionInputDraft = "";
+    private String debugNotice = "";
 
     /**
      * 使用默认 UI API 创建状态模型。
@@ -87,7 +79,6 @@ public final class MiniCWorkbenchViewModel {
      */
     public void loadSource(String name, String source) {
         api.loadSource(name, source);
-        debugApi.loadSource(name, source);
         sourceName.set(name);
         sourceText.set(source);
         clearSessionState();
@@ -100,7 +91,6 @@ public final class MiniCWorkbenchViewModel {
      */
     public void renameSource(String name) {
         api.loadSource(name, sourceText.get());
-        debugApi.loadSource(name, sourceText.get());
         sourceName.set(name);
         clearSessionState();
     }
@@ -125,12 +115,10 @@ public final class MiniCWorkbenchViewModel {
 
     private void clearDebugState() {
         debugStarted.set(false);
+        debugApi = null;
+        debugSource = null;
         debugState.set(null);
-        debugMetadataView.set(null);
-        debugDataStructureView.set(null);
-        debugAstView.set(null);
-        debugIrView.set(null);
-        debugAsmView.set(null);
+        debugNotice = "";
     }
 
     /**
@@ -186,11 +174,7 @@ public final class MiniCWorkbenchViewModel {
     public UiControlResultDto nextStage() {
         selectedVisualStage.set("");
         autoConfirmExecutionInput();
-        UiControlResultDto result = currentState.get() != null
-                && "execution".equals(currentState.get().currentStage())
-                && currentState.get().canNext()
-                ? api.next()
-                : api.nextStage();
+        UiControlResultDto result = api.nextStage();
         applyControlResult(result);
         refreshAll();
         if ("CANNOT_ADVANCE".equals(result.outcome())
@@ -206,7 +190,7 @@ public final class MiniCWorkbenchViewModel {
     }
 
     /**
-     * 一步推进到执行阶段入口并刷新全部 UI 数据。
+     * 一步推进到包含 Execution 在内的整条流水线结束，并刷新全部 UI 数据。
      *
      * @return 最后一次控制结果
      */
@@ -375,195 +359,209 @@ public final class MiniCWorkbenchViewModel {
         }
     }
 
-    /**
-     * 启动 Debug 模式并刷新 Debug DTO。
-     */
+    /** 启动只编译到 IR；首次单步停在第一个 trap。 */
     public void startDebug() {
+        clearDebugState();
         String name = sourceName.get() == null || sourceName.get().isBlank() ? "untitled.mc" : sourceName.get();
-        debugApi.loadSource(name, sourceText.get());
-        debugApi.startDebug();
+        debugSource = new SourceFile(name, sourceText.get());
+        debugApi = new DebugApi(debugSource);
+        debugState.set(debugState());
         debugStarted.set(true);
-        applyPendingDebugBreakpoints();
-        refreshDebug();
     }
 
-    /**
-     * 使用编辑器断点同步 Debug 会话断点。
-     *
-     * @param lines 一基源码行号列表
-     */
-    public void setDebugBreakpoints(List<Integer> lines) {
-        debugBreakpointLines.set(normalizeBreakpoints(lines));
-        syncDebugBreakpoints();
-    }
-
-    /**
-     * 将待同步断点应用到已启动的 Debug 会话。
-     */
-    public void syncDebugBreakpoints() {
-        if (!debugStarted.get()) {
-            return;
-        }
-        applyPendingDebugBreakpoints();
-        refreshDebug();
-    }
-
-    /**
-     * 设置 Debug 断点。
-     *
-     * @param line 源码行
-     */
-    public void setDebugBreakpoint(int line) {
+    public void debugStep() {
         ensureDebugStarted();
-        debugBreakpointLines.set(mergeBreakpoint(line));
-        debugApi.setBreakpoint(line);
-        refreshDebug();
+        debugNotice = "";
+        debugApi.next();
+        debugState.set(debugState());
     }
 
-    /**
-     * 清除 Debug 断点。
-     *
-     * @param line 源码行
-     */
-    public void clearDebugBreakpoint(int line) {
-        ensureDebugStarted();
-        debugBreakpointLines.set(debugBreakpointLines.get().stream()
-                .filter(breakpoint -> breakpoint != line)
-                .toList());
-        debugApi.clearBreakpoint(line);
-        refreshDebug();
-    }
-
-    /**
-     * 运行到断点。
-     */
-    public void debugRunToBreakpoint() {
-        ensureDebugStarted();
-        debugApi.runToBreakpoint();
-        refreshDebug();
-    }
-
-    /**
-     * Debug 运行到结束。
-     */
-    public void debugRunToEnd() {
-        ensureDebugStarted();
-        debugApi.runToEnd();
-        refreshDebug();
-    }
-
-    /**
-     * Debug 快进。
-     */
-    public void debugFastForward() {
-        ensureDebugStarted();
-        debugApi.fastForward();
-        refreshDebug();
-    }
-
-    /**
-     * Debug 单步。
-     */
-    public void debugStepOver() {
-        ensureDebugStarted();
-        debugApi.stepOver();
-        refreshDebug();
-    }
-
-    /**
-     * Debug 步入。
-     */
-    public void debugStepInto() {
-        ensureDebugStarted();
-        debugApi.stepInto();
-        refreshDebug();
-    }
-
-    /**
-     * Debug 步返。
-     */
-    public void debugStepOut() {
-        ensureDebugStarted();
-        debugApi.stepOut();
-        refreshDebug();
-    }
-
-    /**
-     * Debug 暂停。
-     */
-    public void debugPause() {
-        ensureDebugStarted();
-        debugApi.pause();
-        refreshDebug();
-    }
-
-    /**
-     * Debug 重启。
-     */
-    public void debugRestart() {
-        ensureDebugStarted();
-        debugApi.restart();
-        refreshDebug();
-    }
-
-    /**
-     * Debug 关闭。
-     */
-    public void debugClose() {
-        ensureDebugStarted();
-        debugApi.close();
-        refreshDebug();
-    }
-
-    /**
-     * 单退。
-     */
     public void debugStepBack() {
         ensureDebugStarted();
-        debugApi.stepBack();
-        refreshDebug();
+        debugNotice = "";
+        debugApi.previous();
+        debugState.set(debugState());
     }
 
-    /**
-     * 本层单退。
-     */
+    public void debugRunToEnd() {
+        ensureDebugStarted();
+        moveForward(context -> false);
+    }
+
+    public void debugRunToBreakpoint() {
+        ensureDebugStarted();
+        moveForward(this::isBreakpoint);
+    }
+
+    public void debugStepOver() {
+        ensureDebugStarted();
+        int depth = debugApi.current().runtime().stack().size();
+        moveForward(context -> context.runtime().stack().size() <= depth);
+    }
+
+    public void debugStepOut() {
+        ensureDebugStarted();
+        int depth = debugApi.current().runtime().stack().size();
+        moveForward(context -> context.runtime().stack().size() < depth);
+    }
+
     public void debugStepBackOver() {
         ensureDebugStarted();
-        debugApi.stepBackOver();
-        refreshDebug();
+        int depth = debugApi.current().runtime().stack().size();
+        moveBackward(context -> context.runtime().stack().size() <= depth);
     }
 
-    /**
-     * Debug 步退到上一个断点。
-     */
     public void debugBackToBreakpoint() {
         ensureDebugStarted();
-        debugApi.backToBreakpoint();
-        refreshDebug();
+        moveBackward(this::isBreakpoint);
     }
 
-    /**
-     * Debug 返回调用处。
-     */
     public void debugBackToCallSite() {
         ensureDebugStarted();
-        debugApi.backToCallSite();
-        refreshDebug();
+        int depth = debugApi.current().runtime().stack().size();
+        moveBackward(context -> "CALL".equals(context.stop().kind() == null ? "" : context.stop().kind().name())
+                && context.runtime().stack().size() <= depth);
     }
 
-    /**
-     * 刷新 Debug DTO。
-     */
-    public void refreshDebug() {
-        if (!debugStarted.get()) {
-            return;
+    public void debugRestart() {
+        startDebug();
+    }
+
+    public void debugClose() {
+        clearDebugState();
+    }
+
+    public void setDebugBreakpoints(List<Integer> lines) {
+        debugBreakpointLines.set(Objects.requireNonNull(lines, "lines").stream()
+                .filter(line -> line != null && line > 0)
+                .distinct().sorted().toList());
+    }
+
+    private void moveForward(Predicate<minic.debug.Debugger.Context> stop) {
+        debugNotice = "";
+        int moved = 0;
+        do {
+            if (!debugApi.canNext()) break;
+            var context = debugApi.next();
+            moved++;
+            if (stop.test(context)) break;
+        } while (moved < DEBUG_NAVIGATION_LIMIT);
+        if (moved == DEBUG_NAVIGATION_LIMIT && debugApi.canNext()) {
+            debugNotice = "已达到单次导航上限，可继续执行";
         }
-        debugState.set(debugApi.currentState());
-        debugMetadataView.set(debugApi.metadataView());
-        debugDataStructureView.set(debugApi.dataStructureDebugView());
-        debugAstView.set(debugApi.astDebugView());
-        debugIrView.set(debugApi.irDebugView());
-        debugAsmView.set(debugApi.asmDebugView());
+        debugState.set(debugState());
+    }
+
+    private void moveBackward(Predicate<minic.debug.Debugger.Context> stop) {
+        debugNotice = "";
+        int moved = 0;
+        do {
+            if (!debugApi.canPrevious()) break;
+            var context = debugApi.previous();
+            moved++;
+            if (stop.test(context)) break;
+        } while (moved < DEBUG_NAVIGATION_LIMIT);
+        if (moved == DEBUG_NAVIGATION_LIMIT && debugApi.canPrevious()) {
+            debugNotice = "已达到单次导航上限，可继续回退";
+        }
+        debugState.set(debugState());
+    }
+
+    private boolean isBreakpoint(minic.debug.Debugger.Context context) {
+        return context.stop().range() != null
+                && "LINE".equals(context.stop().kind() == null ? "" : context.stop().kind().name())
+                && debugBreakpointLines.get().contains(context.stop().range().startLine());
+    }
+
+    private void ensureDebugStarted() {
+        if (!debugStarted.get()) startDebug();
+    }
+
+    private DebugState debugState() {
+        var context = debugApi.current();
+        var stop = context.stop();
+        var runtime = context.runtime();
+        StringBuilder ir = new StringBuilder();
+        for (var function : context.program().ir().functions()) {
+            ir.append(function.name()).append(':').append('\n');
+            for (var block : function.blocks()) {
+                ir.append("  ").append(block.label()).append(':').append('\n');
+                for (int index = 0; index < block.instructions().size(); index++) {
+                    boolean active = function.name().equals(stop.function())
+                            && block.label().equals(stop.block()) && index == stop.instruction();
+                    ir.append(active ? " > " : "   ").append(index).append("  ")
+                            .append(block.instructions().get(index)).append('\n');
+                }
+            }
+        }
+        String space = runtimeText(context);
+        return new DebugState(
+                context.index(), stop.status().name(), stop.kind() == null ? "" : stop.kind().name(),
+                stop.function(), stop.block(), runtime.stack().size(),
+                debugApi.canNext(), debugApi.canPrevious(),
+                stop.range() == null ? null : UiSourceSpanDto.from(debugSource, stop.range()),
+                ir.toString(), space, runtime.stdout(), stop.error(), debugNotice
+        );
+    }
+
+    private String runtimeText(minic.debug.Debugger.Context context) {
+        var runtime = context.runtime();
+        Map<String, IrLocal> locals = new LinkedHashMap<>();
+        context.program().ir().functions().stream()
+                .flatMap(function -> function.blocks().stream())
+                .flatMap(block -> block.instructions().stream())
+                .filter(IrDeclareLocalInstruction.class::isInstance)
+                .map(IrDeclareLocalInstruction.class::cast)
+                .forEach(instruction -> locals.put(instruction.local().name(), instruction.local()));
+
+        StringBuilder text = new StringBuilder("调用栈\n");
+        for (int frameIndex = runtime.stack().size() - 1; frameIndex >= 0; frameIndex--) {
+            var frame = runtime.stack().get(frameIndex);
+            text.append("#").append(frameIndex).append(" ").append(frame.function())
+                    .append("  block=").append(frame.block())
+                    .append(" instruction=").append(frame.instruction()).append('\n');
+            if (!frame.parameters().isEmpty()) text.append("  参数: ").append(frame.parameters()).append('\n');
+            for (var entry : frame.locals().entrySet()) {
+                IrLocal local = locals.get(entry.getKey());
+                var block = runtime.stackMemory().stream()
+                        .filter(candidate -> candidate.address() == entry.getValue()).findFirst().orElse(null);
+                String name = local == null ? entry.getKey() : local.sourceName();
+                String type = local == null ? "?" : local.type().name();
+                text.append("  ").append(name).append(" : ").append(type)
+                        .append(" @0x").append(Long.toHexString(entry.getValue())).append(" = ")
+                        .append(formatLocal(local, block)).append('\n');
+            }
+            if (!frame.temporaries().isEmpty()) text.append("  临时值: ").append(frame.temporaries()).append('\n');
+        }
+        if (runtime.stack().isEmpty()) text.append("  <empty>\n");
+
+        text.append("\n堆内存\n");
+        if (runtime.heap().isEmpty()) text.append("  <empty>\n");
+        runtime.heap().forEach(block -> text.append("  0x").append(Long.toHexString(block.address()))
+                .append(" size=").append(block.size()).append(" ").append(block.label())
+                .append(" initialized=").append(block.initializedBytes()).append(" bytes=")
+                .append(block.bytes()).append('\n'));
+        if (runtime.returnValue() != null) text.append("\n返回值: ").append(runtime.returnValue()).append('\n');
+        return text.toString();
+    }
+
+    private String formatLocal(IrLocal local, minic.debug.DebugRuntime.MemoryBlock block) {
+        if (block == null || block.initializedBytes() == 0) return "<未初始化>";
+        if (local == null || block.initializedBytes() < Math.min(local.sizeBytes(), local.type().sizeBytes())) {
+            return "<部分初始化> bytes=" + block.bytes();
+        }
+        if (local.aggregate()) return "bytes=" + block.bytes();
+        ByteBuffer bytes = ByteBuffer.wrap(HexFormat.of().parseHex(block.bytes())).order(ByteOrder.LITTLE_ENDIAN);
+        return switch (local.type()) {
+            case BOOL -> bytes.get(0) == 0 ? "false" : "true";
+            case CHAR -> Byte.toString(bytes.get(0));
+            case INT -> Integer.toString(bytes.getInt(0));
+            case LONG -> Long.toString(bytes.getLong(0));
+            case FLOAT -> Float.toString(bytes.getFloat(0));
+            case DOUBLE -> Double.toString(bytes.getDouble(0));
+            case POINTER -> "0x" + Long.toHexString(bytes.getLong(0));
+            default -> "bytes=" + block.bytes();
+        };
     }
 
     /**
@@ -733,28 +731,8 @@ public final class MiniCWorkbenchViewModel {
         return debugStarted.getReadOnlyProperty();
     }
 
-    public ReadOnlyObjectProperty<UiDebugStateDto> debugStateProperty() {
+    public ReadOnlyObjectProperty<DebugState> debugStateProperty() {
         return debugState.getReadOnlyProperty();
-    }
-
-    public ReadOnlyObjectProperty<UiDebugMetadataViewDto> debugMetadataViewProperty() {
-        return debugMetadataView.getReadOnlyProperty();
-    }
-
-    public ReadOnlyObjectProperty<UiDebugDataStructureViewDto> debugDataStructureViewProperty() {
-        return debugDataStructureView.getReadOnlyProperty();
-    }
-
-    public ReadOnlyObjectProperty<UiDebugAstViewDto> debugAstViewProperty() {
-        return debugAstView.getReadOnlyProperty();
-    }
-
-    public ReadOnlyObjectProperty<UiDebugIrViewDto> debugIrViewProperty() {
-        return debugIrView.getReadOnlyProperty();
-    }
-
-    public ReadOnlyObjectProperty<UiDebugAsmViewDto> debugAsmViewProperty() {
-        return debugAsmView.getReadOnlyProperty();
     }
 
     public ReadOnlyObjectProperty<List<Integer>> debugBreakpointLinesProperty() {
@@ -814,38 +792,24 @@ public final class MiniCWorkbenchViewModel {
         }
     }
 
-    private void ensureDebugStarted() {
-        if (!debugStarted.get()) {
-            startDebug();
-        }
-    }
-
-    private void applyPendingDebugBreakpoints() {
-        if (debugState.get() != null) {
-            debugState.get().breakpoints().forEach(breakpoint -> debugApi.clearBreakpoint(breakpoint.line()));
-        }
-        debugBreakpointLines.get().forEach(debugApi::setBreakpoint);
-    }
-
-    private List<Integer> mergeBreakpoint(int line) {
-        List<Integer> current = debugBreakpointLines.get();
-        if (line < 1 || current.contains(line)) {
-            return current;
-        }
-        java.util.ArrayList<Integer> lines = new java.util.ArrayList<>(current);
-        lines.add(line);
-        return normalizeBreakpoints(lines);
-    }
-
-    private List<Integer> normalizeBreakpoints(List<Integer> lines) {
-        return Objects.requireNonNull(lines, "lines").stream()
-                .filter(line -> line != null && line >= 1)
-                .distinct()
-                .sorted()
-                .toList();
-    }
-
     public record UiViewportState(double hvalue, double vvalue) {
         public static final UiViewportState DEFAULT = new UiViewportState(0.0, 0.0);
     }
+
+    public record DebugState(
+            int historyIndex,
+            String status,
+            String trap,
+            String function,
+            String block,
+            int stackDepth,
+            boolean canStep,
+            boolean canStepBack,
+            UiSourceSpanDto sourceRange,
+            String ir,
+            String runtime,
+            String stdout,
+            String error,
+            String notice
+    ) {}
 }

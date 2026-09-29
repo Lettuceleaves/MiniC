@@ -1,6 +1,6 @@
 package minic.session;
 
-import minic.compiler.Loop;
+import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
 import minic.compiler.asm.AsmResult;
 import minic.compiler.asm.Assembler;
@@ -9,8 +9,10 @@ import minic.compiler.ir.IrResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.lexer.LexerResult;
 import minic.compiler.lexer.token.Token;
-import minic.compiler.nativebuild.NativeBuildResult;
-import minic.compiler.nativebuild.NativeBuilder;
+import minic.compiler.link.LinkResult;
+import minic.compiler.link.Linker;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.obj.ObjResult;
 import minic.compiler.parser.Parser;
 import minic.compiler.parser.ParserResult;
 import minic.compiler.preprocess.PreprocessResult;
@@ -18,8 +20,8 @@ import minic.compiler.preprocess.Preprocessor;
 import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.semantic.SemanticResult;
 import minic.diagnostics.Diagnostic;
-import minic.execution.ExecutableRunner;
-import minic.execution.ExecutionResult;
+import minic.compiler.execute.ExecutableRunner;
+import minic.compiler.execute.ExecutionResult;
 import minic.session.Observation.Capabilities;
 import minic.session.Observation.ControlResult;
 import minic.session.Observation.CurrentState;
@@ -40,7 +42,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * 编译观测会话。核心编译推进完全委托给唯一的 {@link Loop}，本类只负责将
+ * 编译观测会话。核心编译推进完全委托给唯一的 {@link CompilerApi}，本类只负责将
  * Stage 状态整理成 UI 可消费的数据，并在编译结束后管理可执行文件运行。
  */
 public final class CompileObservationSession {
@@ -52,7 +54,8 @@ public final class CompileObservationSession {
             StageId.SEMANTIC,
             StageId.IR,
             StageId.ASM,
-            StageId.NATIVE_BUILD,
+            StageId.OBJ,
+            StageId.LINK,
             StageId.EXECUTION
     );
 
@@ -63,18 +66,16 @@ public final class CompileObservationSession {
     private final SemanticAnalyzer semanticAnalyzer;
     private final IrLowerer irLowerer;
     private final Assembler assembler;
-    private final NativeBuilder nativeBuilder;
-    private final Loop loop;
-    private final ExecutableRunner executableRunner = new ExecutableRunner();
+    private final ObjBuilder objBuilder;
+    private final Linker linker;
+    private final ExecutableRunner executableRunner;
+    private final CompilerApi compilerApi;
 
     private boolean sourceStage = true;
     private PlaybackMode playbackMode = PlaybackMode.PAUSED;
     private SourceRange currentRange;
     private ControlResult lastResult;
     private String standardInput = "";
-    private boolean executionInputConfirmed;
-    private boolean executionCompleted;
-    private ExecutionResult executionResult = ExecutionResult.notRun();
 
     private CompileObservationSession(SourceFile sourceFile) {
         this.sourceFile = Objects.requireNonNull(sourceFile, "sourceFile");
@@ -84,20 +85,31 @@ public final class CompileObservationSession {
         semanticAnalyzer = new SemanticAnalyzer(parser);
         irLowerer = new IrLowerer(semanticAnalyzer);
         assembler = new Assembler(irLowerer);
-        nativeBuilder = new NativeBuilder(
+        Path outputDirectory = Path.of("build", "minic-output");
+        String artifactName = artifactName(sourceFile.path());
+        objBuilder = new ObjBuilder(
                 sourceFile,
                 assembler,
-                Path.of("build", "minic-output"),
-                artifactName(sourceFile.path())
+                outputDirectory,
+                artifactName
         );
-        loop = new Loop(List.of(
+        linker = new Linker(
+                sourceFile,
+                objBuilder,
+                outputDirectory,
+                artifactName
+        );
+        executableRunner = new ExecutableRunner(sourceFile, linker);
+        compilerApi = new CompilerApi(List.of(
                 preprocessor,
                 lexer,
                 parser,
                 semanticAnalyzer,
                 irLowerer,
                 assembler,
-                nativeBuilder
+                objBuilder,
+                linker,
+                executableRunner
         ));
         lastResult = result(Outcome.ADVANCED, StageId.SOURCE, "源码已加载", "源码已准备进入编译流水线。", List.of());
     }
@@ -114,38 +126,32 @@ public final class CompileObservationSession {
         return STAGE_ORDER;
     }
 
-    public Loop loop() {
-        return loop;
+    public CompilerApi compilerApi() {
+        return compilerApi;
     }
 
     public StageId currentStage() {
         if (sourceStage) {
             return StageId.SOURCE;
         }
-        if (loop.completed() && nativeBuilder.succeeded()) {
-            return StageId.EXECUTION;
-        }
-        return loop.currentStage().map(CompileObservationSession::stageId).orElse(StageId.EXECUTION);
+        return compilerApi.currentStage().map(CompileObservationSession::stageId).orElse(StageId.EXECUTION);
     }
 
     public long globalStepCount() {
-        return loop.stepCount() + (executionCompleted ? 1 : 0);
+        return compilerApi.stepCount();
     }
 
     public PlaybackMode playbackMode() {
         return playbackMode;
     }
 
-    /** UI 单步：源码入口只切换一次，其余编译步骤直接调用 {@link Loop#step()}。 */
+    /** UI 单步：源码入口只切换一次，其余编译步骤直接调用 {@link CompilerApi#step()}。 */
     public ControlResult next() {
         if (sourceStage) {
             sourceStage = false;
             return remember(result(Outcome.ADVANCED, StageId.PREPROCESS, "进入预编译", "已进入编译流水线。", List.of()));
         }
-        if (currentStage() == StageId.EXECUTION) {
-            return runExecution();
-        }
-        if (!loop.canNext()) {
+        if (!compilerApi.canNext()) {
             List<Diagnostic> diagnostics = currentStageDiagnostics();
             return remember(result(
                     diagnostics.isEmpty() ? Outcome.CANNOT_ADVANCE : Outcome.FAILED,
@@ -157,8 +163,8 @@ public final class CompileObservationSession {
         }
 
         StageId stage = currentStage();
-        Stage stageObject = loop.currentStage().orElseThrow();
-        currentRange = loop.step();
+        Stage stageObject = compilerApi.currentStage().orElseThrow();
+        currentRange = compilerApi.step();
         if (!stageObject.canNext()) {
             if (!stageObject.succeeded()) {
                 return remember(result(Outcome.FAILED, stage, stageTitle(stage) + "失败", "错误阻止了后续编译。", diagnostics(stageObject)));
@@ -168,36 +174,39 @@ public final class CompileObservationSession {
         return remember(result(Outcome.ADVANCED, stage, "执行 " + stageTitle(stage) + " 单步", currentItem(stage), currentStageDiagnostics()));
     }
 
-    /** UI 跑完当前阶段：直接调用 {@link Loop#runCurrentStage()}。 */
+    /** UI 跑完当前阶段：直接调用 {@link CompilerApi#runCurrentStage()}。 */
     public ControlResult nextStage() {
-        if (sourceStage || currentStage() == StageId.EXECUTION) {
+        if (sourceStage) {
             return next();
         }
-        if (!loop.canNext()) {
+        if (!compilerApi.canNext()) {
             return next();
         }
         StageId stage = currentStage();
-        Stage stageObject = loop.currentStage().orElseThrow();
-        loop.runCurrentStage();
-        currentRange = loop.lastSourceRange().orElse(null);
+        Stage stageObject = compilerApi.currentStage().orElseThrow();
+        compilerApi.runCurrentStage();
+        currentRange = compilerApi.lastSourceRange().orElse(null);
         if (!stageObject.succeeded()) {
             return remember(result(Outcome.FAILED, stage, stageTitle(stage) + "失败", "错误阻止了后续编译。", diagnostics(stageObject)));
         }
         return remember(result(Outcome.STAGE_COMPLETED, stage, stageTitle(stage) + "完成", "已运行到当前阶段结束。", List.of()));
     }
 
-    /** UI 一次运行到编译结束：直接调用 {@link Loop#run()}。 */
+    /** UI 一次运行到整条流水线结束，Execution 默认使用空标准输入。 */
     public ControlResult runToCompileEnd() {
         sourceStage = false;
-        if (!loop.canNext()) {
+        if (!compilerApi.canNext()) {
             return next();
         }
-        loop.run();
-        currentRange = loop.lastSourceRange().orElse(null);
-        if (!nativeBuilder.succeeded()) {
+        compilerApi.run();
+        currentRange = compilerApi.lastSourceRange().orElse(null);
+        if (!linker.succeeded()) {
             return remember(result(Outcome.FAILED, currentStage(), "编译失败", "流水线未生成可执行文件。", diagnostics()));
         }
-        return remember(result(Outcome.STAGE_COMPLETED, StageId.NATIVE_BUILD, "编译完成", "可执行文件已经生成。", List.of()));
+        if (!executableRunner.succeeded()) {
+            return remember(result(Outcome.FAILED, StageId.EXECUTION, "执行失败", "可执行文件运行失败。", executableRunner.diagnostics()));
+        }
+        return remember(result(Outcome.STAGE_COMPLETED, StageId.EXECUTION, "执行完成", executionOutputSummary().getLast(), List.of()));
     }
 
     public ControlResult play() {
@@ -227,11 +236,11 @@ public final class CompileObservationSession {
     }
 
     public ControlResult previous() {
-        return remember(result(Outcome.UNSUPPORTED, currentStage(), "上一步暂不支持", "核心 Loop 仅负责正向编译。", List.of()));
+        return remember(result(Outcome.UNSUPPORTED, currentStage(), "上一步暂不支持", "CompilerApi 仅负责正向编译。", List.of()));
     }
 
     public ControlResult reversePlay() {
-        return remember(result(Outcome.UNSUPPORTED, currentStage(), "自动倒放暂不支持", "核心 Loop 仅负责正向编译。", List.of()));
+        return remember(result(Outcome.UNSUPPORTED, currentStage(), "自动倒放暂不支持", "CompilerApi 仅负责正向编译。", List.of()));
     }
 
     public ControlResult confirmExecutionInput(String standardInput) {
@@ -239,13 +248,13 @@ public final class CompileObservationSession {
             throw new IllegalStateException("execution stage is not ready");
         }
         this.standardInput = Objects.requireNonNull(standardInput, "standardInput");
-        executionInputConfirmed = true;
+        executableRunner.provideStandardInput(standardInput);
         return remember(result(Outcome.ADVANCED, StageId.EXECUTION, "运行输入已确认", "可执行文件已准备运行。", List.of()));
     }
 
     public CurrentState currentState() {
         StageId stage = currentStage();
-        boolean canNext = sourceStage || loop.canNext() || stage == StageId.EXECUTION && executionInputConfirmed && !executionCompleted;
+        boolean canNext = sourceStage || compilerApi.canNext();
         Capabilities capabilities = new Capabilities(canNext, false, canNext, canNext, true, false);
         return new CurrentState(
                 sourceFile.path(),
@@ -315,8 +324,16 @@ public final class CompileObservationSession {
         return assembler;
     }
 
-    public NativeBuilder nativeBuilder() {
-        return nativeBuilder;
+    public ObjBuilder objBuilder() {
+        return objBuilder;
+    }
+
+    public Linker linker() {
+        return linker;
+    }
+
+    public ExecutableRunner executableRunner() {
+        return executableRunner;
     }
 
     public Optional<PreprocessResult> preprocessResult() {
@@ -345,28 +362,16 @@ public final class CompileObservationSession {
         return !assembler.canNext() && assembler.succeeded() ? Optional.of(assembler.result()) : Optional.empty();
     }
 
-    public Optional<NativeBuildResult> nativeBuildResult() {
-        return !nativeBuilder.canNext() ? Optional.of(nativeBuilder.result()) : Optional.empty();
+    public Optional<ObjResult> objResult() {
+        return !objBuilder.canNext() ? Optional.of(objBuilder.result()) : Optional.empty();
     }
 
-    private ControlResult runExecution() {
-        if (executionCompleted) {
-            return remember(result(Outcome.CANNOT_ADVANCE, StageId.EXECUTION, "执行已完成", "没有更多运行步骤。", executionResult.diagnostics()));
-        }
-        if (!executionInputConfirmed) {
-            return remember(result(Outcome.CANNOT_ADVANCE, StageId.EXECUTION, "等待运行输入", "请先确认标准输入。", List.of()));
-        }
-        NativeBuildResult buildResult = nativeBuilder.result();
-        executionResult = executableRunner.run(
-                sourceFile,
-                buildResult.executableArtifactOptional().orElseThrow(),
-                standardInput
-        );
-        executionCompleted = true;
-        if (!executionResult.diagnostics().isEmpty()) {
-            return remember(result(Outcome.FAILED, StageId.EXECUTION, "执行失败", "可执行文件运行失败。", executionResult.diagnostics()));
-        }
-        return remember(result(Outcome.STAGE_COMPLETED, StageId.EXECUTION, "执行完成", executionOutputSummary().getLast(), List.of()));
+    public Optional<LinkResult> linkResult() {
+        return !linker.canNext() ? Optional.of(linker.result()) : Optional.empty();
+    }
+
+    public Optional<ExecutionResult> executionResult() {
+        return !executableRunner.canNext() ? Optional.of(executableRunner.result()) : Optional.empty();
     }
 
     private long stageStepCount(StageId stage) {
@@ -378,8 +383,9 @@ public final class CompileObservationSession {
             case SEMANTIC -> semanticAnalyzer.stepCount();
             case IR -> irLowerer.completedStepCount();
             case ASM -> assembler.work().completedLineCount() + (assembler.canNext() ? 0 : 1);
-            case NATIVE_BUILD -> nativeBuilder.stepCount();
-            case EXECUTION -> executionCompleted ? 1 : 0;
+            case OBJ -> objBuilder.stepCount();
+            case LINK -> linker.stepCount();
+            case EXECUTION -> executableRunner.stepCount();
         };
     }
 
@@ -391,8 +397,9 @@ public final class CompileObservationSession {
             case PARSER -> lexer.tokens().isEmpty() ? -1 : lexer.tokens().size();
             case SEMANTIC -> semanticAnalyzer.stepCount() == 0 ? -1 : semanticAnalyzer.actionCount() + 1L;
             case IR -> irLowerer.completedStepCount() == 0 ? -1 : irLowerer.plannedStepCount();
-            case NATIVE_BUILD -> nativeBuilder.plannedStepCount();
-            case EXECUTION -> 1;
+            case OBJ -> objBuilder.plannedStepCount();
+            case LINK -> linker.plannedStepCount();
+            case EXECUTION -> executableRunner.plannedStepCount();
         };
     }
 
@@ -405,8 +412,9 @@ public final class CompileObservationSession {
             case SEMANTIC -> !semanticAnalyzer.canNext();
             case IR -> !irLowerer.canNext();
             case ASM -> !assembler.canNext();
-            case NATIVE_BUILD -> !nativeBuilder.canNext();
-            case EXECUTION -> executionCompleted;
+            case OBJ -> !objBuilder.canNext();
+            case LINK -> !linker.canNext();
+            case EXECUTION -> !executableRunner.canNext();
         };
     }
 
@@ -418,7 +426,10 @@ public final class CompileObservationSession {
             case SEMANTIC -> parseResult().map(result -> List.of("functions=" + result.program().functions().size(), "structs=" + result.program().structs().size())).orElse(List.of());
             case IR -> List.of("semanticActions=" + semanticAnalyzer.completedActionCount());
             case ASM -> List.of("irFunctions=" + irResult().map(result -> result.functions().size()).orElse(0));
-            case NATIVE_BUILD -> List.of("assemblyLines=" + assembler.work().completedLineCount());
+            case OBJ -> List.of("assemblyLines=" + assembler.work().completedLineCount());
+            case LINK -> objResult().flatMap(ObjResult::objectPathOptional)
+                    .map(path -> List.of("object=" + path))
+                    .orElse(List.of());
             case EXECUTION -> executionInputSummary();
         };
     }
@@ -432,8 +443,13 @@ public final class CompileObservationSession {
             case SEMANTIC -> semanticAnalyzer.currentAction().map(action -> action.kind() + " " + action.subject()).orElse("");
             case IR -> irLowerer.currentOperationName().isEmpty() ? "" : irLowerer.currentOperationName() + " " + irLowerer.currentSubject();
             case ASM -> assembler.currentLine().orElse("");
-            case NATIVE_BUILD -> nativeBuilder.currentOperation();
-            case EXECUTION -> executionCompleted ? executionOutputSummary().getLast() : executionInputConfirmed ? "等待执行" : "等待输入";
+            case OBJ -> objBuilder.currentOperation();
+            case LINK -> linker.currentOperation();
+            case EXECUTION -> !executableRunner.canNext()
+                    ? executionOutputSummary().getLast()
+                    : executableRunner.currentOperation().isEmpty()
+                            ? "等待执行"
+                            : executableRunner.currentOperation();
         };
     }
 
@@ -446,7 +462,7 @@ public final class CompileObservationSession {
             case SEMANTIC -> semanticSummary();
             case IR -> irSummary();
             case ASM -> assembler.work().assemblyLines();
-            case NATIVE_BUILD -> artifactSummary();
+            case OBJ, LINK -> artifactSummary();
             case EXECUTION -> executionOutputSummary();
         };
     }
@@ -490,31 +506,34 @@ public final class CompileObservationSession {
     }
 
     private List<String> artifactSummary() {
-        if (nativeBuilder.canNext()) {
-            return List.of();
-        }
-        NativeBuildResult result = nativeBuilder.result();
         ArrayList<String> summary = new ArrayList<>();
-        result.assemblyPathOptional().ifPresent(path -> summary.add("assembly " + path));
-        result.objectPathOptional().ifPresent(path -> summary.add("object " + path));
-        result.executableArtifactOptional().ifPresent(artifact -> summary.add("executable " + artifact.path()));
+        if (!objBuilder.canNext()) {
+            ObjResult result = objBuilder.result();
+            result.assemblyPathOptional().ifPresent(path -> summary.add("assembly " + path));
+            result.objectPathOptional().ifPresent(path -> summary.add("object " + path));
+        }
+        if (!linker.canNext()) {
+            linker.result().executableArtifactOptional()
+                    .ifPresent(artifact -> summary.add("executable " + artifact.path()));
+        }
         return List.copyOf(summary);
     }
 
     private List<String> executionInputSummary() {
-        if (currentStage() != StageId.EXECUTION && !loop.completed()) {
+        if (currentStage() != StageId.EXECUTION && !compilerApi.completed()) {
             return List.of();
         }
         return List.of(
-                executionInputConfirmed ? "stdin confirmed" : "stdin pending",
+                standardInput.isEmpty() ? "stdin defaults to empty" : "stdin configured",
                 standardInput.isBlank() ? "<empty>" : standardInput
         );
     }
 
     private List<String> executionOutputSummary() {
-        if (!executionCompleted) {
+        if (executableRunner.canNext()) {
             return List.of();
         }
+        ExecutionResult executionResult = executableRunner.result();
         ArrayList<String> summary = new ArrayList<>();
         executionResult.exitCodeOptional().ifPresent(code -> summary.add("exitCode " + code));
         executionResult.stdout().lines().filter(line -> !line.isBlank()).map(line -> "stdout " + line).forEach(summary::add);
@@ -541,8 +560,9 @@ public final class CompileObservationSession {
         diagnostics.addAll(lexer.diagnostics());
         diagnostics.addAll(parser.diagnostics());
         diagnostics.addAll(semanticAnalyzer.diagnostics());
-        diagnostics.addAll(nativeBuilder.diagnostics());
-        diagnostics.addAll(executionResult.diagnostics());
+        diagnostics.addAll(objBuilder.diagnostics());
+        diagnostics.addAll(linker.diagnostics());
+        diagnostics.addAll(executableRunner.diagnostics());
         return List.copyOf(diagnostics);
     }
 
@@ -553,8 +573,9 @@ public final class CompileObservationSession {
             case LEXER -> lexer.diagnostics();
             case PARSER -> parser.diagnostics();
             case SEMANTIC -> semanticAnalyzer.diagnostics();
-            case NATIVE_BUILD -> nativeBuilder.diagnostics();
-            case EXECUTION -> executionResult.diagnostics();
+            case OBJ -> objBuilder.diagnostics();
+            case LINK -> linker.diagnostics();
+            case EXECUTION -> executableRunner.diagnostics();
         };
     }
 
@@ -563,7 +584,9 @@ public final class CompileObservationSession {
         if (stage instanceof Lexer value) return value.diagnostics();
         if (stage instanceof Parser value) return value.diagnostics();
         if (stage instanceof SemanticAnalyzer value) return value.diagnostics();
-        if (stage instanceof NativeBuilder value) return value.diagnostics();
+        if (stage instanceof ObjBuilder value) return value.diagnostics();
+        if (stage instanceof Linker value) return value.diagnostics();
+        if (stage instanceof ExecutableRunner value) return value.diagnostics();
         return List.of();
     }
 
@@ -588,7 +611,9 @@ public final class CompileObservationSession {
         if (stage instanceof SemanticAnalyzer) return StageId.SEMANTIC;
         if (stage instanceof IrLowerer) return StageId.IR;
         if (stage instanceof Assembler) return StageId.ASM;
-        if (stage instanceof NativeBuilder) return StageId.NATIVE_BUILD;
+        if (stage instanceof ObjBuilder) return StageId.OBJ;
+        if (stage instanceof Linker) return StageId.LINK;
+        if (stage instanceof ExecutableRunner) return StageId.EXECUTION;
         throw new IllegalArgumentException("unknown stage: " + stage.getClass().getName());
     }
 
@@ -601,7 +626,8 @@ public final class CompileObservationSession {
             case SEMANTIC -> "语义分析";
             case IR -> "IR lowering";
             case ASM -> "汇编生成";
-            case NATIVE_BUILD -> "本机构建";
+            case OBJ -> "Obj 生成";
+            case LINK -> "链接";
             case EXECUTION -> "执行";
         };
     }

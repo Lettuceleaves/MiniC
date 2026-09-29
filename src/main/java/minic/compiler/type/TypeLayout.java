@@ -27,6 +27,9 @@ public final class TypeLayout {
      */
     public static int sizeOf(MiniType type) {
         Objects.requireNonNull(type, "type");
+        if (type.isVoid()) {
+            throw new IllegalArgumentException("void has no object layout");
+        }
         if (type instanceof MiniType.ScalarType scalarType) {
             return scalarType.kind().sizeBytes();
         }
@@ -50,6 +53,9 @@ public final class TypeLayout {
      */
     public static int alignmentOf(MiniType type) {
         Objects.requireNonNull(type, "type");
+        if (type.isVoid()) {
+            throw new IllegalArgumentException("void has no object layout");
+        }
         if (type instanceof MiniType.ScalarType scalarType) {
             return scalarType.kind().alignmentBytes();
         }
@@ -69,11 +75,11 @@ public final class TypeLayout {
      * 判断类型是否具备无上下文固定布局。
      *
      * @param type 类型
-     * @return 非结构体类型返回 {@code true}
+     * @return 无需命名结构体上下文且本身可占用存储时返回 {@code true}
      */
     public static boolean hasFixedLayout(MiniType type) {
         Objects.requireNonNull(type, "type");
-        if (type.isStruct()) {
+        if (type.isStruct() || type.isFunction() || type.isVoid()) {
             return false;
         }
         if (type.isArray()) {

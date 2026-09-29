@@ -1,9 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiCurrentStateDto;
-import minic.uiapi.UiGlobalDataDto;
-import minic.uiapi.UiInspectorModelDto;
-import minic.uiapi.UiStageDataDto;
 
 /**
  * 根据 UI API DTO 生成 Inspector 展示数据。

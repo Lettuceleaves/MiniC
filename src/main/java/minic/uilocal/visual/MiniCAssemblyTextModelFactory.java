@@ -1,6 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiStageVisualDto;
 
 import java.util.List;
 

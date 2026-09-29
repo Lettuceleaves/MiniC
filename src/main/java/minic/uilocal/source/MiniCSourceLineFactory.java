@@ -1,6 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiSourceRangeDto;
 
 import java.util.ArrayList;
 import java.util.List;

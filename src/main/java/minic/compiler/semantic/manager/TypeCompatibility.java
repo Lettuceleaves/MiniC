@@ -8,11 +8,23 @@ final class TypeCompatibility {
     }
 
     static boolean isAssignmentCompatible(MiniType targetType, MiniType valueType) {
+        valueType = decay(valueType);
         if (targetType.equals(valueType)) {
             return true;
         }
         if (targetType.isPointer()) {
-            return valueType.isNullPointer();
+            if (valueType.isNullPointer()) {
+                return true;
+            }
+            if (!valueType.isPointer()) {
+                return false;
+            }
+            // C 对象指针可以隐式转换为/从 void*；函数指针不参与该规则。
+            MiniType targetPointee = targetType.pointee();
+            MiniType valuePointee = valueType.pointee();
+            return targetPointee.equals(valuePointee)
+                    || targetPointee.isVoid() && !valuePointee.isFunction()
+                    || valuePointee.isVoid() && !targetPointee.isFunction();
         }
         if (targetType.isScalar()) {
             return valueType.isScalar();
@@ -25,6 +37,7 @@ final class TypeCompatibility {
     }
 
     static boolean isConditionCompatible(MiniType type) {
+        type = decay(type);
         return type.isScalar() || type.isPointer() || type.isNullPointer();
     }
 
@@ -33,6 +46,8 @@ final class TypeCompatibility {
     }
 
     static MiniType binaryResultType(MiniType leftType, MiniType rightType, TokenType operator) {
+        leftType = decay(leftType);
+        rightType = decay(rightType);
         if (isLogical(operator)) {
             return MiniType.INT;
         }
@@ -55,6 +70,8 @@ final class TypeCompatibility {
     }
 
     static boolean isBinaryCompatible(MiniType leftType, MiniType rightType, TokenType operator) {
+        leftType = decay(leftType);
+        rightType = decay(rightType);
         if (isLogical(operator)) {
             return isConditionCompatible(leftType) && isConditionCompatible(rightType);
         }
@@ -76,10 +93,14 @@ final class TypeCompatibility {
     }
 
     static boolean isConditionalBranchCompatible(MiniType thenType, MiniType elseType) {
+        thenType = decay(thenType);
+        elseType = decay(elseType);
         return isAssignmentCompatible(thenType, elseType) || isAssignmentCompatible(elseType, thenType);
     }
 
     static MiniType conditionalResultType(MiniType thenType, MiniType elseType) {
+        thenType = decay(thenType);
+        elseType = decay(elseType);
         if (thenType.equals(elseType) || isAssignmentCompatible(thenType, elseType)) {
             return thenType;
         }
@@ -91,17 +112,23 @@ final class TypeCompatibility {
 
     private static boolean isPointerArithmetic(MiniType leftType, MiniType rightType, TokenType operator) {
         if (operator == TokenType.PLUS) {
-            return (leftType.isPointer() && rightType.isIntegerScalar())
-                    || (rightType.isPointer() && leftType.isIntegerScalar());
+            return (isObjectPointer(leftType) && rightType.isIntegerScalar())
+                    || (isObjectPointer(rightType) && leftType.isIntegerScalar());
         }
         if (operator == TokenType.MINUS) {
-            return leftType.isPointer() && rightType.isIntegerScalar();
+            return isObjectPointer(leftType) && rightType.isIntegerScalar();
         }
         return false;
     }
 
     private static boolean isPointerDifference(MiniType leftType, MiniType rightType, TokenType operator) {
-        return operator == TokenType.MINUS && leftType.isPointer() && rightType.isPointer();
+        return operator == TokenType.MINUS
+                && isObjectPointer(leftType)
+                && leftType.equals(rightType);
+    }
+
+    private static boolean isObjectPointer(MiniType type) {
+        return type.isPointer() && !type.pointee().isFunction();
     }
 
     private static MiniType usualArithmeticType(MiniType leftType, MiniType rightType) {
@@ -115,6 +142,13 @@ final class TypeCompatibility {
             return MiniType.LONG;
         }
         return MiniType.INT;
+    }
+
+    /** C 数组仅在值上下文中退化一层；声明、sizeof 和取址仍保留完整数组节点。 */
+    static MiniType decay(MiniType type) {
+        return type instanceof MiniType.ArrayType arrayType
+                ? arrayType.elementType().pointerTo()
+                : type;
     }
 
     private static boolean isComparison(TokenType operator) {

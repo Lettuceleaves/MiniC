@@ -1,6 +1,6 @@
 package minic.compiler.asm;
 
-import minic.compiler.Loop;
+import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
 import minic.compiler.ir.IrResult;
 import minic.compiler.ir.IrLowerer;
@@ -51,7 +51,7 @@ public final class Assembler extends Stage {
 
     /** 执行当前输入的完整 Asm 阶段。 */
     public AsmResult assemble() {
-        new Loop(List.of(this)).run();
+        new CompilerApi(List.of(this)).run();
         return result();
     }
 

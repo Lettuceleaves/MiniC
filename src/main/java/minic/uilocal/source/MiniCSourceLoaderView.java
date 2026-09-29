@@ -10,7 +10,6 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import minic.uilocal.control.MiniCViewportAdapter;
 import minic.uilocal.control.MiniCWorkbenchControlHub;
-import minic.uiapi.UiSourceSpanDto;
 
 import java.util.List;
 import java.util.Objects;
@@ -31,6 +30,7 @@ public final class MiniCSourceLoaderView extends VBox {
     private final Runnable openAction;
     private final Runnable saveAction;
     private final Runnable saveAsAction;
+    private Runnable sourceChangeAction = () -> {};
 
     /**
      * 创建源码加载视图。
@@ -112,11 +112,13 @@ public final class MiniCSourceLoaderView extends VBox {
             this.saveAsAction.run();
         });
         sourceEditor.replaceBreakpoints(viewModel.debugBreakpointLinesProperty().get());
-        sourceEditor.setBreakpointChangeAction(() -> viewModel.setDebugBreakpoints(sourceEditor.breakpointLines()));
+        sourceEditor.setBreakpointChangeAction(() ->
+                viewModel.setDebugBreakpoints(sourceEditor.breakpointLines()));
         viewModel.debugBreakpointLinesProperty().addListener((observable, oldValue, newValue) ->
                 sourceEditor.replaceBreakpoints(newValue));
         sourceEditor.textProperty().addListener((observable, oldValue, newValue) -> {
             submitRealtimeSource();
+            sourceChangeAction.run();
         });
         viewModel.sourceTextProperty().addListener((observable, oldValue, newValue) -> {
             if (!Objects.equals(sourceEditor.getText(), newValue)) {
@@ -178,6 +180,11 @@ public final class MiniCSourceLoaderView extends VBox {
      */
     public void setBreakpoint(int line, boolean enabled) {
         sourceEditor.setBreakpoint(line, enabled);
+    }
+
+    /** 设置编辑器源码发生变化时的通知动作。 */
+    public void setSourceChangeAction(Runnable sourceChangeAction) {
+        this.sourceChangeAction = Objects.requireNonNull(sourceChangeAction, "sourceChangeAction");
     }
 
     /**

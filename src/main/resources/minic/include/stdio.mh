@@ -1,0 +1,5 @@
+#ifndef MINIC_STDIO_MH
+#define MINIC_STDIO_MH
+extern int printf(char *format, ...);
+extern int scanf(char *format, ...);
+#endif

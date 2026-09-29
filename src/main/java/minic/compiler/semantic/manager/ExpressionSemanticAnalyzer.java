@@ -18,7 +18,7 @@ import minic.compiler.parser.node.Expression.NameExpr;
 import minic.compiler.parser.node.Expression.NullLiteralExpr;
 import minic.compiler.parser.node.Expression.SizeofExpr;
 import minic.compiler.parser.node.Expression.StringLiteralExpr;
-import minic.compiler.parser.node.Expression.StructInitExpr;
+import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.parser.node.Expression.UnaryExpr;
 import minic.compiler.type.MiniType;
 import minic.compiler.type.TypeLayout;
@@ -41,7 +41,7 @@ final class ExpressionSemanticAnalyzer {
     private final List<Diagnostic> diagnostics;
     private final Map<Expression, MiniType> expressionTypes;
     private Set<String> currentParameterNames = Set.of();
-    private MiniType structInitTargetType;
+    private MiniType aggregateInitTargetType;
 
     ExpressionSemanticAnalyzer(
             FunctionRegistry functionRegistry,
@@ -59,8 +59,8 @@ final class ExpressionSemanticAnalyzer {
         currentParameterNames = Set.copyOf(parameterNames);
     }
 
-    void setStructInitTargetType(MiniType type) {
-        this.structInitTargetType = type;
+    void setAggregateInitTargetType(MiniType type) {
+        this.aggregateInitTargetType = type;
     }
 
     MiniType analyzeExpression(Expression expression, Scope scope) {
@@ -99,7 +99,7 @@ final class ExpressionSemanticAnalyzer {
                         : resolveFunctionPointerCall(callExpr, scope, argumentTypes);
                 yield returnType;
             }
-            case StructInitExpr structInitExpr -> analyzeStructInit(structInitExpr, scope);
+            case AggregateInitExpr aggregateInitExpr -> analyzeAggregateInit(aggregateInitExpr, scope);
             default -> throw new IllegalArgumentException("unsupported expression: "
                     + expression.getClass().getSimpleName());
         };
@@ -134,8 +134,9 @@ final class ExpressionSemanticAnalyzer {
         }
         if (unaryExpr.operator() == TokenType.PLUS_PLUS || unaryExpr.operator() == TokenType.MINUS_MINUS) {
             MiniType targetType = analyzeAssignmentTarget(unaryExpr.operand(), scope, unaryExpr.range());
-            if (!targetType.isScalar() && !targetType.isPointer()) {
-                report(unaryExpr.range(), "自增自减操作数必须是标量或指针");
+            if ((!targetType.isScalar() && !targetType.isPointer())
+                    || (targetType.isPointer() && targetType.pointee().isFunction())) {
+                report(unaryExpr.range(), "自增自减操作数必须是标量或对象指针");
             }
             return targetType;
         }
@@ -239,37 +240,85 @@ final class ExpressionSemanticAnalyzer {
         if (type instanceof MiniType.StructType structType) {
             return structRegistry.hasLayout(structType.name());
         }
-        if (type.isArray() && type.elementType() instanceof MiniType.StructType structType) {
-            return structRegistry.hasLayout(structType.name());
+        if (type instanceof MiniType.ArrayType arrayType) {
+            return hasStructLayout(arrayType.elementType());
         }
         return false;
     }
 
-    private MiniType analyzeStructInit(StructInitExpr structInitExpr, Scope scope) {
-        if (structInitTargetType == null || !structInitTargetType.isStruct()) {
-            report(structInitExpr.range(), "大括号初始化只能用于结构体变量");
+    private MiniType analyzeAggregateInit(AggregateInitExpr initializer, Scope scope) {
+        return analyzeAggregateInit(initializer, scope, aggregateInitTargetType);
+    }
+
+    private MiniType analyzeAggregateInit(AggregateInitExpr initializer, Scope scope, MiniType targetType) {
+        if (targetType == null || (!targetType.isStruct() && !targetType.isArray())) {
+            report(initializer.range(), "大括号初始化只能用于结构体或数组");
+            expressionTypes.put(initializer, MiniType.INT);
             return MiniType.INT;
         }
-        MiniType.StructType targetStruct = (MiniType.StructType) structInitTargetType;
+        if (targetType instanceof MiniType.ArrayType arrayType) {
+            analyzeArrayInit(initializer, scope, arrayType);
+            expressionTypes.put(initializer, targetType);
+            return targetType;
+        }
+        analyzeStructFields(initializer, scope, (MiniType.StructType) targetType);
+        expressionTypes.put(initializer, targetType);
+        return targetType;
+    }
+
+    private void analyzeArrayInit(AggregateInitExpr initializer, Scope scope, MiniType.ArrayType arrayType) {
+        if (initializer.values().size() != arrayType.length()) {
+            report(initializer.range(),
+                    "数组初始化值数量不匹配：期望 " + arrayType.length()
+                            + " 个，实际 " + initializer.values().size() + " 个");
+        }
+        int count = Math.min(initializer.values().size(), arrayType.length());
+        for (int index = 0; index < count; index++) {
+            analyzeInitializerValue(initializer.values().get(index), scope, arrayType.elementType(), "数组元素");
+        }
+    }
+
+    private void analyzeStructFields(
+            AggregateInitExpr initializer,
+            Scope scope,
+            MiniType.StructType targetStruct
+    ) {
         java.util.List<StructFieldLayout> fields = structRegistry.fields(targetStruct.name());
         if (fields == null) {
-            report(structInitExpr.range(), "未知结构体类型：" + targetStruct.name());
-            return structInitTargetType;
+            report(initializer.range(), "未知结构体类型：" + targetStruct.name());
+            return;
         }
-        if (structInitExpr.values().size() != fields.size()) {
-            report(structInitExpr.range(),
-                    "结构体初始化值数量不匹配：期望 " + fields.size() + " 个，实际 " + structInitExpr.values().size() + " 个");
+        if (initializer.values().size() != fields.size()) {
+            report(initializer.range(),
+                    "结构体初始化值数量不匹配：期望 " + fields.size()
+                            + " 个，实际 " + initializer.values().size() + " 个");
         }
-        int count = Math.min(structInitExpr.values().size(), fields.size());
-        for (int i = 0; i < count; i++) {
-            MiniType valueType = analyzeExpression(structInitExpr.values().get(i), scope);
-            MiniType fieldType = fields.get(i).type();
-            if (!TypeCompatibility.isAssignmentCompatible(fieldType, valueType)) {
-                report(structInitExpr.values().get(i).range(),
-                        "结构体字段 " + fields.get(i).name() + " 初始化类型不匹配");
-            }
+        int count = Math.min(initializer.values().size(), fields.size());
+        for (int index = 0; index < count; index++) {
+            StructFieldLayout field = fields.get(index);
+            analyzeInitializerValue(
+                    initializer.values().get(index),
+                    scope,
+                    field.type(),
+                    "结构体字段 " + field.name()
+            );
         }
-        return structInitTargetType;
+    }
+
+    private void analyzeInitializerValue(
+            Expression value,
+            Scope scope,
+            MiniType targetType,
+            String subject
+    ) {
+        if (value instanceof AggregateInitExpr nested) {
+            analyzeAggregateInit(nested, scope, targetType);
+            return;
+        }
+        MiniType valueType = analyzeExpression(value, scope);
+        if (!TypeCompatibility.isAssignmentCompatible(targetType, valueType)) {
+            report(value.range(), subject + "初始化类型不匹配");
+        }
     }
 
     private MiniType analyzeAssignmentTarget(Expression target, Scope scope, SourceRange range) {
@@ -296,6 +345,10 @@ final class ExpressionSemanticAnalyzer {
             return targetType.elementType();
         }
         if (targetType.isPointer()) {
+            if (targetType.pointee().isFunction()) {
+                report(indexExpr.range(), "函数指针不能执行下标运算");
+                return MiniType.INT;
+            }
             return targetType.pointee();
         }
         report(indexExpr.range(), "下标访问目标必须是数组或指针");
@@ -326,11 +379,7 @@ final class ExpressionSemanticAnalyzer {
     private MiniType resolveVariable(Scope scope, String name, SourceRange range) {
         var symbol = scope.resolve(name).filter(candidate -> candidate.kind() == SymbolKind.VARIABLE);
         if (symbol.isPresent()) {
-            MiniType type = symbol.orElseThrow().type();
-            if (type.isArray()) {
-                return type.elementType().pointerTo();
-            }
-            return type;
+            return symbol.orElseThrow().type();
         }
         if (scope.resolve(name).filter(candidate -> candidate.kind() == SymbolKind.FUNCTION).isPresent()) {
             return functionRegistry.resolveFunctionAddress(name, range);
@@ -346,12 +395,14 @@ final class ExpressionSemanticAnalyzer {
             return MiniType.INT;
         }
         MiniType functionType = calleeType.pointee();
-        if (functionType.parameterTypes().size() != argumentTypes.size()) {
+        MiniType.FunctionType signature = (MiniType.FunctionType) functionType;
+        if ((!signature.variadic() && signature.parameterTypes().size() != argumentTypes.size())
+                || (signature.variadic() && argumentTypes.size() < signature.parameterTypes().size())) {
             report(callExpr.range(), "函数指针调用实参数量不匹配");
         } else {
-            for (int index = 0; index < argumentTypes.size(); index++) {
+            for (int index = 0; index < signature.parameterTypes().size(); index++) {
                 if (!TypeCompatibility.isArgumentCompatible(
-                        functionType.parameterTypes().get(index),
+                        signature.parameterTypes().get(index),
                         argumentTypes.get(index)
                 )) {
                     report(callExpr.arguments().get(index).range(), "函数指针调用实参类型不匹配");

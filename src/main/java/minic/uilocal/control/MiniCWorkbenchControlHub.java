@@ -25,13 +25,16 @@ import java.util.function.LongSupplier;
 public final class MiniCWorkbenchControlHub {
     private static final String VIEWPORT_TARGET_PROPERTY = "minic.uilocal.control.viewportTargetAdapter";
     public static final String DEBUG_START = "debug.start";
+    public static final String DEBUG_STEP = "debug.step";
+    public static final String DEBUG_STEP_BACK = "debug.stepBack";
     public static final String DEBUG_RUN_TO_END = "debug.runToEnd";
     public static final String DEBUG_RUN_TO_BREAKPOINT = "debug.runToBreakpoint";
     public static final String DEBUG_STEP_OVER = "debug.stepOver";
-    public static final String DEBUG_STEP_INTO = "debug.stepInto";
-    public static final String DEBUG_BACK_TO_BREAKPOINT = "debug.backToBreakpoint";
+    public static final String DEBUG_STEP_OUT = "debug.stepOut";
     public static final String DEBUG_STEP_BACK_OVER = "debug.stepBackOver";
-    public static final String DEBUG_STEP_BACK = "debug.stepBack";
+    public static final String DEBUG_BACK_TO_BREAKPOINT = "debug.backToBreakpoint";
+    public static final String DEBUG_BACK_TO_CALL_SITE = "debug.backToCallSite";
+    public static final String DEBUG_PAUSE = "debug.pause";
     public static final String COMPILER_NEXT = "compiler.next";
     public static final String COMPILER_NEXT_STAGE = "compiler.nextStage";
     public static final String COMPILER_RUN_TO_EXECUTION = "compiler.runToExecution";
@@ -112,13 +115,16 @@ public final class MiniCWorkbenchControlHub {
     public void registerDebuggerCommands(DebuggerCommands commands) {
         Objects.requireNonNull(commands, "commands");
         register(DEBUG_START, "从头开始", commands.canStart(), commands.start());
-        register(DEBUG_RUN_TO_END, "运行到结束", commands.canRunToEnd(), commands.runToEnd());
-        register(DEBUG_RUN_TO_BREAKPOINT, "下个断点", commands.canRunToBreakpoint(), commands.runToBreakpoint());
-        register(DEBUG_STEP_OVER, "本层下一句", commands.canStepOver(), commands.stepOver());
-        register(DEBUG_STEP_INTO, "下一句", commands.canStepInto(), commands.stepInto());
-        register(DEBUG_BACK_TO_BREAKPOINT, "上个断点", commands.canBackToBreakpoint(), commands.backToBreakpoint());
-        register(DEBUG_STEP_BACK_OVER, "本层上一句", commands.canStepBackOver(), commands.stepBackOver());
-        register(DEBUG_STEP_BACK, "上一句", commands.canStepBack(), commands.stepBack());
+        register(DEBUG_STEP, "单步到下个 trap", commands.canStep(), commands.step());
+        register(DEBUG_STEP_BACK, "返回上个 trap", commands.canStepBack(), commands.stepBack());
+        register(DEBUG_RUN_TO_END, "运行到结束", commands.canStep(), commands.runToEnd());
+        register(DEBUG_RUN_TO_BREAKPOINT, "运行到断点", commands.canStep(), commands.runToBreakpoint());
+        register(DEBUG_STEP_OVER, "步过", commands.canStep(), commands.stepOver());
+        register(DEBUG_STEP_OUT, "步出", commands.canStep(), commands.stepOut());
+        register(DEBUG_STEP_BACK_OVER, "反向步过", commands.canStepBack(), commands.stepBackOver());
+        register(DEBUG_BACK_TO_BREAKPOINT, "返回断点", commands.canStepBack(), commands.backToBreakpoint());
+        register(DEBUG_BACK_TO_CALL_SITE, "返回调用处", commands.canStepBack(), commands.backToCallSite());
+        register(DEBUG_PAUSE, "暂停", commands.canPause(), commands.pause());
     }
 
     public void registerCompilerCommands(CompilerCommands commands) {
@@ -290,71 +296,30 @@ public final class MiniCWorkbenchControlHub {
         return Math.max(min, Math.min(max, value));
     }
 
-    public record DebuggerCommands(
-            BooleanSupplier canStart,
-            Runnable start,
-            BooleanSupplier canRunToEnd,
-            Runnable runToEnd,
-            BooleanSupplier canRunToBreakpoint,
-            Runnable runToBreakpoint,
-            BooleanSupplier canStepOver,
-            Runnable stepOver,
-            BooleanSupplier canStepInto,
-            Runnable stepInto,
-            BooleanSupplier canBackToBreakpoint,
-            Runnable backToBreakpoint,
-            BooleanSupplier canStepBackOver,
-            Runnable stepBackOver,
-            BooleanSupplier canStepBack,
-            Runnable stepBack
-    ) {
-        public DebuggerCommands(
-                Runnable start,
-                Runnable runToEnd,
-                Runnable runToBreakpoint,
-                Runnable stepOver,
-                Runnable stepInto,
-                Runnable backToBreakpoint,
-                Runnable stepBackOver,
-                Runnable stepBack
-        ) {
-            this(
-                    () -> true,
-                    start,
-                    () -> true,
-                    runToEnd,
-                    () -> true,
-                    runToBreakpoint,
-                    () -> true,
-                    stepOver,
-                    () -> true,
-                    stepInto,
-                    () -> true,
-                    backToBreakpoint,
-                    () -> true,
-                    stepBackOver,
-                    () -> true,
-                    stepBack
-            );
-        }
-
+    public record DebuggerCommands(BooleanSupplier canStart, Runnable start,
+                                   BooleanSupplier canStep, Runnable step,
+                                   BooleanSupplier canStepBack, Runnable stepBack,
+                                   Runnable runToEnd, Runnable runToBreakpoint,
+                                   Runnable stepOver, Runnable stepOut,
+                                   Runnable stepBackOver, Runnable backToBreakpoint,
+                                   Runnable backToCallSite,
+                                   BooleanSupplier canPause, Runnable pause) {
         public DebuggerCommands {
             Objects.requireNonNull(canStart, "canStart");
             Objects.requireNonNull(start, "start");
-            Objects.requireNonNull(canRunToEnd, "canRunToEnd");
-            Objects.requireNonNull(runToEnd, "runToEnd");
-            Objects.requireNonNull(canRunToBreakpoint, "canRunToBreakpoint");
-            Objects.requireNonNull(runToBreakpoint, "runToBreakpoint");
-            Objects.requireNonNull(canStepOver, "canStepOver");
-            Objects.requireNonNull(stepOver, "stepOver");
-            Objects.requireNonNull(canStepInto, "canStepInto");
-            Objects.requireNonNull(stepInto, "stepInto");
-            Objects.requireNonNull(canBackToBreakpoint, "canBackToBreakpoint");
-            Objects.requireNonNull(backToBreakpoint, "backToBreakpoint");
-            Objects.requireNonNull(canStepBackOver, "canStepBackOver");
-            Objects.requireNonNull(stepBackOver, "stepBackOver");
+            Objects.requireNonNull(canStep, "canStep");
+            Objects.requireNonNull(step, "step");
             Objects.requireNonNull(canStepBack, "canStepBack");
             Objects.requireNonNull(stepBack, "stepBack");
+            Objects.requireNonNull(runToEnd, "runToEnd");
+            Objects.requireNonNull(runToBreakpoint, "runToBreakpoint");
+            Objects.requireNonNull(stepOver, "stepOver");
+            Objects.requireNonNull(stepOut, "stepOut");
+            Objects.requireNonNull(stepBackOver, "stepBackOver");
+            Objects.requireNonNull(backToBreakpoint, "backToBreakpoint");
+            Objects.requireNonNull(backToCallSite, "backToCallSite");
+            Objects.requireNonNull(canPause, "canPause");
+            Objects.requireNonNull(pause, "pause");
         }
     }
 

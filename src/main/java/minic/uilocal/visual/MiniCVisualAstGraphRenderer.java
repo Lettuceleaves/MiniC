@@ -26,10 +26,6 @@ import minic.settings.MiniCSettings;
 import minic.uilocal.control.MiniCGraphViewportAdapter;
 import minic.uilocal.control.MiniCViewportAdapter;
 import minic.uilocal.control.MiniCWorkbenchControlHub;
-import minic.uiapi.UiAstNodeVisualDto;
-import minic.uiapi.UiSemanticScopeVisualDto;
-import minic.uiapi.UiSourceSpanDto;
-import minic.uiapi.UiStageVisualDto;
 
 import java.util.ArrayList;
 import java.util.List;

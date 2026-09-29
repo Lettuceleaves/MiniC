@@ -21,7 +21,8 @@ public final class Observation {
         SEMANTIC("semantic"),
         IR("ir"),
         ASM("asm"),
-        NATIVE_BUILD("native-build"),
+        OBJ("obj"),
+        LINK("link"),
         EXECUTION("execution");
 
         private final String id;

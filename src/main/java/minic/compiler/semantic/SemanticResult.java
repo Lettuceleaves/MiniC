@@ -38,7 +38,9 @@ public record SemanticResult(
         Objects.requireNonNull(expressionTypes, "expressionTypes");
         Objects.requireNonNull(structLayouts, "structLayouts");
         Objects.requireNonNull(diagnostics, "diagnostics");
-        expressionTypes = Map.copyOf(expressionTypes);
+        expressionTypes = java.util.Collections.unmodifiableMap(
+                new java.util.IdentityHashMap<>(expressionTypes)
+        );
         structLayouts = Map.copyOf(structLayouts);
         diagnostics = List.copyOf(diagnostics);
     }

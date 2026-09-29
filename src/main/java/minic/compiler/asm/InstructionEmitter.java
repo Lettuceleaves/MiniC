@@ -173,7 +173,13 @@ final class InstructionEmitter {
             case IrBranchInstruction branch -> emitBranch(builder, functionName, branch);
             case IrJumpInstruction jump -> emitJump(builder, functionName, jump.targetLabel());
             case IrReturnInstruction returnInstruction -> {
-                valueEmitter.emitLoadValue(builder, returnInstruction.value(), returnRegister(returnInstruction.value().type()));
+                if (returnInstruction.value() != null) {
+                    valueEmitter.emitLoadValue(
+                            builder,
+                            returnInstruction.value(),
+                            returnRegister(returnInstruction.value().type())
+                    );
+                }
                 builder.append("    jmp ").append(epilogueLabel).append(System.lineSeparator());
             }
             default -> throw new IllegalArgumentException("unsupported IR instruction: "
@@ -358,6 +364,29 @@ final class InstructionEmitter {
             emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, integerCastRegister(targetType));
             return;
         }
+        if ((sourceType == IrType.BOOL || sourceType == IrType.CHAR)
+                && (targetType == IrType.INT || targetType == IrType.LONG)) {
+            // C integer promotion must extend the byte before it is stored in a
+            // wider temporary. Loading through AL would leave the upper bits of
+            // EAX unchanged and leak an earlier register value into varargs.
+            valueEmitter.emitLoadValue(builder, cast.value(), "eax");
+            if (targetType == IrType.LONG && sourceType == IrType.CHAR) {
+                builder.append("    movsxd rax, eax").append(System.lineSeparator());
+            }
+            emitStoreRegisterToMemory(
+                    builder,
+                    frame.temporarySlot(cast.result()),
+                    targetType,
+                    valueEmitter.storeRegister("rax", targetType)
+            );
+            return;
+        }
+        if (sourceType == IrType.INT && targetType == IrType.LONG) {
+            valueEmitter.emitLoadValue(builder, cast.value(), "eax");
+            builder.append("    movsxd rax, eax").append(System.lineSeparator());
+            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, "rax");
+            return;
+        }
         valueEmitter.emitLoadValue(builder, cast.value(), valueEmitter.storeRegister("rax", sourceType));
         emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, valueEmitter.storeRegister("rax", targetType));
     }
@@ -382,23 +411,31 @@ final class InstructionEmitter {
     }
 
     private void emitCall(StringBuilder builder, IrCallInstruction call) {
-        emitCallArguments(builder, call.arguments());
+        emitCallArguments(builder, call.arguments(), call.variadic());
         builder.append("    call ").append(CallingConvention.callSymbol(
                         call.calleeName(),
                         externalFunctionNames.contains(call.calleeName())
                 ))
                 .append(System.lineSeparator());
-        emitStoreRegisterToMemory(builder, frame.temporarySlot(call.result()), call.result().type(), returnRegister(call.result().type()));
+        if (call.result() != null) {
+            emitStoreRegisterToMemory(builder, frame.temporarySlot(call.result()), call.result().type(), returnRegister(call.result().type()));
+        }
     }
 
     private void emitIndirectCall(StringBuilder builder, IrIndirectCallInstruction call) {
-        emitCallArguments(builder, call.arguments());
+        emitCallArguments(builder, call.arguments(), call.variadic());
         valueEmitter.emitLoadValue(builder, call.calleeAddress(), "rax");
         builder.append("    call rax").append(System.lineSeparator());
-        emitStoreRegisterToMemory(builder, frame.temporarySlot(call.result()), call.result().type(), returnRegister(call.result().type()));
+        if (call.result() != null) {
+            emitStoreRegisterToMemory(builder, frame.temporarySlot(call.result()), call.result().type(), returnRegister(call.result().type()));
+        }
     }
 
-    private void emitCallArguments(StringBuilder builder, java.util.List<minic.compiler.ir.value.IrValue> arguments) {
+    private void emitCallArguments(
+            StringBuilder builder,
+            java.util.List<minic.compiler.ir.value.IrValue> arguments,
+            boolean variadic
+    ) {
         for (int index = CallingConvention.INTEGER_ARGUMENT_REGISTERS.size();
              index < arguments.size();
              index++) {
@@ -414,6 +451,17 @@ final class InstructionEmitter {
                         arguments.get(index),
                         argumentRegister(arguments.get(index).type(), index)
                 );
+                if (variadic && arguments.get(index).type().isFloatingScalar()) {
+                    String integerRegister = CallingConvention.pointerArgumentRegister(index);
+                    String floatingRegister = CallingConvention.floatArgumentRegister(index);
+                    builder.append(arguments.get(index).type() == IrType.DOUBLE ? "    movq " : "    movd ")
+                            .append(arguments.get(index).type() == IrType.DOUBLE
+                                    ? integerRegister
+                                    : CallingConvention.integerArgumentRegister(index))
+                            .append(", ")
+                            .append(floatingRegister)
+                            .append(System.lineSeparator());
+                }
             }
         }
     }
@@ -423,7 +471,7 @@ final class InstructionEmitter {
             case FLOAT, DOUBLE -> CallingConvention.floatArgumentRegister(argumentIndex);
             case BOOL, CHAR -> byteArgumentRegister(argumentIndex);
             case LONG, POINTER -> CallingConvention.pointerArgumentRegister(argumentIndex);
-            case INT, INT_ARRAY, STRUCT -> CallingConvention.integerArgumentRegister(argumentIndex);
+            case INT -> CallingConvention.integerArgumentRegister(argumentIndex);
         };
     }
 
@@ -438,14 +486,14 @@ final class InstructionEmitter {
     private String storeLocalRegister(IrType type) {
         return switch (type) {
             case FLOAT, DOUBLE, LONG, POINTER -> valueEmitter.storeRegister("rax", type);
-            case BOOL, CHAR, INT, INT_ARRAY, STRUCT -> valueEmitter.storeRegister("rcx", type);
+            case BOOL, CHAR, INT -> valueEmitter.storeRegister("rcx", type);
         };
     }
 
     private String fullRegisterForType(IrType type) {
         return switch (type) {
             case FLOAT, DOUBLE -> "xmm0";
-            case BOOL, CHAR, INT, INT_ARRAY, STRUCT -> "eax";
+            case BOOL, CHAR, INT -> "eax";
             case LONG, POINTER -> "rax";
         };
     }

@@ -8,14 +8,12 @@ public final class IrTypeLowerer {
     }
 
     public static IrType lower(MiniType type) {
-        if (type.isArray()) {
-            return IrType.INT_ARRAY;
-        }
         if (type.isPointer()) {
             return IrType.POINTER;
         }
-        if (type.isStruct()) {
-            return IrType.STRUCT;
+        if (type.isArray() || type.isStruct()) {
+            // 聚合表达式在 IR 中始终表示为指向其存储的地址；完整类型保留在 MiniType 中。
+            return IrType.POINTER;
         }
         if (type.equals(MiniType.BOOL)) {
             return IrType.BOOL;
@@ -35,13 +33,9 @@ public final class IrTypeLowerer {
         if (type.isNullPointer()) {
             return IrType.POINTER;
         }
-        return IrType.INT;
-    }
-
-    static int elementCount(MiniType type) {
-        if (type.isArray()) {
-            return type.arrayLength();
+        if (type.isFunction()) {
+            throw new IllegalArgumentException("function value must be represented by a pointer: " + type);
         }
-        return 1;
+        return IrType.INT;
     }
 }

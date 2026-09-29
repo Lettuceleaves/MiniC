@@ -1,6 +1,6 @@
 package minic.compiler.ir;
 
-import minic.compiler.Loop;
+import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
 import minic.compiler.ir.manager.FunctionManager;
 import minic.compiler.ir.manager.IrFunctionSignature;
@@ -95,7 +95,7 @@ public final class IrLowerer extends Stage {
 
     /** 执行当前输入的完整 IR lowering。 */
     public IrResult lower() {
-        new Loop(List.of(this)).run();
+        new CompilerApi(List.of(this)).run();
         return result();
     }
 
@@ -229,7 +229,12 @@ public final class IrLowerer extends Stage {
         if (currentFunctionManager != null) {
             functions.add(currentFunctionManager.snapshot());
         }
-        return new IrResult(functions, work.stringLiteralRegistry.stringData(), work.externalFunctionNames);
+        return new IrResult(
+                functions,
+                work.stringLiteralRegistry.stringData(),
+                work.externalFunctionNames,
+                input.structLayouts
+        );
     }
 
     public int completedStepCount() {
@@ -281,7 +286,12 @@ public final class IrLowerer extends Stage {
     }
 
     private IrResult buildResult() {
-        return new IrResult(work.functions, work.stringLiteralRegistry.stringData(), work.externalFunctionNames);
+        return new IrResult(
+                work.functions,
+                work.stringLiteralRegistry.stringData(),
+                work.externalFunctionNames,
+                input.structLayouts
+        );
     }
 
     private void setCurrentOperation(String operationName, String subject, AstNode astNode) {
@@ -311,7 +321,12 @@ public final class IrLowerer extends Stage {
                         : IrTypeLowerer.lower(parameter.type()));
             }
             IrType irReturnType = structReturn ? IrType.POINTER : IrTypeLowerer.lower(function.returnType());
-            signatures.put(function.name(), new IrFunctionSignature(irReturnType, parameterTypes));
+            signatures.put(function.name(), new IrFunctionSignature(
+                    irReturnType,
+                    parameterTypes,
+                    function.variadic(),
+                    function.returnType().isVoid()
+            ));
         }
         return signatures;
     }
@@ -352,7 +367,9 @@ public final class IrLowerer extends Stage {
             Objects.requireNonNull(structLayouts, "structLayouts");
             Objects.requireNonNull(expressionTypes, "expressionTypes");
             structLayouts = Map.copyOf(structLayouts);
-            expressionTypes = Map.copyOf(expressionTypes);
+            expressionTypes = java.util.Collections.unmodifiableMap(
+                    new java.util.IdentityHashMap<>(expressionTypes)
+            );
         }
     }
 

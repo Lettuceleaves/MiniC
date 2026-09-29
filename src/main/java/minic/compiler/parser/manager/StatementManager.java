@@ -3,7 +3,7 @@ package minic.compiler.parser.manager;
 import minic.compiler.parser.Parser;
 
 import minic.compiler.parser.node.Expression;
-import minic.compiler.parser.node.Expression.StructInitExpr;
+import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.parser.node.Statement.BreakStmt;
 import minic.compiler.parser.node.Statement.ContinueStmt;
@@ -19,7 +19,6 @@ import minic.compiler.parser.node.Statement.VarDeclStmt;
 import minic.compiler.parser.node.Statement.WhileStmt;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
-import minic.compiler.type.MiniType;
 import minic.source.SourceRange;
 
 import java.util.ArrayList;
@@ -298,79 +297,48 @@ public final class StatementManager {
     }
 
     private VarDeclStmt parseVarDeclStmt() {
-        Parser.ParsedType type = typeReader.parseType("期望变量类型 int");
-        Parser.ParsedNamedType functionPointer = null;
-        Token nameToken = null;
-        MiniType declaredType = null;
-        SourceRange declarationRange = null;
-        if (type != null && state.check(TokenType.LEFT_PAREN)) {
-            functionPointer = typeReader.parseFunctionPointerDeclarator(type, "期望变量名");
-            if (functionPointer != null) {
-                declaredType = functionPointer.type();
-                declarationRange = functionPointer.range();
-            }
-        } else {
-            nameToken = state.consume(TokenType.IDENTIFIER, "期望变量名");
-            declaredType = type != null ? parseArraySuffix(type.type()) : null;
-        }
+        Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望变量类型", "期望变量名");
         Expression initializer = null;
         if (state.match(TokenType.EQUAL)) {
             if (state.check(TokenType.LEFT_BRACE)) {
-                initializer = parseStructInitializer();
+                initializer = parseAggregateInitializer();
             } else {
                 initializer = expressionManager.parseExpression();
             }
         }
         Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");
 
-        if (type == null || (nameToken == null && functionPointer == null) || semicolonToken == null) {
+        if (declaration == null || semicolonToken == null) {
             return null;
         }
-        String name = functionPointer != null ? functionPointer.name() : nameToken.lexeme();
-        SourceRange range = declarationRange != null
-                ? SourceRange.span(declarationRange, semicolonToken.range())
-                : SourceRange.span(type.range(), semicolonToken.range());
         VarDeclStmt varDeclStmt = new VarDeclStmt(
-                name,
-                declaredType,
+                declaration.name(),
+                declaration.type(),
                 initializer,
-                range
+                SourceRange.span(declaration.range(), semicolonToken.range())
         );
         state.build(varDeclStmt, "VarDeclStmt " + varDeclStmt.name(), varDeclStmt.range());
         return varDeclStmt;
     }
 
-    private MiniType parseArraySuffix(MiniType baseType) {
-        if (!state.match(TokenType.LEFT_BRACKET)) {
-            return baseType;
-        }
-        Token lengthToken = state.consume(TokenType.INTEGER_LITERAL, "期望数组长度");
-        Token endToken = state.consume(TokenType.RIGHT_BRACKET, "期望 ']'");
-        if (lengthToken == null || endToken == null) {
-            return baseType;
-        }
-        int length = (Integer) lengthToken.literalValue();
-        if (length <= 0) {
-            state.report(lengthToken, "数组长度必须大于 0");
-            return baseType;
-        }
-        return baseType.arrayOf(length);
-    }
-
-    private Expression parseStructInitializer() {
+    private Expression parseAggregateInitializer() {
         Token startToken = state.advance();
         ArrayList<Expression> values = new ArrayList<>();
         if (!state.check(TokenType.RIGHT_BRACE)) {
-            values.add(expressionManager.parseExpression());
+            values.add(state.check(TokenType.LEFT_BRACE)
+                    ? parseAggregateInitializer()
+                    : expressionManager.parseExpression());
             while (state.match(TokenType.COMMA)) {
-                values.add(expressionManager.parseExpression());
+                values.add(state.check(TokenType.LEFT_BRACE)
+                        ? parseAggregateInitializer()
+                        : expressionManager.parseExpression());
             }
         }
         Token endToken = state.consume(TokenType.RIGHT_BRACE, "期望 '}'");
         if (endToken == null) {
             return null;
         }
-        return new StructInitExpr(
+        return new AggregateInitExpr(
                 values,
                 SourceRange.span(startToken.range(), endToken.range())
         );
@@ -419,6 +387,7 @@ public final class StatementManager {
                 || state.check(TokenType.LONG)
                 || state.check(TokenType.FLOAT)
                 || state.check(TokenType.DOUBLE)
+                || state.check(TokenType.VOID)
                 || state.check(TokenType.STRUCT);
     }
 }

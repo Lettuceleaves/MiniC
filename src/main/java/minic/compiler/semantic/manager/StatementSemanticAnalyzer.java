@@ -3,6 +3,7 @@ package minic.compiler.semantic.manager;
 import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.parser.node.Declaration.Parameter;
 import minic.compiler.parser.node.Expression;
+import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.parser.node.Statement.BreakStmt;
 import minic.compiler.parser.node.Statement.ContinueStmt;
@@ -84,7 +85,7 @@ public final class StatementSemanticAnalyzer {
 
     public void validateCurrentFunctionReturn() {
         BlockStmt body = currentFunction.bodyOptional().orElseThrow();
-        if (!alwaysReturns(body)) {
+        if (!currentFunction.returnType().isVoid() && !alwaysReturns(body)) {
             report(currentFunction.range(), "函数必须在所有路径返回值：" + currentFunction.name());
         }
     }
@@ -121,19 +122,23 @@ public final class StatementSemanticAnalyzer {
         switch (statement) {
             case BlockStmt blockStmt -> analyzeBlock(blockStmt, scope, true);
             case VarDeclStmt varDeclStmt -> {
-                boolean unsupportedArrayInitializer = varDeclStmt.type().isArray()
-                        && varDeclStmt.initializerOptional().isPresent();
-                if (varDeclStmt.type().isArray() && varDeclStmt.initializerOptional().isPresent()) {
-                    report(varDeclStmt.range(), "数组声明暂不支持初始化表达式");
-                }
                 varDeclStmt.initializerOptional()
                         .ifPresent(initializer -> {
-                            if (varDeclStmt.type().isStruct()) {
-                                expressionAnalyzer.setStructInitTargetType(varDeclStmt.type());
+                            boolean aggregateInitializer = initializer instanceof AggregateInitExpr;
+                            if (varDeclStmt.type().isArray() && !aggregateInitializer) {
+                                report(varDeclStmt.range(), "数组必须使用大括号初始化");
                             }
-                            MiniType initializerType = expressionAnalyzer.analyzeExpression(initializer, scope);
-                            expressionAnalyzer.setStructInitTargetType(null);
-                            if (!unsupportedArrayInitializer
+                            if (aggregateInitializer) {
+                                expressionAnalyzer.setAggregateInitTargetType(varDeclStmt.type());
+                            }
+                            MiniType initializerType;
+                            try {
+                                initializerType = expressionAnalyzer.analyzeExpression(initializer, scope);
+                            } finally {
+                                expressionAnalyzer.setAggregateInitTargetType(null);
+                            }
+                            if (!aggregateInitializer
+                                    && !varDeclStmt.type().isArray()
                                     && !isInitializerCompatible(varDeclStmt.type(), initializerType)) {
                                 report(varDeclStmt.range(), "变量初始化类型不匹配：" + varDeclStmt.name());
                             }
@@ -142,8 +147,13 @@ public final class StatementSemanticAnalyzer {
                 defineVariable(scope, varDeclStmt.name(), varDeclStmt.range(), varDeclStmt.type());
             }
             case ReturnStmt returnStmt -> {
-                if (returnStmt.expressionOptional().isEmpty()) {
-                    report(returnStmt.range(), "int 函数中 return 必须包含表达式");
+                if (currentFunction.returnType().isVoid()) {
+                    if (returnStmt.expressionOptional().isPresent()) {
+                        expressionAnalyzer.analyzeExpression(returnStmt.expressionOptional().orElseThrow(), scope);
+                        report(returnStmt.range(), "void 函数的 return 不能包含表达式");
+                    }
+                } else if (returnStmt.expressionOptional().isEmpty()) {
+                    report(returnStmt.range(), "非 void 函数中 return 必须包含表达式");
                 } else {
                     MiniType returnType = expressionAnalyzer.analyzeExpression(
                             returnStmt.expressionOptional().orElseThrow(),

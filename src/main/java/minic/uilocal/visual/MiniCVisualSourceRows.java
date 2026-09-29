@@ -2,8 +2,6 @@ package minic.uilocal;
 
 import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
-import minic.uiapi.UiLexerTokenVisualDto;
-import minic.uiapi.UiStageVisualDto;
 
 import java.util.ArrayList;
 import java.util.List;

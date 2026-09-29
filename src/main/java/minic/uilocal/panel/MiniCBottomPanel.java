@@ -16,9 +16,6 @@ import minic.uilocal.text.MiniCSyntaxTextStyleMapper;
 import minic.uilocal.text.MiniCTextFlowFactory;
 import minic.uilocal.text.MiniCTextStyleRole;
 import minic.uilocal.text.MiniCTextStyles;
-import minic.uiapi.MiniCRealtimeAnalysisApi;
-import minic.uiapi.UiLexerTokenVisualDto;
-import minic.uiapi.UiSourceSpanDto;
 import minic.settings.MiniCSettings;
 
 import java.util.ArrayList;

@@ -6,6 +6,7 @@ import minic.compiler.lexer.Lexer;
 import minic.compiler.parser.ParserResult;
 import minic.compiler.parser.Parser;
 import minic.compiler.SourceFile;
+import minic.compiler.library.SystemLibraryCatalog;
 import minic.source.SourceRange;
 
 import java.io.IOException;
@@ -25,6 +26,7 @@ final class IncludeManager {
     private static final Pattern INCLUDE_DIRECTIVE_PATTERN = Pattern.compile("^\\s*#\\s*include\\b.*$");
 
     private final Preprocessor preprocessor;
+    private final SystemLibraryCatalog systemLibraries = SystemLibraryCatalog.defaults();
 
     IncludeManager(Preprocessor preprocessor) {
         this.preprocessor = preprocessor;
@@ -91,8 +93,20 @@ final class IncludeManager {
             return;
         }
 
-        Path resolvedPath = resolveInclude(currentDirectory, requestedPath, work.options.includeRoots());
-        if (resolvedPath == null) {
+        ResolvedInclude resolved;
+        try {
+            resolved = resolveInclude(currentDirectory, requestedPath, work.options.includeRoots());
+        } catch (IncludeReadException exception) {
+            work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, null, directiveRange, false));
+            work.diagnostics.add(Preprocessor.diagnostic(
+                    sourceFile,
+                    startOffset,
+                    endOffset,
+                    exception.getMessage()
+            ));
+            return;
+        }
+        if (resolved == null) {
             work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, null, directiveRange, false));
             work.diagnostics.add(Preprocessor.diagnostic(
                     sourceFile,
@@ -102,8 +116,8 @@ final class IncludeManager {
             ));
             return;
         }
-        if (includeStack.contains(resolvedPath)) {
-            work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, resolvedPath, directiveRange, false));
+        if (includeStack.contains(resolved.identity())) {
+            work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, resolved.identity(), directiveRange, false));
             work.diagnostics.add(Preprocessor.diagnostic(
                     sourceFile,
                     startOffset,
@@ -113,25 +127,13 @@ final class IncludeManager {
             return;
         }
 
-        SourceFile includeFile;
-        try {
-            includeFile = new SourceFile(resolvedPath.toString(), Files.readString(resolvedPath));
-        } catch (IOException exception) {
-            work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, resolvedPath, directiveRange, false));
-            work.diagnostics.add(Preprocessor.diagnostic(
-                    sourceFile,
-                    startOffset,
-                    endOffset,
-                    "读取 include 文件失败：" + exception.getMessage()
-            ));
-            return;
-        }
+        SourceFile includeFile = new SourceFile(resolved.sourceName(), resolved.content());
 
-        work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, resolvedPath, directiveRange, true));
-        includeStack.add(resolvedPath);
+        work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, resolved.identity(), directiveRange, true));
+        includeStack.add(resolved.identity());
         int sourceMapStart = work.sourceMap.size();
         StringBuilder includeOutput = new StringBuilder();
-        preprocessor.expandSource(includeFile, resolvedPath.getParent(), includeStack, work, includeOutput, false);
+        preprocessor.expandSource(includeFile, resolved.currentDirectory(), includeStack, work, includeOutput, false);
         if (mapToThisSource) {
             for (int index = sourceMapStart; index < work.sourceMap.size(); index++) {
                 work.sourceMap.set(index, startOffset);
@@ -144,7 +146,7 @@ final class IncludeManager {
             output.append('\n');
             work.sourceMap.add(mapToThisSource ? startOffset : -1);
         }
-        includeStack.remove(resolvedPath);
+        includeStack.remove(resolved.identity());
     }
 
     private void validateHeader(SourceFile originalHeader, String content, Preprocessor.Work work) {
@@ -180,7 +182,7 @@ final class IncludeManager {
                 )));
     }
 
-    private Path resolveInclude(Path currentDirectory, String requestedPath, List<Path> includeRoots) {
+    private ResolvedInclude resolveInclude(Path currentDirectory, String requestedPath, List<Path> includeRoots) {
         ArrayList<Path> candidates = new ArrayList<>();
         if (currentDirectory != null) {
             candidates.add(currentDirectory.resolve(requestedPath));
@@ -188,11 +190,35 @@ final class IncludeManager {
         includeRoots.stream()
                 .map(root -> root.resolve(requestedPath))
                 .forEach(candidates::add);
-        return candidates.stream()
+        Path file = candidates.stream()
                 .map(Path::toAbsolutePath)
                 .map(Path::normalize)
                 .filter(Files::isRegularFile)
                 .findFirst()
                 .orElse(null);
+        if (file != null) {
+            try {
+                return new ResolvedInclude(file, file.toString(), Files.readString(file), file.getParent());
+            } catch (IOException exception) {
+                throw new IncludeReadException("读取 include 文件失败：" + requestedPath, exception);
+            }
+        }
+        return systemLibraries.header(requestedPath)
+                .map(header -> {
+                    Path identity = Path.of("minic-system-include", header.name())
+                            .toAbsolutePath()
+                            .normalize();
+                    return new ResolvedInclude(identity, header.resourceName(), header.content(), null);
+                })
+                .orElse(null);
+    }
+
+    private record ResolvedInclude(Path identity, String sourceName, String content, Path currentDirectory) {
+    }
+
+    private static final class IncludeReadException extends RuntimeException {
+        private IncludeReadException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 }

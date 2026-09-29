@@ -9,6 +9,16 @@ import java.util.Objects;
  * 分支、跳转、返回与控制流检查相关的 IR 指令。
  */
 public sealed interface ControlInstruction extends IrInstruction {
+    /** 仅插入调试用 IR 副本；停止发生在后续指令执行之前。 */
+    record IrTrapInstruction(TrapKind kind, SourceRange range) implements ControlInstruction {
+        public IrTrapInstruction {
+            Objects.requireNonNull(kind, "kind");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
+    enum TrapKind { LINE, CALL }
+
     record IrBranchInstruction(IrValue condition, String thenLabel, String elseLabel, SourceRange range)
             implements ControlInstruction {
         public IrBranchInstruction {
@@ -34,8 +44,11 @@ public sealed interface ControlInstruction extends IrInstruction {
 
     record IrReturnInstruction(IrValue value, SourceRange range) implements ControlInstruction {
         public IrReturnInstruction {
-            Objects.requireNonNull(value, "value");
             Objects.requireNonNull(range, "range");
+        }
+
+        public java.util.Optional<IrValue> valueOptional() {
+            return java.util.Optional.ofNullable(value);
         }
     }
 

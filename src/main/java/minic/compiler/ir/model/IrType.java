@@ -37,17 +37,7 @@ public enum IrType {
     /**
      * 指针或地址类型。
      */
-    POINTER(8),
-
-    /**
-     * 固定长度 int 数组。
-     */
-    INT_ARRAY(4),
-
-    /**
-     * 结构体局部存储。
-     */
-    STRUCT(1);
+    POINTER(8);
 
     private final int sizeBytes;
 

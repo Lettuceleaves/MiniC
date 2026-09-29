@@ -1,7 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiAstNodeVisualDto;
-import minic.uiapi.UiStageVisualDto;
 
 import java.util.ArrayList;
 import java.util.HashMap;

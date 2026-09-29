@@ -1,6 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiSourceSpanDto;
 
 import java.util.List;
 import java.util.Objects;

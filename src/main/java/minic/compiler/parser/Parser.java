@@ -1,6 +1,6 @@
 package minic.compiler.parser;
 
-import minic.compiler.Loop;
+import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.lexer.token.Token;
@@ -77,7 +77,7 @@ public final class Parser extends Stage {
 
     /** 循环执行 {@link #step()}，直到独立的最后空步骤发出。 */
     public ParserResult parse() {
-        new Loop(List.of(this)).run();
+        new CompilerApi(List.of(this)).run();
         return result();
     }
 
@@ -418,16 +418,46 @@ public final class Parser extends Stage {
             if (baseType == null) {
                 return null;
             }
-            MiniType type = baseType.type();
-            Token endToken = baseType.endToken();
-            while (context.match(TokenType.STAR)) {
-                endToken = context.previous();
-                type = type.pointerTo();
+            if (!canStartDeclarator(false)) {
+                return new ParsedType(
+                        baseType.type(),
+                        baseType.startToken(),
+                        SourceRange.span(baseType.startToken().range(), baseType.endToken().range())
+                );
             }
+
+            Declarator declarator = parseDeclarator("", false);
+            if (declarator == null) {
+                return null;
+            }
+            MiniType type = declarator.resolve(baseType.type());
             return new ParsedType(
                     type,
                     baseType.startToken(),
-                    SourceRange.span(baseType.startToken().range(), endToken.range())
+                    SourceRange.span(baseType.startToken().range(), declarator.endToken().range())
+            );
+        }
+
+        /**
+         * 读取一个完整 C 声明器。声明器先保存“从名字向外”的组合节点，随后从外向内
+         * 绑定到命名叶子类型，因此可统一表达多级指针、多维数组、数组指针和函数指针。
+         */
+        public ParsedNamedType parseNamedType(String expectedTypeMessage, String expectedNameMessage) {
+            BaseType baseType = parseBaseType(expectedTypeMessage);
+            if (baseType == null) {
+                return null;
+            }
+            Declarator declarator = parseDeclarator(expectedNameMessage, true);
+            if (declarator == null || declarator.name().isEmpty()) {
+                return null;
+            }
+            FunctionModifier topFunction = declarator.topFunction();
+            return new ParsedNamedType(
+                    declarator.name(),
+                    declarator.resolve(baseType.type()),
+                    SourceRange.span(baseType.startToken().range(), declarator.endToken().range()),
+                    topFunction == null ? List.of() : topFunction.parameters(),
+                    topFunction != null && topFunction.variadic()
             );
         }
 
@@ -438,43 +468,129 @@ public final class Parser extends Stage {
                     || context.check(TokenType.LONG)
                     || context.check(TokenType.FLOAT)
                     || context.check(TokenType.DOUBLE)
+                    || context.check(TokenType.VOID)
                     || context.check(TokenType.STRUCT);
         }
 
-        public ParsedNamedType parseFunctionPointerDeclarator(ParsedType returnType, String expectedNameMessage) {
-            Token startToken = returnType.startToken();
-            context.consume(TokenType.LEFT_PAREN, "期望 '('");
-            context.consume(TokenType.STAR, "期望 '*'");
-            Token nameToken = context.consume(TokenType.IDENTIFIER, expectedNameMessage);
-            context.consume(TokenType.RIGHT_PAREN, "期望 ')'");
-            context.consume(TokenType.LEFT_PAREN, "期望 '('");
-            ArrayList<MiniType> parameterTypes = parseFunctionPointerParameterTypes();
-            Token endToken = context.consume(TokenType.RIGHT_PAREN, "期望 ')'");
-            if (nameToken == null || endToken == null) {
+        private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired) {
+            ArrayList<Token> pointerTokens = new ArrayList<>();
+            while (context.match(TokenType.STAR)) {
+                pointerTokens.add(context.previous());
+            }
+
+            Declarator direct;
+            if (context.match(TokenType.IDENTIFIER)) {
+                Token nameToken = context.previous();
+                direct = new Declarator(nameToken.lexeme(), new ArrayList<>(), nameToken, nameToken);
+            } else if (context.match(TokenType.LEFT_PAREN)) {
+                Token startToken = context.previous();
+                direct = parseDeclarator(expectedNameMessage, nameRequired);
+                Token endToken = context.consume(TokenType.RIGHT_PAREN, "期望 ')'");
+                if (direct == null || endToken == null) {
+                    return null;
+                }
+                direct = direct.withRange(startToken, endToken);
+            } else if (!nameRequired) {
+                Token anchor = pointerTokens.isEmpty() ? context.peek() : pointerTokens.getFirst();
+                direct = new Declarator("", new ArrayList<>(), anchor, anchor);
+            } else {
+                context.report(context.peek(), expectedNameMessage);
                 return null;
             }
-            return new ParsedNamedType(
-                    nameToken.lexeme(),
-                    MiniType.function(returnType.type(), parameterTypes).pointerTo(),
-                    SourceRange.span(startToken.range(), endToken.range())
-            );
+
+            while (context.check(TokenType.LEFT_BRACKET) || context.check(TokenType.LEFT_PAREN)) {
+                if (context.match(TokenType.LEFT_BRACKET)) {
+                    Token lengthToken = context.consume(TokenType.INTEGER_LITERAL, "期望数组长度");
+                    Token endToken = context.consume(TokenType.RIGHT_BRACKET, "期望 ']'");
+                    if (lengthToken == null || endToken == null) {
+                        return null;
+                    }
+                    int length = (Integer) lengthToken.literalValue();
+                    if (length <= 0) {
+                        context.report(lengthToken, "数组长度必须大于 0");
+                        length = 1;
+                    }
+                    direct.modifiers().add(new ArrayModifier(length));
+                    direct = direct.withEnd(endToken);
+                    continue;
+                }
+
+                context.advance();
+                ParameterList parameterList = parseParameterList();
+                Token endToken = context.consume(TokenType.RIGHT_PAREN, "期望 ')'");
+                if (endToken == null) {
+                    return null;
+                }
+                direct.modifiers().add(new FunctionModifier(
+                        parameterList.parameters(),
+                        parameterList.variadic()
+                ));
+                direct = direct.withEnd(endToken);
+            }
+
+            for (Token ignored : pointerTokens) {
+                direct.modifiers().add(PointerModifier.INSTANCE);
+            }
+            if (!pointerTokens.isEmpty()) {
+                direct = direct.withStart(pointerTokens.getFirst());
+            }
+            return direct;
         }
 
-        private ArrayList<MiniType> parseFunctionPointerParameterTypes() {
-            ArrayList<MiniType> parameterTypes = new ArrayList<>();
+        private ParameterList parseParameterList() {
+            ArrayList<ParsedParameter> parameters = new ArrayList<>();
             if (context.check(TokenType.RIGHT_PAREN)) {
-                return parameterTypes;
+                return new ParameterList(parameters, false);
             }
+            // C 的 (void) 表示无参数；void* 等声明仍按普通参数解析。
+            if (context.check(TokenType.VOID) && context.peekAt(1).type() == TokenType.RIGHT_PAREN) {
+                context.advance();
+                return new ParameterList(parameters, false);
+            }
+            boolean variadic = false;
             do {
-                ParsedType parameterType = parseType("期望函数指针参数类型");
-                if (parameterType != null) {
-                    parameterTypes.add(parameterType.type());
-                    if (context.check(TokenType.IDENTIFIER)) {
-                        context.advance();
+                if (context.match(TokenType.ELLIPSIS)) {
+                    variadic = true;
+                    if (!context.check(TokenType.RIGHT_PAREN)) {
+                        context.report(context.peek(), "可变参数标记必须位于参数列表末尾");
                     }
+                    break;
                 }
+                BaseType baseType = parseBaseType("期望参数类型");
+                if (baseType == null) {
+                    break;
+                }
+                Declarator declarator;
+                if (canStartDeclarator(true)) {
+                    declarator = parseDeclarator("", false);
+                    if (declarator == null) {
+                        break;
+                    }
+                } else {
+                    declarator = new Declarator("", new ArrayList<>(), baseType.endToken(), baseType.endToken());
+                }
+                MiniType parameterType = adjustParameterType(declarator.resolve(baseType.type()));
+                SourceRange range = SourceRange.span(baseType.startToken().range(), declarator.endToken().range());
+                parameters.add(new ParsedParameter(declarator.name(), parameterType, range));
             } while (context.match(TokenType.COMMA));
-            return parameterTypes;
+            return new ParameterList(parameters, variadic);
+        }
+
+        private boolean canStartDeclarator(boolean allowIdentifier) {
+            return context.check(TokenType.STAR)
+                    || context.check(TokenType.LEFT_PAREN)
+                    || context.check(TokenType.LEFT_BRACKET)
+                    || (allowIdentifier && context.check(TokenType.IDENTIFIER));
+        }
+
+        private MiniType adjustParameterType(MiniType type) {
+            if (type instanceof MiniType.ArrayType arrayType) {
+                return arrayType.elementType().pointerTo();
+            }
+            if (type instanceof MiniType.FunctionType) {
+                return type.pointerTo();
+            }
+            return type;
         }
 
         private BaseType parseBaseType(String expectedMessage) {
@@ -502,6 +618,10 @@ public final class Parser extends Stage {
                 Token token = context.advance();
                 return new BaseType(MiniType.DOUBLE, token, token);
             }
+            if (context.check(TokenType.VOID)) {
+                Token token = context.advance();
+                return new BaseType(MiniType.VOID, token, token);
+            }
             if (context.check(TokenType.STRUCT)) {
                 return parseStructType();
             }
@@ -517,12 +637,101 @@ public final class Parser extends Stage {
 
         private record BaseType(MiniType type, Token startToken, Token endToken) {
         }
+
+        private interface DeclaratorModifier {
+            MiniType apply(MiniType inner);
+        }
+
+        private enum PointerModifier implements DeclaratorModifier {
+            INSTANCE;
+
+            @Override
+            public MiniType apply(MiniType inner) {
+                return inner.pointerTo();
+            }
+        }
+
+        private record ArrayModifier(int length) implements DeclaratorModifier {
+            @Override
+            public MiniType apply(MiniType inner) {
+                return inner.arrayOf(length);
+            }
+        }
+
+        private record FunctionModifier(
+                List<ParsedParameter> parameters,
+                boolean variadic
+        ) implements DeclaratorModifier {
+            private FunctionModifier {
+                parameters = List.copyOf(parameters);
+            }
+
+            @Override
+            public MiniType apply(MiniType inner) {
+                return MiniType.function(
+                        inner,
+                        parameters.stream().map(ParsedParameter::type).toList(),
+                        variadic
+                );
+            }
+        }
+
+        private record Declarator(
+                String name,
+                ArrayList<DeclaratorModifier> modifiers,
+                Token startToken,
+                Token endToken
+        ) {
+            private MiniType resolve(MiniType baseType) {
+                MiniType resolved = baseType;
+                for (int index = modifiers.size() - 1; index >= 0; index--) {
+                    resolved = modifiers.get(index).apply(resolved);
+                }
+                return resolved;
+            }
+
+            private FunctionModifier topFunction() {
+                return !modifiers.isEmpty() && modifiers.getFirst() instanceof FunctionModifier function
+                        ? function
+                        : null;
+            }
+
+            private Declarator withRange(Token start, Token end) {
+                return new Declarator(name, modifiers, start, end);
+            }
+
+            private Declarator withStart(Token start) {
+                return new Declarator(name, modifiers, start, endToken);
+            }
+
+            private Declarator withEnd(Token end) {
+                return new Declarator(name, modifiers, startToken, end);
+            }
+        }
+
+        private record ParameterList(List<ParsedParameter> parameters, boolean variadic) {
+            private ParameterList {
+                parameters = List.copyOf(parameters);
+            }
+        }
     }
 
     public record ParsedType(MiniType type, Token startToken, SourceRange range) {
     }
 
-    public record ParsedNamedType(String name, MiniType type, SourceRange range) {
+    public record ParsedNamedType(
+            String name,
+            MiniType type,
+            SourceRange range,
+            List<ParsedParameter> parameters,
+            boolean variadic
+    ) {
+        public ParsedNamedType {
+            parameters = List.copyOf(parameters);
+        }
+    }
+
+    public record ParsedParameter(String name, MiniType type, SourceRange range) {
     }
 
     /** Parser 递归下降与 AST 构建观察事件。 */

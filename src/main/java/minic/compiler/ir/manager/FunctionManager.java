@@ -58,7 +58,12 @@ public final class FunctionManager {
         }
         begun = true;
         if (function.returnType().isStruct()) {
-            IrParameter retPtr = new IrParameter("__retptr", IrType.POINTER, function.range());
+            IrParameter retPtr = new IrParameter(
+                    "__retptr",
+                    function.returnType().pointerTo(),
+                    IrType.POINTER,
+                    function.range()
+            );
             parameters.add(retPtr);
             builder.defineParameter("__retptr", retPtr.ref());
         }
@@ -66,7 +71,12 @@ public final class FunctionManager {
             IrType parameterType = parameter.type().isStruct()
                     ? IrType.POINTER
                     : IrTypeLowerer.lower(parameter.type());
-            IrParameter irParameter = new IrParameter(parameter.name(), parameterType, parameter.range());
+            IrParameter irParameter = new IrParameter(
+                    parameter.name(),
+                    parameter.type(),
+                    parameterType,
+                    parameter.range()
+            );
             parameters.add(irParameter);
             builder.defineParameter(parameter.name(), irParameter.ref());
         }
@@ -82,6 +92,9 @@ public final class FunctionManager {
     /** 完成当前函数并返回不可变 IR 函数。 */
     public IrFunction complete() {
         requireActive();
+        if (function.returnType().isVoid()) {
+            builder.addVoidReturnIfOpen(function.range());
+        }
         builder.popLocalScope();
         completed = true;
         return snapshot();
@@ -92,7 +105,14 @@ public final class FunctionManager {
         if (!begun) {
             throw new IllegalStateException("function lowering has not begun");
         }
-        return new IrFunction(function.name(), parameters, builder.buildBlocks(), function.range());
+        return new IrFunction(
+                function.name(),
+                function.returnType(),
+                parameters,
+                function.variadic(),
+                builder.buildBlocks(),
+                function.range()
+        );
     }
 
     private void requireActive() {

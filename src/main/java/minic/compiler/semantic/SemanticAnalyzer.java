@@ -1,6 +1,6 @@
 package minic.compiler.semantic;
 
-import minic.compiler.Loop;
+import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
 import minic.compiler.parser.Parser;
 import minic.compiler.parser.node.AstNode;
@@ -97,7 +97,7 @@ public final class SemanticAnalyzer extends Stage {
 
     /** 循环执行当前输入的完整语义分析。 */
     public SemanticResult analyze() {
-        new Loop(List.of(this)).run();
+        new CompilerApi(List.of(this)).run();
         return semanticResult();
     }
 

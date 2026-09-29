@@ -15,6 +15,9 @@ java {
 
 dependencies {
     implementation 'org.fxmisc.richtext:richtextfx:0.11.7'
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-console-standalone:1.11.4'
 }
 
 javafx {
@@ -24,6 +27,26 @@ javafx {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+// 当前 Windows 环境禁止 Gradle test worker 建立回环通道。使用 JUnit ConsoleLauncher
+// 直接启动测试进程，保留同样的 Jupiter 发现与失败退出码，避免测试基础设施依赖回环 socket。
+tasks.register('testWithoutWorker', JavaExec) {
+    group = 'verification'
+    description = '运行 JUnit 测试，不使用 Gradle test worker 回环连接'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.junit.platform.console.ConsoleLauncher'
+    args 'execute', '--scan-class-path', '--details=summary', '--disable-banner'
+}
+
+tasks.named('test') {
+    enabled = false
+    finalizedBy tasks.named('testWithoutWorker')
 }
 
 application {

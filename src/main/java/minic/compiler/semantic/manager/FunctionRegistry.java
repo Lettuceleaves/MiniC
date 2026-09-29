@@ -35,7 +35,7 @@ public final class FunctionRegistry {
                         name,
                         SymbolKind.FUNCTION,
                         functionDecl.range(),
-                        MiniType.function(functionDecl.returnType(), parameterTypes),
+                        MiniType.function(functionDecl.returnType(), parameterTypes, functionDecl.variadic()),
                         parameterTypes.size()
                 );
                 globalScope.define(symbol);
@@ -170,8 +170,13 @@ public final class FunctionRegistry {
     }
 
     private void validateFunctionSignature(FunctionDecl functionDecl) {
-        if ("main".equals(functionDecl.name()) && !functionDecl.parameters().isEmpty()) {
-            report(functionDecl.range(), "非法 main 函数签名：main 必须无参数");
+        if ("main".equals(functionDecl.name())) {
+            if (!functionDecl.parameters().isEmpty()) {
+                report(functionDecl.range(), "非法 main 函数签名：main 必须无参数");
+            }
+            if (!functionDecl.returnType().equals(MiniType.INT)) {
+                report(functionDecl.range(), "非法 main 函数签名：main 必须返回 int");
+            }
         }
     }
 

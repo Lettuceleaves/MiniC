@@ -7,12 +7,21 @@ import java.util.Objects;
  * MiniC 前端类型。
  */
 public sealed interface MiniType permits
-        MiniType.ScalarType,
+        MiniType.NamedType,
+        MiniType.CombinationType,
         MiniType.NullPointerType,
-        MiniType.PointerType,
-        MiniType.ArrayType,
-        MiniType.StructType,
-        MiniType.FunctionType {
+        MiniType.VoidType {
+    /**
+     * 具有源码名称的叶子节点。标量名和 {@code struct Name} 都在这里终止递归。
+     */
+    sealed interface NamedType extends MiniType permits ScalarType, StructType {
+    }
+
+    /**
+     * 组合节点。每个节点只描述一层组合，因此指针、数组和函数可以任意递归嵌套。
+     */
+    sealed interface CombinationType extends MiniType permits PointerType, ArrayType, FunctionType {
+    }
     /**
      * MiniC bool 类型。
      */
@@ -42,6 +51,11 @@ public sealed interface MiniType permits
      * MiniC double 类型。
      */
     MiniType DOUBLE = new ScalarType(ScalarKind.DOUBLE);
+
+    /**
+     * 无值类型，只能用于函数返回类型或作为指针的被指向类型。
+     */
+    MiniType VOID = new VoidType();
 
     /**
      * NULL 空指针常量类型。
@@ -85,7 +99,19 @@ public sealed interface MiniType permits
      * @return 函数签名类型
      */
     static MiniType function(MiniType returnType, List<MiniType> parameterTypes) {
-        return new FunctionType(returnType, parameterTypes);
+        return new FunctionType(returnType, parameterTypes, false);
+    }
+
+    /**
+     * 创建函数签名类型。
+     *
+     * @param returnType 返回类型
+     * @param parameterTypes 固定参数类型列表
+     * @param variadic 是否接受可变参数
+     * @return 函数签名类型
+     */
+    static MiniType function(MiniType returnType, List<MiniType> parameterTypes, boolean variadic) {
+        return new FunctionType(returnType, parameterTypes, variadic);
     }
 
     /**
@@ -158,6 +184,11 @@ public sealed interface MiniType permits
      */
     default boolean isNullPointer() {
         return this instanceof NullPointerType;
+    }
+
+    /** @return 当前类型是否为 {@code void}。 */
+    default boolean isVoid() {
+        return this instanceof VoidType;
     }
 
     /**
@@ -286,7 +317,7 @@ public sealed interface MiniType permits
      *
      * @param kind 标量种类
      */
-    record ScalarType(ScalarKind kind) implements MiniType {
+    record ScalarType(ScalarKind kind) implements NamedType {
         /**
          * 创建基础标量类型。
          *
@@ -312,12 +343,20 @@ public sealed interface MiniType permits
         }
     }
 
+    /** MiniC {@code void} 类型。 */
+    record VoidType() implements MiniType {
+        @Override
+        public String toString() {
+            return "void";
+        }
+    }
+
     /**
      * MiniC 指针类型。
      *
      * @param pointee 指向的元素类型
      */
-    record PointerType(MiniType pointee) implements MiniType {
+    record PointerType(MiniType pointee) implements CombinationType {
         /**
          * 创建指针类型。
          *
@@ -339,7 +378,7 @@ public sealed interface MiniType permits
      * @param elementType 元素类型
      * @param length 数组长度
      */
-    record ArrayType(MiniType elementType, int length) implements MiniType {
+    record ArrayType(MiniType elementType, int length) implements CombinationType {
         /**
          * 创建固定长度数组类型。
          *
@@ -364,7 +403,7 @@ public sealed interface MiniType permits
      *
      * @param name 结构体名
      */
-    record StructType(String name) implements MiniType {
+    record StructType(String name) implements NamedType {
         /**
          * 创建命名结构体类型。
          *
@@ -387,9 +426,14 @@ public sealed interface MiniType permits
      * MiniC 函数签名类型。
      *
      * @param returnType 返回类型
-     * @param parameterTypes 参数类型列表
+     * @param parameterTypes 固定参数类型列表
+     * @param variadic 是否接受可变参数
      */
-    record FunctionType(MiniType returnType, List<MiniType> parameterTypes) implements MiniType {
+    record FunctionType(
+            MiniType returnType,
+            List<MiniType> parameterTypes,
+            boolean variadic
+    ) implements CombinationType {
         /**
          * 创建函数签名类型。
          *
@@ -404,9 +448,13 @@ public sealed interface MiniType permits
 
         @Override
         public String toString() {
-            return returnType + " (" + String.join(", ", parameterTypes.stream()
+            String parameters = String.join(", ", parameterTypes.stream()
                     .map(Object::toString)
-                    .toList()) + ")";
+                    .toList());
+            if (variadic) {
+                parameters = parameters.isEmpty() ? "..." : parameters + ", ...";
+            }
+            return returnType + " (" + parameters + ")";
         }
     }
 }

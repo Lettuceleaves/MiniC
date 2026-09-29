@@ -16,7 +16,7 @@ import minic.compiler.parser.node.Expression.IntegerLiteralExpr;
 import minic.compiler.parser.node.Expression.LongLiteralExpr;
 import minic.compiler.parser.node.Expression.CharLiteralExpr;
 import minic.compiler.parser.node.Expression.BoolLiteralExpr;
-import minic.compiler.parser.node.Expression.StructInitExpr;
+import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator;
 import minic.compiler.parser.node.Statement.VarDeclStmt;
@@ -24,6 +24,7 @@ import minic.compiler.parser.node.Statement.WhileStmt;
 import minic.compiler.ir.instruction.ControlInstruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.MemoryInstruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.MemoryInstruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrElementAddressInstruction;
 import minic.compiler.ir.instruction.MemoryInstruction.IrFieldAddressInstruction;
 import minic.compiler.ir.instruction.ControlInstruction.IrJumpInstruction;
 import minic.compiler.ir.instruction.MemoryInstruction.IrMemCopyInstruction;
@@ -33,6 +34,7 @@ import minic.compiler.ir.instruction.MemoryInstruction.IrStorePointerInstruction
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrValue;
+import minic.compiler.ir.value.IrValue.IrConstant;
 import minic.compiler.ir.value.IrValue.IrTemporary;
 import minic.compiler.type.MiniType;
 
@@ -78,8 +80,11 @@ final class StatementLowerer {
 
     void lowerStatement(Statement statement) {
         if (statement instanceof ReturnStmt returnStmt) {
-            Expression expression = returnStmt.expressionOptional()
-                    .orElseThrow(() -> new IllegalArgumentException("return statement must have a value"));
+            if (returnStmt.expressionOptional().isEmpty()) {
+                builder.addInstruction(new IrReturnInstruction(null, returnStmt.range()));
+                return;
+            }
+            Expression expression = returnStmt.expressionOptional().orElseThrow();
             IrValue value = expressionLowerer.lowerExpression(expression);
             if (structReturnName != null) {
                 IrValue retPtr = builder.resolveParameter("__retptr");
@@ -114,17 +119,20 @@ final class StatementLowerer {
                             varDeclStmt.range()
                     ));
                 });
-            } else if (varDeclStmt.type().isStruct()) {
+            } else {
                 varDeclStmt.initializerOptional().ifPresent(initializer -> {
-                    if (initializer instanceof StructInitExpr structInitExpr) {
-                        lowerStructInit(local, varDeclStmt, structInitExpr);
-                    } else {
+                    if (initializer instanceof AggregateInitExpr aggregateInitExpr) {
+                        lowerAggregateInit(local, varDeclStmt, aggregateInitExpr);
+                    } else if (varDeclStmt.type().isStruct()) {
                         IrValue srcAddress = expressionLowerer.lowerExpression(initializer);
                         IrTemporary destAddress = builder.newTemporary(IrType.POINTER);
                         builder.addInstruction(new IrAddressOfLocalInstruction(destAddress, local, varDeclStmt.range()));
-                        String structName = ((MiniType.StructType) varDeclStmt.type()).name();
-                        int size = builder.structSize(structName);
-                        builder.addInstruction(new IrMemCopyInstruction(destAddress, srcAddress, size, varDeclStmt.range()));
+                        builder.addInstruction(new IrMemCopyInstruction(
+                                destAddress,
+                                srcAddress,
+                                builder.sizeOf(varDeclStmt.type()),
+                                varDeclStmt.range()
+                        ));
                     }
                 });
             }
@@ -351,28 +359,78 @@ final class StatementLowerer {
         }
     }
 
-    private void lowerStructInit(IrLocal local, VarDeclStmt varDeclStmt, StructInitExpr structInitExpr) {
-        String structName = ((MiniType.StructType) varDeclStmt.type()).name();
+    private void lowerAggregateInit(IrLocal local, VarDeclStmt varDeclStmt, AggregateInitExpr initializer) {
         IrTemporary baseAddress = builder.newTemporary(IrType.POINTER);
         builder.addInstruction(new IrAddressOfLocalInstruction(baseAddress, local, varDeclStmt.range()));
-        for (int i = 0; i < structInitExpr.values().size(); i++) {
-            String fieldName = builder.fieldName(structName, i);
-            int offset = builder.fieldOffset(structName, i);
-            int pointerFieldIndex = builder.pointerFieldIndex(structName, i);
+        lowerAggregateInitAt(
+                baseAddress,
+                varDeclStmt.type(),
+                initializer,
+                varDeclStmt.range()
+        );
+    }
+
+    private void lowerAggregateInitAt(
+            IrValue baseAddress,
+            MiniType aggregateType,
+            AggregateInitExpr initializer,
+            minic.source.SourceRange range
+    ) {
+        if (aggregateType instanceof MiniType.ArrayType arrayType) {
+            int count = Math.min(initializer.values().size(), arrayType.length());
+            for (int index = 0; index < count; index++) {
+                IrTemporary elementAddress = builder.newTemporary(IrType.POINTER);
+                builder.addInstruction(new IrElementAddressInstruction(
+                        elementAddress,
+                        baseAddress,
+                        new IrConstant(index),
+                        arrayType.elementType(),
+                        builder.sizeOf(arrayType.elementType()),
+                        range
+                ));
+                lowerInitializerAt(elementAddress, arrayType.elementType(), initializer.values().get(index), range);
+            }
+            return;
+        }
+
+        MiniType.StructType structType = (MiniType.StructType) aggregateType;
+        String structName = structType.name();
+        for (int i = 0; i < initializer.values().size(); i++) {
+            var field = builder.fieldLayout(structName, i);
             IrTemporary fieldAddr = builder.newTemporary(IrType.POINTER);
             builder.addInstruction(new IrFieldAddressInstruction(
                     fieldAddr,
                     baseAddress,
                     structName,
-                    fieldName,
-                    i,
-                    pointerFieldIndex,
-                    offset,
-                    builder.fieldType(structName, i),
-                    varDeclStmt.range()
+                    field.name(),
+                    field.offset(),
+                    field.type(),
+                    range
             ));
-            IrValue value = expressionLowerer.lowerExpression(structInitExpr.values().get(i));
-            builder.addInstruction(new IrStorePointerInstruction(fieldAddr, value, varDeclStmt.range()));
+            lowerInitializerAt(fieldAddr, field.type(), initializer.values().get(i), range);
+        }
+    }
+
+    private void lowerInitializerAt(
+            IrValue address,
+            MiniType targetType,
+            Expression initializer,
+            minic.source.SourceRange range
+    ) {
+        if (initializer instanceof AggregateInitExpr nested) {
+            lowerAggregateInitAt(address, targetType, nested, range);
+            return;
+        }
+        IrValue value = expressionLowerer.lowerExpression(initializer);
+        if (targetType.isStruct()) {
+            builder.addInstruction(new IrMemCopyInstruction(
+                    address,
+                    value,
+                    builder.sizeOf(targetType),
+                    range
+            ));
+        } else {
+            builder.addInstruction(new IrStorePointerInstruction(address, value, range));
         }
     }
 

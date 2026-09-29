@@ -2,7 +2,6 @@ package minic.uilocal;
 
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyObjectWrapper;
-import minic.uiapi.UiSourceRangeDto;
 
 /**
  * 当前被用户选中的 diagnostic 范围。

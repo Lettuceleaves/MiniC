@@ -1,6 +1,6 @@
 package minic.uilocal.text;
 
-import minic.uiapi.UiLexerTokenVisualDto;
+import minic.uilocal.UiLexerTokenVisualDto;
 
 import java.util.Collection;
 import java.util.List;

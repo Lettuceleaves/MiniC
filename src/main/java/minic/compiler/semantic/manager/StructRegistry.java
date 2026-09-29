@@ -25,6 +25,7 @@ public final class StructRegistry {
     private final List<Diagnostic> diagnostics;
     private final Map<String, StructDecl> structDecls = new LinkedHashMap<>();
     private final Map<String, StructLayout> structLayouts = new LinkedHashMap<>();
+    private final Set<String> layoutsInProgress = new HashSet<>();
 
     public StructRegistry(Scope globalScope, List<Diagnostic> diagnostics) {
         this.globalScope = globalScope;
@@ -53,7 +54,7 @@ public final class StructRegistry {
         program.structs().forEach(this::validateStructFieldTypes);
         validateRecursiveStructValues();
         program.functions().forEach(functionDecl -> {
-            validateDeclaredType(functionDecl.returnType(), functionDecl.range());
+            validateFunctionReturnType(functionDecl.returnType(), functionDecl.range());
             functionDecl.parameters().forEach(parameter -> validateDeclaredType(parameter.type(), parameter.range()));
             functionDecl.bodyOptional().ifPresent(body -> {
                 // 局部声明会在语句语义分析阶段校验。
@@ -62,17 +63,62 @@ public final class StructRegistry {
     }
 
     void validateDeclaredType(MiniType type, minic.source.SourceRange range) {
-        MiniType baseType = unwrap(type);
-        if (baseType instanceof MiniType.StructType structType
+        validateTypeReferences(type, range);
+        validateTypeShape(type, range, true);
+    }
+
+    private void validateFunctionReturnType(MiniType type, SourceRange range) {
+        validateTypeReferences(type, range);
+        if (type.isArray() || type.isFunction()) {
+            report(range, "函数不能直接返回数组或函数类型");
+        }
+        validateTypeShape(type, range, false);
+    }
+
+    private void validateTypeReferences(MiniType type, SourceRange range) {
+        if (type instanceof MiniType.StructType structType
                 && globalScope.resolve(structType.name())
                 .filter(symbol -> symbol.kind() == SymbolKind.STRUCT)
                 .isEmpty()) {
             report(range, "未声明结构体类型：" + structType.name());
+            return;
+        }
+        if (type instanceof MiniType.PointerType pointerType) {
+            validateTypeReferences(pointerType.pointee(), range);
+        } else if (type instanceof MiniType.ArrayType arrayType) {
+            validateTypeReferences(arrayType.elementType(), range);
+        } else if (type instanceof MiniType.FunctionType functionType) {
+            validateTypeReferences(functionType.returnType(), range);
+            functionType.parameterTypes().forEach(parameterType -> validateTypeReferences(parameterType, range));
+        }
+    }
+
+    private void validateTypeShape(MiniType type, SourceRange range, boolean objectRoot) {
+        if (objectRoot && type.isVoid()) {
+            report(range, "对象不能声明为 void 类型");
+        }
+        if (objectRoot && type.isFunction()) {
+            report(range, "对象不能直接声明为函数类型；请使用函数指针");
+        }
+        if (type instanceof MiniType.ArrayType arrayType) {
+            if (arrayType.elementType().isFunction() || arrayType.elementType().isVoid()) {
+                report(range, "数组元素不能是函数或 void 类型");
+            }
+            validateTypeShape(arrayType.elementType(), range, false);
+        } else if (type instanceof MiniType.PointerType pointerType) {
+            validateTypeShape(pointerType.pointee(), range, false);
+        } else if (type instanceof MiniType.FunctionType functionType) {
+            if (functionType.returnType().isArray() || functionType.returnType().isFunction()) {
+                report(range, "函数不能直接返回数组或函数类型");
+            }
+            validateTypeShape(functionType.returnType(), range, false);
+            functionType.parameterTypes().forEach(parameterType -> validateTypeShape(parameterType, range, true));
         }
     }
 
     public Map<String, StructLayout> computeLayouts() {
         structLayouts.clear();
+        layoutsInProgress.clear();
         for (StructDecl structDecl : structDecls.values()) {
             layoutOf(structDecl.name());
         }
@@ -168,16 +214,6 @@ public final class StructRegistry {
         return false;
     }
 
-    private MiniType unwrap(MiniType type) {
-        if (type.isArray()) {
-            return unwrap(type.elementType());
-        }
-        if (type.isPointer()) {
-            return unwrap(type.pointee());
-        }
-        return type;
-    }
-
     private StructLayout layoutOf(String structName) {
         StructLayout existingLayout = structLayouts.get(structName);
         if (existingLayout != null) {
@@ -187,27 +223,38 @@ public final class StructRegistry {
         if (structDecl == null) {
             return null;
         }
-
-        ArrayList<StructFieldLayout> fieldLayouts = new ArrayList<>();
-        int offset = 0;
-        int structAlignment = 1;
-        for (StructField field : structDecl.fields()) {
-            int fieldAlignment = alignmentOf(field.type());
-            int fieldSize = sizeOf(field.type());
-            offset = alignTo(offset, fieldAlignment);
-            fieldLayouts.add(new StructFieldLayout(field.name(), field.type(), offset, fieldSize, fieldAlignment));
-            offset += fieldSize;
-            if (fieldAlignment > structAlignment) {
-                structAlignment = fieldAlignment;
-            }
+        if (!layoutsInProgress.add(structName)) {
+            return null;
         }
-        int structSize = alignTo(offset == 0 ? 1 : offset, structAlignment);
-        StructLayout layout = new StructLayout(structName, structSize, structAlignment, fieldLayouts);
-        structLayouts.put(structName, layout);
-        return layout;
+
+        try {
+            ArrayList<StructFieldLayout> fieldLayouts = new ArrayList<>();
+            int offset = 0;
+            int structAlignment = 1;
+            for (StructField field : structDecl.fields()) {
+                int fieldAlignment = alignmentOf(field.type());
+                int fieldSize = sizeOf(field.type());
+                offset = alignTo(offset, fieldAlignment);
+                fieldLayouts.add(new StructFieldLayout(field.name(), field.type(), offset, fieldSize, fieldAlignment));
+                offset += fieldSize;
+                if (fieldAlignment > structAlignment) {
+                    structAlignment = fieldAlignment;
+                }
+            }
+            int structSize = alignTo(offset == 0 ? 1 : offset, structAlignment);
+            StructLayout layout = new StructLayout(structName, structSize, structAlignment, fieldLayouts);
+            structLayouts.put(structName, layout);
+            return layout;
+        } finally {
+            layoutsInProgress.remove(structName);
+        }
     }
 
     private int sizeOf(MiniType type) {
+        // 非法函数对象已由 validateTypeShape 报错；占位布局只用于让诊断阶段安全完成。
+        if (type.isFunction()) {
+            return 1;
+        }
         if (type.isArray()) {
             return sizeOf(type.elementType()) * type.arrayLength();
         }
@@ -222,6 +269,9 @@ public final class StructRegistry {
     }
 
     private int alignmentOf(MiniType type) {
+        if (type.isFunction()) {
+            return 1;
+        }
         if (type.isArray()) {
             return alignmentOf(type.elementType());
         }

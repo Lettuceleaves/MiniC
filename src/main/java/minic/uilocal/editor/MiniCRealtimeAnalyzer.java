@@ -1,8 +1,6 @@
 package minic.uilocal;
 
 import javafx.application.Platform;
-import minic.uiapi.MiniCRealtimeAnalysisApi;
-import minic.uiapi.UiRealtimeAnalysisDto;
 
 import java.time.Duration;
 import java.util.Objects;

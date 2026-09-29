@@ -85,6 +85,11 @@ public enum TokenType {
     DOUBLE,
 
     /**
+     * {@code void} 关键字。
+     */
+    VOID,
+
+    /**
      * {@code extern} 关键字。
      */
     EXTERN,

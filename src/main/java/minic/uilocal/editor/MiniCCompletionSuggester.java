@@ -1,6 +1,5 @@
 package minic.uilocal;
 
-import minic.uiapi.UiLexerTokenVisualDto;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -15,7 +14,7 @@ final class MiniCCompletionSuggester {
             "return", "if", "else", "while", "for", "break", "continue", "true", "false", "null"
     );
     private static final List<String> COMMON_EXTERNALS = List.of(
-            "printf", "scanf", "puts", "getchar", "putchar", "malloc", "free", "memset", "memcpy", "strlen"
+            "scanf", "puts", "getchar", "putchar", "memset", "memcpy", "strlen"
     );
     private static final Pattern IDENTIFIER_PATTERN = Pattern.compile("\\b[A-Za-z_][A-Za-z0-9_]*\\b");
     private static final Pattern DECLARED_NAME_PATTERN = Pattern.compile(

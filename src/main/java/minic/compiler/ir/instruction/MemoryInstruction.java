@@ -3,6 +3,7 @@ package minic.compiler.ir.instruction;
 import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.value.IrValue;
 import minic.compiler.ir.value.IrValue.IrTemporary;
+import minic.compiler.type.MiniType;
 import minic.source.SourceRange;
 
 import java.util.Objects;
@@ -74,6 +75,7 @@ public sealed interface MemoryInstruction extends IrInstruction {
             IrTemporary result,
             IrValue baseAddress,
             IrValue index,
+            MiniType elementType,
             int elementSizeBytes,
             SourceRange range
     ) implements MemoryInstruction {
@@ -81,20 +83,13 @@ public sealed interface MemoryInstruction extends IrInstruction {
             Objects.requireNonNull(result, "result");
             Objects.requireNonNull(baseAddress, "baseAddress");
             Objects.requireNonNull(index, "index");
+            Objects.requireNonNull(elementType, "elementType");
             Objects.requireNonNull(range, "range");
             if (elementSizeBytes <= 0) {
                 throw new IllegalArgumentException("elementSizeBytes must be positive");
             }
         }
 
-        public IrElementAddressInstruction(
-                IrTemporary result,
-                IrValue baseAddress,
-                IrValue index,
-                SourceRange range
-        ) {
-            this(result, baseAddress, index, 4, range);
-        }
     }
 
     record IrFieldAddressInstruction(
@@ -102,22 +97,10 @@ public sealed interface MemoryInstruction extends IrInstruction {
             IrValue baseAddress,
             String ownerStructName,
             String fieldName,
-            int declaredFieldIndex,
-            int pointerFieldIndex,
             int offset,
-            String fieldType,
+            MiniType fieldType,
             SourceRange range
     ) implements MemoryInstruction {
-        public IrFieldAddressInstruction(
-                IrTemporary result,
-                IrValue baseAddress,
-                String fieldName,
-                int offset,
-                SourceRange range
-        ) {
-            this(result, baseAddress, "", fieldName, -1, -1, offset, "", range);
-        }
-
         public IrFieldAddressInstruction {
             Objects.requireNonNull(result, "result");
             Objects.requireNonNull(baseAddress, "baseAddress");
@@ -127,12 +110,6 @@ public sealed interface MemoryInstruction extends IrInstruction {
             Objects.requireNonNull(range, "range");
             if (fieldName.isBlank()) {
                 throw new IllegalArgumentException("fieldName must not be blank");
-            }
-            if (declaredFieldIndex < -1) {
-                throw new IllegalArgumentException("declaredFieldIndex must not be less than -1");
-            }
-            if (pointerFieldIndex < -1) {
-                throw new IllegalArgumentException("pointerFieldIndex must not be less than -1");
             }
             if (offset < 0) {
                 throw new IllegalArgumentException("offset must not be negative");

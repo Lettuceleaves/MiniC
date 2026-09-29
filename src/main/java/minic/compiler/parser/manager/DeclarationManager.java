@@ -13,7 +13,6 @@ import minic.compiler.type.MiniType;
 import minic.source.SourceRange;
 
 import java.util.ArrayList;
-import java.util.List;
 
 public final class DeclarationManager {
     private final Parser.Context state;
@@ -33,19 +32,17 @@ public final class DeclarationManager {
         if (external) {
             startToken = state.previous();
         }
-        Parser.ParsedType returnType = typeReader.parseType("期望函数声明以 int 开始");
-        if (returnType == null) {
+        Parser.ParsedNamedType declaration = typeReader.parseNamedType(
+                "期望函数返回类型",
+                "期望函数名"
+        );
+        if (declaration == null) {
             return null;
         }
-        if (state.check(TokenType.LEFT_PAREN)) {
-            rejectFunctionPointerReturnType();
+        if (!(declaration.type() instanceof MiniType.FunctionType functionType)) {
+            state.report(state.peek(), "顶层声明必须是函数");
             return null;
         }
-
-        Token nameToken = state.consume(TokenType.IDENTIFIER, "期望函数名");
-        state.consume(TokenType.LEFT_PAREN, "期望 '('");
-        ParameterList parameters = parseParameters();
-        state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
         Token semicolonToken = null;
         BlockStmt body = null;
         if (state.match(TokenType.SEMICOLON)) {
@@ -59,15 +56,25 @@ public final class DeclarationManager {
             body = statementManager.parseBlock();
         }
 
-        if (nameToken == null || (body == null && semicolonToken == null)) {
+        if (body == null && semicolonToken == null) {
             return null;
+        }
+        ArrayList<Parameter> parameters = new ArrayList<>();
+        for (int index = 0; index < declaration.parameters().size(); index++) {
+            Parser.ParsedParameter parameter = declaration.parameters().get(index);
+            if (body != null && parameter.name().isEmpty()) {
+                state.report(parameter.range(), "函数定义中的参数必须命名");
+                return null;
+            }
+            String name = parameter.name().isEmpty() ? "__unnamed" + index : parameter.name();
+            parameters.add(new Parameter(name, parameter.type(), parameter.range()));
         }
         SourceRange endRange = body != null ? body.range() : semicolonToken.range();
         FunctionDecl functionDecl = new FunctionDecl(
-                nameToken.lexeme(),
-                returnType.type(),
-                parameters.parameters(),
-                parameters.variadic(),
+                declaration.name(),
+                functionType.returnType(),
+                parameters,
+                functionType.variadic(),
                 body,
                 external,
                 SourceRange.span(startToken.range(), endRange)
@@ -107,108 +114,15 @@ public final class DeclarationManager {
     }
 
     private StructField parseStructField() {
-        Parser.ParsedType type = typeReader.parseType("期望字段类型");
-        Parser.ParsedNamedType functionPointer = null;
-        Token nameToken = null;
-        MiniType declaredType = null;
-        SourceRange declarationRange = null;
-        if (type != null && state.check(TokenType.LEFT_PAREN)) {
-            functionPointer = typeReader.parseFunctionPointerDeclarator(type, "期望字段名");
-            if (functionPointer != null) {
-                declaredType = functionPointer.type();
-                declarationRange = functionPointer.range();
-            }
-        } else {
-            nameToken = state.consume(TokenType.IDENTIFIER, "期望字段名");
-            declaredType = type != null ? parseArraySuffix(type.type()) : null;
-        }
+        Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望字段类型", "期望字段名");
         Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");
-        if (type == null || (nameToken == null && functionPointer == null) || semicolonToken == null) {
+        if (declaration == null || semicolonToken == null) {
             return null;
         }
-        String name = functionPointer != null ? functionPointer.name() : nameToken.lexeme();
-        SourceRange range = declarationRange != null
-                ? SourceRange.span(declarationRange, semicolonToken.range())
-                : SourceRange.span(type.range(), semicolonToken.range());
         return new StructField(
-                name,
-                declaredType,
-                range
+                declaration.name(),
+                declaration.type(),
+                SourceRange.span(declaration.range(), semicolonToken.range())
         );
-    }
-
-    private MiniType parseArraySuffix(MiniType baseType) {
-        if (!state.match(TokenType.LEFT_BRACKET)) {
-            return baseType;
-        }
-        Token lengthToken = state.consume(TokenType.INTEGER_LITERAL, "期望数组长度");
-        state.consume(TokenType.RIGHT_BRACKET, "期望 ']'");
-        if (lengthToken == null) {
-            return baseType;
-        }
-        int length = (Integer) lengthToken.literalValue();
-        if (length <= 0) {
-            state.report(lengthToken, "数组长度必须大于 0");
-            return baseType;
-        }
-        return baseType.arrayOf(length);
-    }
-
-    private ParameterList parseParameters() {
-        ArrayList<Parameter> parameters = new ArrayList<>();
-        if (state.check(TokenType.RIGHT_PAREN)) {
-            return new ParameterList(parameters, false);
-        }
-
-        boolean variadic = false;
-        do {
-            if (state.match(TokenType.ELLIPSIS)) {
-                variadic = true;
-                if (!state.check(TokenType.RIGHT_PAREN)) {
-                    state.report(state.peek(), "可变参数标记必须位于参数列表末尾");
-                }
-                break;
-            }
-            Parser.ParsedType type = typeReader.parseType("期望参数类型 int");
-            if (type != null && state.check(TokenType.LEFT_PAREN)) {
-                Parser.ParsedNamedType functionPointer = typeReader.parseFunctionPointerDeclarator(type, "期望参数名");
-                if (functionPointer != null) {
-                    parameters.add(new Parameter(functionPointer.name(), functionPointer.type(), functionPointer.range()));
-                }
-            } else {
-                Token nameToken = state.consume(TokenType.IDENTIFIER, "期望参数名");
-                if (type != null && nameToken != null) {
-                    parameters.add(new Parameter(
-                            nameToken.lexeme(),
-                            type.type(),
-                            SourceRange.span(type.range(), nameToken.range())
-                    ));
-                }
-            }
-        } while (state.match(TokenType.COMMA));
-
-        return new ParameterList(parameters, variadic);
-    }
-
-    private void rejectFunctionPointerReturnType() {
-        state.report(state.peek(), "暂不支持函数指针返回值");
-        int parenthesisDepth = 0;
-        while (!state.isAtEnd()) {
-            if (state.check(TokenType.LEFT_PAREN)) {
-                parenthesisDepth++;
-            } else if (state.check(TokenType.RIGHT_PAREN)) {
-                parenthesisDepth = Math.max(0, parenthesisDepth - 1);
-            }
-            if (parenthesisDepth == 0 && (state.check(TokenType.LEFT_BRACE) || state.check(TokenType.SEMICOLON))) {
-                break;
-            }
-            state.advance();
-        }
-    }
-
-    private record ParameterList(List<Parameter> parameters, boolean variadic) {
-        private ParameterList {
-            parameters = List.copyOf(parameters);
-        }
     }
 }

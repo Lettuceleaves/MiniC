@@ -33,6 +33,14 @@
       "keys": ["Ctrl+F5"]
     },
     {
+      "action": "debug.step",
+      "keys": ["F11"]
+    },
+    {
+      "action": "debug.stepBack",
+      "keys": ["Shift+F11"]
+    },
+    {
       "action": "debug.runToEnd",
       "keys": ["Ctrl+Shift+F5"]
     },
@@ -45,20 +53,24 @@
       "keys": ["F10"]
     },
     {
-      "action": "debug.stepInto",
-      "keys": ["F11"]
-    },
-    {
-      "action": "debug.backToBreakpoint",
-      "keys": ["Shift+F5"]
+      "action": "debug.stepOut",
+      "keys": ["Ctrl+F11"]
     },
     {
       "action": "debug.stepBackOver",
       "keys": ["Shift+F10"]
     },
     {
-      "action": "debug.stepBack",
-      "keys": ["Shift+F11"]
+      "action": "debug.backToBreakpoint",
+      "keys": ["Shift+F5"]
+    },
+    {
+      "action": "debug.backToCallSite",
+      "keys": ["Ctrl+Shift+F11"]
+    },
+    {
+      "action": "debug.pause",
+      "keys": ["F6"]
     },
     {
       "action": "compiler.next",

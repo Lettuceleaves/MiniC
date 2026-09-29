@@ -4,8 +4,6 @@ import javafx.scene.control.Label;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
-import minic.uiapi.UiCurrentStateDto;
-import minic.uiapi.UiSourceRangeDto;
 
 import java.util.List;
 import java.util.Objects;
