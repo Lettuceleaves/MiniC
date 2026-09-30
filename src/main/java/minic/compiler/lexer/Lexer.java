@@ -11,15 +11,14 @@ import minic.compiler.lexer.token.Token.CharacterLiteralValue;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.preprocess.Preprocessor;
 import minic.compiler.type.MiniType;
-import minic.diagnostics.Diagnostic;
+import minic.compiler.Diagnostic;
 import minic.compiler.SourceFile;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.ArrayList;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * MiniC 词法分析器。既可逐步执行，也可循环执行完整词法分析。
@@ -32,8 +31,6 @@ public final class Lexer extends Stage {
     private final List<Token> tokens = new ArrayList<>();
     private final List<Diagnostic> diagnostics = new ArrayList<>();
     private int currentOffset;
-    private Token currentToken;
-    private Diagnostic currentDiagnostic;
     private boolean eofEmitted;
     private boolean completed;
     private long stepCount;
@@ -55,11 +52,6 @@ public final class Lexer extends Stage {
     @Override
     public boolean canNext() {
         return !completed;
-    }
-
-    @Override
-    public boolean succeeded() {
-        return completed && diagnostics.isEmpty();
     }
 
     /** @return 已执行的步数 */
@@ -91,14 +83,12 @@ public final class Lexer extends Stage {
             throw new IllegalStateException("lexer step is already completed");
         }
         ensureSourceFile();
-        currentToken = null;
-        currentDiagnostic = null;
         int beforeTokens = tokens.size();
         int beforeDiagnostics = diagnostics.size();
         if (eofEmitted) {
             completed = true;
             stepCount++;
-            return null;
+            return finishStep(null, "", diagnostics, this::toLexerResult);
         }
         if (isAtEnd()) {
             int eofOffset = currentOffset;
@@ -108,10 +98,9 @@ public final class Lexer extends Stage {
                     range(eofOffset, eofOffset)
             );
             tokens.add(eof);
-            currentToken = eof;
             eofEmitted = true;
             stepCount++;
-            return eof.range();
+            return finishStep(eof.range(), "EMIT_EOF", diagnostics, this::toLexerResult);
         }
 
         int startOffset = currentOffset;
@@ -183,27 +172,17 @@ public final class Lexer extends Stage {
                 }
             }
         }
-        captureOutput(beforeTokens, beforeDiagnostics);
         stepCount++;
-        return range(startOffset, currentOffset);
-    }
-
-    /**
-     * 返回最近产出的 token。
-     *
-     * @return token Optional
-     */
-    public Optional<Token> currentToken() {
-        return Optional.ofNullable(currentToken);
-    }
-
-    /**
-     * 返回最近产出的 diagnostic。
-     *
-     * @return diagnostic Optional
-     */
-    public Optional<Diagnostic> currentDiagnostic() {
-        return Optional.ofNullable(currentDiagnostic);
+        String operation;
+        if (tokens.size() > beforeTokens) {
+            operation = "EMIT_" + tokens.getLast().type();
+        } else if (diagnostics.size() > beforeDiagnostics) {
+            operation = "DIAGNOSTIC";
+        } else {
+            operation = "SKIP";
+        }
+        SourceRange sourceRange = range(startOffset, currentOffset);
+        return finishStep(sourceRange, operation, diagnostics, this::toLexerResult);
     }
 
     /**
@@ -216,30 +195,12 @@ public final class Lexer extends Stage {
     }
 
     /**
-     * 返回已产出 diagnostics。
-     *
-     * @return diagnostic 列表
-     */
-    public List<Diagnostic> diagnostics() {
-        return List.copyOf(diagnostics);
-    }
-
-    /**
      * 构建与原 lexer API 等价的词法结果。
      *
      * @return 词法结果
      */
     public LexerResult toLexerResult() {
-        return new LexerResult(tokens, diagnostics);
-    }
-
-    private void captureOutput(int beforeTokens, int beforeDiagnostics) {
-        if (tokens.size() > beforeTokens) {
-            currentToken = tokens.getLast();
-        }
-        if (diagnostics.size() > beforeDiagnostics) {
-            currentDiagnostic = diagnostics.getLast();
-        }
+        return new LexerResult(tokens);
     }
 
     private boolean isAtEnd() {

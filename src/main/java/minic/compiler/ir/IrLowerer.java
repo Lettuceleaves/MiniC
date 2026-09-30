@@ -19,7 +19,7 @@ import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.semantic.SemanticResult;
 import minic.compiler.semantic.model.StructLayout;
 import minic.compiler.type.MiniType;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -117,11 +117,6 @@ public final class IrLowerer extends Stage {
         return !completed;
     }
 
-    @Override
-    public boolean succeeded() {
-        return completed;
-    }
-
     /**
      * 推进一个 IR lowering 结构动作。
      *
@@ -143,18 +138,19 @@ public final class IrLowerer extends Stage {
                         statement
                 );
                 completedStepCount++;
-                return statement.range();
+                SourceRange range = statement.range();
+                return finishStep(range, currentOperationName, List.of(), this::currentResult);
             }
             SourceRange functionRange = currentFunction.range();
             work.functions.add(currentFunctionManager.complete());
-            setCurrentOperation("COMPLETE_FUNCTION", currentFunction.name(), null);
+            setCurrentOperation("COMPLETE_FUNCTION", currentFunction.name(), currentFunction);
             currentFunctionManager = null;
             currentFunction = null;
             currentStatements = List.of();
             nextStatementIndex = 0;
             nextFunctionIndex++;
             completedStepCount++;
-            return functionRange;
+            return finishStep(functionRange, currentOperationName, List.of(), this::currentResult);
         }
         if (nextFunctionIndex < input.program.functions().size()) {
             FunctionDecl function = input.program.functions().get(nextFunctionIndex);
@@ -171,43 +167,28 @@ public final class IrLowerer extends Stage {
                 currentFunctionManager.begin();
                 currentStatements = function.bodyOptional().orElseThrow().statements();
                 nextStatementIndex = 0;
-                setCurrentOperation("BEGIN_FUNCTION", function.name(), null);
+                setCurrentOperation("BEGIN_FUNCTION", function.name(), function);
                 completedStepCount++;
-                return function.range();
+                SourceRange range = function.range();
+                return finishStep(range, currentOperationName, List.of(), this::currentResult);
             }
             boolean definedInProgram = input.program.functions().stream()
                     .anyMatch(candidate -> candidate.name().equals(function.name()) && candidate.hasBody());
             if (definedInProgram) {
-                setCurrentOperation("REGISTER_DECLARATION", function.name(), null);
+                setCurrentOperation("REGISTER_DECLARATION", function.name(), function);
             } else {
                 work.externalFunctionNames.add(function.name());
-                setCurrentOperation("REGISTER_EXTERNAL", function.name(), null);
+                setCurrentOperation("REGISTER_EXTERNAL", function.name(), function);
             }
             nextFunctionIndex++;
             completedStepCount++;
-            return function.range();
+            SourceRange range = function.range();
+            return finishStep(range, currentOperationName, List.of(), this::currentResult);
         }
         result = buildResult();
         completed = true;
         completedStepCount++;
-        return null;
-    }
-
-    /**
-     * 返回当前步骤的操作名称；最终空步返回空字符串。
-     */
-    public String currentOperationName() {
-        return currentOperationName;
-    }
-
-    /** 返回当前步骤的操作对象摘要。 */
-    public String currentSubject() {
-        return currentSubject;
-    }
-
-    /** 返回当前步骤对应的 AST 节点。 */
-    public Optional<AstNode> currentAstNode() {
-        return Optional.ofNullable(currentAstNode);
+        return finishStep(null, "", List.of(), () -> result);
     }
 
     /**
@@ -239,7 +220,9 @@ public final class IrLowerer extends Stage {
                 work.globalData,
                 work.externalFunctionNames,
                 work.externalObjectNames,
-                input.structLayouts
+                input.structLayouts,
+                currentAstNode,
+                currentSubject
         );
     }
 
@@ -304,7 +287,9 @@ public final class IrLowerer extends Stage {
                 work.globalData,
                 reachable.externalFunctionNames(),
                 work.externalObjectNames,
-                input.structLayouts
+                input.structLayouts,
+                null,
+                ""
         );
     }
 

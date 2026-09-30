@@ -4,7 +4,7 @@ import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.value.IrValue;
 import minic.compiler.ir.value.IrValue.IrTemporary;
 import minic.compiler.type.MiniType;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.Objects;
 

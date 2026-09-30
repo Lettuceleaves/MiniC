@@ -11,8 +11,8 @@ import minic.compiler.obj.coff.CoffObjectWriter;
 import minic.compiler.obj.machine.MachineModule;
 import minic.compiler.obj.x64.EncodedMachineModule;
 import minic.compiler.obj.x64.X64Encoder;
-import minic.diagnostics.Diagnostic;
-import minic.source.SourceRange;
+import minic.compiler.Diagnostic;
+import minic.SourceRange;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -125,17 +125,12 @@ public final class ObjBuilder extends Stage {
             fail("OBJ002", "生成 Windows x64 COFF obj 失败：" + exception.getMessage());
         }
         stepCount++;
-        return range;
+        return finishStep(range, currentOperation, diagnostics, this::currentResult);
     }
 
     @Override
     public boolean canNext() {
         return !completed;
-    }
-
-    @Override
-    public boolean succeeded() {
-        return completed && diagnostics.isEmpty() && objectFile != null;
     }
 
     public ObjResult result() {
@@ -144,10 +139,8 @@ public final class ObjBuilder extends Stage {
     }
 
     public Phase phase() { return phase; }
-    public String currentOperation() { return currentOperation; }
     public long stepCount() { return stepCount; }
     public long plannedStepCount() { return Phase.values().length; }
-    public List<Diagnostic> diagnostics() { return List.copyOf(diagnostics); }
     public Optional<MachineModule> machineModule() { return Optional.ofNullable(machineModule); }
     public Optional<CoffObjectFile> objectFile() { return Optional.ofNullable(objectFile); }
     public Optional<EncodedMachineModule> encodedMachineModule() { return Optional.ofNullable(encodedMachineModule); }
@@ -180,13 +173,21 @@ public final class ObjBuilder extends Stage {
 
     private void finish() {
         currentOperation = "";
-        result = new ObjResult(assemblyPath, objectPath, objectFile, machineModule.entrySymbol(), diagnostics);
+        result = new ObjResult(assemblyPath, objectPath, objectFile, machineModule.entrySymbol());
         completed = true;
+    }
+
+    private ObjResult currentResult() {
+        if (result != null) {
+            return result;
+        }
+        String entrySymbol = machineModule == null ? null : machineModule.entrySymbol();
+        return new ObjResult(assemblyPath, objectPath, objectFile, entrySymbol);
     }
 
     private void fail(String code, String message) {
         diagnostics.add(new Diagnostic(code, Diagnostic.Severity.ERROR, message, sourceFile.range(0, 0)));
-        result = new ObjResult(assemblyPath, objectPath, objectFile, machineModule == null ? null : machineModule.entrySymbol(), diagnostics);
+        result = new ObjResult(assemblyPath, objectPath, objectFile, machineModule == null ? null : machineModule.entrySymbol());
         completed = true;
     }
 

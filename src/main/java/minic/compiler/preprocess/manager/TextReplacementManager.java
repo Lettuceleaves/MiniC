@@ -1,7 +1,7 @@
 package minic.compiler.preprocess;
 
 import minic.compiler.SourceFile;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.ArrayList;
 import java.util.HashSet;

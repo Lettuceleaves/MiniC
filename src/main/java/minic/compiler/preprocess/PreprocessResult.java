@@ -1,8 +1,8 @@
 package minic.compiler.preprocess;
 
-import minic.diagnostics.Diagnostic;
+import minic.compiler.Stage;
 import minic.compiler.SourceFile;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.nio.file.Path;
 import java.util.List;
@@ -13,37 +13,32 @@ import java.util.Optional;
  * 一次预编译阶段的结果。
  *
  * @param sourceFile 预编译后的源码
- * @param diagnostics 预编译诊断
  * @param includes include 摘要
  * @param macros 宏摘要
  * @param sourceMap 预编译产物 offset 到原始源码 offset 的映射；与 {@code sourceFile.content()} 等长
  */
 public record PreprocessResult(
         SourceFile sourceFile,
-        List<Diagnostic> diagnostics,
         List<IncludeSummary> includes,
         List<MacroSummary> macros,
         int[] sourceMap
-) {
+) implements Stage.Context {
     /**
      * 创建预编译结果。
      *
      * @param sourceFile 预编译后的源码
-     * @param diagnostics 预编译诊断
      * @param includes include 摘要
      * @param macros 宏摘要
      * @param sourceMap 预编译产物 offset 到原始源码 offset 的映射
      */
     public PreprocessResult {
         Objects.requireNonNull(sourceFile, "sourceFile");
-        Objects.requireNonNull(diagnostics, "diagnostics");
         Objects.requireNonNull(includes, "includes");
         Objects.requireNonNull(macros, "macros");
         Objects.requireNonNull(sourceMap, "sourceMap");
         if (sourceMap.length != sourceFile.content().length()) {
             throw new IllegalArgumentException("sourceMap length must match preprocessed source length");
         }
-        diagnostics = List.copyOf(diagnostics);
         includes = List.copyOf(includes);
         macros = List.copyOf(macros);
         sourceMap = sourceMap.clone();

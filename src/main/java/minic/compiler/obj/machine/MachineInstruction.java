@@ -1,6 +1,6 @@
 package minic.compiler.obj.machine;
 
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.List;
 import java.util.Locale;

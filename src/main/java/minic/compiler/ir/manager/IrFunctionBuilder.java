@@ -58,13 +58,13 @@ final class IrFunctionBuilder {
         currentBlock.addInstruction(instruction);
     }
 
-    void addJumpIfOpen(String targetLabel, minic.source.SourceRange range) {
+    void addJumpIfOpen(String targetLabel, minic.SourceRange range) {
         if (!currentBlock.isTerminated()) {
             addInstruction(new IrJumpInstruction(targetLabel, range));
         }
     }
 
-    void addVoidReturnIfOpen(minic.source.SourceRange range) {
+    void addVoidReturnIfOpen(minic.SourceRange range) {
         if (!currentBlock.isTerminated()) {
             addInstruction(new IrReturnInstruction(null, range));
         }
@@ -98,7 +98,7 @@ final class IrFunctionBuilder {
         return local;
     }
 
-    IrLocal declareAnonymousLocal(MiniType declaredType, minic.source.SourceRange range) {
+    IrLocal declareAnonymousLocal(MiniType declaredType, minic.SourceRange range) {
         String name = "__copy#" + nextLocalIndex++;
         return new IrLocal(
                 name,
@@ -116,7 +116,7 @@ final class IrFunctionBuilder {
      * slot in the caller-provided home/stack area.  It is intentionally not
      * entered into a source scope and does not consume frame storage.
      */
-    IrLocal incomingArgumentArea(int argumentIndex, minic.source.SourceRange range) {
+    IrLocal incomingArgumentArea(int argumentIndex, minic.SourceRange range) {
         return IrLocal.incomingArgumentArea(argumentIndex, range);
     }
 

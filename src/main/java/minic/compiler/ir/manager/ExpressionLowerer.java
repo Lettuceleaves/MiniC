@@ -540,7 +540,7 @@ final class ExpressionLowerer {
         return new IrConstant(0);
     }
 
-    IrValue castForTarget(IrValue value, IrType targetType, minic.source.SourceRange range) {
+    IrValue castForTarget(IrValue value, IrType targetType, minic.SourceRange range) {
         return castIfNeeded(value, targetType, range);
     }
 
@@ -617,7 +617,7 @@ final class ExpressionLowerer {
             TokenType operator,
             IrValue left,
             IrValue right,
-            minic.source.SourceRange range
+            minic.SourceRange range
     ) {
         leftType = decay(leftType);
         rightType = decay(rightType);
@@ -672,7 +672,7 @@ final class ExpressionLowerer {
         return result;
     }
 
-    private IrValue scalePointerIndex(IrValue index, int stride, minic.source.SourceRange range) {
+    private IrValue scalePointerIndex(IrValue index, int stride, minic.SourceRange range) {
         IrValue wideIndex = castIfNeeded(index, IrType.LONG_LONG, range);
         if (stride == 1) {
             return wideIndex;
@@ -688,7 +688,7 @@ final class ExpressionLowerer {
         return scaled;
     }
 
-    private void lowerStore(Expression target, IrValue value, minic.source.SourceRange range) {
+    private void lowerStore(Expression target, IrValue value, minic.SourceRange range) {
         MiniType targetType = expressionTypes.get(target);
         if (targetType != null && targetType.isStruct()) {
             IrValue destAddress = lowerAddress(target);
@@ -760,7 +760,7 @@ final class ExpressionLowerer {
     private IrValue castStoreValue(
             MiniType targetType,
             IrValue value,
-            minic.source.SourceRange range
+            minic.SourceRange range
     ) {
         return targetType == null
                 ? value
@@ -801,7 +801,7 @@ final class ExpressionLowerer {
         return builder.sizeOf(type);
     }
 
-    private IrValue copyStructForArg(IrValue srcAddress, MiniType.StructType structType, minic.source.SourceRange range) {
+    private IrValue copyStructForArg(IrValue srcAddress, MiniType.StructType structType, minic.SourceRange range) {
         int size = sizeOfType(structType);
         IrLocal copy = builder.declareAnonymousLocal(structType, range);
         builder.addInstruction(new IrDeclareLocalInstruction(copy, range));
@@ -959,7 +959,7 @@ final class ExpressionLowerer {
         };
     }
 
-    private IrValue castIfNeeded(IrValue value, IrType targetType, minic.source.SourceRange range) {
+    private IrValue castIfNeeded(IrValue value, IrType targetType, minic.SourceRange range) {
         if (value.type() == targetType || value.type() == IrType.POINTER || targetType == IrType.POINTER) {
             return value;
         }
@@ -1020,7 +1020,7 @@ final class ExpressionLowerer {
         }
         ArrayList<IrValue> casted = new ArrayList<>();
         for (int index = 0; index < parameterTypes.size(); index++) {
-            minic.source.SourceRange range = index < callExpr.arguments().size()
+            minic.SourceRange range = index < callExpr.arguments().size()
                     ? callExpr.arguments().get(index).range()
                     : callExpr.range();
             casted.add(castIfNeeded(arguments.get(index), parameterTypes.get(index), range));
@@ -1028,7 +1028,7 @@ final class ExpressionLowerer {
         for (int index = parameterTypes.size(); index < arguments.size(); index++) {
             IrValue argument = arguments.get(index);
             IrType promotedType = variadic ? defaultArgumentPromotion(argument.type()) : argument.type();
-            minic.source.SourceRange range = index < callExpr.arguments().size()
+            minic.SourceRange range = index < callExpr.arguments().size()
                     ? callExpr.arguments().get(index).range()
                     : callExpr.range();
             casted.add(castIfNeeded(argument, promotedType, range));

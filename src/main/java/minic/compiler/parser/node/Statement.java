@@ -2,7 +2,7 @@ package minic.compiler.parser.node;
 
 import minic.compiler.type.MiniType;
 import minic.compiler.parser.node.Declaration.AlignmentSpec;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.List;
 import java.util.Objects;

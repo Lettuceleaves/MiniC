@@ -34,8 +34,8 @@ import minic.compiler.semantic.model.SemanticAction;
 import minic.compiler.semantic.model.SemanticAction.SemanticActionKind;
 import minic.compiler.semantic.model.StructLayout;
 import minic.compiler.type.MiniType;
-import minic.diagnostics.Diagnostic;
-import minic.source.SourceRange;
+import minic.compiler.Diagnostic;
+import minic.SourceRange;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -117,7 +117,7 @@ public final class SemanticAnalyzer extends Stage {
             semanticResult = buildResult();
             completed = true;
             stepCount++;
-            return null;
+            return finishStep(null, "", diagnostics, () -> semanticResult);
         }
 
         int diagnosticsBefore = diagnostics.size();
@@ -133,23 +133,20 @@ public final class SemanticAnalyzer extends Stage {
             );
         }
         stepCount++;
+        SourceRange range;
         if (currentAction.astNode() instanceof AstNode astNode) {
-            return astNode.range();
+            range = astNode.range();
+        } else if (currentAction.diagnosticOptional().isPresent()) {
+            range = currentAction.diagnosticOptional().orElseThrow().range();
+        } else {
+            range = program.range();
         }
-        if (currentAction.diagnosticOptional().isPresent()) {
-            return currentAction.diagnosticOptional().orElseThrow().range();
-        }
-        return program.range();
+        return finishStep(range, currentAction.kind().name(), diagnostics, this::buildResult);
     }
 
     @Override
     public boolean canNext() {
         return !completed;
-    }
-
-    @Override
-    public boolean succeeded() {
-        return completed && diagnostics.isEmpty();
     }
 
     /** 返回最终语义结果。 */
@@ -158,16 +155,6 @@ public final class SemanticAnalyzer extends Stage {
             throw new IllegalStateException("semantic result is not available before analysis completes");
         }
         return semanticResult;
-    }
-
-    /** 返回最近执行的语义动作；结束空步骤执行后为空。 */
-    public Optional<SemanticAction> currentAction() {
-        return Optional.ofNullable(currentAction);
-    }
-
-    /** 返回当前诊断。 */
-    public List<Diagnostic> diagnostics() {
-        return List.copyOf(diagnostics);
     }
 
     /** 返回全局作用域。 */
@@ -245,7 +232,14 @@ public final class SemanticAnalyzer extends Stage {
     }
 
     private SemanticResult buildResult() {
-        return new SemanticResult(globalScope, expressionTypes, structLayouts, diagnostics);
+        return new SemanticResult(
+                program,
+                globalScope,
+                SemanticResult.ScopeSnapshot.from(globalScope),
+                expressionTypes,
+                structLayouts,
+                currentAction
+        );
     }
 
     private SemanticAction executeAction(int actionIndex) {

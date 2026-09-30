@@ -1,6 +1,6 @@
 package minic.compiler;
 
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;

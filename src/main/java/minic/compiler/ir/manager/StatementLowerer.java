@@ -400,7 +400,7 @@ final class StatementLowerer {
             IrValue baseAddress,
             MiniType aggregateType,
             AggregateInitExpr initializer,
-            minic.source.SourceRange range
+            minic.SourceRange range
     ) {
         MiniType unqualifiedAggregateType = aggregateType.unqualified();
         if (unqualifiedAggregateType instanceof MiniType.ArrayType arrayType) {
@@ -465,7 +465,7 @@ final class StatementLowerer {
         }
     }
 
-    private void zeroInitializeAt(IrValue address, MiniType type, minic.source.SourceRange range) {
+    private void zeroInitializeAt(IrValue address, MiniType type, minic.SourceRange range) {
         MiniType raw = type.unqualified();
         if (raw instanceof MiniType.ArrayType array) {
             for (int index = 0; index < array.length(); index++) {
@@ -494,7 +494,7 @@ final class StatementLowerer {
     }
 
     private void lowerDesignatedAt(IrValue address, MiniType targetType, Expression initializer,
-                                   int consumed, minic.source.SourceRange range) {
+                                   int consumed, minic.SourceRange range) {
         if (!(initializer instanceof DesignatedInitExpr designated)) {
             lowerInitializerAt(address, targetType, initializer, range);
             return;
@@ -529,7 +529,7 @@ final class StatementLowerer {
             IrValue address,
             MiniType targetType,
             Expression initializer,
-            minic.source.SourceRange range
+            minic.SourceRange range
     ) {
         if (initializer instanceof AggregateInitExpr nested) {
             lowerAggregateInitAt(address, targetType, nested, range);

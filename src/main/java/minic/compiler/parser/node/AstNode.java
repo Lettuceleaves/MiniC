@@ -1,6 +1,6 @@
 package minic.compiler.parser.node;
 
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 /**
  * 所有语法树节点的公共类型。

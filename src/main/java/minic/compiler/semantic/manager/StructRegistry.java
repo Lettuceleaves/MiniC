@@ -11,8 +11,8 @@ import minic.compiler.semantic.model.StructLayout;
 import minic.compiler.semantic.model.StructLayout.StructFieldLayout;
 import minic.compiler.semantic.model.Symbol;
 import minic.compiler.semantic.model.Symbol.SymbolKind;
-import minic.diagnostics.Diagnostic;
-import minic.source.SourceRange;
+import minic.compiler.Diagnostic;
+import minic.SourceRange;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -75,7 +75,7 @@ public final class StructRegistry {
         });
     }
 
-    void validateDeclaredType(MiniType type, minic.source.SourceRange range) {
+    void validateDeclaredType(MiniType type, minic.SourceRange range) {
         validateTypeReferences(type, range);
         validateTypeShape(type, range, true);
     }

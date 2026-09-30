@@ -9,7 +9,7 @@ import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrStringData;
 import minic.compiler.ir.model.IrGlobalData;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -39,8 +39,6 @@ public final class Assembler extends Stage {
     private int functionIndex;
     private FunctionState functionState;
     private boolean completed;
-    private String currentLine;
-    private String currentSubject = "";
     private SourceRange currentRange;
     private AsmResult result;
 
@@ -75,11 +73,6 @@ public final class Assembler extends Stage {
         return !completed;
     }
 
-    @Override
-    public boolean succeeded() {
-        return completed && result != null;
-    }
-
     /** 执行并产出一行汇编。 */
     @Override
     public SourceRange step() {
@@ -87,8 +80,6 @@ public final class Assembler extends Stage {
             throw new IllegalStateException("asm state is already completed");
         }
         ensureInitialized();
-        currentLine = null;
-        currentSubject = "";
         currentRange = null;
         while (true) {
             switch (section) {
@@ -191,24 +182,10 @@ public final class Assembler extends Stage {
                             work.assemblyText()
                     );
                     completed = true;
-                    return null;
+                    return finishStep(null, "", List.of(), () -> result);
                 }
             }
         }
-    }
-
-    /**
-     * 返回当前汇编行。
-     *
-     * @return 当前汇编行 Optional
-     */
-    public Optional<String> currentLine() {
-        return Optional.ofNullable(currentLine);
-    }
-
-    /** 返回当前汇编行所属主题。 */
-    public String currentSubject() {
-        return currentSubject;
     }
 
     /** 返回 Asm 阶段最终结果。 */
@@ -255,13 +232,17 @@ public final class Assembler extends Stage {
     }
 
     private SourceRange emit(String section, String subject, String text, SourceRange sourceRange) {
-        currentLine = text;
-        currentSubject = subject;
         currentRange = sourceRange;
         work.assemblyLines.add(text);
         work.sourceRanges.add(sourceRange);
         work.currentSection = section;
-        return sourceRange;
+        String operation = "EMIT_" + section.toUpperCase(java.util.Locale.ROOT) + ":" + subject;
+        return finishStep(
+                sourceRange,
+                operation,
+                List.of(),
+                () -> new AsmResult(CallingConvention.ENTRY_SYMBOL, work.assemblyText())
+        );
     }
 
     private static List<String> entryPointLines() {
@@ -486,7 +467,7 @@ public final class Assembler extends Stage {
                     .forEach(pendingInstructionLines::add);
         }
 
-        private record PendingInstructionLine(String text, minic.source.SourceRange sourceRange) {
+        private record PendingInstructionLine(String text, SourceRange sourceRange) {
         }
     }
 

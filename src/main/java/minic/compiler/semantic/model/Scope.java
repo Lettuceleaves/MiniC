@@ -1,6 +1,6 @@
 package minic.compiler.semantic.model;
 
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

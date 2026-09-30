@@ -1,6 +1,6 @@
 package minic.compiler.semantic.model;
 
-import minic.diagnostics.Diagnostic;
+import minic.compiler.Diagnostic;
 
 import java.util.Objects;
 import java.util.Optional;

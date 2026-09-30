@@ -1,7 +1,7 @@
 package minic.compiler.ir.model;
 
 import minic.compiler.type.MiniType;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.Objects;
 

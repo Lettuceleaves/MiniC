@@ -37,8 +37,8 @@ import minic.compiler.lexer.token.TokenType;
 import minic.compiler.semantic.model.Scope;
 import minic.compiler.semantic.model.StructLayout.StructFieldLayout;
 import minic.compiler.semantic.model.Symbol.SymbolKind;
-import minic.source.SourceRange;
-import minic.diagnostics.Diagnostic;
+import minic.SourceRange;
+import minic.compiler.Diagnostic;
 
 import java.util.ArrayList;
 import java.util.Collection;

@@ -8,8 +8,8 @@ import minic.compiler.type.MiniType;
 import minic.compiler.semantic.model.Scope;
 import minic.compiler.semantic.model.Symbol;
 import minic.compiler.semantic.model.Symbol.SymbolKind;
-import minic.diagnostics.Diagnostic;
-import minic.source.SourceRange;
+import minic.compiler.Diagnostic;
+import minic.SourceRange;
 
 import java.util.List;
 
@@ -124,7 +124,7 @@ public final class FunctionRegistry {
         return functionSymbol.orElseThrow().type().returnType();
     }
 
-    MiniType resolveFunctionAddress(String name, minic.source.SourceRange range) {
+    MiniType resolveFunctionAddress(String name, minic.SourceRange range) {
         var functionSymbol = globalScope.resolve(name)
                 .filter(symbol -> symbol.kind() == SymbolKind.FUNCTION);
         if (functionSymbol.isEmpty()) {

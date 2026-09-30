@@ -1,7 +1,7 @@
 package minic.compiler.ir.instruction;
 
 import minic.compiler.ir.value.IrValue;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.Objects;
 

@@ -23,8 +23,8 @@ import minic.compiler.type.MiniType;
 import minic.compiler.semantic.model.Scope;
 import minic.compiler.semantic.model.Symbol;
 import minic.compiler.semantic.model.Symbol.SymbolKind;
-import minic.source.SourceRange;
-import minic.diagnostics.Diagnostic;
+import minic.SourceRange;
+import minic.compiler.Diagnostic;
 
 import java.util.List;
 import java.util.Map;

@@ -5,12 +5,13 @@ import minic.compiler.SourceFile;
 import minic.compiler.Stage;
 import minic.compiler.link.ExecutableArtifact;
 import minic.compiler.link.Linker;
-import minic.diagnostics.Diagnostic;
-import minic.source.SourceRange;
+import minic.compiler.Diagnostic;
+import minic.SourceRange;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
@@ -31,6 +32,7 @@ public final class ExecutableRunner extends Stage {
     private Linker linkStage;
     private ExecutableArtifact artifact;
     private String standardInput = "";
+    private final ArrayList<Diagnostic> reportedErrors = new ArrayList<>();
     private ExecutionResult result;
     private Phase phase = Phase.RUN_PROCESS;
     private String currentOperation = "";
@@ -128,17 +130,12 @@ public final class ExecutableRunner extends Stage {
             }
         }
         stepCount++;
-        return range;
+        return finishStep(range, currentOperation, reportedErrors, () -> result);
     }
 
     @Override
     public boolean canNext() {
         return !completed;
-    }
-
-    @Override
-    public boolean succeeded() {
-        return completed && result != null && result.diagnostics().isEmpty();
     }
 
     /** 返回执行阶段的最终结果。 */
@@ -147,14 +144,6 @@ public final class ExecutableRunner extends Stage {
             throw new IllegalStateException("execution result is not ready");
         }
         return result;
-    }
-
-    public List<Diagnostic> diagnostics() {
-        return result == null ? List.of() : result.diagnostics();
-    }
-
-    public String currentOperation() {
-        return currentOperation;
     }
 
     public String standardInput() {
@@ -189,7 +178,7 @@ public final class ExecutableRunner extends Stage {
             int exitCode = process.exitValue();
             String stdout = stdoutFuture.get();
             String stderr = stderrFuture.get();
-            return new ExecutionResult(stdout, stderr, exitCode, List.of());
+            return new ExecutionResult(stdout, stderr, exitCode);
         } catch (IOException exception) {
             return failed(sourceFile, "运行可执行文件失败：" + exception.getMessage());
         } catch (InterruptedException exception) {
@@ -222,6 +211,7 @@ public final class ExecutableRunner extends Stage {
         artifact = null;
         standardInput = "";
         result = null;
+        reportedErrors.clear();
         phase = Phase.RUN_PROCESS;
         currentOperation = "";
         completed = false;
@@ -243,17 +233,13 @@ public final class ExecutableRunner extends Stage {
     }
 
     private ExecutionResult failed(SourceFile sourceFile, String code, String message) {
-        return new ExecutionResult(
-                "",
-                "",
-                null,
-                List.of(new Diagnostic(
-                        code,
-                        Diagnostic.Severity.ERROR,
-                        message,
-                        sourceFile.range(0, 0)
-                ))
-        );
+        reportedErrors.add(new Diagnostic(
+                code,
+                Diagnostic.Severity.ERROR,
+                message,
+                sourceFile.range(0, 0)
+        ));
+        return new ExecutionResult("", "", null);
     }
 
     private static Duration requirePositiveTimeout(Duration timeout) {

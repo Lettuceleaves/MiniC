@@ -1,6 +1,6 @@
 package minic.compiler.lexer.token;
 
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.Objects;
 import java.util.Optional;

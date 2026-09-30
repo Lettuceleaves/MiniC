@@ -8,8 +8,8 @@ import minic.compiler.link.pe.WindowsPeLinker;
 import minic.compiler.library.SystemLibraryCatalog;
 import minic.compiler.obj.ObjBuilder;
 import minic.compiler.obj.ObjResult;
-import minic.diagnostics.Diagnostic;
-import minic.source.SourceRange;
+import minic.compiler.Diagnostic;
+import minic.SourceRange;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -94,14 +94,11 @@ public final class Linker extends Stage {
             fail("LNK002", "链接 PE32+ 失败：" + exception.getMessage());
         }
         stepCount++;
-        return range;
+        return finishStep(range, currentOperation, diagnostics, this::currentResult);
     }
 
     @Override
     public boolean canNext() { return !completed; }
-
-    @Override
-    public boolean succeeded() { return completed && diagnostics.isEmpty() && executableArtifact != null; }
 
     public LinkResult result() {
         if (result == null) throw new IllegalStateException("link result is not ready");
@@ -109,10 +106,8 @@ public final class Linker extends Stage {
     }
 
     public Phase phase() { return phase; }
-    public String currentOperation() { return currentOperation; }
     public long stepCount() { return stepCount; }
     public long plannedStepCount() { return Phase.values().length; }
-    public List<Diagnostic> diagnostics() { return List.copyOf(diagnostics); }
     public Optional<PeImage> peImage() { return Optional.ofNullable(peImage); }
 
     private void configure(SourceFile sourceFile, Path outputDirectory, String artifactName) {
@@ -141,13 +136,20 @@ public final class Linker extends Stage {
 
     private void finish() {
         currentOperation = "";
-        result = new LinkResult(objResult.objectPath(), executableArtifact, diagnostics);
+        result = new LinkResult(objResult.objectPath(), executableArtifact);
         completed = true;
+    }
+
+    private LinkResult currentResult() {
+        if (result != null) {
+            return result;
+        }
+        return new LinkResult(objResult == null ? null : objResult.objectPath(), executableArtifact);
     }
 
     private void fail(String code, String message) {
         diagnostics.add(new Diagnostic(code, Diagnostic.Severity.ERROR, message, sourceFile.range(0, 0)));
-        result = new LinkResult(objResult == null ? null : objResult.objectPath(), null, diagnostics);
+        result = new LinkResult(objResult == null ? null : objResult.objectPath(), null);
         completed = true;
     }
 

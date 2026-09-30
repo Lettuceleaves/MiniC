@@ -1,10 +1,9 @@
 package minic.compiler.preprocess;
 
-import minic.compiler.lexer.LexerResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.SourceFile;
 import minic.compiler.library.SystemLibraryCatalog;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -180,8 +179,9 @@ final class IncludeManager {
 
     private void validateHeader(SourceFile originalHeader, String content, Preprocessor.Work work) {
         SourceFile headerSource = new SourceFile(originalHeader.path(), content);
-        LexerResult lexResult = new Lexer(headerSource).lex();
-        if (!lexResult.diagnostics().isEmpty()) {
+        Lexer lexer = new Lexer(headerSource);
+        lexer.lex();
+        if (!lexer.errors().isEmpty()) {
             work.diagnostics.add(Preprocessor.diagnostic(
                     originalHeader,
                     0,

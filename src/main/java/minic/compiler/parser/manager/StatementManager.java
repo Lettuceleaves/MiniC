@@ -22,7 +22,7 @@ import minic.compiler.parser.node.Statement.TypedefStmt;
 import minic.compiler.parser.node.Statement.WhileStmt;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.ArrayList;
 

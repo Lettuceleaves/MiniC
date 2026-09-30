@@ -17,8 +17,8 @@ import minic.compiler.parser.node.Declaration.TypedefDecl;
 import minic.compiler.parser.node.Declaration.GlobalVarDecl;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.type.MiniType;
-import minic.diagnostics.Diagnostic;
-import minic.source.SourceRange;
+import minic.compiler.Diagnostic;
+import minic.SourceRange;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -94,11 +94,6 @@ public final class Parser extends Stage {
         return !completed;
     }
 
-    @Override
-    public boolean succeeded() {
-        return completed && parserResult != null && parserResult.diagnostics().isEmpty();
-    }
-
     /** 每次解析一个顶层声明。token 处理结束后先生成结果，下一步再发出空结束步骤。 */
     @Override
     public SourceRange step() {
@@ -111,14 +106,15 @@ public final class Parser extends Stage {
         if (sourceCompleted) {
             completed = true;
             stepCount++;
-            return null;
+            return finishStep(null, "", context.reportedErrors(), () -> parserResult);
         }
 
         if (context.isAtEnd()) {
             parserResult = buildResult();
             sourceCompleted = true;
             stepCount++;
-            return context.peek().range();
+            SourceRange range = context.peek().range();
+            return finishStep(range, "COMPLETE_PARSE", context.reportedErrors(), this::currentResult);
         }
 
         if (context.check(TokenType.TYPEDEF)) {
@@ -155,9 +151,11 @@ public final class Parser extends Stage {
             }
         }
         stepCount++;
-        return currentNode != null
+        SourceRange range = currentNode != null
                 ? currentNode.range()
                 : context.peek().range();
+        String operation = currentNode == null ? "RECOVER" : "PARSE_" + currentNode.getClass().getSimpleName();
+        return finishStep(range, operation, context.reportedErrors(), this::currentResult);
     }
 
     public ParserResult result() {
@@ -184,16 +182,8 @@ public final class Parser extends Stage {
         return stepCount;
     }
 
-    public Optional<AstNode> currentNode() {
-        return Optional.ofNullable(currentNode);
-    }
-
     public List<AstNode> completedNodes() {
         return List.copyOf(completedNodes);
-    }
-
-    public List<Diagnostic> diagnostics() {
-        return context == null ? List.of() : List.copyOf(context.diagnostics());
     }
 
     public List<TraceEvent> traceEvents() {
@@ -225,7 +215,7 @@ public final class Parser extends Stage {
     }
 
     private ParserResult buildResult() {
-        return new ParserResult(new Program(structs, enums, typedefs, globals, functions, programRange()), context.diagnostics());
+        return new ParserResult(new Program(structs, enums, typedefs, globals, functions, programRange()));
     }
 
     private SourceRange programRange() {
@@ -256,7 +246,7 @@ public final class Parser extends Stage {
     /** 三个 Manager 共享的 token 游标、诊断和 trace 上下文。 */
     public static final class Context {
         private final List<Token> tokens;
-        private final ArrayList<Diagnostic> diagnostics = new ArrayList<>();
+        private final ArrayList<Diagnostic> reportedErrors = new ArrayList<>();
         private final ArrayList<TraceEvent> traceEvents;
         private int currentIndex;
         private boolean functionBoundaryRecovered;
@@ -269,8 +259,8 @@ public final class Parser extends Stage {
             traceEvents = traceEnabled ? new ArrayList<>() : null;
         }
 
-        public List<Diagnostic> diagnostics() {
-            return diagnostics;
+        List<Diagnostic> reportedErrors() {
+            return reportedErrors;
         }
 
         public int currentIndex() {
@@ -289,7 +279,14 @@ public final class Parser extends Stage {
             if (check(type)) {
                 return advance();
             }
-            report(peek(), message);
+            Token actual = peek();
+            reportedErrors.add(new Diagnostic(
+                    "PAR001",
+                    Diagnostic.Severity.ERROR,
+                    message + "；实际读到 " + describeToken(actual),
+                    "请在该位置补充或替换为 " + type,
+                    actual.range()
+            ));
             return null;
         }
 
@@ -331,11 +328,38 @@ public final class Parser extends Stage {
         }
 
         public void report(Token token, String message) {
-            report(token.range(), message);
+            reportedErrors.add(new Diagnostic(
+                    "PAR001",
+                    Diagnostic.Severity.ERROR,
+                    message + "；实际读到 " + describeToken(token),
+                    parserSolution(message),
+                    token.range()
+            ));
         }
 
         public void report(SourceRange range, String message) {
-            diagnostics.add(new Diagnostic("PAR001", Diagnostic.Severity.ERROR, message, range));
+            reportedErrors.add(new Diagnostic(
+                    "PAR001",
+                    Diagnostic.Severity.ERROR,
+                    message,
+                    parserSolution(message),
+                    range
+            ));
+        }
+
+        private static String describeToken(Token token) {
+            String lexeme = token.lexeme().replace("\n", "\\n").replace("\r", "\\r");
+            return token.type() + (lexeme.isEmpty() ? "" : " '" + lexeme + "'");
+        }
+
+        private static String parserSolution(String message) {
+            if (message.startsWith("期望")) {
+                return "请在该位置补充或替换为" + message.substring(2);
+            }
+            if (message.contains("必须") || message.contains("不能") || message.contains("只能")) {
+                return "请调整当前语法结构，使其满足限制：" + message;
+            }
+            return "请修正该位置附近的语法结构后重新解析。";
         }
 
         public void enter(String rule) {

@@ -33,7 +33,7 @@ import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.lexer.token.Token.IntegerLiteralKind;
 import minic.compiler.lexer.token.Token.IntegerLiteralValue;
-import minic.source.SourceRange;
+import minic.SourceRange;
 import minic.compiler.type.MiniType;
 
 import java.util.ArrayList;

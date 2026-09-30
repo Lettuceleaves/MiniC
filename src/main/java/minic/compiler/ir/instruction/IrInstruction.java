@@ -1,6 +1,6 @@
 package minic.compiler.ir.instruction;
 
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 /**
  * IR 指令的基接口。

@@ -1,8 +1,7 @@
 package minic.compiler.execute;
 
-import minic.diagnostics.Diagnostic;
+import minic.compiler.Stage;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.OptionalInt;
 
@@ -12,22 +11,19 @@ import java.util.OptionalInt;
  * @param stdout 标准输出文本
  * @param stderr 标准错误文本
  * @param exitCode 进程退出码；运行失败导致未启动或被中断时为 {@code null}
- * @param diagnostics 运行阶段诊断列表
  */
-public record ExecutionResult(String stdout, String stderr, Integer exitCode, List<Diagnostic> diagnostics) {
+public record ExecutionResult(String stdout, String stderr, Integer exitCode)
+        implements Stage.Context {
     /**
      * 创建运行结果，并防御性复制诊断列表。
      *
      * @param stdout 标准输出文本
      * @param stderr 标准错误文本
      * @param exitCode 进程退出码；运行失败导致未启动或被中断时为 {@code null}
-     * @param diagnostics 运行阶段诊断列表
      */
     public ExecutionResult {
         Objects.requireNonNull(stdout, "stdout");
         Objects.requireNonNull(stderr, "stderr");
-        Objects.requireNonNull(diagnostics, "diagnostics");
-        diagnostics = List.copyOf(diagnostics);
     }
 
     /**

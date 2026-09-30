@@ -1,9 +1,18 @@
 package minic.compiler;
 
+import minic.compiler.asm.Assembler;
+import minic.compiler.execute.ExecutableRunner;
 import minic.compiler.ir.IrLowerer;
 import minic.compiler.ir.IrResult;
-import minic.source.SourceRange;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.link.Linker;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.semantic.SemanticAnalyzer;
+import minic.SourceRange;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -22,6 +31,12 @@ public final class CompilerApi {
     private boolean completed;
     private long stepCount;
     private SourceRange lastSourceRange;
+    private Stage.Result lastStepResult;
+
+    /** 使用标准阶段顺序创建一条完整编译流水线。 */
+    public CompilerApi(SourceFile sourceFile) {
+        this(createPipeline(sourceFile));
+    }
 
     public CompilerApi(List<? extends Stage> stages) {
         Objects.requireNonNull(stages, "stages");
@@ -29,6 +44,7 @@ public final class CompilerApi {
         if (this.stages.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("stages must not contain null");
         }
+        this.stages.forEach(Stage::resetResultObservation);
         completed = this.stages.isEmpty();
         currentStage = completed ? null : this.stages.getFirst();
     }
@@ -83,16 +99,28 @@ public final class CompilerApi {
 
     /** 执行当前阶段的一步，并在该阶段耗尽时自动切换。 */
     public SourceRange step() {
+        return advance().sourceRange();
+    }
+
+    /** 执行当前阶段的一步，并直接返回该步生成的 Result。 */
+    public Stage.Result stepResult() {
+        return advance();
+    }
+
+    private Stage.Result advance() {
         if (!canNext()) {
             throw new IllegalStateException("compiler api is already completed");
         }
-        SourceRange sourceRange = currentStage.step();
+        Stage executedStage = currentStage;
+        SourceRange sourceRange = executedStage.step();
+        lastStepResult = executedStage.consumeLatestStepResult();
         lastSourceRange = sourceRange;
         stepCount++;
-        if (!currentStage.canNext()) {
-            if (!currentStage.succeeded()) {
+        if (!executedStage.canNext()) {
+            // 是否能进入下一阶段只由 Stage.succeeded() 决定。
+            if (!executedStage.succeeded()) {
                 completed = true;
-                return sourceRange;
+                return lastStepResult;
             }
             currentStageIndex++;
             if (currentStageIndex >= stages.size()) {
@@ -101,7 +129,7 @@ public final class CompilerApi {
                 currentStage = stages.get(currentStageIndex);
             }
         }
-        return sourceRange;
+        return lastStepResult;
     }
 
     public boolean canNext() {
@@ -126,11 +154,98 @@ public final class CompilerApi {
         return Optional.ofNullable(lastSourceRange);
     }
 
+    /** 返回最近一次 step 生成的结果。 */
+    public Optional<Stage.Result> lastStepResult() {
+        return Optional.ofNullable(lastStepResult);
+    }
+
+    /** 按阶段实例打开或关闭逐步结果记录。 */
+    public void setResultRecording(Stage stage, boolean enabled) {
+        requireStage(stage).setResultRecordingEnabled(enabled);
+    }
+
+    /** 按阶段下标打开或关闭逐步结果记录。 */
+    public void setResultRecording(int stageIndex, boolean enabled) {
+        if (stageIndex < 0 || stageIndex >= stages.size()) {
+            throw new IndexOutOfBoundsException("stageIndex: " + stageIndex);
+        }
+        stages.get(stageIndex).setResultRecordingEnabled(enabled);
+    }
+
+    /** 为流水线中指定类型的全部阶段打开或关闭逐步结果记录。 */
+    public void setResultRecording(Class<? extends Stage> stageType, boolean enabled) {
+        Objects.requireNonNull(stageType, "stageType");
+        boolean matched = false;
+        for (Stage stage : stages) {
+            if (stageType.isInstance(stage)) {
+                stage.setResultRecordingEnabled(enabled);
+                matched = true;
+            }
+        }
+        if (!matched) {
+            throw new IllegalArgumentException("pipeline has no stage of type " + stageType.getName());
+        }
+    }
+
+    /** 返回指定阶段保留的步骤结果。 */
+    public List<Stage.Result> results(Stage stage) {
+        return requireStage(stage).stepResults();
+    }
+
+    /**
+     * 返回指定阶段的当前结果。该阶段打开逐步记录时，
+     * 每次 step 后都会返回新的完整上下文；关闭时只有阶段最终结果。
+     */
+    public Optional<Stage.Result> result(Stage stage) {
+        return requireStage(stage).stageResult();
+    }
+
+    /** 返回指定阶段集中收集的错误。 */
+    public List<Diagnostic> errors(Stage stage) {
+        return requireStage(stage).errors();
+    }
+
     public Optional<Stage> currentStage() {
         return Optional.ofNullable(currentStage);
     }
 
     public List<Stage> stages() {
         return stages;
+    }
+
+    private Stage requireStage(Stage stage) {
+        Objects.requireNonNull(stage, "stage");
+        if (!stages.contains(stage)) {
+            throw new IllegalArgumentException("stage does not belong to this pipeline");
+        }
+        return stage;
+    }
+
+    private static List<Stage> createPipeline(SourceFile sourceFile) {
+        Objects.requireNonNull(sourceFile, "sourceFile");
+        Preprocessor preprocessor = new Preprocessor(sourceFile, Preprocessor.Options.defaults());
+        Lexer lexer = new Lexer(preprocessor);
+        Parser parser = new Parser(lexer, true);
+        SemanticAnalyzer semantic = new SemanticAnalyzer(parser);
+        IrLowerer ir = new IrLowerer(semantic);
+        Assembler assembler = new Assembler(ir);
+        Path outputDirectory = Path.of("build", "minic-output");
+        String artifactName = artifactName(sourceFile.path());
+        ObjBuilder obj = new ObjBuilder(sourceFile, assembler, outputDirectory, artifactName);
+        Linker linker = new Linker(sourceFile, obj, outputDirectory, artifactName);
+        ExecutableRunner execution = new ExecutableRunner(sourceFile, linker);
+        return List.of(preprocessor, lexer, parser, semantic, ir, assembler, obj, linker, execution);
+    }
+
+    private static String artifactName(String sourceName) {
+        String normalized = sourceName.replace('\\', '/');
+        int slash = normalized.lastIndexOf('/');
+        String name = slash >= 0 ? normalized.substring(slash + 1) : normalized;
+        int dot = name.lastIndexOf('.');
+        if (dot > 0) {
+            name = name.substring(0, dot);
+        }
+        String safe = name.replaceAll("[^A-Za-z0-9_-]", "_");
+        return safe.isBlank() ? "minic-program" : safe;
     }
 }

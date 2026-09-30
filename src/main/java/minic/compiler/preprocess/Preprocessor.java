@@ -2,9 +2,9 @@ package minic.compiler.preprocess;
 
 import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
-import minic.diagnostics.Diagnostic;
+import minic.compiler.Diagnostic;
 import minic.compiler.SourceFile;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -13,7 +13,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -32,8 +31,6 @@ public final class Preprocessor extends Stage {
     private int initialConditionDepth;
     private int lineStart;
     private long stepCount;
-    private String currentOperation = "";
-    private Diagnostic currentDiagnostic;
     private PreprocessResult preprocessResult;
     private boolean sourceCompleted;
     private boolean completed;
@@ -91,8 +88,6 @@ public final class Preprocessor extends Stage {
         initialConditionDepth = work.conditionStack.size();
         lineStart = 0;
         stepCount = 0;
-        currentOperation = "";
-        currentDiagnostic = null;
         preprocessResult = null;
         sourceCompleted = false;
         completed = false;
@@ -108,30 +103,24 @@ public final class Preprocessor extends Stage {
         if (!canNext()) {
             throw new IllegalStateException("preprocessor step is already completed");
         }
-        currentOperation = "";
-        currentDiagnostic = null;
-
         if (sourceCompleted) {
             completed = true;
             stepCount++;
-            return null;
+            return finishStep(null, "", work.diagnostics, () -> preprocessResult);
         }
 
         String content = sourceFile.content();
         if (lineStart >= content.length()) {
-            int beforeDiagnostics = work.diagnostics.size();
             conditionalCompilationManager.closeUnterminatedConditions(work, initialConditionDepth);
-            captureDiagnostic(beforeDiagnostics);
             preprocessResult = buildResult();
             sourceCompleted = true;
-            currentOperation = "COMPLETE_PREPROCESS";
             stepCount++;
-            return sourceFile.range(content.length(), content.length());
+            SourceRange range = sourceFile.range(content.length(), content.length());
+            return finishStep(range, "COMPLETE_PREPROCESS", work.diagnostics, () -> preprocessResult);
         }
 
         LogicalLine logicalLine = readLogicalLine(sourceFile, lineStart);
         int currentLineStart = logicalLine.startOffset();
-        int beforeDiagnostics = work.diagnostics.size();
         if (logicalLine.danglingContinuation()) {
             work.diagnostics.add(diagnostic(
                     sourceFile,
@@ -140,7 +129,7 @@ public final class Preprocessor extends Stage {
                     "反斜杠续行缺少下一行"
             ));
         }
-        currentOperation = processLine(
+        String operation = processLine(
                 sourceFile,
                 currentDirectory,
                 includeStack,
@@ -154,9 +143,9 @@ public final class Preprocessor extends Stage {
                 true
         );
         lineStart = logicalLine.endOffset();
-        captureDiagnostic(beforeDiagnostics);
         stepCount++;
-        return sourceFile.range(currentLineStart, logicalLine.endOffset());
+        SourceRange range = sourceFile.range(currentLineStart, logicalLine.endOffset());
+        return finishStep(range, operation, work.diagnostics, this::buildResult);
     }
 
     /** @return 当前是否还可以执行下一步 */
@@ -165,29 +154,9 @@ public final class Preprocessor extends Stage {
         return !completed;
     }
 
-    @Override
-    public boolean succeeded() {
-        return completed && preprocessResult != null && preprocessResult.diagnostics().isEmpty();
-    }
-
     /** @return 已执行的步数 */
     public long stepCount() {
         return stepCount;
-    }
-
-    /** @return 最近一步的操作名 */
-    public String currentOperation() {
-        return currentOperation;
-    }
-
-    /** @return 最近一步产生的诊断 */
-    public Optional<Diagnostic> currentDiagnostic() {
-        return Optional.ofNullable(currentDiagnostic);
-    }
-
-    /** @return 当前诊断列表 */
-    public List<Diagnostic> diagnostics() {
-        return work == null ? List.of() : List.copyOf(work.diagnostics);
     }
 
     /** @return 预编译结果是否已生成 */
@@ -299,17 +268,10 @@ public final class Preprocessor extends Stage {
         return "TEXT_REPLACEMENT";
     }
 
-    private void captureDiagnostic(int beforeDiagnostics) {
-        if (work.diagnostics.size() > beforeDiagnostics) {
-            currentDiagnostic = work.diagnostics.getLast();
-        }
-    }
-
     private PreprocessResult buildResult() {
         SourceFile preprocessedSource = new SourceFile(sourceFile.path(), output.toString());
         return new PreprocessResult(
                 preprocessedSource,
-                work.diagnostics,
                 work.includes,
                 work.macroSummaries,
                 work.sourceMap()

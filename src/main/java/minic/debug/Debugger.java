@@ -1,6 +1,7 @@
 package minic.debug;
 
 import minic.compiler.SourceFile;
+import minic.compiler.CompilerApi;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.CallInstruction.*;
 import minic.compiler.ir.instruction.ComputeInstruction.*;
@@ -12,8 +13,7 @@ import minic.compiler.ir.value.IrValue.*;
 import minic.debug.DebugRuntime.Frame;
 import minic.debug.DebugRuntime.RuntimeState;
 import minic.debug.DebugRuntime.Value;
-import minic.session.CompileObservationSession;
-import minic.source.SourceRange;
+import minic.SourceRange;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,8 +39,7 @@ public final class Debugger {
     }
 
     Debugger(SourceFile source, String standardInput, DebugTimeSource timeSource, int heapCapacity) {
-        var pipeline = CompileObservationSession.fromSource(source);
-        var ir = pipeline.compilerApi().runToIr();
+        var ir = new CompilerApi(source).runToIr();
         runtime = new DebugRuntime(new DebugProgram(source, ir), standardInput, timeSource, heapCapacity);
         runtime.push(runtime.code().ir().findFunction("main")
                 .orElseThrow(() -> new IllegalStateException("Missing main function")), List.of(), null);
