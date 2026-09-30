@@ -441,6 +441,10 @@ public final class Lexer extends Stage {
             case "wchar_t" -> TokenType.WCHAR_T;
             case "char16_t" -> TokenType.CHAR16_T;
             case "char32_t" -> TokenType.CHAR32_T;
+            case "asm" -> TokenType.ASM;
+            case "export" -> TokenType.EXPORT;
+            case "goto" -> TokenType.GOTO;
+            case "register" -> TokenType.REGISTER;
             // C++ alternative operator spellings have exactly the symbolic token's semantics.
             case "and" -> TokenType.AMPERSAND_AMPERSAND;
             case "or" -> TokenType.PIPE_PIPE;

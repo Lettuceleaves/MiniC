@@ -108,4 +108,16 @@ final class CppLanguageModeTest {
         assertEquals(LanguageMode.CPP17_ALGORITHM, lexer.languageMode());
         assertEquals(TokenType.CLASS, lexer.lex().tokens().getFirst().type());
     }
+
+    @Test
+    void unsupportedReservedCppWordsCannotBecomeUserIdentifiers() {
+        for (String word : List.of("asm", "export", "goto", "register")) {
+            var source = new SourceFile("reserved.cpp", "int main() { int " + word + " = 1; return 0; }");
+            var api = new CompilerApi(source, LanguageMode.CPP17_ALGORITHM);
+            var parser = stage(api, Parser.class);
+            api.runThrough(parser);
+            assertFalse(parser.succeeded(), word + " must remain reserved in C++17");
+            assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("CPP001")), word);
+        }
+    }
 }
