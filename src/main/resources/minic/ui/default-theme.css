@@ -1,0 +1,569 @@
+.root {
+    -ui-canvas: #0d1117;
+    -ui-surface: #161b22;
+    -ui-surface-raised: #21262d;
+    -ui-border: #30363d;
+    -ui-border-focus: #58a6ff;
+    -ui-text: #e6edf3;
+    -ui-text-muted: #8b949e;
+    -ui-accent: #238636;
+    -ui-accent-hover: #2ea043;
+    -ui-accent-pressed: #196c2e;
+    -ui-selection: #1f6feb;
+    -ui-info: #388bfd;
+    -ui-success: #3fb950;
+    -ui-warning: #d29922;
+    -ui-error: #f85149;
+    -fx-background-color: -ui-canvas;
+    -fx-text-fill: -ui-text;
+    -fx-accent: -ui-selection;
+    -fx-focus-color: -ui-border-focus;
+    -fx-faint-focus-color: transparent;
+}
+
+/* 组件默认使用直角；调用者通过 UiComponent.setRadius(...) 可显式覆盖。 */
+.root * {
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.ui-window,
+.ui-card,
+.ui-dialog,
+.ui-scroll,
+.ui-accordion,
+.ui-section,
+.ui-tab-pane,
+.ui-collection,
+.ui-table,
+.ui-tree,
+.ui-tree-table,
+.ui-code-editor {
+    -fx-background-color: -ui-surface;
+    -fx-border-color: -ui-border;
+}
+
+.ui-code-editor {
+    -fx-font-family: "Consolas";
+    -fx-font-size: 14px;
+}
+
+.ui-button,
+.ui-menu-button,
+.ui-split-button {
+    -fx-background-color: -ui-accent;
+    -fx-border-color: -ui-accent-hover;
+    -fx-text-fill: white;
+}
+
+.ui-button:hover,
+.ui-menu-button:hover,
+.ui-split-button:hover {
+    -fx-background-color: -ui-accent-hover;
+}
+
+.ui-button:pressed,
+.ui-menu-button:pressed,
+.ui-split-button:pressed {
+    -fx-background-color: -ui-accent-pressed;
+}
+
+.ui-toggle-button {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+    -fx-text-fill: -ui-text;
+}
+
+.ui-toggle-button:selected {
+    -fx-background-color: -ui-selection;
+    -fx-border-color: -ui-border-focus;
+    -fx-text-fill: white;
+}
+
+.ui-link {
+    -fx-text-fill: -ui-border-focus;
+}
+
+.ui-label,
+.ui-check-box,
+.ui-radio-button,
+.ui-switch,
+.ui-field-label,
+.ui-dialog-title {
+    -fx-text-fill: -ui-text;
+}
+
+.ui-field-message {
+    -fx-text-fill: -ui-text-muted;
+}
+
+.ui-badge {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+    -fx-text-fill: -ui-text;
+}
+
+.ui-text-field,
+.ui-search-field,
+.ui-password-field,
+.ui-text-area,
+.ui-combo-box,
+.ui-choice-box,
+.ui-date-picker,
+.ui-spinner,
+.ui-color-picker {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+    -fx-text-fill: -ui-text;
+    -fx-prompt-text-fill: -ui-text-muted;
+}
+
+.ui-text-field:focused,
+.ui-search-field:focused,
+.ui-password-field:focused,
+.ui-text-area:focused,
+.ui-combo-box:focused,
+.ui-choice-box:focused,
+.ui-date-picker:focused,
+.ui-spinner:focused,
+.ui-color-picker:focused {
+    -fx-border-color: -ui-border-focus;
+}
+
+.ui-collection .list-cell,
+.ui-table .table-row-cell,
+.ui-tree .tree-cell,
+.ui-tree-table .tree-table-row-cell {
+    -fx-background-color: -ui-surface;
+    -fx-text-fill: -ui-text;
+}
+
+.ui-collection .list-cell:selected,
+.ui-table .table-row-cell:selected,
+.ui-tree .tree-cell:selected,
+.ui-tree-table .tree-table-row-cell:selected {
+    -fx-background-color: -ui-selection;
+    -fx-text-fill: white;
+}
+
+.ui-menu-bar,
+.ui-tool-bar {
+    -fx-background-color: -ui-surface;
+    -fx-border-color: -ui-border;
+}
+
+.ui-progress-bar > .track,
+.ui-progress-indicator > .percentage {
+    -fx-background-color: -ui-surface-raised;
+    -fx-text-fill: -ui-text;
+}
+
+.ui-progress-bar > .bar,
+.ui-progress-indicator > .indicator {
+    -fx-background-color: -ui-selection;
+}
+
+.ui-separator .line {
+    -fx-border-color: -ui-border;
+}
+
+.ui-slider .track {
+    -fx-background-color: -ui-border;
+}
+
+.ui-slider .thumb {
+    -fx-background-color: -ui-border-focus;
+}
+
+.ui-message,
+.ui-toast {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+}
+
+.ui-message-info {
+    -fx-border-color: -ui-info;
+}
+
+.ui-message-success {
+    -fx-border-color: -ui-success;
+}
+
+.ui-message-warning {
+    -fx-border-color: -ui-warning;
+}
+
+.ui-message-error {
+    -fx-border-color: -ui-error;
+}
+
+.ui-overlay {
+    -fx-background-color: rgba(0, 0, 0, 0.55);
+}
+
+.ui-skeleton {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+}
+
+/* 无视觉表面的布局组件也显式绑定主题，避免继承 Modena 容器背景。 */
+.workbench-page,
+.ui-row,
+.ui-column,
+.ui-grid,
+.ui-stack,
+.ui-flow,
+.ui-field,
+.ui-dialog-actions {
+    -fx-background-color: transparent;
+}
+
+.ui-image,
+.ui-split,
+.ui-pagination {
+    -fx-background-color: -ui-surface;
+    -fx-border-color: -ui-border;
+}
+
+/* 工作台框架。每条边框同时标明相邻区域的真实布局边界。 */
+.workbench-page,
+.workbench-body,
+.workbench-center,
+.main-content,
+.document-area {
+    -fx-background-color: -ui-canvas;
+}
+
+.workbench-top-bar {
+    -fx-padding: 0;
+    -fx-background-color: -ui-surface;
+    -fx-border-color: transparent transparent -ui-border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+/* 等尺寸列表没有可见滚动条；悬停时由滚轮沿列表延展方向逐项翻动。 */
+.ui-list,
+.ui-list-content {
+    -fx-background-color: transparent;
+}
+
+.ui-list-item {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+}
+
+.top-list-item {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+}
+
+.top-list-item:hover .label,
+.activity-list-item:hover .label,
+.editor-tab:hover .label {
+    -fx-text-fill: -ui-text;
+}
+
+.top-bar-item-label {
+    -fx-font-size: 12px;
+    -fx-text-fill: -ui-text-muted;
+}
+
+.workbench-status-bar {
+    -fx-padding: 0 6 0 6;
+    -fx-background-color: -ui-surface;
+    -fx-border-color: -ui-border transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.status-app-name,
+.status-item {
+    -fx-padding: 0 6 0 6;
+    -fx-font-size: 11px;
+    -fx-text-fill: -ui-text-muted;
+}
+
+.status-app-name {
+    -fx-text-fill: -ui-text;
+}
+
+.status-app-name:hover,
+.status-item:hover {
+    -fx-background-color: -ui-surface-raised;
+}
+
+.top-bar-title {
+    -fx-font-size: 13px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -ui-text;
+}
+
+.placeholder-caption,
+.placeholder-title {
+    -fx-font-size: 12px;
+    -fx-text-fill: -ui-text-muted;
+}
+
+.activity-bar {
+    -fx-padding: 0;
+    -fx-background-color: -ui-surface;
+}
+
+.activity-bar-left {
+    -fx-border-color: transparent -ui-border transparent transparent;
+    -fx-border-width: 0 1 0 0;
+}
+
+.activity-bar-right {
+    -fx-border-color: transparent transparent transparent -ui-border;
+    -fx-border-width: 0 0 0 1;
+}
+
+.activity-bar-icon {
+    -fx-font-family: "Segoe UI Symbol";
+    -fx-font-size: 24px;
+    -fx-text-fill: -ui-text-muted;
+}
+
+.activity-list-item {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+}
+
+.bottom-panel {
+    -fx-background-color: -ui-surface;
+}
+
+.info-panel {
+    -fx-background-color: -ui-surface;
+}
+
+.workbench-split-pane {
+    -fx-padding: 0;
+    -fx-background-color: -ui-canvas;
+}
+
+/* 4px 拖拽热区，中间只显示 1px 分隔线。 */
+.workbench-horizontal-split > .split-pane-divider {
+    -fx-padding: 0 2 0 2;
+    -fx-background-color: -ui-border;
+    -fx-background-insets: 0 1.5 0 1.5;
+}
+
+.workbench-vertical-split > .split-pane-divider {
+    -fx-padding: 2 0 2 0;
+    -fx-background-color: -ui-border;
+    -fx-background-insets: 1.5 0 1.5 0;
+}
+
+.workbench-split-pane > .split-pane-divider:hover {
+    -fx-background-color: -ui-border-focus;
+}
+
+.editor-tab-bar {
+    -fx-background-color: -ui-surface;
+    -fx-border-color: transparent transparent -ui-border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.editor-tab {
+    -fx-padding: 0 10 0 12;
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+}
+
+.editor-tab-selected {
+    -fx-background-color: transparent;
+    -fx-border-color: -ui-selection transparent transparent transparent;
+    -fx-border-width: 2 0 0 0;
+}
+
+.editor-tab-title {
+    -fx-font-size: 12px;
+    -fx-text-fill: -ui-text;
+}
+
+.editor-tab-close {
+    -fx-font-size: 16px;
+    -fx-text-fill: -ui-text-muted;
+}
+
+/* 文本输入控件的内部编辑区。 */
+.ui-text-area .content,
+.ui-spinner .text-field,
+.ui-date-picker .text-field,
+.ui-combo-box .list-cell,
+.ui-choice-box .label,
+.ui-color-picker .label {
+    -fx-background-color: -ui-surface-raised;
+    -fx-text-fill: -ui-text;
+}
+
+.ui-combo-box .arrow-button,
+.ui-date-picker .arrow-button,
+.ui-spinner .increment-arrow-button,
+.ui-spinner .decrement-arrow-button,
+.ui-color-picker .arrow-button {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+}
+
+.ui-combo-box .arrow,
+.ui-choice-box .arrow,
+.ui-date-picker .arrow,
+.ui-spinner .increment-arrow,
+.ui-spinner .decrement-arrow,
+.ui-color-picker .arrow {
+    -fx-background-color: -ui-text-muted;
+}
+
+/* 选择类控件的内部标记。 */
+.ui-check-box .box,
+.ui-switch .box,
+.ui-radio-button .radio {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+}
+
+.ui-check-box:selected .box,
+.ui-switch:selected .box,
+.ui-radio-button:selected .radio {
+    -fx-background-color: -ui-selection;
+    -fx-border-color: -ui-border-focus;
+}
+
+.ui-check-box .mark,
+.ui-switch .mark,
+.ui-radio-button .dot {
+    -fx-background-color: white;
+}
+
+/* 列表、表格和树的表面与表头。 */
+.ui-collection,
+.ui-table,
+.ui-tree,
+.ui-tree-table {
+    -fx-control-inner-background: -ui-surface;
+    -fx-control-inner-background-alt: -ui-surface-raised;
+    -fx-table-cell-border-color: -ui-border;
+}
+
+.ui-table .column-header-background,
+.ui-tree-table .column-header-background,
+.ui-table .column-header,
+.ui-tree-table .column-header,
+.ui-table .filler,
+.ui-tree-table .filler {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+}
+
+.ui-table .column-header .label,
+.ui-tree-table .column-header .label,
+.ui-table .table-cell,
+.ui-tree-table .tree-table-cell {
+    -fx-text-fill: -ui-text;
+}
+
+/* 标签页与折叠区。 */
+.ui-tab-pane .tab-header-area .tab-header-background,
+.ui-tab-pane .tab-content-area,
+.ui-accordion .content,
+.ui-section .content {
+    -fx-background-color: -ui-surface;
+    -fx-border-color: -ui-border;
+}
+
+.ui-tab-pane .tab,
+.ui-accordion .title,
+.ui-section .title {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+}
+
+.ui-tab-pane .tab:selected {
+    -fx-background-color: -ui-selection;
+}
+
+.ui-tab-pane .tab .tab-label,
+.ui-accordion .title .text,
+.ui-section .title .text {
+    -fx-text-fill: -ui-text;
+    -fx-fill: -ui-text;
+}
+
+/* 分页、菜单和工具栏操作节点。 */
+.ui-pagination .pagination-control,
+.ui-pagination .control-box,
+.ui-pagination .number-button,
+.ui-pagination .left-arrow-button,
+.ui-pagination .right-arrow-button {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+    -fx-text-fill: -ui-text;
+}
+
+.ui-pagination .number-button:selected {
+    -fx-background-color: -ui-selection;
+    -fx-text-fill: white;
+}
+
+.ui-menu-bar .menu,
+.ui-tool-bar .button {
+    -fx-background-color: transparent;
+    -fx-text-fill: -ui-text;
+}
+
+.ui-menu-bar .menu:hover,
+.ui-menu-bar .menu:showing,
+.ui-tool-bar .button:hover {
+    -fx-background-color: -ui-surface-raised;
+}
+
+.context-menu,
+.combo-box-popup .list-view,
+.date-picker-popup {
+    -fx-background-color: -ui-surface-raised;
+    -fx-border-color: -ui-border;
+}
+
+.context-menu .menu-item .label,
+.combo-box-popup .list-cell,
+.date-picker-popup .label {
+    -fx-text-fill: -ui-text;
+}
+
+.context-menu .menu-item:focused,
+.combo-box-popup .list-cell:selected,
+.date-picker-popup .day-cell:hover {
+    -fx-background-color: -ui-selection;
+}
+
+/* 所有库组件内部滚动条统一由主题绘制，不再使用 Modena 配色。 */
+.root .scroll-bar,
+.root .scroll-bar .track,
+.root .scroll-bar .increment-button,
+.root .scroll-bar .decrement-button,
+.root .corner {
+    -fx-background-color: -ui-surface;
+    -fx-border-color: -ui-border;
+}
+
+.root .scroll-bar .thumb {
+    -fx-background-color: -ui-text-muted;
+}
+
+.root .scroll-bar .thumb:hover {
+    -fx-background-color: -ui-border-focus;
+}
+
+.ui-scroll .viewport,
+.ui-code-editor .virtual-flow,
+.ui-code-editor .virtual-flow .clipped-container {
+    -fx-background-color: -ui-surface;
+}

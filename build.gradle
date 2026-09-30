@@ -14,7 +14,7 @@ java {
 }
 
 dependencies {
-    implementation 'org.fxmisc.richtext:richtextfx:0.11.7'
+    implementation 'com.fifesoft:rsyntaxtextarea:4.0.1'
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-console-standalone:1.11.4'
@@ -77,20 +77,24 @@ tasks.named('test') {
 }
 
 application {
-    mainClass = 'minic.ui.MiniCWorkbenchLauncher'
+    mainClass = 'minic.ui.Starter'
+    applicationDefaultJvmArgs = [
+            '--add-exports=java.desktop/sun.font=ALL-UNNAMED'
+    ]
 }
 
 tasks.register('runUi', JavaExec) {
     group = 'application'
     description = '启动 MiniC Visual Workbench JavaFX UI'
     classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'minic.ui.MiniCWorkbenchLauncher'
+    mainClass = 'minic.ui.Starter'
     javaLauncher.set(javaToolchains.launcherFor {
         languageVersion = JavaLanguageVersion.of(21)
     })
     jvmArgs = [
             '--module-path', configurations.runtimeClasspath.asPath,
             '--add-modules', javafx.modules.join(','),
+            '--add-exports=java.desktop/sun.font=ALL-UNNAMED',
             '-Dfile.encoding=UTF-8',
             '-Dsun.stdout.encoding=UTF-8',
             '-Dsun.stderr.encoding=UTF-8',
