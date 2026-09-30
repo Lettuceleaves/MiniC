@@ -1,0 +1,128 @@
+/* Test instrumentation in the shared C/C++ subset. Explicit calls do not test
+   compiler-generated constructors/destructors; tracked_reference.cpp does. */
+#ifndef MINIC_TEST_PROBE_SUPPORT_MH
+#define MINIC_TEST_PROBE_SUPPORT_MH
+#include <stdio.h>
+#include <stdlib.h>
+
+#define PROBE_LIMIT 32
+int probe_object_live[PROBE_LIMIT];
+int probe_object_resource[PROBE_LIMIT];
+int probe_allocation_live[PROBE_LIMIT];
+int *probe_memory[PROBE_LIMIT];
+int probe_next_object;
+int probe_next_allocation;
+int probe_live;
+int probe_created;
+int probe_destroyed;
+int probe_copies;
+int probe_moves;
+int probe_allocations;
+int probe_frees;
+int probe_comparisons;
+int probe_double_destroy;
+int probe_double_free;
+int probe_copy_alias;
+int probe_object_leaks;
+int probe_allocation_leaks;
+int probe_errors;
+
+int probe_allocate(int value) {
+    int resource = ++probe_next_allocation;
+    if (resource >= PROBE_LIMIT) abort();
+    probe_memory[resource] = (int *)malloc(sizeof(int));
+    if (probe_memory[resource] == NULL) abort();
+    *probe_memory[resource] = value;
+    probe_allocation_live[resource] = 1;
+    probe_allocations++;
+    return resource;
+}
+
+void probe_release(int resource) {
+    if (resource == 0) return;
+    if (resource < 1 || resource >= PROBE_LIMIT || !probe_allocation_live[resource]) {
+        probe_double_free++;
+        probe_errors++;
+        return;
+    }
+    /* Mark dead before release. A second request is caught without calling free. */
+    probe_allocation_live[resource] = 0;
+    free(probe_memory[resource]);
+    probe_memory[resource] = NULL;
+    probe_frees++;
+}
+
+int probe_register(int resource) {
+    int object = ++probe_next_object;
+    if (object >= PROBE_LIMIT) abort();
+    probe_object_live[object] = 1;
+    probe_object_resource[object] = resource;
+    probe_live++;
+    probe_created++;
+    return object;
+}
+
+int probe_construct(int value) {
+    return probe_register(probe_allocate(value));
+}
+
+int probe_value(int object) {
+    return *probe_memory[probe_object_resource[object]];
+}
+
+void probe_set(int object, int value) {
+    *probe_memory[probe_object_resource[object]] = value;
+}
+
+int probe_copy(int source) {
+    probe_copies++;
+    return probe_construct(probe_value(source));
+}
+
+int probe_move(int source) {
+    int object = probe_register(probe_object_resource[source]);
+    probe_object_resource[source] = 0;
+    probe_moves++;
+    return object;
+}
+
+void probe_check_independent(int source, int copy) {
+    if (probe_object_resource[source] == probe_object_resource[copy]) {
+        probe_copy_alias++;
+        probe_errors++;
+    }
+}
+
+void probe_destroy(int object) {
+    if (object < 1 || object >= PROBE_LIMIT || !probe_object_live[object]) {
+        probe_double_destroy++;
+        probe_errors++;
+        return;
+    }
+    probe_object_live[object] = 0;
+    probe_live--;
+    probe_destroyed++;
+    probe_release(probe_object_resource[object]);
+    probe_object_resource[object] = 0;
+}
+
+int probe_less(int left, int right) {
+    probe_comparisons++;
+    return left < right;
+}
+
+void probe_check_leaks(void) {
+    probe_object_leaks = probe_live;
+    probe_allocation_leaks = 0;
+    for (int i = 1; i <= probe_next_allocation; i++) {
+        if (probe_allocation_live[i]) probe_allocation_leaks++;
+    }
+    probe_errors += probe_object_leaks + probe_allocation_leaks;
+}
+
+void probe_cleanup(void) {
+    for (int i = 1; i <= probe_next_allocation; i++) {
+        if (probe_allocation_live[i]) probe_release(i);
+    }
+}
+#endif
