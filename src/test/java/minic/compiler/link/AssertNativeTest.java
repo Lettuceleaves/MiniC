@@ -2,7 +2,7 @@ package minic.compiler.link;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -25,22 +25,23 @@ final class AssertNativeTest {
                 + "int main() {\n"
                 + "    minic_set_process_error_mode(3U); assert(2 + 2 == 5); return 99;\n"
                 + "}\n");
-        CompileObservationSession session = CompileObservationSession.fromSource(source);
-        session.compilerApi().run();
+        CompilerFixture session = CompilerFixture.fromSource(source);
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> session.semanticAnalyzer().diagnostics() + " "
-                + session.linker().diagnostics());
+        assertTrue(session.linker().succeeded(), () -> session.semanticAnalyzer().errors() + " "
+                + session.linker().errors());
         Map<String, Set<String>> imports = PeImportIntegrationTest.readImports(
                 session.linker().peImage().orElseThrow().bytes()
         );
         assertEquals(Set.of("_assert"), imports.get("msvcrt.dll"));
         assertEquals(Set.of("ExitProcess", "SetErrorMode"), imports.get("KERNEL32.dll"));
 
-        var execution = new ExecutableRunner(Duration.ofSeconds(3)).run(
+        var executionStage = new ExecutableRunner(Duration.ofSeconds(3));
+        var execution = executionStage.run(
                 source,
                 session.linker().result().executableArtifactOptional().orElseThrow()
         );
-        assertTrue(execution.diagnostics().isEmpty(), execution.diagnostics()::toString);
+        assertTrue(executionStage.errors().isEmpty(), executionStage.errors()::toString);
         assertEquals(3, execution.exitCode());
         assertTrue(execution.stderr().contains("2 + 2 == 5"), execution.stderr());
         assertTrue(execution.stderr().contains("assert-native.mc"), execution.stderr());

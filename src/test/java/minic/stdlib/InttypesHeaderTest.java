@@ -5,7 +5,7 @@ import minic.compiler.execute.ExecutableRunner;
 import minic.compiler.library.SystemLibraryCatalog;
 import minic.compiler.preprocess.PreprocessResult;
 import minic.compiler.preprocess.Preprocessor;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -26,10 +26,11 @@ final class InttypesHeaderTest {
         expected.forEach((name, value) -> source.append("char *fmt_")
                 .append(name).append(" = ").append(name).append(";\n"));
 
-        PreprocessResult result = new Preprocessor().preprocess(
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(
                 new SourceFile("inttypes-format-macros.mc", source.toString()));
 
-        assertTrue(result.diagnostics().isEmpty(), result.diagnostics()::toString);
+        assertTrue(resultStage.errors().isEmpty(), resultStage.errors()::toString);
         assertEquals(2, result.includes().stream()
                 .filter(include -> include.requestedPath().equals("inttypes.mh"))
                 .count());
@@ -53,9 +54,10 @@ final class InttypesHeaderTest {
                 uintmax_t parse_unsigned(char *text, char **end) { return strtoumax(text, end, 10); }
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("inttypes-aliases.mc", source));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("inttypes-aliases.mc", source));
 
-        assertTrue(result.diagnostics().isEmpty(), result.diagnostics()::toString);
+        assertTrue(resultStage.errors().isEmpty(), resultStage.errors()::toString);
         String expanded = result.sourceFile().content();
         assertTrue(expanded.contains("return llabs(value);"), expanded);
         assertTrue(expanded.contains("return strtoll(text, end, 10);"), expanded);
@@ -113,22 +115,23 @@ final class InttypesHeaderTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("inttypes-native.mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
 
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().diagnostics()
-                + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics()
-                + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
-        var execution = new ExecutableRunner().run(
+        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().errors()
+                + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors()
+                + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
+        var executionStage = new ExecutableRunner();
+        var execution = executionStage.run(
                 sourceFile,
                 session.linker().result().executableArtifactOptional().orElseThrow(),
                 "-7 ff 077 -5000000000 6000000000 -42\n"
         );
-        assertTrue(execution.diagnostics().isEmpty(), execution.diagnostics()::toString);
+        assertTrue(executionStage.errors().isEmpty(), executionStage.errors()::toString);
         assertEquals(0, execution.exitCode(), execution::stderr);
         assertEquals("-7|ff|63|-5000000000|6000000000|-42\r\n", execution.stdout());
     }

@@ -105,15 +105,18 @@ final class NarrowCLibraryCatalogTest {
     }
 
     private static Set<String> declaredFunctions(String headerName) {
-        var preprocessed = new Preprocessor().preprocess(new SourceFile(
+        var preprocessedStage = new Preprocessor();
+        var preprocessed = preprocessedStage.preprocess(new SourceFile(
                 "contract-" + headerName + ".mc",
                 "#include \"" + headerName + "\"\n"
         ));
-        assertTrue(preprocessed.diagnostics().isEmpty(), preprocessed.diagnostics()::toString);
-        var lexed = new Lexer(preprocessed.sourceFile()).lex();
-        assertTrue(lexed.diagnostics().isEmpty(), lexed.diagnostics()::toString);
-        var parsed = new Parser(lexed.tokens()).parse();
-        assertTrue(parsed.diagnostics().isEmpty(), parsed.diagnostics()::toString);
+        assertTrue(preprocessedStage.errors().isEmpty(), preprocessedStage.errors()::toString);
+        var lexedStage = new Lexer(preprocessed.sourceFile());
+        var lexed = lexedStage.lex();
+        assertTrue(lexedStage.errors().isEmpty(), lexedStage.errors()::toString);
+        var parsedStage = new Parser(lexed.tokens());
+        var parsed = parsedStage.parse();
+        assertTrue(parsedStage.errors().isEmpty(), parsedStage.errors()::toString);
         return parsed.program().functions().stream()
                 .map(function -> function.name())
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());

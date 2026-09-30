@@ -2,7 +2,7 @@ package minic.compiler.parser;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -21,10 +21,10 @@ final class DesignatedInitializerTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("designated.mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
-        session.compilerApi().run();
-        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics());
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        session.compilerApi().runThrough(session.linker());
+        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors());
         var result = new ExecutableRunner().run(
                 sourceFile, session.linker().result().executableArtifactOptional().orElseThrow());
         assertEquals(0, result.exitCode());

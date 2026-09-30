@@ -1,7 +1,7 @@
 package minic.debug;
 
 import minic.compiler.SourceFile;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -14,10 +14,10 @@ final class DebugAssertLibraryTest {
     void failedAssertionReportsSourceAndTerminatesWithoutExecutingFollowingCode() {
         SourceFile source = new SourceFile("assert-debug.mc", "#include \"assert.mh\"\n#include \"stdio.mh\"\n"
                 + "int main() { assert(2 + 2 == 5); printf(\"unreachable\"); return 0; }\n");
-        CompileObservationSession compilation = CompileObservationSession.fromSource(source);
+        CompilerFixture compilation = CompilerFixture.fromSource(source);
         compilation.compilerApi().runToIr();
-        assertTrue(compilation.irLowerer().succeeded(), () -> "parse=" + compilation.parser().diagnostics()
-                + ", semantic=" + compilation.semanticAnalyzer().diagnostics());
+        assertTrue(compilation.irLowerer().succeeded(), () -> "parse=" + compilation.parser().errors()
+                + ", semantic=" + compilation.semanticAnalyzer().errors());
         DebugApi debugger = new DebugApi(source);
 
         while (debugger.canNext()) {

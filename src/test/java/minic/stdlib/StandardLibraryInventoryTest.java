@@ -78,8 +78,9 @@ final class StandardLibraryInventoryTest {
 
         for (String header : published) {
             String source = "#include \"" + header + "\"\n#include \"" + header + "\"\nint main() { return 0; }\n";
-            var result = new Preprocessor().preprocess(new SourceFile("repeat-" + header + ".mc", source));
-            assertTrue(result.diagnostics().isEmpty(), () -> header + ": " + result.diagnostics());
+            var resultStage = new Preprocessor();
+            var result = resultStage.preprocess(new SourceFile("repeat-" + header + ".mc", source));
+            assertTrue(resultStage.errors().isEmpty(), () -> header + ": " + resultStage.errors());
             assertEquals(2, result.includes().stream()
                     .filter(include -> include.requestedPath().equals(header))
                     .count(), header);
@@ -89,8 +90,9 @@ final class StandardLibraryInventoryTest {
         StringBuilder combined = new StringBuilder();
         published.forEach(header -> combined.append("#include \"").append(header).append("\"\n"));
         combined.append("int main() { return 0; }\n");
-        var result = new Preprocessor().preprocess(new SourceFile("all-standard-headers.mc", combined.toString()));
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        var resultStage = new Preprocessor();
+        var result = resultStage.preprocess(new SourceFile("all-standard-headers.mc", combined.toString()));
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(result.includes().size() >= published.size());
         published.forEach(header -> assertTrue(
                 result.includes().stream().anyMatch(include -> include.requestedPath().equals(header)),

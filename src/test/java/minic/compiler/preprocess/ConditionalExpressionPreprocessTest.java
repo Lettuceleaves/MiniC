@@ -25,8 +25,9 @@ final class ConditionalExpressionPreprocessTest {
                 #endif
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("conditional.mc", source));
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("conditional.mc", source));
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(result.sourceFile().content().contains("int selected = 2;"));
         assertFalse(result.sourceFile().content().contains("int selected = 1;"));
         assertFalse(result.sourceFile().content().contains("int selected = 3;"));
@@ -46,8 +47,9 @@ final class ConditionalExpressionPreprocessTest {
                 #endif
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("nested-condition.mc", source));
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("nested-condition.mc", source));
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(result.sourceFile().content().contains("int selected = 7;"));
         int outputOffset = result.sourceFile().content().indexOf("selected");
         assertEquals(source.indexOf("selected"), result.sourceMap()[outputOffset]);
@@ -72,10 +74,11 @@ final class ConditionalExpressionPreprocessTest {
                 #endif
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("condition-errors.mc", source));
-        assertEquals(2, result.diagnostics().size(), () -> result.diagnostics().toString());
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("条件编译表达式非法")));
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("#else 后不能出现 #elif")));
-        assertFalse(result.diagnostics().stream().anyMatch(d -> d.message().contains("除数为零")));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("condition-errors.mc", source));
+        assertEquals(2, resultStage.errors().size(), () -> resultStage.errors().toString());
+        assertTrue(resultStage.errors().stream().anyMatch(d -> d.message().contains("条件编译表达式非法")));
+        assertTrue(resultStage.errors().stream().anyMatch(d -> d.message().contains("#else 后不能出现 #elif")));
+        assertFalse(resultStage.errors().stream().anyMatch(d -> d.message().contains("除数为零")));
     }
 }

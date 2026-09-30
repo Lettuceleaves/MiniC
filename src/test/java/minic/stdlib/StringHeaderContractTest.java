@@ -136,15 +136,18 @@ final class StringHeaderContractTest {
     }
 
     private static HeaderModel parseHeader() {
-        PreprocessResult preprocessed = new Preprocessor().preprocess(new SourceFile(
+        var preprocessedStage = new Preprocessor();
+        PreprocessResult preprocessed = preprocessedStage.preprocess(new SourceFile(
                 "string-header-contract.mc",
                 "#include \"string.mh\"\n"
         ));
-        assertTrue(preprocessed.diagnostics().isEmpty(), preprocessed.diagnostics()::toString);
-        var lexed = new Lexer(preprocessed.sourceFile()).lex();
-        assertTrue(lexed.diagnostics().isEmpty(), lexed.diagnostics()::toString);
-        var parsed = new Parser(lexed.tokens()).parse();
-        assertTrue(parsed.diagnostics().isEmpty(), parsed.diagnostics()::toString);
+        assertTrue(preprocessedStage.errors().isEmpty(), preprocessedStage.errors()::toString);
+        var lexedStage = new Lexer(preprocessed.sourceFile());
+        var lexed = lexedStage.lex();
+        assertTrue(lexedStage.errors().isEmpty(), lexedStage.errors()::toString);
+        var parsedStage = new Parser(lexed.tokens());
+        var parsed = parsedStage.parse();
+        assertTrue(parsedStage.errors().isEmpty(), parsedStage.errors()::toString);
 
         LinkedHashMap<String, FunctionDecl> functions = new LinkedHashMap<>();
         parsed.program().functions().forEach(function -> functions.put(function.name(), function));

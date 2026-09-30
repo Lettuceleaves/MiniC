@@ -3,7 +3,7 @@ package minic.compiler;
 import minic.debug.DebugApi;
 import minic.debug.Debugger;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -24,12 +24,13 @@ final class AnonymousAggregateEndToEndTest {
                             && local.left == 0 && local.right == 3 ? 0 : 1;
                 }
                 """);
-        var session = CompileObservationSession.fromSource(source);
-        session.compilerApi().run();
-        assertTrue(session.linker().succeeded(), () -> session.semanticAnalyzer().diagnostics().toString());
-        var nativeRun = new ExecutableRunner().run(source,
+        var session = CompilerFixture.fromSource(source);
+        session.compilerApi().runThrough(session.linker());
+        assertTrue(session.linker().succeeded(), () -> session.semanticAnalyzer().errors().toString());
+        var nativeRunStage = new ExecutableRunner();
+        var nativeRun = nativeRunStage.run(source,
                 session.linker().result().executableArtifactOptional().orElseThrow());
-        assertEquals(0, nativeRun.exitCode(), () -> nativeRun.diagnostics().toString());
+        assertEquals(0, nativeRun.exitCode(), () -> nativeRunStage.errors().toString());
 
         DebugApi api = new DebugApi(source);
         for (int budget = 20_000; api.canNext() && budget > 0; budget--) api.next();

@@ -2,7 +2,7 @@ package minic.compiler.link;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -34,12 +34,13 @@ final class StdioNativeTest {
         CompiledProgram program = compile(testCase.name(), testCase.source());
 
         assertImports(program, testCase.msvcrtExports());
-        var execution = new ExecutableRunner(PROCESS_TIMEOUT).run(
+        var executionStage = new ExecutableRunner(PROCESS_TIMEOUT);
+        var execution = executionStage.run(
                 program.sourceFile(),
                 program.artifact(),
                 testCase.standardInput()
         );
-        assertTrue(execution.diagnostics().isEmpty(), execution.diagnostics()::toString);
+        assertTrue(executionStage.errors().isEmpty(), executionStage.errors()::toString);
         assertEquals(testCase.exitCode(), execution.exitCode(), testCase.name());
         assertEquals(testCase.stdout(), execution.stdout(), testCase.name());
         assertEquals("", execution.stderr(), testCase.name());
@@ -66,8 +67,9 @@ final class StdioNativeTest {
         Files.writeString(existing, "payload");
         try {
             assertImports(program, Set.of("_errno", "remove"));
-            var execution = new ExecutableRunner(PROCESS_TIMEOUT).run(program.sourceFile(), program.artifact());
-            assertTrue(execution.diagnostics().isEmpty(), execution.diagnostics()::toString);
+            var executionStage = new ExecutableRunner(PROCESS_TIMEOUT);
+            var execution = executionStage.run(program.sourceFile(), program.artifact());
+            assertTrue(executionStage.errors().isEmpty(), executionStage.errors()::toString);
             assertEquals(0, execution.exitCode(), execution::stderr);
             assertFalse(Files.exists(existing));
         } finally {
@@ -105,8 +107,9 @@ final class StdioNativeTest {
         Files.writeString(targetFile, "target");
         try {
             assertImports(program, Set.of("_errno", "rename"));
-            var execution = new ExecutableRunner(PROCESS_TIMEOUT).run(program.sourceFile(), program.artifact());
-            assertTrue(execution.diagnostics().isEmpty(), execution.diagnostics()::toString);
+            var executionStage = new ExecutableRunner(PROCESS_TIMEOUT);
+            var execution = executionStage.run(program.sourceFile(), program.artifact());
+            assertTrue(executionStage.errors().isEmpty(), executionStage.errors()::toString);
             assertEquals(0, execution.exitCode(), execution::stderr);
             assertFalse(Files.exists(oldFile));
             assertEquals("renamed", Files.readString(newFile));
@@ -174,14 +177,14 @@ final class StdioNativeTest {
 
     private static CompiledProgram compile(String name, String source) {
         SourceFile sourceFile = new SourceFile("stdlib-native-stdio-" + name + ".mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
         session.compilerApi().runThrough(session.linker());
 
         assertTrue(session.linker().succeeded(), () -> name + ": pre="
-                + session.preprocessor().diagnostics() + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics() + ", semantic="
-                + session.semanticAnalyzer().diagnostics() + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+                + session.preprocessor().errors() + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors() + ", semantic="
+                + session.semanticAnalyzer().errors() + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         return new CompiledProgram(
                 sourceFile,
                 session.linker().result().executableArtifactOptional().orElseThrow(),

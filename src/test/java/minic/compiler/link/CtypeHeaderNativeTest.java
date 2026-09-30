@@ -2,7 +2,7 @@ package minic.compiler.link;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -37,26 +37,27 @@ final class CtypeHeaderNativeTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("ctype-isblank-native.mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
 
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().diagnostics()
-                + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics()
-                + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().errors()
+                + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors()
+                + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         var imports = PeImportIntegrationTest.readImports(session.linker().peImage().orElseThrow().bytes());
         assertEquals(Set.of("_isctype"), imports.get("msvcrt.dll"));
         assertFalse(imports.get("msvcrt.dll").contains("isblank"), "MSVCRT has no isblank export");
         assertEquals(Set.of("ExitProcess"), imports.get("KERNEL32.dll"));
 
-        var execution = new ExecutableRunner().run(
+        var executionStage = new ExecutableRunner();
+        var execution = executionStage.run(
                 sourceFile,
                 session.linker().result().executableArtifactOptional().orElseThrow()
         );
-        assertTrue(execution.diagnostics().isEmpty(), execution.diagnostics()::toString);
+        assertTrue(executionStage.errors().isEmpty(), executionStage.errors()::toString);
         assertEquals(0, execution.exitCode(), execution::stderr);
         assertEquals("", execution.stdout());
     }

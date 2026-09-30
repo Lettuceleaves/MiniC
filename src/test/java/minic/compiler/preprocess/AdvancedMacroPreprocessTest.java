@@ -20,9 +20,10 @@ final class AdvancedMacroPreprocessTest {
                 EMPTY_CALL()
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("variadic.mc", source));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("variadic.mc", source));
         String output = result.sourceFile().content();
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(output.contains("int value = ((3) + (4));"), output);
         assertTrue(output.contains("sink()"), output);
     }
@@ -42,9 +43,10 @@ final class AdvancedMacroPreprocessTest {
                 char *escaped = STR(a   +   \"b\\\\c\");
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("operators.mc", source));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("operators.mc", source));
         String output = result.sourceFile().content();
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(output.contains("char *raw = \"VALUE\";"), output);
         assertTrue(output.contains("char *expanded = \"42\";"), output);
         assertTrue(output.contains("int item7 = 9;"), output);
@@ -64,9 +66,10 @@ final class AdvancedMacroPreprocessTest {
                 char *file = __FILE__;
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("dir/demo.mc", source));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("dir/demo.mc", source));
         String output = result.sourceFile().content();
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(output.contains("int direct = 3;"), output);
         assertTrue(output.contains("int nested = 4;"), output);
         assertTrue(output.contains("char *file = \"dir/demo.mc\";"), output);
@@ -91,21 +94,22 @@ final class AdvancedMacroPreprocessTest {
                 int fourth = NEED(1);
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("macro-errors.mc", source));
-        assertFalse(result.diagnostics().isEmpty());
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("参数数量")),
-                () -> result.diagnostics().toString());
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("缺少 ')'")),
-                () -> result.diagnostics().toString());
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("# 后必须是宏参数")),
-                () -> result.diagnostics().toString());
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("## 不能位于替换列表边界")),
-                () -> result.diagnostics().toString());
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("拼接结果不是单个预处理记号")),
-                () -> result.diagnostics().toString());
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("不能重新定义预定义宏 __LINE__")),
-                () -> result.diagnostics().toString());
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains("不能取消预定义宏 __FILE__")),
-                () -> result.diagnostics().toString());
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("macro-errors.mc", source));
+        assertFalse(resultStage.errors().isEmpty());
+        assertTrue(resultStage.errors().stream().anyMatch(d -> d.message().contains("参数数量")),
+                () -> resultStage.errors().toString());
+        assertTrue(resultStage.errors().stream().anyMatch(d -> d.message().contains("缺少 ')'")),
+                () -> resultStage.errors().toString());
+        assertTrue(resultStage.errors().stream().anyMatch(d -> d.message().contains("# 后必须是宏参数")),
+                () -> resultStage.errors().toString());
+        assertTrue(resultStage.errors().stream().anyMatch(d -> d.message().contains("## 不能位于替换列表边界")),
+                () -> resultStage.errors().toString());
+        assertTrue(resultStage.errors().stream().anyMatch(d -> d.message().contains("拼接结果不是单个预处理记号")),
+                () -> resultStage.errors().toString());
+        assertTrue(resultStage.errors().stream().anyMatch(d -> d.message().contains("不能重新定义预定义宏 __LINE__")),
+                () -> resultStage.errors().toString());
+        assertTrue(resultStage.errors().stream().anyMatch(d -> d.message().contains("不能取消预定义宏 __FILE__")),
+                () -> resultStage.errors().toString());
     }
 }

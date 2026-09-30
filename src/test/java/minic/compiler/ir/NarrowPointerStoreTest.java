@@ -6,7 +6,7 @@ import minic.compiler.ir.instruction.MemoryInstruction.IrStorePointerInstruction
 import minic.compiler.ir.model.IrType;
 import minic.debug.DebugApi;
 import minic.debug.Debugger;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class NarrowPointerStoreTest {
     @Test
     void castsPointerIndexAndFieldStoresToTheirTargetIrTypes() {
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile());
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile());
         IrResult ir = session.compilerApi().runToIr();
 
         Set<IrType> storedTypes = ir.findFunction("main").orElseThrow().blocks().stream()
@@ -40,20 +40,21 @@ final class NarrowPointerStoreTest {
     @Test
     void preservesAdjacentGuardValuesNativelyAndInTheDebugger() {
         SourceFile source = sourceFile();
-        CompileObservationSession nativeSession = CompileObservationSession.fromSource(source);
+        CompilerFixture nativeSession = CompilerFixture.fromSource(source);
         nativeSession.compilerApi().runThrough(nativeSession.linker());
-        assertTrue(nativeSession.linker().succeeded(), () -> "pre=" + nativeSession.preprocessor().diagnostics()
-                + ", lex=" + nativeSession.lexer().diagnostics()
-                + ", parse=" + nativeSession.parser().diagnostics()
-                + ", semantic=" + nativeSession.semanticAnalyzer().diagnostics()
-                + ", obj=" + nativeSession.objBuilder().diagnostics()
-                + ", link=" + nativeSession.linker().diagnostics());
+        assertTrue(nativeSession.linker().succeeded(), () -> "pre=" + nativeSession.preprocessor().errors()
+                + ", lex=" + nativeSession.lexer().errors()
+                + ", parse=" + nativeSession.parser().errors()
+                + ", semantic=" + nativeSession.semanticAnalyzer().errors()
+                + ", obj=" + nativeSession.objBuilder().errors()
+                + ", link=" + nativeSession.linker().errors());
 
-        var nativeExecution = new ExecutableRunner().run(
+        var nativeExecutionStage = new ExecutableRunner();
+        var nativeExecution = nativeExecutionStage.run(
                 source,
                 nativeSession.linker().result().executableArtifactOptional().orElseThrow()
         );
-        assertTrue(nativeExecution.diagnostics().isEmpty(), nativeExecution.diagnostics()::toString);
+        assertTrue(nativeExecutionStage.errors().isEmpty(), nativeExecutionStage.errors()::toString);
         assertEquals(0, nativeExecution.exitCode(), nativeExecution::stderr);
 
         DebugApi debug = new DebugApi(source);

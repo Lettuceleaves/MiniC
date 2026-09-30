@@ -2,7 +2,7 @@ package minic.debug;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -41,21 +41,22 @@ final class DebugStdioEndToEndParityTest {
                 """;
         SourceFile sourceFile = new SourceFile("stdio-debug-native-parity.mc", source);
 
-        CompileObservationSession nativeSession = CompileObservationSession.fromSource(sourceFile);
-        nativeSession.compilerApi().run();
-        assertTrue(nativeSession.linker().succeeded(), () -> "stage=" + nativeSession.currentStage()
-                + ", preprocess=" + nativeSession.preprocessor().diagnostics()
-                + ", lexer=" + nativeSession.lexer().diagnostics()
-                + ", parser=" + nativeSession.parser().diagnostics()
-                + ", semantic=" + nativeSession.semanticAnalyzer().diagnostics()
-                + ", obj=" + nativeSession.objBuilder().diagnostics()
-                + ", link=" + nativeSession.linker().diagnostics());
-        var nativeExecution = new ExecutableRunner().run(
+        CompilerFixture nativeSession = CompilerFixture.fromSource(sourceFile);
+        nativeSession.compilerApi().runThrough(nativeSession.linker());
+        assertTrue(nativeSession.linker().succeeded(), () -> "stage=" + nativeSession.compilerApi().currentStage()
+                + ", preprocess=" + nativeSession.preprocessor().errors()
+                + ", lexer=" + nativeSession.lexer().errors()
+                + ", parser=" + nativeSession.parser().errors()
+                + ", semantic=" + nativeSession.semanticAnalyzer().errors()
+                + ", obj=" + nativeSession.objBuilder().errors()
+                + ", link=" + nativeSession.linker().errors());
+        var nativeExecutionStage = new ExecutableRunner();
+        var nativeExecution = nativeExecutionStage.run(
                 sourceFile,
                 nativeSession.linker().result().executableArtifactOptional().orElseThrow(),
                 "Q"
         );
-        assertTrue(nativeExecution.diagnostics().isEmpty(), nativeExecution.diagnostics()::toString);
+        assertTrue(nativeExecutionStage.errors().isEmpty(), nativeExecutionStage.errors()::toString);
 
         DebugApi debug = new DebugApi(sourceFile, "Q");
         int remaining = 50_000;

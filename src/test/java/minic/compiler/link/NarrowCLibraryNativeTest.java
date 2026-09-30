@@ -2,7 +2,7 @@ package minic.compiler.link;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -23,15 +23,15 @@ final class NarrowCLibraryNativeTest {
         String source = "#include \"" + testCase.header() + "\"\n"
                 + "int main() {\n" + testCase.body() + "\n}\n";
         SourceFile sourceFile = new SourceFile("stdlib-native-" + testCase.symbol() + ".mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
 
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
         assertTrue(session.linker().succeeded(), () -> testCase.symbol() + ": pre="
-                + session.preprocessor().diagnostics() + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics() + ", semantic="
-                + session.semanticAnalyzer().diagnostics() + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+                + session.preprocessor().errors() + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors() + ", semantic="
+                + session.semanticAnalyzer().errors() + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         Map<String, Set<String>> imports = PeImportIntegrationTest.readImports(
                 session.linker().peImage().orElseThrow().bytes()
         );
@@ -39,8 +39,9 @@ final class NarrowCLibraryNativeTest {
         assertEquals(Set.of("ExitProcess"), imports.get("KERNEL32.dll"), testCase.symbol());
 
         var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
-        var execution = new ExecutableRunner().run(sourceFile, artifact);
-        assertTrue(execution.diagnostics().isEmpty(), () -> testCase.symbol() + ": " + execution.diagnostics());
+        var executionStage = new ExecutableRunner();
+        var execution = executionStage.run(sourceFile, artifact);
+        assertTrue(executionStage.errors().isEmpty(), () -> testCase.symbol() + ": " + executionStage.errors());
         assertEquals("", execution.stderr(), testCase.symbol());
         assertEquals(0, execution.exitCode(), testCase.symbol());
     }

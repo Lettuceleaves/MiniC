@@ -1,7 +1,7 @@
 package minic.compiler;
 
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
@@ -56,19 +56,20 @@ final class SystemLibraryEndToEndTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("system-library-e2e.mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
 
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().diagnostics()
-                + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics()
-                + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().errors()
+                + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors()
+                + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
-        var execution = new ExecutableRunner().run(sourceFile, artifact, "4 -7 1.25 ok\n");
-        assertTrue(execution.diagnostics().isEmpty(), () -> execution.diagnostics().toString());
+        var executionStage = new ExecutableRunner();
+        var execution = executionStage.run(sourceFile, artifact, "4 -7 1.25 ok\n");
+        assertTrue(executionStage.errors().isEmpty(), () -> executionStage.errors().toString());
         assertEquals("", execution.stderr());
         assertEquals(0, execution.exitCode());
         assertEquals("ratio=1.25 read=4 zero=1 abs=7 min=4 sum=10 word=ok\r\n", execution.stdout());

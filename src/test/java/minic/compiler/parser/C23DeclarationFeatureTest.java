@@ -49,8 +49,8 @@ final class C23DeclarationFeatureTest {
                 }
                 """);
 
-        assertTrue(frontend.parser().diagnostics().isEmpty(), () -> frontend.parser().diagnostics().toString());
-        assertTrue(frontend.semantic().diagnostics().isEmpty(), () -> frontend.semantic().diagnostics().toString());
+        assertTrue(frontend.parserStage().errors().isEmpty(), () -> frontend.parserStage().errors().toString());
+        assertTrue(frontend.semanticStage().errors().isEmpty(), () -> frontend.semanticStage().errors().toString());
         List<minic.compiler.parser.node.Statement> statements = frontend.parser().program()
                 .functions().getLast().bodyOptional().orElseThrow().statements();
         VarDeclStmt outer = (VarDeclStmt) statements.getFirst();
@@ -76,11 +76,11 @@ final class C23DeclarationFeatureTest {
                 }
                 """);
 
-        assertTrue(frontend.parser().diagnostics().isEmpty(), () -> frontend.parser().diagnostics().toString());
-        String diagnostics = frontend.semantic().diagnostics().toString();
+        assertTrue(frontend.parserStage().errors().isEmpty(), () -> frontend.parserStage().errors().toString());
+        String diagnostics = frontend.semanticStage().errors().toString();
         assertTrue(diagnostics.contains("const"), diagnostics);
         assertTrue(diagnostics.contains("restrict"), diagnostics);
-        assertEquals(4, frontend.semantic().diagnostics().stream()
+        assertEquals(4, frontend.semanticStage().errors().stream()
                 .filter(diagnostic -> diagnostic.message().contains("const")
                         || diagnostic.message().contains("restrict"))
                 .count(), diagnostics);
@@ -95,8 +95,8 @@ final class C23DeclarationFeatureTest {
                 }
                 """);
 
-        assertTrue(frontend.parser().diagnostics().isEmpty(), () -> frontend.parser().diagnostics().toString());
-        assertTrue(frontend.semantic().diagnostics().isEmpty(), () -> frontend.semantic().diagnostics().toString());
+        assertTrue(frontend.parserStage().errors().isEmpty(), () -> frontend.parserStage().errors().toString());
+        assertTrue(frontend.semanticStage().errors().isEmpty(), () -> frontend.semanticStage().errors().toString());
         VarDeclStmt declaration = (VarDeclStmt) frontend.parser().program().functions().getFirst()
                 .bodyOptional().orElseThrow().statements().getFirst();
         MiniType outerPointer = declaration.type();
@@ -116,7 +116,7 @@ final class C23DeclarationFeatureTest {
                     return watched - 2;
                 }
                 """);
-        assertTrue(frontend.semantic().diagnostics().isEmpty(), () -> frontend.semantic().diagnostics().toString());
+        assertTrue(frontend.semanticStage().errors().isEmpty(), () -> frontend.semanticStage().errors().toString());
 
         IrResult ir = new IrLowerer(frontend.parser().program(), frontend.semantic()).lower();
         List<IrInstruction> instructions = ir.findFunction("main").orElseThrow().blocks().stream()
@@ -146,8 +146,8 @@ final class C23DeclarationFeatureTest {
                 }
                 """);
 
-        assertTrue(frontend.parser().diagnostics().isEmpty(), () -> frontend.parser().diagnostics().toString());
-        assertTrue(frontend.semantic().diagnostics().isEmpty(), () -> frontend.semantic().diagnostics().toString());
+        assertTrue(frontend.parserStage().errors().isEmpty(), () -> frontend.parserStage().errors().toString());
+        assertTrue(frontend.semanticStage().errors().isEmpty(), () -> frontend.semanticStage().errors().toString());
         var layout = frontend.semantic().structLayout("Aligned").orElseThrow();
         assertEquals(16, layout.alignment());
         assertEquals(32, layout.size());
@@ -173,8 +173,8 @@ final class C23DeclarationFeatureTest {
                 }
                 """);
 
-        assertTrue(frontend.parser().diagnostics().isEmpty(), () -> frontend.parser().diagnostics().toString());
-        String diagnostics = frontend.semantic().diagnostics().toString();
+        assertTrue(frontend.parserStage().errors().isEmpty(), () -> frontend.parserStage().errors().toString());
+        String diagnostics = frontend.semanticStage().errors().toString();
         assertTrue(diagnostics.contains("2 的幂"), diagnostics);
         assertTrue(diagnostics.contains("弱于自然对齐"), diagnostics);
     }
@@ -187,25 +187,25 @@ final class C23DeclarationFeatureTest {
                 int main(void) { return 0; }
                 """);
 
-        assertTrue(frontend.parser().diagnostics().isEmpty(), () -> frontend.parser().diagnostics().toString());
+        assertTrue(frontend.parserStage().errors().isEmpty(), () -> frontend.parserStage().errors().toString());
         assertTrue(functionNoreturn(frontend.parser().program().functions().get(0)));
         assertTrue(functionNoreturn(frontend.parser().program().functions().get(1)));
-        String diagnostics = frontend.semantic().diagnostics().toString();
+        String diagnostics = frontend.semanticStage().errors().toString();
         assertTrue(diagnostics.contains("noreturn"), diagnostics);
-        assertFalse(frontend.semantic().diagnostics().stream()
+        assertFalse(frontend.semanticStage().errors().stream()
                 .anyMatch(diagnostic -> diagnostic.message().contains("spin")), diagnostics);
     }
 
     private Frontend analyze(String source) {
         Lexer lexer = new Lexer(new SourceFile("c23-declarations.mc", source));
         var lexerResult = lexer.lex();
-        assertTrue(lexerResult.diagnostics().isEmpty(), () -> lexerResult.diagnostics().toString());
-        ParserResult parserResult = new Parser(lexerResult.tokens()).parse();
-        if (!parserResult.diagnostics().isEmpty()) {
-            return new Frontend(parserResult, new SemanticResult(new minic.compiler.semantic.model.Scope(), List.of()));
-        }
-        SemanticResult semanticResult = new SemanticAnalyzer(parserResult.program()).analyze();
-        return new Frontend(parserResult, semanticResult);
+        assertTrue(lexer.errors().isEmpty(), () -> lexer.errors().toString());
+        var parserResultStage = new Parser(lexerResult.tokens());
+        ParserResult parserResult = parserResultStage.parse();
+        assertTrue(parserResultStage.errors().isEmpty(), () -> parserResultStage.errors().toString());
+        SemanticAnalyzer semanticStage = new SemanticAnalyzer(parserResult.program());
+        semanticStage.analyze();
+        return new Frontend(parserResultStage, semanticStage);
     }
 
     private boolean isVolatileLoad(IrInstruction instruction) {
@@ -234,6 +234,13 @@ final class C23DeclarationFeatureTest {
         }
     }
 
-    private record Frontend(ParserResult parser, SemanticResult semantic) {
+    private record Frontend(Parser parserStage, SemanticAnalyzer semanticStage) {
+        ParserResult parser() {
+            return parserStage.result();
+        }
+
+        SemanticResult semantic() {
+            return semanticStage.semanticResult();
+        }
     }
 }

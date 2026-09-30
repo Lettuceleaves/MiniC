@@ -1,7 +1,7 @@
 package minic.compiler.ir;
 
 import minic.compiler.SourceFile;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
@@ -85,7 +85,7 @@ final class IrReachabilityTest {
     }
 
     private static IrResult lower(String source) {
-        CompileObservationSession session = CompileObservationSession.fromSource(
+        CompilerFixture session = CompilerFixture.fromSource(
                 new SourceFile("reachability.mc", source)
         );
         return session.compilerApi().runToIr();

@@ -2,7 +2,7 @@ package minic.compiler.asm;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -101,14 +101,14 @@ final class StdargIntrinsicTest {
 
                 int main(void) { return 0; }
                 """;
-        CompileObservationSession session = CompileObservationSession.fromSource(
+        CompilerFixture session = CompilerFixture.fromSource(
                 new SourceFile("stdarg-diagnostics.mc", source));
 
         session.compilerApi().runThrough(session.semanticAnalyzer());
-        String diagnostics = session.preprocessor().diagnostics().toString()
-                + session.lexer().diagnostics()
-                + session.parser().diagnostics()
-                + session.semanticAnalyzer().diagnostics();
+        String diagnostics = session.preprocessor().errors().toString()
+                + session.lexer().errors()
+                + session.parser().errors()
+                + session.semanticAnalyzer().errors();
         assertTrue(diagnostics.contains("variadic"), diagnostics);
         assertTrue(diagnostics.contains("last"), diagnostics);
         assertTrue(diagnostics.contains("float") || diagnostics.contains("默认提升"), diagnostics);
@@ -117,14 +117,14 @@ final class StdargIntrinsicTest {
 
     private void assertNativeExit(String source, int expectedExit) {
         SourceFile sourceFile = new SourceFile("stdarg-native.mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
-        session.compilerApi().run();
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> session.preprocessor().diagnostics().toString()
-                + session.lexer().diagnostics()
-                + session.parser().diagnostics()
-                + session.semanticAnalyzer().diagnostics()
-                + session.linker().diagnostics());
+        assertTrue(session.linker().succeeded(), () -> session.preprocessor().errors().toString()
+                + session.lexer().errors()
+                + session.parser().errors()
+                + session.semanticAnalyzer().errors()
+                + session.linker().errors());
         var execution = new ExecutableRunner().run(
                 sourceFile,
                 session.linker().result().executableArtifactOptional().orElseThrow()

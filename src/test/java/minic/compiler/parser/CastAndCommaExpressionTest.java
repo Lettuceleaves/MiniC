@@ -2,7 +2,7 @@ package minic.compiler.parser;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,12 +23,12 @@ final class CastAndCommaExpressionTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("cast-comma.mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
-        session.compilerApi().run();
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors()
+                + ", link=" + session.linker().errors());
         var execution = new ExecutableRunner().run(
                 sourceFile, session.linker().result().executableArtifactOptional().orElseThrow());
         assertEquals(0, execution.exitCode());

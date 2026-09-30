@@ -3,7 +3,7 @@ package minic.stdlib;
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
 import minic.compiler.preprocess.Preprocessor;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -27,9 +27,10 @@ final class HeaderOnlyLibraryTest {
                 result = result not_eq 0 or false;
                 """;
 
-        var result = new Preprocessor().preprocess(new SourceFile("header-only.mc", source));
+        var resultStage = new Preprocessor();
+        var result = resultStage.preprocess(new SourceFile("header-only.mc", source));
 
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         String expanded = result.sourceFile().content();
         assertTrue(expanded.contains("bool value = true;"));
         assertTrue(expanded.contains("value && ! false"));
@@ -66,19 +67,20 @@ final class HeaderOnlyLibraryTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("header-only-e2e.mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
 
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().diagnostics()
-                + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics()
-                + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().errors()
+                + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors()
+                + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
-        var execution = new ExecutableRunner().run(sourceFile, artifact, "");
-        assertTrue(execution.diagnostics().isEmpty(), () -> execution.diagnostics().toString());
+        var executionStage = new ExecutableRunner();
+        var execution = executionStage.run(sourceFile, artifact, "");
+        assertTrue(executionStage.errors().isEmpty(), () -> executionStage.errors().toString());
         assertEquals(0, execution.exitCode());
         assertEquals("", execution.stdout());
         assertEquals("", execution.stderr());

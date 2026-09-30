@@ -21,9 +21,10 @@ final class SystemDeclarationParserTest {
                 int main() { return 0; }
                 """;
 
-        ParserResult result = new Parser(new Lexer(new SourceFile("declarations.mc", source)).lex().tokens()).parse();
+        var resultStage = new Parser(new Lexer(new SourceFile("declarations.mc", source)).lex().tokens());
+        ParserResult result = resultStage.parse();
 
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         var malloc = result.program().functions().get(0);
         assertEquals(MiniType.VOID.pointerTo(), malloc.returnType());
         var free = result.program().functions().get(1);

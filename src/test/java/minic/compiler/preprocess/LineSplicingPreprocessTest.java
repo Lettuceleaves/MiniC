@@ -19,9 +19,10 @@ final class LineSplicingPreprocessTest {
                 4;
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("continued.mc", source));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("continued.mc", source));
         String output = result.sourceFile().content();
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(output.contains("int macro_value = ((1) + (2));"), output);
         assertTrue(output.contains("int direct_value = 3 + 4;"), output);
 
@@ -37,20 +38,22 @@ final class LineSplicingPreprocessTest {
                 + "#define WRAP(x) ID(x)\r\n"
                 + "int value = WRAP(\"a\" \\\r\n\"b\");\r\n";
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("windows-lines.mc", source));
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("windows-lines.mc", source));
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(result.sourceFile().content().contains("int value = \"a\" \"b\";"), result.sourceFile().content());
     }
 
     @Test
     void diagnosesDanglingContinuationAtEndOfFile() {
         String source = "#define VALUE 1 \\";
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("dangling.mc", source));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("dangling.mc", source));
 
-        assertTrue(result.diagnostics().stream()
+        assertTrue(resultStage.errors().stream()
                 .anyMatch(diagnostic -> diagnostic.message().contains("续行缺少下一行")),
-                () -> result.diagnostics().toString());
-        assertEquals(1, result.diagnostics().getFirst().range().startLine());
-        assertEquals(source.length() - 1, result.diagnostics().getFirst().range().startByte());
+                () -> resultStage.errors().toString());
+        assertEquals(1, resultStage.errors().getFirst().range().startLine());
+        assertEquals(source.length() - 1, resultStage.errors().getFirst().range().startByte());
     }
 }

@@ -15,9 +15,10 @@ final class SystemHeaderPreprocessTest {
     void mapsAngleBracketCHeaderToProjectLibraryMhFile() {
         String source = "#include<stdio.h>\nint main() { return printf(\"ok\"); }\n";
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("angle-header.mc", source));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("angle-header.mc", source));
 
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(result.sourceFile().content().contains("extern int printf(char *format, ...);"));
         assertEquals(1, result.includes().size());
         PreprocessResult.IncludeSummary include = result.includes().getFirst();
@@ -39,9 +40,10 @@ final class SystemHeaderPreprocessTest {
                 }
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("system-library.mc", source));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("system-library.mc", source));
 
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(result.sourceFile().content().contains("extern void *malloc(unsigned long long size);"));
         assertTrue(result.sourceFile().content().contains("extern int printf(char *format, ...);"));
         assertTrue(result.sourceFile().content().contains("(((abs(-7)) < (4)) ? (abs(-7)) : (4))"));
@@ -60,9 +62,10 @@ final class SystemHeaderPreprocessTest {
                 }
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("header-adapter.mc", source));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("header-adapter.mc", source));
 
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(result.sourceFile().content().contains("int isblank(int character) {"));
         assertEquals(1, result.includes().size());
         assertTrue(result.includes().getFirst().expanded());
@@ -80,9 +83,10 @@ final class SystemHeaderPreprocessTest {
                 }
                 """;
 
-        PreprocessResult result = new Preprocessor().preprocess(new SourceFile("dependent-headers.mc", source));
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(new SourceFile("dependent-headers.mc", source));
 
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(result.sourceFile().content().contains("typedef unsigned long long size_t;"));
         assertTrue(result.sourceFile().content().contains("extern size_t strlen(const char *string);"));
     }

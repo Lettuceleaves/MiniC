@@ -11,12 +11,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 final class StandardLexicalSyntaxTest {
     @Test
     void skipsMultilineBlockCommentsAndRecognizesNewKeywords() {
-        var result = new Lexer(new SourceFile("syntax.mc", """
+        var resultStage = new Lexer(new SourceFile("syntax.mc", """
                 unsigned long long value; /* line one
                 line two */ union Data { short item; }; enum Kind { A };
-                """)).lex();
+                """));
+        var result = resultStage.lex();
 
-        assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());
+        assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertEquals(
                 java.util.List.of(
                         TokenType.UNSIGNED, TokenType.LONG, TokenType.LONG, TokenType.IDENTIFIER,
@@ -33,24 +34,27 @@ final class StandardLexicalSyntaxTest {
 
     @Test
     void reportsUnterminatedBlockCommentOnce() {
-        var result = new Lexer(new SourceFile("syntax.mc", "int value; /* never closed")).lex();
+        var resultStage = new Lexer(new SourceFile("syntax.mc", "int value; /* never closed"));
+        var result = resultStage.lex();
 
-        assertEquals(1, result.diagnostics().size());
-        assertEquals("LEX006", result.diagnostics().getFirst().code());
+        assertEquals(1, resultStage.errors().size());
+        assertEquals("LEX006", resultStage.errors().getFirst().code());
     }
 
     @Test
     void recognizesAllSupportedCNumericFormsAndRejectsInvalidRadixDigits() {
-        var valid = new Lexer(new SourceFile("numbers.mc", """
+        var validStage = new Lexer(new SourceFile("numbers.mc", """
                 0 077 0xff 0b1010 1'000 0xFF'00 42u 42UL 42llu
                 .5 1. 1e-3 0x1.fp+3 1'2.5'0e1
-                """)).lex();
-        assertTrue(valid.diagnostics().isEmpty(), () -> valid.diagnostics().toString());
+                """));
+        var valid = validStage.lex();
+        assertTrue(validStage.errors().isEmpty(), () -> validStage.errors().toString());
         assertEquals(14, valid.tokens().size() - 1);
         assertTrue(valid.tokens().stream().anyMatch(token -> token.lexeme().equals("0x1.fp+3")
                 && token.type() == TokenType.DOUBLE_LITERAL));
 
-        var invalid = new Lexer(new SourceFile("bad-numbers.mc", "0b102 0x1g 09")).lex();
-        assertFalse(invalid.diagnostics().isEmpty());
+        var invalidStage = new Lexer(new SourceFile("bad-numbers.mc", "0b102 0x1g 09"));
+        var invalid = invalidStage.lex();
+        assertFalse(invalidStage.errors().isEmpty());
     }
 }

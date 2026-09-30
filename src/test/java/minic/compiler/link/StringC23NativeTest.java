@@ -2,7 +2,7 @@ package minic.compiler.link;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,14 +26,14 @@ final class StringC23NativeTest {
     @MethodSource("stringCases")
     void runsC23StringFunctionsAndImportsOnlyReachableDependencies(StringCase testCase) {
         SourceFile sourceFile = new SourceFile("stdlib-native-string-c23-" + testCase.name() + ".mc", testCase.source());
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
         session.compilerApi().runThrough(session.linker());
 
         assertTrue(session.linker().succeeded(), () -> testCase.name() + ": pre="
-                + session.preprocessor().diagnostics() + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics() + ", semantic="
-                + session.semanticAnalyzer().diagnostics() + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+                + session.preprocessor().errors() + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors() + ", semantic="
+                + session.semanticAnalyzer().errors() + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         Map<String, Set<String>> imports = PeImportIntegrationTest.readImports(
                 session.linker().peImage().orElseThrow().bytes()
         );
@@ -47,8 +47,9 @@ final class StringC23NativeTest {
         assertEquals(Set.of("ExitProcess"), imports.get("KERNEL32.dll"), testCase.name());
 
         var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
-        var execution = new ExecutableRunner(Duration.ofSeconds(3)).run(sourceFile, artifact);
-        assertTrue(execution.diagnostics().isEmpty(), execution.diagnostics()::toString);
+        var executionStage = new ExecutableRunner(Duration.ofSeconds(3));
+        var execution = executionStage.run(sourceFile, artifact);
+        assertTrue(executionStage.errors().isEmpty(), executionStage.errors()::toString);
         assertEquals(0, execution.exitCode(), () -> testCase.name() + ": " + execution.stderr());
         assertEquals("", execution.stdout(), testCase.name());
         assertEquals("", execution.stderr(), testCase.name());

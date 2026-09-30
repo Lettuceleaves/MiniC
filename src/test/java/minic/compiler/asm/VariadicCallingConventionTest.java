@@ -2,7 +2,7 @@ package minic.compiler.asm;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
@@ -24,11 +24,11 @@ final class VariadicCallingConventionTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("variadic-abi.mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
 
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> session.linker().diagnostics().toString());
+        assertTrue(session.linker().succeeded(), () -> session.linker().errors().toString());
         String assembly = session.assembler().result().text();
         assertTrue(assembly.contains("movq r8, xmm2"), assembly);
         var execution = new ExecutableRunner().run(

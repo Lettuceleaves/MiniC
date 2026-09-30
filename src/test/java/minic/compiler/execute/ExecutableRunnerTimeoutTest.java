@@ -1,7 +1,7 @@
 package minic.compiler.execute;
 
 import minic.compiler.SourceFile;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -16,15 +16,16 @@ final class ExecutableRunnerTimeoutTest {
     @Test
     void terminatesAProgramAndReportsADiagnosticWhenTheWallClockLimitExpires() {
         SourceFile sourceFile = new SourceFile("timeout.mc", "int main() { while (1) {} return 0; }");
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
-        session.compilerApi().run();
-        assertTrue(session.linker().succeeded(), () -> session.linker().diagnostics().toString());
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        session.compilerApi().runThrough(session.linker());
+        assertTrue(session.linker().succeeded(), () -> session.linker().errors().toString());
 
         var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
-        var result = new ExecutableRunner(Duration.ofMillis(200)).run(sourceFile, artifact, "");
+        var resultStage = new ExecutableRunner(Duration.ofMillis(200));
+        var result = resultStage.run(sourceFile, artifact, "");
 
-        assertFalse(result.diagnostics().isEmpty());
-        assertEquals("RUN002", result.diagnostics().getFirst().code());
+        assertFalse(resultStage.errors().isEmpty());
+        assertEquals("RUN002", resultStage.errors().getFirst().code());
         assertTrue(result.exitCodeOptional().isEmpty());
     }
 

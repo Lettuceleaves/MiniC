@@ -2,7 +2,7 @@ package minic.compiler;
 
 import minic.debug.DebugApi;
 import minic.debug.Debugger;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import minic.compiler.execute.ExecutableRunner;
 import org.junit.jupiter.api.Test;
 
@@ -27,16 +27,17 @@ final class GlobalVariableEndToEndTest {
     @Test
     void lowersWritableGlobalsAndExecutesThemInDebugger() {
         SourceFile source = new SourceFile("globals.mc", SOURCE);
-        var session = CompileObservationSession.fromSource(source);
-        session.compilerApi().run();
-        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics()
-                + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+        var session = CompilerFixture.fromSource(source);
+        session.compilerApi().runThrough(session.linker());
+        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors()
+                + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         assertEquals(3, session.irLowerer().result().globalData().size());
-        var nativeRun = new ExecutableRunner().run(source,
+        var nativeRunStage = new ExecutableRunner();
+        var nativeRun = nativeRunStage.run(source,
                 session.linker().result().executableArtifactOptional().orElseThrow());
-        assertTrue(nativeRun.diagnostics().isEmpty(), () -> nativeRun.diagnostics().toString());
+        assertTrue(nativeRunStage.errors().isEmpty(), () -> nativeRunStage.errors().toString());
         assertEquals(0, nativeRun.exitCode());
 
         DebugApi api = new DebugApi(source);

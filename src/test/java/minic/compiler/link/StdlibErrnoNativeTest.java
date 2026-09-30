@@ -2,7 +2,7 @@ package minic.compiler.link;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -31,15 +31,15 @@ final class StdlibErrnoNativeTest {
 
     private static void runNativeCase(NativeCase testCase) {
         SourceFile sourceFile = new SourceFile("stdlib-native-" + testCase.name() + ".mc", testCase.source());
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
 
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
         assertTrue(session.linker().succeeded(), () -> testCase.name() + ": pre="
-                + session.preprocessor().diagnostics() + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics() + ", semantic="
-                + session.semanticAnalyzer().diagnostics() + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+                + session.preprocessor().errors() + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors() + ", semantic="
+                + session.semanticAnalyzer().errors() + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         Map<String, Set<String>> imports = PeImportIntegrationTest.readImports(
                 session.linker().peImage().orElseThrow().bytes()
         );
@@ -48,8 +48,9 @@ final class StdlibErrnoNativeTest {
         assertEquals(Set.of("msvcrt.dll", "KERNEL32.dll"), imports.keySet(), testCase.name());
 
         var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
-        var execution = new ExecutableRunner().run(sourceFile, artifact);
-        assertTrue(execution.diagnostics().isEmpty(), () -> testCase.name() + ": " + execution.diagnostics());
+        var executionStage = new ExecutableRunner();
+        var execution = executionStage.run(sourceFile, artifact);
+        assertTrue(executionStage.errors().isEmpty(), () -> testCase.name() + ": " + executionStage.errors());
         assertEquals("", execution.stderr(), testCase.name());
         assertEquals(0, execution.exitCode(), testCase.name());
     }

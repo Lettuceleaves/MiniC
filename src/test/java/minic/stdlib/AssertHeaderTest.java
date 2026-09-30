@@ -2,7 +2,7 @@ package minic.stdlib;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -16,12 +16,12 @@ final class AssertHeaderTest {
         String source = "#include \"assert.mh\"\n"
                 + "int main() { int value = 0; assert(++value == 1); return value != 1; }\n";
 
-        CompileObservationSession session = CompileObservationSession.fromSource(
+        CompilerFixture session = CompilerFixture.fromSource(
                 new SourceFile("assert-enabled.mc", source)
         );
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> session.semanticAnalyzer().diagnostics().toString());
+        assertTrue(session.linker().succeeded(), () -> session.semanticAnalyzer().errors().toString());
     }
 
     @Test
@@ -31,18 +31,19 @@ final class AssertHeaderTest {
                 + "#include \"assert.mh\"\n"
                 + "int main() { int value = 0; assert(++value); return value; }\n";
 
-        CompileObservationSession session = CompileObservationSession.fromSource(
+        CompilerFixture session = CompilerFixture.fromSource(
                 new SourceFile("assert-disabled.mc", source)
         );
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> session.parser().diagnostics() + " "
-                + session.semanticAnalyzer().diagnostics());
-        var execution = new ExecutableRunner().run(
+        assertTrue(session.linker().succeeded(), () -> session.parser().errors() + " "
+                + session.semanticAnalyzer().errors());
+        var executionStage = new ExecutableRunner();
+        var execution = executionStage.run(
                 new SourceFile("assert-disabled.mc", source),
                 session.linker().result().executableArtifactOptional().orElseThrow()
         );
-        assertTrue(execution.diagnostics().isEmpty(), execution.diagnostics()::toString);
+        assertTrue(executionStage.errors().isEmpty(), executionStage.errors()::toString);
         assertEquals(0, execution.exitCode());
     }
 }

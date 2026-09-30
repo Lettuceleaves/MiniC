@@ -2,7 +2,7 @@ package minic.compiler.type;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -87,18 +87,19 @@ final class WindowsIntegerTypeTest {
                 """;
 
         SourceFile sourceFile = new SourceFile("windows-integer-types.mc", source);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
-        session.compilerApi().run();
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().diagnostics()
-                + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics()
-                + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().errors()
+                + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors()
+                + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
-        var execution = new ExecutableRunner().run(sourceFile, artifact, "");
-        assertTrue(execution.diagnostics().isEmpty(), () -> execution.diagnostics().toString());
+        var executionStage = new ExecutableRunner();
+        var execution = executionStage.run(sourceFile, artifact, "");
+        assertTrue(executionStage.errors().isEmpty(), () -> executionStage.errors().toString());
         assertEquals("", execution.stderr());
         assertEquals(0, execution.exitCode());
     }
@@ -111,12 +112,12 @@ final class WindowsIntegerTypeTest {
                     return sizeof(values) == 4 ? 0 : 1;
                 }
                 """);
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
-        session.compilerApi().run();
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors()
+                + ", link=" + session.linker().errors());
         var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
         assertEquals(0, new ExecutableRunner().run(sourceFile, artifact, "").exitCode());
     }

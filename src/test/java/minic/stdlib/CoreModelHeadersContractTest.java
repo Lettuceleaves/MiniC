@@ -109,9 +109,10 @@ final class CoreModelHeadersContractTest {
 
         Lexer lexer = new Lexer(preprocessed.sourceFile());
         var lexed = lexer.lex();
-        assertTrue(lexed.diagnostics().isEmpty(), lexed.diagnostics()::toString);
-        var parsed = new Parser(lexed.tokens()).parse();
-        assertTrue(parsed.diagnostics().isEmpty(), parsed.diagnostics()::toString);
+        assertTrue(lexer.errors().isEmpty(), lexer.errors()::toString);
+        var parsedStage = new Parser(lexed.tokens());
+        var parsed = parsedStage.parse();
+        assertTrue(parsedStage.errors().isEmpty(), parsedStage.errors()::toString);
 
         Map<String, MiniType> typedefs = new LinkedHashMap<>();
         parsed.program().typedefs().forEach(declaration -> typedefs.put(declaration.name(), declaration.type()));
@@ -135,9 +136,10 @@ final class CoreModelHeadersContractTest {
     }
 
     private static PreprocessResult preprocess(String header) {
-        PreprocessResult result = new Preprocessor().preprocess(
+        var resultStage = new Preprocessor();
+        PreprocessResult result = resultStage.preprocess(
                 new SourceFile("contract-" + header + ".mc", "#include \"" + header + "\"\n"));
-        assertTrue(result.diagnostics().isEmpty(), result.diagnostics()::toString);
+        assertTrue(resultStage.errors().isEmpty(), resultStage.errors()::toString);
         return result;
     }
 

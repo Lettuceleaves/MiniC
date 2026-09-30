@@ -2,7 +2,7 @@ package minic.compiler.link;
 
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,15 +26,15 @@ final class ProcessTerminationNativeTest {
     @MethodSource("terminationCases")
     void executesEachTerminationFunctionInATimeLimitedChildProcess(TerminationCase testCase) {
         SourceFile sourceFile = new SourceFile("stdlib-native-" + testCase.name() + ".mc", testCase.source());
-        CompileObservationSession session = CompileObservationSession.fromSource(sourceFile);
+        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
 
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
         assertTrue(session.linker().succeeded(), () -> testCase.name() + ": pre="
-                + session.preprocessor().diagnostics() + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics() + ", semantic="
-                + session.semanticAnalyzer().diagnostics() + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+                + session.preprocessor().errors() + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors() + ", semantic="
+                + session.semanticAnalyzer().errors() + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         Map<String, Set<String>> imports = PeImportIntegrationTest.readImports(
                 session.linker().peImage().orElseThrow().bytes()
         );
@@ -43,8 +43,9 @@ final class ProcessTerminationNativeTest {
         assertEquals(Set.of("msvcrt.dll", "KERNEL32.dll"), imports.keySet(), testCase.name());
 
         var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
-        var execution = new ExecutableRunner(Duration.ofSeconds(3)).run(sourceFile, artifact);
-        assertTrue(execution.diagnostics().isEmpty(), () -> testCase.name() + ": " + execution.diagnostics());
+        var executionStage = new ExecutableRunner(Duration.ofSeconds(3));
+        var execution = executionStage.run(sourceFile, artifact);
+        assertTrue(executionStage.errors().isEmpty(), () -> testCase.name() + ": " + executionStage.errors());
         assertEquals(testCase.stdout(), execution.stdout(), testCase.name());
         if (!testCase.abnormal()) {
             assertEquals("", execution.stderr(), testCase.name());

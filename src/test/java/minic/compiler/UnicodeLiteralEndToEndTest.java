@@ -2,7 +2,7 @@ package minic.compiler;
 
 import minic.debug.DebugApi;
 import minic.debug.Debugger;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import minic.compiler.execute.ExecutableRunner;
 import org.junit.jupiter.api.Test;
 
@@ -23,17 +23,18 @@ final class UnicodeLiteralEndToEndTest {
                         && L'A' == 65 && U'\\U0001F600' == 0x1F600 ? 0 : 1;
                 }
                 """);
-        var session = CompileObservationSession.fromSource(source);
-        session.compilerApi().run();
-        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics()
-                + ", obj=" + session.objBuilder().diagnostics());
+        var session = CompilerFixture.fromSource(source);
+        session.compilerApi().runThrough(session.linker());
+        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors()
+                + ", obj=" + session.objBuilder().errors());
         var ir = session.irLowerer().result();
         assertEquals(3, ir.stringData().size());
         assertArrayEquals(new byte[] {(byte) 0xC3, (byte) 0xA9, 0}, ir.stringData().get(0).bytes());
-        var nativeRun = new ExecutableRunner().run(source,
+        var nativeRunStage = new ExecutableRunner();
+        var nativeRun = nativeRunStage.run(source,
                 session.linker().result().executableArtifactOptional().orElseThrow());
-        assertEquals(0, nativeRun.exitCode(), () -> nativeRun.diagnostics().toString());
+        assertEquals(0, nativeRun.exitCode(), () -> nativeRunStage.errors().toString());
 
         DebugApi api = new DebugApi(source);
         for (int budget = 20_000; api.canNext() && budget > 0; budget--) api.next();

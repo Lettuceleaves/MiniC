@@ -5,7 +5,7 @@ import minic.compiler.library.LibraryBinding;
 import minic.compiler.library.LibrarySymbol;
 import minic.compiler.link.pe.PeImage;
 import minic.compiler.link.pe.WindowsPeLinker;
-import minic.session.CompileObservationSession;
+import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
@@ -38,18 +38,18 @@ final class PeImportIntegrationTest {
                     return 0;
                 }
                 """;
-        CompileObservationSession session = CompileObservationSession.fromSource(
+        CompilerFixture session = CompilerFixture.fromSource(
                 new SourceFile("pe-imports.mc", source)
         );
 
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
-        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().diagnostics()
-                + ", lex=" + session.lexer().diagnostics()
-                + ", parse=" + session.parser().diagnostics()
-                + ", semantic=" + session.semanticAnalyzer().diagnostics()
-                + ", obj=" + session.objBuilder().diagnostics()
-                + ", link=" + session.linker().diagnostics());
+        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().errors()
+                + ", lex=" + session.lexer().errors()
+                + ", parse=" + session.parser().errors()
+                + ", semantic=" + session.semanticAnalyzer().errors()
+                + ", obj=" + session.objBuilder().errors()
+                + ", link=" + session.linker().errors());
         Map<String, Set<String>> imports = readImports(session.linker().peImage().orElseThrow().bytes());
         assertEquals(
                 Set.of("abs", "calloc", "free", "malloc", "printf"),
@@ -65,20 +65,20 @@ final class PeImportIntegrationTest {
                 extern int unavailable_system_call();
                 int main() { return unavailable_system_call(); }
                 """;
-        CompileObservationSession session = CompileObservationSession.fromSource(
+        CompilerFixture session = CompilerFixture.fromSource(
                 new SourceFile("missing-import.mc", source)
         );
 
-        session.compilerApi().run();
+        session.compilerApi().runThrough(session.linker());
 
         assertFalse(session.linker().succeeded());
-        assertTrue(session.linker().diagnostics().stream()
+        assertTrue(session.linker().errors().stream()
                 .anyMatch(diagnostic -> diagnostic.message().contains("undefined symbol: unavailable_system_call")));
     }
 
     @Test
     void importsTheNativeExportNameWhileRelocationsKeepTheSourceName() {
-        CompileObservationSession session = compiledMinimalProgram();
+        CompilerFixture session = compiledMinimalProgram();
         LibraryBinding aliasedExit = binding(
                 "ExitProcess",
                 "KERNEL32.dll",
@@ -107,7 +107,7 @@ final class PeImportIntegrationTest {
 
     @Test
     void rejectsReferencedBindingsThatThePeLinkerCannotImplement() {
-        CompileObservationSession session = compiledMinimalProgram();
+        CompilerFixture session = compiledMinimalProgram();
         LibraryBinding dataBinding = binding(
                 "ExitProcess",
                 "KERNEL32.dll",
@@ -161,12 +161,12 @@ final class PeImportIntegrationTest {
         assertTrue(mismatchException.getMessage().contains("does not match source symbol"));
     }
 
-    private static CompileObservationSession compiledMinimalProgram() {
-        CompileObservationSession session = CompileObservationSession.fromSource(
+    private static CompilerFixture compiledMinimalProgram() {
+        CompilerFixture session = CompilerFixture.fromSource(
                 new SourceFile("minimal-import.mc", "int main() { return 0; }")
         );
-        session.compilerApi().run();
-        assertTrue(session.objBuilder().succeeded(), () -> session.objBuilder().diagnostics().toString());
+        session.compilerApi().runThrough(session.linker());
+        assertTrue(session.objBuilder().succeeded(), () -> session.objBuilder().errors().toString());
         return session;
     }
 
