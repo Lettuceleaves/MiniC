@@ -50,8 +50,8 @@ final class StatementLowerer {
     private final IrFunctionBuilder builder;
     private final ExpressionLowerer expressionLowerer;
     private final IrType returnType;
-    private final Deque<LoopTarget> loopTargets = new ArrayDeque<>();
-    private final Deque<String> switchBreakTargets = new ArrayDeque<>();
+    private final Deque<String> continueTargets = new ArrayDeque<>();
+    private final Deque<String> breakTargets = new ArrayDeque<>();
     private String structReturnName;
 
     StatementLowerer(
@@ -160,12 +160,11 @@ final class StatementLowerer {
             return;
         }
         if (statement instanceof BreakStmt breakStmt) {
-            String breakLabel = !loopTargets.isEmpty() ? loopTargets.peek().breakLabel() : switchBreakTargets.peek();
-            builder.addInstruction(new IrJumpInstruction(breakLabel, breakStmt.range()));
+            builder.addInstruction(new IrJumpInstruction(breakTargets.peek(), breakStmt.range()));
             return;
         }
         if (statement instanceof ContinueStmt continueStmt) {
-            builder.addInstruction(new IrJumpInstruction(loopTargets.peek().continueLabel(), continueStmt.range()));
+            builder.addInstruction(new IrJumpInstruction(continueTargets.peek(), continueStmt.range()));
             return;
         }
         if (statement instanceof IfStmt ifStmt) {
@@ -321,7 +320,7 @@ final class StatementLowerer {
 
         // All case labels share the switch body scope, which ends after the switch.
         builder.pushLocalScope();
-        switchBreakTargets.push(exitLabel);
+        breakTargets.push(exitLabel);
         try {
             for (int index = 0; index < switchStmt.cases().size(); index++) {
                 SwitchCase switchCase = switchStmt.cases().get(index);
@@ -333,7 +332,7 @@ final class StatementLowerer {
                 builder.addJumpIfOpen(fallthrough, switchCase.range());
             }
         } finally {
-            switchBreakTargets.pop();
+            breakTargets.pop();
             builder.popLocalScope();
         }
         builder.switchToBlock(exitLabel);
@@ -369,11 +368,13 @@ final class StatementLowerer {
     }
 
     private void lowerLoopBranch(Statement statement, String breakLabel, String continueLabel) {
-        loopTargets.push(new LoopTarget(breakLabel, continueLabel));
+        breakTargets.push(breakLabel);
+        continueTargets.push(continueLabel);
         try {
             lowerBranch(statement);
         } finally {
-            loopTargets.pop();
+            continueTargets.pop();
+            breakTargets.pop();
         }
     }
 
@@ -562,6 +563,4 @@ final class StatementLowerer {
         return MiniType.qualified(memberType.unqualified(), qualifiers);
     }
 
-    private record LoopTarget(String breakLabel, String continueLabel) {
-    }
 }
