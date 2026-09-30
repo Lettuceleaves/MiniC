@@ -214,12 +214,14 @@ final class ExpressionSemanticAnalyzer {
             return analyzeAddressOperand(groupingExpr.expression(), scope, range);
         }
         if (operand instanceof NameExpr nameExpr) {
+            if (scope.resolve(nameExpr.name()).filter(s -> s.kind() == SymbolKind.FUNCTION).isPresent()) {
+                // Ordinary expression lookup already decays functions to pointers. Address-of
+                // suppresses that decay so &f has the same type as the expression f.
+                return analyzeExpression(operand, scope).pointee();
+            }
             scope.resolve(nameExpr.name()).ifPresent(symbol -> {
                 if (symbol.kind() == SymbolKind.VARIABLE && currentParameterNames.contains(nameExpr.name())) {
                     report(range, "暂不支持对参数取址：" + nameExpr.name());
-                }
-                if (symbol.kind() == SymbolKind.FUNCTION) {
-                    report(range, "取址操作数必须是变量");
                 }
             });
             return analyzeExpression(operand, scope);

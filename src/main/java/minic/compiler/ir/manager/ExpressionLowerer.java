@@ -143,7 +143,8 @@ final class ExpressionLowerer {
             MiniType nameType = expressionTypes.get(nameExpr);
             if (nameType != null && nameType.isPointer() && nameType.pointee().isFunction()) {
                 IrLocal local = builder.resolveLocal(nameExpr.name());
-                if (local == null && builder.findParameter(nameExpr.name()) == null) {
+                if (local == null && builder.findParameter(nameExpr.name()) == null
+                        && !globalTypes.containsKey(nameExpr.name())) {
                     return new IrFunctionAddress(nameExpr.name());
                 }
             }
@@ -838,6 +839,9 @@ final class ExpressionLowerer {
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local == null) {
                 if (globalTypes.containsKey(nameExpr.name())) return new IrGlobalAddress(nameExpr.name());
+                if (builder.findParameter(nameExpr.name()) == null && functionSignatures.containsKey(nameExpr.name())) {
+                    return new IrFunctionAddress(nameExpr.name());
+                }
                 return builder.resolveParameter(nameExpr.name());
             }
             IrTemporary result = builder.newTemporary(IrType.POINTER);
