@@ -442,5 +442,26 @@ public enum TokenType {
     /**
      * {@code :}。
      */
-    COLON
+    COLON,
+
+    /** C++ profile tokens. Greater-than tokens are split only by a template parser. */
+    SCOPE, NAMESPACE, USING, CLASS, TEMPLATE, TYPENAME,
+    PUBLIC, PRIVATE, PROTECTED, THIS, OPERATOR, AUTO, DECLTYPE,
+    CONSTEXPR, NOEXCEPT, NULLPTR, NEW, DELETE, INLINE, STATIC,
+    EXPLICIT, FRIEND, MUTABLE, VIRTUAL, TRY, CATCH, THROW,
+    STATIC_ASSERT, STATIC_CAST, REINTERPRET_CAST, CONST_CAST, DYNAMIC_CAST,
+    TYPEID, THREAD_LOCAL, WCHAR_T, CHAR16_T, CHAR32_T;
+
+    /** Reserved C++ spelling, for useful diagnostics until its grammar is implemented. */
+    public boolean isCppToken() {
+        return switch (this) {
+            case SCOPE, NAMESPACE, USING, CLASS, TEMPLATE, TYPENAME,
+                    PUBLIC, PRIVATE, PROTECTED, THIS, OPERATOR, AUTO, DECLTYPE,
+                    CONSTEXPR, NOEXCEPT, NULLPTR, NEW, DELETE, INLINE, STATIC,
+                    EXPLICIT, FRIEND, MUTABLE, VIRTUAL, TRY, CATCH, THROW,
+                    STATIC_ASSERT, STATIC_CAST, REINTERPRET_CAST, CONST_CAST, DYNAMIC_CAST,
+                    TYPEID, THREAD_LOCAL, WCHAR_T, CHAR16_T, CHAR32_T -> true;
+            default -> false;
+        };
+    }
 }

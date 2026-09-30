@@ -1,6 +1,7 @@
 package minic.compiler.parser;
 
 import minic.compiler.CompilerApi;
+import minic.compiler.LanguageMode;
 import minic.compiler.Stage;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.lexer.token.Token;
@@ -33,6 +34,7 @@ import java.util.Optional;
  */
 public final class Parser extends Stage {
     private final Lexer lexer;
+    private final LanguageMode languageMode;
     private final boolean traceEnabled;
     private List<Token> tokens;
     private Context context;
@@ -58,7 +60,12 @@ public final class Parser extends Stage {
 
     /** 创建 Parser，并可选择记录递归下降 trace。 */
     public Parser(List<Token> tokens, boolean traceEnabled) {
+        this(tokens, LanguageMode.C, traceEnabled);
+    }
+
+    public Parser(List<Token> tokens, LanguageMode languageMode, boolean traceEnabled) {
         lexer = null;
+        this.languageMode = Objects.requireNonNull(languageMode, "languageMode");
         this.traceEnabled = traceEnabled;
         initialize(tokens);
     }
@@ -71,12 +78,17 @@ public final class Parser extends Stage {
     /** 创建由 Lexer 提供输入的 Parser，并可选择记录递归下降 trace。 */
     public Parser(Lexer lexer, boolean traceEnabled) {
         this.lexer = Objects.requireNonNull(lexer, "lexer");
+        languageMode = lexer.languageMode();
         this.traceEnabled = traceEnabled;
+    }
+
+    public LanguageMode languageMode() {
+        return languageMode;
     }
 
     private void initialize(List<Token> sourceTokens) {
         tokens = List.copyOf(Objects.requireNonNull(sourceTokens, "tokens"));
-        context = new Context(tokens, traceEnabled);
+        context = new Context(tokens, languageMode, traceEnabled);
         TypeReader typeReader = new TypeReader(context, structs::add);
         ExpressionManager expressionManager = new ExpressionManager(context, typeReader, enumConstants);
         StatementManager statementManager = new StatementManager(context, expressionManager, typeReader);
@@ -246,16 +258,18 @@ public final class Parser extends Stage {
     /** 三个 Manager 共享的 token 游标、诊断和 trace 上下文。 */
     public static final class Context {
         private final List<Token> tokens;
+        private final LanguageMode languageMode;
         private final ArrayList<Diagnostic> reportedErrors = new ArrayList<>();
         private final ArrayList<TraceEvent> traceEvents;
         private int currentIndex;
         private boolean functionBoundaryRecovered;
 
-        private Context(List<Token> tokens, boolean traceEnabled) {
+        private Context(List<Token> tokens, LanguageMode languageMode, boolean traceEnabled) {
             if (tokens.isEmpty()) {
                 throw new IllegalArgumentException("tokens must contain EOF");
             }
             this.tokens = tokens;
+            this.languageMode = languageMode;
             traceEvents = traceEnabled ? new ArrayList<>() : null;
         }
 
@@ -280,6 +294,9 @@ public final class Parser extends Stage {
                 return advance();
             }
             Token actual = peek();
+            if (reportUnsupportedCpp(actual)) {
+                return null;
+            }
             reportedErrors.add(new Diagnostic(
                     "PAR001",
                     Diagnostic.Severity.ERROR,
@@ -328,6 +345,9 @@ public final class Parser extends Stage {
         }
 
         public void report(Token token, String message) {
+            if (reportUnsupportedCpp(token)) {
+                return;
+            }
             reportedErrors.add(new Diagnostic(
                     "PAR001",
                     Diagnostic.Severity.ERROR,
@@ -345,6 +365,16 @@ public final class Parser extends Stage {
                     parserSolution(message),
                     range
             ));
+        }
+
+        private boolean reportUnsupportedCpp(Token token) {
+            if (languageMode != LanguageMode.CPP17_ALGORITHM || !token.type().isCppToken()) {
+                return false;
+            }
+            reportedErrors.add(new Diagnostic("CPP001", Diagnostic.Severity.ERROR,
+                    "C++ 算法兼容模式尚未支持此处的语法：" + token.lexeme(),
+                    "该语法需要后续编译器支持；请参照 C++ 能力清单。", token.range()));
+            return true;
         }
 
         private static String describeToken(Token token) {

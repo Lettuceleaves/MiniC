@@ -1,5 +1,7 @@
 package minic.cpp.support;
 
+import minic.compiler.LanguageMode;
+
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.io.IOException;
@@ -31,11 +33,17 @@ public final class CppDifferentialHarness {
     private final Path temporary;
     private final String referenceCompiler;
     private final Limits limits;
+    private final LanguageMode languageMode;
 
     public CppDifferentialHarness(Path temporary, String referenceCompiler, Limits limits) {
+        this(temporary, referenceCompiler, limits, LanguageMode.C);
+    }
+
+    public CppDifferentialHarness(Path temporary, String referenceCompiler, Limits limits, LanguageMode languageMode) {
         this.temporary = Objects.requireNonNull(temporary).toAbsolutePath();
         this.referenceCompiler = Objects.requireNonNull(referenceCompiler);
         this.limits = Objects.requireNonNull(limits);
+        this.languageMode = Objects.requireNonNull(languageMode);
     }
 
     /** Uses precisely the same saved source and stdin for all three backends. */
@@ -58,7 +66,7 @@ public final class CppDifferentialHarness {
         try {
             var command = ProcessProbe.javaCommand(MiniCWorker.class, backend.name(), source.toString(),
                     input.toString(), resultFile.toString(), Integer.toString(limits.debugSteps()),
-                    Integer.toString(limits.maxOutputBytes()), Long.toString(limits.runTimeout().toMillis()));
+                    Integer.toString(limits.maxOutputBytes()), Long.toString(limits.runTimeout().toMillis()), languageMode.name());
             var process = BoundedProcess.run(command, Path.of("").toAbsolutePath(), "",
                     backend == Backend.MINIC_DEBUG ? limits.compileTimeout().plus(limits.runTimeout()) : limits.compileTimeout(),
                     limits.maxOutputBytes());

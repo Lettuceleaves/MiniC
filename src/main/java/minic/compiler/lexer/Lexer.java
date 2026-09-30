@@ -1,6 +1,7 @@
 package minic.compiler.lexer;
 
 import minic.compiler.CompilerApi;
+import minic.compiler.LanguageMode;
 import minic.compiler.Stage;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.Token.IntegerLiteralKind;
@@ -25,6 +26,7 @@ import java.util.Objects;
  */
 public final class Lexer extends Stage {
     private final Preprocessor preprocessor;
+    private final LanguageMode languageMode;
     private SourceFile sourceFile;
     private SourceFile rangeSourceFile;
     private int[] sourceMap;
@@ -37,7 +39,12 @@ public final class Lexer extends Stage {
 
     /** 创建词法分析器。 */
     public Lexer(SourceFile sourceFile) {
+        this(sourceFile, LanguageMode.C);
+    }
+
+    public Lexer(SourceFile sourceFile, LanguageMode languageMode) {
         this.sourceFile = Objects.requireNonNull(sourceFile, "sourceFile");
+        this.languageMode = Objects.requireNonNull(languageMode, "languageMode");
         rangeSourceFile = sourceFile;
         preprocessor = null;
     }
@@ -46,7 +53,16 @@ public final class Lexer extends Stage {
      * 创建由 Preprocessor 提供输入的词法分析阶段。
      */
     public Lexer(Preprocessor preprocessor) {
+        this(preprocessor, preprocessor.languageMode());
+    }
+
+    public Lexer(Preprocessor preprocessor, LanguageMode languageMode) {
         this.preprocessor = Objects.requireNonNull(preprocessor, "preprocessor");
+        this.languageMode = Objects.requireNonNull(languageMode, "languageMode");
+    }
+
+    public LanguageMode languageMode() {
+        return languageMode;
     }
 
     @Override
@@ -157,7 +173,8 @@ public final class Lexer extends Stage {
                 }
             }
             case '?' -> addToken(TokenType.QUESTION, startOffset);
-            case ':' -> addToken(TokenType.COLON, startOffset);
+            case ':' -> addToken(languageMode == LanguageMode.CPP17_ALGORITHM && match(':')
+                    ? TokenType.SCOPE : TokenType.COLON, startOffset);
             case '"' -> lexStringLiteral(startOffset);
             case '\'' -> lexCharLiteral(startOffset);
             default -> {
@@ -376,13 +393,68 @@ public final class Lexer extends Stage {
             case "sizeof" -> TokenType.SIZEOF;
             case "true", "false" -> TokenType.BOOL_LITERAL;
             case "NULL" -> TokenType.NULL_LITERAL;
-            default -> TokenType.IDENTIFIER;
+            default -> languageMode == LanguageMode.CPP17_ALGORITHM
+                    ? cppKeyword(lexeme) : TokenType.IDENTIFIER;
         };
         Object literalValue = switch (kind) {
             case BOOL_LITERAL -> Boolean.parseBoolean(lexeme);
             default -> null;
         };
         addToken(kind, startOffset, literalValue);
+    }
+
+    private static TokenType cppKeyword(String lexeme) {
+        return switch (lexeme) {
+            case "namespace" -> TokenType.NAMESPACE;
+            case "using" -> TokenType.USING;
+            case "class" -> TokenType.CLASS;
+            case "template" -> TokenType.TEMPLATE;
+            case "typename" -> TokenType.TYPENAME;
+            case "public" -> TokenType.PUBLIC;
+            case "private" -> TokenType.PRIVATE;
+            case "protected" -> TokenType.PROTECTED;
+            case "this" -> TokenType.THIS;
+            case "operator" -> TokenType.OPERATOR;
+            case "auto" -> TokenType.AUTO;
+            case "decltype" -> TokenType.DECLTYPE;
+            case "constexpr" -> TokenType.CONSTEXPR;
+            case "noexcept" -> TokenType.NOEXCEPT;
+            case "nullptr" -> TokenType.NULLPTR;
+            case "new" -> TokenType.NEW;
+            case "delete" -> TokenType.DELETE;
+            case "inline" -> TokenType.INLINE;
+            case "static" -> TokenType.STATIC;
+            case "explicit" -> TokenType.EXPLICIT;
+            case "friend" -> TokenType.FRIEND;
+            case "mutable" -> TokenType.MUTABLE;
+            case "virtual" -> TokenType.VIRTUAL;
+            case "try" -> TokenType.TRY;
+            case "catch" -> TokenType.CATCH;
+            case "throw" -> TokenType.THROW;
+            case "static_assert" -> TokenType.STATIC_ASSERT;
+            case "static_cast" -> TokenType.STATIC_CAST;
+            case "reinterpret_cast" -> TokenType.REINTERPRET_CAST;
+            case "const_cast" -> TokenType.CONST_CAST;
+            case "dynamic_cast" -> TokenType.DYNAMIC_CAST;
+            case "typeid" -> TokenType.TYPEID;
+            case "thread_local" -> TokenType.THREAD_LOCAL;
+            case "wchar_t" -> TokenType.WCHAR_T;
+            case "char16_t" -> TokenType.CHAR16_T;
+            case "char32_t" -> TokenType.CHAR32_T;
+            // C++ alternative operator spellings have exactly the symbolic token's semantics.
+            case "and" -> TokenType.AMPERSAND_AMPERSAND;
+            case "or" -> TokenType.PIPE_PIPE;
+            case "not" -> TokenType.BANG;
+            case "bitand" -> TokenType.AMPERSAND;
+            case "bitor" -> TokenType.PIPE;
+            case "xor" -> TokenType.CARET;
+            case "compl" -> TokenType.TILDE;
+            case "and_eq" -> TokenType.AMPERSAND_EQUAL;
+            case "or_eq" -> TokenType.PIPE_EQUAL;
+            case "xor_eq" -> TokenType.CARET_EQUAL;
+            case "not_eq" -> TokenType.BANG_EQUAL;
+            default -> TokenType.IDENTIFIER;
+        };
     }
 
     private void lexIntegerLiteral(int startOffset) {

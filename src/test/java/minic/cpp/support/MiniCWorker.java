@@ -1,6 +1,7 @@
 package minic.cpp.support;
 
 import minic.compiler.CompilerApi;
+import minic.compiler.LanguageMode;
 import minic.compiler.SourceFile;
 import minic.compiler.asm.Assembler;
 import minic.compiler.ir.IrLowerer;
@@ -36,10 +37,11 @@ public final class MiniCWorker {
         int stepLimit = Integer.parseInt(args[4]);
         int outputLimit = Integer.parseInt(args[5]);
         long runTimeoutMillis = Long.parseLong(args[6]);
+        LanguageMode languageMode = LanguageMode.valueOf(args[7]);
         var completed = new AtomicBoolean();
         SourceFile source = new SourceFile(sourcePath.toString(), Files.readString(sourcePath));
         try {
-            CompilerApi compiler = compiler(source, sourcePath.getParent());
+            CompilerApi compiler = compiler(source, sourcePath.getParent(), languageMode);
             var ir = compiler.stages().stream().filter(IrLowerer.class::isInstance).findFirst().orElseThrow();
             var link = compiler.stages().stream().filter(Linker.class::isInstance).findFirst().orElseThrow();
             compiler.runThrough(backend == Backend.MINIC_NATIVE ? link : ir);
@@ -53,7 +55,7 @@ public final class MiniCWorker {
                 publish(resultPath, new Outcome(backend, Status.OK, 0, "", "", ""), completed);
                 return;
             }
-            DebugApi debug = new DebugApi(source, Files.readString(Path.of(args[2])));
+            DebugApi debug = new DebugApi(source, Files.readString(Path.of(args[2])), languageMode);
             // A source-level debug step may itself loop forever; its watchdog is independent.
             Thread.ofPlatform().daemon(true).name("debug-run-deadline").start(() -> {
                 try {
@@ -92,9 +94,9 @@ public final class MiniCWorker {
         }
     }
 
-    private static CompilerApi compiler(SourceFile source, Path directory) {
-        var preprocessor = new Preprocessor(source, Preprocessor.Options.defaults());
-        var lexer = new Lexer(preprocessor);
+    private static CompilerApi compiler(SourceFile source, Path directory, LanguageMode languageMode) {
+        var preprocessor = new Preprocessor(source, Preprocessor.Options.defaults(languageMode));
+        var lexer = new Lexer(preprocessor, languageMode);
         var parser = new Parser(lexer, true);
         var semantic = new SemanticAnalyzer(parser);
         var ir = new IrLowerer(semantic);

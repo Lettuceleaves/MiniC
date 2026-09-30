@@ -35,7 +35,11 @@ public final class CompilerApi {
 
     /** 使用标准阶段顺序创建一条完整编译流水线。 */
     public CompilerApi(SourceFile sourceFile) {
-        this(createPipeline(sourceFile));
+        this(sourceFile, LanguageMode.C);
+    }
+
+    public CompilerApi(SourceFile sourceFile, LanguageMode languageMode) {
+        this(createPipeline(sourceFile, languageMode));
     }
 
     public CompilerApi(List<? extends Stage> stages) {
@@ -221,10 +225,11 @@ public final class CompilerApi {
         return stage;
     }
 
-    private static List<Stage> createPipeline(SourceFile sourceFile) {
+    private static List<Stage> createPipeline(SourceFile sourceFile, LanguageMode languageMode) {
         Objects.requireNonNull(sourceFile, "sourceFile");
-        Preprocessor preprocessor = new Preprocessor(sourceFile, Preprocessor.Options.defaults());
-        Lexer lexer = new Lexer(preprocessor);
+        Objects.requireNonNull(languageMode, "languageMode");
+        Preprocessor preprocessor = new Preprocessor(sourceFile, Preprocessor.Options.defaults(languageMode));
+        Lexer lexer = new Lexer(preprocessor, languageMode);
         Parser parser = new Parser(lexer, true);
         SemanticAnalyzer semantic = new SemanticAnalyzer(parser);
         IrLowerer ir = new IrLowerer(semantic);

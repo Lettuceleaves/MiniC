@@ -1,6 +1,7 @@
 package minic.compiler.preprocess;
 
 import minic.compiler.CompilerApi;
+import minic.compiler.LanguageMode;
 import minic.compiler.Stage;
 import minic.compiler.Diagnostic;
 import minic.compiler.SourceFile;
@@ -180,6 +181,11 @@ public final class Preprocessor extends Stage {
     public SourceFile sourceFile() {
         ensureReady();
         return sourceFile;
+    }
+
+    public LanguageMode languageMode() {
+        ensureReady();
+        return work.options.languageMode();
     }
 
     void expandSource(
@@ -405,13 +411,18 @@ public final class Preprocessor extends Stage {
      *
      * @param includeRoots 显式 include 根目录
      */
-    public record Options(List<Path> includeRoots) {
+    public record Options(List<Path> includeRoots, LanguageMode languageMode) {
         public Options {
             Objects.requireNonNull(includeRoots, "includeRoots");
+            Objects.requireNonNull(languageMode, "languageMode");
             includeRoots = includeRoots.stream()
                     .map(Path::toAbsolutePath)
                     .map(Path::normalize)
                     .toList();
+        }
+
+        public Options(List<Path> includeRoots) {
+            this(includeRoots, LanguageMode.C);
         }
 
         /**
@@ -421,6 +432,10 @@ public final class Preprocessor extends Stage {
          */
         public static Options defaults() {
             return new Options(List.of());
+        }
+
+        public static Options defaults(LanguageMode languageMode) {
+            return new Options(List.of(), languageMode);
         }
     }
 }

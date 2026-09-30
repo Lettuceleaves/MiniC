@@ -179,7 +179,7 @@ final class IncludeManager {
 
     private void validateHeader(SourceFile originalHeader, String content, Preprocessor.Work work) {
         SourceFile headerSource = new SourceFile(originalHeader.path(), content);
-        Lexer lexer = new Lexer(headerSource);
+        Lexer lexer = new Lexer(headerSource, work.options.languageMode());
         lexer.lex();
         if (!lexer.errors().isEmpty()) {
             work.diagnostics.add(Preprocessor.diagnostic(

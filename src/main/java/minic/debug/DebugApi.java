@@ -1,6 +1,7 @@
 package minic.debug;
 
 import minic.compiler.SourceFile;
+import minic.compiler.LanguageMode;
 
 import java.util.ListIterator;
 import java.util.NoSuchElementException;
@@ -24,6 +25,10 @@ public final class DebugApi {
 
     public DebugApi(SourceFile source, String standardInput) {
         this(new Debugger(source, standardInput));
+    }
+
+    public DebugApi(SourceFile source, String standardInput, LanguageMode languageMode) {
+        this(new Debugger(source, standardInput, languageMode));
     }
 
     public DebugApi(Debugger debugger) {

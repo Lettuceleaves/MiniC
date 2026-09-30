@@ -6,6 +6,7 @@ import minic.cpp.support.CppDifferentialHarness.Backend;
 import minic.cpp.support.CppDifferentialHarness.Outcome;
 import minic.cpp.support.CppDifferentialHarness.Status;
 import minic.cpp.support.ProcessProbe;
+import minic.compiler.LanguageMode;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -114,6 +115,27 @@ final class CppDifferentialHarnessTest {
                 """, "6\n");
         assertTrue(report.passed(), report::describe);
         assertEquals("sum=91\n", report.outcomes().get(Backend.GXX).stdout().replace("\r\n", "\n"));
+    }
+
+    @Test void explicitCppModeReachesEveryFrontendAndDebugExecution() throws Exception {
+        String source = """
+                #include <stdio.h>
+                int main(void) {
+                    int bits = 3;
+                    bits and_eq 6;
+                    if (bits == 2 and not (0 or 0)) puts("cpp-mode");
+                    return bits == 2 ? 0 : 1;
+                }
+                """;
+        var harness = new CppDifferentialHarness(temporary,
+                CppDifferentialHarness.referenceCompiler(System.getenv()),
+                CppDifferentialHarness.Limits.defaults(), LanguageMode.CPP17_ALGORITHM);
+        var cpp = harness.run("explicit-cpp", source, "");
+        assertTrue(cpp.passed(), cpp::describe);
+        assertEquals("cpp-mode\n", cpp.outcomes().get(Backend.MINIC_DEBUG).stdout());
+        var c = harness().run("default-c", source, "");
+        assertEquals(Status.COMPILE_ERROR, c.outcomes().get(Backend.MINIC_NATIVE).status(), c::describe);
+        assertEquals(Status.COMPILE_ERROR, c.outcomes().get(Backend.MINIC_DEBUG).status(), c::describe);
     }
 
     @Test void invalidSourceIsCompileFailureForEveryBackend() throws Exception {
