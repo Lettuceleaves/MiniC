@@ -2,6 +2,7 @@ package minic.debug;
 
 import minic.compiler.SourceFile;
 import minic.compiler.LanguageMode;
+import minic.compiler.ir.IrResult;
 
 import java.util.ListIterator;
 import java.util.NoSuchElementException;
@@ -29,6 +30,12 @@ public final class DebugApi {
 
     public DebugApi(SourceFile source, String standardInput, LanguageMode languageMode) {
         this(new Debugger(source, standardInput, languageMode));
+    }
+
+    /** Reuses validated, uninstrumented IR for this source; each debugger owns its runtime and trace copy. */
+    public static DebugApi fromIr(SourceFile source, IrResult ir, String standardInput) {
+        return new DebugApi(Debugger.fromIr(Objects.requireNonNull(source, "source"),
+                Objects.requireNonNull(ir, "ir"), Objects.requireNonNull(standardInput, "standardInput")));
     }
 
     public DebugApi(Debugger debugger) {

@@ -2,6 +2,7 @@ package minic.debug;
 
 import minic.compiler.SourceFile;
 import minic.compiler.LanguageMode;
+import minic.compiler.ir.IrResult;
 import minic.compiler.CompilerApi;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.instruction.CallInstruction.*;
@@ -49,7 +50,15 @@ public final class Debugger {
 
     private Debugger(SourceFile source, String standardInput, DebugTimeSource timeSource, int heapCapacity,
                      LanguageMode languageMode) {
-        var ir = new CompilerApi(source, languageMode).runToIr();
+        this(source, new CompilerApi(source, languageMode).runToIr(), standardInput, timeSource, heapCapacity);
+    }
+
+    static Debugger fromIr(SourceFile source, IrResult ir, String standardInput) {
+        return new Debugger(source, ir, standardInput, DebugTimeSource.system(), DebugRuntime.DEFAULT_HEAP_CAPACITY);
+    }
+
+    private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
+                     int heapCapacity) {
         runtime = new DebugRuntime(new DebugProgram(source, ir), standardInput, timeSource, heapCapacity);
         runtime.push(runtime.code().ir().findFunction("main")
                 .orElseThrow(() -> new IllegalStateException("Missing main function")), List.of(), null);
