@@ -211,6 +211,12 @@ public interface Expression extends AstNode {
         }
     }
 
+    /** A source-spelled qualified reference, deliberately not treated as a direct resolved callee. */
+    record QualifiedNameExpr(QualifiedName name) implements Expression {
+        public QualifiedNameExpr { Objects.requireNonNull(name, "name"); }
+        @Override public SourceRange range() { return name.range(); }
+    }
+
     record NullLiteralExpr(String lexeme, SourceRange range) implements Expression {
         public NullLiteralExpr {
             Objects.requireNonNull(lexeme, "lexeme");

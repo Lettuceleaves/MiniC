@@ -85,6 +85,17 @@ public final class StatementManager {
     }
 
     private Statement parseStatement() {
+        if (state.languageMode() == minic.compiler.LanguageMode.CPP17_ALGORITHM) {
+            if (state.check(TokenType.USING)) return minic.compiler.parser.CppNameParser.parseUsing(state);
+            int offset = state.check(TokenType.SCOPE) ? 1 : 0;
+            while (state.peekAt(offset).type() == TokenType.IDENTIFIER
+                    && state.peekAt(offset + 1).type() == TokenType.SCOPE) offset += 2;
+            if (offset > 0 && state.peekAt(offset).type() == TokenType.IDENTIFIER
+                    && state.peekAt(offset + 1).type() == TokenType.IDENTIFIER) {
+                state.unsupportedCpp(state.peek().range(), "限定类型名称查找尚未实现");
+                return null;
+            }
+        }
         if (state.check(TokenType.LEFT_BRACE)) {
             return parseBlock();
         }

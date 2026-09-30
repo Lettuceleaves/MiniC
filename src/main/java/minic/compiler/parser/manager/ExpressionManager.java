@@ -111,7 +111,7 @@ public final class ExpressionManager {
     }
 
     private boolean isAssignmentTarget(Expression expression) {
-        if (expression instanceof NameExpr) {
+        if (expression instanceof NameExpr || expression instanceof Expression.QualifiedNameExpr) {
             return true;
         }
         if (expression instanceof IndexExpr || expression instanceof FieldAccessExpr) {
@@ -419,6 +419,15 @@ public final class ExpressionManager {
     }
 
     private Expression parsePrimary() {
+        if (state.languageMode() == minic.compiler.LanguageMode.CPP17_ALGORITHM
+                && (state.check(TokenType.SCOPE) || state.check(TokenType.IDENTIFIER)
+                && state.peekAt(1).type() == TokenType.SCOPE)) {
+            var name = minic.compiler.parser.CppNameParser.parseName(state);
+            if (name == null) return null;
+            var expression = new Expression.QualifiedNameExpr(name);
+            state.build(expression, "QualifiedNameExpr", expression.range());
+            return expression;
+        }
         if (state.match(TokenType.VA_START)) {
             return parseVaStart(state.previous());
         }

@@ -68,6 +68,7 @@ public final class SemanticAnalyzer extends Stage {
     private boolean initialized;
     private boolean completed;
     private long stepCount;
+    private AstNode unresolvedCppNameSyntax;
 
     /** 创建等待 {@link #analyze(Program)} 提供输入的语义分析器。 */
     public SemanticAnalyzer() {
@@ -112,6 +113,16 @@ public final class SemanticAnalyzer extends Stage {
         }
         ensureInitialized();
         currentAction = null;
+
+        if (unresolvedCppNameSyntax != null) {
+            diagnostics.add(new Diagnostic("CPP002", Diagnostic.Severity.ERROR,
+                    "已解析 C++ 命名空间或限定名称，但名称绑定尚未实现，不能生成可执行代码。",
+                    "请等待命名空间名称查找支持；解析成功不代表此语法已可执行。", unresolvedCppNameSyntax.range()));
+            completed = true;
+            stepCount++;
+            semanticResult = buildResult();
+            return finishStep(unresolvedCppNameSyntax.range(), "UNRESOLVED_CPP_NAME", diagnostics, () -> semanticResult);
+        }
 
         if (nextActionIndex >= actionCount()) {
             semanticResult = buildResult();
@@ -207,12 +218,27 @@ public final class SemanticAnalyzer extends Stage {
         );
         structLayouts = Map.of();
         plannedActions = planActions(program);
+        unresolvedCppNameSyntax = findUnresolvedCppNameSyntax(program);
         currentAction = null;
         semanticResult = null;
         nextActionIndex = 0;
         stepCount = 0;
         completed = false;
         initialized = true;
+    }
+
+    /** Temporary explicit boundary until the C++ name-binding pass is implemented. */
+    private AstNode findUnresolvedCppNameSyntax(Program source) {
+        var pending = new java.util.ArrayDeque<AstNode>();
+        pending.add(source);
+        while (!pending.isEmpty()) {
+            AstNode node = pending.removeFirst();
+            if (node instanceof minic.compiler.parser.node.Declaration.NamespaceDecl
+                    || node instanceof minic.compiler.parser.node.Declaration.UsingDecl
+                    || node instanceof Expression.QualifiedNameExpr) return node;
+            pending.addAll(minic.compiler.parser.node.AstChildren.of(node));
+        }
+        return null;
     }
 
     private void ensureInitialized() {

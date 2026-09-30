@@ -39,6 +39,9 @@ public final class Parser extends Stage {
     private List<Token> tokens;
     private Context context;
     private DeclarationManager declarationManager;
+    private TypeReader typeReader;
+    private final ArrayList<Declaration> declarations = new ArrayList<>();
+    private final java.util.Deque<List<Declaration>> namespaceMembers = new java.util.ArrayDeque<>();
     private final ArrayList<StructDecl> structs = new ArrayList<>();
     private final ArrayList<EnumDecl> enums = new ArrayList<>();
     private final ArrayList<TypedefDecl> typedefs = new ArrayList<>();
@@ -78,18 +81,21 @@ public final class Parser extends Stage {
     /** 创建由 Lexer 提供输入的 Parser，并可选择记录递归下降 trace。 */
     public Parser(Lexer lexer, boolean traceEnabled) {
         this.lexer = Objects.requireNonNull(lexer, "lexer");
-        languageMode = lexer.languageMode();
+        languageMode = null; // Inherit after a standalone preprocessor has received its source/options.
         this.traceEnabled = traceEnabled;
     }
 
     public LanguageMode languageMode() {
-        return languageMode;
+        return languageMode != null ? languageMode : lexer.languageMode();
     }
 
     private void initialize(List<Token> sourceTokens) {
         tokens = List.copyOf(Objects.requireNonNull(sourceTokens, "tokens"));
-        context = new Context(tokens, languageMode, traceEnabled);
-        TypeReader typeReader = new TypeReader(context, structs::add);
+        context = new Context(tokens, languageMode(), traceEnabled);
+        typeReader = new TypeReader(context, aggregate -> {
+            if (namespaceMembers.isEmpty()) structs.add(aggregate);
+            else namespaceMembers.peek().add(aggregate);
+        });
         ExpressionManager expressionManager = new ExpressionManager(context, typeReader, enumConstants);
         StatementManager statementManager = new StatementManager(context, expressionManager, typeReader);
         declarationManager = new DeclarationManager(context, statementManager, expressionManager, typeReader, enumConstants);
@@ -129,38 +135,17 @@ public final class Parser extends Stage {
             return finishStep(range, "COMPLETE_PARSE", context.reportedErrors(), this::currentResult);
         }
 
-        if (context.check(TokenType.TYPEDEF)) {
-            TypedefDecl typedefDecl = declarationManager.parseTypedefDecl();
-            if (typedefDecl != null) {
-                typedefs.add(typedefDecl);
-                captureNode(typedefDecl);
-            } else {
-                context.synchronizeFunction();
-            }
-        } else if (context.check(TokenType.ENUM) && context.peekAt(1).type() == TokenType.IDENTIFIER
-                && context.peekAt(2).type() == TokenType.LEFT_BRACE) {
-            EnumDecl enumDecl = declarationManager.parseEnumDecl();
-            if (enumDecl != null) { enums.add(enumDecl); captureNode(enumDecl); }
-            else context.synchronizeFunction();
-        } else if ((context.check(TokenType.STRUCT) || context.check(TokenType.UNION)) && isStructDeclaration()) {
-            StructDecl structDecl = declarationManager.parseStructDecl();
-            if (structDecl != null) {
-                structs.add(structDecl);
-                captureNode(structDecl);
-            } else {
-                context.synchronizeFunction();
-            }
+        Declaration declaration = parseDeclaration();
+        if (declaration != null) {
+            declarations.add(declaration);
+            if (declaration instanceof TypedefDecl item) typedefs.add(item);
+            else if (declaration instanceof EnumDecl item) enums.add(item);
+            else if (declaration instanceof StructDecl item) structs.add(item);
+            else if (declaration instanceof FunctionDecl item) functions.add(item);
+            else if (declaration instanceof GlobalVarDecl item) globals.add(item);
+            captureNode(declaration);
         } else {
-            Declaration declaration = declarationManager.parseFunctionOrGlobalDecl();
-            if (declaration instanceof FunctionDecl functionDecl) {
-                functions.add(functionDecl);
-                captureNode(functionDecl);
-            } else if (declaration instanceof GlobalVarDecl global) {
-                globals.add(global);
-                captureNode(global);
-            } else {
-                context.synchronizeFunction();
-            }
+            context.synchronizeFunction();
         }
         stepCount++;
         SourceRange range = currentNode != null
@@ -226,15 +211,84 @@ public final class Parser extends Stage {
                 || context.peekAt(2).type() == TokenType.SEMICOLON);
     }
 
+    private Declaration parseDeclaration() {
+        if (languageMode() == LanguageMode.CPP17_ALGORITHM) {
+            if (context.check(TokenType.NAMESPACE)) return parseNamespace();
+            if (context.check(TokenType.USING)) return CppNameParser.parseUsing(context);
+            if (context.check(TokenType.SCOPE) || context.check(TokenType.IDENTIFIER)
+                    && context.peekAt(1).type() == TokenType.SCOPE) {
+                context.unsupportedCpp(context.peek().range(), "限定类型名称查找尚未实现");
+                return null;
+            }
+        }
+        if (context.check(TokenType.TYPEDEF)) return declarationManager.parseTypedefDecl();
+        if (context.check(TokenType.ENUM) && context.peekAt(1).type() == TokenType.IDENTIFIER
+                && context.peekAt(2).type() == TokenType.LEFT_BRACE) return declarationManager.parseEnumDecl();
+        if ((context.check(TokenType.STRUCT) || context.check(TokenType.UNION)) && isStructDeclaration()) {
+            return declarationManager.parseStructDecl();
+        }
+        return declarationManager.parseFunctionOrGlobalDecl();
+    }
+
+    private Declaration.NamespaceDecl parseNamespace() {
+        Token start = context.advance();
+        if (context.check(TokenType.LEFT_BRACE)) {
+            context.unsupportedCpp(context.peek().range(), "匿名命名空间尚未实现");
+            return null;
+        }
+        var name = CppNameParser.parseName(context);
+        if (name == null) return null;
+        if (name.global()) {
+            context.report(name.range(), "命名空间定义不能以 :: 开头");
+            return null;
+        }
+        if (context.check(TokenType.EQUAL)) {
+            context.unsupportedCpp(context.peek().range(), "命名空间别名尚未实现");
+            return null;
+        }
+        if (context.consume(TokenType.LEFT_BRACE, "期望 '{'") == null) return null;
+        var members = new ArrayList<Declaration>();
+        var savedConstants = new java.util.LinkedHashMap<>(enumConstants);
+        typeReader.enterScope(List.of());
+        namespaceMembers.push(members);
+        try {
+            while (!context.isAtEnd() && !context.check(TokenType.RIGHT_BRACE)) {
+                int before = context.currentIndex();
+                if (context.match(TokenType.SEMICOLON)) continue;
+                Declaration member = parseDeclaration();
+                if (member != null) members.add(member);
+                else {
+                    // Recovery remains inside this namespace's closing brace.
+                    while (!context.isAtEnd() && !context.check(TokenType.RIGHT_BRACE)
+                            && !context.check(TokenType.SEMICOLON)) context.advance();
+                    context.match(TokenType.SEMICOLON);
+                }
+                if (context.currentIndex() == before && !context.isAtEnd()
+                        && !context.check(TokenType.RIGHT_BRACE)) context.advance();
+            }
+            Token end = context.consume(TokenType.RIGHT_BRACE, "期望命名空间结束的 '}'");
+            if (end == null) return null;
+            var namespace = new Declaration.NamespaceDecl(name, members, SourceRange.span(start.range(), end.range()));
+            context.build(namespace, "NamespaceDecl", namespace.range());
+            return namespace;
+        } finally {
+            typeReader.exitScope();
+            namespaceMembers.pop();
+            enumConstants.clear();
+            enumConstants.putAll(savedConstants);
+        }
+    }
+
     private ParserResult buildResult() {
-        return new ParserResult(new Program(structs, enums, typedefs, globals, functions, programRange()));
+        return new ParserResult(new Program(structs, enums, typedefs, globals, functions, declarations, programRange()));
     }
 
     private SourceRange programRange() {
-        if (structs.isEmpty() && enums.isEmpty() && typedefs.isEmpty() && globals.isEmpty() && functions.isEmpty()) {
+        if (declarations.isEmpty() && structs.isEmpty()) {
             return context.peek().range();
         }
         ArrayList<SourceRange> ranges = new ArrayList<>();
+        declarations.forEach(declaration -> ranges.add(declaration.range()));
         structs.forEach(declaration -> ranges.add(declaration.range()));
         enums.forEach(declaration -> ranges.add(declaration.range()));
         typedefs.forEach(declaration -> ranges.add(declaration.range()));
@@ -279,6 +333,13 @@ public final class Parser extends Stage {
 
         public int currentIndex() {
             return currentIndex;
+        }
+
+        public LanguageMode languageMode() { return languageMode; }
+
+        public void unsupportedCpp(SourceRange range, String message) {
+            reportedErrors.add(new Diagnostic("CPP001", Diagnostic.Severity.ERROR, message,
+                    "此语法需要后续 C++ 名称查找支持；请参照兼容能力清单。", range));
         }
 
         public boolean match(TokenType type) {

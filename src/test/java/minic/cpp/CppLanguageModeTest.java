@@ -120,4 +120,17 @@ final class CppLanguageModeTest {
             assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("CPP001")), word);
         }
     }
+
+    @Test
+    void stagesMayBeWiredBeforePreprocessorInputIsBound() {
+        var preprocessor = new Preprocessor();
+        var lexer = new Lexer(preprocessor);
+        var parser = new Parser(lexer);
+        preprocessor.begin(new SourceFile("deferred.cpp", "int main() { return not false; }"),
+                Preprocessor.Options.defaults(LanguageMode.CPP17_ALGORITHM));
+        new CompilerApi(List.of(preprocessor, lexer, parser)).run();
+        assertEquals(LanguageMode.CPP17_ALGORITHM, lexer.languageMode());
+        assertEquals(LanguageMode.CPP17_ALGORITHM, parser.languageMode());
+        assertTrue(parser.succeeded(), () -> parser.errors().toString());
+    }
 }

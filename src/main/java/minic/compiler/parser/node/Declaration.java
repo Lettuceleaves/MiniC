@@ -19,6 +19,7 @@ public interface Declaration extends AstNode {
             List<TypedefDecl> typedefs,
             List<GlobalVarDecl> globals,
             List<FunctionDecl> functions,
+            List<Declaration> declarations,
             SourceRange range
     ) implements Declaration {
         public Program {
@@ -33,6 +34,22 @@ public interface Declaration extends AstNode {
             typedefs = List.copyOf(typedefs);
             globals = List.copyOf(globals);
             functions = List.copyOf(functions);
+            declarations = List.copyOf(declarations);
+        }
+
+        /** Compatibility for existing C AST producers; the parser supplies exact source order. */
+        public Program(List<StructDecl> structs, List<EnumDecl> enums, List<TypedefDecl> typedefs,
+                       List<GlobalVarDecl> globals, List<FunctionDecl> functions, SourceRange range) {
+            this(structs, enums, typedefs, globals, functions,
+                    sourceOrder(structs, enums, typedefs, globals, functions), range);
+        }
+
+        @SafeVarargs private static List<Declaration> sourceOrder(List<? extends Declaration>... groups) {
+            var result = new java.util.ArrayList<Declaration>();
+            for (var group : groups) result.addAll(group);
+            result.sort(java.util.Comparator.comparingInt((Declaration d) -> d.range().startLine())
+                    .thenComparingInt(d -> d.range().startByte()));
+            return List.copyOf(result);
         }
 
         public Program(List<StructDecl> structs, List<FunctionDecl> functions, SourceRange range) {
@@ -41,6 +58,24 @@ public interface Declaration extends AstNode {
 
         public Program(List<StructDecl> structs, List<EnumDecl> enums, List<FunctionDecl> functions, SourceRange range) {
             this(structs, enums, List.of(), List.of(), functions, range);
+        }
+    }
+
+    /** A namespace occurrence is retained separately, including repeated openings of the same name. */
+    record NamespaceDecl(QualifiedName name, List<Declaration> declarations, SourceRange range) implements Declaration {
+        public NamespaceDecl {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(range, "range");
+            declarations = List.copyOf(declarations);
+            if (name.global()) throw new IllegalArgumentException("Namespace definitions cannot start with ::");
+        }
+    }
+
+    /** Both namespace-scope and block-scope using declarations preserve their original position. */
+    record UsingDecl(QualifiedName target, boolean namespaceDirective, SourceRange range) implements Declaration, Statement {
+        public UsingDecl {
+            Objects.requireNonNull(target, "target");
+            Objects.requireNonNull(range, "range");
         }
     }
 

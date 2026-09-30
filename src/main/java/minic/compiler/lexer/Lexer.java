@@ -53,7 +53,8 @@ public final class Lexer extends Stage {
      * 创建由 Preprocessor 提供输入的词法分析阶段。
      */
     public Lexer(Preprocessor preprocessor) {
-        this(preprocessor, preprocessor.languageMode());
+        this.preprocessor = Objects.requireNonNull(preprocessor, "preprocessor");
+        languageMode = null; // Inherit after a deferred preprocessor has received its input.
     }
 
     public Lexer(Preprocessor preprocessor, LanguageMode languageMode) {
@@ -62,7 +63,7 @@ public final class Lexer extends Stage {
     }
 
     public LanguageMode languageMode() {
-        return languageMode;
+        return languageMode != null ? languageMode : preprocessor.languageMode();
     }
 
     @Override
@@ -173,7 +174,7 @@ public final class Lexer extends Stage {
                 }
             }
             case '?' -> addToken(TokenType.QUESTION, startOffset);
-            case ':' -> addToken(languageMode == LanguageMode.CPP17_ALGORITHM && match(':')
+            case ':' -> addToken(languageMode() == LanguageMode.CPP17_ALGORITHM && match(':')
                     ? TokenType.SCOPE : TokenType.COLON, startOffset);
             case '"' -> lexStringLiteral(startOffset);
             case '\'' -> lexCharLiteral(startOffset);
@@ -393,7 +394,7 @@ public final class Lexer extends Stage {
             case "sizeof" -> TokenType.SIZEOF;
             case "true", "false" -> TokenType.BOOL_LITERAL;
             case "NULL" -> TokenType.NULL_LITERAL;
-            default -> languageMode == LanguageMode.CPP17_ALGORITHM
+            default -> languageMode() == LanguageMode.CPP17_ALGORITHM
                     ? cppKeyword(lexeme) : TokenType.IDENTIFIER;
         };
         Object literalValue = switch (kind) {
