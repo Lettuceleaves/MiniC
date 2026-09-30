@@ -5,6 +5,7 @@ import minic.compiler.LanguageMode;
 import minic.compiler.SourceFile;
 import minic.compiler.asm.Assembler;
 import minic.compiler.ir.IrLowerer;
+import minic.compiler.ir.IrResult;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.link.Linker;
 import minic.compiler.obj.ObjBuilder;
@@ -23,6 +24,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Properties;
+import java.util.concurrent.Callable;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -36,32 +39,103 @@ public final class MiniCWorker {
         Path resultPath = Path.of(args[3]);
         int stepLimit = Integer.parseInt(args[4]);
         int outputLimit = Integer.parseInt(args[5]);
-        long runTimeoutMillis = Long.parseLong(args[6]);
+        long runTimeoutNanos = Long.parseLong(args[6]);
         LanguageMode languageMode = LanguageMode.valueOf(args[7]);
+        long compileTimeoutNanos = Long.parseLong(args[8]);
+        Path phasePath = Path.of(args[9]);
         var completed = new AtomicBoolean();
-        SourceFile source = new SourceFile(sourcePath.toString(), Files.readString(sourcePath));
         try {
-            CompilerApi compiler = compiler(source, sourcePath.getParent(), languageMode);
-            var ir = compiler.stages().stream().filter(IrLowerer.class::isInstance).findFirst().orElseThrow();
-            var link = compiler.stages().stream().filter(Linker.class::isInstance).findFirst().orElseThrow();
-            compiler.runThrough(backend == Backend.MINIC_NATIVE ? link : ir);
-            if (!(backend == Backend.MINIC_NATIVE ? link : ir).succeeded()) {
-                String errors = compiler.stages().stream()
-                        .flatMap(stage -> stage.errors().stream()).map(error -> error.describe()).collect(Collectors.joining("\n"));
-                publish(resultPath, CppDifferentialHarness.failed(backend, Status.COMPILE_ERROR, cap(errors, outputLimit)), completed);
+            Compilation compilation = timed(phasePath, "compile", compileTimeoutNanos, resultPath, backend,
+                    Status.COMPILE_TIMEOUT, completed, () -> {
+                        SourceFile source = new SourceFile(sourcePath.toString(), Files.readString(sourcePath));
+                        CompilerApi compiler = compiler(source, sourcePath.getParent(), languageMode);
+                        var ir = compiler.stages().stream().filter(IrLowerer.class::isInstance)
+                                .map(IrLowerer.class::cast).findFirst().orElseThrow();
+                        var link = compiler.stages().stream().filter(Linker.class::isInstance).findFirst().orElseThrow();
+                        compiler.runThrough(backend == Backend.MINIC_NATIVE ? link : ir);
+                        boolean successful = (backend == Backend.MINIC_NATIVE ? link : ir).succeeded();
+                        String errors = compiler.stages().stream().flatMap(stage -> stage.errors().stream())
+                                .map(error -> error.describe()).collect(Collectors.joining("\n"));
+                        return new Compilation(source, successful ? ir.result() : null, successful, cap(errors, outputLimit));
+                    });
+            if (!compilation.successful()) {
+                publish(resultPath, CppDifferentialHarness.failed(backend, Status.COMPILE_ERROR, compilation.errors()), completed);
                 return;
             }
             if (backend == Backend.MINIC_NATIVE) {
                 publish(resultPath, new Outcome(backend, Status.OK, 0, "", "", ""), completed);
                 return;
             }
-            DebugApi debug = new DebugApi(source, Files.readString(Path.of(args[2])), languageMode);
-            // A source-level debug step may itself loop forever; its watchdog is independent.
-            Thread.ofPlatform().daemon(true).name("debug-run-deadline").start(() -> {
+            Outcome outcome = timed(phasePath, "run", runTimeoutNanos, resultPath, backend,
+                    Status.RUN_TIMEOUT, completed, () -> {
+                DebugApi debug = DebugApi.fromIr(compilation.source(), compilation.ir(), Files.readString(Path.of(args[2])));
+                int steps = 0;
+                while (debug.canNext() && steps++ < stepLimit) {
+                    debug.next();
+                    if (exceeds(debug.current().runtime().stdout(), outputLimit)
+                            || exceeds(debug.current().runtime().stderr(), outputLimit)) {
+                        return new Outcome(backend, Status.OUTPUT_LIMIT, -1,
+                                cap(debug.current().runtime().stdout(), outputLimit),
+                                cap(debug.current().runtime().stderr(), outputLimit), "Debug output limit exceeded");
+                    }
+                }
+                var state = debug.current();
+                Status status = debug.canNext() ? Status.RUN_TIMEOUT
+                        : state.stop().status() == Debugger.Status.FAILED ? Status.RUNTIME_ERROR : Status.OK;
+                Integer terminationStatus = state.runtime().termination().status();
+                int exitCode = status == Status.OK && terminationStatus != null ? terminationStatus : -1;
+                if (status == Status.OK && terminationStatus == null) status = Status.RUNTIME_ERROR;
+                if (status == Status.OK && exitCode != 0) status = Status.NONZERO_EXIT;
+                return new Outcome(backend, status, exitCode, state.runtime().stdout(), state.runtime().stderr(),
+                        debug.canNext() ? "Debug step budget exceeded: " + stepLimit : state.stop().error());
+            });
+            publish(resultPath, outcome, completed);
+        } catch (DeadlineExceeded ignored) {
+            // The deadline already published a phase-specific outcome.
+        } catch (Exception failure) {
+            publish(resultPath, CppDifferentialHarness.failed(backend, Status.TOOL_ERROR, cap(failure.toString(), outputLimit)), completed);
+        }
+    }
+
+    private record Compilation(SourceFile source, IrResult ir, boolean successful, String errors) {}
+
+    private static <T> T timed(Path phasePath, String phase, long nanos, Path resultPath, Backend backend,
+                               Status timeoutStatus, AtomicBoolean completed, Callable<T> action) throws Exception {
+        Files.writeString(phasePath, phase);
+        try (var deadline = new PhaseDeadline(nanos, resultPath, backend, timeoutStatus, completed)) {
+            return action.call();
+        }
+    }
+
+    private static final class DeadlineExceeded extends RuntimeException {}
+
+    /** A phase cannot borrow the next phase's budget, even if the watchdog thread is scheduled late. */
+    private static final class PhaseDeadline implements AutoCloseable {
+        private final long started = System.nanoTime();
+        private final long timeoutNanos;
+        private final Path resultPath;
+        private final Backend backend;
+        private final Status status;
+        private final AtomicBoolean completed;
+        private final Thread watcher;
+        private boolean closed;
+
+        private PhaseDeadline(long timeoutNanos, Path resultPath, Backend backend, Status status,
+                              AtomicBoolean completed) {
+            this.timeoutNanos = timeoutNanos;
+            this.resultPath = resultPath;
+            this.backend = backend;
+            this.status = status;
+            this.completed = completed;
+            watcher = Thread.ofPlatform().daemon(true).name("worker-" + status + "-deadline").start(() -> {
                 try {
-                    Thread.sleep(runTimeoutMillis);
-                    if (publish(resultPath, CppDifferentialHarness.failed(backend, Status.RUN_TIMEOUT,
-                            "Debug execution exceeded wall-clock limit"), completed)) System.exit(0);
+                    TimeUnit.NANOSECONDS.sleep(timeoutNanos);
+                    synchronized (this) {
+                        if (closed) return;
+                        closed = true;
+                        timeout();
+                        System.exit(0);
+                    }
                 } catch (InterruptedException ignored) {
                     Thread.currentThread().interrupt();
                 } catch (IOException failure) {
@@ -69,28 +143,21 @@ public final class MiniCWorker {
                     System.exit(2);
                 }
             });
-            int steps = 0;
-            while (debug.canNext() && steps++ < stepLimit) {
-                debug.next();
-                if (exceeds(debug.current().runtime().stdout(), outputLimit)
-                        || exceeds(debug.current().runtime().stderr(), outputLimit)) {
-                    publish(resultPath, new Outcome(backend, Status.OUTPUT_LIMIT, -1,
-                            cap(debug.current().runtime().stdout(), outputLimit),
-                            cap(debug.current().runtime().stderr(), outputLimit), "Debug output limit exceeded"), completed);
-                    return;
-                }
+        }
+
+        private void timeout() throws IOException {
+            publish(resultPath, CppDifferentialHarness.failed(backend, status,
+                    status + " exceeded its independent phase budget: " + timeoutNanos + " ns"), completed);
+        }
+
+        @Override public synchronized void close() throws IOException {
+            if (closed) throw new DeadlineExceeded();
+            closed = true;
+            watcher.interrupt();
+            if (System.nanoTime() - started >= timeoutNanos) {
+                timeout();
+                throw new DeadlineExceeded();
             }
-            var state = debug.current();
-            Status status = debug.canNext() ? Status.RUN_TIMEOUT
-                    : state.stop().status() == Debugger.Status.FAILED ? Status.RUNTIME_ERROR : Status.OK;
-            Integer terminationStatus = state.runtime().termination().status();
-            int exitCode = status == Status.OK && terminationStatus != null ? terminationStatus : -1;
-            if (status == Status.OK && terminationStatus == null) status = Status.RUNTIME_ERROR;
-            if (status == Status.OK && exitCode != 0) status = Status.NONZERO_EXIT;
-            publish(resultPath, new Outcome(backend, status, exitCode, state.runtime().stdout(), state.runtime().stderr(),
-                    debug.canNext() ? "Debug step budget exceeded: " + stepLimit : state.stop().error()), completed);
-        } catch (Exception failure) {
-            publish(resultPath, CppDifferentialHarness.failed(backend, Status.TOOL_ERROR, cap(failure.toString(), outputLimit)), completed);
         }
     }
 

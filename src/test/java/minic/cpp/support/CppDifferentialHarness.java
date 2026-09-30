@@ -63,15 +63,22 @@ public final class CppDifferentialHarness {
     private Outcome runMiniC(Backend backend, Path directory, Path source, Path input, String stdin)
             throws InterruptedException {
         Path resultFile = directory.resolve(backend.name() + ".properties");
+        Path phaseFile = directory.resolve(backend.name() + ".phase");
         try {
             var command = ProcessProbe.javaCommand(MiniCWorker.class, backend.name(), source.toString(),
                     input.toString(), resultFile.toString(), Integer.toString(limits.debugSteps()),
-                    Integer.toString(limits.maxOutputBytes()), Long.toString(limits.runTimeout().toMillis()), languageMode.name());
+                    Integer.toString(limits.maxOutputBytes()), Long.toString(limits.runTimeout().toNanos()), languageMode.name(),
+                    Long.toString(limits.compileTimeout().toNanos()), phaseFile.toString());
+            // Actual phase limits are enforced inside the worker. This outer deadline also bounds
+            // JVM startup/reporting and remains a fallback if a watchdog cannot publish its result.
+            Duration workerTimeout = limits.compileTimeout().plusSeconds(5);
+            if (backend == Backend.MINIC_DEBUG) workerTimeout = workerTimeout.plus(limits.runTimeout());
             var process = BoundedProcess.run(command, Path.of("").toAbsolutePath(), "",
-                    backend == Backend.MINIC_DEBUG ? limits.compileTimeout().plus(limits.runTimeout()) : limits.compileTimeout(),
-                    limits.maxOutputBytes());
+                    workerTimeout, limits.maxOutputBytes());
             if (process.timedOut()) {
-                return failed(backend, Status.COMPILE_TIMEOUT, "MiniC worker exceeded time limit before reporting a result");
+                Status timeout = Files.isRegularFile(phaseFile) && Files.readString(phaseFile).equals("run")
+                        ? Status.RUN_TIMEOUT : Status.COMPILE_TIMEOUT;
+                return failed(backend, timeout, "MiniC worker exceeded the outer process deadline in its recorded phase");
             }
             if (process.outputExceeded()) return failed(backend, Status.OUTPUT_LIMIT, "MiniC worker console output limit exceeded");
             if (process.exitCode() != 0 || !Files.isRegularFile(resultFile)) {

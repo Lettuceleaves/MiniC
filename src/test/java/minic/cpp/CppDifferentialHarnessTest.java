@@ -176,6 +176,24 @@ final class CppDifferentialHarnessTest {
         }
     }
 
+    @Test void debugCannotBorrowItsRuntimeBudgetToFinishCompilation() throws Exception {
+        var harness = new CppDifferentialHarness(temporary,
+                CppDifferentialHarness.referenceCompiler(System.getenv()),
+                new CppDifferentialHarness.Limits(Duration.ofMillis(1), Duration.ofSeconds(10), 100, 65536));
+        var report = harness.run("separate-phase-budgets", "int main(void) { return 0; }", "");
+        assertEquals(Status.COMPILE_TIMEOUT, report.outcomes().get(Backend.MINIC_DEBUG).status(), report::describe);
+        assertTrue(report.outcomes().get(Backend.MINIC_DEBUG).diagnostics().contains("independent phase budget"), report::describe);
+    }
+
+    @Test void tinyDebugRuntimeBudgetIsNotClassifiedAsCompilationFailure() throws Exception {
+        var harness = new CppDifferentialHarness(temporary,
+                CppDifferentialHarness.referenceCompiler(System.getenv()),
+                new CppDifferentialHarness.Limits(Duration.ofSeconds(20), Duration.ofNanos(1), 100, 65536));
+        var report = harness.run("separate-runtime-budget", "int main(void) { return 0; }", "");
+        assertEquals(Status.RUN_TIMEOUT, report.outcomes().get(Backend.MINIC_DEBUG).status(), report::describe);
+        assertTrue(report.outcomes().get(Backend.MINIC_DEBUG).diagnostics().contains("independent phase budget"), report::describe);
+    }
+
     @Test void actualNonzeroProgramCannotPassDifferentialComparison() throws Exception {
         var report = harness().run("bad-exit", "int main(void) { return 7; }", "");
         assertFalse(report.passed());
