@@ -78,7 +78,7 @@ public final class Debugger {
             while (!runtime.stack.isEmpty()) {
                 Frame frame = runtime.stack.getLast();
                 var instructions = frame.function.blocks().get(frame.block).instructions();
-                function = frame.function.name();
+                function = runtime.code().ir().displayName(frame.function.name());
                 block = frame.function.blocks().get(frame.block).label();
                 index = frame.pc;
                 if (index >= instructions.size()) throw new IllegalStateException("Block has no terminator: " + block);
@@ -196,7 +196,7 @@ public final class Debugger {
             return;
         }
         DebugLibraryCallResult result = systemLibrary.invoke(name, runtime, arguments)
-                .orElseThrow(() -> new IllegalStateException("Unsupported external function: " + name));
+                .orElseThrow(() -> new IllegalStateException("Unsupported external function: " + runtime.code().ir().displayName(name)));
         switch (result) {
             case DebugLibraryCallResult.Returned returned -> {
                 if (target == null) {

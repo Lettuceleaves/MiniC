@@ -2,6 +2,7 @@ package minic.compiler.parser.node;
 
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.type.MiniType;
+import minic.compiler.LanguageMode;
 import minic.SourceRange;
 
 import java.util.List;
@@ -20,6 +21,7 @@ public interface Declaration extends AstNode {
             List<GlobalVarDecl> globals,
             List<FunctionDecl> functions,
             List<Declaration> declarations,
+            LanguageMode languageMode,
             SourceRange range
     ) implements Declaration {
         public Program {
@@ -29,6 +31,7 @@ public interface Declaration extends AstNode {
             Objects.requireNonNull(globals, "globals");
             Objects.requireNonNull(functions, "functions");
             Objects.requireNonNull(range, "range");
+            Objects.requireNonNull(languageMode, "languageMode");
             structs = List.copyOf(structs);
             enums = List.copyOf(enums);
             typedefs = List.copyOf(typedefs);
@@ -38,6 +41,12 @@ public interface Declaration extends AstNode {
         }
 
         /** Compatibility for existing C AST producers; the parser supplies exact source order. */
+        public Program(List<StructDecl> structs, List<EnumDecl> enums, List<TypedefDecl> typedefs,
+                       List<GlobalVarDecl> globals, List<FunctionDecl> functions,
+                       List<Declaration> declarations, SourceRange range) {
+            this(structs, enums, typedefs, globals, functions, declarations, LanguageMode.C, range);
+        }
+
         public Program(List<StructDecl> structs, List<EnumDecl> enums, List<TypedefDecl> typedefs,
                        List<GlobalVarDecl> globals, List<FunctionDecl> functions, SourceRange range) {
             this(structs, enums, typedefs, globals, functions,

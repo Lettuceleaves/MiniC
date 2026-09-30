@@ -93,7 +93,10 @@ public final class Parser extends Stage {
         tokens = List.copyOf(Objects.requireNonNull(sourceTokens, "tokens"));
         context = new Context(tokens, languageMode(), traceEnabled);
         typeReader = new TypeReader(context, aggregate -> {
-            if (namespaceMembers.isEmpty()) structs.add(aggregate);
+            if (namespaceMembers.isEmpty()) {
+                structs.add(aggregate);
+                declarations.add(aggregate);
+            }
             else namespaceMembers.peek().add(aggregate);
         });
         ExpressionManager expressionManager = new ExpressionManager(context, typeReader, enumConstants);
@@ -280,7 +283,7 @@ public final class Parser extends Stage {
     }
 
     private ParserResult buildResult() {
-        return new ParserResult(new Program(structs, enums, typedefs, globals, functions, declarations, programRange()));
+        return new ParserResult(new Program(structs, enums, typedefs, globals, functions, declarations, languageMode(), programRange()));
     }
 
     private SourceRange programRange() {

@@ -93,7 +93,7 @@ final class CppNamespaceParserTest {
             assertThrows(IllegalStateException.class, api::runToIr, body);
             var semantic = api.stages().stream().filter(SemanticAnalyzer.class::isInstance)
                     .map(SemanticAnalyzer.class::cast).findFirst().orElseThrow();
-            assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP002")),
+            assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP003")),
                     () -> body + ": " + semantic.errors());
         }
     }
@@ -104,7 +104,7 @@ final class CppNamespaceParserTest {
         var semantic = new SemanticAnalyzer(parser.result().program());
         semantic.analyze();
         assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP002")));
+        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP003")));
     }
 
     @Test void malformedNamespaceAndNamesAreRejectedWithoutHanging() {
@@ -127,15 +127,14 @@ final class CppNamespaceParserTest {
     }
 
     @Test void parsedButUnresolvedCppNamesCannotSilentlyReachIr() {
-        for (String source : List.of("namespace A { int hidden; } int main() { return 0; }",
-                "using namespace A; int main() { return 0; }",
+        for (String source : List.of("using namespace A; int main() { return 0; }",
                 "int main() { return ::missing; }",
                 "int main() { using A::value; return 0; }")) {
             var api = new CompilerApi(new SourceFile("unresolved.cpp", source), LanguageMode.CPP17_ALGORITHM);
             assertThrows(IllegalStateException.class, api::runToIr, source);
             var semantic = api.stages().stream().filter(SemanticAnalyzer.class::isInstance)
                     .map(SemanticAnalyzer.class::cast).findFirst().orElseThrow();
-            assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP002")),
+            assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP003")),
                     () -> source + ": " + semantic.errors());
         }
     }

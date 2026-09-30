@@ -65,7 +65,7 @@ public final class IrLowerer extends Stage {
 
     public IrLowerer(Program program, SemanticResult semanticResult) {
         semanticAnalyzer = null;
-        initialize(program, semanticResult.structLayouts(), semanticResult.expressionTypes());
+        initialize(program, semanticResult);
     }
 
     /**
@@ -86,7 +86,7 @@ public final class IrLowerer extends Stage {
 
     /** 使用指定 AST 和语义结果执行完整 IR lowering。 */
     public IrResult lower(Program program, SemanticResult semanticResult) {
-        initialize(program, semanticResult.structLayouts(), semanticResult.expressionTypes());
+        initialize(program, semanticResult);
         return lower();
     }
 
@@ -222,7 +222,8 @@ public final class IrLowerer extends Stage {
                 work.externalObjectNames,
                 input.structLayouts,
                 currentAstNode,
-                currentSubject
+                currentSubject,
+                input.displayNames
         );
     }
 
@@ -240,7 +241,26 @@ public final class IrLowerer extends Stage {
             Map<String, StructLayout> structLayouts,
             Map<Expression, MiniType> expressionTypes
     ) {
-        input = new Input(program, structLayouts, expressionTypes);
+        initialize(program, structLayouts, expressionTypes, Map.of(), Map.of());
+    }
+
+    private void initialize(Program source, SemanticResult semantic) {
+        if (source != semantic.program() && source != semantic.sourceProgram()) {
+            throw new IllegalArgumentException("semantic result belongs to a different program");
+        }
+        var coreToSource = new java.util.IdentityHashMap<AstNode, AstNode>();
+        semantic.sourceToCore().forEach((original, core) -> coreToSource.put(core, original));
+        initialize(semantic.program(), semantic.structLayouts(), semantic.expressionTypes(),
+                semantic.displayNames(), coreToSource);
+    }
+
+    private void initialize(Program program, Map<String, StructLayout> structLayouts,
+                            Map<Expression, MiniType> expressionTypes, Map<String, String> displayNames,
+                            Map<AstNode, AstNode> coreToSource) {
+        if (program.languageMode() != minic.compiler.LanguageMode.C) {
+            throw new IllegalArgumentException("C++ AST requires name binding; provide its SemanticResult");
+        }
+        input = new Input(program, structLayouts, expressionTypes, displayNames, coreToSource);
         work = new Work(collectFunctionSignatures(program),
                 new GlobalDataLowerer(structLayouts).lower(program.globals()));
         work.externalObjectNames.addAll(collectExternalObjectNames(program));
@@ -269,11 +289,7 @@ public final class IrLowerer extends Stage {
             throw new IllegalStateException("semantic analyzer did not succeed");
         }
         SemanticResult semanticResult = semanticAnalyzer.semanticResult();
-        initialize(
-                semanticAnalyzer.program(),
-                semanticResult.structLayouts(),
-                semanticResult.expressionTypes()
-        );
+        initialize(semanticAnalyzer.program(), semanticResult);
     }
 
     private IrResult buildResult() {
@@ -289,15 +305,16 @@ public final class IrLowerer extends Stage {
                 work.externalObjectNames,
                 input.structLayouts,
                 null,
-                ""
+                "",
+                input.displayNames
         );
     }
 
     private void setCurrentOperation(String operationName, String subject, AstNode astNode) {
         currentOperationName = Objects.requireNonNull(operationName, "operationName");
-        currentSubject = Objects.requireNonNull(subject, "subject");
-        currentAstNode = astNode;
-        work.loweringLog.add(operationName + " " + subject);
+        currentSubject = minic.compiler.SymbolNames.displayText(Objects.requireNonNull(subject, "subject"), input.displayNames);
+        currentAstNode = input.coreToSource.getOrDefault(astNode, astNode);
+        work.loweringLog.add(operationName + " " + currentSubject);
     }
 
     private void clearCurrentOperation() {
@@ -371,7 +388,9 @@ public final class IrLowerer extends Stage {
     public record Input(
             Program program,
             Map<String, StructLayout> structLayouts,
-            Map<Expression, MiniType> expressionTypes
+            Map<Expression, MiniType> expressionTypes,
+            Map<String, String> displayNames,
+            Map<AstNode, AstNode> coreToSource
     ) {
         /**
          * 创建输入数据。
@@ -388,6 +407,12 @@ public final class IrLowerer extends Stage {
             expressionTypes = java.util.Collections.unmodifiableMap(
                     new java.util.IdentityHashMap<>(expressionTypes)
             );
+            displayNames = Map.copyOf(displayNames);
+            coreToSource = java.util.Collections.unmodifiableMap(new java.util.IdentityHashMap<>(coreToSource));
+        }
+
+        public Input(Program program, Map<String, StructLayout> structLayouts, Map<Expression, MiniType> expressionTypes) {
+            this(program, structLayouts, expressionTypes, Map.of(), Map.of());
         }
     }
 

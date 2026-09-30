@@ -2,6 +2,9 @@ package minic.compiler.semantic;
 
 import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
+import minic.compiler.LanguageMode;
+import minic.compiler.SymbolNames;
+import minic.compiler.semantic.cpp.CppNameBinder;
 import minic.compiler.parser.Parser;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.Declaration.FunctionDecl;
@@ -55,6 +58,11 @@ public final class SemanticAnalyzer extends Stage {
     private final List<Diagnostic> diagnostics = new ArrayList<>();
 
     private Program program;
+    private Program sourceProgram;
+    private Map<AstNode, AstNode> sourceToCore = Map.of();
+    private Map<AstNode, AstNode> coreToSource = Map.of();
+    private Map<String, String> displayNames = Map.of();
+    private boolean bindingFailed;
     private Scope globalScope;
     private Map<Expression, MiniType> expressionTypes;
     private StructRegistry structRegistry;
@@ -68,7 +76,6 @@ public final class SemanticAnalyzer extends Stage {
     private boolean initialized;
     private boolean completed;
     private long stepCount;
-    private AstNode unresolvedCppNameSyntax;
 
     /** 创建等待 {@link #analyze(Program)} 提供输入的语义分析器。 */
     public SemanticAnalyzer() {
@@ -114,14 +121,11 @@ public final class SemanticAnalyzer extends Stage {
         ensureInitialized();
         currentAction = null;
 
-        if (unresolvedCppNameSyntax != null) {
-            diagnostics.add(new Diagnostic("CPP002", Diagnostic.Severity.ERROR,
-                    "已解析 C++ 命名空间或限定名称，但名称绑定尚未实现，不能生成可执行代码。",
-                    "请等待命名空间名称查找支持；解析成功不代表此语法已可执行。", unresolvedCppNameSyntax.range()));
+        if (bindingFailed) {
             completed = true;
             stepCount++;
             semanticResult = buildResult();
-            return finishStep(unresolvedCppNameSyntax.range(), "UNRESOLVED_CPP_NAME", diagnostics, () -> semanticResult);
+            return finishStep(diagnostics.getFirst().range(), "CPP_NAME_BINDING_ERROR", diagnostics, () -> semanticResult);
         }
 
         if (nextActionIndex >= actionCount()) {
@@ -134,6 +138,12 @@ public final class SemanticAnalyzer extends Stage {
         int diagnosticsBefore = diagnostics.size();
         currentAction = executeAction(nextActionIndex);
         nextActionIndex++;
+        for (int i = diagnosticsBefore; i < diagnostics.size(); i++) {
+            Diagnostic item = diagnostics.get(i);
+            diagnostics.set(i, new Diagnostic(item.code(), item.severity(),
+                    SymbolNames.displayText(item.message(), displayNames),
+                    SymbolNames.displayText(item.solution(), displayNames), item.range()));
+        }
         if (diagnostics.size() > diagnosticsBefore) {
             Diagnostic diagnostic = diagnostics.getLast();
             currentAction = SemanticAction.diagnostic(
@@ -143,6 +153,13 @@ public final class SemanticAnalyzer extends Stage {
                     currentAction.scope()
             );
         }
+        if (currentAction.astNode() instanceof AstNode core && coreToSource.containsKey(core)) {
+            currentAction = new SemanticAction(currentAction.kind(), currentAction.subject(), currentAction.diagnostic(),
+                    coreToSource.get(core), currentAction.scope());
+        }
+        currentAction = new SemanticAction(currentAction.kind(),
+                SymbolNames.displayText(currentAction.subject(), displayNames), currentAction.diagnostic(),
+                currentAction.astNode(), currentAction.scope());
         stepCount++;
         SourceRange range;
         if (currentAction.astNode() instanceof AstNode astNode) {
@@ -204,7 +221,25 @@ public final class SemanticAnalyzer extends Stage {
 
     private void initialize(Program sourceProgram) {
         program = Objects.requireNonNull(sourceProgram, "program");
+        this.sourceProgram = sourceProgram;
         diagnostics.clear();
+        sourceToCore = Map.of();
+        coreToSource = new IdentityHashMap<>();
+        displayNames = Map.of();
+        if (sourceProgram.languageMode() == LanguageMode.CPP17_ALGORITHM) {
+            var binding = CppNameBinder.bind(sourceProgram);
+            program = binding.program();
+            sourceToCore = binding.sourceToCore();
+            sourceToCore.forEach((original, core) -> coreToSource.put(core, original));
+            displayNames = binding.displayNames();
+            diagnostics.addAll(binding.diagnostics());
+        } else {
+            AstNode cppNode = findUnresolvedCppNameSyntax(program);
+            if (cppNode != null) diagnostics.add(new Diagnostic("CPP002", Diagnostic.Severity.ERROR,
+                    "C 模式的 AST 不能包含 C++ 命名空间或限定名称。",
+                    "请使用 CPP17_ALGORITHM 模式解析和分析源程序。", cppNode.range()));
+        }
+        bindingFailed = !diagnostics.isEmpty();
         globalScope = new Scope();
         expressionTypes = new IdentityHashMap<>();
         structRegistry = new StructRegistry(globalScope, diagnostics);
@@ -218,7 +253,6 @@ public final class SemanticAnalyzer extends Stage {
         );
         structLayouts = Map.of();
         plannedActions = planActions(program);
-        unresolvedCppNameSyntax = findUnresolvedCppNameSyntax(program);
         currentAction = null;
         semanticResult = null;
         nextActionIndex = 0;
@@ -227,7 +261,7 @@ public final class SemanticAnalyzer extends Stage {
         initialized = true;
     }
 
-    /** Temporary explicit boundary until the C++ name-binding pass is implemented. */
+    /** Reject malformed standalone C AST input instead of silently dropping C++ nodes. */
     private AstNode findUnresolvedCppNameSyntax(Program source) {
         var pending = new java.util.ArrayDeque<AstNode>();
         pending.add(source);
@@ -261,10 +295,13 @@ public final class SemanticAnalyzer extends Stage {
         return new SemanticResult(
                 program,
                 globalScope,
-                SemanticResult.ScopeSnapshot.from(globalScope),
+                SemanticResult.ScopeSnapshot.from(globalScope, displayNames),
                 expressionTypes,
                 structLayouts,
-                currentAction
+                currentAction,
+                sourceProgram,
+                sourceToCore,
+                displayNames
         );
     }
 

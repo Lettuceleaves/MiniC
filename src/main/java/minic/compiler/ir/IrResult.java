@@ -33,7 +33,8 @@ public record IrResult(
         Set<String> externalObjectNames,
         Map<String, StructLayout> structLayouts,
         AstNode currentAstNode,
-        String currentSubject
+        String currentSubject,
+        Map<String, String> displayNames
 ) implements Stage.Context {
     public IrResult {
         Objects.requireNonNull(functions, "functions");
@@ -52,6 +53,24 @@ public record IrResult(
         externalFunctionNames = Set.copyOf(normalizedExternals);
         externalObjectNames = Set.copyOf(externalObjectNames);
         structLayouts = Map.copyOf(structLayouts);
+        displayNames = Map.copyOf(displayNames);
+    }
+
+    public IrResult(List<IrFunction> functions, List<IrStringData> stringData, List<IrGlobalData> globalData,
+                    Set<String> externalFunctionNames, Set<String> externalObjectNames,
+                    Map<String, StructLayout> structLayouts, AstNode currentAstNode, String currentSubject) {
+        this(functions, stringData, globalData, externalFunctionNames, externalObjectNames,
+                structLayouts, currentAstNode, currentSubject, Map.of());
+    }
+
+    /** Translate presentation only; executable labels and storage keys retain their bound names. */
+    public String displayName(String name) {
+        Objects.requireNonNull(name, "name");
+        String mapped = displayNames.get(name);
+        if (mapped != null) return mapped;
+        int slot = name.indexOf('#');
+        if (slot > 0) return displayNames.getOrDefault(name.substring(0, slot), name.substring(0, slot)) + name.substring(slot);
+        return name;
     }
 
     /** 返回本次 lowering step 需要在 UI 中高亮的 AST 节点。 */

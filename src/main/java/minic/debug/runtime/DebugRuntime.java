@@ -135,8 +135,22 @@ public final class DebugRuntime {
 
     /** 返回只读的当前栈视图；地址随调用帧分配，递归调用不会共用局部变量。 */
     public List<StackFrame> stack() {
-        return stack.stream().map(f -> new StackFrame(f.function.name(), f.block, f.pc,
-                Map.copyOf(f.parameters), Map.copyOf(f.locals), Map.copyOf(f.temps))).toList();
+        return stack.stream().map(f -> new StackFrame(code.ir().displayName(f.function.name()), f.block, f.pc,
+                displayedNames(f.parameters), displayedNames(f.locals), Map.copyOf(f.temps))).toList();
+    }
+
+    /** Rendering never mutates executable keys; distinct slots must survive equal source names. */
+    private <T> Map<String, T> displayedNames(Map<String, T> values) {
+        Map<String, T> displayed = new LinkedHashMap<>();
+        values.forEach((key, value) -> {
+            String original = code.ir().displayName(key);
+            String unique = original;
+            for (int occurrence = 2; displayed.containsKey(unique); occurrence++) {
+                unique = original + " [" + occurrence + "]";
+            }
+            displayed.put(unique, value);
+        });
+        return Collections.unmodifiableMap(displayed);
     }
 
     public List<MemoryBlock> heap() { return blocks("heap"); }
@@ -178,7 +192,7 @@ public final class DebugRuntime {
 
     private List<MemoryBlock> blocks(String segment) {
         return memory.values().stream().filter(a -> a.segment.equals(segment))
-                .map(a -> new MemoryBlock(a.address, a.bytes.length, a.label,
+                .map(a -> new MemoryBlock(a.address, a.bytes.length, code.ir().displayName(a.label),
                         HexFormat.of().formatHex(a.bytes), a.initialized.cardinality())).toList();
     }
 
@@ -528,7 +542,7 @@ public final class DebugRuntime {
         Allocation allocation = allocation(address, type.sizeBytes());
         int offset = (int) (address - allocation.address);
         if (allocation.initialized.nextClearBit(offset) < offset + type.sizeBytes())
-            throw new IllegalStateException("Read of uninitialized memory: " + allocation.label);
+            throw new IllegalStateException("Read of uninitialized memory: " + code.ir().displayName(allocation.label));
         ByteBuffer buffer = ByteBuffer.wrap(allocation.bytes).order(ByteOrder.LITTLE_ENDIAN);
         return switch (type) {
             case BOOL, CHAR, SIGNED_CHAR -> Value.of(type, buffer.get(offset));
@@ -577,7 +591,7 @@ public final class DebugRuntime {
 
     long symbol(String name) {
         Long address = symbols.get(name);
-        if (address == null) throw new IllegalStateException("Unknown symbol: " + name);
+        if (address == null) throw new IllegalStateException("Unknown symbol: " + code.ir().displayName(name));
         return address;
     }
 
@@ -588,7 +602,7 @@ public final class DebugRuntime {
     }
 
     void push(IrFunction function, List<Value> arguments, IrTemporary target) {
-        if (arguments.size() != function.parameters().size()) throw new IllegalStateException("Argument count: " + function.name());
+        if (arguments.size() != function.parameters().size()) throw new IllegalStateException("Argument count: " + code.ir().displayName(function.name()));
         Frame frame = new Frame(function, target);
         for (int i = 0; i < arguments.size(); i++) frame.parameters.put(function.parameters().get(i).name(), arguments.get(i));
         stack.add(frame);

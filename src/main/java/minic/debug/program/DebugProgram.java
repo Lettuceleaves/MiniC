@@ -50,7 +50,7 @@ public final class DebugProgram {
                 }
 
                 blocks.add(new IrBlock(block.label(), instrumented));
-                index(function.name(), block.label(), instrumented, lineIndex, lineCount);
+                index(original.displayName(function.name()), block.label(), instrumented, lineIndex, lineCount);
             }
             functions.add(new IrFunction(
                     function.name(),
@@ -68,7 +68,10 @@ public final class DebugProgram {
                 original.globalData(),
                 original.externalFunctionNames(),
                 original.externalObjectNames(),
-                original.structLayouts()
+                original.structLayouts(),
+                original.currentAstNode(),
+                original.currentSubject(),
+                original.displayNames()
         );
         lines = lineIndex.stream().map(List::copyOf).toList();
     }

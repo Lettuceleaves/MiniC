@@ -6,7 +6,7 @@
 
 ## 当前状态
 
-截至 2026 年 10 月 1 日，已完成验收基础设施和显式 C++ 模式入口。**尚不能编译 `vector<int>`，尚未实现任何 STL 容器，也没有达到接近 C++ STL 性能的结论。** 能力清单中的 STL API 均为 `planned`，`random_shuffle` 为 `legacy-planned`。
+截至 2026 年 10 月 1 日，已完成验收基础设施、显式 C++ 模式入口和命名空间值名称绑定。**尚不能编译 `vector<int>`，尚未实现任何 STL 容器，也没有达到接近 C++ STL 性能的结论。** 能力清单中的 STL API 均为 `planned`，`random_shuffle` 为 `legacy-planned`。
 
 | 阶段 | 提交 | 已验收内容 |
 | --- | --- | --- |
@@ -21,16 +21,21 @@
 | F02 有序 AST | `26fe7d8` | namespace、using、限定名及范围；11 个新增测试；恢复延迟绑定兼容 |
 | 差分预算修复 | `9094fc0` | 编译和执行独立计时；差分测试扩展至 20 项 |
 | 子进程清理 | `9c9b945` | 父进程正常退出后清理已观察后代及管道；差分测试扩展至 21 项 |
+| 声明点与 switch 作用域 | `a905ab5` | 初始化器中可见自身声明；case 共享词法作用域，退出后恢复外层；13 项新增测试 |
+| 嵌套 break/continue | `13d2580` | break 退出最近 loop/switch，continue 继续最近 loop；8 组 native/debug 测试 |
+| 函数地址与指针存储 | `380d003` | `&f`、隐式函数退化、`&*p` 及全局函数指针读取；4 项 native/debug 测试 |
 
 `95c3d0f` 对应的完整非 UI 验收结果是 **485/485 通过，无跳过**。阶段红测在实现前实际执行，只有通过后的改动进入提交。
 
-本批最终全量回归为 **516/516 通过，无跳过、无失败**，JUnit 执行约 71.7 秒。命令为本页的 `scripts/test-compiler.ps1`，日志保存在 `build/baseline/final-regression.txt`。已检查提交范围不含 `src/main/java/minic/ui`、UI 资源或 UI 测试；原有 UI 工作区改动保持未提交状态。
+前一批全量回归为 **516/516 通过，无跳过、无失败**，JUnit 执行约 71.7 秒，日志保存在 `build/baseline/final-regression.txt`。F02c 最终提交快照的完整非 UI 回归为 **589/589 通过，无跳过**，约 95.8 秒，日志为 `build/f02c-final/regression.txt`。该快照未包含随后开发的 F02d 类型名红测。UI 改动仍独立于本分支的编译器提交。
 
-F02 目前只交付头文件映射和解析结构。namespace/using 名称绑定尚未实现，含这些节点的程序在语义阶段报 `CPP002`，不能进入 IR。AST 保留源顺序和原始名称，后续需要先绑定实体再生成内部名称；只拼接或删除 `std::` 会错误处理局部遮蔽、重开和二义性。
+F02c 在建立表达式类型映射前完成名称绑定，再输出现有 IR 可以处理的规范化 AST。支持命名空间嵌套和重开、限定名及根 `::`、using 声明和 directive、声明顺序、递归与前置声明、共同祖先查找、using 循环去重和二义诊断。函数、全局、局部和形参绑定到实体；例如 `int x=1; int main(){int x=2; return ::x;}` 正确读取全局值。
 
-下一子阶段应增加独立的 C++ 名称绑定和 AST 规范化过程，在建立表达式类型映射前运行。规范化后的 AST 可复用现有 IR，但需保留原节点映射和内部名到源码名的映射，避免调试器暴露内部名字。绑定必须包括形参和局部变量，例如 `int x=1; int main(){int x=2; return ::x;}` 不能把全局引用错误解析为局部 `x`。
+Parser AST 保留原始名称与源码范围；SemanticResult 保留原节点到 core 节点的 identity 映射，原始表达式仍可查询类型。显式 `IrLowerer(Program, SemanticResult)` 使用对应的已绑定 AST；未绑定 C++ AST 不能绕过语义阶段直接 lowering。调试停止位置、调用栈、参数、局部变量、全局内存标签、诊断和阶段摘要显示源名称；机器符号保持唯一内部名称。同名局部变量的快照不会覆盖彼此。
 
-该子阶段还需要先处理声明点、switch 各 case 的共享词法作用域、using directive 的共同祖先查找，以及显式 `IrLowerer(Program, SemanticResult)` 入口的节点身份一致性。namespace 内类型环境、重载和全局动态初始化在完成各自验收前继续明确拒绝，不能直接展开 AST 后交给现有全局预注册逻辑。
+七个值名称 fixtures 在 MiniC native、MiniC debug 和 G++ C++17 下输出一致；十个非法查找用例由 G++ 和 MiniC 一致拒绝。另有四个审查回归验证 namespace 名称参与遮蔽和二义判断，防止把不可作为值的 namespace 静默绑定为外层变量。完整 debug 历史往返同时检查限定调用、trap 子表达式和完整写入表达式的精确源码范围。
+
+F02d 类型名支持继续按三个绿色提交推进：持久 namespace 类型查找环境；递归类型规范化；Parser/TypeReader 接入 `A::Type`、struct 和 typedef。当前 namespace 类型、重载、namespace 外部链接、全局动态/地址初始化和跨 case 绕过初始化在完成验收前仍明确拒绝。`CPP003` 表示未声明或二义查找，`CPP004` 表示声明冲突，`CPP005` 标记尚未实现的语义；`CPP002` 仅防止把含 C++ 节点的 AST 当成 C 输入。
 
 `LanguageMode.CPP17_ALGORITHM` 是增量兼容模式入口，不代表完整 C++17 实现。旧构造器仍使用 C 模式，文件后缀不会隐式改变语言。模式贯穿预处理、词法、语法和调试入口。已识别但尚未实现的 C++ 专用关键字和限定类型形式提供 `CPP001`；引用、lambda 等使用普通符号的未支持语法仍可能产生通用 `PAR001` 诊断。
 

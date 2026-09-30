@@ -1,6 +1,7 @@
 package minic.compiler.semantic;
 
 import minic.compiler.parser.node.Expression;
+import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.Declaration.Program;
 import minic.compiler.semantic.model.Scope;
 import minic.compiler.semantic.model.SemanticAction;
@@ -31,7 +32,10 @@ public record SemanticResult(
         ScopeSnapshot scopeSnapshot,
         Map<Expression, MiniType> expressionTypes,
         Map<String, StructLayout> structLayouts,
-        SemanticAction action
+        SemanticAction action,
+        Program sourceProgram,
+        Map<AstNode, AstNode> sourceToCore,
+        Map<String, String> displayNames
 ) implements Stage.Context {
     /**
      * 创建语义分析结果，并防御性复制映射。
@@ -53,6 +57,15 @@ public record SemanticResult(
                 new java.util.IdentityHashMap<>(expressionTypes)
         );
         structLayouts = Map.copyOf(structLayouts);
+        Objects.requireNonNull(sourceProgram, "sourceProgram");
+        sourceToCore = java.util.Collections.unmodifiableMap(new java.util.IdentityHashMap<>(sourceToCore));
+        displayNames = Map.copyOf(displayNames);
+    }
+
+    public SemanticResult(Program program, Scope globalScope, ScopeSnapshot scopeSnapshot,
+                          Map<Expression, MiniType> expressionTypes, Map<String, StructLayout> structLayouts,
+                          SemanticAction action) {
+        this(program, globalScope, scopeSnapshot, expressionTypes, structLayouts, action, program, Map.of(), Map.of());
     }
 
     /** 返回本次 step 的语义动作。 */
@@ -68,7 +81,11 @@ public record SemanticResult(
      */
     public Optional<MiniType> typeOf(Expression expression) {
         Objects.requireNonNull(expression, "expression");
-        return Optional.ofNullable(expressionTypes.get(expression));
+        MiniType type = expressionTypes.get(expression);
+        if (type == null && sourceToCore.get(expression) instanceof Expression core) {
+            type = expressionTypes.get(core);
+        }
+        return Optional.ofNullable(type);
     }
 
     /**
@@ -99,11 +116,17 @@ public record SemanticResult(
         }
 
         public static ScopeSnapshot from(Scope scope) {
+            return from(scope, Map.of());
+        }
+
+        public static ScopeSnapshot from(Scope scope, Map<String, String> displayNames) {
             Objects.requireNonNull(scope, "scope");
             return new ScopeSnapshot(
                     scope.range().orElse(null),
-                    scope.symbols(),
-                    scope.children().stream().map(ScopeSnapshot::from).toList()
+                    scope.symbols().stream().map(symbol -> new Symbol(
+                            displayNames.getOrDefault(symbol.name(), symbol.name()), symbol.kind(),
+                            symbol.declarationRange(), symbol.type(), symbol.arity())).toList(),
+                    scope.children().stream().map(child -> from(child, displayNames)).toList()
             );
         }
 
