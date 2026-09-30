@@ -1,7 +1,9 @@
 package minic.compiler.preprocess;
 
 import minic.compiler.lexer.Lexer;
+import minic.compiler.LanguageMode;
 import minic.compiler.SourceFile;
+import minic.compiler.library.CppHeaderCatalog;
 import minic.compiler.library.SystemLibraryCatalog;
 import minic.SourceRange;
 
@@ -46,8 +48,14 @@ final class IncludeManager {
             boolean systemHeader = matcher.group(2) != null;
             String requestedPath = systemHeader ? matcher.group(2).strip() : matcher.group(1);
             String resolvedName = requestedPath;
+            boolean cppHeader = false;
             if (systemHeader) {
-                if (!requestedPath.matches("[A-Za-z0-9_.-]+\\.h")) {
+                if (requestedPath.matches("[A-Za-z0-9_.-]+\\.h")) {
+                    resolvedName = requestedPath.substring(0, requestedPath.length() - 2) + ".mh";
+                } else if (work.options.languageMode() == LanguageMode.CPP17_ALGORITHM
+                        && CppHeaderCatalog.defaults().isKnown(requestedPath)) {
+                    cppHeader = true;
+                } else {
                     work.includes.add(new PreprocessResult.IncludeSummary(
                             requestedPath,
                             null,
@@ -58,11 +66,12 @@ final class IncludeManager {
                             sourceFile,
                             startOffset,
                             endOffset,
-                            "尖括号 include 必须是 .h 标准头文件名：" + requestedPath
+                            (work.options.languageMode() == LanguageMode.CPP17_ALGORITHM
+                                    ? "未知或非法的 C++ 标准头文件："
+                                    : "尖括号 include 必须是 .h 标准头文件名：") + requestedPath
                     ));
                     return true;
                 }
-                resolvedName = requestedPath.substring(0, requestedPath.length() - 2) + ".mh";
             }
             expandInclude(
                     sourceFile,
@@ -75,6 +84,7 @@ final class IncludeManager {
                     requestedPath,
                     resolvedName,
                     systemHeader,
+                    cppHeader,
                     mapToThisSource
             );
             return true;
@@ -102,6 +112,7 @@ final class IncludeManager {
             String requestedPath,
             String resolvedName,
             boolean systemHeader,
+            boolean cppHeader,
             boolean mapToThisSource
     ) {
         SourceRange directiveRange = sourceFile.range(startOffset, endOffset);
@@ -122,7 +133,8 @@ final class IncludeManager {
                     currentDirectory,
                     resolvedName,
                     work.options.includeRoots(),
-                    systemHeader
+                    systemHeader,
+                    cppHeader
             );
         } catch (IncludeReadException exception) {
             work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, null, directiveRange, false));
@@ -140,7 +152,9 @@ final class IncludeManager {
                     sourceFile,
                     startOffset,
                     endOffset,
-                    "include 文件不存在：" + requestedPath
+                    cppHeader
+                            ? "C++ 标准头文件尚未实现或未安装：<" + requestedPath + ">（预期 lib/cpp/" + requestedPath + ".mh）"
+                            : "include 文件不存在：" + requestedPath
             ));
             return;
         }
@@ -201,8 +215,21 @@ final class IncludeManager {
             Path currentDirectory,
             String requestedPath,
             List<Path> includeRoots,
-            boolean systemHeader
+            boolean systemHeader,
+            boolean cppHeader
     ) {
+        if (cppHeader) {
+            try {
+                return CppHeaderCatalog.defaults().header(requestedPath)
+                        .map(header -> {
+                            Path identity = Path.of(header.resourceName()).toAbsolutePath().normalize();
+                            return new ResolvedInclude(identity, identity.toString(), header.content(), identity.getParent());
+                        })
+                        .orElse(null);
+            } catch (IllegalStateException exception) {
+                throw new IncludeReadException("读取 C++ include 文件失败：" + requestedPath, exception);
+            }
+        }
         ArrayList<Path> candidates = new ArrayList<>();
         if (!systemHeader) {
             if (currentDirectory != null) {
