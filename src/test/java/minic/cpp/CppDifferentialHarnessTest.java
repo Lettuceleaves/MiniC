@@ -13,9 +13,11 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -100,6 +102,35 @@ final class CppDifferentialHarnessTest {
         assertTrue(result.stdout().length() <= 1024);
         assertTrue(result.stderr().length() <= 1024);
         assertFalse(result.timedOut());
+    }
+
+    @Test void normalParentExitCleansObservedDescendantsAndTheirInheritedStreams() throws Exception {
+        Path childPidFile = temporary.resolve("orphan-child.pid");
+        Path releaseParent = temporary.resolve("release-parent");
+        var observed = new AtomicReference<ProcessHandle>();
+        try {
+            var result = BoundedProcess.run(ProcessProbe.command("orphan-after-observed",
+                            childPidFile.toString(), releaseParent.toString()),
+                    temporary, "", Duration.ofSeconds(10), 4096, child -> {
+                        observed.set(child);
+                        try { Files.writeString(releaseParent, "descendant observed"); }
+                        catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+                    });
+            assertNotNull(observed.get(), "The parent is released only after its descendant is observed");
+            assertFalse(result.timedOut());
+            assertEquals(0, result.exitCode(), result::stderr);
+            assertFalse(observed.get().isAlive(), "Observed descendants must not outlive the bounded run");
+            assertTrue(Thread.getAllStackTraces().keySet().stream().noneMatch(thread -> thread.isAlive()
+                    && List.of("child-stdout", "child-stderr", "child-stdin").contains(thread.getName())),
+                    "The inherited stream readers/writer must have finished before return");
+        } finally {
+            // The red test must not leave a real orphan behind on the development machine.
+            if (Files.isRegularFile(childPidFile)) {
+                ProcessHandle.of(Long.parseLong(Files.readString(childPidFile))).ifPresent(child -> {
+                    if (child.isAlive()) child.destroyForcibly();
+                });
+            }
+        }
     }
 
     @Test void sharedSourceAndStdinAgreeAcrossAllThreeBackends() throws Exception {

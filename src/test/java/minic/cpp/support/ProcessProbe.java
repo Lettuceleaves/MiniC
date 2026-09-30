@@ -2,6 +2,7 @@ package minic.cpp.support;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.io.File;
@@ -36,6 +37,13 @@ public final class ProcessProbe {
             }
             case "exit" -> System.exit(Integer.parseInt(args[1]));
             case "sleep" -> Thread.sleep(Long.parseLong(args[1]));
+            case "orphan-after-observed" -> {
+                Process child = new ProcessBuilder(command("sleep", "60000")).inheritIO().start();
+                Files.writeString(Path.of(args[1]), Long.toString(child.pid()));
+                Path release = Path.of(args[2]);
+                while (!Files.exists(release)) Thread.sleep(10);
+                // Deliberately exit normally while the observed child still holds stdout/stderr.
+            }
             case "flood" -> {
                 int count = Integer.parseInt(args[1]);
                 for (int i = 0; i < count; i++) { System.out.print('o'); System.err.print('e'); }
