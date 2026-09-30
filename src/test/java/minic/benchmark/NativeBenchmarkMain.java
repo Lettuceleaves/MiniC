@@ -68,7 +68,7 @@ public final class NativeBenchmarkMain {
         report.metadata.put("gxxVersion", version.stdout().strip());
         report.metadata.put("gxxTarget", target.stdout().strip());
         report.metadata.put("gxxFlags", GXX_FLAGS);
-        report.metadata.put("minicFlags", List.of("current default pipeline", "step recording disabled"));
+        report.metadata.put("minicFlags", List.of("current default pipeline", "native executable without debug runtime instrumentation"));
         report.metadata.put("commit", config.commit().isBlank() ? git("rev-parse", "HEAD") : config.commit());
         report.metadata.put("workingTreeStatus", git("status", "--porcelain"));
         report.metadata.put("cpu", config.cpu().equals("unknown") ? cpuDescription() : config.cpu());
