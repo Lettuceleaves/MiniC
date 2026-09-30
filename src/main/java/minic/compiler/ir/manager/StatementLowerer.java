@@ -319,6 +319,8 @@ final class StatementLowerer {
         }
         builder.addJumpIfOpen(defaultLabel, switchStmt.range());
 
+        // All case labels share the switch body scope, which ends after the switch.
+        builder.pushLocalScope();
         switchBreakTargets.push(exitLabel);
         try {
             for (int index = 0; index < switchStmt.cases().size(); index++) {
@@ -332,6 +334,7 @@ final class StatementLowerer {
             }
         } finally {
             switchBreakTargets.pop();
+            builder.popLocalScope();
         }
         builder.switchToBlock(exitLabel);
     }

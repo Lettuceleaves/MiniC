@@ -164,6 +164,14 @@ public final class StatementSemanticAnalyzer {
         switch (statement) {
             case BlockStmt blockStmt -> analyzeBlock(blockStmt, scope, true);
             case VarDeclStmt varDeclStmt -> {
+                structRegistry.validateDeclaredType(varDeclStmt.type(), varDeclStmt.range());
+                structRegistry.resolveAlignment(
+                        varDeclStmt.alignmentSpecs(),
+                        varDeclStmt.type(),
+                        varDeclStmt.range()
+                );
+                // The declarator introduces its name before its initializer is analyzed.
+                defineVariable(scope, varDeclStmt.name(), varDeclStmt.range(), varDeclStmt.type());
                 varDeclStmt.initializerOptional()
                         .ifPresent(initializer -> {
                             boolean aggregateInitializer = initializer instanceof AggregateInitExpr;
@@ -185,13 +193,6 @@ public final class StatementSemanticAnalyzer {
                                 report(varDeclStmt.range(), "变量初始化类型不匹配：" + varDeclStmt.name());
                             }
                         });
-                structRegistry.validateDeclaredType(varDeclStmt.type(), varDeclStmt.range());
-                structRegistry.resolveAlignment(
-                        varDeclStmt.alignmentSpecs(),
-                        varDeclStmt.type(),
-                        varDeclStmt.range()
-                );
-                defineVariable(scope, varDeclStmt.name(), varDeclStmt.range(), varDeclStmt.type());
             }
             case TypedefStmt typedefStmt -> structRegistry.validateTypedefType(
                     typedefStmt.type(),
@@ -255,6 +256,8 @@ public final class StatementSemanticAnalyzer {
             report(switchStmt.selector().range(), "switch selector 必须是整数类型");
         }
         boolean defaultSeen = false;
+        // Case labels do not introduce scopes; only the switch body and explicit blocks do.
+        Scope switchScope = new Scope(scope, switchStmt.range());
         switchDepth++;
         try {
             for (SwitchCase switchCase : switchStmt.cases()) {
@@ -265,7 +268,7 @@ public final class StatementSemanticAnalyzer {
                     defaultSeen = true;
                 } else {
                     Expression value = switchCase.valueOptional().orElseThrow();
-                    MiniType caseType = expressionAnalyzer.analyzeExpression(value, scope);
+                    MiniType caseType = expressionAnalyzer.analyzeExpression(value, switchScope);
                     if (!caseType.isIntegerScalar()) {
                         report(value.range(), "case 表达式必须是整数常量");
                     }
@@ -273,15 +276,14 @@ public final class StatementSemanticAnalyzer {
                         report(value.range(), "case 表达式必须是整数常量");
                     }
                 }
-                analyzeSwitchCaseStatements(switchCase, scope);
+                analyzeSwitchCaseStatements(switchCase, switchScope);
             }
         } finally {
             switchDepth--;
         }
     }
 
-    private void analyzeSwitchCaseStatements(SwitchCase switchCase, Scope parentScope) {
-        Scope scope = new Scope(parentScope, switchCase.range());
+    private void analyzeSwitchCaseStatements(SwitchCase switchCase, Scope scope) {
         for (Statement statement : switchCase.statements()) {
             analyzeStatement(statement, scope);
         }
