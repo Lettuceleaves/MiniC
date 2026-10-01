@@ -80,6 +80,10 @@ public final class CppNameBinder {
         final List<Constructor> constructors = new ArrayList<>();
         final Map<String, Entity> defaultInitializers = new LinkedHashMap<>();
         Constructor aggregateInitializer;
+        Constructor implicitCopy;
+        CppCopyConstructorPlan.Result<Constructor> copyPlan;
+        boolean copyEmitted;
+        boolean copyPrototypeEmitted;
         Destructor destructor;
 
         TypeEntity(String name, String canonicalName, MiniType type, boolean classType,
@@ -169,6 +173,7 @@ public final class CppNameBinder {
         private final IdentityHashMap<Expression, MiniType> declaredExpressionTypes = new IdentityHashMap<>();
         private final IdentityHashMap<Expression, CppValueCategory> valueCategories = new IdentityHashMap<>();
         private final Set<Expression> temporaryAddressPaths = Collections.newSetFromMap(new IdentityHashMap<>());
+        private int unevaluatedDepth;
         private final Map<Entity, List<Diagnostic>> deletedConstructors = new IdentityHashMap<>();
         private final Map<Entity, List<Diagnostic>> deletedDestructors = new IdentityHashMap<>();
         private final Map<Statement, Expression> localCleanups = new IdentityHashMap<>();
@@ -341,6 +346,7 @@ public final class CppNameBinder {
                     bindConstructor(entity.aggregateInitializer, true);
                 }
                 if (destructor != null) bindDestructor(destructor);
+                ensureImplicitCopy(entity);
                 for (Method method : methods) bindMethod(method, namespace);
             }
         }
@@ -494,10 +500,6 @@ public final class CppNameBinder {
             if (parameters.size() == 1 && parameters.getFirst().unqualified().equals(owner.type)) {
                 report("CPP004", member.nameRange(), "A constructor cannot take its own class as its only by-value parameter.");
                 return null;
-            }
-            if (parameters.size() == 1 && parameters.getFirst().isReference()
-                    && parameters.getFirst().referent().unqualified().equals(owner.type)) {
-                report("CPP005", member.nameRange(), "User-declared copy constructors require special member semantics.");
             }
             List<MiniType> signatureParameters = new ArrayList<>();
             signatureParameters.add(owner.type.pointerTo());
@@ -1272,7 +1274,8 @@ public final class CppNameBinder {
                     if (currentReturnType != null && currentReturnType.isStruct()) destructorForUse(currentReturnType, n.range());
                     yield new ReturnStmt(fullExpression(currentReturnType != null && currentReturnType.isReference()
                             ? bindReference(currentReturnType, n.expression(), namespace, scope, n.range())
-                            : expressionForTarget(currentReturnType, n.expression(), namespace, scope),
+                            : copyInitialize(currentReturnType, expressionForTarget(currentReturnType, n.expression(), namespace, scope),
+                                    n.range(), CppInitializer.Kind.COPY),
                             currentReturnType != null && currentReturnType.isStruct(), n), n.range());
                 }
                 case IfStmt n -> new IfStmt(fullExpression(expression(n.condition(), namespace, scope), false, n),
@@ -1335,7 +1338,8 @@ public final class CppNameBinder {
                     return destruction(type, address, range);
                 }
                 public Expression copy(MiniType type, Expression expression, SourceRange range) {
-                    return recordPrvalue(type, expression, range);
+                    Expression copied = copyInitialize(type, expression, range, CppInitializer.Kind.COPY);
+                    return ObjectInitExpr.occursInResultOf(copied) ? copied : recordPrvalue(type, copied, range);
                 }
                 public String freshName(String display) { return Binding.this.freshName(display); }
                 public Expression remap(Expression original, Expression result) {
@@ -1346,6 +1350,12 @@ public final class CppNameBinder {
                     return result;
                 }
             }, owner).lower(value, resultOwned);
+        }
+
+        private Expression unevaluatedExpression(Expression node, Namespace namespace, Local local) {
+            unevaluatedDepth++;
+            try { return expression(node, namespace, local); }
+            finally { unevaluatedDepth--; }
         }
 
         private Expression expression(Expression node, Namespace namespace, Local local) {
@@ -1578,13 +1588,13 @@ public final class CppNameBinder {
                 }
                 case SizeofExpr n -> {
                     MiniType type = objectTypeOfReference(normalizeType(n.queriedType(), namespace, local, n.range()));
-                    Expression operand = expression(n.expression(), namespace, local);
+                    Expression operand = unevaluatedExpression(n.expression(), namespace, local);
                     requireComplete(type != null ? type : declaredExpressionType(operand), n.range());
                     yield new SizeofExpr(operand, coreType(type), n.range());
                 }
                 case AlignofExpr n -> {
                     MiniType type = objectTypeOfReference(normalizeType(n.queriedType(), namespace, local, n.range()));
-                    Expression operand = expression(n.expression(), namespace, local);
+                    Expression operand = unevaluatedExpression(n.expression(), namespace, local);
                     requireComplete(type != null ? type : declaredExpressionType(operand), n.range());
                     yield new AlignofExpr(operand, coreType(type), n.range());
                 }
@@ -2165,6 +2175,7 @@ public final class CppNameBinder {
             }
             MiniType target = TypeCompatibility.decay(parameter).unqualified();
             MiniType from = TypeCompatibility.decay(actual).unqualified();
+            if (target.isStruct() && target.equals(from)) return copyInitialize(target, value, source.range(), CppInitializer.Kind.COPY);
             if (!target.equals(from) && (target.isPointer() || target.equals(MiniType.BOOL) && from.isPointer())) {
                 // Core C is narrower for pointer-to-bool and deep qualification conversions.
                 // This cast spells only a conversion already approved above.
@@ -2432,6 +2443,12 @@ public final class CppNameBinder {
                     return null;
                 }
                 if (syntax.kind() == CppInitializer.Kind.DIRECT_PAREN) {
+                    if (object != null && arguments.size() == 1) {
+                        Expression value = expression(arguments.getFirst(), namespace, local);
+                        MiniType actual = declaredExpressionType(value);
+                        if (actual != null && actual.unqualified().equals(target.unqualified()))
+                            return initializerMapping(syntax, copyInitialize(target, value, syntax.range(), syntax.kind()));
+                    }
                     report("CPP005", syntax.range(), "Parenthesized aggregate initialization requires a constructor in C++17.");
                     return arguments.isEmpty() ? null : expression(arguments.getFirst(), namespace, local);
                 }
@@ -2483,8 +2500,8 @@ public final class CppNameBinder {
                     Expression value = expression(arguments.getFirst(), namespace, local);
                     MiniType actual = declaredExpressionType(value);
                     if (actual != null && type.unqualified().equals(actual.unqualified())) {
-                        if (actual.isVolatileQualified()) report("CPP004", source.range(), "The implicit copy constructor cannot bind a volatile source object.");
-                        return recordPrvalue(type, value, source.range());
+                        Expression copied = copyInitialize(type, value, source.range(), syntax.kind());
+                        return ObjectInitExpr.occursInResultOf(copied) ? copied : recordPrvalue(type, copied, source.range());
                     }
                 }
                 String destination = freshName("construction");
@@ -2540,7 +2557,194 @@ public final class CppNameBinder {
             }
         }
 
-        /** A record call's sret destination is supplied by its enclosing initialization context. */
+        /** Copy construction is selected from source signatures before reference erasure. */
+        private boolean isCopyConstructor(Constructor constructor) {
+            return CppCopyConstructorPlan.classify(constructor.owner.type, constructor.parameterTypes)
+                    == CppCopyConstructorPlan.Classification.COPY;
+        }
+
+        private List<Constructor> copyConstructors(TypeEntity owner) {
+            List<Constructor> declared = owner.constructors.stream().filter(this::isCopyConstructor).toList();
+            if (!declared.isEmpty()) return declared;
+            ensureImplicitCopy(owner);
+            return owner.implicitCopy == null ? List.of() : List.of(owner.implicitCopy);
+        }
+
+        private void ensureImplicitCopy(TypeEntity owner) {
+            if (owner.copyPlan != null || !owner.complete) return;
+            boolean declared = owner.constructors.stream().anyMatch(this::isCopyConstructor);
+            owner.copyPlan = CppCopyConstructorPlan.plan(owner.type, owner.fields, owner.union, declared, memberType -> {
+                TypeEntity member = objectType(memberType);
+                List<CppCopyConstructorPlan.Constructor<Constructor>> candidates = copyConstructors(member).stream()
+                        .map(c -> new CppCopyConstructorPlan.Constructor<>(c, c.parameterTypes.getFirst(),
+                                c.access == Access.PUBLIC || c.owner == owner, deletedConstructors.containsKey(c.function),
+                                c == member.implicitCopy && member.copyPlan != null && member.copyPlan.trivial())).toList();
+                CppCopyConstructorPlan.Destructor destructor = member.destructor == null
+                        ? CppCopyConstructorPlan.Destructor.AVAILABLE
+                        : deletedDestructors.containsKey(member.destructor.function) ? CppCopyConstructorPlan.Destructor.DELETED
+                        : member.destructor.access == Access.PUBLIC || member == owner ? CppCopyConstructorPlan.Destructor.AVAILABLE
+                        : CppCopyConstructorPlan.Destructor.INACCESSIBLE;
+                return new CppCopyConstructorPlan.Operations<>(candidates, destructor);
+            });
+            if (owner.copyPlan.status() == CppCopyConstructorPlan.Status.SUPPRESSED) return;
+            SourceRange range = owner.sourceRecord.range();
+            MiniType parameter = owner.copyPlan.parameterType();
+            ConstructorMember source = new ConstructorMember(owner.name, List.of(new Parameter("other", parameter, range)),
+                    false, List.of(), new BlockStmt(List.of(), range), range, range);
+            Entity function = new Entity(owner.name, freshName(owner.canonicalName.substring(2) + "::" + owner.name),
+                    Kind.FUNCTION, owner.owner, MiniType.function(MiniType.VOID, List.of(owner.type.pointerTo(), parameter)), null,
+                    owner.copyPlan.status() == CppCopyConstructorPlan.Status.AVAILABLE);
+            coreValues.put(function.coreName, function);
+            owner.implicitCopy = new Constructor(owner, source, Access.PUBLIC, function, List.of(parameter), true);
+            if (owner.copyPlan.status() == CppCopyConstructorPlan.Status.DELETED) {
+                deletedConstructors.put(function, owner.copyPlan.problems().stream().map(problem -> new Diagnostic("CPP004",
+                        Diagnostic.Severity.ERROR, "Implicit copy of member '" + problem.field().name() + "' is unavailable: "
+                                + problem.reason(), problem.field().range())).toList());
+            }
+        }
+
+        /** A same-class prvalue constructs its result object; an existing source object must be copied. */
+        private Expression copyInitialize(MiniType target, Expression value, SourceRange range, CppInitializer.Kind kind) {
+            if (target == null || value == null || !target.isStruct()) return value;
+            MiniType actual = declaredExpressionType(value);
+            if (actual == null || !actual.unqualified().equals(target.unqualified())) return value;
+            CppValueCategory category = valueCategory(value);
+            // A materialized temporary's class subobject has its own address: it is not the
+            // new result object and cannot use guaranteed prvalue copy elision.
+            if (category == CppValueCategory.PRVALUE && !copySourceHasStorage(value)) return value;
+            TypeEntity owner = objectType(target);
+            List<CppOverloadResolver.Candidate<Constructor>> candidates = copyConstructors(owner).stream()
+                    .filter(c -> kind != CppInitializer.Kind.COPY || !c.source.explicitSpecifier())
+                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
+            var resolution = CppOverloadResolver.resolve(candidates,
+                    List.of(new CppOverloadResolver.Argument(actual, category, false)));
+            if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
+                report("CPP004", range, resolution.status() == CppOverloadResolver.Status.AMBIGUOUS
+                        ? "Copy constructor selection is ambiguous." : "No viable copy constructor for this source object.");
+                return value;
+            }
+            Constructor selected = resolution.winner().identity();
+            if (kind == CppInitializer.Kind.COPY_LIST && selected.source.explicitSpecifier())
+                report("CPP004", range, "Copy-list initialization cannot select an explicit copy constructor.");
+            if (selected.access != Access.PUBLIC && currentClass != owner)
+                report("CPP004", range, "Copy constructor is not accessible: " + owner.canonicalName);
+            if (deletedConstructors.containsKey(selected.function)) {
+                report("CPP004", range, "Copy constructor is deleted: " + deletedConstructors.get(selected.function).getFirst().message());
+                return value;
+            }
+            if (selected == owner.implicitCopy && owner.copyPlan.trivial() && !hasVolatileSubobject(owner.type, new HashSet<>())) return value;
+            if (selected == owner.implicitCopy) emitImplicitCopy(owner);
+            String destination = freshName("copy_destination");
+            Expression address = typed(new NameExpr(destination, range), owner.type.pointerTo());
+            Expression source = copySourceAddress(value);
+            Expression call = typed(new CallExpr(new NameExpr(selected.function.coreName, range), List.of(address, source), range), MiniType.VOID);
+            return typed(new ObjectInitExpr(coreType(target), destination, call, range), target);
+        }
+
+        private boolean copySourceHasStorage(Expression value) {
+            if (value instanceof GroupingExpr group) return copySourceHasStorage(group.expression());
+            if (value instanceof CommaExpr comma) return copySourceHasStorage(comma.expressions().getLast());
+            if (value instanceof LetExpr let) return copySourceHasStorage(let.body());
+            return addressableObject(value);
+        }
+
+        private Expression copySourceAddress(Expression value) {
+            MiniType type = declaredExpressionType(value);
+            if (value instanceof GroupingExpr group)
+                return typed(new GroupingExpr(copySourceAddress(group.expression()), value.range()), type.pointerTo());
+            if (value instanceof CommaExpr comma) {
+                var values = new ArrayList<>(comma.expressions());
+                values.set(values.size() - 1, copySourceAddress(values.getLast()));
+                return typed(new CommaExpr(values, value.range()), type.pointerTo());
+            }
+            if (value instanceof LetExpr let)
+                return typed(new LetExpr(let.name(), let.type(), let.initializer(), copySourceAddress(let.body()), let.range()), type.pointerTo());
+            if (value instanceof AssignmentExpr assignment) return address(normalizedAssignment(assignment, true));
+            return address(value);
+        }
+
+        private boolean hasVolatileSubobject(MiniType type, Set<TypeEntity> visited) {
+            if (type.isReference()) return false;
+            if (type.isVolatileQualified()) return true;
+            if (type.isArray()) return hasVolatileSubobject(type.elementType(), visited);
+            TypeEntity owner = objectType(type);
+            return owner != null && visited.add(owner) && owner.fields.stream().anyMatch(f -> hasVolatileSubobject(f.type(), visited));
+        }
+
+        /** Laziness avoids requiring the definition of an unused member copy constructor. */
+        private void emitImplicitCopy(TypeEntity owner) {
+            if (owner.copyEmitted || owner.copyPlan.status() != CppCopyConstructorPlan.Status.AVAILABLE) return;
+            Constructor constructor = owner.implicitCopy;
+            if (!owner.copyPlan.objectRepresentation() && owner.fields.stream().anyMatch(StructField::anonymous)) {
+                report("CPP005", owner.sourceRecord.range(), "Nontrivial copying of anonymous aggregate storage requires subobject initialization support.");
+                return;
+            }
+            if (unevaluatedDepth > 0) {
+                if (!owner.copyPrototypeEmitted) {
+                    SourceRange range = owner.sourceRecord.range();
+                    FunctionDecl declaration = new FunctionDecl(constructor.function.coreName, MiniType.VOID,
+                            List.of(new Parameter(freshName("this"), owner.type.pointerTo(), range),
+                                    new Parameter(freshName("other"), coreType(owner.copyPlan.parameterType()), range)),
+                            false, null, false, range);
+                    functions.add(declaration); declarations.add(declaration);
+                    owner.copyPrototypeEmitted = true;
+                }
+                return;
+            }
+            owner.copyEmitted = true;
+            SourceRange range = owner.sourceRecord.range();
+            String self = freshName("this"), source = freshName("other");
+            MiniType sourcePointer = coreType(owner.copyPlan.parameterType());
+            List<Statement> statements = new ArrayList<>();
+            if (owner.copyPlan.objectRepresentation()) {
+                Expression to = new UnaryExpr(TokenType.STAR, new NameExpr(self, range), range);
+                Expression from = new UnaryExpr(TokenType.STAR, new NameExpr(source, range), range);
+                statements.add(new ExprStmt(new InitializeExpr(to, from, range), range));
+            }
+            for (var entry : owner.copyPlan.entries()) {
+                Expression destination = typed(new FieldAccessExpr(typed(new NameExpr(self, range), owner.type.pointerTo()),
+                        entry.field().name(), true, entry.field().range()), coreType(entry.field().type()));
+                MiniType sourceFieldType = entry.field().type().isReference() ? coreType(entry.field().type())
+                        : inheritObjectQualifiers(owner.copyPlan.parameterType().referent(), entry.field().type());
+                Expression from = typed(new FieldAccessExpr(typed(new NameExpr(source, range), sourcePointer),
+                        entry.field().name(), true, entry.field().range()), sourceFieldType);
+                statements.add(copyMemberStatement(entry, destination, from, entry.field().type(), 0));
+            }
+            var core = new FunctionDecl(constructor.function.coreName, MiniType.VOID,
+                    List.of(new Parameter(self, owner.type.pointerTo(), range), new Parameter(source, sourcePointer, range)),
+                    false, new BlockStmt(statements, range), false, range);
+            mapped(constructor.source, core);functions.add(core);declarations.add(core);
+        }
+
+        private Statement copyMemberStatement(CppCopyConstructorPlan.Entry<Constructor> entry, Expression destination,
+                                               Expression source, MiniType fieldType, int dimension) {
+            SourceRange range = entry.field().range();
+            if (dimension < entry.arrayDimensions().size()) {
+                String index = freshName("copy_index");
+                Expression i = typed(new NameExpr(index, range), MiniType.INT);
+                MiniType element = MiniType.qualified(fieldType.elementType(), fieldType.qualifiers());
+                Expression to = typed(new IndexExpr(destination, i, range), coreType(element));
+                MiniType fromType = MiniType.qualified(element, declaredExpressionType(source).qualifiers());
+                Expression from = typed(new IndexExpr(source, i, range), fromType);
+                Statement body = copyMemberStatement(entry, to, from, element, dimension + 1);
+                return new ForStmt(new VarDeclStmt(index, MiniType.INT, new IntegerLiteralExpr(0,"0",range),range),
+                        new BinaryExpr(i, TokenType.LESS, new IntegerLiteralExpr(entry.arrayDimensions().get(dimension),"length",range),range),
+                        new PostfixUpdateExpr(i,TokenType.PLUS_PLUS,range),body,range);
+            }
+            Expression value = source;
+            if (entry.action() == CppCopyConstructorPlan.Action.CONSTRUCTOR) {
+                Constructor selected = entry.constructor();
+                if (selected == selected.owner.implicitCopy && selected.owner.copyPlan.trivial()
+                        && !hasVolatileSubobject(selected.owner.type, new HashSet<>()))
+                    return new ExprStmt(new InitializeExpr(destination, source, range), range);
+                if (selected == selected.owner.implicitCopy) emitImplicitCopy(selected.owner);
+                Expression call = new CallExpr(new NameExpr(selected.function.coreName, range),
+                        List.of(address(destination),address(source)),range);
+                return new ExprStmt(call,range);
+            }
+            return new ExprStmt(new InitializeExpr(destination,value,range),range);
+        }
+
         private Expression recordPrvalue(MiniType type, Expression value, SourceRange range) {
             String destination = freshName("record_result");
             Expression slot = typed(new UnaryExpr(TokenType.STAR,
@@ -2576,19 +2780,11 @@ public final class CppNameBinder {
                 report("CPP005", range, "Nonempty aggregate lists with default member initialization require member-wise list binding.");
             }
             PreparedArguments prepared = prepareArguments(arguments, namespace, local);
-            // The implicit trivial copy constructor is available alongside ordinary constructors.
             if (arguments.size() == 1 && prepared.values.getFirst() != null) {
                 Expression value = prepared.values.getFirst();
                 MiniType sourceType = declaredExpressionType(value);
-                if (sourceType != null && target.unqualified().equals(sourceType.unqualified())) {
-                    boolean userCopy = owner.constructors.stream().anyMatch(c -> c.parameterTypes.size() == 1
-                            && c.parameterTypes.getFirst().isReference()
-                            && c.parameterTypes.getFirst().referent().unqualified().equals(target.unqualified()));
-                    if (!userCopy) {
-                        if (sourceType.isVolatileQualified()) report("CPP004", range, "The implicit copy constructor cannot bind a volatile source object.");
-                        return value;
-                    }
-                }
+                if (sourceType != null && target.unqualified().equals(sourceType.unqualified()))
+                    return copyInitialize(target, value, range, syntax.kind());
             }
             List<CppOverloadResolver.Candidate<Constructor>> candidates = owner.constructors.stream()
                     .filter(c -> syntax.kind() != CppInitializer.Kind.COPY || !c.source.explicitSpecifier())
@@ -2866,7 +3062,7 @@ public final class CppNameBinder {
                 if (nonAggregate(object) && (value == null || !target.unqualified().equals(value.unqualified()))) {
                     report("CPP005", sourceNode.range(), "尚未支持对此非聚合类型省略花括号或转换形式的初始化：" + object.canonicalName);
                 }
-                return bound;
+                return copyInitialize(target, bound, sourceNode.range(), CppInitializer.Kind.COPY);
             }
             AggregateInitExpr original = (AggregateInitExpr) sourceNode;
             if (object != null && list.values().size() == 1) {
@@ -2874,7 +3070,7 @@ public final class CppNameBinder {
                 MiniType valueType = declaredExpressionType(value);
                 if (valueType != null && target.unqualified().equals(valueType.unqualified())) {
                     // C++17 permits {sameTypeObject}, including implicit copies of non-aggregates.
-                    return mapped(sourceNode, new GroupingExpr(value, list.range()));
+                    return mapped(sourceNode, new GroupingExpr(copyInitialize(target, value, list.range(), CppInitializer.Kind.COPY_LIST), list.range()));
                 }
             }
             if (nonAggregate(object) && !list.values().isEmpty()) {
