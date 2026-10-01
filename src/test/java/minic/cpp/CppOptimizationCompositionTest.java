@@ -8,6 +8,9 @@ import minic.compiler.ir.IrResult;
 import minic.compiler.ir.instruction.CallInstruction.IrCallInstruction;
 import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryInstruction;
 import minic.compiler.ir.instruction.MemoryInstruction.IrCheckInitializedInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrDeclareLocalInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrLoadLocalInstruction;
+import minic.compiler.ir.instruction.MemoryInstruction.IrStoreLocalInstruction;
 import minic.compiler.ir.optimize.OptimizationLevel;
 import minic.compiler.ir.value.IrValue.IrConstant;
 import minic.cpp.support.CppDifferentialHarness;
@@ -29,7 +32,7 @@ final class CppOptimizationCompositionTest {
     @Test void verifiedPassesComposeAndKeepSourceIrSeparate() {
         var source=new SourceFile("composition.cpp", """
                 #include <stdio.h>
-                int helper(int n){return (n+6)*7;}
+                int helper(int n){int copied=n+6;return copied*7;}
                 int main(){int ready=1;ready;printf("%d\\n",helper(2));return 0;}
                 """);
         var api=new CompilerApi(source,LanguageMode.CPP17_ALGORITHM,OptimizationLevel.OPTIMIZED);
@@ -38,13 +41,16 @@ final class CppOptimizationCompositionTest {
         var assembler=api.stages().stream().filter(Assembler.class::isInstance).map(Assembler.class::cast).findFirst().orElseThrow();
         api.runThrough(assembler);
         assertTrue(assembler.succeeded(),()->assembler.errors().toString());
-        assertEquals(List.of("initialized-check-elimination","small-function-inlining","constant-propagation","dead-code-elimination"),
-                assembler.optimizationResult().passNames());
         var optimized=assembler.input().irResult();
         var main=optimized.functions().stream().filter(f->optimized.displayName(f.name()).equals("main")).findFirst().orElseThrow();
         var instructions=main.blocks().stream().flatMap(b->b.instructions().stream()).toList();
         assertTrue(instructions.stream().noneMatch(IrBinaryInstruction.class::isInstance));
         assertTrue(instructions.stream().noneMatch(IrCheckInitializedInstruction.class::isInstance));
+        assertTrue(instructions.stream().noneMatch(i -> i instanceof IrDeclareLocalInstruction
+                || i instanceof IrLoadLocalInstruction || i instanceof IrStoreLocalInstruction),
+                "private locals from the caller and inlined helper must be promoted");
+        assertEquals(List.of("initialized-check-elimination","small-function-inlining","local-scalar-promotion",
+                        "constant-propagation","dead-code-elimination"), assembler.optimizationResult().passNames());
         var calls=instructions.stream().filter(IrCallInstruction.class::isInstance).map(IrCallInstruction.class::cast).toList();
         assertEquals(1,calls.size());
         assertEquals("printf",calls.getFirst().calleeName());
@@ -52,6 +58,8 @@ final class CppOptimizationCompositionTest {
         assertSame(functions,original.functions());
         assertTrue(original.functions().stream().flatMap(f->f.blocks().stream()).flatMap(b->b.instructions().stream())
                 .anyMatch(IrCheckInitializedInstruction.class::isInstance));
+        assertTrue(original.functions().stream().flatMap(f->f.blocks().stream()).flatMap(b->b.instructions().stream())
+                .anyMatch(IrLoadLocalInstruction.class::isInstance));
         assertEquals(original.structLayouts(),optimized.structLayouts());
         assertEquals(original.displayNames(),optimized.displayNames());
     }
