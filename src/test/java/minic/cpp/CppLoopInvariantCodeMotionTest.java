@@ -102,13 +102,18 @@ final class CppLoopInvariantCodeMotionTest {
         // Retain a fixed pre-LICM control as well as independent and default-pipeline motion.
         var prepared=withoutLicm().apply(original).ir();
         var transformed=onlyLicm().apply(prepared).ir();
-        var defaultResult=IrOptimizationPipeline.forLevel(OptimizationLevel.OPTIMIZED).apply(original).ir();
+        var defaultPipeline=IrOptimizationPipeline.forLevel(OptimizationLevel.OPTIMIZED).apply(original);
+        var currentControl=currentWithoutLicm().apply(original);
+        var expectedControlPasses=defaultPipeline.passNames().stream().filter(pass->!pass.equals("loop-invariant-code-motion")).toList();
+        assertEquals(defaultPipeline.passNames().size()-1,expectedControlPasses.size(),"default pipeline must contain LICM exactly once");
+        assertEquals(expectedControlPasses,currentControl.passNames(),"control must differ from today's default pipeline only by removing LICM");
+        var defaultResult=defaultPipeline.ir();
         if(motion){assertNotSame(prepared,transformed);assertTrue(movedComputations(prepared,transformed)>0,"fixture must move a computation from the loop to a preheader");}
         else assertSame(prepared,transformed);
-        if(motion)assertTrue(movedComputations(prepared,defaultResult)>0,"default pipeline must also move the loop computation");
-        else assertEquals(prepared.functions(),defaultResult.functions());
+        if(motion)assertTrue(movedComputations(currentControl.ir(),defaultResult)>0,"default pipeline must also move an existing loop computation");
+        else assertEquals(currentControl.ir().functions(),defaultResult.functions(),"LICM must not alter this retained-loop fixture in the current pipeline");
         int index=0;
-        for(var variant:List.of(prepared,transformed,defaultResult)) {
+        for(var variant:List.of(prepared,transformed,currentControl.ir(),defaultResult)) {
             Path directory=temporary.resolve("variant-"+index++);
             var result=runNative(source,variant,directory);
             assertEquals(0,result.exitCode(),result::stderr);assertEquals(expected,result.stdout().replace("\r\n","\n"));
@@ -148,13 +153,24 @@ final class CppLoopInvariantCodeMotionTest {
     private static IrOptimizationPipeline withoutLicm(){return new IrOptimizationPipeline(OptimizationLevel.OPTIMIZED,List.of(
             new InitializedCheckEliminationPass(),new SmallFunctionInliningPass(),new LocalScalarPromotionPass(),
             new ConstantPropagationPass(),new DeadCodeEliminationPass()));}
+    // Explicit current-pipeline control, guarded above by the actual default pass sequence.
+    // Keep withoutLicm() fixed: it separately proves the original LICM motion contract.
+    private static IrOptimizationPipeline currentWithoutLicm(){return new IrOptimizationPipeline(OptimizationLevel.OPTIMIZED,List.of(
+            new DirectCallResolutionPass(),new PrivateAddressNormalizationPass(),new InitializedCheckEliminationPass(),
+            new EarlySimplificationPass(),new SmallFunctionInliningPass(),new PostInliningScalarPreparationPass(),
+            new LocalScalarPromotionPass(),new ReadOnlyParameterPromotionPass(),new ConstantPropagationPass(),
+            new NonZeroCheckEliminationPass(),new BlockCopyPropagationPass(),new DeadCodeEliminationPass(),
+            new ControlFlowSimplificationPass(),new AdjacentResultForwardingPass()));}
     private static long movedComputations(IrResult before,IrResult after){
         var locations=new HashMap<String,String>();
         for(var function:before.functions())for(var block:function.blocks())for(var instruction:block.instructions())
             if(instruction instanceof IrBinaryInstruction binary)locations.put(function.name()+":"+binary.result().name(),block.label());
         long count=0;
         for(var function:after.functions())for(var block:function.blocks())for(var instruction:block.instructions())
-            if(instruction instanceof IrBinaryInstruction binary&&!block.label().equals(locations.get(function.name()+":"+binary.result().name())))count++;
+            if(instruction instanceof IrBinaryInstruction binary){
+                String previous=locations.get(function.name()+":"+binary.result().name());
+                if(previous!=null&&!block.label().equals(previous))count++;
+            }
         return count;
     }
 }
