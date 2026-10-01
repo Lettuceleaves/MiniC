@@ -7,6 +7,8 @@ import minic.compiler.parser.node.AstChildren;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.CppInitializer;
 import minic.compiler.parser.node.CppRangeForStmt;
+import minic.compiler.parser.node.CppLambdaExpr;
+import minic.compiler.parser.node.ConversionName;
 import minic.compiler.parser.node.CppConstructionExpr;
 import minic.compiler.parser.node.CppDestructorCallExpr;
 import minic.compiler.parser.node.CppNewExpr;
@@ -155,6 +157,25 @@ public final class CppNameBinder {
     }
 
     private record ImplicitField(TypeEntity owner, String name) implements Candidate { }
+    private record UnevaluatedLambdaLocal(Entity entity) implements Candidate { }
+    private record LambdaCapture(String name,MiniType type,Expression initializer,boolean reference,
+                                 CppLambdaExpr.Capture source) { }
+    private static final class LambdaInfo {
+        final CppLambdaExpr source;
+        final TypeEntity type;
+        final Local lexicalScope;
+        final TypeEntity lexicalClass;
+        final Entity lexicalThis;
+        final Namespace namespace;
+        final Map<String,LambdaCapture> captures=new LinkedHashMap<>();
+        boolean complete;
+        boolean generic;
+        final Set<MiniType> pointerConversions=new HashSet<>();
+        final String thisCaptureName;
+        LambdaInfo(CppLambdaExpr source,TypeEntity type,Local scope,TypeEntity outerClass,Entity outerThis,Namespace namespace,String thisCaptureName) {
+            this.thisCaptureName=thisCaptureName;this.source=source;this.type=type;this.lexicalScope=scope;this.lexicalClass=outerClass;this.lexicalThis=outerThis;this.namespace=namespace;
+        }
+    }
 
     /** An entity survives redeclarations and using aliases; candidate deduplication uses identity. */
     private static final class Entity implements Candidate {
@@ -219,6 +240,9 @@ public final class CppNameBinder {
         private final Set<Expression> implicitMoveSources=Collections.newSetFromMap(new IdentityHashMap<>());
         private final Set<Expression> temporaryAddressPaths = Collections.newSetFromMap(new IdentityHashMap<>());
         private int unevaluatedDepth;
+        private final Map<CppLambdaExpr,LambdaInfo> lambdaExpressions=new IdentityHashMap<>();
+        private final Map<TypeEntity,LambdaInfo> lambdaTypes=new IdentityHashMap<>();
+        private final Set<Entity> staticLocalEntities=Collections.newSetFromMap(new IdentityHashMap<>());
         private final Map<Entity, List<Diagnostic>> deletedConstructors = new IdentityHashMap<>();
         private final Map<Entity, List<Diagnostic>> deletedDestructors = new IdentityHashMap<>();
         private final Map<Statement, Expression> localCleanups = new IdentityHashMap<>();
@@ -1232,7 +1256,7 @@ public final class CppNameBinder {
             }
             TypeEntity owner = objectType(type);
             Destructor destructor = owner.destructor;
-            if (destructor.access != Access.PUBLIC && currentClass != owner) {
+            if (destructor.access != Access.PUBLIC && !classAccess(owner)) {
                 report("CPP004", range, "Destructor is not accessible: " + owner.canonicalName);
             }
             if (deletedDestructors.containsKey(destructor.function)) {
@@ -1511,7 +1535,7 @@ public final class CppNameBinder {
         }
 
         private void requireStaticAccess(StaticField field, SourceRange range) {
-            if (field.access != Access.PUBLIC && currentClass != field.owner)
+            if (field.access != Access.PUBLIC && !classAccess(field.owner))
                 report("CPP004", range, "Cannot access " + field.access.name().toLowerCase(java.util.Locale.ROOT)
                         + " static data member: " + field.owner.canonicalName + "::" + field.entity.name);
         }
@@ -1640,6 +1664,11 @@ public final class CppNameBinder {
             if(returnPattern.containsAuto()&&!original.hasBody()) { autoReturnPatterns.put(method.function,returnPattern); return; }
             requireSupportedCallLifetime(methodReturnType(method), method.parameterTypes, original.range());
             Local scope = new Local(null, namespace);
+            LambdaInfo lambda=lambdaTypes.get(method.owner);
+            if(lambda!=null) {
+                List<Local> lexical=new ArrayList<>();for(Local at=lambda.lexicalScope;at!=null;at=at.parent)lexical.addFirst(at);
+                for(Local at:lexical){scope.typedefs.putAll(at.typedefs);scope.directives.addAll(at.directives);}
+            }
             Entity self = method.source.staticMember() ? null : new Entity("this", freshName("this"), Kind.VARIABLE, null,
                     methodThisType(method.owner, method.source), null, true);
             if (self != null) coreValues.put(self.coreName, self);
@@ -1819,8 +1848,13 @@ public final class CppNameBinder {
             try{return unevaluatedExpression(operand,namespace,local);}finally{decltypeOperand=saved;}
         }
         private MiniType decltypeType(Expression operand, Namespace namespace, Local local) {
-            Candidate named = operand instanceof NameExpr name ? lookupName(name.name(), namespace, local, name.range())
-                    : operand instanceof QualifiedNameExpr name ? resolveQualifiedName(name.name(), namespace, local) : null;
+            rejectUnevaluatedLambdas(operand);
+            Candidate named;
+            unevaluatedDepth++;
+            try {named = operand instanceof NameExpr name ? lookupName(name.name(), namespace, local, name.range())
+                    : operand instanceof QualifiedNameExpr name ? resolveQualifiedName(name.name(), namespace, local) : null;}
+            finally {unevaluatedDepth--;}
+            if(named instanceof UnevaluatedLambdaLocal unavailable)return checkedDeduced(unavailable.entity.type,operand.range());
             if (named instanceof Entity entity) { decltypeExpression(operand,namespace,local); return checkedDeduced(entity.type, operand.range()); }
             if (named instanceof OverloadSet overloads && overloads.functions.size() == 1) {
                 decltypeExpression(operand,namespace,local); return checkedDeduced(overloads.functions.getFirst().type, operand.range()); }
@@ -2154,6 +2188,7 @@ public final class CppNameBinder {
 
         private Statement bindLocalStatic(VarDeclStmt node, Namespace namespace, Local scope, MiniType type) {
             Entity entity = declareLocal(node.name(), type, scope, node.range());
+            staticLocalEntities.add(entity);
             if (type.containsAuto()) { type = deduceVariableType(type, node.cppInitializer(), node.initializer(), namespace, scope, node.range()); entity.type = type; }
             requireComplete(type, node.range());
             Expression value = bindStaticInitializer(type, node.cppInitializer(), node.initializer(), namespace, scope, node, node.name());
@@ -2594,6 +2629,351 @@ public final class CppNameBinder {
             return mapped(node, core);
         }
 
+        private void rejectUnevaluatedLambdas(AstNode source) {
+            if(source==null)return;
+            if(source instanceof CppLambdaExpr) {report("CPP004",source.range(),"Lambda expressions in unevaluated operands require C++20.");return;}
+            for(AstNode child:AstChildren.of(source))rejectUnevaluatedLambdas(child);
+        }
+
+        private boolean classAccess(TypeEntity owner) {
+            for(TypeEntity at=currentClass;at!=null;) {
+                if(at==owner)return true;
+                LambdaInfo lambda=lambdaTypes.get(at);if(lambda==null)break;at=lambda.lexicalClass;
+            }
+            return false;
+        }
+
+        private <T> T lambdaOuter(LambdaInfo lambda,java.util.function.Supplier<T> action) {
+            TypeEntity savedClass=currentClass;Entity savedThis=currentThis;
+            currentClass=lambda.lexicalClass;currentThis=lambda.lexicalThis;
+            try{return action.get();}finally{currentClass=savedClass;currentThis=savedThis;}
+        }
+
+        private Expression implicitReceiver(TypeEntity owner,SourceRange range) {
+            if(currentClass==owner && currentThis!=null)return thisValue(range);
+            LambdaInfo lambda=lambdaTypes.get(currentClass);
+            if(lambda==null)return null;
+            Expression receiver;
+            if(unevaluatedDepth>0&&!lambda.captures.containsKey(lambda.thisCaptureName)) {
+                MiniType pointer=lambda.lexicalThis!=null?lambda.lexicalThis.type:owner.type.pointerTo();
+                receiver=typed(new CastExpr(coreType(pointer),new IntegerLiteralExpr(0,"0",range),range),pointer);
+            } else receiver=lambdaThis(lambda,range);
+            return receiver!=null&&objectType(elementType(declaredExpressionType(receiver)))==owner?receiver:null;
+        }
+
+        private Candidate lambdaLookup(LambdaInfo lambda,String name,SourceRange range) {
+            Candidate candidate=lambdaOuter(lambda,()->lookupName(name,lambda.namespace,lambda.lexicalScope,range));
+            if(candidate instanceof Entity entity && entity.kind==Kind.VARIABLE && entity.owner==null&&!staticLocalEntities.contains(entity)) {
+                if(unevaluatedDepth>0)return new UnevaluatedLambdaLocal(entity);
+                return ensureLambdaCapture(lambda,name,null,range);
+            }
+            if(candidate instanceof ImplicitField field) {
+                if(lambdaTypes.containsKey(field.owner))return ensureLambdaCapture(lambda,name,null,range);
+                if(unevaluatedDepth==0)lambdaThis(lambda,range);return candidate;
+            }
+            if(candidate instanceof MethodSet methods && unevaluatedDepth==0 && methods.methods.stream().anyMatch(method->!method.source.staticMember()))lambdaThis(lambda,range);
+            return candidate;
+        }
+
+        private Candidate ensureLambdaCapture(LambdaInfo lambda,String name,CppLambdaExpr.Capture explicit,SourceRange range) {
+            if(lambda.captures.containsKey(name))return new ImplicitField(lambda.type,name);
+            if(explicit==null && lambda.source.captureDefault()==CppLambdaExpr.CaptureDefault.NONE) {
+                report("CPP004",range,"An automatic variable must be captured before it is used in a lambda: "+name);
+                Candidate candidate=lambdaOuter(lambda,()->lookupName(name,lambda.namespace,lambda.lexicalScope,range));
+                return candidate instanceof Entity entity?new UnevaluatedLambdaLocal(entity):candidate;
+            }
+            if(lambda.complete) {report("CPP004",range,"A lambda cannot acquire captures after its closure type is complete.");return null;}
+            boolean byReference=explicit!=null?explicit.kind()==CppLambdaExpr.CaptureKind.REFERENCE
+                    :lambda.source.captureDefault()==CppLambdaExpr.CaptureDefault.REFERENCE;
+            Expression source=explicit!=null&&explicit.initializer()!=null?explicit.initializer():new NameExpr(name,range);
+            MiniType type;
+            if(explicit!=null&&explicit.initializer()!=null) {
+                type=lambdaOuter(lambda,()->deduceVariableType(byReference?MiniType.AUTO.referenceTo():MiniType.AUTO,
+                        explicit.initializer(),explicit.initializer(),lambda.namespace,lambda.lexicalScope,range));
+            } else {
+                Expression value=lambdaOuter(lambda,()->expression(source,lambda.namespace,lambda.lexicalScope,true));
+                type=checkedDeduced(declaredExpressionType(value),range);
+                if(byReference)type=type.referenceTo();
+            }
+            requireComplete(type,range);
+            var capture=new LambdaCapture(name,type,source,byReference,explicit);
+            lambda.captures.put(name,capture);
+            var fields=new ArrayList<>(lambda.type.fields);var field=new StructField(name,type,false,List.of(),range);fields.add(field);
+            lambda.type.fields=List.copyOf(fields);lambda.type.fieldAccess.put(field,Access.PRIVATE);
+            return new ImplicitField(lambda.type,name);
+        }
+
+        private Expression lambdaThis(LambdaInfo lambda,SourceRange range) {
+            final String captureName=lambda.thisCaptureName;
+            LambdaCapture capture=lambda.captures.get(captureName);
+            if(capture==null) {
+                if(lambda.source.captureDefault()==CppLambdaExpr.CaptureDefault.NONE) {
+                    report("CPP004",range,"The enclosing this object is not captured by this lambda.");
+                    return typed(new CastExpr(MiniType.VOID.pointerTo(),new IntegerLiteralExpr(0,"0",range),range),MiniType.VOID.pointerTo());
+                }
+                captureLambdaThis(lambda,false,null,range);capture=lambda.captures.get(captureName);
+            }
+            if(capture==null)return null;
+            Expression value=fieldReference(thisValue(range),captureName,true,currentThis.type.pointee(),range);
+            return capture.type.isPointer()?value:address(value);
+        }
+
+        private void captureLambdaThis(LambdaInfo lambda,boolean copy,CppLambdaExpr.Capture source,SourceRange range) {
+            if(lambda.captures.containsKey(lambda.thisCaptureName)) {if(source!=null)report("CPP004",range,"Duplicate this capture.");return;}
+            Expression value=lambdaOuter(lambda,()->lambdaTypes.containsKey(currentClass)
+                    ?lambdaThis(lambdaTypes.get(currentClass),range):currentThis==null?null:thisValue(range));
+            if(value==null) {report("CPP004",range,"There is no enclosing this object to capture.");return;}
+            MiniType type=declaredExpressionType(value);
+            if(copy)type=type.pointee();
+            var capture=new LambdaCapture(lambda.thisCaptureName,type,new ThisExpr(range),false,source);
+            lambda.captures.put(capture.name,capture);
+            var fields=new ArrayList<>(lambda.type.fields);var field=new StructField(capture.name,type,false,List.of(),range);fields.add(field);
+            lambda.type.fields=List.copyOf(fields);lambda.type.fieldAccess.put(field,Access.PRIVATE);
+        }
+
+        private Expression lambdaExpression(CppLambdaExpr source,Namespace namespace,Local scope) {
+            LambdaInfo info=lambdaExpressions.get(source);
+            if(info==null) {
+                TypeEntity type=declareClass(freshName("lambda"),false,namespace,source.range());
+                type.complete=true;
+                info=new LambdaInfo(source,type,scope,currentClass,currentThis,namespace,freshName("captured_this"));
+                lambdaExpressions.put(source,info);lambdaTypes.put(type,info);
+                if(scope==null && (source.captureDefault()!=CppLambdaExpr.CaptureDefault.NONE||source.captures().stream().anyMatch(capture->capture.initializer()==null)))
+                    report("CPP004",source.range(),"A non-local lambda cannot have a capture-default or simple capture.");
+                Set<String> names=new HashSet<>();
+                for(var capture:source.captures()) {
+                    if(!names.add(capture.name()))report("CPP004",capture.range(),"Duplicate lambda capture: "+capture.name());
+                    if(capture.kind()==CppLambdaExpr.CaptureKind.THIS||capture.kind()==CppLambdaExpr.CaptureKind.THIS_COPY) {
+                        if(capture.initializer()!=null)report("CPP004",capture.range(),"A this capture cannot have an initializer.");
+                        if(capture.kind()==CppLambdaExpr.CaptureKind.THIS && source.captureDefault()==CppLambdaExpr.CaptureDefault.COPY)
+                            report("CPP004",capture.range(),"[=, this] requires a later C++ language version.");
+                        captureLambdaThis(info,capture.kind()==CppLambdaExpr.CaptureKind.THIS_COPY,capture,capture.range());continue;
+                    }
+                    if(capture.initializer()==null) {
+                        Candidate candidate=lookupName(capture.name(),namespace,scope,capture.range());
+                        if(!(candidate instanceof Entity entity&&entity.kind==Kind.VARIABLE&&entity.owner==null&&!staticLocalEntities.contains(entity))
+                                && !(candidate instanceof ImplicitField field&&lambdaTypes.containsKey(field.owner)))
+                            report("CPP004",capture.range(),"A simple capture must name an automatic variable.");
+                        if(source.captureDefault()==CppLambdaExpr.CaptureDefault.COPY&&capture.kind()==CppLambdaExpr.CaptureKind.COPY
+                                ||source.captureDefault()==CppLambdaExpr.CaptureDefault.REFERENCE&&capture.kind()==CppLambdaExpr.CaptureKind.REFERENCE)
+                            report("CPP004",capture.range(),"The simple capture duplicates the capture-default.");
+                    }
+                    ensureLambdaCapture(info,capture.name(),capture,capture.range());
+                }
+                for(var parameter:source.parameters())if(names.contains(parameter.name()))report("CPP004",parameter.range(),"A lambda parameter cannot redeclare a capture name.");
+                boolean generic=source.parameters().stream().anyMatch(parameter->parameter.type().containsAuto());
+                info.generic=generic;
+                List<ClassTemplateDecl.Parameter> templateParameters=new ArrayList<>();
+                List<Parameter> callParameters=new ArrayList<>();
+                for(Parameter parameter:source.parameters()) {
+                    MiniType parameterType=parameter.type();
+                    if(parameterType.containsAuto()) {
+                        if(autoPlaceholder(parameterType).decltypeAuto())report("CPP004",parameter.range(),"decltype(auto) cannot be a lambda parameter type.");
+                        var identity=new MiniType.TemplateParameterType(type.canonicalName+"::operator()",templateParameters.size());
+                        templateParameters.add(new ClassTemplateDecl.TypeParameter(freshName("lambda_type"),identity,parameter.range()));
+                        parameterType=lambdaParameterType(parameterType,identity);
+                    }
+                    callParameters.add(new Parameter(parameter.name().isEmpty()?freshName("lambda_parameter"):parameter.name(),parameterType,parameter.defaultValue(),parameter.range()));
+                }
+                MiniType resultType=source.returnType()==MiniType.AUTO?MiniType.AUTO:new MiniType.TrailingReturnType(source.returnType());
+                var function=new FunctionDecl("operator()",resultType,callParameters,source.variadic(),source.body(),false,false,
+                        source.range(),new OperatorName(OperatorName.Kind.CALL,source.range()));
+                var methodSource=new MethodMember(function,!source.mutable(),source.range());
+                Method method=null;
+                if(generic) {
+                    Set<String> localNames=new HashSet<>();source.parameters().forEach(parameter->localNames.add(parameter.name()));
+                    collectGenericLambdaCaptures(info,source.body(),localNames);
+                    declareMemberTemplate(type,templateParameters,methodSource,null,Access.PUBLIC);
+                } else {
+                    method=declareMethod(type,methodSource,Access.PUBLIC,namespace);
+                    if(method!=null) {
+                        int savedDepth=unevaluatedDepth;unevaluatedDepth=0;
+                        try{bindMethod(method,namespace);}finally{unevaluatedDepth=savedDepth;}
+                    }
+                }
+                info.complete=true;
+                List<CppMember> members=new ArrayList<>();for(StructField field:type.fields)members.add(new FieldMember(field));members.add(generic?new TemplateMethodMember(templateParameters,methodSource):methodSource);
+                type.sourceRecord=new StructDecl(type.canonicalName,type.fields,true,false,new CppRecordInfo(RecordKey.CLASS,members,source.range()),source.range());
+                var coreFields=type.fields.stream().map(field->new StructField(field.name(),coreType(field.type()),false,List.of(),field.range())).toList();
+                var record=new StructDecl(((MiniType.StructType)type.type).name(),coreFields,true,false,source.range());
+                structs.add(record);declarations.add(record);
+                if(type.fields.stream().anyMatch(field->needsDestruction(field.type()))) {
+                    var destructor=declareDestructor(type,new DestructorMember(type.name,new BlockStmt(List.of(),source.range()),source.range(),source.range()),Access.PUBLIC,true);
+                    if(destructor!=null)bindDestructor(destructor);
+                }
+                var defaultConstructor=declareConstructor(type,new ConstructorMember(type.name,List.of(),false,List.of(),null,source.range(),source.range()),Access.PUBLIC,true);
+                if(defaultConstructor!=null)deletedConstructors.put(defaultConstructor.function,List.of(lambdaDiagnostic(source.range(),"C++17 closure types have no default constructor.")));
+                ensureImplicitCopy(type);ensureImplicitAssignment(type);
+                if(type.assignmentPlan!=null)type.assignmentPlan=new AssignmentPlan(type.assignmentPlan.parameterType,type.assignmentPlan.entries,
+                        List.of("C++17 closure copy assignment is deleted"),false);
+                if(source.captureDefault()==CppLambdaExpr.CaptureDefault.NONE&&source.captures().isEmpty()&&method!=null)
+                    lambdaFunctionPointer(info,method);
+            }
+            LambdaInfo lambda=info;
+            String destination=freshName("lambda_destination");
+            Expression object=typed(new UnaryExpr(TokenType.STAR,typed(new NameExpr(destination,source.range()),lambda.type.type.pointerTo()),source.range()),lambda.type.type);
+            List<Expression> initializations=new ArrayList<>();
+            for(LambdaCapture capture:lambda.captures.values()) {
+                Expression target=typed(new FieldAccessExpr(object,capture.name,false,capture.initializer.range()),coreType(capture.type));
+                Expression value=lambdaOuter(lambda,()->{
+                    if(capture.name.equals(lambda.thisCaptureName)) {
+                        Expression outer=expression(new ThisExpr(capture.initializer.range()),lambda.namespace,lambda.lexicalScope,true);
+                        return capture.type.isPointer()?outer:typed(new UnaryExpr(TokenType.STAR,outer,outer.range()),capture.type);
+                    }
+                    if(capture.reference)return bindReference(capture.type,capture.initializer,lambda.namespace,lambda.lexicalScope,capture.initializer.range());
+                    if(capture.source!=null&&capture.source.initializer()!=null)return variableInitializer(capture.type,capture.source.initializer(),
+                            capture.source.initializer(),lambda.namespace,lambda.lexicalScope,capture.source.range(),capture.name);
+                    return expression(capture.initializer,lambda.namespace,lambda.lexicalScope,true);
+                });
+                initializations.add(lambdaInitialize(target,capture.type,value,capture.initializer.range()));
+            }
+            Expression body=initializations.isEmpty()?typed(new CastExpr(MiniType.VOID,new IntegerLiteralExpr(0,"0",source.range()),source.range()),MiniType.VOID)
+                    :typed(new CommaExpr(initializations,source.range()),MiniType.VOID);
+            return typed(new ObjectInitExpr(lambda.type.type,destination,body,source.range()),lambda.type.type);
+        }
+
+        private MiniType lambdaParameterType(MiniType pattern,MiniType replacement) {
+            return switch(pattern) {
+                case MiniType.AutoType ignored -> replacement;
+                case MiniType.QualifiedType qualified -> MiniType.qualified(lambdaParameterType(qualified.baseType(),replacement),qualified.qualifiers());
+                case MiniType.ReferenceType reference -> lambdaParameterType(reference.referent(),replacement).referenceTo(reference.kind());
+                case MiniType.PointerType pointer -> lambdaParameterType(pointer.pointee(),replacement).pointerTo();
+                case MiniType.ArrayType array -> lambdaParameterType(array.elementType(),replacement).arrayOf(array.length());
+                default -> pattern;
+            };
+        }
+
+        /** Potentially evaluated non-dependent captures are fixed before the closure layout is emitted. */
+        private void collectGenericLambdaCaptures(LambdaInfo lambda,AstNode node,Set<String> localNames) {
+            if(node==null)return;
+            switch(node) {
+                case SizeofExpr ignored -> {return;}
+                case AlignofExpr ignored -> {return;}
+                case TypedefStmt alias -> {localNames.add(alias.name());return;}
+                case BlockStmt block -> {
+                    Set<String> inner=new HashSet<>(localNames);
+                    for(Statement statement:block.statements())collectGenericLambdaCaptures(lambda,statement,inner);return;
+                }
+                case VarDeclStmt variable -> {
+                    localNames.add(variable.name());collectGenericLambdaCaptures(lambda,variable.initializer(),localNames);return;
+                }
+                case IfStmt selection -> {
+                    collectGenericLambdaCaptures(lambda,selection.condition(),localNames);
+                    collectGenericLambdaCaptures(lambda,selection.thenBranch(),new HashSet<>(localNames));
+                    collectGenericLambdaCaptures(lambda,selection.elseBranch(),new HashSet<>(localNames));return;
+                }
+                case WhileStmt loop -> {collectGenericLambdaCaptures(lambda,loop.condition(),localNames);collectGenericLambdaCaptures(lambda,loop.body(),new HashSet<>(localNames));return;}
+                case DoWhileStmt loop -> {collectGenericLambdaCaptures(lambda,loop.body(),new HashSet<>(localNames));collectGenericLambdaCaptures(lambda,loop.condition(),localNames);return;}
+                case CallExpr call -> {
+                    if(call.callee() instanceof NameExpr name && !localNames.contains(name.name())) {
+                        int before=diagnostics.size();Candidate candidate=lambdaOuter(lambda,()->lookupName(name.name(),lambda.namespace,lambda.lexicalScope,name.range()));
+                        diagnostics.subList(before,diagnostics.size()).clear();
+                        if(candidate!=null)prepareGenericCaptureName(lambda,name.name(),name.range());
+                    } else collectGenericLambdaCaptures(lambda,call.callee(),localNames);
+                    for(Expression argument:call.arguments())collectGenericLambdaCaptures(lambda,argument,localNames);return;
+                }
+                case ForStmt loop -> {
+                    Set<String> inner=new HashSet<>(localNames);collectGenericLambdaCaptures(lambda,loop.initializer(),inner);
+                    collectGenericLambdaCaptures(lambda,loop.condition(),inner);collectGenericLambdaCaptures(lambda,loop.step(),inner);
+                    collectGenericLambdaCaptures(lambda,loop.body(),inner);return;
+                }
+                case CppRangeForStmt loop -> {
+                    collectGenericLambdaCaptures(lambda,loop.initializer(),localNames);
+                    Set<String> inner=new HashSet<>(localNames);inner.add(loop.declaration().name());collectGenericLambdaCaptures(lambda,loop.body(),inner);return;
+                }
+                case CppLambdaExpr nested -> {
+                    Set<String> inner=new HashSet<>(localNames);
+                    for(var capture:nested.captures()) {
+                        if(capture.initializer()!=null)collectGenericLambdaCaptures(lambda,capture.initializer(),localNames);
+                        else if(capture.kind()==CppLambdaExpr.CaptureKind.THIS||capture.kind()==CppLambdaExpr.CaptureKind.THIS_COPY)prepareGenericThisCapture(lambda,capture.range());
+                        else if(!localNames.contains(capture.name()))prepareGenericCaptureName(lambda,capture.name(),capture.range());
+                        inner.add(capture.name());
+                    }
+                    nested.parameters().forEach(parameter->inner.add(parameter.name()));
+                    if(nested.captureDefault()!=CppLambdaExpr.CaptureDefault.NONE)collectGenericLambdaCaptures(lambda,nested.body(),inner);return;
+                }
+                case NameExpr name -> {if(!localNames.contains(name.name()))prepareGenericCaptureName(lambda,name.name(),name.range());return;}
+                case IntegerConstantExpr constant -> {
+                    if(constant.lexeme().matches("[A-Za-z_][A-Za-z0-9_]*")&&!localNames.contains(constant.lexeme()))prepareGenericCaptureName(lambda,constant.lexeme(),constant.range());return;
+                }
+                case ThisExpr self -> {prepareGenericThisCapture(lambda,self.range());return;}
+                default -> { }
+            }
+            for(AstNode child:AstChildren.of(node))collectGenericLambdaCaptures(lambda,child,localNames);
+        }
+
+        private void prepareGenericCaptureName(LambdaInfo lambda,String name,SourceRange range) {
+            if(lambda.captures.containsKey(name))return;
+            Candidate candidate=lambdaOuter(lambda,()->lookupName(name,lambda.namespace,lambda.lexicalScope,range));
+            if(candidate instanceof Entity entity&&entity.kind==Kind.VARIABLE&&entity.owner==null&&!staticLocalEntities.contains(entity)
+                    ||candidate instanceof ImplicitField field&&lambdaTypes.containsKey(field.owner))ensureLambdaCapture(lambda,name,null,range);
+            else if(candidate instanceof ImplicitField||candidate instanceof MethodSet methods&&methods.methods.stream().anyMatch(method->!method.source.staticMember()))prepareGenericThisCapture(lambda,range);
+        }
+
+        private void prepareGenericThisCapture(LambdaInfo lambda,SourceRange range) {
+            if(lambda.captures.containsKey(lambda.thisCaptureName))return;
+            if(lambda.source.captureDefault()==CppLambdaExpr.CaptureDefault.NONE)report("CPP004",range,"The enclosing this object is not captured by this generic lambda.");
+            else captureLambdaThis(lambda,false,null,range);
+        }
+
+        private void prepareGenericLambdaConversion(MiniType source,MiniType target) {
+            LambdaInfo lambda=lambdaTypes.get(objectType(source));
+            MiniType requested=objectTypeOfReference(target).unqualified();
+            if(lambda==null||!lambda.generic||lambda.source.captureDefault()!=CppLambdaExpr.CaptureDefault.NONE||!lambda.source.captures().isEmpty()
+                    ||!requested.isPointer()||!(requested.pointee().unqualified() instanceof MiniType.FunctionType signature)
+                    ||lambda.pointerConversions.contains(requested))return;
+            MethodSet set=lambda.type.methods.get("operator()");if(set==null)return;
+            for(Method declaration:set.methods) {
+                Entity entity=deduceFunctionTemplate(declaration.function,signature.parameterTypes(),null,lambda.source.range());
+                if(entity==null)continue;
+                Method method=entity==declaration.function?declaration:functionTemplateInstances.get(entity).method;
+                int savedDepth=unevaluatedDepth;unevaluatedDepth=0;
+                try{instantiateMethod(method);}finally{unevaluatedDepth=savedDepth;}
+                MiniType actual=MiniType.function(methodReturnType(method),method.parameterTypes,method.source.method().variadic());
+                if(actual.equals(signature))lambdaFunctionPointer(lambda,method);
+            }
+        }
+
+        private Diagnostic lambdaDiagnostic(SourceRange range,String message) {
+            return new Diagnostic("CPP004",Diagnostic.Severity.ERROR,message,"Use a directly initialized lambda or copy an existing closure.",range);
+        }
+
+        private Expression lambdaInitialize(Expression target,MiniType type,Expression value,SourceRange range) {
+            if(type.isArray()) {
+                List<Expression> elements=new ArrayList<>();
+                for(int index=0;index<type.arrayLength();index++) {
+                    Expression subscript=new IntegerLiteralExpr(index,Integer.toString(index),range);
+                    MiniType element=MiniType.qualified(type.elementType(),type.qualifiers());
+                    elements.add(lambdaInitialize(typed(new IndexExpr(target,subscript,range),coreType(element)),element,
+                            typed(new IndexExpr(value,subscript,range),element),range));
+                }
+                return typed(new CommaExpr(elements,range),MiniType.VOID);
+            }
+            Expression initialized=type.isReference()?value:type.isStruct()?copyInitialize(type,value,range,CppInitializer.Kind.DIRECT_PAREN):convertCallValue(type,value,value);
+            return typed(new InitializeExpr(target,initialized,range),MiniType.VOID);
+        }
+
+        /** A captureless lambda's conversion points at an ordinary ABI function, never a this-bearing method. */
+        private void lambdaFunctionPointer(LambdaInfo lambda,Method method) {
+            MiniType pointerType=MiniType.function(methodReturnType(method),method.parameterTypes,method.source.method().variadic()).pointerTo();
+            if(lambda.pointerConversions.contains(pointerType))return;
+            FunctionDecl call=functions.stream().filter(function->function.name().equals(method.function.coreName)&&function.hasBody()).findFirst().orElse(null);
+            if(call==null)return;
+            lambda.pointerConversions.add(pointerType);
+            MiniType signature=MiniType.function(methodReturnType(method),method.parameterTypes,method.source.method().variadic());
+            String name=freshName("lambda_function");
+            Entity thunk=new Entity(name,name,Kind.FUNCTION,lambda.namespace,signature,null,true);
+            coreValues.put(name,thunk);lambda.namespace.values.put(name,new OverloadSet(List.of(thunk)));
+            var function=new FunctionDecl(name,call.returnType(),call.parameters().subList(1,call.parameters().size()),call.variadic(),call.body(),false,false,call.range());
+            functions.add(function);declarations.add(function);
+            MiniType target=signature.pointerTo();SourceRange range=lambda.source.range();
+            ConversionName conversion=new ConversionName(target,false,range);
+            var body=new BlockStmt(List.of(new ReturnStmt(new NameExpr(name,range),range)),range);
+            var declaration=new FunctionDecl(conversion.spelling(),target,List.of(),false,body,false,false,range,null,conversion);
+            Method converted=declareMethod(lambda.type,new MethodMember(declaration,true,range),Access.PUBLIC,lambda.namespace);
+            if(converted!=null)bindMethod(converted,lambda.namespace);
+        }
+
         /** C++17 exposition lowering: one range object, one begin/end pair, one scoped element per iteration. */
         private Statement rangeFor(CppRangeForStmt node, Local parent) {
             Namespace namespace=parent.namespace;
@@ -2761,6 +3141,7 @@ public final class CppNameBinder {
 
         private Expression expressionWithinFullExpression(Expression node, Namespace namespace, Local local, boolean addressDemand) {
             Expression core = switch (node) {
+                case CppLambdaExpr n -> lambdaExpression(n,namespace,local);
                 case CppInitializer n -> {
                     if (!isList(n)) report("CPP004", n.range(), "A naked initializer clause must use braces.");
                     bracedArguments.computeIfAbsent(n, key -> prepareArguments(n.arguments(), namespace, local));
@@ -2771,6 +3152,7 @@ public final class CppNameBinder {
                 case CppDestructorCallExpr n -> explicitDestruction(n, namespace, local);
                 case CppNewExpr n -> placementConstruction(n, namespace, local);
                 case ThisExpr n -> {
+                    if(lambdaTypes.containsKey(currentClass))yield lambdaThis(lambdaTypes.get(currentClass),n.range());
                     if (currentThis == null) {
                         report("CPP004", n.range(), "this 只能用于非静态成员函数体内。");
                         yield n;
@@ -2969,12 +3351,14 @@ public final class CppNameBinder {
                     yield new NameExpr(functionReferenceName(matches.getFirst()),n.range());
                 }
                 case SizeofExpr n -> {
+                    rejectUnevaluatedLambdas(n.expression());
                     MiniType type = objectTypeOfReference(normalizeType(n.queriedType(), namespace, local, n.range()));
                     Expression operand = unevaluatedExpression(n.expression(), namespace, local);
                     requireComplete(type != null ? type : declaredExpressionType(operand), n.range());
                     yield new SizeofExpr(operand, coreType(type), n.range());
                 }
                 case AlignofExpr n -> {
+                    rejectUnevaluatedLambdas(n.expression());
                     MiniType type = objectTypeOfReference(normalizeType(n.queriedType(), namespace, local, n.range()));
                     Expression operand = unevaluatedExpression(n.expression(), namespace, local);
                     requireComplete(type != null ? type : declaredExpressionType(operand), n.range());
@@ -3204,13 +3588,19 @@ public final class CppNameBinder {
         }
 
         private Expression memberReference(Candidate candidate, String name, SourceRange range, boolean addressDemand) {
+            if(candidate instanceof UnevaluatedLambdaLocal unavailable) {
+                MiniType type=unavailable.entity.type.isReference()?unavailable.entity.type.referent():unavailable.entity.type;
+                Expression pointer=typed(new CastExpr(coreType(type).pointerTo(),new IntegerLiteralExpr(0,"0",range),range),type.pointerTo());
+                return typed(new UnaryExpr(TokenType.STAR,pointer,range),type);
+            }
             if (candidate instanceof ImplicitField field) {
-                if (currentThis == null || currentClass != field.owner) {
+                Expression receiver=implicitReceiver(field.owner,range);
+                if (receiver == null) {
                     report("CPP004", range, "A non-static data member requires an object: " + name);
                     return new IntegerLiteralExpr(0, "0", range);
                 }
-                requireAccessible(currentThis.type.pointee(), name, range, "数据成员访问");
-                return fieldReference(thisValue(range), name, true, currentThis.type.pointee(), range);
+                requireAccessible(declaredExpressionType(receiver).pointee(), name, range, "数据成员访问");
+                return fieldReference(receiver, name, true, declaredExpressionType(receiver).pointee(), range);
             }
             if (candidate instanceof MethodSet methods) return methodReference(methods, name, range);
             return reference(name, range, requireValue(candidate, name, range), addressDemand);
@@ -3696,7 +4086,7 @@ public final class CppNameBinder {
                 }
                 if (candidate instanceof MethodSet members) {
                     methods = members;
-                    receiver = currentThis != null && members.methods.getFirst().owner == currentClass ? thisValue(designator.range()) : null;
+                    receiver = implicitReceiver(members.methods.getFirst().owner,designator.range());
                 } else {
                     if(explicit!=null)report("CPP004",designator.range(),"Explicit template arguments require a function template");
                     Expression core;
@@ -4168,7 +4558,7 @@ public final class CppNameBinder {
                     report("CPP004", range, "隐式复制赋值已被删除：" + method.owner.assignmentPlan.problems.getFirst());
                 else emitImplicitAssignment(method.owner);
             }
-            if (method.access != Access.PUBLIC && currentClass != method.owner) {
+            if (method.access != Access.PUBLIC && !classAccess(method.owner)) {
                 report("CPP004", range, "不能访问 " + method.access.name().toLowerCase(java.util.Locale.ROOT)
                         + " 成员函数 " + method.owner.canonicalName + "::" + method.source.method().name());
             }
@@ -4336,7 +4726,7 @@ public final class CppNameBinder {
             // Unknown fields and non-record operands are diagnosed by the core semantic checker.
             if (path != null) {
                 for (FieldStep step : path.steps()) {
-                    if (step.access() != Access.PUBLIC && currentClass != step.owner()) {
+                    if (step.access() != Access.PUBLIC && !classAccess(step.owner())) {
                         report("CPP004", range, operation + "不能访问 " + step.access().name().toLowerCase(java.util.Locale.ROOT)
                                 + " 成员 " + step.owner().canonicalName + "::" + name);
                         break;
@@ -4359,6 +4749,7 @@ public final class CppNameBinder {
         }
 
         private boolean nonAggregate(TypeEntity type) {
+            if(lambdaTypes.containsKey(type))return true;
             return type != null && (type.constructors.stream().anyMatch(c -> !c.implicit)
                     || type.fields.stream().anyMatch(f -> type.fieldAccess.getOrDefault(f, Access.PUBLIC) != Access.PUBLIC));
         }
@@ -4687,6 +5078,7 @@ public final class CppNameBinder {
                     .filter(method -> method.source.method().conversionName() != null).toList();
         }
         private UserSelection selectUserConversion(MiniType target, CppOverloadResolver.Argument source, ConversionContext mode) {
+            prepareGenericLambdaConversion(source.type(),target);
             List<UserChoice> choices = new ArrayList<>();
             for (Method method : conversionMethods(source.type())) {
                 boolean explicit = method.source.method().conversionName().explicitSpecifier();
@@ -4769,7 +5161,7 @@ public final class CppNameBinder {
             Constructor constructor = selected.constructor;
             instantiateConstructor(constructor);
             if (constructor == constructor.owner.implicitCopy) emitImplicitCopy(constructor.owner);
-            if (constructor.access != Access.PUBLIC && currentClass != constructor.owner)
+            if (constructor.access != Access.PUBLIC && !classAccess(constructor.owner))
                 report("CPP004", range, "转换构造函数不可访问。");
             if (deletedConstructors.containsKey(constructor.function)) {
                 report("CPP004", range, "转换构造函数已删除或不可用。"); return value;
@@ -5242,7 +5634,7 @@ public final class CppNameBinder {
             instantiateConstructor(selected);
             if (kind == CppInitializer.Kind.COPY_LIST && selected.source.explicitSpecifier())
                 report("CPP004", range, "Copy-list initialization cannot select an explicit copy constructor.");
-            if (selected.access != Access.PUBLIC && currentClass != owner)
+            if (selected.access != Access.PUBLIC && !classAccess(owner))
                 report("CPP004", range, "Copy constructor is not accessible: " + owner.canonicalName);
             if (deletedConstructors.containsKey(selected.function)) {
                 report("CPP004", range, "Copy constructor is deleted: " + deletedConstructors.get(selected.function).getFirst().message());
@@ -5457,7 +5849,7 @@ public final class CppNameBinder {
             if (syntax.kind() == CppInitializer.Kind.COPY_LIST && selected.source.explicitSpecifier()) {
                 report("CPP004", range, "Copy-list-initialization cannot select an explicit constructor: " + owner.canonicalName);
             }
-            if (selected.access != Access.PUBLIC && currentClass != owner) {
+            if (selected.access != Access.PUBLIC && !classAccess(owner)) {
                 report("CPP004", range, "Constructor is not accessible: " + owner.canonicalName);
             }
             if (deletedConstructors.containsKey(selected.function)) {
@@ -5897,6 +6289,8 @@ public final class CppNameBinder {
                 if (methods != null) return methods;
                 if (fieldPath(currentClass.type, name, new HashSet<>()) != null) return new ImplicitField(currentClass, name);
             }
+            LambdaInfo lambda=lambdaTypes.get(currentClass);
+            if(lambda!=null)return lambdaLookup(lambda,name,range);
             Map<Namespace, Set<Namespace>> nominated = nominations(namespace, local);
             for (Namespace scope = namespace; scope != null; scope = scope.parent) {
                 Set<Candidate> candidates = new LinkedHashSet<>(directCandidates(scope, name));

@@ -524,7 +524,70 @@ public final class ExpressionManager {
         return call;
     }
 
+    private Expression parseLambda() {
+        Token start=state.advance();
+        var defaultCapture=minic.compiler.parser.node.CppLambdaExpr.CaptureDefault.NONE;
+        var captures=new ArrayList<minic.compiler.parser.node.CppLambdaExpr.Capture>();
+        if(state.match(TokenType.EQUAL))defaultCapture=minic.compiler.parser.node.CppLambdaExpr.CaptureDefault.COPY;
+        else if(state.check(TokenType.AMPERSAND)&&(state.peekAt(1).type()==TokenType.COMMA||state.peekAt(1).type()==TokenType.RIGHT_BRACKET)) {
+            state.advance();defaultCapture=minic.compiler.parser.node.CppLambdaExpr.CaptureDefault.REFERENCE;
+        }
+        if(defaultCapture!=minic.compiler.parser.node.CppLambdaExpr.CaptureDefault.NONE && !state.check(TokenType.RIGHT_BRACKET))
+            state.consume(TokenType.COMMA,"默认捕获后期望 ','");
+        var statements=new StatementManager(state,this,typeReader);
+        while(!state.check(TokenType.RIGHT_BRACKET)&&!state.isAtEnd()) {
+            Token first=state.peek();
+            var kind=state.match(TokenType.AMPERSAND)?minic.compiler.parser.node.CppLambdaExpr.CaptureKind.REFERENCE
+                    :minic.compiler.parser.node.CppLambdaExpr.CaptureKind.COPY;
+            boolean star=state.match(TokenType.STAR);
+            Token name;
+            if(state.match(TokenType.THIS)) {
+                name=state.previous();
+                if(kind==minic.compiler.parser.node.CppLambdaExpr.CaptureKind.REFERENCE)state.report(name,"this 捕获不能加 '&'");
+                kind=star?minic.compiler.parser.node.CppLambdaExpr.CaptureKind.THIS_COPY:minic.compiler.parser.node.CppLambdaExpr.CaptureKind.THIS;
+            } else {
+                if(star)state.report(first,"'*' 捕获只能用于 this");
+                name=state.consume(TokenType.IDENTIFIER,"期望捕获名称");
+            }
+            if(name==null)return null;
+            minic.compiler.parser.node.CppInitializer initializer=null;
+            if(state.check(TokenType.EQUAL)||state.check(TokenType.LEFT_BRACE)||state.check(TokenType.LEFT_PAREN))initializer=statements.parseCppInitializer();
+            SourceRange range=SourceRange.span(first.range(),initializer==null?name.range():initializer.range());
+            captures.add(new minic.compiler.parser.node.CppLambdaExpr.Capture(name.lexeme(),kind,initializer,range));
+            if(!state.match(TokenType.COMMA))break;
+            if(state.check(TokenType.RIGHT_BRACKET))state.report(state.peek(),"捕获列表不能以 ',' 结尾");
+        }
+        if(state.consume(TokenType.RIGHT_BRACKET,"lambda 捕获列表期望 ']'")==null)return null;
+        typeReader.enterScope(captures.stream().map(minic.compiler.parser.node.CppLambdaExpr.Capture::name).filter(name->!name.equals("this")).toList());
+        try {
+            var parameters=new ArrayList<minic.compiler.parser.node.Declaration.Parameter>();
+            boolean variadic=false;
+            boolean parameterClause=state.match(TokenType.LEFT_PAREN);
+            if(parameterClause) {
+                var parsed=typeReader.parseParameterList();variadic=parsed.variadic();
+                for(var parameter:parsed.parameters())parameters.add(new minic.compiler.parser.node.Declaration.Parameter(parameter.name(),parameter.type(),parameter.defaultValue(),parameter.range()));
+                if(state.consume(TokenType.RIGHT_PAREN,"lambda 形参期望 ')'")==null)return null;
+            }
+            boolean mutable=state.match(TokenType.MUTABLE);
+            if(mutable&&!parameterClause)state.report(state.previous(),"C++17 mutable lambda 需要形参括号");
+            if(state.check(TokenType.CONSTEXPR)||state.check(TokenType.NOEXCEPT)) {
+                state.unsupportedCpp(state.peek().range(),"lambda constexpr/noexcept 说明符尚未接入");return null;
+            }
+            for(var parameter:parameters)if(!parameter.name().isEmpty())typeReader.declareOrdinaryName(parameter.name(),parameter.range());
+            MiniType returnType=MiniType.AUTO;
+            if(state.match(TokenType.ARROW)) {
+                if(!parameterClause)state.report(state.previous(),"C++17 lambda 尾置返回类型需要形参括号");
+                var parsed=typeReader.parseType("lambda 尾置返回类型");if(parsed==null)return null;returnType=parsed.type();
+            }
+            var body=statements.parseFunctionBlock(parameters.stream().map(minic.compiler.parser.node.Declaration.Parameter::name).toList());
+            if(body==null)return null;
+            var lambda=new minic.compiler.parser.node.CppLambdaExpr(defaultCapture,captures,parameters,variadic,mutable,returnType,body,SourceRange.span(start.range(),body.range()));
+            state.build(lambda,"CppLambdaExpr",lambda.range());return lambda;
+        } finally {typeReader.exitScope();}
+    }
+
     private Expression parsePrimary() {
+        if(typeReader.isCpp() && state.check(TokenType.LEFT_BRACKET))return parseLambda();
         if (typeReader.cppTypeMemberDelimiterAt(0) >= 0) {
             Parser.ParsedType type = typeReader.parseCppConstructionType();
             state.consume(TokenType.SCOPE, "期望 '::'");
