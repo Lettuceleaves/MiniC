@@ -1,6 +1,7 @@
 package minic.compiler.parser.manager;
 
 import minic.compiler.parser.Parser;
+import minic.compiler.LanguageMode;
 
 import minic.compiler.parser.node.Expression.AssignmentExpr;
 import minic.compiler.parser.node.Expression.BinaryExpr;
@@ -268,7 +269,11 @@ public final class ExpressionManager {
                 || state.match(TokenType.MINUS)
                 || state.match(TokenType.PLUS)) {
             Token operator = state.previous();
-            Expression operand = parseUnary();
+            // Unary operators accept a cast-expression. C prefix updates alone
+            // require a unary-expression; C++ prefix updates accept casts too.
+            boolean cPrefixUpdate = state.languageMode() == LanguageMode.C
+                    && (operator.type() == TokenType.PLUS_PLUS || operator.type() == TokenType.MINUS_MINUS);
+            Expression operand = cPrefixUpdate ? parseUnary() : parseCast();
             if (operand == null) {
                 return null;
             }
