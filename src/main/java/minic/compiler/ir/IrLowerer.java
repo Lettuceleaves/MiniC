@@ -262,7 +262,7 @@ public final class IrLowerer extends Stage {
         }
         input = new Input(program, structLayouts, expressionTypes, displayNames, coreToSource);
         work = new Work(collectFunctionSignatures(program),
-                new GlobalDataLowerer(structLayouts).lower(program.globals()));
+                new GlobalDataLowerer(structLayouts, expressionTypes).lower(program.globals()));
         work.externalObjectNames.addAll(collectExternalObjectNames(program));
         clearCurrentOperation();
         result = null;

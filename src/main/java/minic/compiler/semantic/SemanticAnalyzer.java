@@ -321,8 +321,8 @@ public final class SemanticAnalyzer extends Stage {
                     yield SemanticAction.of(SemanticActionKind.COMPUTE_STRUCT_LAYOUTS, "struct layouts", program, globalScope);
                 }
                 case 3 -> {
-                    statementAnalyzer.analyzeGlobals(program.globals());
                     functionRegistry.defineFunctions(program);
+                    statementAnalyzer.analyzeGlobals(program.globals());
                     yield SemanticAction.of(SemanticActionKind.REGISTER_FUNCTIONS,
                             "globals=" + program.globals().size() + ", functions=" + program.functions().size(),
                             program, globalScope);

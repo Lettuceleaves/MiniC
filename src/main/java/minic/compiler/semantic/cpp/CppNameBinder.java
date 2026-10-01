@@ -798,6 +798,8 @@ public final class CppNameBinder {
                 case IntegerConstantExpr ignored -> true;
                 case LongLiteralExpr ignored -> true;
                 case NullLiteralExpr ignored -> true;
+                case SizeofExpr ignored -> true;
+                case AlignofExpr ignored -> true;
                 case GroupingExpr n -> constantInitializer(n.expression());
                 case CastExpr n -> constantInitializer(n.operand());
                 case CommaExpr n -> n.expressions().stream().allMatch(this::constantInitializer);

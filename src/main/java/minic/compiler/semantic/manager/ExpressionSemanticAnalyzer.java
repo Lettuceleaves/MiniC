@@ -54,6 +54,7 @@ final class ExpressionSemanticAnalyzer {
     private Set<String> currentParameterNames = Set.of();
     private FunctionDecl currentFunction;
     private MiniType aggregateInitTargetType;
+    private int unevaluatedDepth;
 
     ExpressionSemanticAnalyzer(
             FunctionRegistry functionRegistry,
@@ -134,7 +135,7 @@ final class ExpressionSemanticAnalyzer {
                     argumentTypes.add(analyzeExpression(argument, scope));
                 }
                 MiniType returnType = isDirectFunctionCall(callExpr, scope)
-                        ? functionRegistry.resolveFunction(callExpr, argumentTypes)
+                        ? functionRegistry.resolveFunction(callExpr, argumentTypes, unevaluatedDepth == 0)
                         : resolveFunctionPointerCall(callExpr, scope, argumentTypes);
                 yield returnType;
             }
@@ -299,7 +300,7 @@ final class ExpressionSemanticAnalyzer {
     private MiniType analyzeSizeof(SizeofExpr sizeofExpr, Scope scope) {
         MiniType queriedType = sizeofExpr.queriedTypeOptional().orElse(null);
         if (queriedType == null) {
-            queriedType = analyzeExpression(sizeofExpr.expressionOptional().orElseThrow(), scope);
+            queriedType = analyzeTypeQueryOperand(sizeofExpr.expressionOptional().orElseThrow(), scope);
         }
         if (!TypeLayout.hasFixedLayout(queriedType) && !hasStructLayout(queriedType)) {
             report(sizeofExpr.range(), "sizeof 只支持固定布局类型");
@@ -310,12 +311,32 @@ final class ExpressionSemanticAnalyzer {
     private MiniType analyzeAlignof(AlignofExpr alignofExpr, Scope scope) {
         MiniType queriedType = alignofExpr.queriedTypeOptional().orElse(null);
         if (queriedType == null) {
-            queriedType = analyzeExpression(alignofExpr.expressionOptional().orElseThrow(), scope);
+            queriedType = analyzeTypeQueryOperand(alignofExpr.expressionOptional().orElseThrow(), scope);
         }
         if (!TypeLayout.hasFixedLayout(queriedType) && !hasStructLayout(queriedType)) {
             report(alignofExpr.range(), "alignof 只支持具有完整布局的对象类型");
         }
         return MiniType.UNSIGNED_LONG_LONG;
+    }
+
+    /** Queries still type-check operands, but do not require definitions of unused functions. */
+    private MiniType analyzeTypeQueryOperand(Expression operand, Scope scope) {
+        unevaluatedDepth++;
+        try {
+            MiniType type = analyzeExpression(operand, scope);
+            Expression ungrouped = unwrapGrouping(operand);
+            if (ungrouped instanceof NameExpr name) {
+                var function = scope.resolve(name.name()).filter(symbol -> symbol.kind() == SymbolKind.FUNCTION);
+                if (function.isPresent()) {
+                    // sizeof/alignof suppress function-to-pointer conversion at the operand root.
+                    type = function.orElseThrow().type();
+                    expressionTypes.put(operand, type);
+                }
+            }
+            return type;
+        } finally {
+            unevaluatedDepth--;
+        }
     }
 
     private MiniType analyzeVaStart(VaStartExpr expression, Scope scope) {
@@ -618,7 +639,7 @@ final class ExpressionSemanticAnalyzer {
             return symbol.orElseThrow().type();
         }
         if (scope.resolve(name).filter(candidate -> candidate.kind() == SymbolKind.FUNCTION).isPresent()) {
-            return functionRegistry.resolveFunctionAddress(name, range);
+            return functionRegistry.resolveFunctionAddress(name, range, unevaluatedDepth == 0);
         }
         report(range, "未解析变量：" + name);
         return MiniType.INT;

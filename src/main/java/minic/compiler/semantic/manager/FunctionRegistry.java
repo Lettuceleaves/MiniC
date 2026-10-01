@@ -89,7 +89,7 @@ public final class FunctionRegistry {
         }
     }
 
-    MiniType resolveFunction(CallExpr callExpr, List<MiniType> argumentTypes) {
+    MiniType resolveFunction(CallExpr callExpr, List<MiniType> argumentTypes, boolean requireDefinition) {
         if (!callExpr.hasDirectCalleeName()) {
             throw new IllegalArgumentException("direct function resolution requires a named callee");
         }
@@ -100,7 +100,7 @@ public final class FunctionRegistry {
             return MiniType.INT;
         }
         FunctionState functionState = functionStates.get(callExpr.calleeName());
-        if (functionState != null && !functionState.defined() && !functionState.external()) {
+        if (requireDefinition && functionState != null && !functionState.defined() && !functionState.external()) {
             report(callExpr.range(), "未定义函数调用：" + callExpr.calleeName());
         }
         Integer arity = functionSymbol.orElseThrow().arity();
@@ -124,7 +124,7 @@ public final class FunctionRegistry {
         return functionSymbol.orElseThrow().type().returnType();
     }
 
-    MiniType resolveFunctionAddress(String name, minic.SourceRange range) {
+    MiniType resolveFunctionAddress(String name, minic.SourceRange range, boolean requireDefinition) {
         var functionSymbol = globalScope.resolve(name)
                 .filter(symbol -> symbol.kind() == SymbolKind.FUNCTION);
         if (functionSymbol.isEmpty()) {
@@ -132,7 +132,7 @@ public final class FunctionRegistry {
             return MiniType.INT;
         }
         FunctionState functionState = functionStates.get(name);
-        if (functionState != null && !functionState.defined() && !functionState.external()) {
+        if (requireDefinition && functionState != null && !functionState.defined() && !functionState.external()) {
             report(range, "未定义函数取址：" + name);
         }
         return functionSymbol.orElseThrow().type().pointerTo();

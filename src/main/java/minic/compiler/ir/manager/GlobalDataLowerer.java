@@ -18,8 +18,14 @@ import java.util.Map;
 /** Converts C constant initializers into the target's little-endian writable data image. */
 public final class GlobalDataLowerer {
     private final Map<String, StructLayout> layouts;
+    private final Map<Expression, MiniType> expressionTypes;
 
-    public GlobalDataLowerer(Map<String, StructLayout> layouts) { this.layouts = Map.copyOf(layouts); }
+    public GlobalDataLowerer(Map<String, StructLayout> layouts) { this(layouts, Map.of()); }
+
+    public GlobalDataLowerer(Map<String, StructLayout> layouts, Map<Expression, MiniType> expressionTypes) {
+        this.layouts = Map.copyOf(layouts);
+        this.expressionTypes = java.util.Collections.unmodifiableMap(new java.util.IdentityHashMap<>(expressionTypes));
+    }
 
     public List<IrGlobalData> lower(List<GlobalVarDecl> declarations) {
         ArrayList<IrGlobalData> result = new ArrayList<>();
@@ -129,6 +135,9 @@ public final class GlobalDataLowerer {
             case FloatLiteralExpr value -> value.value();
             case DoubleLiteralExpr value -> value.value();
             case NullLiteralExpr ignored -> 0L;
+            // Only the operand's semantic type is queried: its expression is never evaluated.
+            case SizeofExpr query -> sizeOf(queriedType(query.queriedType(), query.expression()));
+            case AlignofExpr query -> alignmentOf(queriedType(query.queriedType(), query.expression()));
             case GroupingExpr group -> constant(group.expression());
             case CastExpr cast -> constant(cast.operand());
             case CommaExpr comma -> constant(comma.expressions().getLast());
@@ -137,6 +146,13 @@ public final class GlobalDataLowerer {
             default -> throw new IllegalArgumentException("global initializer is not a constant expression: "
                     + expression.getClass().getSimpleName());
         };
+    }
+
+    private MiniType queriedType(MiniType explicitType, Expression operand) {
+        if (explicitType != null) return explicitType;
+        MiniType type = expressionTypes.get(operand);
+        if (type == null) throw new IllegalArgumentException("missing semantic type for global type-query operand");
+        return type;
     }
 
     private Number unary(TokenType operator, Number value) {
