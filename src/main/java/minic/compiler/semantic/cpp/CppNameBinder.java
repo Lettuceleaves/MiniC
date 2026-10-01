@@ -435,6 +435,7 @@ public final class CppNameBinder {
         }
 
         private Expression destruction(MiniType type, Expression address, SourceRange range) {
+            if (type != null && type.isArray() && needsDestruction(type)) return arrayDestruction(type, address, range);
             Destructor destructor = destructorForUse(type, range);
             if (destructor == null) return null;
             TypeEntity owner = destructor.owner;
@@ -446,8 +447,7 @@ public final class CppNameBinder {
         private Destructor destructorForUse(MiniType type, SourceRange range) {
             if (!needsDestruction(type)) return null;
             if (type.isArray()) {
-                report("CPP005", range, "Array element destruction requires array lifetime support.");
-                return null;
+                return destructorForUse(elementType(type), range);
             }
             TypeEntity owner = objectType(type);
             Destructor destructor = owner.destructor;
@@ -637,10 +637,6 @@ public final class CppNameBinder {
         private Expression initializeField(TypeEntity owner, StructField field, CppInitializer initialization, Local scope, SourceRange range) {
             Expression value = variableInitializer(field.type(), initialization, null, owner.owner, scope, range);
             if (value == null) return null;
-            if (field.type().isArray() || value instanceof AggregateInitExpr aggregate && !aggregate.values().isEmpty()) {
-                report("CPP005", range, "Array or nonempty aggregate member initialization requires subobject initialization support.");
-                return null;
-            }
             if (field.type().isReference() && refersToTemporaryStorage(value)) {
                 report("CPP004", range, "A reference data member cannot bind to a temporary in a constructor initializer.");
             }
@@ -2480,6 +2476,125 @@ public final class CppNameBinder {
             return typed(new UnaryExpr(TokenType.STAR, field, range), type.referent());
         }
 
+        private boolean recordArray(MiniType type) {
+            while (type.isArray()) type = elementType(type);
+            return type.isStruct();
+        }
+
+        private Expression arrayInitialization(MiniType type, CppInitializer syntax, Namespace namespace,
+                                               Local local, SourceRange range) {
+            if (type.arrayLength() < 0) {
+                report("CPP004", range, "An array object requires a complete bound before construction.");
+                return null;
+            }
+            if (syntax.kind() == CppInitializer.Kind.COPY
+                    || syntax.kind() == CppInitializer.Kind.DIRECT_PAREN && !syntax.arguments().isEmpty()) {
+                report("CPP004", syntax.range(), "C++17 arrays require a braced initializer list.");
+            }
+            var cursor = syntax.arguments().listIterator();
+            Expression result = arrayValue(type, cursor, syntax.kind() == CppInitializer.Kind.DEFAULT,
+                    namespace, local, range);
+            if (cursor.hasNext()) report("CPP004", cursor.next().range(), "Too many array initializer elements.");
+            return initializerMapping(syntax, result);
+        }
+
+        /** A cursor spans brace-elided dimensions; explicit braces start a separate cursor. */
+        private Expression arrayValue(MiniType type, java.util.ListIterator<Expression> values, boolean defaultInitialize,
+                                      Namespace namespace, Local local, SourceRange range) {
+            MiniType element = elementType(type);
+            String destination = freshName("array_construction");
+            Expression pointer = typed(new NameExpr(destination, range), coreType(type).pointerTo());
+            Expression array = typed(new UnaryExpr(TokenType.STAR, pointer, range), coreType(type));
+            List<Expression> actions = new ArrayList<>();
+            int index = 0;
+            while (index < type.arrayLength() && values.hasNext()) {
+                Expression source = values.next();
+                Expression initialized;
+                if (element.isArray() && !(source instanceof AggregateInitExpr)) {
+                    values.previous();
+                    initialized = arrayValue(element, values, false, namespace, local, source.range());
+                } else {
+                    CppInitializer syntax = source instanceof AggregateInitExpr aggregate
+                            ? new CppInitializer(CppInitializer.Kind.COPY_LIST, aggregate.values(), aggregate.range())
+                            : new CppInitializer(CppInitializer.Kind.COPY, List.of(source), source.range());
+                    initialized = element.isArray() ? arrayInitialization(element, syntax, namespace, local, source.range())
+                            : variableInitializer(element, syntax, null, namespace, local, source.range());
+                    if (source instanceof AggregateInitExpr && initialized != null) {
+                        initialized = mapped(source, typed(new GroupingExpr(initialized, source.range()), element));
+                    }
+                }
+                if (initialized != null) {
+                    Expression slot = typed(new IndexExpr(array, new IntegerLiteralExpr(index, Integer.toString(index), range), range), coreType(element));
+                    Expression action = typed(new InitializeExpr(slot, initialized, source.range()), MiniType.VOID);
+                    // Temporaries belonging to this element finish before the next element starts.
+                    actions.add(fullExpression(action, false, source));
+                }
+                index++;
+            }
+            if (index < type.arrayLength()) {
+                Expression remaining = initializeArrayRemainder(type, pointer, index, defaultInitialize, namespace, local, range);
+                if (remaining != null) actions.add(remaining);
+            }
+            Expression body = actions.isEmpty() ? new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", range), range)
+                    : actions.size() == 1 ? actions.getFirst() : new CommaExpr(actions, range);
+            return typed(new ObjectInitExpr(coreType(type), destination, body, range), type);
+        }
+
+        /** Default/value initialization uses a core loop rather than duplicating the element body N times. */
+        private Expression initializeArrayRemainder(MiniType type, Expression address, int start, boolean defaultInitialize,
+                                                    Namespace namespace, Local local, SourceRange range) {
+            MiniType element = elementType(type);
+            CppInitializer syntax = new CppInitializer(defaultInitialize ? CppInitializer.Kind.DEFAULT
+                    : CppInitializer.Kind.COPY_LIST, List.of(), range);
+            Expression initialized = element.isArray() ? arrayInitialization(element, syntax, namespace, local, range)
+                    : variableInitializer(element, syntax, null, namespace, local, range);
+            if (initialized == null) return null;
+            String storage = freshName("array_storage"), index = freshName("array_index");
+            MiniType pointerType = coreType(element).pointerTo();
+            Expression pointer = typed(new NameExpr(storage, range), pointerType);
+            Expression i = typed(new NameExpr(index, range), MiniType.INT);
+            Expression slot = typed(new IndexExpr(pointer, i, range), coreType(element));
+            Expression action = fullExpression(typed(new InitializeExpr(slot, initialized, range), MiniType.VOID), false, syntax);
+            Statement loop = new ForStmt(new VarDeclStmt(index, MiniType.INT, new IntegerLiteralExpr(start, "begin", range), range),
+                    new BinaryExpr(i, TokenType.LESS, new IntegerLiteralExpr(type.arrayLength(), "length", range), range),
+                    new PostfixUpdateExpr(i, TokenType.PLUS_PLUS, range), new ExprStmt(action, range), range);
+            String helper = arrayHelper("array_initialize", pointerType, storage, loop, range);
+            return typed(new CallExpr(new NameExpr(helper, range),
+                    List.of(typed(new CastExpr(pointerType, address, range), pointerType)), range), MiniType.VOID);
+        }
+
+        private Expression arrayDestruction(MiniType type, Expression address, SourceRange range) {
+            if (type.arrayLength() < 0) {
+                report("CPP004", range, "Array destruction requires a complete bound.");
+                return null;
+            }
+            MiniType element = elementType(type);
+            String storage = freshName("array_storage"), index = freshName("array_index");
+            MiniType pointerType = coreType(element).pointerTo();
+            Expression pointer = typed(new NameExpr(storage, range), pointerType);
+            Expression i = typed(new NameExpr(index, range), MiniType.INT);
+            Expression slot = typed(new IndexExpr(pointer, i, range), coreType(element));
+            Expression cleanup = destruction(element, address(slot), range);
+            if (cleanup == null) return null;
+            Statement loop = new ForStmt(new VarDeclStmt(index, MiniType.INT,
+                    new IntegerLiteralExpr(type.arrayLength() - 1, "last", range), range),
+                    new BinaryExpr(i, TokenType.GREATER_EQUAL, new IntegerLiteralExpr(0, "0", range), range),
+                    new PostfixUpdateExpr(i, TokenType.MINUS_MINUS, range), new ExprStmt(cleanup, range), range);
+            String helper = arrayHelper("array_destroy", pointerType, storage, loop, range);
+            return typed(new CallExpr(new NameExpr(helper, range),
+                    List.of(typed(new CastExpr(pointerType, address, range), pointerType)), range), MiniType.VOID);
+        }
+
+        private String arrayHelper(String label, MiniType pointer, String parameter, Statement body, SourceRange range) {
+            String name = freshName(label);
+            MiniType signature = MiniType.function(MiniType.VOID, List.of(pointer), false);
+            coreValues.put(name, new Entity(label, name, Kind.FUNCTION, root, signature, null, true));
+            FunctionDecl function = new FunctionDecl(name, MiniType.VOID, List.of(new Parameter(parameter, pointer, range)),
+                    false, new BlockStmt(List.of(body), range), false, range);
+            functions.add(function); declarations.add(function);
+            return name;
+        }
+
         private Expression variableInitializer(MiniType target, CppInitializer syntax, Expression legacy,
                                                Namespace namespace, Local local, SourceRange range) {
             return variableInitializer(target, syntax, legacy, namespace, local, range, null);
@@ -2488,6 +2603,7 @@ public final class CppNameBinder {
         private Expression variableInitializer(MiniType target, CppInitializer syntax, Expression legacy,
                                                Namespace namespace, Local local, SourceRange range, String sourceName) {
             if (syntax == null) return initializer(target, legacy, namespace, local, range);
+            if (target.isArray() && recordArray(target)) return arrayInitialization(target, syntax, namespace, local, range);
             List<Expression> arguments = syntax.arguments();
             boolean list = syntax.kind() == CppInitializer.Kind.DIRECT_LIST || syntax.kind() == CppInitializer.Kind.COPY_LIST;
             if (target.isReference()) {
@@ -2502,10 +2618,6 @@ public final class CppNameBinder {
                 return initializerMapping(syntax, value);
             }
             if (object != null || target.isArray()) {
-                if (target.isArray() && needsConstructedType(target)) {
-                    report("CPP005", range, "Array element construction is not supported in this slice.");
-                    return null;
-                }
                 if (syntax.kind() == CppInitializer.Kind.DIRECT_PAREN) {
                     if (object != null && arguments.size() == 1) {
                         Expression value = expression(arguments.getFirst(), namespace, local);
@@ -2580,6 +2692,7 @@ public final class CppNameBinder {
             // Potential destruction is checked even in an unevaluated operand or elided result.
             destructorForUse(type, source.range());
             CppInitializer syntax = source.initializer();
+            if (type.isArray()) return arrayInitialization(type, syntax, namespace, local, source.range());
             List<Expression> arguments = syntax.arguments();
             if (type.isVoid() && syntax.kind() == CppInitializer.Kind.DIRECT_LIST) {
                 report("CPP004", source.range(), "Braced construction requires an object type; void has no object.");
@@ -2966,7 +3079,7 @@ public final class CppNameBinder {
                     // whole owner. Conversions and scalar prvalues need their own object.
                     if (!compatible || !addressableObject(value)) {
                         requireComplete(target, sourceNode.range());
-                        if (!target.unqualified().equals(actual.unqualified())) {
+                        if (!target.unqualified().equals(actual.unqualified()) && !(compatible && target.isArray())) {
                             // Viability above validates C++ implicit conversion rules. Spell the
                             // approved conversion explicitly where core C is more restrictive.
                             value = typed(new CastExpr(coreType(target.unqualified()), value, value.range()), target.unqualified());

@@ -191,10 +191,11 @@ final class ExpressionSemanticAnalyzer {
     private MiniType analyzeMaterialization(Expression.MaterializeExpr temporary, Scope scope) {
         MiniType type = temporary.type();
         MiniType value = analyzeExpression(temporary.initializer(), scope);
-        if ((!type.isScalar() && !type.isPointer() && !type.isStruct())
+        if ((!type.isScalar() && !type.isPointer() && !type.isStruct() && !type.isArray())
                 || (!TypeLayout.hasFixedLayout(type) && !hasStructLayout(type))) {
             report(temporary.range(), "临时对象需要完整的标量、指针或记录类型");
-        } else if (!TypeCompatibility.isAssignmentCompatible(type, value, temporary.initializer())) {
+        } else if (!isArrayConstruction(type, value, temporary.initializer())
+                && !TypeCompatibility.isAssignmentCompatible(type, value, temporary.initializer())) {
             report(temporary.range(), "临时对象初始化类型不兼容");
         }
         return type.pointerTo();
@@ -214,7 +215,8 @@ final class ExpressionSemanticAnalyzer {
     private void analyzeFirstInitialization(Expression value, MiniType target, Scope scope) {
         if (!(value instanceof AggregateInitExpr aggregate)) {
             MiniType actual = analyzeExpression(value, scope);
-            if (target.isArray() || !TypeCompatibility.isAssignmentCompatible(target, actual, value))
+            if (!isArrayConstruction(target, actual, value)
+                    && (target.isArray() || !TypeCompatibility.isAssignmentCompatible(target, actual, value)))
                 report(value.range(), "对象初始化类型不兼容");
             return;
         }
@@ -251,7 +253,8 @@ final class ExpressionSemanticAnalyzer {
 
     private MiniType analyzeObjectInitialization(Expression.ObjectInitExpr construction, Scope scope) {
         MiniType type = construction.type();
-        if (!type.isStruct() || !hasStructLayout(type)) {
+        if ((!type.isStruct() && !type.isArray())
+                || (!TypeLayout.hasFixedLayout(type) && !hasStructLayout(type))) {
             report(construction.range(), "原地构造需要完整的记录类型");
         }
         Scope bodyScope = Scope.detachedChild(scope, construction.range());
@@ -263,6 +266,17 @@ final class ExpressionSemanticAnalyzer {
             report(construction.body().range(), "原地构造操作必须具有 void 类型");
         }
         return type;
+    }
+
+    private boolean isArrayConstruction(MiniType target, MiniType actual, Expression value) {
+        return target.isArray() && sameArrayObjectType(target, actual)
+                && Expression.ObjectInitExpr.occursInResultOf(value);
+    }
+
+    private boolean sameArrayObjectType(MiniType first, MiniType second) {
+        if (first.isArray() && second.isArray()) return first.arrayLength() == second.arrayLength()
+                && sameArrayObjectType(first.elementType(), second.elementType());
+        return first.unqualified().equals(second.unqualified());
     }
 
     private MiniType analyzeComma(CommaExpr commaExpr, Scope scope) {

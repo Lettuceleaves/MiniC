@@ -182,7 +182,8 @@ public final class StatementSemanticAnalyzer {
                 varDeclStmt.initializerOptional()
                         .ifPresent(initializer -> {
                             boolean aggregateInitializer = initializer instanceof AggregateInitExpr;
-                            if (varDeclStmt.type().isArray() && !aggregateInitializer) {
+                            if (varDeclStmt.type().isArray() && !aggregateInitializer
+                                    && !Expression.ObjectInitExpr.occursInResultOf(initializer)) {
                                 report(varDeclStmt.range(), "数组必须使用大括号初始化");
                             }
                             if (aggregateInitializer) {

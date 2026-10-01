@@ -652,7 +652,7 @@ final class ExpressionLowerer {
         if (value instanceof Expression.AggregateInitExpr aggregate) {
             if (aggregate.values().isEmpty()) ObjectZeroInitializer.emit(builder, address, type, range, true);
             else ObjectAggregateInitializer.emit(builder, this, address, type, aggregate, range);
-        } else if (type.isStruct()) {
+        } else if (type.isStruct() || type.isArray() && Expression.ObjectInitExpr.occursInResultOf(value)) {
             initializeObjectAt(value, address, type.isVolatileQualified());
         } else {
             builder.addInstruction(new IrStorePointerInstruction(address,
