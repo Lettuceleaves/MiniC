@@ -230,6 +230,9 @@ public final class CppNameBinder {
         private final Program source;
         private final Map<String,CppConstantEvaluator.Global> constantObjects=new LinkedHashMap<>();
         private final Map<Entity,Boolean> constexprFunctions=new IdentityHashMap<>();
+        private final Set<Entity> nonConstantSpecializations=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Set<Entity> constexprInstantiatedMembers=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Set<TypeEntity> constexprTemplateClasses=Collections.newSetFromMap(new IdentityHashMap<>());
         private CppConstantEvaluator constantEvaluator(){
             return new CppConstantEvaluator(new CppConstantEvaluator.Context(){
                 public MiniType type(Expression value){return coreType(declaredExpressionType(value));}
@@ -283,7 +286,7 @@ public final class CppNameBinder {
         }
         private boolean containsNode(AstNode tree,AstNode target){if(tree==target)return true;for(AstNode child:AstChildren.of(tree))if(containsNode(child,target))return true;return false;}
         private boolean constexprEligible(Entity function){
-            if(function==null)return false;
+            if(function==null||nonConstantSpecializations.contains(function))return false;
             Boolean explicit=constexprFunctions.get(function);if(explicit!=null)return explicit;
             if(inferredExceptionBodies.containsKey(function))return true;
             var specialization=functionTemplateInstances.get(function);
@@ -314,11 +317,19 @@ public final class CppNameBinder {
         private void constexprFunction(Entity entity,boolean requested,BlockStmt body,SourceRange range){
             Boolean previous=constexprFunctions.putIfAbsent(entity,requested);
             if(previous!=null&&previous!=requested)report("CPP004",range,"All declarations of a function must agree on constexpr");
-            if(requested&&body!=null&&!constexprBodyAllowed(body))report("CPP004",range,"A C++17 constexpr function cannot contain non-literal, static or uninitialized local objects or variadic cursor operations");
+            if(requested&&body!=null&&!constexprBodyAllowed(body))constexprRequirementFailure(entity,range,"A C++17 constexpr function cannot contain non-literal, static or uninitialized local objects or variadic cursor operations");
             if(requested&&body!=null&&entity.type instanceof MiniType.FunctionType function){
-                if(!function.returnType().containsPlaceholder()&&!literalType(function.returnType(),new HashSet<>()))report("CPP004",range,"A constexpr function must return a literal type");
-                for(MiniType parameter:function.parameterTypes())if(!literalType(parameter,new HashSet<>()))report("CPP004",range,"Constexpr function parameters must have literal types");
+                if(!function.returnType().containsPlaceholder()&&!literalType(function.returnType(),new HashSet<>()))constexprRequirementFailure(entity,range,"A constexpr function must return a literal type");
+                for(MiniType parameter:function.parameterTypes())if(!literalType(parameter,new HashSet<>()))constexprRequirementFailure(entity,range,"Constexpr function parameters must have literal types");
             }
+        }
+        private void constexprRequirementFailure(Entity entity,SourceRange range,String message){
+            // [dcl.constexpr]/6 permits these instantiated specializations at runtime,
+            // but no invocation of an unsuitable specialization is a constant expression.
+            boolean instantiated=!explicitFunctionSpecializations.containsKey(entity)
+                    &&(functionTemplateInstances.containsKey(entity)||constexprInstantiatedMembers.contains(entity));
+            if(instantiated)nonConstantSpecializations.add(entity);
+            else report("CPP004",range,message);
         }
         private boolean literalType(MiniType type,Set<TypeEntity> active){
             if(type.isReference()||type.isPointer()||type.isIntegerScalar()||type.unqualified().equals(MiniType.VOID)||type.unqualified().equals(MiniType.FLOAT)||type.unqualified().equals(MiniType.DOUBLE)||type.isNullPointer())return true;
@@ -1243,6 +1254,7 @@ public final class CppNameBinder {
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;
             instantiating.add(entity);
             instanceLookup.put(entity, definition.lookup);
+            if(!definition.source.parameters().isEmpty())constexprTemplateClasses.add(entity);
             currentTemplateLookup = definition.lookup;
             int bodyDiagnostics=diagnostics.size();
             try {
@@ -2109,6 +2121,7 @@ public final class CppNameBinder {
         }
 
         private void bindConstructor(Constructor constructor, boolean aggregateList) {
+            if(constexprTemplateClasses.contains(constructor.owner))constexprInstantiatedMembers.add(constructor.function);
             if(!constructor.implicit&&!defaulted(constructor))constexprFunction(constructor.function,constructor.source.constexprSpecifier(),constructor.source.body(),constructor.source.range());
             exceptionSource(constructor.function,constructor.source.exceptionSpecification(),
                     constructor.source.parameters(),constructor.parameterTypes,constructor.owner.owner,constructor.owner,constructor.owner.type.pointerTo(),
@@ -2179,7 +2192,8 @@ public final class CppNameBinder {
                 }
                 // A genuinely deleted defaulted constructor is exempt. Missing constexpr
                 // initialization alone must not silently turn a usable default constructor into a deleted one.
-                if (!deletedConstructors.containsKey(constructor.function)) diagnostics.addAll(constexprInitializationErrors);
+                if (!deletedConstructors.containsKey(constructor.function)) for(Diagnostic error:constexprInitializationErrors)
+                    constexprRequirementFailure(constructor.function,error.range(),error.message());
                 FunctionDecl core = mapped(original, new FunctionDecl(constructor.function.coreName, MiniType.VOID,
                         parameters, original.variadic(), body, false, original.range()));
                 functions.add(core); declarations.add(core);
@@ -2406,6 +2420,7 @@ public final class CppNameBinder {
         }
 
         private void bindMethod(Method method, Namespace namespace) {
+            if(constexprTemplateClasses.contains(method.owner))constexprInstantiatedMembers.add(method.function);
             exceptionSource(method.function,method.source.method().exceptionSpecification(),method.source.method().parameters(),method.parameterTypes,
                     namespace,method.owner,method.source.staticMember()?null:methodThisType(method.owner,method.source),
                     defaulted(method)&&!userProvidedDefaulted.contains(method.function),method.source.method().range());
@@ -2416,7 +2431,8 @@ public final class CppNameBinder {
             }
             FunctionDecl original = method.source.method();
             if(!lambdaTypes.containsKey(method.owner)&&(!defaulted(method)||original.constexprSpecifier()))constexprFunction(method.function,original.constexprSpecifier(),original.body(),original.range());
-            else if(lambdaTypes.containsKey(method.owner)&&lambdaTypes.get(method.owner).source.constexprSpecifier()&&!constexprBodyAllowed(original.body()))report("CPP004",original.range(),"Invalid constexpr lambda body");
+            else if(lambdaTypes.containsKey(method.owner)&&lambdaTypes.get(method.owner).source.constexprSpecifier())
+                constexprFunction(method.function,true,original.body(),original.range());
             MiniType returnPattern=methodReturnType(method);
             if(returnPattern.containsAuto()&&!original.hasBody()) { autoReturnPatterns.put(method.function,returnPattern); return; }
             requireSupportedCallLifetime(methodReturnType(method), method.parameterTypes, original.range());
