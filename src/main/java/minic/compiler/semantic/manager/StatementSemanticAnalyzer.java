@@ -130,7 +130,7 @@ public final class StatementSemanticAnalyzer {
             if (!neverReturns(body)) {
                 report(currentFunction.range(), "noreturn 函数可能返回：" + currentFunction.name());
             }
-        } else if (!currentFunction.returnType().isVoid() && !alwaysReturns(body)) {
+        } else if (!currentFunction.returnType().isVoid() && !alwaysReturns(body) && !neverReturns(body)) {
             report(currentFunction.range(), "函数必须在所有路径返回值：" + currentFunction.name());
         }
     }
@@ -164,6 +164,7 @@ public final class StatementSemanticAnalyzer {
     private void analyzeStatement(Statement statement, Scope scope) {
         switch (statement) {
             case BlockStmt blockStmt -> analyzeBlock(blockStmt, scope, true);
+            case Statement.DeclGroupStmt group -> group.statements().forEach(child->analyzeStatement(child,scope));
             case CleanupScopeStmt cleanup -> {
                 // Bind the action before entering the body; later local shadows must not change it.
                 MiniType actionType = expressionAnalyzer.analyzeExpression(cleanup.cleanup(), scope);
@@ -358,6 +359,7 @@ public final class StatementSemanticAnalyzer {
         if (statement instanceof ReturnStmt) {
             return true;
         }
+        if(statement instanceof Statement.DeclGroupStmt group)return group.statements().stream().anyMatch(this::alwaysReturns);
         if (statement instanceof BlockStmt blockStmt) {
             return blockStmt.statements().stream().anyMatch(this::alwaysReturns);
         }
@@ -370,6 +372,7 @@ public final class StatementSemanticAnalyzer {
     }
 
     private boolean neverReturns(Statement statement) {
+        if(statement instanceof Statement.DeclGroupStmt group)return group.statements().stream().anyMatch(this::neverReturns);
         if (statement instanceof CleanupScopeStmt cleanup)
             return neverReturns(cleanup.body()) || isNoReturnExpression(cleanup.cleanup());
         if (statement instanceof ReturnStmt) {
@@ -428,6 +431,7 @@ public final class StatementSemanticAnalyzer {
     }
 
     private boolean canBreakCurrentLoop(Statement statement, int nestedLoopDepth) {
+        if(statement instanceof Statement.DeclGroupStmt group)return group.statements().stream().anyMatch(child->canBreakCurrentLoop(child,nestedLoopDepth));
         if (statement instanceof CleanupScopeStmt cleanup)
             return canBreakCurrentLoop(cleanup.body(), nestedLoopDepth);
         if (statement instanceof BreakStmt) {

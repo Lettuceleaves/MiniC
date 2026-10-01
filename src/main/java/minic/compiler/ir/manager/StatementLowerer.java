@@ -141,6 +141,7 @@ final class StatementLowerer {
             }
             return;
         }
+        if(statement instanceof Statement.DeclGroupStmt group){group.statements().forEach(this::lowerStatement);return;}
         if (statement instanceof BlockStmt blockStmt) {
             lowerBlock(blockStmt, true);
             return;

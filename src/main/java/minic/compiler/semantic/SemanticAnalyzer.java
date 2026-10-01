@@ -400,6 +400,7 @@ public final class SemanticAnalyzer extends Stage {
     private void appendChildNodes(Object node, ArrayList<Object> nodes) {
         switch (node) {
             case BlockStmt blockStmt -> blockStmt.statements().forEach(statement -> appendVisitNode(statement, nodes));
+            case minic.compiler.parser.node.Statement.DeclGroupStmt group -> group.statements().forEach(statement -> appendVisitNode(statement,nodes));
             case minic.compiler.parser.node.CleanupScopeStmt cleanup -> {
                 appendVisitNode(cleanup.body(), nodes);
                 appendVisitNode(cleanup.cleanup(), nodes);

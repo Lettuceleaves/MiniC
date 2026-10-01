@@ -1364,12 +1364,27 @@ public final class Parser extends Stage {
 
         public ParsedNamedType parseNamedType(String expectedTypeMessage, String expectedNameMessage,
                                              boolean allowQualifiedName, boolean allowOperatorName) {
-            List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs = parseAlignmentSpecs();
-            BaseType baseType = parseBaseType(expectedTypeMessage);
-            if (baseType == null) {
-                return null;
-            }
-            Declarator declarator = parseDeclarator(expectedNameMessage, true, allowQualifiedName, baseType.type().isReference());
+            DeclarationSpecifiers specifiers=parseDeclarationSpecifiers(expectedTypeMessage);
+            return specifiers==null?null:parseNamedDeclarator(specifiers,expectedNameMessage,allowQualifiedName,allowOperatorName,specifiers.range());
+        }
+
+        /** Shared declaration specifiers do not include any individual pointer, reference, array or function declarator. */
+        public record DeclarationSpecifiers(MiniType type,List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs,SourceRange range){
+            public DeclarationSpecifiers{alignmentSpecs=List.copyOf(alignmentSpecs);}
+        }
+        public DeclarationSpecifiers parseDeclarationSpecifiers(String expectedTypeMessage){
+            List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignments=parseAlignmentSpecs();
+            BaseType base=parseBaseType(expectedTypeMessage);if(base==null)return null;
+            SourceRange start=alignments.isEmpty()?base.startToken().range():alignments.getFirst().range();
+            return new DeclarationSpecifiers(base.type(),alignments,SourceRange.span(start,base.endToken().range()));
+        }
+        public ParsedNamedType parseNamedDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
+            return parseNamedDeclarator(specifiers,expectedNameMessage,false,false,first?specifiers.range():context.peek().range());
+        }
+        private ParsedNamedType parseNamedDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,
+                                                     boolean allowQualifiedName,boolean allowOperatorName,SourceRange startRange){
+            List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs=specifiers.alignmentSpecs();
+            Declarator declarator = parseDeclarator(expectedNameMessage, true, allowQualifiedName, specifiers.type().isReference());
             if (declarator == null || declarator.name().isEmpty()) {
                 return null;
             }
@@ -1377,7 +1392,7 @@ public final class Parser extends Stage {
                 context.report(declarator.operatorName().range(), "此声明不能使用运算符函数名称");
                 return null;
             }
-            MiniType resolvedType = resolveDeclarator(declarator, baseType.type());
+            MiniType resolvedType = resolveDeclarator(declarator, specifiers.type());
             if (declarator.operatorName() != null && !(resolvedType.unqualified() instanceof MiniType.FunctionType)) {
                 context.report(declarator.operatorName().range(), "运算符名称必须声明函数");
                 return null;
@@ -1399,9 +1414,7 @@ public final class Parser extends Stage {
                 resolvedParameters = List.of();
                 resolvedVariadic = false;
             }
-            SourceRange declarationRange = alignmentSpecs.isEmpty()
-                    ? SourceRange.span(baseType.startToken().range(), declarator.endToken().range())
-                    : SourceRange.span(alignmentSpecs.getFirst().range(), declarator.endToken().range());
+            SourceRange declarationRange = SourceRange.span(startRange,declarator.endToken().range());
             return new ParsedNamedType(
                     declarator.name(),
                     resolvedType,

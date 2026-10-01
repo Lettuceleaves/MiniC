@@ -403,32 +403,34 @@ public final class StatementManager {
             if(constexpr)state.report(state.peek(),"A structured binding cannot be constexpr in C++17");
             return parseStructuredBinding(false);
         }
-        Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望变量类型", "期望变量名");
-        if (typeReader.isCpp() && declaration != null) {
-            typeReader.declareOrdinaryName(declaration.name(), declaration.range());
-            if (declaration.type().isFunction()) {
-                state.unsupportedCpp(declaration.range(), "块作用域函数声明尚未实现；空括号或参数类型列表声明函数，不会默认构造变量");
+        var specifiers=typeReader.parseDeclarationSpecifiers("期望变量类型");
+        if(specifiers==null)return null;
+        var declarations=new ArrayList<Statement>();boolean first=true;
+        do {
+            Parser.ParsedNamedType declaration=typeReader.parseNamedDeclarator(specifiers,"期望变量名",first);
+            if(declaration==null)return null;
+            // Each name enters the shared scope at its own declarator, before its initializer.
+            typeReader.declareOrdinaryName(declaration.name(),declaration.range());
+            if(typeReader.isCpp()){
+                if(declaration.type().isFunction())state.unsupportedCpp(declaration.range(),"块作用域函数声明尚未实现；空括号或参数类型列表声明函数，不会默认构造变量");
             }
-        }
-        ParsedInitializer initialization = parseVariableInitializer(declaration == null ? null : declaration.type(),
-                declaration == null ? state.peek().range() : declaration.range());
-        Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");
-
-        if (declaration == null || semicolonToken == null) {
-            return null;
-        }
-        VarDeclStmt varDeclStmt = new VarDeclStmt(
-                declaration.name(),
-                declaration.type(),
-                initialization.expression(),
-                declaration.alignmentSpecs(),
-                initialization.cppInitializer(),
-                storage != null,
-                SourceRange.span(firstSpecifier.range(), semicolonToken.range())
-        ).withConstexprSpecifier(constexpr);
-        if (!typeReader.isCpp()) typeReader.declareOrdinaryName(varDeclStmt.name(), varDeclStmt.range());
-        state.build(varDeclStmt, "VarDeclStmt " + varDeclStmt.name(), varDeclStmt.range());
-        return varDeclStmt;
+            ParsedInitializer initialization=parseVariableInitializer(declaration.type(),declaration.range());
+            SourceRange end=initialization.cppInitializer()!=null&&initialization.cppInitializer().kind()!=CppInitializer.Kind.DEFAULT
+                    ?initialization.cppInitializer().range():initialization.expression()!=null?initialization.expression().range():declaration.range();
+            SourceRange start=first?firstSpecifier.range():declaration.range();
+            SourceRange range=SourceRange.span(start,end);
+            if(!state.check(TokenType.COMMA)){
+                Token semicolon=state.consume(TokenType.SEMICOLON,"期望 ';'");if(semicolon==null)return null;
+                range=SourceRange.span(start,semicolon.range());
+            }
+            VarDeclStmt variable=new VarDeclStmt(declaration.name(),declaration.type(),initialization.expression(),
+                    declaration.alignmentSpecs(),initialization.cppInitializer(),storage!=null,range).withConstexprSpecifier(constexpr);
+            declarations.add(variable);state.build(variable,"VarDeclStmt "+variable.name(),variable.range());first=false;
+            if(state.previous().type()==TokenType.SEMICOLON)break;
+        }while(state.match(TokenType.COMMA));
+        if(declarations.size()==1)return declarations.getFirst();
+        var group=new Statement.DeclGroupStmt(declarations,SourceRange.span(firstSpecifier.range(),state.previous().range()));
+        state.build(group,"DeclGroupStmt",group.range());return group;
     }
 
     public CppStructuredBindingDecl parseStructuredBinding(boolean rangeDeclaration) {

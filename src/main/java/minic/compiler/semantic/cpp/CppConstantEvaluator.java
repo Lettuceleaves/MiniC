@@ -459,6 +459,7 @@ public final class CppConstantEvaluator {
     private Completion execute(Statement statement,Frame frame){
         if(statement==null)return Completion.normal();tick(statement.range());
         return switch(statement){
+            case DeclGroupStmt group -> {Completion flow=Completion.normal();for(Statement child:group.statements()){flow=execute(child,frame);if(flow.flow!=Flow.NORMAL)break;}yield flow;}
             case BlockStmt block -> {Frame nested=new Frame(frame,frame.returnStorage);try{Completion flow=Completion.normal();for(Statement child:block.statements()){flow=execute(child,nested);if(flow.flow!=Flow.NORMAL)break;}yield flow;}finally{close(nested);}}
             case VarDeclStmt variable -> {
                 if(variable.staticStorage())throw fail(variable.range(),"Static locals are not permitted in constexpr functions");

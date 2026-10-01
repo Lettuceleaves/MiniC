@@ -21,6 +21,15 @@ public interface Statement extends AstNode {
         }
     }
 
+    /** Consecutive declarations in one statement. This node never creates a lexical scope. */
+    record DeclGroupStmt(List<Statement> statements,SourceRange range) implements Statement {
+        public DeclGroupStmt {
+            statements=List.copyOf(Objects.requireNonNull(statements,"statements"));
+            Objects.requireNonNull(range,"range");
+            if(statements.isEmpty())throw new IllegalArgumentException("A declaration group cannot be empty");
+        }
+    }
+
     record BreakStmt(SourceRange range) implements Statement {
         public BreakStmt {
             Objects.requireNonNull(range, "range");

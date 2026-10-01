@@ -3361,10 +3361,28 @@ public final class CppNameBinder {
                 else {
                     Statement bound = statement(node, scope);
                     result.addAll(localPreludes.getOrDefault(bound, List.of()));
-                    result.add(bound);
+                    result.addAll(transparentStatements(bound));
                 }
             }
             return withLocalCleanups(result);
+        }
+
+        private List<Statement> transparentStatements(Statement node){
+            if(node==null)return List.of();
+            if(node instanceof DeclGroupStmt group){var result=new ArrayList<Statement>();for(Statement child:group.statements())result.addAll(transparentStatements(child));return result;}
+            return List.of(node);
+        }
+        private MiniType autoGroupType(MiniType pattern,MiniType actual){
+            if(pattern instanceof MiniType.QualifiedType qualified)return autoGroupType(qualified.baseType(),actual.unqualified());
+            if(pattern instanceof MiniType.AutoType)return actual;
+            if(pattern.isReference()&&actual.isReference())return autoGroupType(pattern.referent(),actual.referent());
+            if(pattern.isPointer()&&actual.isPointer())return autoGroupType(pattern.pointee(),actual.pointee());
+            if(pattern.isArray()&&actual.isArray())return autoGroupType(pattern.elementType(),actual.elementType());
+            return actual;
+        }
+        private boolean crossesLocalInitialization(Statement node){
+            if(node instanceof DeclGroupStmt group)return group.statements().stream().anyMatch(this::crossesLocalInitialization);
+            return node instanceof CppStructuredBindingDecl||node instanceof VarDeclStmt variable&&(variable.initializer()!=null||localCleanups.containsKey(origins.get(variable)));
         }
 
         private List<Statement> withLocalCleanups(List<Statement> nodes) {
@@ -3395,6 +3413,20 @@ public final class CppNameBinder {
             Statement core = switch (node) {
                 case minic.compiler.parser.node.CppStaticAssertDecl n -> {staticAssertion(n,namespace,scope);yield new BlockStmt(List.of(),n.range());}
                 case BlockStmt n -> block(n, scope, true);
+                case DeclGroupStmt group -> {
+                    var result=new ArrayList<Statement>();MiniType commonAuto=null;
+                    for(Statement declaration:group.statements()){
+                        Statement bound=statement(declaration,scope);
+                        result.addAll(localPreludes.getOrDefault(bound,List.of()));result.addAll(transparentStatements(bound));
+                        if(declaration instanceof VarDeclStmt variable&&variable.type().containsAuto()&&scope.values.get(variable.name()) instanceof Entity entity){
+                            MiniType deduced=autoGroupType(variable.type(),entity.type);
+                            if(commonAuto!=null&&!commonAuto.equals(deduced))report("CPP004",variable.range(),"All declarators sharing auto must deduce the same placeholder type");
+                            else commonAuto=deduced;
+                        }
+                    }
+                    yield new DeclGroupStmt(result,group.range());
+                }
+
                 case CppStructuredBindingDecl n -> structuredBinding(n,namespace,scope);
                 case VarDeclStmt n -> {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
@@ -3455,10 +3487,10 @@ public final class CppNameBinder {
                     Expression step = fullExpression(expression(n.step(), namespace, loop), false, n);
                     // C++ forbids redeclaring the for-init name in the body's outermost block.
                     Statement loopBody = n.body() instanceof BlockStmt b ? block(b, loop, false) : body(n.body(), loop);
-                    if (localCleanups.containsKey(initializer) || localPreludes.containsKey(initializer)) {
+                    if (transparentStatements(initializer).stream().anyMatch(item->localCleanups.containsKey(item)||localPreludes.containsKey(item))) {
                         ForStmt loopStatement = new ForStmt(null, condition, step, loopBody, n.range());
                         List<Statement> sequence = new ArrayList<>(localPreludes.getOrDefault(initializer, List.of()));
-                        sequence.add(initializer); sequence.add(loopStatement);
+                        sequence.addAll(transparentStatements(initializer)); sequence.add(loopStatement);
                         yield new BlockStmt(withLocalCleanups(sequence), n.range());
                     }
                     yield new ForStmt(initializer, condition, step, loopBody, n.range());
@@ -3476,7 +3508,7 @@ public final class CppNameBinder {
                         catch(IllegalArgumentException invalid){report("CPP004",item.range(),"Case label is not an integral constant expression: "+invalid.getMessage());}
                         cases.add(mapped(item, new SwitchCase(value, statements(item.statements(), casesScope), item.range())));
                         crossesInitialization |= item.statements().stream()
-                                .anyMatch(s -> s instanceof CppStructuredBindingDecl || s instanceof VarDeclStmt v && (v.initializer() != null || localCleanups.containsKey(origins.get(v))));
+                                .anyMatch(this::crossesLocalInitialization);
                     }
                     yield new SwitchStmt(selector, cases, n.range());
                 }
