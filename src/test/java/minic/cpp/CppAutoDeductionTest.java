@@ -64,11 +64,19 @@ final class CppAutoDeductionTest {
         Arguments.of("mixed-return-types","auto f(int x){if(x)return 1;return 1.0; // bad\n}int main(){return 0;}"),
         Arguments.of("call-before-return-deduction","auto f();int main(){return f(); // bad\n}auto f(){return 1;}"),
         Arguments.of("recursive-before-return-deduction","auto f(int x){return x?f(x-1):0; // bad\n}int main(){return 0;}"),
-        Arguments.of("qualified-decltype-auto","int main(){const decltype(auto)x=1; // bad\nreturn 0;}"),
         Arguments.of("ordinary-auto-parameter","int f(auto x){return x;} // bad\nint main(){return 0;}")
     );}
     @ParameterizedTest(name="{0}") @MethodSource("invalidPrograms")
     void rejectsUndeducibleOrInconsistentTypes(String name,String source)throws Exception{reject(temporary,name,source);}
+    @Test void decltypeAutoCannotHaveAdditionalCvQualifiers(){
+        // N4659 [dcl.type.auto.deduct]/5; G++ 8.1 accepts this invalid declaration.
+        // https://timsong-cpp.github.io/cppwp/n4659/dcl.type.auto.deduct#5
+        var api=compiler("int main(){const decltype(auto)x=1;return 0;}");
+        var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);
+        assertFalse(semantic.succeeded());
+        assertTrue(semantic.errors().stream().anyMatch(d->d.code().equals("CPP004")
+                && d.message().contains("decltype(auto) cannot have additional")),()->semantic.errors().toString());
+    }
     @Test void sourcePlaceholdersRemainSourceOnly(){
         var api=compiler("int main(){auto value=3;decltype((value))alias=value;return alias-3;}");
         var parser=stage(api,Parser.class);var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);

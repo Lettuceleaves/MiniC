@@ -51,7 +51,6 @@ final class CppStructuredBindingTest {
         Arguments.of("count","int main(){int a[2]={};auto[x]=a; // bad\nreturn 0;}"),
         Arguments.of("duplicate","int main(){int a[2]={};auto[x,x]=a; // bad\nreturn 0;}"),
         Arguments.of("scalar","int main(){auto[x]=2; // bad\nreturn 0;}"),
-        Arguments.of("missing-initializer","int main(){auto[x,y]; // bad\nreturn 0;}"),
         Arguments.of("const-write","int main(){int a[2]={};const auto&[x,y]=a;x=3; // bad\nreturn 0;}"),
         Arguments.of("private-field","class Pair{int a;public:int b;};int main(){Pair p;auto&[x,y]=p; // bad\nreturn 0;}"),
         Arguments.of("union","union Pair{int a;int b;};int main(){Pair p={};auto&[x]=p; // bad\nreturn 0;}"),
@@ -65,6 +64,14 @@ final class CppStructuredBindingTest {
     @ParameterizedTest(name="{0}") @MethodSource("invalidPrograms")
     void rejectsInvalidBinding(String name,String source)throws Exception{reject(temporary,name,source);}
 
+    @Test void missingInitializerIsRejectedAtTheBindingDeclaration(){
+        var api=compiler("int main(){auto[x,y];return 0;}");
+        var parser=stage(api,Parser.class);api.runThrough(parser);
+        assertFalse(parser.succeeded());
+        assertTrue(parser.errors().stream().anyMatch(d->d.code().equals("PAR001")
+                && d.message().contains("structured binding requires an initializer")
+                && d.range().startLine()==1),()->parser.errors().toString());
+    }
     @Test void preservesEveryBindingOriginAndHasNoSourceSyntaxInCore(){
         var api=compiler("int main(){int values[2]={1,2};auto&[left,right]=values;left=7;return right-2;}");
         var parser=stage(api,Parser.class);var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);
