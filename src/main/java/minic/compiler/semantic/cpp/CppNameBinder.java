@@ -3750,9 +3750,10 @@ public final class CppNameBinder {
                         Expression outer=expression(new ThisExpr(capture.initializer.range()),lambda.namespace,lambda.lexicalScope,true);
                         return capture.type.isPointer()?outer:typed(new UnaryExpr(TokenType.STAR,outer,outer.range()),capture.type);
                     }
-                    if(capture.reference)return bindReference(capture.type,capture.initializer,lambda.namespace,lambda.lexicalScope,capture.initializer.range());
+                    // An init-capture owns declaration-initialization syntax, including reference forms.
                     if(capture.source!=null&&capture.source.initializer()!=null)return variableInitializer(capture.type,capture.source.initializer(),
                             capture.source.initializer(),lambda.namespace,lambda.lexicalScope,capture.source.range(),capture.name);
+                    if(capture.reference)return bindReference(capture.type,capture.initializer,lambda.namespace,lambda.lexicalScope,capture.initializer.range());
                     return expression(capture.initializer,lambda.namespace,lambda.lexicalScope,true);
                 });
                 initializations.add(lambdaInitialize(target,capture.type,value,capture.initializer.range()));

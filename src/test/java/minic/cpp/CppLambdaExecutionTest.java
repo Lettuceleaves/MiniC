@@ -18,6 +18,10 @@ import static org.junit.jupiter.api.Assertions.*;
 final class CppLambdaExecutionTest {
     @TempDir Path temporary;
     static Stream<Arguments> programs(){return Stream.of(
+        Arguments.of("init-reference-parentheses","#include <stdio.h>\nint main(){int a[2]={3,4};int i=0;auto f=[&r(a[i++])](){r+=2;};f();printf(\"%d %d\\n\",a[0],i);return 0;}","5 1\n"),
+        Arguments.of("init-copy-drops-top-const","#include <stdio.h>\nint main(){const int x=3;auto f=[copy=x]()mutable{return ++copy;};printf(\"%d %d\\n\",f(),x);return 0;}","4 3\n"),
+        Arguments.of("init-reference-keeps-array","#include <stdio.h>\nint main(){int a[2]={3,4};auto f=[&r=a](){r[1]=7;return (int)sizeof(r);};int size=f();printf(\"%d %d\\n\",size,a[1]);return 0;}","8 7\n"),
+        Arguments.of("const-pointer-copy-allows-pointee-write","#include <stdio.h>\nint main(){int a=3;int*const p=&a;auto f=[p](){*p=7;};f();printf(\"%d\\n\",a);return 0;}","7\n"),
         Arguments.of("captureless-call","#include <stdio.h>\nint main(){auto twice=[](int n){return n*2;};printf(\"%d\\n\",twice(4));return 0;}","8\n"),
         Arguments.of("immediate-call","#include <stdio.h>\nint main(){printf(\"%d\\n\",[](int n){return n+3;}(4));return 0;}","7\n"),
         Arguments.of("copy-capture-snapshot","#include <stdio.h>\nint main(){int x=2;auto f=[x](){return x;};x=7;printf(\"%d %d\\n\",f(),x);return 0;}","2 7\n"),
@@ -42,10 +46,11 @@ final class CppLambdaExecutionTest {
     @ParameterizedTest(name="{0}") @MethodSource("programs")
     void agreesWithCpp(String name,String source,String expected)throws Exception{agree(temporary,name,source,expected);}
     static Stream<Arguments> invalidPrograms(){return Stream.of(
+        Arguments.of("mutable-simple-copy-retains-const","int main(){const int x=3;auto f=[x]()mutable{x++; // bad\n};return 0;}"),
+        Arguments.of("reference-init-retains-const","int main(){const int x=3;auto f=[&r=x](){r++; // bad\n};return 0;}"),
         Arguments.of("missing-capture","int main(){int x=2;auto f=[](){return x; // bad\n};return 0;}"),
         Arguments.of("write-copy-without-mutable","int main(){int x=2;auto f=[x](){x++; // bad\n};return 0;}"),
         Arguments.of("duplicate-capture","int main(){int x=2;auto f=[x,x](){return x;}; // bad\nreturn 0;}"),
-        Arguments.of("capture-parameter-conflict","int main(){int x=2;auto f=[x](int x){return x;}; // bad\nreturn 0;}"),
         Arguments.of("capture-global-simple","int x;int main(){auto f=[x](){return x;}; // bad\nreturn 0;}"),
         Arguments.of("missing-this-capture","struct X{int n;auto f(){return [](){return n; // bad\n};}};int main(){return 0;}"),
         Arguments.of("reference-init-prvalue","int main(){auto f=[&x=3](){return x;}; // bad\nreturn 0;}"),
@@ -59,6 +64,17 @@ final class CppLambdaExecutionTest {
     );}
     @ParameterizedTest(name="{0}") @MethodSource("invalidPrograms")
     void rejectsInvalidClosure(String name,String source)throws Exception{reject(temporary,name,source);}
+    @Test void lambdaParameterCannotRedeclareACaptureName() {
+        // N4659 [expr.prim.lambda.capture]/5; MinGW G++ 8.1 incorrectly accepts this source.
+        // https://timsong-cpp.github.io/cppwp/n4659/expr.prim.lambda.capture#5
+        var api=compiler("int main(){int x=2;auto f=[x](int x){return x;};return 0;}");
+        var parser=stage(api,Parser.class);var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);
+        assertTrue(parser.succeeded(),()->parser.errors().toString());
+        assertFalse(semantic.succeeded());
+        assertTrue(semantic.errors().stream().anyMatch(d->d.code().equals("CPP004")
+                && d.message().contains("lambda parameter cannot redeclare a capture name")),()->semantic.errors().toString());
+    }
+
     @Test void closureKeepsSourceIdentityAndUsesOrdinaryCoreStorage(){
         var api=compiler("int main(){int x=3;auto f=[&x](int y){x+=y;return x;};return f(2)-5;}");
         var parser=stage(api,Parser.class);var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);
