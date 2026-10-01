@@ -28,7 +28,7 @@ final class StandardLibraryContractTest {
             "ExitProcess",
             "minic_stdout_stream",
             "minic_iob_base",
-            "minic_ucrt_strtof",
+            "minic_ucrt_strtod", "minic_ucrt_strtof",
             "minic_ucrt_errno_location",
             "minic_set_process_error_mode",
             "minic_isctype",
