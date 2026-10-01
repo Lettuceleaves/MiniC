@@ -387,8 +387,8 @@ public final class StructRegistry {
                 report(specification.range(), "alignas 对齐值必须是 2 的幂");
                 continue;
             }
-            if (alignment > 16) {
-                report(specification.range(), "当前后端不支持超过 16 字节的显式对齐");
+            if (alignment > 8192) {
+                report(specification.range(), "当前 COFF 后端支持的最大显式对齐为 8192 字节");
                 continue;
             }
             if (alignment > requested) {

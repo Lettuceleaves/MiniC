@@ -64,12 +64,14 @@ final class InstructionEmitter {
     }
 
     void emitParameterStores(StringBuilder builder, IrFunction function) {
+        String incomingBase = frame.realigned() ? "r11" : "rbp";
+        if (frame.realigned()) builder.append("    mov r11, ").append(frame.originalFrameSlot()).append(System.lineSeparator());
         if (function.variadic()) {
             // A va_list walks one contiguous array of eight-byte slots.  Home
             // the four register arguments into the shadow space supplied by
             // the caller so that slot 3 -> slot 4 is ordinary pointer advance.
             for (int index = 0; index < CallingConvention.INTEGER_ARGUMENT_REGISTERS.size(); index++) {
-                builder.append("    mov QWORD PTR [rbp+")
+                builder.append("    mov QWORD PTR [").append(incomingBase).append("+")
                         .append(CallingConvention.incomingArgumentSlotOffset(index))
                         .append("], ")
                         .append(CallingConvention.pointerArgumentRegister(index))
@@ -84,7 +86,7 @@ final class InstructionEmitter {
             } else {
                 int stackOffset = CallingConvention.incomingStackArgumentOffset(index);
                 String register = fullRegisterForType(parameter.type());
-                String source = memoryPrefix(parameter.type()) + " [rbp+" + stackOffset + "]";
+                String source = memoryPrefix(parameter.type()) + " [" + incomingBase + "+" + stackOffset + "]";
                 emitLoadMemoryToRegister(builder, source, parameter.type(), register);
                 emitStoreRegisterToMemory(builder, destination, parameter.type(), register);
             }
@@ -148,8 +150,15 @@ final class InstructionEmitter {
             case IrMoveInstruction move -> emitMove(builder, move);
             case IrSelectInstruction select -> emitSelect(builder, select);
             case IrAddressOfLocalInstruction addressOfLocal -> {
-                builder.append("    lea rax, ").append(frame.localAddress(addressOfLocal.local()))
-                        .append(System.lineSeparator());
+                if (frame.realigned() && addressOfLocal.local().incomingArgumentArea()) {
+                    builder.append("    mov rax, ").append(frame.originalFrameSlot()).append(System.lineSeparator());
+                    builder.append("    lea rax, [rax+")
+                            .append(CallingConvention.incomingArgumentSlotOffset(addressOfLocal.local().incomingArgumentIndex()))
+                            .append("]").append(System.lineSeparator());
+                } else {
+                    builder.append("    lea rax, ").append(frame.localAddress(addressOfLocal.local()))
+                            .append(System.lineSeparator());
+                }
                 valueEmitter.emitStoreTemporary(builder, addressOfLocal.result(), "rax");
             }
             case IrElementAddressInstruction elementAddress -> {

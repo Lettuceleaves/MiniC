@@ -40,8 +40,24 @@ record FrameLayout(
         int outgoingArgumentAreaSize,
         int frameSize,
         TemporarySlotPlan temporarySlotPlan,
-        Map<String, Integer> calleeSavedOffsets
+        Map<String, Integer> calleeSavedOffsets,
+        int stackAlignment
 ) {
+    FrameLayout(Map<String, Integer> parameterOffsets, Map<String, IrType> parameterTypes,
+                Map<String, Integer> localOffsets, Map<String, Integer> localInitializedOffsets,
+                Map<String, Integer> temporaryOffsets, int outgoingArgumentAreaSize, int frameSize,
+                TemporarySlotPlan temporarySlotPlan, Map<String, Integer> calleeSavedOffsets) {
+        this(parameterOffsets, parameterTypes, localOffsets, localInitializedOffsets, temporaryOffsets,
+                outgoingArgumentAreaSize, frameSize, temporarySlotPlan, calleeSavedOffsets, 16);
+    }
+
+    boolean realigned() { return stackAlignment > 16; }
+
+    String originalFrameSlot() {
+        if (!realigned()) throw new IllegalStateException("ordinary frame has no saved entry base");
+        return "QWORD PTR [rbp-8]";
+    }
+
     FrameLayout(Map<String, Integer> parameterOffsets, Map<String, IrType> parameterTypes,
                 Map<String, Integer> localOffsets, Map<String, Integer> localInitializedOffsets,
                 Map<String, Integer> temporaryOffsets, int outgoingArgumentAreaSize, int frameSize,
@@ -66,7 +82,7 @@ record FrameLayout(
         return new FrameLayout(parameterOffsets, parameterTypes, localOffsets, localInitializedOffsets,
                 temporaryOffsets, outgoingArgumentAreaSize,
                 CallingConvention.alignTo16(Math.addExact(nextOffset, outgoingArgumentAreaSize)),
-                temporarySlotPlan, Collections.unmodifiableMap(offsets));
+                temporarySlotPlan, Collections.unmodifiableMap(offsets), stackAlignment);
     }
 
     static FrameLayout create(IrFunction function, boolean reuseTemporarySlots) {
@@ -84,7 +100,7 @@ record FrameLayout(
         LinkedHashMap<String, Integer> localOffsets = new LinkedHashMap<>();
         LinkedHashMap<String, Integer> initializedOffsets = new LinkedHashMap<>();
         LinkedHashMap<String, Integer> temporaries = new LinkedHashMap<>();
-        int nextOffset = baseline.parameterOffsets().values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        int nextOffset = baseline.parameterOffsets().values().stream().mapToInt(Integer::intValue).max().orElse(baseline.realigned() ? Long.BYTES : 0);
         for (var block : function.blocks()) for (IrInstruction instruction : block.instructions()) {
             IrLocal local = switch (instruction) {
                 case IrDeclareLocalInstruction value -> value.local();
@@ -106,10 +122,10 @@ record FrameLayout(
             var retainedFlags = new LinkedHashMap<>(baseline.localInitializedOffsets());
             retainedFlags.keySet().retainAll(checkedLocals);
             return new FrameLayout(baseline.parameterOffsets(), baseline.parameterTypes(), baseline.localOffsets(),
-                    retainedFlags, baseline.temporaryOffsets(), baseline.outgoingArgumentAreaSize(), baseline.frameSize(), null);
+                    retainedFlags, baseline.temporaryOffsets(), baseline.outgoingArgumentAreaSize(), baseline.frameSize(), null, Map.of(), baseline.stackAlignment());
         }
         return new FrameLayout(baseline.parameterOffsets(), baseline.parameterTypes(), localOffsets, initializedOffsets,
-                temporaries, baseline.outgoingArgumentAreaSize(), frameSize, plan);
+                temporaries, baseline.outgoingArgumentAreaSize(), frameSize, plan, Map.of(), baseline.stackAlignment());
     }
 
     static FrameLayout create(IrFunction function) {
@@ -119,7 +135,9 @@ record FrameLayout(
         LinkedHashMap<String, Integer> localInitializedOffsets = new LinkedHashMap<>();
         LinkedHashMap<String, Integer> temporaryOffsets = new LinkedHashMap<>();
         int outgoingArgumentAreaSize = collectOutgoingArgumentAreaSize(function);
-        int nextOffset = 0;
+        int alignment = requiredStackAlignment(function);
+        // In realigned frames the first private slot retains the unaligned entry frame.
+        int nextOffset = alignment > 16 ? Long.BYTES : 0;
         for (IrParameter parameter : function.parameters()) {
             nextOffset += slotSize(parameter.type());
             parameterOffsets.put(parameter.name(), nextOffset);
@@ -145,8 +163,24 @@ record FrameLayout(
                 temporaryOffsets,
                 outgoingArgumentAreaSize,
                 frameSize,
-                null
+                null, Map.of(), alignment
         );
+    }
+
+    private static int requiredStackAlignment(IrFunction function) {
+        int alignment = 16;
+        for (var block : function.blocks()) for (IrInstruction instruction : block.instructions()) {
+            IrLocal local = switch (instruction) {
+                case IrDeclareLocalInstruction value -> value.local();
+                case IrCheckInitializedInstruction value -> value.local();
+                case IrAddressOfLocalInstruction value -> value.local();
+                case IrLoadLocalInstruction value -> value.local();
+                case IrStoreLocalInstruction value -> value.local();
+                default -> null;
+            };
+            if (local != null && !local.incomingArgumentArea()) alignment = Math.max(alignment, local.alignmentBytes());
+        }
+        return alignment;
     }
 
     String parameterSlot(String name) {

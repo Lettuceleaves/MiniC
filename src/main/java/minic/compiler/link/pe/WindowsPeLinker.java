@@ -94,12 +94,17 @@ public final class WindowsPeLinker {
                 FILE_ALIGNMENT
         );
         ArrayList<LinkedSection> sections = new ArrayList<>();
-        int nextRva = SECTION_ALIGNMENT;
+        // PE sections must occupy consecutive ranges rounded to the one image-wide alignment.
+        // Merely inserting RVA gaps for an over-aligned COFF section is rejected by Windows.
+        int sectionAlignment = SECTION_ALIGNMENT;
+        for (CoffSection section : object.sections()) {
+            int encoded = (section.characteristics() >>> 20) & 15;
+            if (encoded > 0) sectionAlignment = Math.max(sectionAlignment, 1 << (encoded - 1));
+        }
+        int nextRva = sectionAlignment;
         int nextRaw = headersSize;
         for (int index = 0; index < object.sections().size(); index++) {
             CoffSection section = object.sections().get(index);
-            int coffAlignment=(section.characteristics()>>>20)&15;
-            if(coffAlignment>0)nextRva=align(nextRva,Math.max(SECTION_ALIGNMENT,1<<(coffAlignment-1)));
             byte[] data = section.data();
             if (importPlan != null && ".text".equals(section.name())) {
                 int thunkStart = align(data.length, 16);
@@ -117,7 +122,7 @@ public final class WindowsPeLinker {
                     section.characteristics()
             );
             sections.add(linked);
-            nextRva = align(nextRva + Math.max(data.length, 1), SECTION_ALIGNMENT);
+            nextRva = align(nextRva + Math.max(data.length, 1), sectionAlignment);
             nextRaw += linked.rawSize;
         }
 
@@ -135,7 +140,7 @@ public final class WindowsPeLinker {
                     0xC0000040
             );
             sections.add(idata);
-            nextRva = align(nextRva + Math.max(importPlan.size, 1), SECTION_ALIGNMENT);
+            nextRva = align(nextRva + Math.max(importPlan.size, 1), sectionAlignment);
             nextRaw += idata.rawSize;
             byte[] importData = importPlan.build(idata.rva);
             System.arraycopy(importData, 0, idata.data, 0, importData.length);
@@ -175,7 +180,7 @@ public final class WindowsPeLinker {
         output.position(PE_OFFSET);
         output.putInt(0x00004550);
         writeCoffHeader(output, sections.size());
-        writeOptionalHeader(output, sections, entry.rva, nextRva, headersSize, importDirectory);
+        writeOptionalHeader(output, sections, entry.rva, nextRva, headersSize, importDirectory, sectionAlignment);
         for (LinkedSection section : sections) {
             writeSectionHeader(output, section);
         }
@@ -297,7 +302,7 @@ public final class WindowsPeLinker {
             int entryRva,
             int imageSize,
             int headersSize
-            , ImportDirectory imports
+            , ImportDirectory imports, int sectionAlignment
     ) {
         int codeSize = sections.stream()
                 .filter(section -> (section.characteristics & 0x20) != 0)
@@ -322,7 +327,7 @@ public final class WindowsPeLinker {
         output.putInt(entryRva);
         output.putInt(baseOfCode);
         output.putLong(IMAGE_BASE);
-        output.putInt(SECTION_ALIGNMENT);
+        output.putInt(sectionAlignment);
         output.putInt(FILE_ALIGNMENT);
         output.putShort((short) 6);
         output.putShort((short) 0);

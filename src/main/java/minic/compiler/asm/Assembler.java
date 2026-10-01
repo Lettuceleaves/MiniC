@@ -421,6 +421,11 @@ public final class Assembler extends Stage {
                         return structure("    push rbp");
                     }
                     case PROLOG_MOV -> {
+                        if (frame.realigned()) {
+                            enqueueRealignedPrologue();
+                            section = FunctionSection.CALLEE_SAVES;
+                            continue;
+                        }
                         section = frame.frameSize() > 0 ? FunctionSection.PROLOG_SUB : FunctionSection.CALLEE_SAVES;
                         return structure("    mov rbp, rsp");
                     }
@@ -460,7 +465,7 @@ public final class Assembler extends Stage {
                     }
                     case EPILOGUE_MOV -> {
                         section = FunctionSection.EPILOGUE_POP;
-                        return structure("    mov rsp, rbp");
+                        return structure(frame.realigned() ? "    mov rsp, " + frame.originalFrameSlot() : "    mov rsp, rbp");
                     }
                     case EPILOGUE_POP -> {
                         section = FunctionSection.EPILOGUE_RET;
@@ -514,6 +519,22 @@ public final class Assembler extends Stage {
 
         private SourceRange currentRange() {
             return currentRange;
+        }
+
+        private void enqueueRealignedPrologue() {
+            String probe = functionSymbol + "$align_probe", done = functionSymbol + "$align_probe_done";
+            // RAX/R10/R11 are volatile and are not Win64 argument registers. Preserve the original
+            // frame for incoming stack arguments, va_start, and exact stack restoration.
+            // Probe each intervening guard page before publishing the new stack pointer.
+            // Win64 user addresses are nonnegative, so the signed comparison is equivalent here.
+            List<String> lines = List.of("    mov rax, rsp", "    mov r11, rsp",
+                    "    and r11, -" + frame.stackAlignment(), "    mov rbp, r11",
+                    "    sub r11, " + frame.frameSize(), "    mov r10, rsp",
+                    probe + ":", "    sub r10, 4096", "    cmp r11, r10", "    jge " + done,
+                    "    mov BYTE PTR [r10], 0", "    jmp " + probe, done + ":",
+                    "    mov BYTE PTR [r11], 0", "    mov rsp, r11",
+                    "    mov " + frame.originalFrameSlot() + ", rax");
+            lines.forEach(line -> pendingInstructionLines.add(new PendingInstructionLine(line, null)));
         }
 
         private void enqueueCalleeSavedTransfers(boolean restore) {
