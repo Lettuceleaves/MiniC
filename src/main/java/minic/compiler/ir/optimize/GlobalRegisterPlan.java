@@ -44,8 +44,7 @@ public final class GlobalRegisterPlan {
             for (var block : function.blocks()) for (int i = 0; i < block.instructions().size(); i++) {
                 var fusion = branches.at(block.label(), i);
                 if (fusion != null) {
-                    fusedTemporaries.add(fusion.comparison().result().name());
-                    if (fusion.branch().condition() instanceof IrTemporary temporary) fusedTemporaries.add(temporary.name());
+                    for (var temporary : fusion.discardedTemporaries()) fusedTemporaries.add(temporary.name());
                 }
             }
         }

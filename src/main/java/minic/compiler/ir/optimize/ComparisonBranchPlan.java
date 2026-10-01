@@ -9,7 +9,16 @@ import java.util.*;
 
 /** Native emission groups only; leaves the source/debug IR and its ranges unchanged. */
 public final class ComparisonBranchPlan {
-    public record Fusion(IrBinaryInstruction comparison, IrBranchInstruction branch, int instructionCount) { }
+    /** Branch targets are expressed in terms of the original comparison's truth value. */
+    public record Fusion(IrBinaryInstruction comparison, IrBranchInstruction branch, int instructionCount,
+                         List<IrTemporary> discardedTemporaries) {
+        public Fusion { discardedTemporaries = List.copyOf(discardedTemporaries); }
+        public Fusion(IrBinaryInstruction comparison, IrBranchInstruction branch, int instructionCount) {
+            this(comparison, branch, instructionCount,
+                    branch.condition() instanceof IrTemporary condition && !condition.equals(comparison.result())
+                            ? List.of(comparison.result(), condition) : List.of(comparison.result()));
+        }
+    }
     private final Map<String,Map<Integer,Fusion>> groups;
 
     private ComparisonBranchPlan(IrFunction function) {
@@ -28,14 +37,23 @@ public final class ComparisonBranchPlan {
                         || comparison.left().type()!=comparison.right().type()
                         || !comparison.result().type().isIntegerScalar()
                         || !single(comparison.result(),definitions,uses))continue;
-                int next=i+1;IrTemporary condition=comparison.result();
-                if(next<code.size() && code.get(next) instanceof IrCastInstruction cast) {
-                    if(cast.result().type()!=IrType.BOOL || !cast.value().equals(condition)
-                            || !single(cast.result(),definitions,uses))continue;
-                    condition=cast.result();next++;
+                int next=i+1;IrTemporary condition=comparison.result();boolean inverted=false;
+                var discarded=new ArrayList<IrTemporary>();discarded.add(condition);
+                while(next<code.size()) {
+                    if(code.get(next) instanceof IrCastInstruction cast && cast.result().type()==IrType.BOOL
+                            && cast.value().equals(condition) && single(cast.result(),definitions,uses)) {
+                        condition=cast.result();
+                    } else if(code.get(next) instanceof IrUnaryInstruction unary && unary.operator()==IrUnaryOperator.LOGICAL_NOT
+                            && unary.result().type().isIntegerScalar() && unary.operand().equals(condition)
+                            && single(unary.result(),definitions,uses)) {
+                        condition=unary.result();inverted=!inverted;
+                    } else break;
+                    discarded.add(condition);next++;
                 }
                 if(next<code.size() && code.get(next) instanceof IrBranchInstruction branch && branch.condition().equals(condition)) {
-                    matches.put(i,new Fusion(comparison,branch,next-i+1));i=next;
+                    // Swapping targets preserves unordered floating comparisons: !(a<b) is not a>=b for NaN.
+                    var targets=inverted?new IrBranchInstruction(branch.condition(),branch.elseLabel(),branch.thenLabel(),branch.range()):branch;
+                    matches.put(i,new Fusion(comparison,targets,next-i+1,discarded));i=next;
                 }
             }
             if(!matches.isEmpty())planned.put(block.label(),Map.copyOf(matches));
