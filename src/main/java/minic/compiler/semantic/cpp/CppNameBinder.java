@@ -3261,7 +3261,7 @@ public final class CppNameBinder {
             try {
                 BlockStmt body = node.body() == null ? null : block(node.body(), scope, false);
                 if (body != null && namespace == root && node.name().equals("main")
-                        && returnType.equals(MiniType.INT) && instantiated == null) {
+                        && returnType.equals(MiniType.INT) && instantiated == null && !endsWithReturn(body)) {
                     // [basic.start.main]: reaching the end has the effect of return 0.
                     // Bind the original body first so fallthrough runs its lexical cleanups;
                     // explicit returns terminate before this synthetic final statement.
@@ -3276,6 +3276,16 @@ public final class CppNameBinder {
                         node.variadic(), body, node.external() && !internalLinkages.getOrDefault(entity, false), node.noReturn(), node.range()));
                 functions.add(core); declarations.add(core);
             } finally { currentReturnType = savedReturnType; currentAutoReturn=savedAutoReturn; }
+        }
+
+        private boolean endsWithReturn(Statement statement) {
+            if (statement instanceof ReturnStmt) return true;
+            if (statement instanceof CleanupScopeStmt cleanup) return endsWithReturn(cleanup.body());
+            if (statement instanceof BlockStmt block)
+                return block.statements().stream().anyMatch(this::endsWithReturn);
+            if (statement instanceof IfStmt branch)
+                return branch.elseBranch() != null && endsWithReturn(branch.thenBranch()) && endsWithReturn(branch.elseBranch());
+            return false;
         }
 
         private Entity declareNamespaceValue(String name, Kind kind, MiniType type, boolean definition,

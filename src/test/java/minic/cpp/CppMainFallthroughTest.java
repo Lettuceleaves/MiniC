@@ -41,4 +41,25 @@ final class CppMainFallthroughTest {
         var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);
         assertFalse(semantic.succeeded());
     }
+
+    @Test void generatedFallthroughReturnDoesNotAppearAsASourceAction() {
+        for (String source : new String[]{"int main(){int value=1;}",
+                "int main(){int value=1;if(value)return 0;}",
+                "int main(){return 0;}", "int main(){if(1)return 0;else return 1;}"}) {
+            var api=compiler(source);
+            var semantic=stage(api,SemanticAnalyzer.class);
+            api.setResultRecording(semantic,true);
+            api.runThrough(semantic);
+            assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+            var originals=java.util.Collections.newSetFromMap(
+                    new java.util.IdentityHashMap<minic.compiler.parser.node.AstNode,Boolean>());
+            originals.addAll(nodes(semantic.semanticResult().sourceProgram()));
+            semantic.stepResults().stream()
+                    .flatMap(step -> step.contextAs(minic.compiler.semantic.SemanticResult.class).stream())
+                    .flatMap(context -> context.actionOptional().stream())
+                    .filter(action -> action.astNode() instanceof minic.compiler.parser.node.AstNode)
+                    .forEach(action -> assertTrue(originals.contains(action.astNode()),
+                            () -> "Generated node exposed as a source action: "+action.astNode()));
+        }
+    }
 }

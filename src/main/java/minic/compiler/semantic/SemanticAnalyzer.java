@@ -341,7 +341,9 @@ public final class SemanticAnalyzer extends Stage {
                 yield SemanticAction.of(
                         SemanticActionKind.ANALYZE_STATEMENT,
                         statementSubject(action),
-                        action.statement(),
+                        sourceProgram.languageMode() == LanguageMode.CPP17_ALGORITHM
+                                && !coreToSource.containsKey(action.statement())
+                                ? action.functionDecl().body() : action.statement(),
                         innermostScopeFor(action.statement().range(), statementAnalyzer.currentFunctionScope())
                 );
             }
