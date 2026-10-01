@@ -24,6 +24,7 @@ final class DebugStdlibConversionProvider implements DebugLibraryProvider {
         registered.put("atoll", this::atoll);
         registered.put("strtod", this::strtod);
         registered.put("strtof", this::strtof);
+        registered.put("minic_ucrt_strtof", this::strtof);
         registered.put("strtol", this::strtol);
         registered.put("strtoll", this::strtoll);
         registered.put("strtoul", this::strtoul);
@@ -120,7 +121,7 @@ final class DebugStdlibConversionProvider implements DebugLibraryProvider {
             boolean singlePrecision
     ) {
         String input = input(runtime, inputAddress);
-        FloatingToken token = scanFloating(input);
+        FloatingToken token = scanFloating(input, singlePrecision);
         writeEndPointer(runtime, endPointerAddress, inputAddress, token.converted() ? token.end() : 0);
         if (!token.converted()) {
             return Value.of(singlePrecision ? IrType.FLOAT : IrType.DOUBLE, 0);
@@ -135,7 +136,11 @@ final class DebugStdlibConversionProvider implements DebugLibraryProvider {
                     ? Math.copySign(Double.NaN, -1.0)
                     : Double.NaN;
         } else {
-            parsed = Double.parseDouble(token.text());
+            String text = token.text();
+            if (singlePrecision && (text.contains("x") || text.contains("X"))
+                    && !text.contains("p") && !text.contains("P")) text += "p0";
+            // Parsing first as double would round twice at exact float midpoints.
+            parsed = singlePrecision ? Float.parseFloat(text) : Double.parseDouble(text);
         }
 
         if (singlePrecision) {
@@ -212,7 +217,7 @@ final class DebugStdlibConversionProvider implements DebugLibraryProvider {
         return Value.of(type, result.longValue());
     }
 
-    private FloatingToken scanFloating(String input) {
+    private FloatingToken scanFloating(String input, boolean hexWithoutExponent) {
         int cursor = skipSpace(input, 0);
         int tokenStart = cursor;
         boolean negative = false;
@@ -251,7 +256,7 @@ final class DebugStdlibConversionProvider implements DebugLibraryProvider {
                 && bodyStart + 1 < input.length()
                 && input.charAt(bodyStart) == '0'
                 && (input.charAt(bodyStart + 1) == 'x' || input.charAt(bodyStart + 1) == 'X')) {
-            int hexEnd = scanHexFloating(input, bodyStart + 2);
+            int hexEnd = scanHexFloating(input, bodyStart + 2, hexWithoutExponent);
             if (hexEnd >= 0) {
                 return new FloatingToken(input.substring(tokenStart, hexEnd), hexEnd, true,
                         FloatingKind.NUMBER, negative);
@@ -282,7 +287,7 @@ final class DebugStdlibConversionProvider implements DebugLibraryProvider {
                 FloatingKind.NUMBER, negative);
     }
 
-    private int scanHexFloating(String input, int cursor) {
+    private int scanHexFloating(String input, int cursor, boolean hexWithoutExponent) {
         int end = cursor;
         boolean digits = false;
         while (end < input.length() && digit(input.charAt(end)) >= 0
@@ -301,7 +306,8 @@ final class DebugStdlibConversionProvider implements DebugLibraryProvider {
         if (!digits) {
             return -1;
         }
-        return scanExponent(input, end, 'p', 'P');
+        int exponent = scanExponent(input, end, 'p', 'P');
+        return exponent < 0 && hexWithoutExponent ? end : exponent;
     }
 
     private int scanExponent(String input, int cursor, char lower, char upper) {

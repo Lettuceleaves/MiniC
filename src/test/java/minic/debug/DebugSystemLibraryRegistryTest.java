@@ -31,6 +31,7 @@ final class DebugSystemLibraryRegistryTest {
                         "atof", "atoi", "atol", "atoll", "strtod", "strtof",
                         "strtol", "strtoll", "strtoul", "strtoull",
                         "rand", "srand", "minic_errno_location",
+                        "minic_ucrt_strtof", "minic_ucrt_errno_location",
                         "acos", "asin", "atan", "atan2", "ceil", "cos", "cosh",
                         "exp", "fabs", "floor", "fmod", "frexp", "ldexp", "log",
                         "log10", "modf", "pow", "sin", "sinh", "sqrt", "tan", "tanh",

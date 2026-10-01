@@ -298,6 +298,8 @@ unsigned long long stoull(const string& text,string::size_type* index) { return 
 unsigned long long stoull(const string& text) { return stoull(text,nullptr,10); }
 double stod(const string& text,string::size_type* index) { char* end=nullptr;errno=0;double value=::strtod(text.c_str(),&end);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
 double stod(const string& text) { return stod(text,nullptr); }
+float stof(const string& text,string::size_type* index) { char* end=nullptr;errno=0;float value=::strtof(text.c_str(),&end);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+float stof(const string& text) { return stof(text,nullptr); }
 string __minic_string_unsigned(unsigned long long value,bool negative) {
     char digits[32];unsigned long long count=0;
     do {digits[count++]=(char)('0'+value%10);value/=10;}while(value!=0);

@@ -17,6 +17,9 @@ final class DebugStdlibStateProvider implements DebugLibraryProvider {
         registered.put("rand", this::rand);
         registered.put("srand", this::srand);
         registered.put("minic_errno_location", this::errnoLocation);
+        // The adapter saves/restores this slot; sharing the virtual errno cell
+        // models the visible result without inventing a second host CRT state.
+        registered.put("minic_ucrt_errno_location", this::errnoLocation);
         functions = Map.copyOf(registered);
     }
 

@@ -40,7 +40,8 @@ final class StdlibErrnoCatalogTest {
     private static final Set<String> STDLIB_DECLARATIONS = Set.of(
             "malloc", "calloc", "realloc", "free", "atof", "atoi", "atol", "atoll",
             "strtod", "strtol", "strtoll", "strtoul", "strtoull", "abs", "labs", "llabs",
-            "rand", "srand", "abort", "exit", "minic_immediate_exit"
+            "rand", "srand", "abort", "exit", "minic_immediate_exit",
+            "minic_ucrt_strtof", "minic_ucrt_errno_location"
     );
 
     @Test
@@ -99,12 +100,19 @@ final class StdlibErrnoCatalogTest {
     }
 
     @Test
-    void strtofRemainsDeferredWithoutAnAbiCompatibleMsvcrtExport() {
+    void strtofUsesAHeaderAdapterToTheRealUcrtFloatParserAndCopiesErrno() {
         SystemLibraryCatalog catalog = SystemLibraryCatalog.defaults();
         String header = catalog.header("stdlib.mh").orElseThrow().content();
 
         assertFalse(declaredFunctions(header).contains("strtof"));
         assertFalse(catalog.bindings().containsKey("strtof"));
+        assertTrue(header.contains("float strtof(const char *string, char **endPointer)"));
+        assertTrue(header.contains("if (conversion_errno != 0) errno = conversion_errno;"));
+        LibraryBinding parser=catalog.binding("minic_ucrt_strtof").orElseThrow();
+        assertEquals("ucrtbase.dll",parser.dllName());assertEquals("strtof",parser.exportName());
+        assertEquals(LibraryBinding.RuntimeFamily.UCRT,parser.runtimeFamily());
+        LibraryBinding error=catalog.binding("minic_ucrt_errno_location").orElseThrow();
+        assertEquals("ucrtbase.dll",error.dllName());assertEquals("_errno",error.exportName());
     }
 
     private static Set<String> declaredFunctions(String header) {
