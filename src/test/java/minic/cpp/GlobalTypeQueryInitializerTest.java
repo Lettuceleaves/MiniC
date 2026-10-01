@@ -131,10 +131,16 @@ class GlobalTypeQueryInitializerTest {
                 .map(SemanticAnalyzer.class::cast).findFirst().orElseThrow();
         compiler.runThrough(semantic);
         assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("SEM001")
-                        && (d.message().contains("实参数量") || d.message().contains("实参类型") || d.message().contains("未定义函数"))
-                        || d.code().equals("CPP004") && d.message().contains("实参不能按 C++ 标准转换")),
-                () -> semantic.errors().toString());
+        boolean invalidArguments = source.contains("sizeof(helper())") || source.contains("alignof(helper(1))");
+        if (invalidArguments) {
+            int call = source.indexOf("helper(", source.indexOf("result"));
+            assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP004")
+                    && d.range().startLine() == 1 && d.range().startByte() == call
+                    && d.message().contains("没有与实参匹配的重载函数")), () -> semantic.errors().toString());
+        } else {
+            assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("SEM001")
+                    && d.message().contains("未定义函数")), () -> semantic.errors().toString());
+        }
     }
 
     @ParameterizedTest
