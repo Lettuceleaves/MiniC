@@ -143,6 +143,7 @@ public final class CppNameBinder {
         private final Map<String, Entity> coreValues = new LinkedHashMap<>();
         private final IdentityHashMap<Expression, MiniType> declaredExpressionTypes = new IdentityHashMap<>();
         private final IdentityHashMap<Expression, CppValueCategory> valueCategories = new IdentityHashMap<>();
+        private final Set<Expression> temporaryAddressPaths = Collections.newSetFromMap(new IdentityHashMap<>());
         private final List<Declaration> declarations = new ArrayList<>();
         private final List<StructDecl> structs = new ArrayList<>();
         private final List<EnumDecl> enums = new ArrayList<>();
@@ -153,6 +154,7 @@ public final class CppNameBinder {
         private TypeEntity currentClass;
         private Entity currentThis;
         private MiniType currentReturnType;
+        private Expression fullExpressionOwner;
 
         Binding(Program source) { this.source = source; reserveNames(source); }
 
@@ -741,7 +743,12 @@ public final class CppNameBinder {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
                     requireComplete(type, n.range());
                     Entity value = declareLocal(n.name(), type, scope, n.range());
-                    yield new VarDeclStmt(value.coreName, coreType(type), initializer(type, n.initializer(), namespace, scope, n.range()),
+                    Expression initialized = initializer(type, n.initializer(), namespace, scope, n.range());
+                    if (type.isReference() && initialized != null) {
+                        initialized = extendTemporaryLifetime(initialized,
+                                new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, n));
+                    }
+                    yield new VarDeclStmt(value.coreName, coreType(type), initialized,
                             normalizeAlignments(n.alignmentSpecs(), namespace, scope), n.range());
                 }
                 case TypedefStmt n -> {
@@ -802,6 +809,13 @@ public final class CppNameBinder {
         /** Address-demand contexts preserve C++ object identity without an extra value read. */
         private Expression expression(Expression node, Namespace namespace, Local local, boolean addressDemand) {
             if (node == null) return null;
+            Expression savedOwner = fullExpressionOwner;
+            if (fullExpressionOwner == null) fullExpressionOwner = node;
+            try { return expressionWithinFullExpression(node, namespace, local, addressDemand); }
+            finally { fullExpressionOwner = savedOwner; }
+        }
+
+        private Expression expressionWithinFullExpression(Expression node, Namespace namespace, Local local, boolean addressDemand) {
             Expression core = switch (node) {
                 case ThisExpr n -> {
                     if (currentThis == null) {
@@ -816,6 +830,9 @@ public final class CppNameBinder {
                 case AssignmentExpr n -> {
                     Expression target = expression(n.target(), namespace, local, true);
                     MiniType targetType = declaredExpressionType(target);
+                    if (valueCategory(target) != CppValueCategory.LVALUE && (targetType == null || !targetType.isStruct())) {
+                        report("CPP004", n.target().range(), "内置赋值要求可修改的左值，临时对象的标量子对象不是左值。");
+                    }
                     requireComplete(targetType, n.range());
                     if (objectType(targetType) != null && hasConstSubobject(targetType, new HashSet<>())) {
                         report("CPP005", n.range(), "尚未支持含 const 子对象的整体赋值所需的特殊成员函数规则。");
@@ -843,7 +860,10 @@ public final class CppNameBinder {
                     Expression second = expression(n.elseExpression(), namespace, local, addressDemand);
                     MiniType firstType = declaredExpressionType(first), secondType = declaredExpressionType(second);
                     MiniType common = conditionalLvalueType(firstType, secondType);
-                    if (common != null && valueCategory(first) == CppValueCategory.LVALUE && valueCategory(second) == CppValueCategory.LVALUE) {
+                    boolean lvalues = valueCategory(first) == CppValueCategory.LVALUE && valueCategory(second) == CppValueCategory.LVALUE;
+                    boolean temporarySubobjects = valueCategory(first) == CppValueCategory.PRVALUE
+                            && valueCategory(second) == CppValueCategory.PRVALUE && addressableObject(first) && addressableObject(second);
+                    if (common != null && (lvalues || temporarySubobjects)) {
                         if (addressDemand || common.isArray() || common.isFunction() || common.isStruct()) {
                             // Aggregate values are represented by addresses. In this uncommon
                             // path rebind compound lvalue arms for addresses, never evaluating them.
@@ -852,14 +872,17 @@ public final class CppNameBinder {
                             if (addressableObject(first) && addressableObject(second)) {
                                 Expression selected = new ConditionalExpr(condition, qualifiedAddress(first, common),
                                         qualifiedAddress(second, common), n.range());
-                                yield typed(new UnaryExpr(TokenType.STAR, selected, n.range()), common);
+                                Expression object = typed(new UnaryExpr(TokenType.STAR, selected, n.range()), common);
+                                temporaryAddressPaths.add(object);
+                                valueCategories.put(object, lvalues ? CppValueCategory.LVALUE : CppValueCategory.PRVALUE);
+                                yield object;
                             }
                         } else {
                             // Value use of assignment/update must reuse its result, especially
                             // for volatile objects. Keep the narrow glvalue type for sizeof too.
                             Expression selected = new ConditionalExpr(condition, first, second, n.range());
                             Expression value = typed(new CastExpr(coreType(common), selected, n.range()), common);
-                            valueCategories.put(value, CppValueCategory.LVALUE);
+                            valueCategories.put(value, lvalues ? CppValueCategory.LVALUE : CppValueCategory.PRVALUE);
                             yield value;
                         }
                     }
@@ -918,13 +941,17 @@ public final class CppNameBinder {
                     MiniType lastType = declaredExpressionType(last);
                     if (addressableObject(last) && (addressDemand || lastType != null && lastType.isFunction())) {
                         values.set(values.size() - 1, address(last));
-                        yield typed(new UnaryExpr(TokenType.STAR, new CommaExpr(values, n.range()), n.range()),
+                        Expression object = typed(new UnaryExpr(TokenType.STAR, new CommaExpr(values, n.range()), n.range()),
                                 declaredExpressionType(last));
+                        temporaryAddressPaths.add(object);
+                        valueCategories.put(object, valueCategory(last));
+                        yield object;
                     }
                     yield new CommaExpr(values, n.range());
                 }
                 case FieldAccessExpr n -> {
                     Expression target = expression(n.target(), namespace, local, !n.viaPointer());
+                    if (!n.viaPointer()) target = materializedReceiver(target);
                     MiniType owner = declaredExpressionType(target);
                     owner = n.viaPointer() ? elementType(owner) : owner;
                     requireComplete(owner, n.range());
@@ -933,17 +960,26 @@ public final class CppNameBinder {
                         requireMethodAccess(method, n.range());
                         report("CPP005", n.range(), "成员函数只能作为调用目标使用；尚未支持成员函数指针：" + n.fieldName());
                     } else requireAccessible(owner, n.fieldName(), n.range(), "数据成员访问");
-                    yield new FieldAccessExpr(target, n.fieldName(), n.viaPointer(), n.range());
+                    Expression field = new FieldAccessExpr(target, n.fieldName(), n.viaPointer(), n.range());
+                    valueCategories.put(field, n.viaPointer() ? CppValueCategory.LVALUE : valueCategory(target));
+                    yield field;
                 }
                 case GroupingExpr n -> new GroupingExpr(expression(n.expression(), namespace, local, addressDemand), n.range());
                 case IndexExpr n -> {
                     Expression target = expression(n.target(), namespace, local, true);
                     requireComplete(elementType(declaredExpressionType(target)), n.range());
-                    yield new IndexExpr(target, expression(n.index(), namespace, local), n.range());
+                    Expression indexed = new IndexExpr(target, expression(n.index(), namespace, local), n.range());
+                    MiniType targetType = declaredExpressionType(target);
+                    valueCategories.put(indexed, targetType != null && targetType.isArray()
+                            ? valueCategory(target) : CppValueCategory.LVALUE);
+                    yield indexed;
                 }
                 case UnaryExpr n -> {
                     boolean update = n.operator() == TokenType.PLUS_PLUS || n.operator() == TokenType.MINUS_MINUS;
                     Expression operand = expression(n.operand(), namespace, local, update || n.operator() == TokenType.AMPERSAND);
+                    if (n.operator() == TokenType.AMPERSAND && valueCategory(operand) != CppValueCategory.LVALUE) {
+                        report("CPP004", n.range(), "内置取址要求左值或函数，不能对临时对象的子对象取址。");
+                    }
                     if (n.operator() == TokenType.PLUS_PLUS || n.operator() == TokenType.MINUS_MINUS) {
                         requireUpdateOperand(operand, n.range());
                     }
@@ -1067,11 +1103,8 @@ public final class CppNameBinder {
             if (targetType == null || valueType == null || !addressableObject(assignment.target())) return assignment;
             boolean aggregate = valueType.isStruct();
             if (aggregate && !addressDemand && assignment.compoundBinaryOperator().isEmpty()) return assignment;
-            if (aggregate && !addressableObject(assignment.value())) {
-                report("CPP005", assignment.range(), "此赋值结果的引用绑定需要临时聚合对象物化。");
-                return assignment;
-            }
-            Expression value = aggregate ? address(assignment.value()) : assignment.value();
+            Expression assignedValue = aggregate ? materializedReceiver(assignment.value()) : assignment.value();
+            Expression value = aggregate ? address(assignedValue) : assignedValue;
             MiniType capturedType = aggregate ? valueType.pointerTo()
                     : assignment.compoundBinaryOperator().isEmpty() && !targetType.isArray()
                     ? targetType.unqualified() : TypeCompatibility.decay(valueType);
@@ -1131,6 +1164,7 @@ public final class CppNameBinder {
                 }
             } else if (designator instanceof FieldAccessExpr field) {
                 Expression target = expression(field.target(), namespace, local, !field.viaPointer());
+                if (!field.viaPointer()) target = materializedReceiver(target);
                 MiniType owner = declaredExpressionType(target);
                 owner = field.viaPointer() ? elementType(owner) : owner;
                 requireComplete(owner, field.range());
@@ -1142,7 +1176,7 @@ public final class CppNameBinder {
                 }
                 if (field.viaPointer()) receiver = target;
                 else {
-                    if (!addressableObject(target)) report("CPP005", field.range(), "尚未支持临时对象或此值类别作为成员函数接收者。");
+                    if (!addressableObject(target)) report("CPP005", field.range(), "尚未支持此值类别作为成员函数接收者。");
                     receiver = new UnaryExpr(TokenType.AMPERSAND, target, field.target().range());
                 }
             }
@@ -1202,6 +1236,9 @@ public final class CppNameBinder {
 
         private void requireUpdateOperand(Expression operand, SourceRange range) {
             MiniType type = declaredExpressionType(operand);
+            if (valueCategory(operand) != CppValueCategory.LVALUE) {
+                report("CPP004", range, "自增或自减要求可修改的左值。");
+            }
             if (type != null && type.unqualified().equals(MiniType.BOOL)) {
                 report("CPP004", range, "C++17 不允许对 bool 进行自增或自减");
             }
@@ -1410,36 +1447,174 @@ public final class CppNameBinder {
                     return new NullLiteralExpr("nullptr", range);
                 }
                 Expression address = bindReference(reference, list.values().getFirst(), namespace, local, range);
+                checkReferenceListConversion(reference.referent(), address, list.range());
                 return mapped(list, new GroupingExpr(address, list.range()));
             }
-            Expression value = expression(sourceNode, namespace, local, true);
-            MiniType target = reference.referent();
-            MiniType actual = declaredExpressionType(value);
-            if (!addressableObject(value)) {
-                Expression shape = value;
-                while (shape instanceof GroupingExpr group) shape = group.expression();
-                boolean laterLvalue = shape instanceof AssignmentExpr || shape instanceof ConditionalExpr || shape instanceof CommaExpr
-                        || shape instanceof UnaryExpr unary && (unary.operator() == TokenType.PLUS_PLUS || unary.operator() == TokenType.MINUS_MINUS);
-                if (laterLvalue || target.isConstQualified() && !target.isVolatileQualified()) {
-                    report("CPP005", sourceNode.range(), "此引用绑定需要尚未实现的左值规范化或临时对象物化。");
-                } else report("CPP004", sourceNode.range(), "此引用必须绑定到兼容类型的左值。");
-            } else if (actual != null) {
-                if (!target.isArray() && !target.qualifiers().containsAll(actual.qualifiers())) {
-                    report("CPP004", sourceNode.range(), "引用绑定不能丢弃对象的 const/volatile 限定符。");
-                } else if (!referenceCompatible(target, actual)) {
-                    boolean conversion = target.isConstQualified() && !target.isVolatileQualified()
-                            && (target.isScalar() && actual.isScalar() || target.isPointer() && actual.isPointer());
-                    report(conversion ? "CPP005" : "CPP004", sourceNode.range(), conversion
-                            ? "此 const 引用转换需要尚未实现的临时对象物化。" : "引用绑定的对象类型不兼容。");
+            Expression savedOwner = fullExpressionOwner;
+            if (fullExpressionOwner == null) fullExpressionOwner = sourceNode;
+            try {
+                Expression value = expression(sourceNode, namespace, local, true);
+                MiniType target = reference.referent();
+                MiniType actual = declaredExpressionType(value);
+                CppValueCategory category = valueCategory(value);
+                boolean compatible = actual != null && referenceCompatible(target, actual);
+                boolean direct = category == CppValueCategory.LVALUE && compatible && addressableObject(value);
+                if (!direct) {
+                    boolean viable = actual != null && CppOverloadResolver.resolve(
+                            List.of(new CppOverloadResolver.Candidate<>("reference", List.of(reference), false)),
+                            List.of(new CppOverloadResolver.Argument(actual, category, isNullIntegerLiteral(sourceNode))))
+                            .status() == CppOverloadResolver.Status.SELECTED;
+                    if (!viable) {
+                        report("CPP004", sourceNode.range(), "引用不能绑定到此类型或值类别，或绑定会丢弃 const/volatile 限定符。");
+                        return address(value);
+                    }
+                    // A materialized class subobject already has storage; binding extends its
+                    // whole owner. Conversions and scalar prvalues need their own object.
+                    if (!compatible || !addressableObject(value)) {
+                        requireComplete(target, sourceNode.range());
+                        if (!target.unqualified().equals(actual.unqualified())) {
+                            // Viability above validates C++ implicit conversion rules. Spell the
+                            // approved conversion explicitly where core C is more restrictive.
+                            value = typed(new CastExpr(coreType(target.unqualified()), value, value.range()), target.unqualified());
+                        }
+                        return materialize(target, value);
+                    }
                 }
+                Expression address = address(value);
+                // Array CV resides on elements; the checked C++ qualification conversion is
+                // represented explicitly for the core pointer-to-array ABI.
+                if (actual != null && target.isArray() && compatible && !target.equals(actual)) {
+                    address = typed(new CastExpr(coreType(target).pointerTo(), address, sourceNode.range()), target.pointerTo());
+                }
+                return address;
+            } finally { fullExpressionOwner = savedOwner; }
+        }
+
+        private boolean isNullIntegerLiteral(Expression source) {
+            while (source instanceof GroupingExpr group) source = group.expression();
+            return switch (source) {
+                case IntegerLiteralExpr integer -> integer.value() == 0;
+                case LongLiteralExpr integer -> integer.value() == 0;
+                case IntegerConstantExpr integer -> integer.value() == 0
+                        && !integer.lexeme().matches("[A-Za-z_][A-Za-z0-9_]*");
+                default -> false;
+            };
+        }
+
+        /** List reference initialization must not turn an otherwise-valid value conversion into narrowing. */
+        private void checkReferenceListConversion(MiniType target, Expression address, SourceRange range) {
+            if (!(address instanceof MaterializeExpr temporary) || !(temporary.initializer() instanceof CastExpr cast)) return;
+            MiniType source = declaredExpressionType(cast.operand());
+            if (!(target.unqualified() instanceof MiniType.ScalarType to) || source == null) return;
+            if (!(source.unqualified() instanceof MiniType.ScalarType from)) {
+                if (to.kind() == MiniType.ScalarKind.BOOL) report("CPP004", range, "列表初始化不能将指针窄化为 bool。");
+                return;
             }
-            Expression address = new UnaryExpr(TokenType.AMPERSAND, value, sourceNode.range());
-            // Array CV is attached to element types. Validate it recursively before
-            // spelling the safe qualification conversion in the C pointer ABI.
-            if (actual != null && target.isArray() && referenceCompatible(target, actual) && !target.equals(actual)) {
-                address = new CastExpr(coreType(target).pointerTo(), address, sourceNode.range());
+            var a = from.kind();
+            var b = to.kind();
+            if (a.floating() && b.integer()) {
+                report("CPP004", range, "列表初始化不能将浮点数窄化为整数。");
+                return;
             }
-            return address;
+            if (a == b || a.floating() && b.floating() && b.sizeBytes() >= a.sizeBytes()) return;
+            if (a.integer() && b.integer() && b != MiniType.ScalarKind.BOOL
+                    && (b.sizeBytes() > a.sizeBytes() && (b.signed() || !a.signed())
+                    || b.sizeBytes() == a.sizeBytes() && b.signed() == a.signed())) return;
+            java.math.BigDecimal constant = literalNumericValue(cast.operand());
+            if (constant == null) {
+                report("CPP005", range, "此列表引用转换需要常量表达式窄化检查；当前仅支持可直接证明不窄化的类型或数值字面量。");
+                return;
+            }
+            boolean representable;
+            if (b.integer()) {
+                int bits = b == MiniType.ScalarKind.BOOL ? 1 : b.sizeBytes() * 8;
+                java.math.BigInteger min = b.signed() ? java.math.BigInteger.ONE.shiftLeft(bits - 1).negate() : java.math.BigInteger.ZERO;
+                java.math.BigInteger max = java.math.BigInteger.ONE.shiftLeft(b.signed() ? bits - 1 : bits).subtract(java.math.BigInteger.ONE);
+                representable = constant.compareTo(new java.math.BigDecimal(min)) >= 0
+                        && constant.compareTo(new java.math.BigDecimal(max)) <= 0;
+            } else {
+                double converted = b == MiniType.ScalarKind.FLOAT ? (double) constant.floatValue() : constant.doubleValue();
+                // C++17 permits an in-range constant floating-to-floating conversion
+                // to round. Integer-to-floating conversion must still be exact.
+                representable = Double.isFinite(converted)
+                        && (a.floating() || new java.math.BigDecimal(converted).compareTo(constant) == 0);
+            }
+            if (!representable) report("CPP004", range, "列表初始化的值不能由引用临时对象类型精确表示。");
+        }
+
+        private java.math.BigDecimal literalNumericValue(Expression expression) {
+            return switch (expression) {
+                case GroupingExpr group -> literalNumericValue(group.expression());
+                case IntegerLiteralExpr integer -> java.math.BigDecimal.valueOf(integer.value());
+                case LongLiteralExpr integer -> java.math.BigDecimal.valueOf(integer.value());
+                case IntegerConstantExpr integer -> integer.type().isUnsignedIntegerScalar()
+                        ? new java.math.BigDecimal(Long.toUnsignedString(integer.value())) : java.math.BigDecimal.valueOf(integer.value());
+                case BoolLiteralExpr value -> java.math.BigDecimal.valueOf(value.value() ? 1 : 0);
+                case CharLiteralExpr value -> java.math.BigDecimal.valueOf(value.value());
+                case FloatLiteralExpr value -> Float.isFinite(value.value()) ? new java.math.BigDecimal((double) value.value()) : null;
+                case DoubleLiteralExpr value -> Double.isFinite(value.value()) ? new java.math.BigDecimal(value.value()) : null;
+                case UnaryExpr unary when unary.operator() == TokenType.MINUS || unary.operator() == TokenType.PLUS -> {
+                    var constant = literalNumericValue(unary.operand());
+                    if (constant == null || unary.operator() == TokenType.PLUS) yield constant;
+                    constant = constant.negate();
+                    MiniType result = declaredExpressionType(unary);
+                    if (result != null && result.isUnsignedIntegerScalar()
+                            && result.unqualified() instanceof MiniType.ScalarType scalar) {
+                        constant = new java.math.BigDecimal(constant.toBigIntegerExact()
+                                .mod(java.math.BigInteger.ONE.shiftLeft(scalar.kind().sizeBytes() * 8)));
+                    }
+                    yield constant;
+                }
+                default -> null;
+            };
+        }
+
+        private Expression materialize(MiniType type, Expression value) {
+            Expression owner = fullExpressionOwner != null ? fullExpressionOwner : value;
+            return typed(new MaterializeExpr(coreType(type), value,
+                    new TemporaryLifetime(TemporaryLifetime.Kind.FULL_EXPRESSION, owner), value.range()), type.pointerTo());
+        }
+
+        private Expression materializedReceiver(Expression value) {
+            MiniType type = declaredExpressionType(value);
+            if (type == null || !type.isStruct() || addressableObject(value)) return value;
+            Expression object = typed(new UnaryExpr(TokenType.STAR, materialize(type, value), value.range()), type);
+            temporaryAddressPaths.add(object);
+            // Core storage is addressable, but a temporary is not a C++ lvalue.
+            valueCategories.put(object, CppValueCategory.PRVALUE);
+            return object;
+        }
+
+        /** Follow only the bound object's address, never calls, arithmetic, or a temporary's initializer. */
+        private Expression extendTemporaryLifetime(Expression expression, TemporaryLifetime lifetime) {
+            Expression extended = switch (expression) {
+                case MaterializeExpr temporary -> new MaterializeExpr(temporary.type(), temporary.initializer(), lifetime, temporary.range());
+                case GroupingExpr group -> new GroupingExpr(extendTemporaryLifetime(group.expression(), lifetime), group.range());
+                case UnaryExpr unary when unary.operator() == TokenType.AMPERSAND || temporaryAddressPaths.contains(unary) ->
+                        new UnaryExpr(unary.operator(), extendTemporaryLifetime(unary.operand(), lifetime), unary.range());
+                case FieldAccessExpr field when !field.viaPointer() -> new FieldAccessExpr(
+                        extendTemporaryLifetime(field.target(), lifetime), field.fieldName(), false, field.range());
+                case IndexExpr index when declaredExpressionType(index.target()) != null && declaredExpressionType(index.target()).isArray() ->
+                        new IndexExpr(extendTemporaryLifetime(index.target(), lifetime), index.index(), index.range());
+                case CommaExpr comma -> {
+                    var values = new ArrayList<>(comma.expressions());
+                    values.set(values.size() - 1, extendTemporaryLifetime(values.getLast(), lifetime));
+                    yield new CommaExpr(values, comma.range());
+                }
+                case ConditionalExpr conditional -> new ConditionalExpr(conditional.condition(),
+                        extendTemporaryLifetime(conditional.thenExpression(), lifetime),
+                        extendTemporaryLifetime(conditional.elseExpression(), lifetime), conditional.range());
+                case CastExpr cast when cast.operand() instanceof UnaryExpr unary && unary.operator() == TokenType.AMPERSAND ->
+                        new CastExpr(cast.targetType(), extendTemporaryLifetime(cast.operand(), lifetime), cast.range());
+                default -> expression;
+            };
+            if (extended != expression) {
+                if (declaredExpressionTypes.containsKey(expression)) declaredExpressionTypes.put(extended, declaredExpressionTypes.get(expression));
+                if (valueCategories.containsKey(expression)) valueCategories.put(extended, valueCategories.get(expression));
+                if (temporaryAddressPaths.contains(expression)) temporaryAddressPaths.add(extended);
+                origins.replaceAll((source, core) -> core == expression ? extended : core);
+            }
+            return extended;
         }
 
         private boolean referenceCompatible(MiniType target, MiniType actual) {

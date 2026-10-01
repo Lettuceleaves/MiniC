@@ -325,16 +325,19 @@ final class CppMemberMethodTest {
         assertRejected("bound-method-value", source, false);
     }
 
-    @Test void temporaryObjectReceiverHasAnExplicitUnsupportedDiagnostic() throws Exception {
+    @Test void temporaryObjectReceiverIsMaterializedOnceForTheCall() throws Exception {
         String source = """
-                struct Box { int value; int read() { return value; } };
-                Box make() { Box value = {7}; return value; }
+                #include <stdio.h>
+                int count=0;
+                struct Box { int value; int read() { return ++value; } };
+                Box make() { ++count; Box value = {7}; return value; }
                 int main() {
-                    return make().read(); // bad
+                    int result=make().read();
+                    printf("%d %d\\n",result,count);
+                    return 0;
                 }
                 """;
-        // This is valid C++17, but the planned slice deliberately defers temporary materialization.
-        assertRejected("temporary-object-receiver", source, true);
+        CppReferenceTest.agree(temporary, "temporary-object-receiver", source, "8 1\n");
     }
 
     @ParameterizedTest(name = "{0}")
