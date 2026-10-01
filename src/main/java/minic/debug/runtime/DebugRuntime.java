@@ -552,8 +552,10 @@ public final class DebugRuntime {
         return character == ' ' || character >= '\t' && character <= '\r';
     }
 
-    private int peekInputCharacter() {
-        return inputPushback >= 0 ? inputPushback : inputOffset >= input.length ? -1 : input[inputOffset] & 0xff;
+    int peekInputCharacter() {
+        if (inputPushback >= 0) return inputPushback;
+        if (inputOffset >= input.length) { inputEof = true; return -1; }
+        return input[inputOffset] & 0xff;
     }
 
     int readInputCharacter() {

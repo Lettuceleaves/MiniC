@@ -176,21 +176,26 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         int assigned = 0;
         for (int index = 0; index < format.length(); index++) {
             char current = format.charAt(index);
-            if (Character.isWhitespace(current)) {
+            if (scanWhitespace(current)) {
                 input.skipWhitespace();
                 continue;
             }
             if (current != '%') {
-                int character = input.readCharacter();
+                int character = input.peekCharacter();
+                if (character < 0) return assigned == 0 ? -1 : assigned;
                 if (character != current) {
                     break;
                 }
+                input.readCharacter();
                 continue;
             }
             if (index + 1 < format.length() && format.charAt(index + 1) == '%') {
-                if (input.readCharacter() != '%') {
+                int character = input.peekCharacter();
+                if (character < 0) return assigned == 0 ? -1 : assigned;
+                if (character != '%') {
                     break;
                 }
+                input.readCharacter();
                 index++;
                 continue;
             }
@@ -201,6 +206,8 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
                 throw new IllegalStateException("scanf argument count does not match format");
             }
             long destination = arguments.get(argumentIndex++).integer();
+            if (directive.conversion() != 'c') input.skipWhitespace();
+            if (input.peekCharacter() < 0) return assigned == 0 ? -1 : assigned;
             if (!scanValue(runtime, input, directive, destination)) {
                 break;
             }
@@ -218,23 +225,23 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         try {
             return switch (directive.conversion()) {
                 case 'd', 'i' -> {
-                    String token = input.readToken(directive.maximumWidth());
+                    String token = DebugScanfNumbers.readInteger(input, directive.maximumWidth(), directive.conversion() == 'i');
                     if (token.isEmpty()) yield false;
-                    long value = Long.parseLong(token);
+                    long value = DebugScanfNumbers.integer(token, directive.conversion() == 'i');
                     runtime.write(destination, Value.of(directive.integerType(false), value));
                     yield true;
                 }
                 case 'u' -> {
-                    String token = input.readToken(directive.maximumWidth());
+                    String token = DebugScanfNumbers.readInteger(input, directive.maximumWidth(), false);
                     if (token.isEmpty()) yield false;
-                    long value = Long.parseUnsignedLong(token);
+                    long value = DebugScanfNumbers.integer(token, false);
                     runtime.write(destination, Value.of(directive.integerType(true), value));
                     yield true;
                 }
                 case 'f' -> {
-                    String token = input.readToken(directive.maximumWidth());
+                    String token = DebugScanfNumbers.readFloating(input, directive.maximumWidth());
                     if (token.isEmpty()) yield false;
-                    double value = Double.parseDouble(token);
+                    double value = DebugScanfNumbers.floating(token, !directive.longFloat());
                     runtime.write(destination, Value.of(directive.longFloat() ? IrType.DOUBLE : IrType.FLOAT, value));
                     yield true;
                 }
@@ -398,9 +405,12 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         }
     }
 
-    private interface ScanInput {
+    private static boolean scanWhitespace(int value) { return value == ' ' || value >= '\t' && value <= '\r'; }
+
+    private interface ScanInput extends DebugScanfNumbers.Input {
         void skipWhitespace();
         String readToken(int maximumLength);
+        int peekCharacter();
         int readCharacter();
     }
 
@@ -413,6 +423,11 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         @Override
         public String readToken(int maximumLength) {
             return runtime.readInputToken(maximumLength);
+        }
+
+        @Override
+        public int peekCharacter() {
+            return runtime.peekInputCharacter();
         }
 
         @Override
@@ -432,7 +447,7 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
 
         @Override
         public void skipWhitespace() {
-            while (offset < input.length() && Character.isWhitespace(input.charAt(offset))) {
+            while (offset < input.length() && scanWhitespace(input.charAt(offset))) {
                 offset++;
             }
         }
@@ -442,11 +457,16 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
             skipWhitespace();
             int start = offset;
             while (offset < input.length()
-                    && !Character.isWhitespace(input.charAt(offset))
+                    && !scanWhitespace(input.charAt(offset))
                     && offset - start < maximumLength) {
                 offset++;
             }
             return input.substring(start, offset);
+        }
+
+        @Override
+        public int peekCharacter() {
+            return offset >= input.length() ? -1 : input.charAt(offset);
         }
 
         @Override
