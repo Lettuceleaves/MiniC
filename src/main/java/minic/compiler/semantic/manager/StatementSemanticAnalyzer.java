@@ -112,7 +112,7 @@ public final class StatementSemanticAnalyzer {
                     expressionAnalyzer.setAggregateInitTargetType(null);
                 }
                 if (!aggregate && !global.type().isArray()
-                        && !isInitializerCompatible(global.type(), initializerType)) {
+                        && !isInitializerCompatible(global.type(), initializerType, initializer)) {
                     report(global.range(), "全局变量初始化类型不匹配：" + global.name());
                 }
             });
@@ -189,7 +189,7 @@ public final class StatementSemanticAnalyzer {
                             }
                             if (!aggregateInitializer
                                     && !varDeclStmt.type().isArray()
-                                    && !isInitializerCompatible(varDeclStmt.type(), initializerType)) {
+                                    && !isInitializerCompatible(varDeclStmt.type(), initializerType, initializer)) {
                                 report(varDeclStmt.range(), "变量初始化类型不匹配：" + varDeclStmt.name());
                             }
                         });
@@ -214,7 +214,8 @@ public final class StatementSemanticAnalyzer {
                             returnStmt.expressionOptional().orElseThrow(),
                             scope
                     );
-                    if (!TypeCompatibility.isAssignmentCompatible(currentFunction.returnType(), returnType)) {
+                    if (!TypeCompatibility.isAssignmentCompatible(currentFunction.returnType(), returnType,
+                            returnStmt.expressionOptional().orElseThrow())) {
                         report(returnStmt.range(), "return 类型不匹配");
                     }
                 }
@@ -336,8 +337,8 @@ public final class StatementSemanticAnalyzer {
         }
     }
 
-    private boolean isInitializerCompatible(MiniType targetType, MiniType initializerType) {
-        return TypeCompatibility.isAssignmentCompatible(targetType, initializerType);
+    private boolean isInitializerCompatible(MiniType targetType, MiniType initializerType, Expression initializer) {
+        return TypeCompatibility.isAssignmentCompatible(targetType, initializerType, initializer);
     }
 
     private boolean currentFunctionIsNoReturn() {

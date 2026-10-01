@@ -1,10 +1,34 @@
 package minic.compiler.semantic.manager;
 
 import minic.compiler.lexer.token.TokenType;
+import minic.compiler.parser.node.Expression;
 import minic.compiler.type.MiniType;
 
 final class TypeCompatibility {
     private TypeCompatibility() {
+    }
+
+    /** Contextual conversion does not change the integer literal's own expression type. */
+    static MiniType pointerContextType(MiniType targetType, MiniType valueType, Expression value) {
+        return decay(targetType).isPointer() && isNullPointerLiteral(value) ? MiniType.NULL : valueType;
+    }
+
+    private static boolean isNullPointerLiteral(Expression expression) {
+        return switch (expression) {
+            case Expression.GroupingExpr group -> isNullPointerLiteral(group.expression());
+            case Expression.IntegerLiteralExpr value -> value.value() == 0;
+            case Expression.LongLiteralExpr value -> value.value() == 0;
+            // Enum references also use IntegerConstantExpr; their identifier spelling is
+            // not an integer literal, even when the enumerator happens to equal zero.
+            case Expression.IntegerConstantExpr value -> value.value() == 0
+                    && value.type().isIntegerScalar() && !value.lexeme().isEmpty()
+                    && Character.isDigit(value.lexeme().charAt(0));
+            default -> false;
+        };
+    }
+
+    static boolean isAssignmentCompatible(MiniType targetType, MiniType valueType, Expression value) {
+        return isAssignmentCompatible(targetType, pointerContextType(targetType, valueType, value));
     }
 
     static boolean isAssignmentCompatible(MiniType targetType, MiniType valueType) {
@@ -37,6 +61,10 @@ final class TypeCompatibility {
 
     static boolean isArgumentCompatible(MiniType parameterType, MiniType argumentType) {
         return isAssignmentCompatible(parameterType, argumentType);
+    }
+
+    static boolean isArgumentCompatible(MiniType parameterType, MiniType argumentType, Expression argument) {
+        return isAssignmentCompatible(parameterType, argumentType, argument);
     }
 
     static boolean isConditionCompatible(MiniType type) {

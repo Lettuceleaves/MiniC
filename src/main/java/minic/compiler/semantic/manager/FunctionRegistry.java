@@ -113,7 +113,7 @@ public final class FunctionRegistry {
             for (int index = 0; index < functionState.parameterTypes().size(); index++) {
                 MiniType parameterType = functionState.parameterTypes().get(index);
                 MiniType argumentType = argumentTypes.get(index);
-                if (!isArgumentCompatible(parameterType, argumentType)) {
+                if (!TypeCompatibility.isArgumentCompatible(parameterType, argumentType, callExpr.arguments().get(index))) {
                     report(
                             callExpr.arguments().get(index).range(),
                             "函数调用实参类型不匹配：" + callExpr.calleeName()
@@ -141,10 +141,6 @@ public final class FunctionRegistry {
     boolean isNoReturn(String name) {
         FunctionState state = functionStates.get(name);
         return state != null && state.noReturn();
-    }
-
-    private boolean isArgumentCompatible(MiniType parameterType, MiniType argumentType) {
-        return TypeCompatibility.isArgumentCompatible(parameterType, argumentType);
     }
 
     private void validateFunctionName(FunctionDecl functionDecl) {

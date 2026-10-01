@@ -106,6 +106,10 @@ final class ExpressionSemanticAnalyzer {
             case BinaryExpr binaryExpr -> {
                 MiniType leftType = analyzeExpression(binaryExpr.left(), scope);
                 MiniType rightType = analyzeExpression(binaryExpr.right(), scope);
+                if (binaryExpr.operator() == TokenType.EQUAL_EQUAL || binaryExpr.operator() == TokenType.BANG_EQUAL) {
+                    leftType = TypeCompatibility.pointerContextType(rightType, leftType, binaryExpr.left());
+                    rightType = TypeCompatibility.pointerContextType(leftType, rightType, binaryExpr.right());
+                }
                 if (!TypeCompatibility.isBinaryCompatible(leftType, rightType, binaryExpr.operator())) {
                     report(binaryExpr.range(), "二元表达式操作数类型不匹配");
                 }
@@ -271,7 +275,7 @@ final class ExpressionSemanticAnalyzer {
             if (!TypeCompatibility.isAssignmentCompatible(targetType, resultType)) {
                 report(assignmentExpr.range(), "复合赋值结果类型不匹配");
             }
-        } else if (!TypeCompatibility.isAssignmentCompatible(targetType, valueType)) {
+        } else if (!TypeCompatibility.isAssignmentCompatible(targetType, valueType, assignmentExpr.value())) {
             report(assignmentExpr.range(), "赋值类型不匹配");
         }
         return targetType;
@@ -281,6 +285,8 @@ final class ExpressionSemanticAnalyzer {
         MiniType conditionType = analyzeExpression(conditionalExpr.condition(), scope);
         MiniType thenType = analyzeExpression(conditionalExpr.thenExpression(), scope);
         MiniType elseType = analyzeExpression(conditionalExpr.elseExpression(), scope);
+        thenType = TypeCompatibility.pointerContextType(elseType, thenType, conditionalExpr.thenExpression());
+        elseType = TypeCompatibility.pointerContextType(thenType, elseType, conditionalExpr.elseExpression());
         if (!TypeCompatibility.isConditionCompatible(conditionType)) {
             report(conditionalExpr.condition().range(), "条件表达式必须是标量或指针类型");
         }
@@ -538,7 +544,7 @@ final class ExpressionSemanticAnalyzer {
             return;
         }
         MiniType valueType = analyzeExpression(value, scope);
-        if (!TypeCompatibility.isAssignmentCompatible(targetType, valueType)) {
+        if (!TypeCompatibility.isAssignmentCompatible(targetType, valueType, value)) {
             report(value.range(), subject + "初始化类型不匹配");
         }
     }
@@ -633,7 +639,8 @@ final class ExpressionSemanticAnalyzer {
             for (int index = 0; index < signature.parameterTypes().size(); index++) {
                 if (!TypeCompatibility.isArgumentCompatible(
                         signature.parameterTypes().get(index),
-                        argumentTypes.get(index)
+                        argumentTypes.get(index),
+                        callExpr.arguments().get(index)
                 )) {
                     report(callExpr.arguments().get(index).range(), "函数指针调用实参类型不匹配");
                 }
