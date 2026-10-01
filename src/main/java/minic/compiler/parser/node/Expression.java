@@ -37,6 +37,8 @@ public interface Expression extends AstNode {
             return switch (expression) {
                 case null -> false;
                 case ObjectInitExpr ignored -> true;
+                case CleanupExpr cleanup -> occursInResultOf(cleanup.value());
+                case LetExpr capture -> occursInResultOf(capture.body());
                 case GroupingExpr group -> occursInResultOf(group.expression());
                 case CommaExpr comma -> occursInResultOf(comma.expressions().getLast());
                 case ConditionalExpr conditional -> occursInResultOf(conditional.thenExpression())

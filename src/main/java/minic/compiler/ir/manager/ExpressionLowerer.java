@@ -92,6 +92,24 @@ final class ExpressionLowerer {
     }
 
     IrValue lowerExpression(Expression expression) {
+        if (expression instanceof minic.compiler.parser.node.CleanupExpr cleanup) {
+            MiniType type = expressionTypes.get(cleanup);
+            IrValue value;
+            if (type.isStruct()) {
+                // Existing record values need an independent snapshot; construction uses this
+                // destination directly, so embedded this/self pointers never observe a copy.
+                IrLocal object = builder.declareAnonymousLocal(type, cleanup.range());
+                builder.addInstruction(new IrDeclareLocalInstruction(object, cleanup.range()));
+                IrTemporary address = builder.newTemporary(IrType.POINTER);
+                builder.addInstruction(new IrAddressOfLocalInstruction(address, object, cleanup.range()));
+                initializeObjectAt(cleanup.value(), address, type.isVolatileQualified());
+                value = address;
+            } else {
+                value = captureCallValue(lowerExpression(cleanup.value()), cleanup.value().range());
+            }
+            lowerExpression(cleanup.cleanup());
+            return value;
+        }
         if (expression instanceof Expression.InitializeExpr initialization) {
             MiniType type = expressionTypes.get(initialization.target());
             IrValue address = captureCallValue(lowerAddress(initialization.target()), initialization.target().range());
@@ -644,6 +662,23 @@ final class ExpressionLowerer {
     }
 
     private void initializeObjectAt(Expression expression, IrValue address, boolean volatileDestination) {
+        if (expression instanceof minic.compiler.parser.node.CleanupExpr cleanup) {
+            initializeObjectAt(cleanup.value(), address, volatileDestination);
+            lowerExpression(cleanup.cleanup());
+            return;
+        }
+        if (expression instanceof Expression.LetExpr capture) {
+            IrValue value = captureCallValue(castIfNeeded(lowerExpression(capture.initializer()),
+                    IrTypeLowerer.lower(capture.type()), capture.initializer().range()), capture.body().range());
+            IrValue previous = capturedValues.put(capture.name(), value);
+            try {
+                initializeObjectAt(capture.body(), address, volatileDestination);
+            } finally {
+                if (previous == null) capturedValues.remove(capture.name());
+                else capturedValues.put(capture.name(), previous);
+            }
+            return;
+        }
         if (expression instanceof GroupingExpr group) {
             initializeObjectAt(group.expression(), address, volatileDestination);
             return;

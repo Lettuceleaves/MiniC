@@ -105,6 +105,12 @@ final class ExpressionSemanticAnalyzer {
             };
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case Expression.LetExpr capture -> analyzeCapture(capture, scope);
+            case minic.compiler.parser.node.CleanupExpr cleanup -> {
+                MiniType valueType = analyzeExpression(cleanup.value(), scope);
+                if (!analyzeExpression(cleanup.cleanup(), scope).isVoid())
+                    report(cleanup.cleanup().range(), "表达式清理必须是 void 表达式");
+                yield valueType;
+            }
             case Expression.MaterializeExpr temporary -> analyzeMaterialization(temporary, scope);
             case Expression.ObjectInitExpr construction -> analyzeObjectInitialization(construction, scope);
             case Expression.InitializeExpr initialization -> analyzeInitialization(initialization, scope);

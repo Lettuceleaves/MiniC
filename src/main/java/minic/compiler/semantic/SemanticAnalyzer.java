@@ -430,6 +430,10 @@ public final class SemanticAnalyzer extends Stage {
                 appendVisitNode(capture.initializer(), nodes);
                 appendVisitNode(capture.body(), nodes);
             }
+            case minic.compiler.parser.node.CleanupExpr cleanup -> {
+                appendVisitNode(cleanup.value(), nodes);
+                appendVisitNode(cleanup.cleanup(), nodes);
+            }
             case Expression.MaterializeExpr temporary -> appendVisitNode(temporary.initializer(), nodes);
             case Expression.ObjectInitExpr construction -> appendVisitNode(construction.body(), nodes);
             case Expression.InitializeExpr initialization -> {

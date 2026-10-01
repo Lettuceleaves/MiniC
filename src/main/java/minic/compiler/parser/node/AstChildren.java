@@ -45,6 +45,7 @@ public final class AstChildren {
             case SwitchCase n -> prepend(n.value(), n.statements());
             case AssignmentExpr n -> present(n.target(), n.value());
             case LetExpr n -> present(n.initializer(), n.body());
+            case CleanupExpr n -> present(n.value(), n.cleanup());
             case MaterializeExpr n -> present(n.initializer());
             case ObjectInitExpr n -> present(n.body());
             case InitializeExpr n -> present(n.target(), n.value());
