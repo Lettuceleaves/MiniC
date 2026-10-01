@@ -7,6 +7,7 @@ import minic.compiler.parser.node.AstChildren;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.CppInitializer;
 import minic.compiler.parser.node.CppConstructionExpr;
+import minic.compiler.parser.node.CppDestructorCallExpr;
 import minic.compiler.parser.node.CleanupScopeStmt;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.Declaration.*;
@@ -1363,6 +1364,7 @@ public final class CppNameBinder {
         private Expression expressionWithinFullExpression(Expression node, Namespace namespace, Local local, boolean addressDemand) {
             Expression core = switch (node) {
                 case CppConstructionExpr n -> constructionExpression(n, namespace, local);
+                case CppDestructorCallExpr n -> explicitDestruction(n, namespace, local);
                 case ThisExpr n -> {
                     if (currentThis == null) {
                         report("CPP004", n.range(), "this 只能用于非静态成员函数体内。");
@@ -1688,6 +1690,38 @@ public final class CppNameBinder {
         private Expression address(Expression value) {
             MiniType type = declaredExpressionType(value);
             return typed(new UnaryExpr(TokenType.AMPERSAND, value, value.range()), type == null ? null : type.pointerTo());
+        }
+
+        private Expression explicitDestruction(CppDestructorCallExpr source, Namespace namespace, Local local) {
+            Expression receiver = expression(source.receiver(), namespace, local, !source.viaPointer());
+            MiniType receiverType = declaredExpressionType(receiver);
+            MiniType object = source.viaPointer() ? elementType(receiverType) : receiverType;
+            if (object == null || object.isVoid() || object.isArray() || object.isFunction()
+                    || !(object.isStruct() || object.isScalar() || object.isPointer() || object.isNullPointer())) {
+                report("CPP004", source.nameRange(), "A destructor call requires an object or a pointer to an object.");
+                return typed(new CastExpr(MiniType.VOID, receiver, source.range()), MiniType.VOID);
+            }
+            TypeEntity owner = objectType(object);
+            // [basic.lookup.classref]: either lookup may match. A surrounding T naming
+            // another type must not hide the receiver class's injected T.
+            boolean injected = owner != null && source.destructorName().segments().size() == 1
+                    && owner.name.equals(source.destructorName().segments().getFirst());
+            MiniType named = injected ? object : normalizeType(source.ownerType(), namespace, local, source.nameRange());
+            if (named == null || !named.unqualified().equals(object.unqualified())) {
+                report("CPP004", source.nameRange(), "The destructor name must denote the receiver object's type.");
+            }
+            if (object.isStruct() && (owner == null || !owner.complete)) {
+                report("CPP004", source.nameRange(), "An explicit destructor call requires a complete class type.");
+            }
+            Expression evaluated;
+            if (source.viaPointer()) evaluated = receiver;
+            else if (object.isStruct()) evaluated = address(materializedReceiver(receiver));
+            else evaluated = valueCategory(receiver) == CppValueCategory.LVALUE && addressableObject(receiver)
+                        ? address(receiver) : receiver;
+            Expression cleanup = object.isStruct() ? destruction(object, evaluated, source.range()) : null;
+            // Trivial and pseudo-destructors still evaluate the postfix receiver once.
+            // Scalar lvalues do not undergo an invented lvalue-to-rvalue conversion.
+            return cleanup != null ? cleanup : typed(new CastExpr(MiniType.VOID, evaluated, source.range()), MiniType.VOID);
         }
 
         private Expression qualifiedAddress(Expression value, MiniType commonType) {

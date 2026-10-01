@@ -63,11 +63,12 @@ final class CppExplicitDestructorParserTest {
         var api=compiler(source);var parser=stage(api,Parser.class);api.runThrough(parser);
         assertFalse(parser.succeeded());assertTrue(parser.errors().stream().anyMatch(error->error.code().equals("CPP001") && error.message().contains("限定类型前缀")),()->parser.errors().toString());
     }
-    @Test void scalarPseudoDestructorRemainsSourceOnlyRatherThanAnOrdinaryCall() {
-        var api=compiler("typedef int I;void f(I*p){p->~I();}");var parser=stage(api,Parser.class);api.runThrough(parser);
+    @Test void scalarPseudoDestructorRetainsItsSourceNodeAndBindsToCore() {
+        var api=compiler("typedef int I;void f(I*p){p->~I();}int main(){return 0;}");var parser=stage(api,Parser.class);api.runThrough(parser);
         assertTrue(parser.succeeded(),()->parser.errors().toString());assertNotNull(findCall(parser.result().program()));
         var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);
-        assertFalse(semantic.succeeded());assertTrue(semantic.errors().stream().anyMatch(error->error.code().equals("CPP005")));
+        assertTrue(semantic.succeeded(),()->semantic.errors().toString());
+        assertNotNull(semantic.semanticResult().sourceToCore().get(findCall(parser.result().program())));
     }
     @Test void ownerCandidateAndInjectedNameRemainSeparate() {
         var api=compiler("namespace N{struct A{};}typedef N::A Alias;void f(N::A*p){p->~A();p->~Alias();}");
