@@ -17,8 +17,9 @@ public:
     __minic_bitset_reference& flip() noexcept { *word_^=mask_;return *this; }
 };
 template<unsigned long long N> class bitset {
-    unsigned long long words_[(N+63)/64?(N+63)/64:1];
-    constexpr unsigned long long word_count() const { return (N+63)/64; }
+    // Divide before rounding up so a large template size cannot wrap to zero.
+    unsigned long long words_[(N/64+(N%64!=0))?(N/64+(N%64!=0)):1];
+    constexpr unsigned long long word_count() const { return (N/64+(N%64!=0)); }
     constexpr void trim() { if(N==0)words_[0]=0;else if(N%64)words_[word_count()-1]&=(1ULL<<(N%64))-1; }
     void read(const char* text,unsigned long long n,char zero,char one) {
         reset();
@@ -73,10 +74,33 @@ public:
     bitset operator>>(unsigned long long distance) const noexcept { bitset result=*this;result>>=distance;return result; }
     bool operator==(const bitset& other) const noexcept { for(unsigned long long i=0;i<word_count();++i)if(words_[i]!=other.words_[i])return false;return true; }
     bool operator!=(const bitset& other) const noexcept { return !(*this==other); }
-    unsigned long long count() const noexcept { unsigned long long count=0;for(unsigned long long i=0;i<word_count();++i){unsigned long long value=words_[i];while(value){value&=value-1;++count;}}return count; }
+    unsigned long long count() const noexcept {
+        unsigned long long count=0;
+        for(unsigned long long i=0;i<(N/64+(N%64!=0));++i){
+            unsigned long long value=words_[i];
+#ifdef MINIC_BITSET_FORCE_KERNIGHAN
+            // Library-level fallback switch, also used by differential acceptance.
+            while(value){value&=value-1ULL;++count;}
+#else
+            // Keep this unsigned SWAR reduction inside the word loop: no helper
+            // call or compiler intrinsic is needed, including in baseline builds.
+            if(value==0)continue;
+            if((value&(value-1ULL))==0){++count;continue;}
+            value=value-((value>>1)&0x5555555555555555ULL);
+            value=(value&0x3333333333333333ULL)+((value>>2)&0x3333333333333333ULL);
+            value=(value+(value>>4))&0x0f0f0f0f0f0f0f0fULL;
+            count+=(value*0x0101010101010101ULL)>>56;
+#endif
+        }
+        return count;
+    }
     bool any() const noexcept { for(unsigned long long i=0;i<word_count();++i)if(words_[i])return true;return false; }
     bool none() const noexcept { return !any(); }
-    bool all() const noexcept { return count()==N; }
+    bool all() const noexcept {
+        for(unsigned long long i=0;i<N/64;++i)if(words_[i]!=~0ULL)return false;
+        if(N%64)return words_[N/64]==(1ULL<<(N%64))-1ULL;
+        return true;
+    }
     unsigned long long to_ullong() const { for(unsigned long long i=1;i<word_count();++i)if(words_[i])::abort();return N?words_[0]:0; }
     unsigned long to_ulong() const { unsigned long long value=to_ullong();if(value>0xffffffffULL)::abort();return (unsigned long)value; }
     string to_string() const { return to_string('0','1'); }
