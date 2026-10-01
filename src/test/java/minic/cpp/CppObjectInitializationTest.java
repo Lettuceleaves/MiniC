@@ -211,6 +211,29 @@ final class CppObjectInitializationTest {
         assertEquals(2,declarations(ir));assertNoCopies(ir);agree(ir,102);
     }
 
+    @ParameterizedTest @ValueSource(strings={"direct","group","comma","conditional"})
+    void returnedConstructionUsesTheCallersReturnStorage(String form) throws Exception {
+        Expression invalid = new BinaryExpr(integer(1),TokenType.SLASH,integer(0),R);
+        Expression expression = switch(form) {
+            case "group" -> new GroupingExpr(initialize(7),R);
+            case "comma" -> new CommaExpr(List.of(integer(0),initialize(7)),R);
+            case "conditional" -> new ConditionalExpr(integer(0),initialize(invalid),initialize(7),R);
+            default -> initialize(7);
+        };
+        var returned = new FunctionDecl("make",BOX,List.of(),false,
+                new BlockStmt(List.of(new ReturnStmt(expression,R)),R),false,R);
+        var self = new FieldAccessExpr(new CallExpr(name("make"),List.of(),R),"self",false,R);
+        var base = program(List.of(new ReturnStmt(new FieldAccessExpr(self,"value",true,R),R)));
+        var functions = new ArrayList<>(base.functions());functions.add(1,returned);
+        var ir = lower(new Program(base.structs(),functions,R));
+        // Returning a newly constructed value does not create a callee-local object
+        // whose embedded pointers would dangle after the return.
+        assertNoCopies(ir);
+        assertTrue(ir.findFunction("make").orElseThrow().blocks().stream().flatMap(block->block.instructions().stream())
+                .noneMatch(IrDeclareLocalInstruction.class::isInstance));
+        agree(ir,7);
+    }
+
     private static ObjectInitExpr initialize(int value) { return initialize(integer(value)); }
     private static ObjectInitExpr initialize(Expression value) {
         return new ObjectInitExpr(BOX,"destination",new CallExpr(name("construct"),List.of(name("destination"),value),R),R);

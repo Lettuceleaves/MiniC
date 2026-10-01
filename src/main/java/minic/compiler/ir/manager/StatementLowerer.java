@@ -100,6 +100,12 @@ final class StatementLowerer {
                 return;
             }
             Expression expression = returnStmt.expressionOptional().orElseThrow();
+            if (structReturnName != null && Expression.ObjectInitExpr.occursInResultOf(expression)) {
+                IrValue destination = builder.resolveParameter("__retptr");
+                expressionLowerer.initializeObjectAt(expression, destination);
+                builder.addInstruction(new IrReturnInstruction(destination, returnStmt.range()));
+                return;
+            }
             IrValue value = expressionLowerer.lowerExpression(expression);
             if (structReturnName != null) {
                 IrValue retPtr = builder.resolveParameter("__retptr");
