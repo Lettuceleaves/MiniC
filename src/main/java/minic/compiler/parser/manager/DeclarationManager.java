@@ -207,8 +207,11 @@ public final class DeclarationManager {
         functionType = typeReader.parseTrailingReturn(functionType);
         if (qualified && external) state.unsupportedCpp(startToken.range(), "类外成员定义不能使用 extern");
         Token semicolonToken = null;
+        Declaration.DefinitionKind definitionKind=Declaration.DefinitionKind.ORDINARY;
         BlockStmt body = null;
-        if (state.match(TokenType.SEMICOLON)) {
+        if(typeReader.isCpp()&&state.check(TokenType.EQUAL)) {
+            definitionKind=minic.compiler.parser.CppFunctionDefinitionParser.parse(state);semicolonToken=state.previous();
+        } else if (state.match(TokenType.SEMICOLON)) {
             semicolonToken = state.previous();
         } else {
             if (!state.check(TokenType.LEFT_BRACE)) {
@@ -251,7 +254,7 @@ public final class DeclarationManager {
                 noReturn,
                 SourceRange.span(startToken.range(), endRange),
                 declaration.operatorName()
-        );
+        ).withDefinitionKind(definitionKind);
         if (!typeReader.isCpp()) typeReader.declareOrdinaryName(functionDecl.name(), functionDecl.range());
         state.build(functionDecl, "FunctionDecl " + functionDecl.name(), functionDecl.range());
         state.exit("functionDecl", functionDecl.range());

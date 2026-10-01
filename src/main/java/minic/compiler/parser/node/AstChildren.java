@@ -154,7 +154,7 @@ public final class AstChildren {
                     || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
-                    || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null)
+                    || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null || function.definitionKind()!=DefinitionKind.ORDINARY)
                     || node instanceof FunctionTemplateDecl || node instanceof CppTemplateIdExpr
                     || node instanceof CppTemplateValueExpr
                     || node instanceof VarDeclStmt variable && variable.staticStorage()

@@ -243,6 +243,15 @@ public final class CppNameBinder {
         private final Map<CppLambdaExpr,LambdaInfo> lambdaExpressions=new IdentityHashMap<>();
         private final Map<TypeEntity,LambdaInfo> lambdaTypes=new IdentityHashMap<>();
         private final Set<Entity> staticLocalEntities=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Map<Constructor,CppCopyConstructorPlan.Result<Constructor>> defaultedCopyPlans=new IdentityHashMap<>();
+        private final Map<Method,AssignmentPlan> defaultedAssignmentPlans=new IdentityHashMap<>();
+        private final Set<Entity> emittedTransfers=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Set<Entity> transferPrototypes=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Set<Entity> emittedAssignments=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Set<Entity> assignmentPrototypes=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Set<Entity> deletedFunctions=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Set<Entity> userProvidedDefaulted=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Map<Entity, SourceRange> specialDefinitionRanges=new IdentityHashMap<>();
         private final Map<Entity, List<Diagnostic>> deletedConstructors = new IdentityHashMap<>();
         private final Map<Entity, List<Diagnostic>> deletedDestructors = new IdentityHashMap<>();
         private final Map<Statement, Expression> localCleanups = new IdentityHashMap<>();
@@ -440,11 +449,11 @@ public final class CppNameBinder {
             for(Entity previous:visible) {
                 FunctionTemplateDefinition old=functionTemplates.get(previous);
                 if(old==null||!sameFunctionTemplate(old,declaration.parameters(),function))continue;
-                if(old.source.hasBody()&&function.hasBody())report("CPP004",declaration.range(),"Function template is defined more than once");
-                else if(function.hasBody())functionTemplates.put(previous,new FunctionTemplateDefinition(declaration.parameters(),function,namespace,null,null,null,null,snapshotLookup()));
+                if(old.source.hasDefinition()&&function.hasDefinition())report("CPP004",declaration.range(),"Function template is defined more than once");
+                else if(function.hasDefinition())functionTemplates.put(previous,new FunctionTemplateDefinition(declaration.parameters(),function,namespace,null,null,null,null,snapshotLookup()));
                 return;
             }
-            Entity entity=new Entity(function.name(),freshName(namespace.qualify(function.name())),Kind.FUNCTION,namespace,signature,null,function.hasBody());
+            Entity entity=new Entity(function.name(),freshName(namespace.qualify(function.name())),Kind.FUNCTION,namespace,signature,null,function.hasDefinition());
             visible.add(entity);namespace.values.put(function.name(),new OverloadSet(visible));
             functionTemplates.put(entity,new FunctionTemplateDefinition(declaration.parameters(),function,namespace,null,null,null,null,snapshotLookup()));
             validateFunctionTemplateNames(function,namespace);
@@ -473,13 +482,14 @@ public final class CppNameBinder {
         }
         private void declareMemberTemplate(TypeEntity owner,List<ClassTemplateDecl.Parameter> parameters,
                                            MethodMember method,ConstructorMember constructor,Access access) {
-            FunctionDecl source=method!=null?method.method():new FunctionDecl(owner.name,MiniType.VOID,constructor.parameters(),constructor.variadic(),constructor.body(),false,constructor.range());
+            FunctionDecl source=method!=null?method.method():new FunctionDecl(owner.name,MiniType.VOID,constructor.parameters(),constructor.variadic(),constructor.body(),false,constructor.range()).withDefinitionKind(constructor.definitionKind());
+            if(source.definitionKind()==DefinitionKind.DEFAULTED){report("CPP004",source.range(),"A function template cannot be a defaulted special member");return;}
             List<MiniType> argumentTypes=source.parameters().stream().map(Parameter::type).toList();
             var abi=new ArrayList<MiniType>();
             if(method==null||!method.staticMember())abi.add(method==null?owner.type.pointerTo():methodThisType(owner,method));
             abi.addAll(argumentTypes);
             Entity entity=new Entity(source.name(),freshName(owner.canonicalName+"::"+source.name()),Kind.FUNCTION,owner.owner,
-                    MiniType.function(source.returnType(),abi,source.variadic()),null,source.hasBody());
+                    MiniType.function(source.returnType(),abi,source.variadic()),null,source.hasDefinition());
             functionTemplates.put(entity,new FunctionTemplateDefinition(parameters,source,owner.owner,owner,method,constructor,access,currentTemplateLookup==null?snapshotLookup():currentTemplateLookup));
             if(method!=null) {
                 var previous=owner.methods.get(source.name());
@@ -529,7 +539,7 @@ public final class CppNameBinder {
                 CppTemplateSubstitution substitution=functionSubstitution(definition,bindings);
                 FunctionDecl original=definition.source;
                 FunctionDecl header=new FunctionDecl(original.name(),original.returnType(),original.parameters(),original.variadic(),null,
-                        original.external(),original.noReturn(),original.range(),original.operatorName(),original.conversionName());
+                        original.external(),original.noReturn(),original.range(),original.operatorName(),original.conversionName(),original.definitionKind());
                 FunctionDecl instance=substitution.instantiate(header);
                 List<MiniType> parameters=instance.parameters().stream().map(p->normalizeType(p.type(),definition.owner,null,p.range())).toList();
                 MiniType result=normalizeReturnType(instance.returnType(),instance.parameters(),parameters,definition.owner,definition.record,definition.method,instance.range());
@@ -541,16 +551,17 @@ public final class CppNameBinder {
                 String display=(definition.record==null?definition.owner.qualify(original.name()):definition.record.canonicalName+"::"+original.name())
                         +"<"+String.join(",",arguments.stream().map(Object::toString).toList())+">";
                 Entity entity=new Entity(original.name(),freshName(display),Kind.FUNCTION,definition.owner,
-                        MiniType.function(result,abi,original.variadic()),null,original.hasBody());
+                        MiniType.function(result,abi,original.variadic()),null,original.hasDefinition());
                 Method method=definition.method==null?null:new Method(definition.record,
                         new MethodMember(instance,definition.method.constQualified(),definition.method.staticMember(),definition.method.nameRange()),definition.access,entity,result,parameters);
                 Constructor constructor=null;
                 if(definition.constructor!=null) {
                     var originalConstructor=definition.constructor;
                     var member=new ConstructorMember(originalConstructor.name(),instance.parameters(),originalConstructor.variadic(),List.of(),null,
-                            originalConstructor.nameRange(),originalConstructor.range(),originalConstructor.explicitSpecifier());
+                            originalConstructor.nameRange(),originalConstructor.range(),originalConstructor.explicitSpecifier(),originalConstructor.definitionKind());
                     constructor=new Constructor(definition.record,member,definition.access,entity,parameters,false);
                 }
+                registerSpecialDefinition(entity,instance.definitionKind(),instance.range());
                 functionTemplateCache.put(key,entity);functionTemplateDeclarations.put(entity,declaration);coreValues.put(entity.coreName,entity);
                 functionTemplateInstances.put(entity,new FunctionTemplateInstance(definition,bindings,instance,method,constructor));
                 recordDefaultArguments(entity,instance.parameters(),definition.owner,definition.record);
@@ -573,6 +584,7 @@ public final class CppNameBinder {
             if(instance==null||unevaluatedDepth>0&&!((MiniType.FunctionType)entity.type).returnType().containsAuto()||emittedFunctionTemplates.contains(entity))return;
             requestedFunctionTemplates.add(entity);
             var definition=functionTemplates.getOrDefault(functionTemplateDeclarations.get(entity),instance.definition);
+            if(definition.source.definitionKind()==DefinitionKind.DELETED){deletedFunctions.add(entity);return;}
             if(!definition.source.hasBody())return;
             if(functionTemplateDepth>=128){report("CPP004",definition.source.range(),"Function template instantiation depth exceeds 128");emittedFunctionTemplates.add(entity);return;}
             var bindings=instance.bindings;
@@ -975,6 +987,9 @@ public final class CppNameBinder {
         }
 
         private void instantiateMethod(Method method) {
+            if(defaultedAssignmentPlans.containsKey(method)){emitAssignment(method,defaultedAssignmentPlans.get(method));return;}
+            if(method==method.owner.implicitAssignment){emitImplicitAssignment(method.owner);return;}
+            if(method==method.owner.implicitMoveAssignment){emitImplicitMoveAssignment(method.owner);return;}
             if(functionTemplateInstances.containsKey(method.function)){instantiateFunctionTemplate(method.function);return;}
             if (unevaluatedDepth > 0 && !methodReturnType(method).containsAuto()) return;
             if (pendingTemplateMethods.remove(method.function) == null) return;
@@ -1011,6 +1026,8 @@ public final class CppNameBinder {
         }
 
         private void instantiateConstructor(Constructor constructor) {
+            if(defaultedCopyPlans.containsKey(constructor)){emitTransfer(constructor,defaultedCopyPlans.get(constructor),false);return;}
+            if(constructor==constructor.owner.implicitCopy){emitImplicitCopy(constructor.owner);return;}
             if(constructor==constructor.owner.implicitMove){emitImplicitMove(constructor.owner);return;}
             if(functionTemplateInstances.containsKey(constructor.function)){instantiateFunctionTemplate(constructor.function);return;}
             if (unevaluatedDepth > 0 || pendingTemplateConstructors.remove(constructor.function) == null) return;
@@ -1129,7 +1146,7 @@ public final class CppNameBinder {
                     }
                 // Complete-class lookup applies to bodies, without exposing later namespace declarations.
                 for (Constructor constructor : constructors) {
-                    if (instanceKeys.containsKey(entity) && !constructor.implicit) {
+                    if (instanceKeys.containsKey(entity) && !constructor.implicit && constructor.source.definitionKind()==DefinitionKind.ORDINARY) {
                         pendingTemplateConstructors.put(constructor.function, constructor);
                         declareTemplatePrototype(constructor.function, constructor.source.range());
                     } else bindConstructor(constructor);
@@ -1143,7 +1160,7 @@ public final class CppNameBinder {
                     bindConstructor(entity.aggregateInitializer, true);
                 }
                 if (destructor != null) {
-                    if (instanceKeys.containsKey(entity) && !destructor.implicit) {
+                    if (instanceKeys.containsKey(entity) && !destructor.implicit && destructor.source.definitionKind()==DefinitionKind.ORDINARY) {
                         pendingTemplateDestructors.put(destructor.function, destructor);
                         declareTemplatePrototype(destructor.function, destructor.source.range());
                     } else bindDestructor(destructor);
@@ -1168,10 +1185,12 @@ public final class CppNameBinder {
                 return null;
             }
             Entity function = new Entity("~" + owner.name, freshName(owner.canonicalName.substring(2) + "::~" + owner.name),
-                    Kind.FUNCTION, owner.owner, MiniType.function(MiniType.VOID, List.of(owner.type.pointerTo()), false), null, member.body() != null);
+                    Kind.FUNCTION, owner.owner, MiniType.function(MiniType.VOID, List.of(owner.type.pointerTo()), false), null, member.hasDefinition());
             coreValues.put(function.coreName, function);
             Destructor destructor = new Destructor(owner, member, access, function, implicit);
             owner.destructor = destructor;
+            registerSpecialDefinition(function,member.definitionKind(),member.range());
+            if(member.definitionKind()==DefinitionKind.DELETED)deletedDestructors.put(function,deletedReason(member.range()));
             return destructor;
         }
 
@@ -1183,19 +1202,28 @@ public final class CppNameBinder {
             boolean enclosing = false;
             for (Namespace at = owner.owner; at != null; at = at.parent) enclosing |= at == namespace;
             Destructor previous = owner.destructor;
-            if (!enclosing || node.destructor().body() == null) {
+            if (!enclosing || !node.destructor().hasDefinition()) {
                 report("CPP004", node.nameRange(), "A destructor definition must be in its enclosing namespace and have a body.");
             } else if (previous == null || previous.implicit) {
                 report("CPP004", node.nameRange(), "No matching user-declared destructor: " + owner.canonicalName);
             } else if (previous.function.defined) {
                 report("CPP004", node.nameRange(), "Duplicate destructor definition: " + owner.canonicalName);
             } else {
+                if(node.destructor().definitionKind()==DefinitionKind.DELETED){report("CPP004",node.range(),"A deleted definition must be the first declaration");return;}
                 previous.function.defined = true;
-                bindDestructor(new Destructor(owner, node.destructor(), previous.access, previous.function, false));
+                Destructor replacement=new Destructor(owner,node.destructor(),previous.access,previous.function,false);owner.destructor=replacement;
+                if(node.destructor().definitionKind()==DefinitionKind.DEFAULTED)userProvidedDefaulted.add(replacement.function);
+                bindDestructor(replacement);
             }
         }
 
         private void bindDestructor(Destructor destructor) {
+            if(destructor.source.definitionKind()==DefinitionKind.DELETED)return;
+            if(destructor.source.definitionKind()==DefinitionKind.DEFAULTED){
+                DestructorMember source=destructor.source;
+                bindDestructor(new Destructor(destructor.owner,new DestructorMember(source.name(),new BlockStmt(List.of(),source.range()),source.nameRange(),source.range()),
+                        destructor.access,destructor.function,!userProvidedDefaulted.contains(destructor.function)));return;
+            }
             TypeEntity owner = destructor.owner;
             DestructorMember original = destructor.source;
             Entity self = constructorThis(owner, original.nameRange());
@@ -1296,6 +1324,46 @@ public final class CppNameBinder {
             return nested != null && needsConstruction(nested, visited);
         }
 
+        private List<Diagnostic> deletedReason(SourceRange range) {
+            return List.of(new Diagnostic("CPP004",Diagnostic.Severity.ERROR,"Explicitly deleted function",range));
+        }
+        private void registerSpecialDefinition(Entity function,DefinitionKind kind,SourceRange range) {
+            if(kind==DefinitionKind.ORDINARY)return;
+            specialDefinitionRanges.put(function,range);
+            if(kind==DefinitionKind.DELETED)deletedFunctions.add(function);
+        }
+        private boolean isDeleted(Entity function) {
+            if(deletedFunctions.contains(function)||deletedConstructors.containsKey(function)||deletedDestructors.containsKey(function))return true;
+            for(var entry:defaultedAssignmentPlans.entrySet())if(entry.getKey().function==function&&!entry.getValue().problems.isEmpty())return true;
+            for(TypeEntity owner:coreTypes.values()) {
+                if(owner.implicitAssignment!=null&&owner.implicitAssignment.function==function&&owner.assignmentPlan!=null&&!owner.assignmentPlan.problems.isEmpty())return true;
+                if(owner.implicitMoveAssignment!=null&&owner.implicitMoveAssignment.function==function&&owner.moveAssignmentPlan!=null&&!owner.moveAssignmentPlan.problems.isEmpty())return true;
+            }
+            return false;
+        }
+        private boolean validDefaultedConstructor(Constructor constructor) {
+            boolean valid=!constructor.source.variadic()&&constructor.source.parameters().stream().noneMatch(p->p.defaultValue()!=null)
+                    && (constructor.parameterTypes.isEmpty()||isCopyConstructor(constructor)||isMoveConstructor(constructor));
+            if(valid&&!constructor.parameterTypes.isEmpty()){
+                MiniType parameter=constructor.parameterTypes.getFirst();
+                valid=isMoveConstructor(constructor)?parameter.equals(constructor.owner.type.rvalueReferenceTo())
+                        :parameter.isLvalueReference()&&!parameter.referent().isVolatileQualified();
+            }
+            if(!valid)report("CPP004",constructor.source.range(),"A defaulted constructor must match its implicit special-member signature and have no default arguments");
+            return valid;
+        }
+        private boolean validDefaultedAssignment(Method method) {
+            boolean valid=!method.source.constQualified()&&!method.source.staticMember()&&!method.source.method().variadic()
+                    &&method.source.method().parameters().stream().noneMatch(p->p.defaultValue()!=null)
+                    &&method.returnType.equals(method.owner.type.referenceTo())&&(isCopyAssignment(method)||isMoveAssignment(method));
+            if(valid){MiniType parameter=method.parameterTypes.getFirst();valid=parameter.isReference()&&!parameter.referent().isVolatileQualified()
+                    &&(!isMoveAssignment(method)||parameter.equals(method.owner.type.rvalueReferenceTo()));}
+            if(!valid)report("CPP004",method.source.range(),"Defaulted assignment must match its implicit special-member signature");
+            return valid;
+        }
+        private boolean defaulted(Constructor constructor){return constructor!=null&&constructor.source.definitionKind()==DefinitionKind.DEFAULTED;}
+        private boolean defaulted(Method method){return method!=null&&method.source.method().definitionKind()==DefinitionKind.DEFAULTED;}
+
         private Constructor declareConstructor(TypeEntity owner, ConstructorMember member, Access access, boolean implicit) {
             if (owner.union) {
                 report("CPP005", member.nameRange(), "Union construction is not supported yet.");
@@ -1318,10 +1386,13 @@ public final class CppNameBinder {
                 }
             }
             Entity function = new Entity(owner.name, freshName(owner.canonicalName.substring(2) + "::" + owner.name),
-                    Kind.FUNCTION, owner.owner, signature, null, member.body() != null);
+                    Kind.FUNCTION, owner.owner, signature, null, member.hasDefinition());
             coreValues.put(function.coreName, function);
             Constructor constructor = new Constructor(owner, member, access, function, parameters, implicit);
+            if(defaulted(constructor)&&!validDefaultedConstructor(constructor))return null;
             owner.constructors.add(constructor);
+            registerSpecialDefinition(function,member.definitionKind(),member.range());
+            if(member.definitionKind()==DefinitionKind.DELETED)deletedConstructors.put(function,deletedReason(member.range()));
             recordDefaultArguments(function,member.parameters(),owner.owner,owner);
             return constructor;
         }
@@ -1333,7 +1404,7 @@ public final class CppNameBinder {
             if (owner == null) return;
             boolean enclosing = false;
             for (Namespace at = owner.owner; at != null; at = at.parent) enclosing |= at == namespace;
-            if (!enclosing || node.constructor().body() == null) {
+            if (!enclosing || !node.constructor().hasDefinition()) {
                 report("CPP004", node.nameRange(), "A constructor definition must be in its enclosing namespace and have a body.");
                 return;
             }
@@ -1346,8 +1417,21 @@ public final class CppNameBinder {
                 report("CPP004", node.nameRange(), previous == null ? "No matching constructor declaration." : "Duplicate constructor definition.");
                 return;
             }
+            if(node.constructor().definitionKind()==DefinitionKind.DELETED){report("CPP004",node.range(),"A deleted definition must be the first declaration");return;}
             previous.function.defined = true;
-            bindConstructor(new Constructor(owner, node.constructor(), previous.access, previous.function, parameters, false));
+            Constructor replacement=new Constructor(owner,node.constructor(),previous.access,previous.function,parameters,false);
+            if(defaulted(replacement)&&!validDefaultedConstructor(replacement))return;
+            owner.constructors.set(owner.constructors.indexOf(previous),replacement);
+            if(defaulted(replacement)){
+                userProvidedDefaulted.add(replacement.function);registerSpecialDefinition(replacement.function,DefinitionKind.DEFAULTED,node.range());
+                owner.copyPlan=null;owner.movePlanned=false;
+            }
+            bindConstructor(replacement);
+            if(defaulted(replacement)){
+                ensureImplicitCopy(owner);ensureImplicitMove(owner);
+                if(isDeleted(replacement.function))report("CPP004",node.range(),"A defaulted definition after the first declaration cannot be deleted");
+                else if(replacement==owner.implicitCopy)emitImplicitCopy(owner);else if(replacement==owner.implicitMove)emitImplicitMove(owner);
+            }
         }
 
         private Entity constructorThis(TypeEntity owner, SourceRange range) {
@@ -1385,6 +1469,16 @@ public final class CppNameBinder {
         }
 
         private void bindConstructor(Constructor constructor, boolean aggregateList) {
+            if(constructor.source.definitionKind()==DefinitionKind.DELETED)return;
+            if(constructor.source.definitionKind()==DefinitionKind.DEFAULTED){
+                if(!validDefaultedConstructor(constructor))return;
+                if(!constructor.parameterTypes.isEmpty())return;
+                ConstructorMember source=constructor.source;
+                var bodySource=new ConstructorMember(source.name(),source.parameters(),false,List.of(),new BlockStmt(List.of(),source.range()),
+                        source.nameRange(),source.range(),source.explicitSpecifier());
+                bindConstructor(new Constructor(constructor.owner,bodySource,constructor.access,constructor.function,List.of(),
+                        !userProvidedDefaulted.contains(constructor.function)),aggregateList);return;
+            }
             TypeEntity owner = constructor.owner;
             ConstructorMember original = constructor.source;
             requireSupportedCallLifetime(MiniType.VOID, constructor.parameterTypes, original.range());
@@ -1596,9 +1690,11 @@ public final class CppNameBinder {
                 }
             }
             Entity function = new Entity(name, freshName(owner.canonicalName.substring(2) + "::" + name),
-                    Kind.FUNCTION, namespace, signature, null, sourceMethod.hasBody());
+                    Kind.FUNCTION, namespace, signature, null, sourceMethod.hasDefinition());
             coreValues.put(function.coreName, function);
             Method method = new Method(owner, member, access, function, returnType, parameterTypes);
+            registerSpecialDefinition(function,sourceMethod.definitionKind(),sourceMethod.range());
+            if(defaulted(method)&&!validDefaultedAssignment(method))return null;
             if (member.staticMember()) staticMethods.put(function, method);
             List<Method> methods = new ArrayList<>(previous);
             methods.add(method);
@@ -1659,6 +1755,11 @@ public final class CppNameBinder {
         }
 
         private void bindMethod(Method method, Namespace namespace) {
+            if(method.source.method().definitionKind()==DefinitionKind.DELETED)return;
+            if(method.source.method().definitionKind()==DefinitionKind.DEFAULTED){
+                if(!isCopyAssignment(method)&&!isMoveAssignment(method))report("CPP004",method.source.range(),"Only a special member function can be defaulted");
+                return;
+            }
             FunctionDecl original = method.source.method();
             MiniType returnPattern=methodReturnType(method);
             if(returnPattern.containsAuto()&&!original.hasBody()) { autoReturnPatterns.put(method.function,returnPattern); return; }
@@ -1726,7 +1827,7 @@ public final class CppNameBinder {
                 report("CPP004", node.nameRange(), "类中尚未声明此成员函数：" + spelling(path));
                 return;
             }
-            if (!definition.hasBody()) {
+            if (!definition.hasDefinition()) {
                 report("CPP004", node.nameRange(), "类外成员声明必须提供函数定义：" + spelling(path));
                 return;
             }
@@ -1748,9 +1849,18 @@ public final class CppNameBinder {
                 report("CPP004", node.nameRange(), "成员函数重复定义：" + spelling(path));
                 return;
             }
+            if(definition.definitionKind()==DefinitionKind.DELETED){report("CPP004",node.range(),"A deleted definition must be the first declaration");return;}
             previous.function.defined = true;
             MethodMember member = new MethodMember(definition, node.constQualified(), previous.source.staticMember(), node.nameRange());
-            bindMethod(new Method(owner, member, previous.access, previous.function, returnType, parameterTypes), owner.owner);
+            Method replacement=new Method(owner,member,previous.access,previous.function,returnType,parameterTypes);
+            if(defaulted(replacement)&&!validDefaultedAssignment(replacement))return;
+            var updated=new ArrayList<>(overloads.methods);updated.set(updated.indexOf(previous),replacement);owner.methods.put(definition.name(),new MethodSet(updated));
+            if(defaulted(replacement)){
+                userProvidedDefaulted.add(replacement.function);registerSpecialDefinition(replacement.function,DefinitionKind.DEFAULTED,node.range());
+                owner.assignmentPlanned=false;owner.movePlanned=false;ensureImplicitAssignment(owner);ensureImplicitMove(owner);
+                if(isDeleted(replacement.function))report("CPP004",node.range(),"A defaulted definition after the first declaration cannot be deleted");
+                else if(replacement==owner.implicitAssignment)emitImplicitAssignment(owner);else if(replacement==owner.implicitMoveAssignment)emitImplicitMoveAssignment(owner);
+            } else bindMethod(replacement,owner.owner);
         }
 
         private TypeEntity resolveMethodOwner(QualifiedName name, Namespace namespace) {
@@ -2317,6 +2427,7 @@ public final class CppNameBinder {
         private void bindFunction(FunctionDecl node, Namespace namespace) { bindFunction(node,namespace,null); }
 
         private void bindFunction(FunctionDecl node, Namespace namespace,Entity instantiated) {
+            if(node.definitionKind()==DefinitionKind.DEFAULTED){report("CPP004",node.range(),"Only a special member function can be defaulted");return;}
             if (node.conversionName() != null) {
                 report("CPP004", node.range(), "转换函数必须是非静态类成员。"); return;
             }
@@ -2336,9 +2447,16 @@ public final class CppNameBinder {
             requireSupportedCallLifetime(returnType, parameterTypes, node.range());
             MiniType.FunctionType signature = (MiniType.FunctionType) MiniType.function(returnType, parameterTypes.stream()
                     .map(MiniType::unqualified).toList(), node.variadic());
-            Entity entity = instantiated!=null?instantiated:declareNamespaceFunction(node.name(), signature, node.hasBody(), namespace, node.range(), node.operatorName() != null);
+            if(instantiated==null&&node.definitionKind()==DefinitionKind.DELETED&&namespace.values.get(node.name()) instanceof OverloadSet previous
+                    &&previous.functions.stream().anyMatch(f->!functionTemplates.containsKey(f)&&f.type instanceof MiniType.FunctionType type
+                            &&type.parameterTypes().equals(signature.parameterTypes())&&type.variadic()==signature.variadic()))
+                report("CPP004",node.range(),"A deleted definition must be the first declaration");
+            Entity entity = instantiated!=null?instantiated:declareNamespaceFunction(node.name(), signature, node.hasDefinition(), namespace, node.range(), node.operatorName() != null);
             if(instantiated==null)recordDefaultArguments(entity,node.parameters(),namespace,null);
             recordLinkage(entity, node.range());
+            if(node.definitionKind()==DefinitionKind.DELETED){
+                registerSpecialDefinition(entity,node.definitionKind(),node.range());return;
+            }
             if(returnType.containsAuto()) {
                 autoReturnPatterns.putIfAbsent(entity,returnType);
                 if(!node.hasBody()) {
@@ -4514,7 +4632,7 @@ public final class CppNameBinder {
             Expression plain=value;while(plain instanceof GroupingExpr group)plain=group.expression();
             if(currentReturnType!=null&&currentReturnType.isStruct()&&plain instanceof NameExpr name) {
                 Entity entity=coreValues.get(name.name());
-                if(entity!=null&&entity.owner==null&&!entity.type.isReference()&&!entity.type.isVolatileQualified())implicitMoveSources.add(value);
+                if(entity!=null&&entity.owner==null&&!staticLocalEntities.contains(entity)&&!entity.type.isReference()&&!entity.type.isVolatileQualified())implicitMoveSources.add(value);
             }
             return convertCallValue(currentReturnType,value,source);
         }
@@ -4552,6 +4670,7 @@ public final class CppNameBinder {
         }
 
         private void requireMethodAccess(Method method, SourceRange range) {
+            if(isDeleted(method.function))report("CPP004",range,"Selected member function is deleted: "+method.source.method().name());
             if(method==method.owner.implicitMoveAssignment)emitImplicitMoveAssignment(method.owner);
             if (method == method.owner.implicitAssignment) {
                 if (!method.owner.assignmentPlan.problems.isEmpty())
@@ -4750,7 +4869,7 @@ public final class CppNameBinder {
 
         private boolean nonAggregate(TypeEntity type) {
             if(lambdaTypes.containsKey(type))return true;
-            return type != null && (type.constructors.stream().anyMatch(c -> !c.implicit)
+            return type != null && (type.constructors.stream().anyMatch(c -> !c.implicit&&(c.source.explicitSpecifier()||c.source.definitionKind()==DefinitionKind.ORDINARY||userProvidedDefaulted.contains(c.function)))
                     || type.fields.stream().anyMatch(f -> type.fieldAccess.getOrDefault(f, Access.PUBLIC) != Access.PUBLIC));
         }
 
@@ -5163,7 +5282,7 @@ public final class CppNameBinder {
             if (constructor == constructor.owner.implicitCopy) emitImplicitCopy(constructor.owner);
             if (constructor.access != Access.PUBLIC && !classAccess(constructor.owner))
                 report("CPP004", range, "转换构造函数不可访问。");
-            if (deletedConstructors.containsKey(constructor.function)) {
+            if (isDeleted(constructor.function)) {
                 report("CPP004", range, "转换构造函数已删除或不可用。"); return value;
             }
             MiniType parameter = constructor.parameterTypes.getFirst();
@@ -5190,7 +5309,8 @@ public final class CppNameBinder {
             List<Constructor> result = new ArrayList<>(owner.constructors);
             for (Constructor copy : copyConstructors(owner)) if (!result.contains(copy)) result.add(copy);
             ensureImplicitMove(owner);
-            if(owner.implicitMove!=null&&!deletedConstructors.containsKey(owner.implicitMove.function))result.add(owner.implicitMove);
+            if(owner.implicitMove!=null&&!deletedConstructors.containsKey(owner.implicitMove.function)&&!result.contains(owner.implicitMove))result.add(owner.implicitMove);
+            result.removeIf(c->defaulted(c)&&isMoveConstructor(c)&&isDeleted(c.function));
             return result;
         }
 
@@ -5325,7 +5445,8 @@ public final class CppNameBinder {
             if (owner.assignmentPlanned || !owner.complete) return;
             owner.assignmentPlanned = true;
             MethodSet declared = owner.methods.get("operator=");
-            if (declared != null && declared.methods.stream().anyMatch(this::isCopyAssignment)) return;
+            Method explicitAssignment=declared==null?null:declared.methods.stream().filter(m->isCopyAssignment(m)&&defaulted(m)).findFirst().orElse(null);
+            if (explicitAssignment==null&&declared != null && declared.methods.stream().anyMatch(this::isCopyAssignment)) return;
             boolean constant = true;
             for (StructField field : owner.fields) {
                 MiniType leaf = field.type();
@@ -5339,10 +5460,27 @@ public final class CppNameBinder {
                     return !parameter.isReference() || parameter.referent().isConstQualified();
                 });
             }
+            if(explicitAssignment!=null)constant=explicitAssignment.parameterTypes.getFirst().referent().isConstQualified();
             MiniType sourceOwner = constant ? MiniType.qualified(owner.type, Set.of(MiniType.TypeQualifier.CONST)) : owner.type;
+            owner.assignmentPlan=planCopyAssignment(owner,sourceOwner,explicitAssignment==null);
+            if(declared!=null)for(Method method:declared.methods)if(isCopyAssignment(method)&&defaulted(method))
+                defaultedAssignmentPlans.put(method,planCopyAssignment(owner,method.parameterTypes.getFirst().referent(),false));
+            SourceRange range = owner.sourceRecord.range();
+            FunctionDecl source = new FunctionDecl("operator=", owner.type.referenceTo(),
+                    List.of(new Parameter("other", sourceOwner.referenceTo(), range)), false, null, false, range);
+            MethodMember member = new MethodMember(source, false, range);
+            Entity function = new Entity("operator=", freshName(owner.canonicalName.substring(2) + "::operator="), Kind.FUNCTION,
+                    owner.owner, MiniType.function(owner.type.referenceTo(), List.of(owner.type.pointerTo(), sourceOwner.referenceTo())), null, true);
+            coreValues.put(function.coreName, function);
+            owner.implicitAssignment = explicitAssignment!=null?explicitAssignment:new Method(owner, member, Access.PUBLIC, function, owner.type.referenceTo(), List.of(sourceOwner.referenceTo()));
+            List<Method> methods = new ArrayList<>(declared == null ? List.of() : declared.methods);
+            if(!methods.contains(owner.implicitAssignment))methods.add(owner.implicitAssignment); owner.methods.put("operator=", new MethodSet(methods));
+        }
+
+        private AssignmentPlan planCopyAssignment(TypeEntity owner,MiniType sourceOwner,boolean deleteForMove) {
             List<AssignmentEntry> entries = new ArrayList<>();
             List<String> problems = new ArrayList<>();
-            if(userDeclaredMove(owner))problems.add("A user-declared move operation deletes implicit copy assignment");
+            if(deleteForMove&&userDeclaredMove(owner))problems.add("A user-declared move operation deletes implicit copy assignment");
             boolean trivial = true;
             for (StructField field : owner.fields) {
                 MiniType target = field.type();
@@ -5372,32 +5510,25 @@ public final class CppNameBinder {
                     if (selected.access != Access.PUBLIC && selected.owner != owner)
                         problems.add("Assignment of member '" + field.name() + "' is inaccessible");
                     boolean implicit = selected == member.implicitAssignment;
-                    if (implicit && !member.assignmentPlan.problems.isEmpty()) problems.add("Assignment of member '" + field.name() + "' is deleted");
-                    boolean memberTrivial = implicit && member.assignmentPlan.trivial;
+                    if (isDeleted(selected.function)) problems.add("Assignment of member '" + field.name() + "' is deleted");
+                    AssignmentPlan selectedPlan=defaultedAssignmentPlans.get(selected);if(selectedPlan==null&&implicit)selectedPlan=member.assignmentPlan;
+                    boolean memberTrivial = selectedPlan!=null&&selectedPlan.trivial&&!userProvidedDefaulted.contains(selected.function);
                     if (owner.union && !memberTrivial) problems.add("Union member '" + field.name() + "' has nontrivial assignment");
                     trivial &= memberTrivial;
                 }
                 entries.add(new AssignmentEntry(field, List.copyOf(dimensions), selected));
             }
-            owner.assignmentPlan = new AssignmentPlan(sourceOwner.referenceTo(), List.copyOf(entries), List.copyOf(problems), trivial);
-            SourceRange range = owner.sourceRecord.range();
-            FunctionDecl source = new FunctionDecl("operator=", owner.type.referenceTo(),
-                    List.of(new Parameter("other", sourceOwner.referenceTo(), range)), false, null, false, range);
-            MethodMember member = new MethodMember(source, false, range);
-            Entity function = new Entity("operator=", freshName(owner.canonicalName.substring(2) + "::operator="), Kind.FUNCTION,
-                    owner.owner, MiniType.function(owner.type.referenceTo(), List.of(owner.type.pointerTo(), sourceOwner.referenceTo())), null, true);
-            coreValues.put(function.coreName, function);
-            owner.implicitAssignment = new Method(owner, member, Access.PUBLIC, function, owner.type.referenceTo(), List.of(sourceOwner.referenceTo()));
-            List<Method> methods = new ArrayList<>(declared == null ? List.of() : declared.methods);
-            methods.add(owner.implicitAssignment); owner.methods.put("operator=", new MethodSet(methods));
+            return new AssignmentPlan(sourceOwner.referenceTo(), List.copyOf(entries), List.copyOf(problems), trivial);
         }
 
         private void emitImplicitAssignment(TypeEntity owner) {emitImplicitAssignment(owner,false);}
         private void emitImplicitMoveAssignment(TypeEntity owner) {emitImplicitAssignment(owner,true);}
         private void emitImplicitAssignment(TypeEntity owner,boolean move) {
-            AssignmentPlan plan=move?owner.moveAssignmentPlan:owner.assignmentPlan;
-            Method operation=move?owner.implicitMoveAssignment:owner.implicitAssignment;
-            if ((move?owner.moveAssignmentEmitted:owner.assignmentEmitted) || !plan.problems.isEmpty()) return;
+            emitAssignment(move?owner.implicitMoveAssignment:owner.implicitAssignment,move?owner.moveAssignmentPlan:owner.assignmentPlan);
+        }
+        private void emitAssignment(Method operation,AssignmentPlan plan) {
+            TypeEntity owner=operation.owner;boolean move=plan.parameterType.isRvalueReference();
+            if(emittedAssignments.contains(operation.function)||!plan.problems.isEmpty())return;
             SourceRange range = owner.sourceRecord.range();
             boolean anonymous = owner.fields.stream().anyMatch(StructField::anonymous);
             boolean representationCopy = owner.union || anonymous && plan.trivial
@@ -5406,12 +5537,12 @@ public final class CppNameBinder {
                 report("CPP005", range, "Nontrivial assignment of anonymous aggregate storage requires subobject addressing support.");
                 return;
             }
-            if (unevaluatedDepth > 0 && (move?owner.moveAssignmentPrototypeEmitted:owner.assignmentPrototypeEmitted)) return;
+            if (unevaluatedDepth > 0 && assignmentPrototypes.contains(operation.function)) return;
             String self = freshName("this"), other = freshName("other");
             MiniType sourcePointer = coreType(plan.parameterType);
             List<Statement> statements = new ArrayList<>();
             if (unevaluatedDepth == 0) {
-                if(move)owner.moveAssignmentEmitted=true;else owner.assignmentEmitted=true;
+                emittedAssignments.add(operation.function);
                 if (representationCopy) {
                     Expression to = typed(new UnaryExpr(TokenType.STAR, typed(new NameExpr(self, range), owner.type.pointerTo()), range), owner.type);
                     Expression from = typed(new UnaryExpr(TokenType.STAR, typed(new NameExpr(other, range), sourcePointer), range), plan.parameterType.referent());
@@ -5427,7 +5558,7 @@ public final class CppNameBinder {
                     finally { currentClass = savedClass; }
                 }
                 statements.add(new ReturnStmt(new NameExpr(self, range), range));
-            } else {if(move)owner.moveAssignmentPrototypeEmitted=true;else owner.assignmentPrototypeEmitted=true;}
+            } else {assignmentPrototypes.add(operation.function);}
             FunctionDecl core = new FunctionDecl(operation.function.coreName, owner.type.pointerTo(),
                     List.of(new Parameter(self, owner.type.pointerTo(), range), new Parameter(other, sourcePointer, range)), false,
                     unevaluatedDepth > 0 ? null : new BlockStmt(statements, range), false, range);
@@ -5482,13 +5613,14 @@ public final class CppNameBinder {
         }
         private boolean trivialTransfer(Constructor constructor) {
             TypeEntity owner=constructor.owner;
-            return constructor==owner.implicitCopy&&owner.copyPlan.trivial()||constructor==owner.implicitMove&&owner.movePlan.trivial();
+            var explicit=defaultedCopyPlans.get(constructor);
+            return !userProvidedDefaulted.contains(constructor.function)&&(explicit!=null?explicit.trivial():constructor==owner.implicitCopy&&owner.copyPlan.trivial()||constructor==owner.implicitMove&&owner.movePlan.trivial());
         }
 
         private List<Constructor> copyConstructors(TypeEntity owner) {
             List<Constructor> declared = owner.constructors.stream().filter(this::isCopyConstructor).toList();
-            if (!declared.isEmpty()) return declared;
             ensureImplicitCopy(owner);
+            if (!declared.isEmpty()) return declared;
             return owner.implicitCopy == null ? List.of() : List.of(owner.implicitCopy);
         }
 
@@ -5502,7 +5634,10 @@ public final class CppNameBinder {
         private void ensureImplicitMove(TypeEntity owner) {
             if(owner.movePlanned||!owner.complete)return;
             owner.movePlanned=true;
-            if(suppressImplicitMove(owner))return;
+            Constructor explicitMove=owner.constructors.stream().filter(c->isMoveConstructor(c)&&defaulted(c)).findFirst().orElse(null);
+            Method explicitAssignment=owner.methods.getOrDefault("operator=",new MethodSet(List.of())).methods.stream().filter(m->isMoveAssignment(m)&&defaulted(m)).findFirst().orElse(null);
+            boolean suppressed=suppressImplicitMove(owner);
+            if(suppressed&&explicitMove==null){if(explicitAssignment!=null)planImplicitMoveAssignment(owner);return;}
             SourceRange range=owner.sourceRecord.range();
             owner.movePlan=CppCopyConstructorPlan.planMove(owner.type,owner.fields,owner.union,false,memberType->{
                 TypeEntity member=objectType(memberType);
@@ -5511,7 +5646,7 @@ public final class CppNameBinder {
                 var candidates=expandConstructorTemplates(allConstructors(member),List.of(source),range).stream()
                         .filter(c->!c.parameterTypes.isEmpty()&&c.parameterTypes.getFirst().isReference()&&requiredParameters(c.function,c.parameterTypes.size())<=1)
                         .map(c->new CppCopyConstructorPlan.Constructor<>(c,c.parameterTypes.getFirst(),c.access==Access.PUBLIC||c.owner==owner,
-                                deletedConstructors.containsKey(c.function),trivialTransfer(c))).toList();
+                                isDeleted(c.function),trivialTransfer(c))).toList();
                 var destructor=member.destructor==null?CppCopyConstructorPlan.Destructor.AVAILABLE
                         :deletedDestructors.containsKey(member.destructor.function)?CppCopyConstructorPlan.Destructor.DELETED
                         :member.destructor.access==Access.PUBLIC||member==owner?CppCopyConstructorPlan.Destructor.AVAILABLE:CppCopyConstructorPlan.Destructor.INACCESSIBLE;
@@ -5522,12 +5657,14 @@ public final class CppNameBinder {
             Entity function=new Entity(owner.name,freshName(owner.canonicalName+"::move"),Kind.FUNCTION,owner.owner,
                     MiniType.function(MiniType.VOID,List.of(owner.type.pointerTo(),parameter)),null,owner.movePlan.status()==CppCopyConstructorPlan.Status.AVAILABLE);
             coreValues.put(function.coreName,function);
-            owner.implicitMove=new Constructor(owner,source,Access.PUBLIC,function,List.of(parameter),true);
+            owner.implicitMove=explicitMove!=null?explicitMove:new Constructor(owner,source,Access.PUBLIC,function,List.of(parameter),true);
+            if(explicitMove!=null)function=explicitMove.function;
             if(owner.movePlan.status()==CppCopyConstructorPlan.Status.DELETED)deletedConstructors.put(function,owner.movePlan.problems().stream()
                     .map(problem->new Diagnostic("CPP004",Diagnostic.Severity.ERROR,"Implicit move of member '"+problem.field().name()+"' is unavailable: "+problem.reason(),problem.field().range())).toList());
-            planImplicitMoveAssignment(owner);
+            if(!suppressed||explicitAssignment!=null)planImplicitMoveAssignment(owner);
         }
         private void planImplicitMoveAssignment(TypeEntity owner) {
+            Method explicitAssignment=owner.methods.getOrDefault("operator=",new MethodSet(List.of())).methods.stream().filter(m->isMoveAssignment(m)&&defaulted(m)).findFirst().orElse(null);
             List<AssignmentEntry> entries=new ArrayList<>();List<String> problems=new ArrayList<>();boolean trivial=true;
             for(StructField field:owner.fields) {
                 MiniType target=field.type();var dimensions=new ArrayList<Integer>();
@@ -5546,9 +5683,9 @@ public final class CppNameBinder {
                     if(resolution.status()!=CppOverloadResolver.Status.SELECTED){problems.add("No unique member move assignment for '"+field.name()+"'");continue;}
                     selected=resolution.winner().identity();
                     if(selected.access!=Access.PUBLIC&&selected.owner!=owner)problems.add("Move assignment of member '"+field.name()+"' is inaccessible");
-                    AssignmentPlan plan=selected==member.implicitAssignment?member.assignmentPlan:selected==member.implicitMoveAssignment?member.moveAssignmentPlan:null;
-                    if(plan!=null&&!plan.problems.isEmpty())problems.add("Move assignment of member '"+field.name()+"' is deleted");
-                    boolean memberTrivial=plan!=null&&plan.trivial;
+                    AssignmentPlan plan=defaultedAssignmentPlans.get(selected);if(plan==null)plan=selected==member.implicitAssignment?member.assignmentPlan:selected==member.implicitMoveAssignment?member.moveAssignmentPlan:null;
+                    if(isDeleted(selected.function))problems.add("Move assignment of member '"+field.name()+"' is deleted");
+                    boolean memberTrivial=plan!=null&&plan.trivial&&!userProvidedDefaulted.contains(selected.function);
                     if(owner.union&&!memberTrivial)problems.add("Union member '"+field.name()+"' has nontrivial move assignment");
                     trivial&=memberTrivial;
                 }
@@ -5556,34 +5693,44 @@ public final class CppNameBinder {
             }
             owner.moveAssignmentPlan=new AssignmentPlan(owner.type.rvalueReferenceTo(),List.copyOf(entries),List.copyOf(problems),trivial);
             // A deleted implicitly declared move operation is ignored by overload resolution.
-            if(!problems.isEmpty())return;
+            if(!problems.isEmpty()&&explicitAssignment==null)return;
             SourceRange range=owner.sourceRecord.range();MiniType parameter=owner.type.rvalueReferenceTo();
             FunctionDecl source=new FunctionDecl("operator=",owner.type.referenceTo(),List.of(new Parameter("other",parameter,range)),false,null,false,range);
             MethodMember member=new MethodMember(source,false,range);
             Entity function=new Entity("operator=",freshName(owner.canonicalName+"::operator=(move)"),Kind.FUNCTION,owner.owner,
                     MiniType.function(owner.type.referenceTo(),List.of(owner.type.pointerTo(),parameter)),null,true);
             coreValues.put(function.coreName,function);
-            owner.implicitMoveAssignment=new Method(owner,member,Access.PUBLIC,function,owner.type.referenceTo(),List.of(parameter));
-            var methods=new ArrayList<>(owner.methods.getOrDefault("operator=",new MethodSet(List.of())).methods);methods.add(owner.implicitMoveAssignment);
+            owner.implicitMoveAssignment=explicitAssignment!=null?explicitAssignment:new Method(owner,member,Access.PUBLIC,function,owner.type.referenceTo(),List.of(parameter));
+            var methods=new ArrayList<>(owner.methods.getOrDefault("operator=",new MethodSet(List.of())).methods);if(!methods.contains(owner.implicitMoveAssignment))methods.add(owner.implicitMoveAssignment);
+            if(!problems.isEmpty())methods.remove(owner.implicitMoveAssignment);
             owner.methods.put("operator=",new MethodSet(methods));
         }
 
         private void ensureImplicitCopy(TypeEntity owner) {
             if (owner.copyPlan != null || !owner.complete) return;
+            Constructor explicitCopy=owner.constructors.stream().filter(c->isCopyConstructor(c)&&defaulted(c)).findFirst().orElse(null);
             boolean declared = owner.constructors.stream().anyMatch(this::isCopyConstructor);
-            owner.copyPlan = CppCopyConstructorPlan.plan(owner.type, owner.fields, owner.union, declared, memberType -> {
+            java.util.function.Function<MiniType,CppCopyConstructorPlan.Operations<Constructor>> operations=memberType -> {
                 TypeEntity member = objectType(memberType);
                 List<CppCopyConstructorPlan.Constructor<Constructor>> candidates = copyConstructors(member).stream()
                         .map(c -> new CppCopyConstructorPlan.Constructor<>(c, c.parameterTypes.getFirst(),
-                                c.access == Access.PUBLIC || c.owner == owner, deletedConstructors.containsKey(c.function),
-                                c == member.implicitCopy && member.copyPlan != null && member.copyPlan.trivial())).toList();
+                                c.access == Access.PUBLIC || c.owner == owner, isDeleted(c.function),
+                                trivialTransfer(c))).toList();
                 CppCopyConstructorPlan.Destructor destructor = member.destructor == null
                         ? CppCopyConstructorPlan.Destructor.AVAILABLE
                         : deletedDestructors.containsKey(member.destructor.function) ? CppCopyConstructorPlan.Destructor.DELETED
                         : member.destructor.access == Access.PUBLIC || member == owner ? CppCopyConstructorPlan.Destructor.AVAILABLE
                         : CppCopyConstructorPlan.Destructor.INACCESSIBLE;
                 return new CppCopyConstructorPlan.Operations<>(candidates, destructor);
-            });
+            };
+            owner.copyPlan=explicitCopy==null?CppCopyConstructorPlan.plan(owner.type,owner.fields,owner.union,declared,operations)
+                    :CppCopyConstructorPlan.planCopy(owner.type,owner.fields,owner.union,explicitCopy.parameterTypes.getFirst().referent().isConstQualified(),operations);
+            for(Constructor candidate:owner.constructors)if(isCopyConstructor(candidate)&&defaulted(candidate)) {
+                var plan=CppCopyConstructorPlan.planCopy(owner.type,owner.fields,owner.union,candidate.parameterTypes.getFirst().referent().isConstQualified(),operations);
+                defaultedCopyPlans.put(candidate,plan);
+                if(plan.status()==CppCopyConstructorPlan.Status.DELETED)deletedConstructors.put(candidate.function,plan.problems().stream().map(problem->new Diagnostic("CPP004",Diagnostic.Severity.ERROR,
+                        "Defaulted copy of member '"+problem.field().name()+"' is unavailable: "+problem.reason(),problem.field().range())).toList());
+            }
             if (owner.copyPlan.status() == CppCopyConstructorPlan.Status.SUPPRESSED) return;
             SourceRange range = owner.sourceRecord.range();
             MiniType parameter = owner.copyPlan.parameterType();
@@ -5593,8 +5740,9 @@ public final class CppNameBinder {
                     Kind.FUNCTION, owner.owner, MiniType.function(MiniType.VOID, List.of(owner.type.pointerTo(), parameter)), null,
                     owner.copyPlan.status() == CppCopyConstructorPlan.Status.AVAILABLE);
             coreValues.put(function.coreName, function);
-            owner.implicitCopy = new Constructor(owner, source, Access.PUBLIC, function, List.of(parameter), true);
-            if(userDeclaredMove(owner))deletedConstructors.put(function,List.of(new Diagnostic("CPP004",Diagnostic.Severity.ERROR,
+            owner.implicitCopy = explicitCopy!=null?explicitCopy:new Constructor(owner, source, Access.PUBLIC, function, List.of(parameter), true);
+            if(explicitCopy!=null)function=explicitCopy.function;
+            if(explicitCopy==null&&userDeclaredMove(owner))deletedConstructors.put(function,List.of(new Diagnostic("CPP004",Diagnostic.Severity.ERROR,
                     "A user-declared move operation deletes the implicit copy constructor",range)));
             else if (owner.copyPlan.status() == CppCopyConstructorPlan.Status.DELETED) {
                 deletedConstructors.put(function, owner.copyPlan.problems().stream().map(problem -> new Diagnostic("CPP004",
@@ -5636,8 +5784,8 @@ public final class CppNameBinder {
                 report("CPP004", range, "Copy-list initialization cannot select an explicit copy constructor.");
             if (selected.access != Access.PUBLIC && !classAccess(owner))
                 report("CPP004", range, "Copy constructor is not accessible: " + owner.canonicalName);
-            if (deletedConstructors.containsKey(selected.function)) {
-                report("CPP004", range, "Copy constructor is deleted: " + deletedConstructors.get(selected.function).getFirst().message());
+            if (isDeleted(selected.function)) {
+                report("CPP004", range, "Copy constructor is deleted: " + deletedConstructors.getOrDefault(selected.function,deletedReason(range)).getFirst().message());
                 return value;
             }
             if (trivialTransfer(selected) && !hasVolatileSubobject(owner.type, new HashSet<>())) return value;
@@ -5690,26 +5838,28 @@ public final class CppNameBinder {
         private void emitImplicitCopy(TypeEntity owner) {emitImplicitTransfer(owner,false);}
         private void emitImplicitMove(TypeEntity owner) {emitImplicitTransfer(owner,true);}
         private void emitImplicitTransfer(TypeEntity owner,boolean move) {
-            var plan=move?owner.movePlan:owner.copyPlan;
-            if ((move?owner.moveEmitted:owner.copyEmitted) || plan.status() != CppCopyConstructorPlan.Status.AVAILABLE) return;
-            Constructor constructor = move?owner.implicitMove:owner.implicitCopy;
+            emitTransfer(move?owner.implicitMove:owner.implicitCopy,move?owner.movePlan:owner.copyPlan,move);
+        }
+        private void emitTransfer(Constructor constructor,CppCopyConstructorPlan.Result<Constructor> plan,boolean move) {
+            TypeEntity owner=constructor.owner;
+            if(emittedTransfers.contains(constructor.function)||plan.status()!=CppCopyConstructorPlan.Status.AVAILABLE)return;
             if (!plan.objectRepresentation() && owner.fields.stream().anyMatch(StructField::anonymous)) {
                 report("CPP005", owner.sourceRecord.range(), "Nontrivial copying of anonymous aggregate storage requires subobject initialization support.");
                 return;
             }
             if (unevaluatedDepth > 0) {
-                if (!(move?owner.movePrototypeEmitted:owner.copyPrototypeEmitted)) {
+                if (!transferPrototypes.contains(constructor.function)) {
                     SourceRange range = owner.sourceRecord.range();
                     FunctionDecl declaration = new FunctionDecl(constructor.function.coreName, MiniType.VOID,
                             List.of(new Parameter(freshName("this"), owner.type.pointerTo(), range),
                                     new Parameter(freshName("other"), coreType(plan.parameterType()), range)),
                             false, null, false, range);
                     functions.add(declaration); declarations.add(declaration);
-                    if(move)owner.movePrototypeEmitted=true;else owner.copyPrototypeEmitted = true;
+                    transferPrototypes.add(constructor.function);
                 }
                 return;
             }
-            if(move)owner.moveEmitted=true;else owner.copyEmitted = true;
+            emittedTransfers.add(constructor.function);
             SourceRange range = owner.sourceRecord.range();
             String self = freshName("this"), source = freshName("other");
             MiniType sourcePointer = coreType(plan.parameterType());
@@ -5852,8 +6002,8 @@ public final class CppNameBinder {
             if (selected.access != Access.PUBLIC && !classAccess(owner)) {
                 report("CPP004", range, "Constructor is not accessible: " + owner.canonicalName);
             }
-            if (deletedConstructors.containsKey(selected.function)) {
-                Diagnostic reason = deletedConstructors.get(selected.function).getFirst();
+            if (isDeleted(selected.function)) {
+                Diagnostic reason = deletedConstructors.getOrDefault(selected.function,deletedReason(range)).getFirst();
                 report(reason.code().equals("CPP005") ? "CPP005" : "CPP004", range, "The implicit default constructor is unavailable: " + reason.message());
             }
             if (list) for (int index = 0; index < arguments.size() && index < selected.parameterTypes.size(); index++) {
@@ -5864,7 +6014,7 @@ public final class CppNameBinder {
             lowered.add(typed(new NameExpr(destination, range), owner.type.pointerTo()));
             lowered.addAll(lowerSelectedArguments(selected.function, selected.parameterTypes, arguments, prepared.values, namespace, local, list && !listPhase));
             Expression call = typed(new CallExpr(new NameExpr(selected.function.coreName, range), lowered, range), MiniType.VOID);
-            if (arguments.isEmpty() && selected.implicit
+            if (arguments.isEmpty() && (selected.implicit||defaulted(selected)&&!userProvidedDefaulted.contains(selected.function))
                     && (syntax.kind() == CppInitializer.Kind.DIRECT_PAREN || list && nonAggregate(owner))) {
                 Expression slot = typed(new UnaryExpr(TokenType.STAR, typed(new NameExpr(destination, range), owner.type.pointerTo()), range), owner.type);
                 call = new CommaExpr(List.of(new InitializeExpr(slot, new AggregateInitExpr(List.of(), range), range), call), range);
@@ -6243,6 +6393,7 @@ public final class CppNameBinder {
 
         private String functionReferenceName(Entity entity) {
             instantiateFunctionTemplate(entity);
+            if(isDeleted(entity))report("CPP004",specialDefinitionRanges.getOrDefault(entity,source.range()),"Use of deleted function: "+entity.name);
             if (libraryExitFunctions.contains(entity)) {
                 String name = staticLifetime.exitFunction();
                 coreValues.putIfAbsent(name, new Entity("exit", name, Kind.FUNCTION, root, entity.type, null, true));

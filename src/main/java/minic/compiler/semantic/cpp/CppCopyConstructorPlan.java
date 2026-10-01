@@ -80,23 +80,28 @@ public final class CppCopyConstructorPlan {
      */
     public static <T> Result<T> plan(MiniType owner,List<StructField> fields,boolean union,boolean userDeclaredCopy,
                                     Function<MiniType,Operations<T>> operations) {
-        return planTransfer(owner,fields,union,userDeclaredCopy,false,operations);
+        return planTransfer(owner,fields,union,userDeclaredCopy,false,null,operations);
     }
     public static <T> Result<T> planMove(MiniType owner,List<StructField> fields,boolean union,boolean suppressed,
                                        Function<MiniType,Operations<T>> operations) {
-        return planTransfer(owner,fields,union,suppressed,true,operations);
+        return planTransfer(owner,fields,union,suppressed,true,null,operations);
+    }
+    /** A defaulted mutable copy has an explicit source type rather than the implicit const choice. */
+    public static <T> Result<T> planCopy(MiniType owner,List<StructField> fields,boolean union,boolean constant,
+                                       Function<MiniType,Operations<T>> operations) {
+        return planTransfer(owner,fields,union,false,false,constant,operations);
     }
     private static <T> Result<T> planTransfer(MiniType owner,List<StructField> fields,boolean union,boolean userDeclaredCopy,
-                                             boolean move,Function<MiniType,Operations<T>> operations) {
+                                             boolean move,Boolean explicitConst,Function<MiniType,Operations<T>> operations) {
         requireOwner(owner);fields=List.copyOf(fields);Objects.requireNonNull(operations,"operations");
         if(userDeclaredCopy)return new Result<>(Status.SUPPRESSED,null,List.of(),List.of(),false,false);
         Map<MiniType,Operations<T>> members=new LinkedHashMap<>();
-        boolean constant=!move;
+        boolean constant=explicitConst==null?!move:explicitConst;
         for(StructField field:fields){
             MiniType leaf=leaf(field.type());
             if(!leaf.isStruct())continue; // Reference members preserve aliases, not their referent's copyability.
             Operations<T> available=members.computeIfAbsent(leaf.unqualified(),type->checkedOperations(type,operations.apply(type),move));
-            constant &= available.constructors().stream().anyMatch(c->c.parameterType().referent().isConstQualified());
+            if(explicitConst==null)constant &= available.constructors().stream().anyMatch(c->c.parameterType().referent().isConstQualified());
         }
         MiniType sourceOwner=constant?MiniType.qualified(owner.unqualified(),java.util.Set.of(CONST)):owner.unqualified();
         var entries=new ArrayList<Entry<T>>();var problems=new ArrayList<Problem<T>>();boolean trivial=true;

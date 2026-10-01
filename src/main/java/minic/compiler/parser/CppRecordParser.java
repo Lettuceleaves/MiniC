@@ -207,13 +207,14 @@ public final class CppRecordParser {
                         } else if (!declaration.alignmentSpecs().isEmpty()) {
                             state.unsupportedCpp(declaration.range(), "成员方法不能使用 alignas");
                             recoverMember();
-                        } else if (!state.check(TokenType.LEFT_BRACE) && !state.check(TokenType.SEMICOLON)) {
+                        } else if (!state.check(TokenType.LEFT_BRACE) && !state.check(TokenType.SEMICOLON) && !state.check(TokenType.EQUAL)) {
                             state.unsupportedCpp(state.peek().range(), "成员方法限定符或说明符尚未实现");
                             recoverMember();
                         } else {
                             Parser.Context.TokenWindow body = state.check(TokenType.LEFT_BRACE) ? state.deferBlock() : null;
-                            if (body == null) state.advance();
-                            var method = makeMethod(declaration, function, null, state.previous().range());
+                            DefinitionKind kind=DefinitionKind.ORDINARY;
+                            if(body==null){if(state.check(TokenType.EQUAL))kind=CppFunctionDefinitionParser.parse(state);else state.advance();}
+                            var method = makeMethod(declaration, function, null, state.previous().range()).withDefinitionKind(kind);
                             int index = members.size();
                             members.add(new MethodMember(method, constQualified, staticMember, declaration.nameRange()));
                             if (body != null) deferred.add(new DeferredMethod(index, method, body,
@@ -261,7 +262,7 @@ public final class CppRecordParser {
                 BlockStmt body = state.inTokenWindow(item.body(), () -> statements.parseFunctionBlock(
                         signature.parameters().stream().map(Parameter::name).toList()));
                 var method = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
-                        signature.variadic(), body, false, false, signature.range(), signature.operatorName(), signature.conversionName());
+                        signature.variadic(), body, false, false, signature.range(), signature.operatorName(), signature.conversionName(),signature.definitionKind());
                 MethodMember old = (MethodMember) members.get(item.memberIndex());
                 var member = new MethodMember(method, old.constQualified(), old.staticMember(), old.nameRange());
                 members.set(item.memberIndex(), member);
@@ -274,7 +275,7 @@ public final class CppRecordParser {
                     else {
                         FunctionDecl signature=item.method();
                         BlockStmt body=item.body()==null?null:state.inTokenWindow(item.body(),()->statements.parseFunctionBlock(signature.parameters().stream().map(Parameter::name).toList()));
-                        FunctionDecl method=new FunctionDecl(signature.name(),signature.returnType(),signature.parameters(),signature.variadic(),body,false,false,signature.range(),signature.operatorName(),signature.conversionName());
+                        FunctionDecl method=new FunctionDecl(signature.name(),signature.returnType(),signature.parameters(),signature.variadic(),body,false,false,signature.range(),signature.operatorName(),signature.conversionName(),signature.definitionKind());
                         members.set(item.index(),new TemplateMethodMember(item.parameters(),new MethodMember(method,item.constant(),item.statik(),item.nameRange())));
                     }
                 } finally {types.exitFunctionTemplate();}
@@ -314,8 +315,10 @@ public final class CppRecordParser {
             boolean constant=state.match(TokenType.CONST);
             if(statik&&constant)state.report(start,"static 成员模板不能 cv 限定");
             Parser.Context.TokenWindow body=state.check(TokenType.LEFT_BRACE)?state.deferBlock():null;
-            if(body==null&&state.consume(TokenType.SEMICOLON,"期望成员模板函数体或 ';'")==null)return null;
-            FunctionDecl method=makeMethod(declaration,function,null,state.previous().range());
+            DefinitionKind kind=DefinitionKind.ORDINARY;
+            if(body==null){if(state.check(TokenType.EQUAL))kind=CppFunctionDefinitionParser.parse(state);
+                else if(state.consume(TokenType.SEMICOLON,"期望成员模板函数体或 ';'")==null)return null;}
+            FunctionDecl method=makeMethod(declaration,function,null,state.previous().range()).withDefinitionKind(kind);
             return new DeferredMemberTemplate(index,parameters,method,null,body,constant,statik,declaration.nameRange());
         } finally {types.exitFunctionTemplate();}
     }
@@ -358,7 +361,7 @@ public final class CppRecordParser {
                 state.markDeclarationBoundaryRecovered();
                 return null;
             }
-            if (deferred.body() == null) state.unsupportedCpp(name.range(), "类外构造声明必须提供定义");
+            if (deferred.body() == null && !deferred.signature().hasDefinition()) state.unsupportedCpp(name.range(), "类外构造声明必须提供定义");
             ConstructorMember constructor = completeConstructor(deferred);
             var definition = new OutOfLineConstructorDecl(name, constructor, nameRange);
             state.build(definition, "OutOfLineConstructor " + constructor.name(), definition.range());
@@ -400,13 +403,13 @@ public final class CppRecordParser {
                 return null;
             }
             MethodMember member = conversion.member();
-            if (conversion.body() == null)
+            if (conversion.body() == null && !conversion.member().method().hasDefinition())
                 state.report(member.nameRange(), "类外转换声明必须提供定义");
             BlockStmt body = conversion.body() == null ? null : state.inTokenWindow(conversion.body(),
                     () -> statements.parseFunctionBlock(List.of()));
             FunctionDecl signature = member.method();
             FunctionDecl function = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
-                    signature.variadic(), body, false, false, signature.range(), null, signature.conversionName());
+                    signature.variadic(), body, false, false, signature.range(), null, signature.conversionName(),signature.definitionKind());
             segments.set(segments.size() - 1, function.name());
             QualifiedName name = new QualifiedName(global, segments, SourceRange.span(start.range(), member.nameRange()));
             var result = new OutOfLineMethodDecl(name, function, member.constQualified(), member.nameRange());
@@ -438,14 +441,16 @@ public final class CppRecordParser {
             return null;
         }
         Parser.Context.TokenWindow body = null;
+        DefinitionKind kind=DefinitionKind.ORDINARY;
         if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
+        else if(state.check(TokenType.EQUAL))kind=CppFunctionDefinitionParser.parse(state);
         else if (!state.match(TokenType.SEMICOLON)) {
             state.unsupportedCpp(state.peek().range(), "转换函数限定符或说明符尚未实现");
             return null;
         }
         ConversionName name = new ConversionName(target.type(), explicitSpecifier, nameRange);
         FunctionDecl method = new FunctionDecl(name.spelling(), target.type(), List.of(), false, null,
-                false, false, SourceRange.span(start, state.previous().range()), null, name);
+                false, false, SourceRange.span(start, state.previous().range()), null, name,kind);
         return new ParsedConversion(new MethodMember(method, constQualified, nameRange), body);
     }
 
@@ -490,7 +495,7 @@ public final class CppRecordParser {
                 state.markDeclarationBoundaryRecovered();
                 return null;
             }
-            if (deferred.body() == null) state.unsupportedCpp(qualifiedName.range(), "类外析构声明必须提供定义");
+            if (deferred.body() == null && !deferred.signature().hasDefinition()) state.unsupportedCpp(qualifiedName.range(), "类外析构声明必须提供定义");
             var definition = new OutOfLineDestructorDecl(qualifiedName, completeDestructor(deferred), nameRange);
             state.build(definition, "OutOfLineDestructor " + name.lexeme(), definition.range());
             return definition;
@@ -508,19 +513,21 @@ public final class CppRecordParser {
         if (!parameters.parameters().isEmpty() || parameters.variadic())
             state.report(SourceRange.span(open.range(), close.range()), "析构函数不能声明参数");
         Parser.Context.TokenWindow body = null;
+        DefinitionKind kind=DefinitionKind.ORDINARY;
         if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
+        else if(state.check(TokenType.EQUAL))kind=CppFunctionDefinitionParser.parse(state);
         else if (!state.match(TokenType.SEMICOLON)) {
             state.unsupportedCpp(state.peek().range(), "析构函数限定符、说明符或成员初始化列表尚未支持或不合法");
             return null;
         }
-        var signature = new DestructorMember(name, null, nameRange, SourceRange.span(start, state.previous().range()));
+        var signature = new DestructorMember(name, null, nameRange, SourceRange.span(start, state.previous().range()),kind);
         return new DeferredDestructor(index, signature, body);
     }
 
     private DestructorMember completeDestructor(DeferredDestructor item) {
         DestructorMember signature = item.signature();
         BlockStmt body = item.body() == null ? null : state.inTokenWindow(item.body(), () -> statements.parseFunctionBlock(List.of()));
-        var destructor = new DestructorMember(signature.name(), body, signature.nameRange(), signature.range());
+        var destructor = new DestructorMember(signature.name(), body, signature.nameRange(), signature.range(),signature.definitionKind());
         state.build(destructor, "DestructorDecl " + destructor.name(), destructor.range());
         return destructor;
     }
@@ -546,7 +553,12 @@ public final class CppRecordParser {
             } while (state.match(TokenType.COMMA));
         }
         Parser.Context.TokenWindow body = null;
+        DefinitionKind kind=DefinitionKind.ORDINARY;
         if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
+        else if(state.check(TokenType.EQUAL)) {
+            if(!initializers.isEmpty())state.report(nameRange,"A defaulted/deleted constructor cannot have member initializers");
+            kind=CppFunctionDefinitionParser.parse(state);
+        }
         else if (state.match(TokenType.SEMICOLON)) {
             if (!initializers.isEmpty()) state.report(state.previous(), "成员初始化列表必须具有构造函数体");
         } else if (state.check(TokenType.CONST) || state.check(TokenType.VOLATILE)
@@ -565,7 +577,7 @@ public final class CppRecordParser {
             resolved.add(new Parameter(parameter.name().isEmpty() ? "__unnamed" + i : parameter.name(), parameter.type(), parameter.defaultValue(), parameter.range()));
         }
         var signature = new ConstructorMember(name, resolved, parameters.variadic(), List.of(), null,
-                nameRange, SourceRange.span(start, state.previous().range()), explicitSpecifier);
+                nameRange, SourceRange.span(start, state.previous().range()), explicitSpecifier,kind);
         return new DeferredConstructor(index, signature, initializers, body, unnamed);
     }
 
@@ -587,7 +599,7 @@ public final class CppRecordParser {
             types.exitScope();
         }
         var constructor = new ConstructorMember(signature.name(), signature.parameters(), signature.variadic(),
-                initializers, body, signature.nameRange(), signature.range(), signature.explicitSpecifier());
+                initializers, body, signature.nameRange(), signature.range(), signature.explicitSpecifier(),signature.definitionKind());
         state.build(constructor, "ConstructorDecl " + signature.name(), constructor.range());
         return constructor;
     }
