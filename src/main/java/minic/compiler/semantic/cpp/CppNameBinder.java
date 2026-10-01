@@ -63,6 +63,7 @@ public final class CppNameBinder {
         boolean complete;
         List<StructField> fields = List.of();
         final Map<StructField, Access> fieldAccess = new IdentityHashMap<>();
+        final Map<String, Method> methods = new LinkedHashMap<>();
 
         TypeEntity(String name, String canonicalName, MiniType type, boolean classType,
                    boolean union, Namespace owner, boolean complete) {
@@ -75,6 +76,12 @@ public final class CppNameBinder {
             this.complete = complete;
         }
     }
+
+    /** A method belongs to a class identity, never to the enclosing namespace's value table. */
+    private record Method(TypeEntity owner, MethodMember source, Access access, Entity function,
+                          MiniType returnType, List<MiniType> parameterTypes) implements Candidate { }
+
+    private record ImplicitField(TypeEntity owner, String name) implements Candidate { }
 
     /** An entity survives redeclarations and using aliases; candidate deduplication uses identity. */
     private static final class Entity implements Candidate {
@@ -140,6 +147,8 @@ public final class CppNameBinder {
         private final List<GlobalVarDecl> globals = new ArrayList<>();
         private final List<FunctionDecl> functions = new ArrayList<>();
         private int nextName = 1;
+        private TypeEntity currentClass;
+        private Entity currentThis;
 
         Binding(Program source) { this.source = source; reserveNames(source); }
 
@@ -206,16 +215,6 @@ public final class CppNameBinder {
         }
 
         private void bindStruct(StructDecl node, Namespace namespace) {
-            if (node.cppInfo() != null) {
-                boolean unsupported = false;
-                for (CppMember member : node.cppInfo().members()) {
-                    if (member instanceof MethodMember method) {
-                        report("CPP005", method.nameRange(), "尚未支持类成员函数：" + method.method().name());
-                        unsupported = true;
-                    }
-                }
-                if (unsupported) return;
-            }
             String sourceName = simpleTagName(node.name());
             if (node.name().contains("<block")) {
                 report("CPP005", node.range(), "尚未支持具名局部类型声明的作用域保存。");
@@ -224,11 +223,13 @@ public final class CppNameBinder {
             TypeEntity entity = declareClass(sourceName, node.union(), namespace, node.range());
             if (node.definition() && entity.complete) report("CPP004", node.range(), "重复类型定义：" + entity.canonicalName);
             Map<StructField, Access> access = new IdentityHashMap<>();
+            Map<MethodMember, Access> methodAccess = new IdentityHashMap<>();
             if (node.cppInfo() != null) {
                 Access current = node.cppInfo().key() == RecordKey.CLASS ? Access.PRIVATE : Access.PUBLIC;
                 for (CppMember member : node.cppInfo().members()) {
                     if (member instanceof AccessLabel label) current = label.access();
                     else if (member instanceof FieldMember field) access.put(field.field(), current);
+                    else if (member instanceof MethodMember method) methodAccess.put(method, current);
                 }
             }
             List<StructField> fields = new ArrayList<>();
@@ -245,6 +246,78 @@ public final class CppNameBinder {
             entity.complete |= node.definition();
             if (node.definition()) entity.fields = List.copyOf(fields);
             structs.add(core); declarations.add(core);
+            if (node.cppInfo() != null && node.definition()) {
+                List<Method> methods = new ArrayList<>();
+                for (CppMember member : node.cppInfo().members()) {
+                    if (member instanceof MethodMember method) {
+                        Method registered = declareMethod(entity, method, methodAccess.get(method), namespace);
+                        if (registered != null) methods.add(registered);
+                    }
+                }
+                // Complete-class lookup applies to bodies, without exposing later namespace declarations.
+                for (Method method : methods) bindMethod(method, namespace);
+            }
+        }
+
+        private Method declareMethod(TypeEntity owner, MethodMember member, Access access, Namespace namespace) {
+            FunctionDecl sourceMethod = member.method();
+            String name = sourceMethod.name();
+            if (fieldPath(owner.type, name, new HashSet<>()) != null) {
+                report("CPP004", member.nameRange(), "成员函数与数据成员名称冲突：" + name);
+                return null;
+            }
+            MiniType returnType = normalizeType(sourceMethod.returnType(), namespace, null, sourceMethod.range());
+            List<MiniType> parameterTypes = sourceMethod.parameters().stream()
+                    .map(parameter -> normalizeType(parameter.type(), namespace, null, parameter.range())).toList();
+            List<MiniType> coreParameters = new ArrayList<>();
+            coreParameters.add(owner.type.pointerTo());
+            parameterTypes.stream().map(MiniType::unqualified).forEach(coreParameters::add);
+            MiniType signature = MiniType.function(returnType.unqualified(), coreParameters, sourceMethod.variadic());
+            Method previous = owner.methods.get(name);
+            if (previous != null) {
+                report(previous.function.type.equals(signature) ? "CPP004" : "CPP005", member.nameRange(),
+                        previous.function.type.equals(signature) ? "类内成员函数重复声明：" + name : "尚未支持成员函数重载：" + name);
+                return null;
+            }
+            Entity function = new Entity(name, freshName(owner.canonicalName.substring(2) + "::" + name),
+                    Kind.FUNCTION, namespace, signature, null, sourceMethod.hasBody());
+            coreValues.put(function.coreName, function);
+            Method method = new Method(owner, member, access, function, returnType, parameterTypes);
+            owner.methods.put(name, method);
+            return method;
+        }
+
+        private void bindMethod(Method method, Namespace namespace) {
+            FunctionDecl original = method.source.method();
+            Local scope = new Local(null, namespace);
+            Entity self = new Entity("this", freshName("this"), Kind.VARIABLE, null,
+                    method.owner.type.pointerTo(), null, true);
+            coreValues.put(self.coreName, self);
+            List<Parameter> parameters = new ArrayList<>();
+            parameters.add(new Parameter(self.coreName, self.type, method.source.nameRange()));
+            for (int index = 0; index < original.parameters().size(); index++) {
+                Parameter parameter = original.parameters().get(index);
+                MiniType type = method.parameterTypes.get(index);
+                Entity value = declareLocal(parameter.name(), type, scope, parameter.range());
+                parameters.add(mapped(parameter, new Parameter(value.coreName, type, parameter.range())));
+            }
+            TypeEntity savedClass = currentClass;
+            Entity savedThis = currentThis;
+            currentClass = method.owner;
+            currentThis = self;
+            try {
+                if (original.hasBody()) {
+                    requireComplete(method.returnType, original.range());
+                    method.parameterTypes.forEach(type -> requireComplete(type, original.range()));
+                }
+                BlockStmt body = original.body() == null ? null : block(original.body(), scope, false);
+                FunctionDecl core = mapped(original, new FunctionDecl(method.function.coreName, method.returnType,
+                        parameters, original.variadic(), body, false, original.noReturn(), original.range()));
+                functions.add(core); declarations.add(core);
+            } finally {
+                currentClass = savedClass;
+                currentThis = savedThis;
+            }
         }
 
         private TypeEntity declareClass(String name, boolean union, Namespace namespace, SourceRange range) {
@@ -578,10 +651,13 @@ public final class CppNameBinder {
             if (node == null) return null;
             Expression core = switch (node) {
                 case ThisExpr n -> {
-                    report("CPP005", n.range(), "尚未支持 this 表达式的类成员语义。");
-                    yield n;
+                    if (currentThis == null) {
+                        report("CPP004", n.range(), "this 只能用于非静态成员函数体内。");
+                        yield n;
+                    }
+                    yield thisValue(n.range());
                 }
-                case NameExpr n -> reference(n.name(), n.range(), lookupValue(n.name(), namespace, local, n.range()));
+                case NameExpr n -> simpleReference(n.name(), n.range(), namespace, local);
                 case QualifiedNameExpr n -> reference(n.name().segments().getLast(), n.range(),
                         resolveQualified(n.name(), namespace, local));
                 case AssignmentExpr n -> {
@@ -607,13 +683,17 @@ public final class CppNameBinder {
                 }
                 case ConditionalExpr n -> new ConditionalExpr(expression(n.condition(), namespace, local), expression(n.thenExpression(), namespace, local), expression(n.elseExpression(), namespace, local), n.range());
                 case CallExpr n -> {
-                    Expression callee = expression(n.callee(), namespace, local);
+                    BoundCallee binding = bindCallee(n.callee(), namespace, local);
+                    Expression callee = binding.expression();
                     MiniType.FunctionType signature = functionSignature(declaredExpressionType(callee));
                     if (signature != null) {
                         requireComplete(signature.returnType(), n.range());
                         signature.parameterTypes().forEach(t -> requireComplete(t, n.range()));
                     }
-                    yield new CallExpr(callee, expressions(n.arguments(), namespace, local), n.range());
+                    List<Expression> arguments = new ArrayList<>();
+                    if (binding.receiver() != null) arguments.add(binding.receiver());
+                    arguments.addAll(expressions(n.arguments(), namespace, local));
+                    yield new CallExpr(callee, arguments, n.range());
                 }
                 case CastExpr n -> new CastExpr(normalizeType(n.targetType(), namespace, local, n.range()), expression(n.operand(), namespace, local), n.range());
                 case CommaExpr n -> new CommaExpr(expressions(n.expressions(), namespace, local), n.range());
@@ -622,7 +702,11 @@ public final class CppNameBinder {
                     MiniType owner = declaredExpressionType(target);
                     owner = n.viaPointer() ? elementType(owner) : owner;
                     requireComplete(owner, n.range());
-                    requireAccessible(owner, n.fieldName(), n.range(), "数据成员访问");
+                    Method method = memberMethod(owner, n.fieldName());
+                    if (method != null) {
+                        requireMethodAccess(method, n.range());
+                        report("CPP005", n.range(), "成员函数只能作为调用目标使用；尚未支持成员函数指针：" + n.fieldName());
+                    } else requireAccessible(owner, n.fieldName(), n.range(), "数据成员访问");
                     yield new FieldAccessExpr(target, n.fieldName(), n.viaPointer(), n.range());
                 }
                 case GroupingExpr n -> new GroupingExpr(expression(n.expression(), namespace, local), n.range());
@@ -668,7 +752,7 @@ public final class CppNameBinder {
                 case IntegerConstantExpr n -> {
                     // The C parser substitutes enum identifiers early. Restore lexical shadowing in C++.
                     if (n.lexeme().matches("[A-Za-z_][A-Za-z0-9_]*")) {
-                        yield reference(n.lexeme(), n.range(), lookupValue(n.lexeme(), namespace, local, n.range()));
+                        yield simpleReference(n.lexeme(), n.range(), namespace, local);
                     }
                     yield n;
                 }
@@ -686,6 +770,106 @@ public final class CppNameBinder {
                 }
             };
             return mapped(node, core);
+        }
+
+        /** The cast preserves this's prvalue nature while using the ordinary pointer ABI. */
+        private Expression thisValue(SourceRange range) {
+            return new CastExpr(currentThis.type, new NameExpr(currentThis.coreName, range), range);
+        }
+
+        private Expression simpleReference(String name, SourceRange range, Namespace namespace, Local local) {
+            Candidate candidate = lookupName(name, namespace, local, range);
+            if (candidate instanceof ImplicitField field) {
+                requireAccessible(field.owner.type, name, range, "数据成员访问");
+                return new FieldAccessExpr(thisValue(range), name, true, range);
+            }
+            if (candidate instanceof Method method) {
+                requireMethodAccess(method, range);
+                report("CPP005", range, "成员函数只能作为调用目标使用；尚未支持成员函数指针：" + name);
+                return new NameExpr(method.function.coreName, range);
+            }
+            return reference(name, range, requireValue(candidate, name, range));
+        }
+
+        private record BoundCallee(Expression expression, Expression receiver) { }
+
+        private BoundCallee bindCallee(Expression sourceCallee, Namespace namespace, Local local) {
+            Expression designator = sourceCallee;
+            while (designator instanceof GroupingExpr group) designator = group.expression();
+            Method method = null;
+            Expression receiver = null;
+            String sourceName = designator instanceof NameExpr name ? name.name()
+                    : designator instanceof IntegerConstantExpr constant
+                    && constant.lexeme().matches("[A-Za-z_][A-Za-z0-9_]*") ? constant.lexeme() : null;
+            if (sourceName != null) {
+                Candidate candidate = lookupName(sourceName, namespace, local, designator.range());
+                if (candidate instanceof Method member) {
+                    method = member;
+                    receiver = thisValue(designator.range());
+                } else {
+                    Expression core;
+                    if (candidate instanceof ImplicitField field) {
+                        requireAccessible(field.owner.type, field.name, designator.range(), "数据成员访问");
+                        core = new FieldAccessExpr(thisValue(designator.range()), field.name, true, designator.range());
+                    } else core = reference(sourceName, designator.range(), requireValue(candidate, sourceName, designator.range()));
+                    return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
+                }
+            } else if (designator instanceof FieldAccessExpr field) {
+                Expression target = expression(field.target(), namespace, local);
+                MiniType owner = declaredExpressionType(target);
+                owner = field.viaPointer() ? elementType(owner) : owner;
+                requireComplete(owner, field.range());
+                method = memberMethod(owner, field.fieldName());
+                if (method == null) {
+                    requireAccessible(owner, field.fieldName(), field.range(), "数据成员访问");
+                    Expression core = new FieldAccessExpr(target, field.fieldName(), field.viaPointer(), field.range());
+                    return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
+                }
+                if (owner.isConstQualified() || owner.isVolatileQualified()) {
+                    report("CPP004", field.range(), "非 const/volatile 成员函数不能通过 const/volatile 对象调用：" + field.fieldName());
+                }
+                if (field.viaPointer()) receiver = target;
+                else {
+                    if (!addressableObject(target)) report("CPP005", field.range(), "尚未支持临时对象或此值类别作为成员函数接收者。");
+                    receiver = new UnaryExpr(TokenType.AMPERSAND, target, field.target().range());
+                }
+            }
+            if (method == null) return new BoundCallee(expression(sourceCallee, namespace, local), null);
+            requireMethodAccess(method, sourceCallee.range());
+            // The member designator and its parentheses are compile-time lookup syntax. Only
+            // the outer callee has an executable counterpart, keeping reverse origins unique.
+            Expression core = mapped(sourceCallee, new NameExpr(method.function.coreName, sourceCallee.range()));
+            return new BoundCallee(core, receiver);
+        }
+
+        private Expression rebuildCalleeGroups(Expression original, Expression designator, Expression core) {
+            if (original == designator) return mapped(original, core);
+            GroupingExpr group = (GroupingExpr) original;
+            return mapped(original, new GroupingExpr(rebuildCalleeGroups(group.expression(), designator, core), original.range()));
+        }
+
+        private boolean addressableObject(Expression node) {
+            if (node instanceof GroupingExpr group) return addressableObject(group.expression());
+            if (node instanceof NameExpr) return true;
+            if (node instanceof UnaryExpr unary && unary.operator() == TokenType.STAR) return true;
+            if (node instanceof FieldAccessExpr field) return field.viaPointer() || addressableObject(field.target());
+            if (node instanceof IndexExpr index) {
+                MiniType target = declaredExpressionType(index.target());
+                return target != null && (target.isPointer() || addressableObject(index.target()));
+            }
+            return false;
+        }
+
+        private Method memberMethod(MiniType owner, String name) {
+            TypeEntity type = objectType(owner);
+            return type == null ? null : type.methods.get(name);
+        }
+
+        private void requireMethodAccess(Method method, SourceRange range) {
+            if (method.access != Access.PUBLIC && currentClass != method.owner) {
+                report("CPP004", range, "不能访问 " + method.access.name().toLowerCase(java.util.Locale.ROOT)
+                        + " 成员函数 " + method.owner.canonicalName + "::" + method.source.method().name());
+            }
         }
 
         private void requireUpdateOperand(Expression operand, SourceRange range) {
@@ -751,7 +935,8 @@ public final class CppNameBinder {
 
         private MiniType conditionalDeclaredType(MiniType first, MiniType second) {
             if (first == null) return second;
-            if (second == null || first.unqualified().equals(second.unqualified())) return first;
+            if (second == null) return first;
+            if (first.unqualified().equals(second.unqualified())) return inheritObjectQualifiers(second, first);
             if (first.isPointer() && second.isPointer()) {
                 MiniType a = elementType(first), b = elementType(second);
                 if (a.isVoid() || b.isVoid()) return MiniType.VOID.pointerTo();
@@ -765,7 +950,7 @@ public final class CppNameBinder {
             if (type == null) return null;
             return switch (type.unqualified()) {
                 case MiniType.PointerType pointer -> pointer.pointee();
-                case MiniType.ArrayType array -> array.elementType();
+                case MiniType.ArrayType array -> inheritObjectQualifiers(type, array.elementType());
                 default -> null;
             };
         }
@@ -790,12 +975,12 @@ public final class CppNameBinder {
             TypeEntity entity = coreTypes.get(struct.name());
             if (entity == null || !entity.complete) return null;
             for (StructField field : entity.fields) {
-                if (!field.anonymous() && field.name().equals(name)) return new FieldPath(field.type(),
+                if (!field.anonymous() && field.name().equals(name)) return new FieldPath(inheritObjectQualifiers(owner, field.type()),
                         List.of(new FieldStep(entity, field, entity.fieldAccess.getOrDefault(field, Access.PUBLIC))));
             }
             for (StructField field : entity.fields) {
                 if (!field.anonymous()) continue;
-                FieldPath promoted = fieldPath(field.type(), name, visited);
+                FieldPath promoted = fieldPath(inheritObjectQualifiers(owner, field.type()), name, visited);
                 if (promoted != null) {
                     List<FieldStep> steps = new ArrayList<>();
                     steps.add(new FieldStep(entity, field, entity.fieldAccess.getOrDefault(field, Access.PUBLIC)));
@@ -815,7 +1000,7 @@ public final class CppNameBinder {
             // Unknown fields and non-record operands are diagnosed by the core semantic checker.
             if (path != null) {
                 for (FieldStep step : path.steps()) {
-                    if (step.access() != Access.PUBLIC) {
+                    if (step.access() != Access.PUBLIC && currentClass != step.owner()) {
                         report("CPP004", range, operation + "不能访问 " + step.access().name().toLowerCase(java.util.Locale.ROOT)
                                 + " 成员 " + step.owner().canonicalName + "::" + name);
                         break;
@@ -823,6 +1008,14 @@ public final class CppNameBinder {
                 }
             }
             return path;
+        }
+
+        private MiniType inheritObjectQualifiers(MiniType owner, MiniType member) {
+            var qualifiers = java.util.EnumSet.noneOf(MiniType.TypeQualifier.class);
+            qualifiers.addAll(member.qualifiers());
+            if (owner.isConstQualified()) qualifiers.add(MiniType.TypeQualifier.CONST);
+            if (owner.isVolatileQualified()) qualifiers.add(MiniType.TypeQualifier.VOLATILE);
+            return MiniType.qualified(member.unqualified(), qualifiers);
         }
 
         private TypeEntity objectType(MiniType type) {
@@ -966,6 +1159,11 @@ public final class CppNameBinder {
                 Entity value = scope.values.get(name);
                 if (value != null) return value;
                 if (scope.typedefs.containsKey(name)) return scope.typedefs.get(name);
+            }
+            if (currentClass != null) {
+                Method method = currentClass.methods.get(name);
+                if (method != null) return method;
+                if (fieldPath(currentClass.type, name, new HashSet<>()) != null) return new ImplicitField(currentClass, name);
             }
             Map<Namespace, Set<Namespace>> nominated = nominations(namespace, local);
             for (Namespace scope = namespace; scope != null; scope = scope.parent) {

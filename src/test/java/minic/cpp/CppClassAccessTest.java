@@ -143,13 +143,17 @@ final class CppClassAccessTest {
         assertNotNull(source.cppInfo());
     }
 
-    @Test void methodsAndThisStillHaveExplicitUnsupportedDiagnostics() {
-        for (String declaration : List.of("class Box { public: int method() { return 0; } };", "int main() { return this; }")) {
-            var compiler = compiler(declaration);
-            var semantic = semantic(compiler);
-            compiler.runThrough(semantic);
-            assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005")), () -> semantic.errors().toString());
-        }
+    @Test void memberMethodsBindWhileThisOutsideAMethodIsRejected() {
+        var valid = compiler("class Box { public: int method() { return 0; } }; int main(){return 0;}");
+        var bound = semantic(valid);
+        valid.runThrough(bound);
+        assertTrue(bound.succeeded(), () -> bound.errors().toString());
+        assertTrue(bound.semanticResult().displayNames().containsValue("Box::method"));
+        var invalid = compiler("int main() { return this; }");
+        var rejected = semantic(invalid);
+        invalid.runThrough(rejected);
+        assertTrue(rejected.errors().stream().anyMatch(d -> d.code().equals("CPP004") && d.message().contains("this")),
+                () -> rejected.errors().toString());
     }
 
     @Test void namespaceQualifiedTypesAndAliasesRetainIndependentAccessPolicies() throws Exception {

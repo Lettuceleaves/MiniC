@@ -129,13 +129,16 @@ class CppClassAstTest {
     @Test void unusedMethodCannotDisappearDuringCoreBinding() {
         var method = new MethodMember(method(null), METHOD_NAME);
         var record = record(RecordKey.STRUCT, List.of(method));
-        rejectedByBinder(record, METHOD_NAME);
         var source = program(LanguageMode.CPP17_ALGORITHM, record, main(null));
         var semantic = analyze(source);
-        assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005") && d.range().equals(METHOD_NAME)));
-        assertFalse(semantic.program().structs().stream().anyMatch(s -> s.name().equals("Record")),
-                "An unsupported record must not be emitted as a misleading empty core record");
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        var binding = semantic.semanticResult();
+        var core = assertInstanceOf(FunctionDecl.class, binding.sourceToCore().get(method.method()));
+        assertTrue(binding.program().functions().stream().anyMatch(function -> function == core));
+        assertEquals("Record::read", binding.displayNames().get(core.name()));
+        assertEquals(1, core.parameters().size());
+        assertEquals(METHOD, core.range());
+        assertNull(binding.program().structs().getFirst().cppInfo());
     }
 
     @ParameterizedTest @EnumSource(Access.class)
@@ -150,7 +153,7 @@ class CppClassAstTest {
     @Test void thisGetsAnExplicitCppDiagnosticBeforeCoreExpressionAnalysis() {
         var source = program(LanguageMode.CPP17_ALGORITHM, main(new ThisExpr(THIS)));
         var result = CppNameBinder.bind(source);
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.code().equals("CPP005")
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.code().equals("CPP004")
                 && d.message().contains("this") && d.range().equals(THIS)), () -> result.diagnostics().toString());
         assertFalse(analyze(source).succeeded());
     }
@@ -206,12 +209,6 @@ class CppClassAstTest {
         var semantic = new SemanticAnalyzer(source);
         semantic.analyze();
         return semantic;
-    }
-    private static void rejectedByBinder(StructDecl record, SourceRange range) {
-        var result = CppNameBinder.bind(program(LanguageMode.CPP17_ALGORITHM, record, main(null)));
-        assertTrue(result.diagnostics().stream().anyMatch(d -> d.code().equals("CPP005") && d.range().equals(range)),
-                () -> result.diagnostics().toString());
-        assertTrue(result.program().structs().isEmpty());
     }
     private static void walk(AstNode node, List<AstNode> target) {
         target.add(node);

@@ -169,12 +169,15 @@ final class CppRecordParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {"class Box { int read() { return 0; } };", "struct Box { public: int read() { return 0; } };"})
-    void parsedMethodsRemainGuardedUntilMemberFunctionSemanticsExist(String declaration) {
+    void parsedMethodsBindToCoreFunctionsWithoutLosingTheSourceMethod(String declaration) {
         var parser = successful(declaration + " int main() { return 0; }");
         var semantic = new SemanticAnalyzer(parser.result().program());
         semantic.analyze();
-        assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005")), () -> semantic.errors().toString());
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        var original = method(parser.result().program().structs().getFirst(), "read");
+        var core = assertInstanceOf(FunctionDecl.class, semantic.semanticResult().sourceToCore().get(original));
+        assertEquals(original.range(), core.range());
+        assertEquals("Box::read", semantic.semanticResult().displayNames().get(core.name()));
     }
 
     @Test void generatedPlaceholderSpellingDoesNotMakeAnExplicitParameterUnnamed() {
