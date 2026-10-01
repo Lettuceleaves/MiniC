@@ -431,6 +431,10 @@ public final class Assembler extends Stage {
                     }
                     case PROLOG_SUB -> {
                         section = FunctionSection.CALLEE_SAVES;
+                        if (frame.frameSize() >= 4096) {
+                            enqueueStackProbe();
+                            continue;
+                        }
                         return structure("    sub rsp, " + frame.frameSize());
                     }
                     case CALLEE_SAVES -> {
@@ -534,6 +538,18 @@ public final class Assembler extends Stage {
                     "    mov BYTE PTR [r10], 0", "    jmp " + probe, done + ":",
                     "    mov BYTE PTR [r11], 0", "    mov rsp, r11",
                     "    mov " + frame.originalFrameSlot() + ", rax");
+            lines.forEach(line -> pendingInstructionLines.add(new PendingInstructionLine(line, null)));
+        }
+
+        private void enqueueStackProbe() {
+            // Ordinary frames can cross guard pages too. Only volatile scratch registers
+            // are used, preserving register/stack arguments and the incoming frame pointer.
+            // https://learn.microsoft.com/en-us/cpp/build/prolog-and-epilog
+            String probe = functionSymbol + "$stack_probe", done = functionSymbol + "$stack_probe_done";
+            List<String> lines = List.of("    mov r11, rsp", "    sub r11, " + frame.frameSize(),
+                    "    mov r10, rsp", probe + ":", "    sub r10, 4096", "    cmp r11, r10",
+                    "    jge " + done, "    mov BYTE PTR [r10], 0", "    jmp " + probe,
+                    done + ":", "    mov BYTE PTR [r11], 0", "    mov rsp, r11");
             lines.forEach(line -> pendingInstructionLines.add(new PendingInstructionLine(line, null)));
         }
 
