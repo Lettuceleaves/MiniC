@@ -40,7 +40,11 @@ final class CppNonTypeTemplateTest {
         Arguments.of("constant-operators","""
             template<unsigned N>struct Box{int value;unsigned get(){return N;}};
             int main(){Box<(8>>1)> a={1};Box<(3<4?7:9)> b={2};Box<(0xffffffffU+1U)> c={3};printf("%u %u %u\\n",a.get(),b.get(),c.get());return 0;}
-            ""","4 7 0\n")
+            ""","4 7 0\n"),
+        Arguments.of("bool-representable-and-explicit-conversion","""
+            template<bool V>struct B{bool get(){return V;}B* self(){return this;}};
+            int main(){B<0> zero;B<1> one;B<(bool)2> cast;B<false>* z=zero.self();B<true>* o=one.self();B<true>* c=cast.self();printf("%d %d %d\\n",z->get(),o->get(),c->get());return 0;}
+            ""","0 1 1\n")
     );}
     @ParameterizedTest(name="{0}") @MethodSource("programs")
     void integralArgumentsAndBoundsAgreeWithCpp(String name,String source,String expected)throws Exception{
@@ -51,7 +55,6 @@ final class CppNonTypeTemplateTest {
     }
     @ParameterizedTest @ValueSource(strings={
         "template<int N>struct B{int data[N];};int main(){B<0> b;return 0;}",
-        "template<bool V>struct B{};int main(){B<2> b;return 0;}",
         "template<int N>struct B{};int main(){int n=3;B<n> b;return 0;}",
         "template<int N>struct B{};int main(){B<(1/0)> b;return 0;}",
         "template<int N>struct B{int N;};int main(){return 0;}"
@@ -64,5 +67,28 @@ final class CppNonTypeTemplateTest {
         var semantic=api.stages().stream().filter(minic.compiler.semantic.SemanticAnalyzer.class::isInstance).map(minic.compiler.semantic.SemanticAnalyzer.class::cast).findFirst().orElseThrow();
         api.runThrough(semantic);
         assertTrue(api.stages().stream().anyMatch(stage->!stage.errors().isEmpty()));
+    }
+
+    @Test
+    void boolNonTypeArgumentRejectsNarrowingDespiteGcc8Acceptance() {
+        // C++17 [temp.arg.nontype]/2 requires a converted constant expression;
+        // [expr.const]/4.7 excludes narrowing, defined by [dcl.init.list]/7.4.
+        // MinGW GCC 8.1 incorrectly accepts this exact source, even with
+        // -pedantic-errors. Keep the standard negative independently of it.
+        // https://timsong-cpp.github.io/cppwp/n4659/temp.arg.nontype#2
+        // https://timsong-cpp.github.io/cppwp/n4659/expr.const#4.7
+        // https://timsong-cpp.github.io/cppwp/n4659/dcl.init.list#7.4
+        String source="template<bool V>struct B{};int main(){B<2> b;return 0;}";
+        var api=new CompilerApi(new SourceFile("bool-template-narrowing.cpp",source),LanguageMode.CPP17_ALGORITHM);
+        var semantic=api.stages().stream().filter(minic.compiler.semantic.SemanticAnalyzer.class::isInstance)
+                .map(minic.compiler.semantic.SemanticAnalyzer.class::cast).findFirst().orElseThrow();
+        api.runThrough(semantic);
+        var errors=api.stages().stream().flatMap(stage->stage.errors().stream()).toList();
+        var diagnostic=errors.stream().filter(error->error.code().equals("CPP004")
+                && error.message().contains("Invalid template argument")).findFirst().orElseThrow(()->new AssertionError(errors));
+        assertEquals(1,diagnostic.range().startLine());
+        assertEquals(1,diagnostic.range().endLine());
+        String rejected=source.substring(diagnostic.range().startByte(),diagnostic.range().endByte());
+        assertTrue(rejected.contains("B<2>"),rejected);
     }
 }
