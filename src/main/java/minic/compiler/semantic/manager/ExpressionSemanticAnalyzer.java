@@ -106,6 +106,7 @@ final class ExpressionSemanticAnalyzer {
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case Expression.LetExpr capture -> analyzeCapture(capture, scope);
             case Expression.MaterializeExpr temporary -> analyzeMaterialization(temporary, scope);
+            case Expression.ObjectInitExpr construction -> analyzeObjectInitialization(construction, scope);
             case AssignmentExpr assignmentExpr -> analyzeAssignment(assignmentExpr, scope);
             case BinaryExpr binaryExpr -> {
                 MiniType leftType = analyzeExpression(binaryExpr.left(), scope);
@@ -190,6 +191,22 @@ final class ExpressionSemanticAnalyzer {
             report(temporary.range(), "临时对象初始化类型不兼容");
         }
         return type.pointerTo();
+    }
+
+    private MiniType analyzeObjectInitialization(Expression.ObjectInitExpr construction, Scope scope) {
+        MiniType type = construction.type();
+        if (!type.isStruct() || !hasStructLayout(type)) {
+            report(construction.range(), "原地构造需要完整的记录类型");
+        }
+        Scope bodyScope = Scope.detachedChild(scope, construction.range());
+        var symbol = new minic.compiler.semantic.model.Symbol(construction.destinationName(), SymbolKind.VARIABLE,
+                construction.range(), MiniType.qualified(type.unqualified().pointerTo(), Set.of(MiniType.TypeQualifier.CONST)), null);
+        bodyScope.define(symbol);
+        valueCaptures.add(symbol);
+        if (!analyzeExpression(construction.body(), bodyScope).isVoid()) {
+            report(construction.body().range(), "原地构造操作必须具有 void 类型");
+        }
+        return type;
     }
 
     private MiniType analyzeComma(CommaExpr commaExpr, Scope scope) {
@@ -599,6 +616,9 @@ final class ExpressionSemanticAnalyzer {
         if (value instanceof AggregateInitExpr nested) {
             analyzeAggregateInit(nested, scope, targetType);
             return;
+        }
+        if (Expression.ObjectInitExpr.occursInResultOf(value)) {
+            report(value.range(), "聚合列表中的原地构造尚需独立的子对象初始化规则，不能沿用 C 聚合整体零填充");
         }
         MiniType valueType = analyzeExpression(value, scope);
         if (!TypeCompatibility.isAssignmentCompatible(targetType, valueType, value)) {

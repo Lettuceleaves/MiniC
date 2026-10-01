@@ -13,6 +13,30 @@ import java.util.Optional;
  */
 public interface Expression extends AstNode {
 
+    /** Compiler-only construction in a supplied destination; the capture is an immutable pointer value. */
+    record ObjectInitExpr(MiniType type, String destinationName, Expression body, SourceRange range) implements Expression {
+        public ObjectInitExpr {
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(destinationName, "destinationName");
+            Objects.requireNonNull(body, "body");
+            Objects.requireNonNull(range, "range");
+            if (destinationName.isBlank()) throw new IllegalArgumentException("destination name must not be blank");
+        }
+
+        /** Follow only object-result paths, not construction used in operands or call arguments. */
+        public static boolean occursInResultOf(Expression expression) {
+            return switch (expression) {
+                case null -> false;
+                case ObjectInitExpr ignored -> true;
+                case GroupingExpr group -> occursInResultOf(group.expression());
+                case CommaExpr comma -> occursInResultOf(comma.expressions().getLast());
+                case ConditionalExpr conditional -> occursInResultOf(conditional.thenExpression())
+                        || occursInResultOf(conditional.elseExpression());
+                default -> false;
+            };
+        }
+    }
+
     /** Source ownership for later cleanup insertion; the owner is not an executable child. */
     record TemporaryLifetime(Kind kind, AstNode sourceOwner) {
         public TemporaryLifetime {

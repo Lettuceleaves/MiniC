@@ -92,7 +92,23 @@ final class ExpressionLowerer {
     }
 
     IrValue lowerExpression(Expression expression) {
+        if (expression instanceof Expression.ObjectInitExpr construction) {
+            IrLocal object = builder.declareAnonymousLocal(construction.type(), construction.range());
+            builder.addInstruction(new IrDeclareLocalInstruction(object, construction.range()));
+            IrTemporary address = builder.newTemporary(IrType.POINTER);
+            builder.addInstruction(new IrAddressOfLocalInstruction(address, object, construction.range()));
+            initializeObjectAt(construction, address);
+            return address;
+        }
         if (expression instanceof Expression.MaterializeExpr temporary) {
+            if (Expression.ObjectInitExpr.occursInResultOf(temporary.initializer())) {
+                IrLocal object = builder.declareAnonymousLocal(temporary.type(), temporary.range());
+                builder.addInstruction(new IrDeclareLocalInstruction(object, temporary.range()));
+                IrTemporary address = builder.newTemporary(IrType.POINTER);
+                builder.addInstruction(new IrAddressOfLocalInstruction(address, object, temporary.range()));
+                initializeObjectAt(temporary.initializer(), address);
+                return address;
+            }
             IrValue value = lowerExpression(temporary.initializer());
             IrLocal object = builder.declareAnonymousLocal(temporary.type(), temporary.range());
             builder.addInstruction(new IrDeclareLocalInstruction(object, temporary.range()));
@@ -591,6 +607,47 @@ final class ExpressionLowerer {
 
     IrValue castForTarget(IrValue value, IrType targetType, minic.SourceRange range) {
         return castIfNeeded(value, targetType, range);
+    }
+
+    /** Initialize existing storage, keeping the destination capture private to this expression. */
+    void initializeObjectAt(Expression expression, IrValue address) {
+        if (expression instanceof GroupingExpr group) {
+            initializeObjectAt(group.expression(), address);
+            return;
+        }
+        if (expression instanceof CommaExpr comma) {
+            for (int index = 0; index + 1 < comma.expressions().size(); index++) lowerExpression(comma.expressions().get(index));
+            initializeObjectAt(comma.expressions().getLast(), address);
+            return;
+        }
+        if (expression instanceof ConditionalExpr conditional) {
+            IrValue condition = lowerExpression(conditional.condition());
+            String thenLabel = builder.newBlockLabel("initialize_then");
+            String elseLabel = builder.newBlockLabel("initialize_else");
+            String mergeLabel = builder.newBlockLabel("initialize_merge");
+            builder.addInstruction(new IrBranchInstruction(condition, thenLabel, elseLabel, conditional.condition().range()));
+            builder.switchToBlock(thenLabel);
+            initializeObjectAt(conditional.thenExpression(), address);
+            builder.addJumpIfOpen(mergeLabel, conditional.thenExpression().range());
+            builder.switchToBlock(elseLabel);
+            initializeObjectAt(conditional.elseExpression(), address);
+            builder.addJumpIfOpen(mergeLabel, conditional.elseExpression().range());
+            builder.switchToBlock(mergeLabel);
+            return;
+        }
+        if (!(expression instanceof Expression.ObjectInitExpr construction)) {
+            // The other conditional arm may be an existing object requiring an ordinary copy.
+            MiniType type = expressionTypes.get(expression);
+            builder.addInstruction(new IrMemCopyInstruction(address, lowerExpression(expression), builder.sizeOf(type),
+                    type.isVolatileQualified(), expression.range()));
+            return;
+        }
+        IrValue previous = capturedValues.put(construction.destinationName(), address);
+        try { lowerExpression(construction.body()); }
+        finally {
+            if (previous == null) capturedValues.remove(construction.destinationName());
+            else capturedValues.put(construction.destinationName(), previous);
+        }
     }
 
     private IrValue lowerExplicitCast(IrValue value, IrType targetType, minic.SourceRange range) {
