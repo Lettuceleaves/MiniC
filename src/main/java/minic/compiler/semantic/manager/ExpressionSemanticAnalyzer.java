@@ -224,11 +224,6 @@ final class ExpressionSemanticAnalyzer {
                 // suppresses that decay so &f has the same type as the expression f.
                 return analyzeExpression(operand, scope).pointee();
             }
-            scope.resolve(nameExpr.name()).ifPresent(symbol -> {
-                if (symbol.kind() == SymbolKind.VARIABLE && currentParameterNames.contains(nameExpr.name())) {
-                    report(range, "暂不支持对参数取址：" + nameExpr.name());
-                }
-            });
             return analyzeExpression(operand, scope);
         }
         if (operand instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenType.STAR) {

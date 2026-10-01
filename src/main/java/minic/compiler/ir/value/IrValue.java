@@ -79,6 +79,15 @@ public sealed interface IrValue {
         }
     }
 
+    /** Address of the callee's existing scalar/pointer parameter slot, not its value. */
+    record IrParameterAddress(String name) implements IrValue {
+        public IrParameterAddress {
+            Objects.requireNonNull(name, "name");
+            if (name.isBlank()) throw new IllegalArgumentException("name must not be blank");
+        }
+        @Override public IrType type() { return IrType.POINTER; }
+    }
+
     record IrStringLiteral(String label) implements IrValue {
         public IrStringLiteral {
             Objects.requireNonNull(label, "label");

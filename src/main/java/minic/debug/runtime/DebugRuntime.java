@@ -136,7 +136,13 @@ public final class DebugRuntime {
     /** 返回只读的当前栈视图；地址随调用帧分配，递归调用不会共用局部变量。 */
     public List<StackFrame> stack() {
         return stack.stream().map(f -> new StackFrame(code.ir().displayName(f.function.name()), f.block, f.pc,
-                displayedNames(f.parameters), displayedNames(f.locals), Map.copyOf(f.temps))).toList();
+                displayedNames(parameterValues(f)), displayedNames(f.locals), Map.copyOf(f.temps))).toList();
+    }
+
+    private Map<String, Value> parameterValues(Frame frame) {
+        Map<String, Value> values = new LinkedHashMap<>();
+        frame.parameters.keySet().forEach(name -> values.put(name, parameter(frame, name)));
+        return values;
     }
 
     /** Rendering never mutates executable keys; distinct slots must survive equal source names. */
@@ -611,6 +617,7 @@ public final class DebugRuntime {
     void pop(Value value) {
         Frame frame = stack.removeLast();
         frame.locals.values().forEach(memory::remove);
+        frame.parameterAddresses.values().forEach(memory::remove);
         if (stack.isEmpty()) {
             returnValue = value;
             int status = value == null ? 0 : (int) value.integer();
@@ -624,7 +631,10 @@ public final class DebugRuntime {
     }
 
     void terminate(int status, String reason) {
-        stack.forEach(frame -> frame.locals.values().forEach(memory::remove));
+        stack.forEach(frame -> {
+            frame.locals.values().forEach(memory::remove);
+            frame.parameterAddresses.values().forEach(memory::remove);
+        });
         stack.clear();
         returnValue = Value.of(IrType.INT, status);
         termination = new TerminationState(TerminationKind.EXITED, status, reason);
@@ -641,6 +651,24 @@ public final class DebugRuntime {
                 "stack",
                 local.sourceName()
         ));
+    }
+
+    /** Untouched parameters need no debug allocation; addressed parameters share one slot. */
+    long parameterAddress(Frame frame, String name) {
+        return frame.parameterAddresses.computeIfAbsent(name, key -> {
+            IrParameter parameter = frame.function.parameters().stream().filter(p -> p.name().equals(key))
+                    .findFirst().orElseThrow(() -> new IllegalStateException("Unknown parameter: " + key));
+            long address = allocate(parameter.type().sizeBytes(), parameter.type().sizeBytes(), "stack", key);
+            write(address, frame.parameters.get(key).cast(parameter.type()));
+            return address;
+        });
+    }
+
+    Value parameter(Frame frame, String name) {
+        Value incoming = frame.parameters.get(name);
+        if (incoming == null) throw new IllegalStateException("Unknown parameter: " + name);
+        Long address = frame.parameterAddresses.get(name);
+        return address == null ? incoming : read(address, incoming.type());
     }
 
     public record Value(IrType type, Number number) {
@@ -734,6 +762,7 @@ public final class DebugRuntime {
         final IrTemporary target;
         final Map<String, Value> parameters = new LinkedHashMap<>(), temps = new LinkedHashMap<>();
         final Map<String, Long> locals = new LinkedHashMap<>();
+        final Map<String, Long> parameterAddresses = new LinkedHashMap<>();
         int block, pc, lastLine = -1;
         Frame(IrFunction function, IrTemporary target) { this.function = function; this.target = target; }
         void jump(String label) {

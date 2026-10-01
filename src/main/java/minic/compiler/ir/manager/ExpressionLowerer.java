@@ -52,6 +52,7 @@ import minic.compiler.ir.value.IrValue.IrConstant;
 import minic.compiler.ir.value.IrValue.IrFloatConstant;
 import minic.compiler.ir.value.IrValue.IrFunctionAddress;
 import minic.compiler.ir.value.IrValue.IrGlobalAddress;
+import minic.compiler.ir.value.IrValue.IrParameterAddress;
 import minic.compiler.ir.value.IrValue.IrTemporary;
 import minic.compiler.ir.value.IrValue;
 import minic.compiler.lexer.token.TokenType;
@@ -163,6 +164,8 @@ final class ExpressionLowerer {
                 ));
                 return result;
             }
+            var parameter = builder.findParameter(nameExpr.name());
+            if (parameter != null) return parameter;
             MiniType globalType = globalTypes.get(nameExpr.name());
             if (globalType != null) {
                 IrGlobalAddress address = new IrGlobalAddress(nameExpr.name());
@@ -703,6 +706,14 @@ final class ExpressionLowerer {
         if (target instanceof NameExpr nameExpr) {
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local == null) {
+                var parameter = builder.findParameter(nameExpr.name());
+                if (parameter != null) {
+                    builder.addInstruction(new IrStorePointerInstruction(
+                            new IrParameterAddress(parameter.name()),
+                            castIfNeeded(value, parameter.type(), range),
+                            volatileAccess(target), range));
+                    return;
+                }
                 MiniType globalType = globalTypes.get(nameExpr.name());
                 if (globalType == null) {
                     throw new IllegalArgumentException("assignment target is unresolved: " + nameExpr.name());
@@ -838,8 +849,14 @@ final class ExpressionLowerer {
         if (expression instanceof NameExpr nameExpr) {
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local == null) {
+                var parameter = builder.findParameter(nameExpr.name());
+                if (parameter != null) {
+                    MiniType type = expressionTypes.get(nameExpr);
+                    // Aggregate parameters already carry the address of their by-value copy.
+                    return type != null && type.isStruct() ? parameter : new IrParameterAddress(parameter.name());
+                }
                 if (globalTypes.containsKey(nameExpr.name())) return new IrGlobalAddress(nameExpr.name());
-                if (builder.findParameter(nameExpr.name()) == null && functionSignatures.containsKey(nameExpr.name())) {
+                if (functionSignatures.containsKey(nameExpr.name())) {
                     return new IrFunctionAddress(nameExpr.name());
                 }
                 return builder.resolveParameter(nameExpr.name());

@@ -174,7 +174,8 @@ public final class Debugger {
             case IrConstant c -> Value.of(c.type(), c.value());
             case IrFloatConstant c -> Value.of(c.type(), c.value());
             case IrTemporary t -> frame.temps.get(t.name());
-            case IrParameterRef p -> frame.parameters.get(p.name());
+            case IrParameterRef p -> runtime.parameter(frame, p.name());
+            case IrParameterAddress p -> Value.of(IrType.POINTER, runtime.parameterAddress(frame, p.name()));
             case IrStringLiteral s -> Value.of(IrType.POINTER, runtime.symbol(s.label()));
             case IrFunctionAddress f -> Value.of(IrType.POINTER, runtime.symbol(f.functionName()));
             case minic.compiler.ir.value.IrValue.IrGlobalAddress g ->

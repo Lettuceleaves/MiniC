@@ -5,6 +5,7 @@ import minic.compiler.ir.value.IrValue.IrFloatConstant;
 import minic.compiler.ir.value.IrValue.IrFunctionAddress;
 import minic.compiler.ir.value.IrValue.IrGlobalAddress;
 import minic.compiler.ir.value.IrValue.IrParameterRef;
+import minic.compiler.ir.value.IrValue.IrParameterAddress;
 import minic.compiler.ir.value.IrValue.IrStringLiteral;
 import minic.compiler.ir.value.IrValue.IrTemporary;
 import minic.compiler.ir.value.IrValue;
@@ -35,6 +36,11 @@ final class ValueEmitter {
         }
         if (value instanceof IrParameterRef parameterRef) {
             emitLoadStackSlot(builder, register, parameterRef.type(), frame.parameterSlot(parameterRef.name()));
+            return;
+        }
+        if (value instanceof IrParameterAddress parameterAddress) {
+            builder.append("    lea ").append(pointerRegister(register)).append(", ")
+                    .append(frame.parameterAddress(parameterAddress.name())).append(System.lineSeparator());
             return;
         }
         if (value instanceof IrStringLiteral stringLiteral) {

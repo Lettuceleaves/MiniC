@@ -79,6 +79,10 @@ record FrameLayout(
         return stackSlot(parameterOffsets.get(name), type);
     }
 
+    String parameterAddress(String name) {
+        return stackAddress(parameterOffsets.get(name));
+    }
+
     String localSlot(IrLocal local) {
         if (local.incomingArgumentArea()) {
             throw new IllegalArgumentException("incoming argument pseudo local has no frame slot");
