@@ -6,7 +6,7 @@ import minic.compiler.ir.IrResult;
 import minic.compiler.ir.IrLowerer;
 import minic.compiler.ir.optimize.IrOptimizationPipeline;
 import minic.compiler.ir.optimize.OptimizationLevel;
-import minic.compiler.ir.optimize.LocalRegisterPlan;
+import minic.compiler.ir.optimize.GlobalRegisterPlan;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
@@ -355,6 +355,8 @@ public final class Assembler extends Stage {
         private final String functionSymbol;
         private final String epilogueLabel;
         private final InstructionEmitter instructionEmitter;
+        private final GlobalRegisterPlan registerPlan;
+        private final ValueEmitter stackValues;
         private final ArrayDeque<PendingInstructionLine> pendingInstructionLines = new ArrayDeque<>();
         private FunctionSection section = FunctionSection.PROC;
         private int blockIndex;
@@ -368,11 +370,12 @@ public final class Assembler extends Stage {
             functionSymbol = CallingConvention.functionDefinitionSymbol(function.name());
             epilogueLabel = functionSymbol + "$epilogue";
             TemporaryLocations locations = TemporaryLocations.allStack(frame);
+            registerPlan = optimizeValueLocations ? GlobalRegisterPlan.allocate(function) : null;
+            stackValues = new ValueEmitter(frame, externalFunctionNames);
             if (optimizeValueLocations) {
-                var plan = LocalRegisterPlan.allocate(function);
                 var assignments = new java.util.LinkedHashMap<String, ValueLocation>();
-                plan.registers().forEach((name, register) -> assignments.put(name,
-                        new ValueLocation.Register(plan.temporaryTypes().get(name), register)));
+                registerPlan.registers().forEach((name, register) -> assignments.put(name,
+                        new ValueLocation.Register(registerPlan.temporaryTypes().get(name), register)));
                 locations = TemporaryLocations.withOverrides(frame, assignments);
             }
             instructionEmitter = new InstructionEmitter(frame, externalFunctionNames, function, locations);
@@ -492,7 +495,13 @@ public final class Assembler extends Stage {
 
         private void enqueueInstruction(IrInstruction instruction) {
             StringBuilder builder = new StringBuilder();
+            var survivors = registerPlan == null ? List.<minic.compiler.ir.value.IrValue.IrTemporary>of()
+                    : registerPlan.spillsAt(function.blocks().get(blockIndex).label(), instructionIndex - 1);
+            for (var value : survivors) stackValues.emitStoreTemporary(builder, value, registerPlan.registers().get(value.name()));
             instructionEmitter.emitInstruction(builder, functionSymbol, epilogueLabel, instruction);
+            // The instruction includes placement of the NEW call result. Restore only old values
+            // live across this call, never a same-name result's previous version.
+            for (var value : survivors) stackValues.emitLoadValue(builder, value, registerPlan.registers().get(value.name()));
             splitLines(builder.toString()).stream()
                     .map(line -> new PendingInstructionLine(line, instruction.range()))
                     .forEach(pendingInstructionLines::add);
