@@ -72,7 +72,9 @@ public final class MiniCWorker {
             }
             Outcome outcome = timed(phasePath, "run", runTimeoutNanos, resultPath, backend,
                     Status.RUN_TIMEOUT, completed, () -> {
-                DebugApi debug = DebugApi.fromIr(compilation.source(), compilation.ir(), Files.readString(Path.of(args[2])));
+                // Functional differential execution needs the current state. Full replay history
+                // is verified independently, without retaining every container snapshot here.
+                DebugApi debug = DebugApi.fromIr(compilation.source(), compilation.ir(), Files.readString(Path.of(args[2])), 1);
                 int steps = 0;
                 while (debug.canNext() && steps++ < stepLimit) {
                     debug.next();

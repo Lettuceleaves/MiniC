@@ -38,6 +38,12 @@ public final class DebugApi {
                 Objects.requireNonNull(ir, "ir"), Objects.requireNonNull(standardInput, "standardInput")));
     }
 
+    /** Retains at most this many contexts, including the current one; ordinary sessions keep full history. */
+    public static DebugApi fromIr(SourceFile source, IrResult ir, String standardInput, int historyLimit) {
+        return new DebugApi(Debugger.fromIr(Objects.requireNonNull(source, "source"),
+                Objects.requireNonNull(ir, "ir"), Objects.requireNonNull(standardInput, "standardInput"), historyLimit));
+    }
+
     public DebugApi(Debugger debugger) {
         this.debugger = Objects.requireNonNull(debugger, "debugger");
         current = debugger.initialContext();

@@ -25,6 +25,8 @@ public final class Debugger {
     private final DebugRuntime runtime;
     private final DebugSystemLibrary systemLibrary = new DebugSystemLibrary();
     private final List<Context> contexts = new ArrayList<>();
+    private final int historyLimit;
+    private int nextContextIndex;
     private Stop latestStop = new Stop(Status.READY, null, null, "", "", -1, "");
     private int contextIndex;
 
@@ -57,8 +59,19 @@ public final class Debugger {
         return new Debugger(source, ir, standardInput, DebugTimeSource.system(), DebugRuntime.DEFAULT_HEAP_CAPACITY);
     }
 
+    static Debugger fromIr(SourceFile source, IrResult ir, String standardInput, int historyLimit) {
+        return new Debugger(source, ir, standardInput, DebugTimeSource.system(), DebugRuntime.DEFAULT_HEAP_CAPACITY, historyLimit);
+    }
+
     private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
                      int heapCapacity) {
+        this(source, ir, standardInput, timeSource, heapCapacity, Integer.MAX_VALUE);
+    }
+
+    private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
+                     int heapCapacity, int historyLimit) {
+        if (historyLimit < 1) throw new IllegalArgumentException("History limit must retain at least the current context");
+        this.historyLimit = historyLimit;
         runtime = new DebugRuntime(new DebugProgram(source, ir), standardInput, timeSource, heapCapacity);
         runtime.push(runtime.code().ir().findFunction(runtime.code().ir().entryFunction())
                 .orElseThrow(() -> new IllegalStateException("Missing entry function: " + runtime.code().ir().entryFunction())), List.of(), null);
@@ -123,9 +136,10 @@ public final class Debugger {
 
     private Context remember(Stop next) {
         latestStop = next;
-        Context context = new Context(contexts.size(), next, runtime.code(), runtime.snapshot());
+        Context context = new Context(nextContextIndex++, next, runtime.code(), runtime.snapshot());
+        if (contexts.size() == historyLimit) contexts.removeFirst();
         contexts.add(context);
-        contextIndex = context.index();
+        contextIndex = contexts.size() - 1;
         return context;
     }
 
