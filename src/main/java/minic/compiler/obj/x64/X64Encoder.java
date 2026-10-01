@@ -226,6 +226,11 @@ public final class X64Encoder {
                 throw new IllegalArgumentException("integer shift target must have width 8, 16, 32 or 64");
             if (immediate.value() < 0 || immediate.value() > 255)
                 throw new IllegalArgumentException("immediate shift count must fit an unsigned byte");
+            // REL32 is based at the end of disp32; x64 RIP is after the trailing imm8 as well.
+            // Adjust the symbol addend for both local layout and the unresolved COFF relocation.
+            if (target instanceof MemoryOperand memory && memory.symbol() != null && "rip".equals(memory.base()))
+                target = new MemoryOperand(memory.sizeBits(), memory.symbol(), memory.base(), memory.index(), memory.scale(),
+                        Math.subtractExact(memory.displacement(), 1));
             emitRm(w, operandSizePrefix(width), width == 64, new int[]{width == 8 ? 0xC0 : 0xC1}, group, target, symbols, relocs);
             w.u8((int) immediate.value());
             return;
