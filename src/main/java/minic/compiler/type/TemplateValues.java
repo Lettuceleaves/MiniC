@@ -14,6 +14,9 @@ public final class TemplateValues {
         return switch (expression) {
             case CppTemplateValueExpr value -> values.getOrDefault(value.parameter(),
                     new CppTemplateValueExpr(value.parameter(), value.valueType().substituteTemplateParameters(types), value.range()));
+            case CppTypeQueryExpr query -> new CppTypeQueryExpr(query.kind(), query.arguments().stream()
+                    .map(argument -> new CppTypeQueryExpr.TypeArgument(argument.type().substituteTemplateParameters(types, values), argument.packExpansion(), argument.range())).toList(),
+                    query.nameRange(), query.range());
             case CppTypeMemberExpr member -> new CppTypeMemberExpr(member.ownerType().substituteTemplateParameters(types,values),member.memberName(),member.nameRange(),member.range());
             case GroupingExpr group -> new GroupingExpr(substitute(group.expression(),types,values),group.range());
             case UnaryExpr unary -> new UnaryExpr(unary.operator(),substitute(unary.operand(),types,values),unary.range());
@@ -27,6 +30,7 @@ public final class TemplateValues {
     }
     public static boolean dependent(Expression expression) {
         if (expression instanceof CppTemplateValueExpr) return true;
+        if (expression instanceof CppTypeQueryExpr query && query.arguments().stream().anyMatch(argument -> argument.packExpansion() || argument.type().isDependentTemplate())) return true;
         if (expression instanceof AlignofExpr align && align.queriedType()!=null && align.queriedType().isDependentTemplate()) return true;
         if (expression instanceof CppTypeMemberExpr member && member.ownerType().isDependentTemplate()) return true;
         if (expression instanceof SizeofExpr size && size.queriedType()!=null && size.queriedType().isDependentTemplate()) return true;
@@ -35,7 +39,7 @@ public final class TemplateValues {
     }
     /** Record layout and member constants are resolved by the owning semantic context. */
     public static boolean requiresSemanticContext(Expression expression) {
-        if(expression instanceof SizeofExpr||expression instanceof AlignofExpr||expression instanceof CppTypeMemberExpr)return true;
+        if(expression instanceof CppTypeQueryExpr||expression instanceof SizeofExpr||expression instanceof AlignofExpr||expression instanceof CppTypeMemberExpr)return true;
         for(AstNode child:AstChildren.of(expression))if(child instanceof Expression e&&requiresSemanticContext(e))return true;
         return false;
     }

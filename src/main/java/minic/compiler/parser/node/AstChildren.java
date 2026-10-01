@@ -82,6 +82,7 @@ public final class AstChildren {
             case AggregateInitExpr n -> n.values();
             case CppInitializer n -> n.arguments();
             case CppConstructionExpr n -> present(n.initializer());
+            case CppTypeQueryExpr n -> n.arguments();
             case CppDestructorCallExpr n -> present(n.receiver());
             case CppNewExpr n -> {
                 var children = new ArrayList<AstNode>(n.placementArguments());
@@ -106,6 +107,7 @@ public final class AstChildren {
             case GlobalVarDecl n -> n.type(); case StructField n -> n.type();
             case TypedefDecl n -> n.type(); case VarDeclStmt n -> n.type(); case TypedefStmt n -> n.type();
             case CastExpr n -> n.targetType(); case CppConstructionExpr n -> n.type();
+            case CppTypeQueryExpr.TypeArgument n -> n.type();
             case SizeofExpr n -> n.queriedType(); case AlignofExpr n -> n.queriedType();
             default -> null;
         };
@@ -151,7 +153,7 @@ public final class AstChildren {
             if (!visited.add(node)) continue;
             if (!onlyReferences && (node instanceof CppLambdaExpr || node instanceof CppRangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
-                    || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
+                    || node instanceof CppTypeQueryExpr || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
                     || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null || function.definitionKind()!=DefinitionKind.ORDINARY)
@@ -184,6 +186,7 @@ public final class AstChildren {
             case TypedefStmt n -> n.type();
             case CastExpr n -> n.targetType();
             case CppConstructionExpr n -> n.type();
+            case CppTypeQueryExpr.TypeArgument n -> n.type();
             case CppTypeMemberExpr n -> n.ownerType();
             case CppDestructorCallExpr n -> n.ownerType();
             case LetExpr n -> n.type();

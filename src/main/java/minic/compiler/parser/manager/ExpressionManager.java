@@ -586,8 +586,38 @@ public final class ExpressionManager {
         } finally {typeReader.exitScope();}
     }
 
+    private Expression parseTypeQuery(minic.compiler.parser.node.CppTypeQueryExpr.Kind kind) {
+        Token name = state.advance();
+        if (state.consume(TokenType.LEFT_PAREN, "类型查询后期望 '('") == null) return null;
+        var arguments = new ArrayList<minic.compiler.parser.node.CppTypeQueryExpr.TypeArgument>();
+        if (!state.check(TokenType.RIGHT_PAREN)) {
+            do {
+                Parser.ParsedType type = typeReader.parseType("类型查询期望类型实参");
+                if (type == null) return null;
+                boolean expansion = state.match(TokenType.ELLIPSIS);
+                arguments.add(new minic.compiler.parser.node.CppTypeQueryExpr.TypeArgument(type.type(), expansion,
+                        expansion ? SourceRange.span(type.range(), state.previous().range()) : type.range()));
+            } while (state.match(TokenType.COMMA));
+        }
+        Token close = state.consume(TokenType.RIGHT_PAREN, "类型查询后期望 ')'");
+        if (close == null) return null;
+        if (arguments.stream().noneMatch(minic.compiler.parser.node.CppTypeQueryExpr.TypeArgument::packExpansion) && !kind.acceptsArity(arguments.size())) {
+            state.report(name.range(), kind.spelling() + (kind == minic.compiler.parser.node.CppTypeQueryExpr.Kind.CONSTRUCTIBLE
+                    ? " 至少需要一个类型实参" : " 需要两个类型实参"));
+            return null;
+        }
+        var result = new minic.compiler.parser.node.CppTypeQueryExpr(kind, arguments, name.range(),
+                SourceRange.span(name.range(), close.range()));
+        state.build(result, "CppTypeQueryExpr " + kind.spelling(), result.range());
+        return result;
+    }
+
     private Expression parsePrimary() {
         if(typeReader.isCpp() && state.check(TokenType.LEFT_BRACKET))return parseLambda();
+        if (state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.check(TokenType.IDENTIFIER)) {
+            var query = minic.compiler.parser.node.CppTypeQueryExpr.Kind.fromSpelling(state.peek().lexeme());
+            if (query != null) return parseTypeQuery(query);
+        }
         if (typeReader.cppTypeMemberDelimiterAt(0) >= 0) {
             Parser.ParsedType type = typeReader.parseCppConstructionType();
             state.consume(TokenType.SCOPE, "期望 '::'");

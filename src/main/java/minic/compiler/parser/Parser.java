@@ -1616,7 +1616,7 @@ public final class Parser extends Stage {
                         Expression bound=expressionManager.parseAssignmentExpression();
                         Token close=context.consume(TokenType.RIGHT_BRACKET,"期望 ']'");
                         if(bound==null||close==null)return null;
-                        if(TemplateValues.dependent(bound))direct.modifiers().add(new DependentArrayModifier(bound));
+                        if(TemplateValues.dependent(bound) || TemplateValues.requiresSemanticContext(bound))direct.modifiers().add(new DependentArrayModifier(bound));
                         else {
                             try {
                                 long length=TemplateValues.evaluate(bound).value();

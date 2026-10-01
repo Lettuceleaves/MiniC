@@ -10,6 +10,7 @@ import minic.compiler.parser.node.CppRangeForStmt;
 import minic.compiler.parser.node.CppLambdaExpr;
 import minic.compiler.parser.node.ConversionName;
 import minic.compiler.parser.node.CppConstructionExpr;
+import minic.compiler.parser.node.CppTypeQueryExpr;
 import minic.compiler.parser.node.CppDestructorCallExpr;
 import minic.compiler.parser.node.CppNewExpr;
 import minic.compiler.parser.node.CppTypeMemberExpr;
@@ -745,6 +746,7 @@ public final class CppNameBinder {
 
         private boolean dependentTemplateExpression(AstNode node, Set<String> names) {
             if (node instanceof ThisExpr || node instanceof CppTemplateValueExpr) return true;
+            if (node instanceof CppTypeQueryExpr query && query.arguments().stream().anyMatch(argument -> argument.type().containsTemplateType())) return true;
             if(node instanceof CppTemplateIdExpr id && id.arguments().stream().anyMatch(a->a instanceof TemplateArgument.Type t?t.type().isDependentTemplate():a instanceof TemplateArgument.Value v&&TemplateValues.dependent(v.expression())))return true;
             if (node instanceof CppTypeMemberExpr member && member.ownerType().containsTemplateType()) return true;
             if (node instanceof NameExpr name && names.contains(name.name())) return true;
@@ -3266,6 +3268,7 @@ public final class CppNameBinder {
                     yield n;
                 }
                 case CppConstructionExpr n -> constructionExpression(n, namespace, local);
+                case CppTypeQueryExpr n -> typeQuery(n, namespace, local);
                 case CppTypeMemberExpr n -> memberReference(typeMember(n, namespace, local), n.memberName(), n.range(), addressDemand);
                 case CppDestructorCallExpr n -> explicitDestruction(n, namespace, local);
                 case CppNewExpr n -> placementConstruction(n, namespace, local);
@@ -5100,6 +5103,209 @@ public final class CppNameBinder {
                 result = typed(new CommaExpr(List.of(initialize, address), source.range()), pointer);
             }
             return typed(new LetExpr(storage, MiniType.VOID.pointerTo(), allocation, result, source.range()), pointer);
+        }
+
+        /** Type-only immediate-context checks: no invented variables, calls, ODR uses, or body emission. */
+        private Expression typeQuery(CppTypeQueryExpr query, Namespace namespace, Local local) {
+            if (query.arguments().stream().anyMatch(CppTypeQueryExpr.TypeArgument::packExpansion)) {
+                report("CPP005", query.range(), "类型查询中的类型参数包尚未展开。");
+                return typed(new BoolLiteralExpr(false, "false", query.range()), MiniType.BOOL);
+            }
+            List<MiniType> types = new ArrayList<>();
+            boolean valid = true;
+            for (var argument : query.arguments()) {
+                MiniType type = normalizeType(argument.type(), namespace, local, argument.range());
+                types.add(type);
+                valid &= typeQueryPrecondition(type, argument.range());
+            }
+            TypeEntity savedClass = currentClass;
+            Entity savedThis = currentThis;
+            currentClass = null;
+            currentThis = null;
+            unevaluatedDepth++;
+            boolean result = false;
+            try {
+                if (valid) result = switch (query.kind()) {
+                    case CONSTRUCTIBLE -> typeQueryConstructible(types.getFirst(), types.subList(1, types.size()).stream()
+                            .map(this::typeQueryArgument).toList(), false, query.range());
+                    case ASSIGNABLE -> typeQueryAssignable(typeQueryArgument(types.get(0)), typeQueryArgument(types.get(1)), query.range());
+                    case CONVERTIBLE -> types.get(0).isVoid() || types.get(1).isVoid()
+                            ? types.get(0).isVoid() && types.get(1).isVoid()
+                            : typeQueryConversion(typeQueryArgument(types.get(0)), types.get(1), ConversionContext.IMPLICIT, query.range());
+                };
+            } finally {
+                unevaluatedDepth--;
+                currentClass = savedClass;
+                currentThis = savedThis;
+            }
+            return typed(new BoolLiteralExpr(result, Boolean.toString(result), query.range()), MiniType.BOOL);
+        }
+
+        private boolean typeQueryPrecondition(MiniType type, SourceRange range) {
+            // References and pointers are complete types even when their referred-to class is not.
+            if (type.isReference() || type.isPointer() || type.isFunction() || type.isVoid()) return true;
+            if (type.isArray()) return typeQueryPrecondition(type.elementType(), range);
+            TypeEntity owner = objectType(type);
+            if (owner != null) {
+                completeTemplate(owner, range);
+                if (!owner.complete) {
+                    report("CPP004", range, "类型查询要求完整对象类型；不能查询尚未定义的 " + owner.canonicalName);
+                    return false;
+                }
+            }
+            if (type.containsTemplateType() || type.containsPlaceholder()) {
+                report("CPP005", range, "类型查询的类型实参尚未完成替换。");
+                return false;
+            }
+            return true;
+        }
+
+        private CppOverloadResolver.Argument typeQueryArgument(MiniType type) {
+            MiniType object = objectTypeOfReference(type);
+            // A call returning an rvalue reference to function still yields an lvalue.
+            return new CppOverloadResolver.Argument(object,
+                    object.isFunction() || type.isReference() && !type.isRvalueReference()
+                            ? CppValueCategory.LVALUE : CppValueCategory.XVALUE, false);
+        }
+
+        private boolean typeQueryConstructible(MiniType target, List<CppOverloadResolver.Argument> arguments,
+                                                boolean copyInitialization, SourceRange range) {
+            if (target.isVoid() || target.isFunction() || arguments.stream().anyMatch(argument -> argument.type().isVoid())) return false;
+            if (target.isReference()) return arguments.size() == 1
+                    && typeQueryConversion(arguments.getFirst(), target,
+                    copyInitialization ? ConversionContext.IMPLICIT : ConversionContext.EXPLICIT, range);
+            if (target.isArray()) return arguments.isEmpty()
+                    && typeQueryConstructible(inheritObjectQualifiers(target, target.elementType()), List.of(), false, range);
+            TypeEntity owner = objectType(target);
+            if (owner == null) {
+                if (arguments.isEmpty()) return true; // () value-initializes a scalar, including const scalars.
+                if (arguments.size() != 1) return false;
+                var argument = arguments.getFirst();
+                // Direct initialization has this special rule; implicit nullptr -> bool does not.
+                if (!copyInitialization && target.unqualified().equals(MiniType.BOOL) && argument.type().isNullPointer()) return true;
+                return typeQueryConversion(argument, target,
+                        copyInitialization ? ConversionContext.IMPLICIT : ConversionContext.EXPLICIT, range);
+            }
+            completeTemplate(owner, range);
+            if (!owner.complete || !typeQueryDestructible(target, range)) return false;
+            if (arguments.isEmpty() && owner.constructors.isEmpty()) return typeQueryImplicitDefault(owner, range);
+            List<CppOverloadResolver.Candidate<Constructor>> candidates = expandConstructorTemplateShapes(allConstructors(owner), arguments, range).stream()
+                    .filter(constructor -> !copyInitialization || !constructor.source.explicitSpecifier())
+                    .map(this::constructorCandidate).toList();
+            var resolution = CppOverloadResolver.resolve(candidates, arguments, null, conversions, this::betterTemplateCandidate);
+            if (resolution.status() != CppOverloadResolver.Status.SELECTED) return false;
+            Constructor selected = resolution.winner().identity();
+            return selected.access == Access.PUBLIC && !isDeleted(selected.function)
+                    && typeQueryParameters(selected.parameterTypes, arguments, range);
+        }
+
+        /** Trivial classes have no runtime default-constructor entity; check the same member obligations. */
+        private boolean typeQueryImplicitDefault(TypeEntity owner, SourceRange range) {
+            if (lambdaTypes.containsKey(owner)) return false;
+            if (owner.union && !owner.fields.isEmpty() && owner.fields.stream().allMatch(field -> typeQueryLeaf(field.type()).isConstQualified())) return false;
+            for (StructField field : owner.fields) {
+                if (owner.defaultInitializers.containsKey(field.name())) continue;
+                MiniType type = typeQueryLeaf(field.type());
+                if (type.isReference()) return false;
+                TypeEntity member = objectType(type);
+                if (member == null) {
+                    if (!owner.union && type.isConstQualified()) return false;
+                } else {
+                    // Variant members differ from ordinary const subobjects (N4659 class.ctor/5).
+                    if (owner.union && owner.defaultInitializers.isEmpty() && needsConstruction(member)) return false;
+                    if (!typeQueryConstructible(type, List.of(), false, range)) return false;
+                    if (!owner.union && type.isConstQualified()) {
+                        var candidates = expandConstructorTemplateShapes(allConstructors(member), List.of(), range).stream()
+                                .map(this::constructorCandidate).toList();
+                        var selected = CppOverloadResolver.resolve(candidates, List.of(), null, conversions, this::betterTemplateCandidate);
+                        if (selected.status() != CppOverloadResolver.Status.SELECTED || selected.winner().identity().implicit
+                                || defaulted(selected.winner().identity()) && !userProvidedDefaulted.contains(selected.winner().identity().function)) return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        private MiniType typeQueryLeaf(MiniType type) {
+            while (type.isArray()) type = inheritObjectQualifiers(type, type.elementType());
+            return type;
+        }
+
+        private boolean typeQueryAssignable(CppOverloadResolver.Argument target, CppOverloadResolver.Argument source, SourceRange range) {
+            if (target.type().isVoid() || source.type().isVoid() || target.type().isArray() || target.type().isFunction()) return false;
+            TypeEntity owner = objectType(target.type());
+            if (owner == null) return target.category() == CppValueCategory.LVALUE && !target.type().isConstQualified()
+                    && typeQueryConversion(source, target.type().unqualified(), ConversionContext.IMPLICIT, range);
+            completeTemplate(owner, range);
+            if (!owner.complete) return false;
+            MethodSet members = memberMethods(owner.type, "operator=");
+            List<CppOverloadResolver.Candidate<Method>> candidates = new ArrayList<>();
+            if (members != null) for (Method declaration : members.methods) {
+                Entity concrete = deduceFunctionTemplateShapes(declaration.function, List.of(source), null, range);
+                if (concrete == null) continue;
+                Method method = concrete == declaration.function ? declaration : functionTemplateInstances.get(concrete).method;
+                candidates.add(new CppOverloadResolver.Candidate<>(method, method.parameterTypes, method.source.method().variadic(),
+                        methodThisType(owner, method.source).pointee(), false, requiredParameters(method.function, method.parameterTypes.size())));
+            }
+            var resolution = CppOverloadResolver.resolveOperators(candidates, List.of(target, source), conversions, this::betterTemplateCandidate);
+            if (resolution.status() != CppOverloadResolver.Status.SELECTED) return false;
+            Method selected = resolution.winner().identity();
+            return selected.access == Access.PUBLIC && !isDeleted(selected.function)
+                    && typeQueryParameters(selected.parameterTypes, List.of(source), range)
+                    && (selected.returnType.isVoid() || selected.returnType.isReference() || typeQueryDestructible(selected.returnType, range));
+        }
+
+        /** Copy-initialization uses standard conversions or one selected user conversion, never a C-style cast. */
+        private boolean typeQueryConversion(CppOverloadResolver.Argument source, MiniType target, ConversionContext mode, SourceRange range) {
+            if (source.type().isVoid() || target.isVoid() || !target.isReference() && (target.isArray() || target.isFunction())) return false;
+            TypeEntity sourceClass = objectType(source.type());
+            TypeEntity targetClass = objectType(objectTypeOfReference(target));
+            if (sourceClass != null) completeTemplate(sourceClass, range);
+            if (targetClass != null) completeTemplate(targetClass, range);
+            if (!target.isReference() && targetClass != null && source.type().unqualified().equals(target.unqualified())) {
+                return typeQueryConstructible(target, List.of(source), true, range);
+            }
+            if (standardViable(source, target)) return true;
+            // Reference-related cv/category failures cannot be rescued by inventing a copied scalar.
+            if (target.isReference() && sourceClass == null && targetClass == null) return false;
+            UserSelection selection = selectUserConversion(target, source, mode);
+            if (selection.selected == null) return false;
+            UserChoice choice = selection.selected;
+            if (choice.method != null) {
+                Method method = choice.method;
+                if (method.access != Access.PUBLIC || isDeleted(method.function)) return false;
+                MiniType returned = methodReturnType(method);
+                if (!returned.isReference() && !typeQueryDestructible(returned, range)) return false;
+                // A returned reference still needs the target copy/move operation. A same-type
+                // prvalue initializes the result directly under C++17 guaranteed elision.
+                if (!target.isReference() && targetClass != null && choice.output.category() != CppValueCategory.PRVALUE
+                        && !typeQueryConstructible(target, List.of(choice.output), true, range)) return false;
+            } else {
+                Constructor constructor = choice.constructor;
+                if (constructor.access != Access.PUBLIC || isDeleted(constructor.function)
+                        || !typeQueryParameters(constructor.parameterTypes, List.of(source), range)
+                        || !typeQueryDestructible(constructor.owner.type, range)) return false;
+            }
+            return !target.isReference() || choice.output.category() != CppValueCategory.PRVALUE
+                    || typeQueryDestructible(objectTypeOfReference(target), range);
+        }
+
+        private boolean typeQueryParameters(List<MiniType> parameters, List<CppOverloadResolver.Argument> arguments, SourceRange range) {
+            for (int index = 0; index < Math.min(parameters.size(), arguments.size()); index++) {
+                if (!typeQueryConversion(arguments.get(index), parameters.get(index), ConversionContext.IMPLICIT, range)) return false;
+            }
+            return true;
+        }
+
+        private boolean typeQueryDestructible(MiniType type, SourceRange range) {
+            if (type.isReference()) return true;
+            if (type.isVoid() || type.isFunction()) return false;
+            if (type.isArray()) return typeQueryDestructible(type.elementType(), range);
+            TypeEntity owner = objectType(type);
+            if (owner == null) return true;
+            completeTemplate(owner, range);
+            return owner.complete && (owner.destructor == null
+                    || owner.destructor.access == Access.PUBLIC && !isDeleted(owner.destructor.function));
         }
 
         private Expression constructionExpression(CppConstructionExpr source, Namespace namespace, Local local) {
