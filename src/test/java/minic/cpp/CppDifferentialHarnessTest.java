@@ -78,6 +78,26 @@ final class CppDifferentialHarnessTest {
         assertFalse(result.outputExceeded());
     }
 
+    @Test void referenceStringConstnessCompatibilityDoesNotBreakWideCharacterHeaders() throws Exception {
+        Path source=temporary.resolve("mixed-headers.cpp");
+        Files.writeString(source,"""
+                #include <cstring>
+                #include <cwchar>
+                #include <map>
+                #include <set>
+                #include <type_traits>
+                static_assert(std::is_same<decltype(std::strchr((const char*)0,'x')),const char*>::value, "const query");
+                static_assert(std::is_same<decltype(std::strchr((char*)0,'x')),char*>::value, "mutable query");
+                int main(){std::map<int,int> m;std::set<int> s;m[1]=2;s.insert(1);return m[*s.begin()]-2;}
+                """);
+        var command=new java.util.ArrayList<>(List.of(CppDifferentialHarness.referenceCompiler(System.getenv())));
+        command.addAll(CppDifferentialHarness.referenceFlags(temporary));
+        command.addAll(List.of("-fsyntax-only",source.toString()));
+        var result=BoundedProcess.run(command,temporary,"",Duration.ofSeconds(20),65536);
+        assertFalse(result.timedOut());assertFalse(result.outputExceeded());
+        assertEquals(0,result.exitCode(),result::stderr);
+    }
+
     @Test void processDetectsNonzeroExitAndMissingExecutable() throws Exception {
         assertEquals(17, BoundedProcess.run(ProcessProbe.command("exit", "17"),
                 temporary, "", Duration.ofSeconds(10), 4096).exitCode());

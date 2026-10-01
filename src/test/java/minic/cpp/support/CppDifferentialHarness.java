@@ -124,7 +124,7 @@ public final class CppDifferentialHarness {
             Path executable = directory.resolve("reference.exe");
             var command = new ArrayList<>(List.of(referenceCompiler));
             command.addAll(languageMode == LanguageMode.CPP17_ALGORITHM
-                    ? referenceFlags() : List.of("-std=c++17", "-O2"));
+                    ? referenceFlags(directory) : List.of("-std=c++17", "-O2"));
             command.addAll(List.of(source.toString(), "-o", executable.toString()));
             var result = BoundedProcess.run(command, directory, "",
                     limits.compileTimeout(), limits.maxOutputBytes());
@@ -191,10 +191,21 @@ public final class CppDifferentialHarness {
         return "g++";
     }
 
-    /** Older MinGW headers default _CONST_RETURN to empty, losing C++ string-search constness.
-     * Configure their supported header switch rather than weakening the library contracts.
-     * This macro is unused by platforms whose C headers already provide the correct overloads. */
-    public static List<String> referenceFlags() {
-        return List.of("-std=c++17", "-O2", "-D_CONST_RETURN=const");
+    /** MinGW 8 needs const narrow-string prototypes, but its cwchar wrappers require
+     * the original macro. Scope the compatibility setting to string.h alone. */
+    public static List<String> referenceFlags(Path directory) throws IOException {
+        Path header=directory.resolve("reference-header-compat.h").toAbsolutePath();
+        Files.writeString(header,"""
+                #if defined(__MINGW32__) && defined(__GNUC__) && __GNUC__ <= 8
+                #include <_mingw.h>
+                #include <wchar.h>
+                #pragma push_macro("_CONST_RETURN")
+                #undef _CONST_RETURN
+                #define _CONST_RETURN const
+                #include <string.h>
+                #pragma pop_macro("_CONST_RETURN")
+                #endif
+                """);
+        return List.of("-std=c++17", "-O2", "-include", header.toString());
     }
 }
