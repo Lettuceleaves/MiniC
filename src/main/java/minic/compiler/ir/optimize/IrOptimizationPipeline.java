@@ -33,7 +33,8 @@ public final class IrOptimizationPipeline {
     public static IrOptimizationPipeline forLevel(OptimizationLevel level) {
         Objects.requireNonNull(level, "level");
         return new IrOptimizationPipeline(level, level == OptimizationLevel.OPTIMIZED
-                ? List.of(new DeadCodeEliminationPass()) : List.of());
+                ? List.of(new InitializedCheckEliminationPass(), new SmallFunctionInliningPass(),
+                          new ConstantPropagationPass(), new DeadCodeEliminationPass()) : List.of());
     }
 
     public OptimizationLevel level() { return level; }

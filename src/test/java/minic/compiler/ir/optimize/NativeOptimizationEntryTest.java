@@ -51,7 +51,8 @@ final class NativeOptimizationEntryTest {
         optimized.runThrough(assembler);
         assertSame(original, irStage.result());
         assertDoesNotThrow(() -> IrVerifier.verify(assembler.input().irResult()));
-        assertEquals(List.of("dead-code-elimination"), assembler.optimizationResult().passNames());
+        assertEquals(List.of("initialized-check-elimination", "small-function-inlining", "constant-propagation", "dead-code-elimination"),
+                assembler.optimizationResult().passNames());
         for (CompilerApi api : List.of(baseline, explicit)) {
             var other = stage(api, Assembler.class);
             api.runThrough(other);

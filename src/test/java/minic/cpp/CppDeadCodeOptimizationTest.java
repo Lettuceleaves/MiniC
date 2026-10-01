@@ -12,6 +12,8 @@ import minic.compiler.ir.instruction.ComputeInstruction.*;
 import minic.compiler.ir.instruction.ControlInstruction.*;
 import minic.compiler.ir.instruction.MemoryInstruction.*;
 import minic.compiler.ir.optimize.OptimizationLevel;
+import minic.compiler.ir.optimize.DeadCodeEliminationPass;
+import minic.compiler.ir.optimize.IrOptimizationPipeline;
 import minic.compiler.link.Linker;
 import minic.compiler.obj.ObjBuilder;
 import minic.cpp.support.BoundedProcess;
@@ -188,7 +190,9 @@ final class CppDeadCodeOptimizationTest {
 
         Set<IrInstruction> identities = Collections.newSetFromMap(new IdentityHashMap<>());
         identities.addAll(sourceInstructions);
-        for (IrInstruction instruction : instructions(optimized)) {
+        // Identity preservation here is the DCE pass's contract; other registered
+        // passes may legitimately replace operands or inline instructions.
+        for (IrInstruction instruction : instructions(optimized(original))) {
             assertTrue(sourceInstructions.stream().anyMatch(old -> old.range().equals(instruction.range())));
             if (!identities.contains(instruction)) {
                 IrJumpInstruction jump = assertInstanceOf(IrJumpInstruction.class, instruction);
@@ -296,7 +300,8 @@ final class CppDeadCodeOptimizationTest {
     }
 
     private static IrResult optimized(IrResult original) {
-        var assembler = new Assembler(original, OptimizationLevel.OPTIMIZED);
+        var assembler = new Assembler(original, new IrOptimizationPipeline(OptimizationLevel.OPTIMIZED,
+                List.of(new DeadCodeEliminationPass())));
         assembler.assemble();
         assertTrue(assembler.succeeded(), () -> assembler.errors().toString());
         return assembler.input().irResult();
