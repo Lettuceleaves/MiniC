@@ -236,9 +236,9 @@ public final class SemanticAnalyzer extends Stage {
         } else {
             AstNode cppNode = minic.compiler.parser.node.AstChildren.firstCppSyntax(program);
             if (cppNode != null) diagnostics.add(new Diagnostic("CPP002", Diagnostic.Severity.ERROR,
-                    "C 模式的 AST 不能包含 C++ 名称、类成员元数据或 this 表达式。",
+                    "C 模式的 AST 不能包含 C++ 名称、类成员元数据、this 表达式或引用类型。",
                     "请使用 CPP17_ALGORITHM 模式解析和分析源程序。",
-                    cppNode instanceof minic.compiler.parser.node.Declaration.StructDecl record
+                    cppNode instanceof minic.compiler.parser.node.Declaration.StructDecl record && record.cppInfo() != null
                             ? record.cppInfo().keyRange() : cppNode.range()));
         }
         bindingFailed = !diagnostics.isEmpty();

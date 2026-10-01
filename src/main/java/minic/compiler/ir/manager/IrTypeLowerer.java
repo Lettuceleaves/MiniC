@@ -8,6 +8,7 @@ public final class IrTypeLowerer {
     }
 
     public static IrType lower(MiniType type) {
+        if (type.containsReference()) throw new IllegalArgumentException("source reference type requires binding before IR lowering: " + type);
         type = type.unqualified();
         if (type.isPointer() || type.isVaList()) {
             return IrType.POINTER;

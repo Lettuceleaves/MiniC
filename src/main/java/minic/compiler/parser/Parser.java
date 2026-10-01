@@ -602,7 +602,9 @@ public final class Parser extends Stage {
             } else {
                 return false;
             }
-            while (peekAt(offset).type() == TokenType.STAR) {
+            while (peekAt(offset).type() == TokenType.STAR
+                    || languageMode == LanguageMode.CPP17_ALGORITHM
+                    && (peekAt(offset).type() == TokenType.AMPERSAND || peekAt(offset).type() == TokenType.AMPERSAND_AMPERSAND)) {
                 offset++;
             }
             return peekAt(offset).type() == TokenType.IDENTIFIER
@@ -836,7 +838,7 @@ public final class Parser extends Stage {
             if (declarator == null) {
                 return null;
             }
-            MiniType type = declarator.resolve(baseType.type());
+            MiniType type = resolveDeclarator(declarator, baseType.type());
             return new ParsedType(
                     type,
                     baseType.startToken(),
@@ -859,11 +861,11 @@ public final class Parser extends Stage {
             if (baseType == null) {
                 return null;
             }
-            Declarator declarator = parseDeclarator(expectedNameMessage, true, allowQualifiedName);
+            Declarator declarator = parseDeclarator(expectedNameMessage, true, allowQualifiedName, baseType.type().isReference());
             if (declarator == null || declarator.name().isEmpty()) {
                 return null;
             }
-            MiniType resolvedType = declarator.resolve(baseType.type());
+            MiniType resolvedType = resolveDeclarator(declarator, baseType.type());
             FunctionModifier topFunction = declarator.topFunction();
             List<ParsedParameter> resolvedParameters;
             boolean resolvedVariadic;
@@ -971,10 +973,22 @@ public final class Parser extends Stage {
         }
 
         private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired, boolean allowQualifiedName) {
+            return parseDeclarator(expectedNameMessage, nameRequired, allowQualifiedName, false);
+        }
+
+        private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired,
+                                           boolean allowQualifiedName, boolean referenceBase) {
             ArrayList<PointerLayer> pointerLayers = new ArrayList<>();
-            while (context.match(TokenType.STAR)) {
-                Token star = context.previous();
-                pointerLayers.add(new PointerLayer(star, parseTypeQualifiers()));
+            while (context.check(TokenType.STAR) || isCpp()
+                    && (context.check(TokenType.AMPERSAND) || context.check(TokenType.AMPERSAND_AMPERSAND))) {
+                Token operator = context.advance();
+                boolean reference = operator.type() != TokenType.STAR;
+                if (operator.type() == TokenType.AMPERSAND_AMPERSAND) {
+                    context.unsupportedCpp(operator.range(), "右值引用尚未实现");
+                }
+                var qualifiers = parseTypeQualifiers();
+                if (reference && !qualifiers.isEmpty()) context.report(operator, "引用声明器不能直接带 const/volatile 限定符");
+                pointerLayers.add(new PointerLayer(operator, qualifiers, reference));
             }
 
             Declarator direct;
@@ -990,7 +1004,7 @@ public final class Parser extends Stage {
                 direct = new Declarator(nameToken.lexeme(), new ArrayList<>(), nameToken, nameToken, nameToken);
             } else if (context.match(TokenType.LEFT_PAREN)) {
                 Token startToken = context.previous();
-                direct = parseDeclarator(expectedNameMessage, nameRequired, allowQualifiedName);
+                direct = parseDeclarator(expectedNameMessage, nameRequired, allowQualifiedName, referenceBase);
                 Token endToken = context.consume(TokenType.RIGHT_PAREN, "期望 ')'");
                 if (direct == null || endToken == null) {
                     return null;
@@ -1007,14 +1021,21 @@ public final class Parser extends Stage {
             boolean memberScope = direct.qualifiedName() != null && direct.qualifiedName().segments().size() > 1;
             if (memberScope) enterMemberDefinitionScope(direct.qualifiedName());
             try {
-                return parseDeclaratorSuffix(direct, pointerLayers);
+                return parseDeclaratorSuffix(direct, pointerLayers, referenceBase);
             } finally {
                 if (memberScope) exitMemberDefinitionScope();
             }
         }
 
-        private Declarator parseDeclaratorSuffix(Declarator direct, List<PointerLayer> pointerLayers) {
+        private Declarator parseDeclaratorSuffix(Declarator direct, List<PointerLayer> pointerLayers, boolean referenceBase) {
             while (context.check(TokenType.LEFT_BRACKET) || context.check(TokenType.LEFT_PAREN)) {
+                // A reference followed by an expression is direct initialization. A type (or
+                // empty list) still begins a function declarator, including reference returns.
+                if (isCpp() && context.check(TokenType.LEFT_PAREN) && !direct.name().isEmpty()
+                        && (referenceBase || pointerLayers.stream().anyMatch(PointerLayer::reference)
+                            || direct.modifiers().stream().anyMatch(ReferenceModifier.class::isInstance))
+                        && !canStartTypeAt(1) && context.peekAt(1).type() != TokenType.RIGHT_PAREN
+                        && context.peekAt(1).type() != TokenType.ELLIPSIS) break;
                 if (context.match(TokenType.LEFT_BRACKET)) {
                     Token lengthToken;
                     if (context.check(TokenType.INTEGER_LITERAL) || context.check(TokenType.LONG_LITERAL)) {
@@ -1060,7 +1081,8 @@ public final class Parser extends Stage {
             // collected left-to-right, so append them in reverse to preserve qualifiers
             // on their exact pointer level when Declarator.resolve walks inside-out.
             for (int index = pointerLayers.size() - 1; index >= 0; index--) {
-                direct.modifiers().add(new PointerModifier(pointerLayers.get(index).qualifiers()));
+                PointerLayer layer = pointerLayers.get(index);
+                direct.modifiers().add(layer.reference() ? new ReferenceModifier() : new PointerModifier(layer.qualifiers()));
             }
             if (!pointerLayers.isEmpty()) {
                 direct = direct.withStart(pointerLayers.getFirst().token());
@@ -1107,7 +1129,7 @@ public final class Parser extends Stage {
                 } else {
                     declarator = new Declarator("", new ArrayList<>(), baseType.endToken(), baseType.endToken(), baseType.endToken());
                 }
-                MiniType parameterType = adjustParameterType(declarator.resolve(baseType.type()));
+                MiniType parameterType = adjustParameterType(resolveDeclarator(declarator, baseType.type()));
                 SourceRange range = SourceRange.span(baseType.startToken().range(), declarator.endToken().range());
                 parameters.add(new ParsedParameter(declarator.name(), parameterType, range));
                 if (isCpp() && !declarator.name().isEmpty()) declareOrdinaryName(declarator.name(), range);
@@ -1117,6 +1139,7 @@ public final class Parser extends Stage {
 
         private boolean canStartDeclarator(boolean allowIdentifier) {
             return context.check(TokenType.STAR)
+                    || isCpp() && (context.check(TokenType.AMPERSAND) || context.check(TokenType.AMPERSAND_AMPERSAND))
                     || context.check(TokenType.LEFT_PAREN)
                     || context.check(TokenType.LEFT_BRACKET)
                     || (allowIdentifier && context.check(TokenType.IDENTIFIER));
@@ -1400,7 +1423,7 @@ public final class Parser extends Stage {
                 Token end = context.consume(TokenType.SEMICOLON, "期望 ';'");
                 if (declarator != null && end != null) {
                     var field = new minic.compiler.parser.node.Declaration.StructField(
-                            declarator.name(), declarator.resolve(fieldBase.type()), false, specs,
+                            declarator.name(), resolveDeclarator(declarator, fieldBase.type()), false, specs,
                             SourceRange.span(fieldBase.startToken().range(), end.range()));
                     fields.add(field);
                     declareMemberField(field);
@@ -1431,7 +1454,51 @@ public final class Parser extends Stage {
             }
         }
 
-        private record PointerLayer(Token token, java.util.Set<MiniType.TypeQualifier> qualifiers) {
+        private record PointerLayer(Token token, java.util.Set<MiniType.TypeQualifier> qualifiers, boolean reference) {
+        }
+
+        private record ReferenceModifier() implements DeclaratorModifier {
+            @Override public MiniType apply(MiniType inner) { return inner.referenceTo(); }
+        }
+
+        private MiniType resolveDeclarator(Declarator declarator, MiniType baseType) {
+            MiniType type = baseType;
+            SourceRange range = SourceRange.span(declarator.startToken().range(), declarator.endToken().range());
+            boolean directReference = false;
+            for (int index = declarator.modifiers().size() - 1; index >= 0; index--) {
+                DeclaratorModifier modifier = declarator.modifiers().get(index);
+                if (isCpp() && modifier instanceof ReferenceModifier && directReference) {
+                    context.report(range, "不能直接声明引用的引用；引用折叠仅适用于类型别名");
+                }
+                type = modifier.apply(type);
+                // A function/array/pointer layer separates references; a reference already
+                // present in baseType came through an alias and is allowed to collapse.
+                directReference = modifier instanceof ReferenceModifier;
+            }
+            if (isCpp()) validateReferenceShape(type, range);
+            return type;
+        }
+
+        private void validateReferenceShape(MiniType type, SourceRange range) {
+            switch (type.unqualified()) {
+                case MiniType.ReferenceType reference -> {
+                    if (reference.referent().isVoid()) context.report(range, "引用不能指向 void");
+                    validateReferenceShape(reference.referent(), range);
+                }
+                case MiniType.PointerType pointer -> {
+                    if (pointer.pointee().isReference()) context.report(range, "不能声明指向引用的指针");
+                    validateReferenceShape(pointer.pointee(), range);
+                }
+                case MiniType.ArrayType array -> {
+                    if (array.elementType().isReference()) context.report(range, "数组元素不能是引用");
+                    validateReferenceShape(array.elementType(), range);
+                }
+                case MiniType.FunctionType function -> {
+                    validateReferenceShape(function.returnType(), range);
+                    function.parameterTypes().forEach(parameter -> validateReferenceShape(parameter, range));
+                }
+                default -> { }
+            }
         }
 
         private record ArrayModifier(int length) implements DeclaratorModifier {
@@ -1472,14 +1539,6 @@ public final class Parser extends Stage {
                                Token endToken, Token nameToken) {
                 this(name, modifiers, startToken, endToken, nameToken, null);
             }
-            private MiniType resolve(MiniType baseType) {
-                MiniType resolved = baseType;
-                for (int index = modifiers.size() - 1; index >= 0; index--) {
-                    resolved = modifiers.get(index).apply(resolved);
-                }
-                return resolved;
-            }
-
             private FunctionModifier topFunction() {
                 return !modifiers.isEmpty() && modifiers.getFirst() instanceof FunctionModifier function
                         ? function

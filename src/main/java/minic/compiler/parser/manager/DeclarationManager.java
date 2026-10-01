@@ -167,8 +167,7 @@ public final class DeclarationManager {
                 return null;
             }
             if (noReturn) state.report(startToken, "noreturn 只能用于函数");
-            Expression initializer = null;
-            if (state.match(TokenType.EQUAL)) initializer = statementManager.parseInitializer();
+            Expression initializer = statementManager.parseDeclarationInitializer(declaration.type());
             Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
             if (semicolon == null) return null;
             GlobalVarDecl global = new GlobalVarDecl(

@@ -27,6 +27,7 @@ public final class TypeLayout {
      */
     public static int sizeOf(MiniType type) {
         Objects.requireNonNull(type, "type");
+        requireCoreType(type);
         type = type.unqualified();
         if (type.isVoid()) {
             throw new IllegalArgumentException("void has no object layout");
@@ -54,6 +55,7 @@ public final class TypeLayout {
      */
     public static int alignmentOf(MiniType type) {
         Objects.requireNonNull(type, "type");
+        requireCoreType(type);
         type = type.unqualified();
         if (type.isVoid()) {
             throw new IllegalArgumentException("void has no object layout");
@@ -81,6 +83,7 @@ public final class TypeLayout {
      */
     public static boolean hasFixedLayout(MiniType type) {
         Objects.requireNonNull(type, "type");
+        if (type.containsReference()) return false;
         type = type.unqualified();
         if (type.isStruct() || type.isFunction() || type.isVoid()) {
             return false;
@@ -89,5 +92,9 @@ public final class TypeLayout {
             return hasFixedLayout(type.elementType());
         }
         return true;
+    }
+
+    private static void requireCoreType(MiniType type) {
+        if (type.containsReference()) throw new IllegalArgumentException("source reference type requires binding before layout: " + type);
     }
 }

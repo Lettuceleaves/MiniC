@@ -61,15 +61,26 @@ public final class AstChildren {
      * hide unsupported nodes. Identity deduplication does not collapse distinct source nodes.
      */
     public static AstNode firstCppSyntax(AstNode root) {
+        return firstSourceSyntax(root, false);
+    }
+
+    /** Locates a type-bearing node with a reference, including nested callable signatures. */
+    public static AstNode firstReferenceSyntax(AstNode root) {
+        return firstSourceSyntax(root, true);
+    }
+
+    private static AstNode firstSourceSyntax(AstNode root, boolean onlyReferences) {
         var pending = new java.util.ArrayDeque<AstNode>();
         var visited = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<AstNode, Boolean>());
         pending.add(Objects.requireNonNull(root, "root"));
         while (!pending.isEmpty()) {
             AstNode node = pending.removeFirst();
             if (!visited.add(node)) continue;
-            if (node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
+            if (!onlyReferences && (node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
-                    || node instanceof StructDecl record && record.cppInfo() != null) return node;
+                    || node instanceof StructDecl record && record.cppInfo() != null)) return node;
+            AstNode reference = referenceTypeOwner(node);
+            if (reference != null) return reference;
             pending.addAll(of(node));
             if (node instanceof Program program) {
                 pending.addAll(program.structs());
@@ -78,6 +89,39 @@ public final class AstChildren {
                 pending.addAll(program.globals());
                 pending.addAll(program.functions());
             }
+        }
+        return null;
+    }
+
+    private static AstNode referenceTypeOwner(AstNode node) {
+        minic.compiler.type.MiniType type = switch (node) {
+            case FunctionDecl n -> n.returnType();
+            case Parameter n -> n.type();
+            case GlobalVarDecl n -> n.type();
+            case StructField n -> n.type();
+            case TypedefDecl n -> n.type();
+            case VarDeclStmt n -> n.type();
+            case TypedefStmt n -> n.type();
+            case CastExpr n -> n.targetType();
+            case SizeofExpr n -> n.queriedType();
+            case AlignofExpr n -> n.queriedType();
+            case VaArgExpr n -> n.requestedType();
+            case AlignmentSpec n -> n.type();
+            default -> null;
+        };
+        if (type != null && type.containsReference()) return node;
+        // Parameters and alignment operands are intentionally not executable AST children.
+        if (node instanceof FunctionDecl function) {
+            for (Parameter parameter : function.parameters()) if (parameter.type().containsReference()) return parameter;
+        }
+        List<AlignmentSpec> alignments = switch (node) {
+            case GlobalVarDecl n -> n.alignmentSpecs();
+            case StructField n -> n.alignmentSpecs();
+            case VarDeclStmt n -> n.alignmentSpecs();
+            default -> List.of();
+        };
+        for (AlignmentSpec alignment : alignments) {
+            if (alignment.type() != null && alignment.type().containsReference()) return alignment;
         }
         return null;
     }

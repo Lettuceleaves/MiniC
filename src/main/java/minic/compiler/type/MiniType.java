@@ -23,7 +23,7 @@ public sealed interface MiniType permits
     /**
      * 组合节点。每个节点只描述一层组合，因此指针、数组和函数可以任意递归嵌套。
      */
-    sealed interface CombinationType extends MiniType permits PointerType, ArrayType, FunctionType {
+    sealed interface CombinationType extends MiniType permits PointerType, ArrayType, FunctionType, ReferenceType {
     }
     /**
      * MiniC bool 类型。
@@ -93,6 +93,32 @@ public sealed interface MiniType permits
         return new PointerType(this);
     }
 
+    /** C++ source lvalue reference; normalization must remove this type before core lowering. */
+    default MiniType referenceTo() {
+        return isReference() ? unqualified() : new ReferenceType(this);
+    }
+
+    default boolean isReference() {
+        return unqualified() instanceof ReferenceType;
+    }
+
+    default MiniType referent() {
+        if (unqualified() instanceof ReferenceType reference) return reference.referent();
+        throw new IllegalStateException("type is not a reference: " + this);
+    }
+
+    /** Includes references nested in declarators and callable signatures. */
+    default boolean containsReference() {
+        return switch (unqualified()) {
+            case ReferenceType ignored -> true;
+            case PointerType pointer -> pointer.pointee().containsReference();
+            case ArrayType array -> array.elementType().containsReference();
+            case FunctionType function -> function.returnType().containsReference()
+                    || function.parameterTypes().stream().anyMatch(MiniType::containsReference);
+            default -> false;
+        };
+    }
+
     /**
      * 返回当前类型的固定长度数组类型。
      *
@@ -143,6 +169,8 @@ public sealed interface MiniType permits
         if (qualifiers.isEmpty()) {
             return type;
         }
+        // CV applied to a typedef naming a reference does not qualify its referent.
+        if (type.isReference()) return type.unqualified();
         if (type instanceof QualifiedType qualifiedType) {
             EnumSet<TypeQualifier> merged = EnumSet.copyOf(qualifiedType.qualifiers());
             merged.addAll(qualifiers);
@@ -512,6 +540,19 @@ public sealed interface MiniType permits
         @Override
         public String toString() {
             return pointee + "*";
+        }
+    }
+
+    /** Source-only C++ lvalue reference. Alias composition collapses nested lvalue references. */
+    record ReferenceType(MiniType referent) implements CombinationType {
+        public ReferenceType {
+            Objects.requireNonNull(referent, "referent");
+            if (referent.unqualified() instanceof ReferenceType reference) referent = reference.referent();
+        }
+
+        @Override
+        public String toString() {
+            return referent + "&";
         }
     }
 

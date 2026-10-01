@@ -348,14 +348,7 @@ public final class StatementManager {
         if (typeReader.isCpp() && declaration != null) {
             typeReader.declareOrdinaryName(declaration.name(), declaration.range());
         }
-        Expression initializer = null;
-        if (state.match(TokenType.EQUAL)) {
-            if (state.check(TokenType.LEFT_BRACE)) {
-                initializer = parseAggregateInitializer();
-            } else {
-                initializer = expressionManager.parseAssignmentExpression();
-            }
-        }
+        Expression initializer = parseDeclarationInitializer(declaration == null ? null : declaration.type());
         Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");
 
         if (declaration == null || semicolonToken == null) {
@@ -394,6 +387,19 @@ public final class StatementManager {
         return state.check(TokenType.LEFT_BRACE)
                 ? parseAggregateInitializer()
                 : expressionManager.parseAssignmentExpression();
+    }
+
+    /** Reference-only C++ direct/list initialization shares the ordinary initializer AST. */
+    public Expression parseDeclarationInitializer(minic.compiler.type.MiniType type) {
+        if (state.match(TokenType.EQUAL)) return parseInitializer();
+        if (!typeReader.isCpp() || type == null || !type.isReference()) return null;
+        if (state.check(TokenType.LEFT_BRACE)) return parseAggregateInitializer();
+        if (!state.match(TokenType.LEFT_PAREN)) return null;
+        Token start = state.previous();
+        Expression expression = expressionManager.parseAssignmentExpression();
+        Token end = state.consume(TokenType.RIGHT_PAREN, "引用直接初始化期望单个表达式和 ')'");
+        return expression == null || end == null ? null
+                : new Expression.GroupingExpr(expression, SourceRange.span(start.range(), end.range()));
     }
 
     private Expression parseAggregateInitializer() {

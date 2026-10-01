@@ -45,7 +45,11 @@ public final class CppNameBinder {
     }
 
     public static Result bind(Program source) {
-        return new Binding(Objects.requireNonNull(source, "source")).run();
+        Objects.requireNonNull(source, "source");
+        AstNode reference = AstChildren.firstReferenceSyntax(source);
+        if (reference != null) return new Result(source, List.of(new Diagnostic("CPP005", Diagnostic.Severity.ERROR,
+                "引用语法已解析；引用绑定和生命周期语义尚未实现。", reference.range())), Map.of(), Map.of());
+        return new Binding(source).run();
     }
 
     private enum Kind { VARIABLE, FUNCTION, ENUM_CONSTANT }
