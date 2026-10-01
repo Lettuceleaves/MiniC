@@ -131,7 +131,7 @@ public final class Debugger {
 
     private void execute(Frame frame, IrInstruction instruction) {
         switch (instruction) {
-            case IrDeclareLocalInstruction i -> runtime.local(frame, i.local());
+            case IrDeclareLocalInstruction i -> runtime.declareLocal(frame, i.local());
             case IrAddressOfLocalInstruction i -> put(frame, i.result(), Value.of(IrType.POINTER, runtime.local(frame, i.local())));
             case IrLoadLocalInstruction i -> put(frame, i.result(), runtime.read(runtime.local(frame, i.local()), i.result().type()));
             case IrStoreLocalInstruction i -> runtime.write(runtime.local(frame, i.local()), value(frame, i.value()).cast(i.local().type()));

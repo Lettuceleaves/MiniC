@@ -644,6 +644,15 @@ public final class DebugRuntime {
         termination = new TerminationState(TerminationKind.FAILED, null, message);
     }
 
+    /** A repeated declaration starts a new lifetime while retaining its frame storage identity. */
+    void declareLocal(Frame frame, IrLocal local) {
+        long address = local(frame, local);
+        if (local.incomingArgumentArea()) return; // Borrowed ABI storage is not a new local object.
+        Allocation allocation = allocation(address, local.sizeBytes());
+        int offset = (int) (address - allocation.address);
+        allocation.initialized.clear(offset, offset + local.sizeBytes());
+    }
+
     long local(Frame frame, IrLocal local) {
         return frame.locals.computeIfAbsent(local.name(), key -> allocate(
                 local.sizeBytes(),
