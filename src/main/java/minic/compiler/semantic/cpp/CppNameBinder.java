@@ -46,9 +46,6 @@ public final class CppNameBinder {
 
     public static Result bind(Program source) {
         Objects.requireNonNull(source, "source");
-        AstNode reference = AstChildren.firstReferenceSyntax(source);
-        if (reference != null) return new Result(source, List.of(new Diagnostic("CPP005", Diagnostic.Severity.ERROR,
-                "引用语法已解析；引用绑定和生命周期语义尚未实现。", reference.range())), Map.of(), Map.of());
         return new Binding(source).run();
     }
 
@@ -153,6 +150,7 @@ public final class CppNameBinder {
         private int nextName = 1;
         private TypeEntity currentClass;
         private Entity currentThis;
+        private MiniType currentReturnType;
 
         Binding(Program source) { this.source = source; reserveNames(source); }
 
@@ -187,7 +185,7 @@ public final class CppNameBinder {
                         MiniType type = normalizeType(node.type(), namespace, null, node.range());
                         declareTypedef(node.name(), type, namespace, null, node.range());
                         String name = namespace == root ? node.name() : freshName(namespace.qualify(node.name()));
-                        TypedefDecl core = mapped(node, new TypedefDecl(name, type, node.range()));
+                        TypedefDecl core = mapped(node, new TypedefDecl(name, coreType(type), node.range()));
                         typedefs.add(core); declarations.add(core);
                     }
                     case EnumDecl node -> {
@@ -238,18 +236,25 @@ public final class CppNameBinder {
                 }
             }
             List<StructField> fields = new ArrayList<>();
+            List<StructField> sourceFields = new ArrayList<>();
             for (StructField field : node.fields()) {
                 MiniType type = normalizeType(field.type(), namespace, null, field.range());
+                if (type.isReference()) report("CPP005", field.range(), "引用数据成员的初始化和特殊成员语义尚未实现。");
                 requireComplete(type, field.range());
-                StructField coreField = mapped(field, new StructField(field.name(), type, field.anonymous(),
+                StructField coreField = mapped(field, new StructField(field.name(), coreType(type), field.anonymous(),
                         normalizeAlignments(field.alignmentSpecs(), namespace, null), field.range()));
                 fields.add(coreField);
-                if (node.definition()) entity.fieldAccess.put(coreField, access.getOrDefault(field, Access.PUBLIC));
+                // Member lookup retains source callable signatures, including references
+                // nested inside callback fields; layout receives only pointer ABI types.
+                StructField sourceField = new StructField(field.name(), type, field.anonymous(),
+                        coreField.alignmentSpecs(), field.range());
+                sourceFields.add(sourceField);
+                if (node.definition()) entity.fieldAccess.put(sourceField, access.getOrDefault(field, Access.PUBLIC));
             }
             StructDecl core = mapped(node, new StructDecl(((MiniType.StructType) entity.type).name(),
                     fields, node.definition(), node.union(), node.range()));
             entity.complete |= node.definition();
-            if (node.definition()) entity.fields = List.copyOf(fields);
+            if (node.definition()) entity.fields = List.copyOf(sourceFields);
             structs.add(core); declarations.add(core);
             if (node.cppInfo() != null && node.definition()) {
                 List<Method> methods = new ArrayList<>();
@@ -304,24 +309,27 @@ public final class CppNameBinder {
                 Parameter parameter = original.parameters().get(index);
                 MiniType type = method.parameterTypes.get(index);
                 Entity value = declareLocal(parameter.name(), type, scope, parameter.range());
-                parameters.add(mapped(parameter, new Parameter(value.coreName, type, parameter.range())));
+                parameters.add(mapped(parameter, new Parameter(value.coreName, coreType(type), parameter.range())));
             }
             TypeEntity savedClass = currentClass;
             Entity savedThis = currentThis;
+            MiniType savedReturnType = currentReturnType;
             currentClass = method.owner;
             currentThis = self;
+            currentReturnType = method.returnType;
             try {
                 if (original.hasBody()) {
                     requireComplete(method.returnType, original.range());
                     method.parameterTypes.forEach(type -> requireComplete(type, original.range()));
                 }
                 BlockStmt body = original.body() == null ? null : block(original.body(), scope, false);
-                FunctionDecl core = mapped(original, new FunctionDecl(method.function.coreName, method.returnType,
+                FunctionDecl core = mapped(original, new FunctionDecl(method.function.coreName, coreType(method.returnType),
                         parameters, original.variadic(), body, false, original.noReturn(), original.range()));
                 functions.add(core); declarations.add(core);
             } finally {
                 currentClass = savedClass;
                 currentThis = savedThis;
+                currentReturnType = savedReturnType;
             }
         }
 
@@ -446,11 +454,23 @@ public final class CppNameBinder {
         /** Frontend canonical names are source identities, never linker/layout identities. */
         private MiniType normalizeType(MiniType type, Namespace namespace, Local local, SourceRange range) {
             if (type == null) return null;
+            if (type instanceof MiniType.ReferenceType reference) {
+                MiniType referent = normalizeType(reference.referent(), namespace, local, range);
+                if (referent.isVoid()) report("CPP004", range, "引用不能指向 void。");
+                if (referent.isArray() || referent.isFunction()) report("CPP005", range, "数组和函数引用绑定将在后续切片实现。");
+                return referent.referenceTo();
+            }
             if (type instanceof MiniType.QualifiedType qualified) {
                 return MiniType.qualified(normalizeType(qualified.baseType(), namespace, local, range), qualified.qualifiers());
             }
-            if (type instanceof MiniType.PointerType pointer) return normalizeType(pointer.pointee(), namespace, local, range).pointerTo();
-            if (type instanceof MiniType.ArrayType array) return normalizeType(array.elementType(), namespace, local, range).arrayOf(array.length());
+            if (type instanceof MiniType.PointerType pointer) {
+                if (pointer.pointee().isReference()) report("CPP004", range, "不能声明指向引用的指针。");
+                return normalizeType(pointer.pointee(), namespace, local, range).pointerTo();
+            }
+            if (type instanceof MiniType.ArrayType array) {
+                if (array.elementType().isReference()) report("CPP004", range, "数组元素不能是引用。");
+                return normalizeType(array.elementType(), namespace, local, range).arrayOf(array.length());
+            }
             if (type instanceof MiniType.FunctionType function) return MiniType.function(
                     normalizeType(function.returnType(), namespace, local, range),
                     function.parameterTypes().stream().map(t -> normalizeType(t, namespace, local, range)).toList(), function.variadic());
@@ -486,6 +506,24 @@ public final class CppNameBinder {
             return entity.type;
         }
 
+        /** Source callable signatures retain references; only emitted core nodes use pointer ABI. */
+        private MiniType coreType(MiniType type) {
+            if (type == null) return null;
+            return switch (type) {
+                case MiniType.ReferenceType reference -> coreType(reference.referent()).pointerTo();
+                case MiniType.QualifiedType qualified -> MiniType.qualified(coreType(qualified.baseType()), qualified.qualifiers());
+                case MiniType.PointerType pointer -> coreType(pointer.pointee()).pointerTo();
+                case MiniType.ArrayType array -> coreType(array.elementType()).arrayOf(array.length());
+                case MiniType.FunctionType function -> MiniType.function(coreType(function.returnType()),
+                        function.parameterTypes().stream().map(this::coreType).toList(), function.variadic());
+                default -> type;
+            };
+        }
+
+        private MiniType objectTypeOfReference(MiniType type) {
+            return type != null && type.isReference() ? type.referent() : type;
+        }
+
         private TypeEntity lookupLegacyTag(String name, Namespace namespace, Local local, SourceRange range) {
             for (Local scope = local; scope != null; scope = scope.parent) {
                 TypeEntity type = scope.typedefs.get(name);
@@ -513,9 +551,9 @@ public final class CppNameBinder {
         private List<AlignmentSpec> normalizeAlignments(List<AlignmentSpec> specs, Namespace namespace, Local local) {
             return specs.stream().map(spec -> {
                 if (spec.type() == null) return mapped(spec, spec);
-                MiniType type = normalizeType(spec.type(), namespace, local, spec.range());
+                MiniType type = objectTypeOfReference(normalizeType(spec.type(), namespace, local, spec.range()));
                 requireComplete(type, spec.range());
-                return mapped(spec, AlignmentSpec.type(type, spec.range()));
+                return mapped(spec, AlignmentSpec.type(coreType(type), spec.range()));
             }).toList();
         }
 
@@ -539,6 +577,7 @@ public final class CppNameBinder {
             if (namespace != root && node.external()) report("CPP005", node.range(),
                     "尚未支持命名空间中的外部对象链接：" + namespace.qualify(node.name()));
             MiniType type = normalizeType(node.type(), namespace, null, node.range());
+            if (type.isReference()) report("CPP005", node.range(), "全局引用的静态地址初始化尚未实现。");
             if (!node.external() || node.initializer() != null) requireComplete(type, node.range());
             Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, type,
                     !node.external() || node.initializer() != null, namespace, node.range());
@@ -547,7 +586,7 @@ public final class CppNameBinder {
             if (initializer != null && !constantInitializer(initializer)) {
                 report("CPP005", node.initializer().range(), "尚未支持动态或地址形式的全局初始化；此阶段仅支持可直接写入数据段的常量初始化。");
             }
-            GlobalVarDecl core = mapped(node, new GlobalVarDecl(entity.coreName, type, initializer,
+            GlobalVarDecl core = mapped(node, new GlobalVarDecl(entity.coreName, coreType(type), initializer,
                     node.external(), normalizeAlignments(node.alignmentSpecs(), namespace, null), node.range()));
             globals.add(core); declarations.add(core);
         }
@@ -571,12 +610,16 @@ public final class CppNameBinder {
                 Parameter parameter = node.parameters().get(i);
                 MiniType type = parameterTypes.get(i);
                 Entity value = declareLocal(parameter.name(), type, scope, parameter.range());
-                parameters.add(mapped(parameter, new Parameter(value.coreName, type, parameter.range())));
+                parameters.add(mapped(parameter, new Parameter(value.coreName, coreType(type), parameter.range())));
             }
-            BlockStmt body = node.body() == null ? null : block(node.body(), scope, false);
-            FunctionDecl core = mapped(node, new FunctionDecl(entity.coreName, returnType, parameters,
-                    node.variadic(), body, node.external(), node.noReturn(), node.range()));
-            functions.add(core); declarations.add(core);
+            MiniType savedReturnType = currentReturnType;
+            currentReturnType = returnType;
+            try {
+                BlockStmt body = node.body() == null ? null : block(node.body(), scope, false);
+                FunctionDecl core = mapped(node, new FunctionDecl(entity.coreName, coreType(returnType), parameters,
+                        node.variadic(), body, node.external(), node.noReturn(), node.range()));
+                functions.add(core); declarations.add(core);
+            } finally { currentReturnType = savedReturnType; }
         }
 
         private Entity declareNamespaceValue(String name, Kind kind, MiniType type, boolean definition,
@@ -691,20 +734,22 @@ public final class CppNameBinder {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
                     requireComplete(type, n.range());
                     Entity value = declareLocal(n.name(), type, scope, n.range());
-                    yield new VarDeclStmt(value.coreName, type, initializer(type, n.initializer(), namespace, scope, n.range()),
+                    yield new VarDeclStmt(value.coreName, coreType(type), initializer(type, n.initializer(), namespace, scope, n.range()),
                             normalizeAlignments(n.alignmentSpecs(), namespace, scope), n.range());
                 }
                 case TypedefStmt n -> {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
                     declareTypedef(n.name(), type, namespace, scope, n.range());
-                    yield new TypedefStmt(n.name(), type, n.range());
+                    yield new TypedefStmt(n.name(), coreType(type), n.range());
                 }
                 case UsingDecl n -> {
                     bindUsing(n, namespace, scope);
                     yield new BlockStmt(List.of(), n.range());
                 }
                 case ExprStmt n -> new ExprStmt(expression(n.expression(), namespace, scope), n.range());
-                case ReturnStmt n -> new ReturnStmt(expression(n.expression(), namespace, scope), n.range());
+                case ReturnStmt n -> new ReturnStmt(currentReturnType != null && currentReturnType.isReference()
+                        ? bindReference(currentReturnType, n.expression(), namespace, scope, n.range())
+                        : expression(n.expression(), namespace, scope), n.range());
                 case IfStmt n -> new IfStmt(expression(n.condition(), namespace, scope),
                         body(n.thenBranch(), scope), body(n.elseBranch(), scope), n.range());
                 case WhileStmt n -> new WhileStmt(expression(n.condition(), namespace, scope), body(n.body(), scope), n.range());
@@ -788,10 +833,32 @@ public final class CppNameBinder {
                     }
                     List<Expression> arguments = new ArrayList<>();
                     if (binding.receiver() != null) arguments.add(binding.receiver());
-                    arguments.addAll(expressions(n.arguments(), namespace, local));
-                    yield new CallExpr(callee, arguments, n.range());
+                    int offset = arguments.size();
+                    for (int index = 0; index < n.arguments().size(); index++) {
+                        Expression argument = n.arguments().get(index);
+                        MiniType parameter = signature != null && index + offset < signature.parameterTypes().size()
+                                ? signature.parameterTypes().get(index + offset) : null;
+                        arguments.add(parameter != null && parameter.isReference()
+                                ? bindReference(parameter, argument, namespace, local, argument.range())
+                                : expression(argument, namespace, local));
+                    }
+                    CallExpr call = new CallExpr(callee, arguments, n.range());
+                    if (signature != null) declaredExpressionTypes.put(call, signature.returnType().isReference()
+                            ? coreType(signature.returnType()) : signature.returnType());
+                    if (signature != null && signature.returnType().isReference()) {
+                        UnaryExpr object = new UnaryExpr(TokenType.STAR, call, n.range());
+                        declaredExpressionTypes.put(object, signature.returnType().referent());
+                        yield object;
+                    }
+                    yield call;
                 }
-                case CastExpr n -> new CastExpr(normalizeType(n.targetType(), namespace, local, n.range()), expression(n.operand(), namespace, local), n.range());
+                case CastExpr n -> {
+                    MiniType type = normalizeType(n.targetType(), namespace, local, n.range());
+                    if (type.isReference()) report("CPP005", n.range(), "引用类型显式转换的值类别规则尚未实现。");
+                    CastExpr cast = new CastExpr(coreType(type), expression(n.operand(), namespace, local), n.range());
+                    declaredExpressionTypes.put(cast, type);
+                    yield cast;
+                }
                 case CommaExpr n -> new CommaExpr(expressions(n.expressions(), namespace, local), n.range());
                 case FieldAccessExpr n -> {
                     Expression target = expression(n.target(), namespace, local);
@@ -824,22 +891,23 @@ public final class CppNameBinder {
                     yield new PostfixUpdateExpr(target, n.operator(), n.range());
                 }
                 case SizeofExpr n -> {
-                    MiniType type = normalizeType(n.queriedType(), namespace, local, n.range());
+                    MiniType type = objectTypeOfReference(normalizeType(n.queriedType(), namespace, local, n.range()));
                     Expression operand = expression(n.expression(), namespace, local);
                     requireComplete(type != null ? type : declaredExpressionType(operand), n.range());
-                    yield new SizeofExpr(operand, type, n.range());
+                    yield new SizeofExpr(operand, coreType(type), n.range());
                 }
                 case AlignofExpr n -> {
-                    MiniType type = normalizeType(n.queriedType(), namespace, local, n.range());
+                    MiniType type = objectTypeOfReference(normalizeType(n.queriedType(), namespace, local, n.range()));
                     Expression operand = expression(n.expression(), namespace, local);
                     requireComplete(type != null ? type : declaredExpressionType(operand), n.range());
-                    yield new AlignofExpr(operand, type, n.range());
+                    yield new AlignofExpr(operand, coreType(type), n.range());
                 }
                 case VaStartExpr n -> new VaStartExpr(expression(n.list(), namespace, local), expression(n.lastParameter(), namespace, local), n.range());
                 case VaArgExpr n -> {
                     MiniType type = normalizeType(n.requestedType(), namespace, local, n.range());
+                    if (type.containsReference()) report("CPP005", n.range(), "可变参数中的引用类型尚未实现。");
                     requireComplete(type, n.range());
-                    yield new VaArgExpr(expression(n.list(), namespace, local), type, n.range());
+                    yield new VaArgExpr(expression(n.list(), namespace, local), coreType(type), n.range());
                 }
                 case VaCopyExpr n -> new VaCopyExpr(expression(n.destination(), namespace, local), expression(n.source(), namespace, local), n.range());
                 case VaEndExpr n -> new VaEndExpr(expression(n.list(), namespace, local), n.range());
@@ -1126,11 +1194,50 @@ public final class CppNameBinder {
         }
 
         private Expression initializer(MiniType target, Expression sourceNode, Namespace namespace, Local local, SourceRange range) {
+            if (target.isReference()) return bindReference(target, sourceNode, namespace, local, range);
             if (sourceNode == null) {
                 requireImplicitInitialization(target, false, range);
                 return null;
             }
             return checkInitializer(target, sourceNode, expression(sourceNode, namespace, local));
+        }
+
+        /** Forms an address without reading the referred-to object or changing source expression identity. */
+        private Expression bindReference(MiniType reference, Expression sourceNode, Namespace namespace, Local local, SourceRange range) {
+            if (sourceNode == null) {
+                report("CPP004", range, "引用必须绑定到初始化表达式。");
+                return new NullLiteralExpr("nullptr", range);
+            }
+            if (sourceNode instanceof AggregateInitExpr list) {
+                if (list.values().size() != 1) {
+                    report("CPP004", list.range(), "引用列表初始化要求一个元素。");
+                    return new NullLiteralExpr("nullptr", range);
+                }
+                Expression address = bindReference(reference, list.values().getFirst(), namespace, local, range);
+                return mapped(list, new GroupingExpr(address, list.range()));
+            }
+            Expression value = expression(sourceNode, namespace, local);
+            MiniType target = reference.referent();
+            MiniType actual = declaredExpressionType(value);
+            if (!addressableObject(value)) {
+                Expression shape = value;
+                while (shape instanceof GroupingExpr group) shape = group.expression();
+                boolean laterLvalue = shape instanceof AssignmentExpr || shape instanceof ConditionalExpr || shape instanceof CommaExpr
+                        || shape instanceof UnaryExpr unary && (unary.operator() == TokenType.PLUS_PLUS || unary.operator() == TokenType.MINUS_MINUS);
+                if (laterLvalue || target.isConstQualified() && !target.isVolatileQualified()) {
+                    report("CPP005", sourceNode.range(), "此引用绑定需要尚未实现的左值规范化或临时对象物化。");
+                } else report("CPP004", sourceNode.range(), "此引用必须绑定到兼容类型的左值。");
+            } else if (actual != null) {
+                if (!target.qualifiers().containsAll(actual.qualifiers())) {
+                    report("CPP004", sourceNode.range(), "引用绑定不能丢弃对象的 const/volatile 限定符。");
+                } else if (!target.unqualified().equals(actual.unqualified())) {
+                    boolean conversion = target.isConstQualified() && !target.isVolatileQualified()
+                            && (target.isScalar() && actual.isScalar() || target.isPointer() && actual.isPointer());
+                    report(conversion ? "CPP005" : "CPP004", sourceNode.range(), conversion
+                            ? "此 const 引用转换需要尚未实现的临时对象物化。" : "引用绑定的对象类型不兼容。");
+                }
+            }
+            return new UnaryExpr(TokenType.AMPERSAND, value, sourceNode.range());
         }
 
         private void requireImplicitInitialization(MiniType target, boolean valueInitialization, SourceRange range) {
@@ -1246,7 +1353,12 @@ public final class CppNameBinder {
         private Expression reference(String fallback, SourceRange range, Entity entity) {
             if (entity == null) return new NameExpr(fallback, range);
             if (entity.kind == Kind.ENUM_CONSTANT) return new IntegerConstantExpr(entity.enumValue, MiniType.INT, entity.name, range);
-            return new NameExpr(entity.coreName, range);
+            NameExpr name = new NameExpr(entity.coreName, range);
+            if (!entity.type.isReference()) return name;
+            declaredExpressionTypes.put(name, coreType(entity.type));
+            UnaryExpr object = new UnaryExpr(TokenType.STAR, name, range);
+            declaredExpressionTypes.put(object, entity.type.referent());
+            return object;
         }
 
         private Entity lookupValue(String name, Namespace namespace, Local local, SourceRange range) {

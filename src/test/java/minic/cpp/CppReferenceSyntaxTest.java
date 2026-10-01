@@ -37,7 +37,7 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** F04a1 permits source reference types but deliberately stops them before core lowering. */
+/** Source reference syntax and the explicit boundaries of the currently implemented binding forms. */
 @Timeout(60)
 final class CppReferenceSyntaxTest {
     @TempDir Path temporary;
@@ -154,16 +154,21 @@ final class CppReferenceSyntaxTest {
     }
 
     @ParameterizedTest(name="{0}") @MethodSource("validSyntax")
-    void parsesReferenceSyntaxButReportsAnExplicitImplementationBoundary(String name, String source) throws Exception {
+    void referenceSyntaxEitherBindsOrReportsAnExplicitImplementationBoundary(String name, String source) throws Exception {
         referenceCompile(name, source, true);
         var api = compiler(source, LanguageMode.CPP17_ALGORITHM);
         var parser = stage(api, Parser.class);
         var semantic = stage(api, SemanticAnalyzer.class);
         api.runThrough(semantic);
         assertTrue(parser.succeeded(), () -> parser.errors().toString());
-        assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(error -> error.code().equals("CPP005")),
-                () -> semantic.errors().toString());
+        boolean supported = Set.of("local", "cv-local", "return-and-parameter", "abstract-parameter",
+                "pointer-reference", "qualified-alias", "sizeof-type", "direct-initialization", "list-initialization").contains(name);
+        if (supported) assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        else {
+            assertFalse(semantic.succeeded());
+            assertTrue(semantic.errors().stream().anyMatch(error -> error.code().equals("CPP005")),
+                    () -> semantic.errors().toString());
+        }
     }
 
     @ParameterizedTest @ValueSource(strings={
