@@ -534,7 +534,8 @@ public final class ExpressionManager {
             state.build(expr, "BoolLiteralExpr " + expr.value(), expr.range());
             return expr;
         }
-        if (state.match(TokenType.NULL_LITERAL)) {
+        if (state.match(TokenType.NULL_LITERAL)
+                || state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.match(TokenType.NULLPTR)) {
             Token nullToken = state.previous();
             NullLiteralExpr expr = new NullLiteralExpr(nullToken.lexeme(), nullToken.range());
             state.build(expr, "NullLiteralExpr " + expr.lexeme(), expr.range());
