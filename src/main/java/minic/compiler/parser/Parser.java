@@ -1047,17 +1047,45 @@ public final class Parser extends Stage {
             for(var base:bases)inheritMemberNames(base.type(),new java.util.HashSet<>());
         }
 
-        private void inheritMemberNames(MiniType base,java.util.Set<String> visited) {
-            if(!(base.unqualified() instanceof MiniType.StructType record)||!visited.add(record.name()))return;
-            StructDecl declaration=aggregateDeclarations.get(record.name());
+        private void inheritMemberNames(MiniType base,java.util.Set<MiniType> visited) {
+            if(base.isDependentTemplate() || visited.size()>64 || !visited.add(base.unqualified()))return;
+            StructDecl declaration=null;
+            minic.compiler.semantic.cpp.CppTemplateSubstitution substitution=null;
+            if(base.unqualified() instanceof MiniType.StructType record)declaration=aggregateDeclarations.get(record.name());
+            else if(base.unqualified() instanceof MiniType.TemplateIdType id) {
+                var matches=new ArrayList<ClassTemplateDecl>();
+                for(var source:templateDeclarations.getOrDefault(id.templateName(),List.of()))
+                    if(minic.compiler.semantic.cpp.CppTemplateDeduction.match(templateOwnerPattern(source),id.arguments(),source.parameters(),java.util.function.UnaryOperator.identity())!=null)matches.add(source);
+                var specialized=matches.stream().filter(ClassTemplateDecl::specialization).toList();
+                if(!specialized.isEmpty())matches=new ArrayList<>(specialized);
+                ClassTemplateDecl chosen=null;
+                for(var candidate:matches) {
+                    boolean best=true;
+                    for(var other:matches)if(other!=candidate) {
+                        boolean accepts=minic.compiler.semantic.cpp.CppTemplateDeduction.match(templateOwnerPattern(other),templateOwnerPattern(candidate),other.parameters(),java.util.function.UnaryOperator.identity())!=null;
+                        boolean reverse=minic.compiler.semantic.cpp.CppTemplateDeduction.match(templateOwnerPattern(candidate),templateOwnerPattern(other),candidate.parameters(),java.util.function.UnaryOperator.identity())!=null;
+                        if(!accepts||reverse){best=false;break;}
+                    }
+                    if(best){chosen=candidate;break;}
+                }
+                if(chosen!=null) {
+                    declaration=chosen.record();
+                    var bindings=minic.compiler.semantic.cpp.CppTemplateDeduction.match(templateOwnerPattern(chosen),id.arguments(),chosen.parameters(),java.util.function.UnaryOperator.identity());
+                    var values=minic.compiler.semantic.cpp.CppFunctionTemplateDeduction.expressions(bindings.values(),chosen.parameters());
+                    substitution=new minic.compiler.semantic.cpp.CppTemplateSubstitution(bindings.types(),values,bindings.packs(),chosen.parameters(),id.templateName(),id.templateName());
+                }
+            }
             if(declaration==null||declaration.cppInfo()==null)return;
-            for(var ancestor:declaration.cppInfo().bases())inheritMemberNames(ancestor.type(),visited);
+            for(var ancestor:declaration.cppInfo().bases())inheritMemberNames(substitution==null?ancestor.type():substitution.type(ancestor.type()),visited);
+            String identity=base.unqualified() instanceof MiniType.TemplateIdType id?id.templateName():((MiniType.StructType)base.unqualified()).name();
+            cppTypes.inheritMember(identity.substring(identity.lastIndexOf("::")+2),base);
             for(var member:declaration.cppInfo().members()) {
                 if(member instanceof Declaration.MemberTypedef alias)
                     cppTypes.inheritMember(alias.declaration().name(),new MiniType.MemberType(base,alias.declaration().name()));
                 else if(member instanceof Declaration.StaticFieldMember field)cppTypes.inheritMember(field.declaration().name(),null);
                 else if(member instanceof Declaration.MethodMember method&&method.method().conversionName()==null)
                     cppTypes.inheritMember(method.method().name(),null);
+                else if(member instanceof Declaration.TemplateMethodMember method)cppTypes.inheritMember(method.method().method().name(),null);
             }
         }
 

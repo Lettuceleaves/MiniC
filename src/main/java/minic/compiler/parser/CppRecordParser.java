@@ -84,8 +84,8 @@ public final class CppRecordParser {
         List<DeferredField> defaults = new ArrayList<>();
         List<DeferredMemberTemplate> templates = new ArrayList<>();
         types.enterMemberScope(type);
-        types.inheritMemberNames(bases);
         try {
+            types.inheritMemberNames(bases);
             while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
                 if (state.match(TokenType.SEMICOLON)) continue;
                 if(state.check(TokenType.STATIC_ASSERT)){var assertion=statements.parseStaticAssert();if(assertion!=null)members.add(assertion);continue;}

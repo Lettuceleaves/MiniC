@@ -102,7 +102,12 @@ public final class CppOverloadResolver {
     }
     /** Inputs must each have a standard conversion; negative means the first sequence is better. */
     public static int compareStandard(Argument first, MiniType firstTarget, Argument second, MiniType secondTarget) {
-        Conversion a = convert(first, canonical(firstTarget)), b = convert(second, canonical(secondTarget));
+        return compareStandard(first,firstTarget,second,secondTarget,null);
+    }
+    /** Compare complete standard sequences, including derived-to-base conversions. */
+    public static int compareStandard(Argument first,MiniType firstTarget,Argument second,MiniType secondTarget,
+                                      UserConversionProvider provider) {
+        Conversion a = convertWithBases(first, canonical(firstTarget),provider), b = convertWithBases(second, canonical(secondTarget),provider);
         if (a == null || b == null) throw new IllegalArgumentException("Comparison requires viable standard conversions");
         return compare(a, b);
     }

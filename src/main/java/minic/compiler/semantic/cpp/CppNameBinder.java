@@ -984,6 +984,14 @@ public final class CppNameBinder {
             if (record.cppInfo() == null) return;
             Set<String> memberNames = new HashSet<>();
             Set<String> dependent = new HashSet<>();
+            for(CppBase base:record.cppInfo().bases())if(!base.type().isDependentTemplate()) {
+                TypeEntity parent=objectType(normalizeType(base.type(),namespace,null,base.range()));
+                if(parent!=null)completeTemplate(parent,base.range());
+                for(TypeEntity at=parent;at!=null;at=at.markerBase) {
+                    memberNames.addAll(at.methods.keySet());memberNames.addAll(at.staticFields.keySet());
+                    memberNames.addAll(at.memberTypes.keySet());memberNames.add(injectedClassName(at));
+                }
+            }
             for (CppMember member : record.cppInfo().members()) {
                 if (member instanceof FieldMember field) {
                     memberNames.add(field.field().name());
@@ -1352,6 +1360,7 @@ public final class CppNameBinder {
             return node!=null&&node.definition()&&!node.union()&&node.fields().isEmpty()
                     &&(node.cppInfo()==null||node.cppInfo().members().stream().allMatch(member ->
                         member instanceof AccessLabel || member instanceof MemberTypedef || member instanceof StaticFieldMember
+                        || member instanceof minic.compiler.parser.node.CppStaticAssertDecl
                         || member instanceof MethodMember method && !method.method().name().equals("operator=")
                         || member instanceof TemplateMethodMember method && !method.method().method().name().equals("operator=")));
         }
@@ -1468,6 +1477,9 @@ public final class CppNameBinder {
             }
             TypeEntity entity = declareClass(sourceName, node.union(), namespace, node.range());
             if (node.definition() && entity.complete) report("CPP004", node.range(), "重复类型定义：" + entity.canonicalName);
+            TypeEntity savedDeclarationClass=currentClass;Entity savedDeclarationThis=currentThis;
+            currentClass=entity;currentThis=null;
+            try {
             if(node.definition())bindMarkerBase(entity,node,namespace);
             Map<StructField, Access> access = new IdentityHashMap<>();
             Map<MethodMember, Access> methodAccess = new IdentityHashMap<>();
@@ -1589,6 +1601,7 @@ public final class CppNameBinder {
                 try{for(CppMember member:members)if(member instanceof minic.compiler.parser.node.CppStaticAssertDecl assertion)staticAssertion(assertion,namespace,null);}
                 finally{currentClass=savedAssertionClass;}
             }
+            } finally {currentClass=savedDeclarationClass;currentThis=savedDeclarationThis;}
         }
 
         private boolean needsDestruction(MiniType type) {
@@ -2027,7 +2040,7 @@ public final class CppNameBinder {
                 return;
             }
             List<MiniType> parameters = node.constructor().parameters().stream()
-                    .map(p -> normalizeType(p.type(), owner.owner, null, p.range())).toList();
+                    .map(p -> normalizeMemberType(p.type(), owner, p.range())).toList();
             Constructor previous = owner.constructors.stream().filter(c -> c.source.variadic() == node.constructor().variadic()
                     && c.parameterTypes.stream().map(MiniType::unqualified).toList()
                     .equals(parameters.stream().map(MiniType::unqualified).toList())).findFirst().orElse(null);
@@ -2235,7 +2248,7 @@ public final class CppNameBinder {
             for (Namespace at = owner.owner; at != null; at = at.parent) enclosing |= at == namespace;
             if (!enclosing) report("CPP004", node.nameRange(), "Static data definition must be in an enclosing namespace.");
             GlobalVarDecl source = node.declaration();
-            MiniType type = normalizeType(source.type(), namespace, null, source.range());
+            MiniType type = normalizeMemberType(source.type(),owner,source.range());
             if (!type.equals(field.entity.type)) report("CPP004", node.nameRange(), "Static data member definition has a different type.");
             if(field.entity.defined&&field.source.constexprSpecifier()&&source.initializer()==null){mapped(node,globals.stream().filter(g->g.name().equals(field.entity.coreName)).findFirst().orElseThrow());return;}
             if (field.entity.defined) { report("CPP004", node.nameRange(), "Duplicate static data member definition."); return; }
@@ -2257,7 +2270,7 @@ public final class CppNameBinder {
         }
 
         private void requireStaticAccess(StaticField field, SourceRange range) {
-            if (field.access != Access.PUBLIC && !classAccess(field.owner))
+            if (!memberAccess(field.owner,field.access,null))
                 report("CPP004", range, "Cannot access " + field.access.name().toLowerCase(java.util.Locale.ROOT)
                         + " static data member: " + field.owner.canonicalName + "::" + field.entity.name);
         }
@@ -2443,6 +2456,11 @@ public final class CppNameBinder {
             }
         }
 
+        private MiniType normalizeMemberType(MiniType type,TypeEntity owner,SourceRange range) {
+            TypeEntity saved=currentClass;Entity savedThis=currentThis;currentClass=owner;currentThis=null;
+            try{return normalizeType(type,owner.owner,null,range);}
+            finally{currentClass=saved;currentThis=savedThis;}
+        }
         private void bindOutOfLineMethod(OutOfLineMethodDecl node, Namespace namespace) {
             if (unsupportedOperator(node.method())) return;
             QualifiedName path = node.qualifiedName();
@@ -2467,7 +2485,7 @@ public final class CppNameBinder {
                 return;
             }
             List<MiniType> parameterTypes = definition.parameters().stream()
-                    .map(p -> normalizeType(p.type(), owner.owner, null, p.range())).toList();
+                    .map(p -> normalizeMemberType(p.type(), owner, p.range())).toList();
             MiniType returnType = normalizeReturnType(definition.returnType(),definition.parameters(),parameterTypes,owner.owner,owner,
                     new MethodMember(definition,node.constQualified(),node.nameRange()),definition.range());
             Method previous = overloads.methods.stream().filter(method ->
@@ -2586,7 +2604,8 @@ public final class CppNameBinder {
 
         private MiniType normalizeReturnType(MiniType type,List<Parameter> parameters,List<MiniType> parameterTypes,
                                              Namespace namespace,TypeEntity owner,MethodMember member,SourceRange range) {
-            if (!(type instanceof MiniType.TrailingReturnType trailing)) return normalizeType(type,namespace,null,range);
+            if (!(type instanceof MiniType.TrailingReturnType trailing))
+                return owner==null?normalizeType(type,namespace,null,range):normalizeMemberType(type,owner,range);
             Local scope=new Local(null,namespace);
             for(int index=0;index<parameters.size();index++)declareLocal(parameters.get(index).name(),parameterTypes.get(index),scope,parameters.get(index).range());
             TypeEntity savedClass=currentClass;Entity savedThis=currentThis;
@@ -2777,9 +2796,9 @@ public final class CppNameBinder {
                 TypeEntity owner=objectType(ownerType);
                 if(owner!=null)completeTemplate(owner,range);
                 owner=declaringMember(owner,member.name());
-                MiniType result=owner==null?null:owner.memberTypes.get(member.name());
+                MiniType result=owner==null?null:isInjectedClassName(owner,member.name())?owner.type:owner.memberTypes.get(member.name());
                 if(result==null) {report("CPP003",range,"No member type "+member.name()+" in "+ownerType);return MiniType.INT;}
-                if(owner.memberTypeAccess.getOrDefault(member.name(),Access.PUBLIC)!=Access.PUBLIC && currentClass!=owner)
+                if(!memberAccess(owner,owner.memberTypeAccess.getOrDefault(member.name(),Access.PUBLIC),null))
                     report("CPP004",range,"Member type is inaccessible: "+member.name());
                 return result;
             }
@@ -3485,6 +3504,18 @@ public final class CppNameBinder {
             return false;
         }
 
+        /** Protected nonstatic access additionally constrains the receiver to the accessing derived class. */
+        private boolean memberAccess(TypeEntity owner,Access access,MiniType receiver) {
+            if(access==Access.PUBLIC)return true;
+            for(TypeEntity context=currentClass;context!=null;) {
+                if(context==owner)return true;
+                if(access==Access.PROTECTED && baseDistance(context.type,owner.type)>0
+                        &&(receiver==null||receiver.unqualified().equals(context.type)||baseDistance(receiver,context.type)>0))return true;
+                LambdaInfo lambda=lambdaTypes.get(context);if(lambda==null)break;context=lambda.lexicalClass;
+            }
+            return false;
+        }
+
         private <T> T lambdaOuter(LambdaInfo lambda,java.util.function.Supplier<T> action) {
             TypeEntity savedClass=currentClass;Entity savedThis=currentThis;
             currentClass=lambda.lexicalClass;currentThis=lambda.lexicalThis;
@@ -3492,7 +3523,7 @@ public final class CppNameBinder {
         }
 
         private Expression implicitReceiver(TypeEntity owner,SourceRange range) {
-            if(currentClass==owner && currentThis!=null)return thisValue(range);
+            if(currentClass!=null && currentThis!=null && (currentClass==owner||baseDistance(currentClass.type,owner.type)>0))return thisValue(range);
             LambdaInfo lambda=lambdaTypes.get(currentClass);
             if(lambda==null)return null;
             Expression receiver;
@@ -3500,7 +3531,8 @@ public final class CppNameBinder {
                 MiniType pointer=lambda.lexicalThis!=null?lambda.lexicalThis.type:owner.type.pointerTo();
                 receiver=typed(new CastExpr(coreType(pointer),new IntegerLiteralExpr(0,"0",range),range),pointer);
             } else receiver=lambdaThis(lambda,range);
-            return receiver!=null&&objectType(elementType(declaredExpressionType(receiver)))==owner?receiver:null;
+            MiniType object=receiver==null?null:elementType(declaredExpressionType(receiver));
+            return object!=null && (objectType(object)==owner || baseDistance(object,owner.type)>0)?receiver:null;
         }
 
         private Candidate lambdaLookup(LambdaInfo lambda,String name,SourceRange range) {
@@ -4782,7 +4814,7 @@ public final class CppNameBinder {
             int offset = selected.method == null ? 0 : 1;
             if (selected.method != null) {
                 instantiateMethod(selected.method);
-                requireMethodAccess(selected.method, original.range());
+                requireMethodAccess(selected.method, original.range(),declaredExpressionType(values.getFirst()));
                 Expression receiver = materializedReceiver(values.getFirst());
                 if (!addressableObject(receiver)) {
                     report("CPP005", sources.getFirst().range(), "尚未支持此运算符接收者值类别。");
@@ -5215,7 +5247,7 @@ public final class CppNameBinder {
             if (selected == null) return new BoundCallee(new NameExpr(set.methods.getFirst().function.coreName, sourceCallee.range()), receiver, recoveryArguments(sourceArguments, values));
             // Access is checked only after selection. An inaccessible best match does not
             // allow falling back to a public candidate with worse conversions.
-            requireMethodAccess(selected, sourceCallee.range());
+            requireMethodAccess(selected, sourceCallee.range(),object);
             instantiateMethod(selected);
             Expression callee = new NameExpr(selected.function.coreName, sourceCallee.range());
             if (selected.source.staticMember()) callee = evaluateReceiver(receiver, callee, sourceCallee.range());
@@ -5607,9 +5639,17 @@ public final class CppNameBinder {
         }
 
         /** Any declaration in a derived class hides the entire base name, across member kinds. */
+        private String injectedClassName(TypeEntity owner) {
+            var key=instanceKeys.get(owner);String name=key==null?owner.canonicalName:key.templateName();
+            return name.substring(name.lastIndexOf("::")+2);
+        }
+        private boolean isInjectedClassName(TypeEntity owner,String name) {
+            return injectedClassName(owner).equals(name)&&!owner.staticFields.containsKey(name)&&!owner.methods.containsKey(name)
+                    &&!owner.memberTypes.containsKey(name)&&owner.fields.stream().noneMatch(field->field.name().equals(name));
+        }
         private TypeEntity declaringMember(TypeEntity owner,String name) {
             for(TypeEntity at=owner;at!=null;at=at.markerBase)
-                if(at.staticFields.containsKey(name)||at.methods.containsKey(name)||at.memberTypes.containsKey(name)
+                if(injectedClassName(at).equals(name)||at.staticFields.containsKey(name)||at.methods.containsKey(name)||at.memberTypes.containsKey(name)
                         ||at.fields.stream().anyMatch(field->field.name().equals(name)))return at;
             return null;
         }
@@ -5627,7 +5667,8 @@ public final class CppNameBinder {
             return type == null ? null : type.methods.get(name);
         }
 
-        private void requireMethodAccess(Method method, SourceRange range) {
+        private void requireMethodAccess(Method method, SourceRange range) {requireMethodAccess(method,range,null);}
+        private void requireMethodAccess(Method method, SourceRange range,MiniType receiver) {
             if(isDeleted(method.function))report("CPP004",range,"Selected member function is deleted: "+method.source.method().name());
             if(method==method.owner.implicitMoveAssignment)emitImplicitMoveAssignment(method.owner);
             if (method == method.owner.implicitAssignment) {
@@ -5635,7 +5676,7 @@ public final class CppNameBinder {
                     report("CPP004", range, "隐式复制赋值已被删除：" + method.owner.assignmentPlan.problems.getFirst());
                 else emitImplicitAssignment(method.owner);
             }
-            if (method.access != Access.PUBLIC && !classAccess(method.owner)) {
+            if (!memberAccess(method.owner,method.access,method.source.staticMember()?null:receiver)) {
                 report("CPP004", range, "不能访问 " + method.access.name().toLowerCase(java.util.Locale.ROOT)
                         + " 成员函数 " + method.owner.canonicalName + "::" + method.source.method().name());
             }
@@ -6400,8 +6441,8 @@ public final class CppNameBinder {
             for (UserChoice candidate : choices) {
                 boolean best = true;
                 for (UserChoice other : choices) if (candidate != other) {
-                    int initial = CppOverloadResolver.compareStandard(candidate.input, candidate.inputTarget, other.input, other.inputTarget);
-                    int trailing = CppOverloadResolver.compareStandard(candidate.output, target, other.output, target);
+                    int initial = CppOverloadResolver.compareStandard(candidate.input, candidate.inputTarget, other.input, other.inputTarget,conversions);
+                    int trailing = CppOverloadResolver.compareStandard(candidate.output, target, other.output, target,conversions);
                     if (!(initial < 0 || initial == 0 && (trailing < 0 || trailing == 0 && betterTemplateCandidate(candidate.identity(),other.identity())))) { best = false; break; }
                 }
                 if (best) { winner = candidate; break; }
@@ -6433,7 +6474,7 @@ public final class CppNameBinder {
             if (selected.method != null) {
                 Method method = selected.method;
                 instantiateMethod(method);
-                requireMethodAccess(method, range);
+                requireMethodAccess(method, range,declaredExpressionType(value));
                 Expression receiver = materializedReceiver(value);
                 if (!addressableObject(receiver)) {
                     report("CPP005", range, "此转换函数接收者尚无可用的对象存储。"); return value;
@@ -7614,6 +7655,11 @@ public final class CppNameBinder {
                 if (field != null) return field.entity;
                 MethodSet methods = declaring==null?null:declaring.methods.get(name);
                 if (methods != null) return methods;
+                if(declaring!=null && isInjectedClassName(declaring,name))return declaring;
+                if(declaring!=null && declaring.memberTypes.containsKey(name)) {
+                    MiniType type=declaring.memberTypes.get(name);
+                    return new TypeEntity(name,declaring.canonicalName+"::"+name,type,type.isStruct(),false,declaring.owner,true);
+                }
                 if (fieldPath(currentClass.type, name, new HashSet<>()) != null) return new ImplicitField(currentClass, name);
             }
             LambdaInfo lambda=lambdaTypes.get(currentClass);
