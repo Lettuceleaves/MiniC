@@ -61,7 +61,8 @@ final class CppAggregateClassMemberInitializationTest {
     }
     @Test void predicateLibraryPreservesCustomComparisonResult() throws Exception {
         var library=new CppLibrarySourcesTest();library.temporary=temporary;
-        library.libraryProgramsAgree("library-contract/predicate-return-contract.cpp", "");
+        library.libraryProgramsAgree("library-contract/predicate-return-contract.cpp", "",
+                minic.compiler.ir.optimize.OptimizationLevel.BASELINE);
     }
     static Stream<Arguments> invalid(){return Stream.of(
         Arguments.of("private-field", "struct T{T(int){}};class A{T item;};int main(){A a{T{1}};return 0;}"),
