@@ -3218,6 +3218,17 @@ public final class CppNameBinder {
             currentReturnType = returnType;
             try {
                 BlockStmt body = node.body() == null ? null : block(node.body(), scope, false);
+                if (body != null && namespace == root && node.name().equals("main")
+                        && returnType.equals(MiniType.INT) && instantiated == null) {
+                    // [basic.start.main]: reaching the end has the effect of return 0.
+                    // Bind the original body first so fallthrough runs its lexical cleanups;
+                    // explicit returns terminate before this synthetic final statement.
+                    SourceRange closing = new SourceRange(body.range().endLine(), Math.max(0, body.range().endByte() - 1),
+                            body.range().endLine(), body.range().endByte());
+                    List<Statement> ending = new ArrayList<>(body.statements());
+                    ending.add(new ReturnStmt(new IntegerLiteralExpr(0, "0", closing), closing));
+                    body = mapped(node.body(), new BlockStmt(ending, body.range()));
+                }
                 if(currentAutoReturn!=null) { returnType=finishAutoReturn(currentAutoReturn,node.range()); emitAutoPrototypes(entity,returnType); }
                 FunctionDecl core = mapped(node, new FunctionDecl(entity.coreName, coreType(returnType), parameters,
                         node.variadic(), body, node.external() && !internalLinkages.getOrDefault(entity, false), node.noReturn(), node.range()));
