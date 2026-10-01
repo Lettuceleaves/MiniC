@@ -5,10 +5,10 @@
 #include "initializer_list.mh"
 #include <stdlib.h>
 namespace std {
-template<class T,class C> const T& min(const T& a,const T& b,C comp) { return comp(b,a)?b:a; }
-template<class T> const T& min(const T& a,const T& b) { return b<a?b:a; }
-template<class T,class C> const T& max(const T& a,const T& b,C comp) { return comp(a,b)?b:a; }
-template<class T> const T& max(const T& a,const T& b) { return a<b?b:a; }
+template<class T,class C> constexpr const T& min(const T& a,const T& b,C comp) { return comp(b,a)?b:a; }
+template<class T> constexpr const T& min(const T& a,const T& b) { return b<a?b:a; }
+template<class T,class C> constexpr const T& max(const T& a,const T& b,C comp) { return comp(a,b)?b:a; }
+template<class T> constexpr const T& max(const T& a,const T& b) { return a<b?b:a; }
 template<class I,class O> O copy(I first,I last,O out) { while(first!=last){*out=*first;++first;++out;}return out; }
 template<class I,class N,class O> O copy_n(I first,N n,O out) { while(n>0){*out=*first;++first;++out;--n;}return out; }
 template<class I,class O> O copy_backward(I first,I last,O out) { while(first!=last){--last;--out;*out=*last;}return out; }
@@ -114,10 +114,10 @@ template<class I,class J,class C> bool lexicographical_compare(I first,I last,J 
     return first==last && other!=end;
 }
 template<class I,class J> bool lexicographical_compare(I first,I last,J other,J end) { return std::lexicographical_compare(first,last,other,end,less<void>()); }
-template<class T,class C> T min(initializer_list<T> values,C comp){const T* best=values.begin();for(const T* p=best+1;p!=values.end();++p)if(comp(*p,*best))best=p;return *best;}
-template<class T> T min(initializer_list<T> values){return std::min(values,less<void>());}
-template<class T,class C> T max(initializer_list<T> values,C comp){const T* best=values.begin();for(const T* p=best+1;p!=values.end();++p)if(comp(*best,*p))best=p;return *best;}
-template<class T> T max(initializer_list<T> values){return std::max(values,less<void>());}
+template<class T,class C> constexpr T min(initializer_list<T> values,C comp){const T* best=values.begin();for(const T* p=best+1;p!=values.end();++p)if(comp(*p,*best))best=p;return *best;}
+template<class T> constexpr T min(initializer_list<T> values){return std::min(values,less<void>());}
+template<class T,class C> constexpr T max(initializer_list<T> values,C comp){const T* best=values.begin();for(const T* p=best+1;p!=values.end();++p)if(comp(*best,*p))best=p;return *best;}
+template<class T> constexpr T max(initializer_list<T> values){return std::max(values,less<void>());}
 template<class G> unsigned long long __minic_uniform_index(G& generator,unsigned long long bound){
     if(bound<=1)return 0;
     unsigned long long low=generator.min(),range=generator.max()-low;

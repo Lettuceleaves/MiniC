@@ -18,8 +18,8 @@ public:
 };
 template<unsigned long long N> class bitset {
     unsigned long long words_[(N+63)/64?(N+63)/64:1];
-    unsigned long long word_count() const { return (N+63)/64; }
-    void trim() { if(N==0)words_[0]=0;else if(N%64)words_[word_count()-1]&=(1ULL<<(N%64))-1; }
+    constexpr unsigned long long word_count() const { return (N+63)/64; }
+    constexpr void trim() { if(N==0)words_[0]=0;else if(N%64)words_[word_count()-1]&=(1ULL<<(N%64))-1; }
     void read(const char* text,unsigned long long n,char zero,char one) {
         reset();
         for(unsigned long long i=0;i<n;++i)if(text[i]!=zero && text[i]!=one)::abort();
@@ -35,8 +35,8 @@ template<unsigned long long N> class bitset {
     }
 public:
     typedef __minic_bitset_reference<N> reference;
-    bitset() { reset(); }
-    bitset(unsigned long long value) { reset();words_[0]=value;trim(); }
+    constexpr bitset() noexcept:words_{} {}
+    constexpr bitset(unsigned long long value) noexcept:words_{value} { trim(); }
     explicit bitset(const char* text) { read(text,::strlen(text),'0','1'); }
     bitset(const char* text,unsigned long long n) { read_pointer(text,n,'0','1'); }
     bitset(const char* text,unsigned long long n,char zero) { read_pointer(text,n,zero,'1'); }
@@ -46,9 +46,9 @@ public:
     bitset(const string& text,unsigned long long pos,unsigned long long n) { read_string(text,pos,n,'0','1'); }
     bitset(const string& text,unsigned long long pos,unsigned long long n,char zero) { read_string(text,pos,n,zero,'1'); }
     bitset(const string& text,unsigned long long pos,unsigned long long n,char zero,char one) { read_string(text,pos,n,zero,one); }
-    unsigned long long size() const { return N; }
+    constexpr unsigned long long size() const noexcept { return N; }
     reference operator[](unsigned long long index) { return reference(words_+index/64,1ULL<<(index%64)); }
-    bool operator[](unsigned long long index) const { return (words_[index/64]&(1ULL<<(index%64)))!=0; }
+    constexpr bool operator[](unsigned long long index) const { return (words_[index/64]&(1ULL<<(index%64)))!=0; }
     bool test(unsigned long long index) const { if(index>=N)::abort();return (*this)[index]; }
     bitset& set() { for(unsigned long long i=0;i<word_count();++i)words_[i]=~0ULL;trim();return *this; }
     bitset& set(unsigned long long index) { return set(index,true); }

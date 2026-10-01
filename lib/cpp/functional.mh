@@ -2,17 +2,71 @@
 #define MINIC_CPP_FUNCTIONAL_MH
 #include "utility.mh"
 namespace std {
-template<class T = void> struct less { bool operator()(const T& a,const T& b) const { return a<b; } };
-template<class T = void> struct greater { bool operator()(const T& a,const T& b) const { return a>b; } };
-template<class T = void> struct equal_to { bool operator()(const T& a,const T& b) const { return a==b; } };
-template<class T = void> struct not_equal_to { bool operator()(const T& a,const T& b) const { return a!=b; } };
-template<class T = void> struct less_equal { bool operator()(const T& a,const T& b) const { return a<=b; } };
-template<class T = void> struct greater_equal { bool operator()(const T& a,const T& b) const { return a>=b; } };
-template<> struct less<void> { typedef void is_transparent; template<class T,class U> bool operator()(T&& a,U&& b) const { return std::forward<T>(a)<std::forward<U>(b); } };
-template<> struct greater<void> { typedef void is_transparent; template<class T,class U> bool operator()(T&& a,U&& b) const { return std::forward<T>(a)>std::forward<U>(b); } };
-template<> struct equal_to<void> { typedef void is_transparent; template<class T,class U> bool operator()(T&& a,U&& b) const { return std::forward<T>(a)==std::forward<U>(b); } };
-template<> struct not_equal_to<void> { typedef void is_transparent; template<class T,class U> bool operator()(T&& a,U&& b) const { return std::forward<T>(a)!=std::forward<U>(b); } };
-template<> struct less_equal<void> { typedef void is_transparent; template<class T,class U> bool operator()(T&& a,U&& b) const { return std::forward<T>(a)<=std::forward<U>(b); } };
-template<> struct greater_equal<void> { typedef void is_transparent; template<class T,class U> bool operator()(T&& a,U&& b) const { return std::forward<T>(a)>=std::forward<U>(b); } };
+template<class T = void> struct less {
+    typedef T first_argument_type;
+    typedef T second_argument_type;
+    typedef bool result_type;
+    constexpr bool operator()(const T& a,const T& b) const { return a<b; }
+};
+template<> struct less<void> {
+    typedef void is_transparent;
+    template<class T,class U> constexpr auto operator()(T&& a,U&& b) const
+        -> decltype(std::forward<T>(a)<std::forward<U>(b)) { return std::forward<T>(a)<std::forward<U>(b); }
+};
+template<class T = void> struct greater {
+    typedef T first_argument_type;
+    typedef T second_argument_type;
+    typedef bool result_type;
+    constexpr bool operator()(const T& a,const T& b) const { return a>b; }
+};
+template<> struct greater<void> {
+    typedef void is_transparent;
+    template<class T,class U> constexpr auto operator()(T&& a,U&& b) const
+        -> decltype(std::forward<T>(a)>std::forward<U>(b)) { return std::forward<T>(a)>std::forward<U>(b); }
+};
+template<class T = void> struct equal_to {
+    typedef T first_argument_type;
+    typedef T second_argument_type;
+    typedef bool result_type;
+    constexpr bool operator()(const T& a,const T& b) const { return a==b; }
+};
+template<> struct equal_to<void> {
+    typedef void is_transparent;
+    template<class T,class U> constexpr auto operator()(T&& a,U&& b) const
+        -> decltype(std::forward<T>(a)==std::forward<U>(b)) { return std::forward<T>(a)==std::forward<U>(b); }
+};
+template<class T = void> struct not_equal_to {
+    typedef T first_argument_type;
+    typedef T second_argument_type;
+    typedef bool result_type;
+    constexpr bool operator()(const T& a,const T& b) const { return a!=b; }
+};
+template<> struct not_equal_to<void> {
+    typedef void is_transparent;
+    template<class T,class U> constexpr auto operator()(T&& a,U&& b) const
+        -> decltype(std::forward<T>(a)!=std::forward<U>(b)) { return std::forward<T>(a)!=std::forward<U>(b); }
+};
+template<class T = void> struct less_equal {
+    typedef T first_argument_type;
+    typedef T second_argument_type;
+    typedef bool result_type;
+    constexpr bool operator()(const T& a,const T& b) const { return a<=b; }
+};
+template<> struct less_equal<void> {
+    typedef void is_transparent;
+    template<class T,class U> constexpr auto operator()(T&& a,U&& b) const
+        -> decltype(std::forward<T>(a)<=std::forward<U>(b)) { return std::forward<T>(a)<=std::forward<U>(b); }
+};
+template<class T = void> struct greater_equal {
+    typedef T first_argument_type;
+    typedef T second_argument_type;
+    typedef bool result_type;
+    constexpr bool operator()(const T& a,const T& b) const { return a>=b; }
+};
+template<> struct greater_equal<void> {
+    typedef void is_transparent;
+    template<class T,class U> constexpr auto operator()(T&& a,U&& b) const
+        -> decltype(std::forward<T>(a)>=std::forward<U>(b)) { return std::forward<T>(a)>=std::forward<U>(b); }
+};
 }
 #endif

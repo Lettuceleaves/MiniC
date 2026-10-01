@@ -45,6 +45,7 @@ public:
     typedef Compare value_compare;
     typedef typename Container::size_type size_type;
     typedef typename Container::const_reference const_reference;
+    typedef typename Container::reference reference;
     priority_queue():c(),comp() {}
     explicit priority_queue(const Compare& compare):c(),comp(compare) {}
     priority_queue(const Compare& compare,const Container& container):c(container),comp(compare) { std::make_heap(c.begin(),c.end(),comp); }
@@ -52,6 +53,7 @@ public:
     template<class I> priority_queue(I first,I last):c(first,last),comp() { std::make_heap(c.begin(),c.end(),comp); }
     template<class I> priority_queue(I first,I last,const Compare& compare):c(first,last),comp(compare) { std::make_heap(c.begin(),c.end(),comp); }
     template<class I> priority_queue(I first,I last,const Compare& compare,const Container& container):c(container),comp(compare) { c.insert(c.end(),first,last);std::make_heap(c.begin(),c.end(),comp); }
+    template<class I> priority_queue(I first,I last,const Compare& compare,Container&& container):c(std::move(container)),comp(compare) { c.insert(c.end(),first,last);std::make_heap(c.begin(),c.end(),comp); }
     bool empty() const { return c.empty(); }
     size_type size() const { return c.size(); }
     const_reference top() const { return c.front(); }

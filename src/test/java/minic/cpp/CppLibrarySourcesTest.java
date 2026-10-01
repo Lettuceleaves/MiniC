@@ -36,7 +36,12 @@ final class CppLibrarySourcesTest {
         Arguments.of("library-sequences/deque-segments.cpp",""),
         Arguments.of("library-sequences/string-find-convert.cpp",""),
         Arguments.of("library-sequences/string-storage.cpp",""),
-        Arguments.of("strtof-runtime/string-stof.cpp","")
+        Arguments.of("strtof-runtime/string-stof.cpp",""),
+        Arguments.of("library-contract/constexpr-contract.cpp",""),
+        Arguments.of("library-contract/iterator-contract.cpp",""),
+        Arguments.of("library-contract/pair-trait-contract.cpp",""),
+        Arguments.of("library-contract/predicate-return-contract.cpp",""),
+        Arguments.of("library-contract/priority-queue-move-range.cpp","")
     );}
     @ParameterizedTest(name="{0}") @MethodSource("programs")
     void libraryProgramsAgree(String name,String input)throws Exception{
@@ -53,15 +58,23 @@ final class CppLibrarySourcesTest {
         assertEquals(reference.stdout().replace("\r\n","\n"),own.stdout().replace("\r\n","\n"),own::toString);
         assertEquals(reference.stderr().replace("\r\n","\n"),own.stderr().replace("\r\n","\n"),own::toString);
     }
-    @org.junit.jupiter.api.Test
-    void constPairAssignmentIsRejectedByBothLibraries()throws Exception{
+    static Stream<String> rejectedPrograms(){return Stream.of(
+        "library-review/negative/pair-const-assignment.cpp",
+        "library-contract/negative/pair-const-assignment.cpp",
+        "library-contract/negative/pair-const-swap.cpp",
+        "library-contract/negative/pair-explicit-copy-list.cpp",
+        "library-contract/negative/pair-explicit-default-list.cpp",
+        "library-contract/negative/addressof-temporary.cpp"
+    );}
+    @ParameterizedTest(name="reject {0}") @MethodSource("rejectedPrograms")
+    void invalidLibraryProgramsAreRejected(String name)throws Exception{
         String source;
-        try(var resource=getClass().getResourceAsStream("/cpp/library-review/negative/pair-const-assignment.cpp")){
+        try(var resource=getClass().getResourceAsStream("/cpp/"+name)){
             assertNotNull(resource);source=new String(resource.readAllBytes(),StandardCharsets.UTF_8);
         }
         var limits=new CppDifferentialHarness.Limits(Duration.ofSeconds(90),Duration.ofSeconds(30),2_000_000,1_048_576);
         var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),limits,
-                LanguageMode.CPP17_ALGORITHM).run("const-pair-assignment",source,"");
+                LanguageMode.CPP17_ALGORITHM).run(name,source,"");
         var own=CppOwnLibraryReference.compile(temporary,source,limits);
         for(var outcome:report.outcomes().values())
             assertEquals(CppDifferentialHarness.Status.COMPILE_ERROR,outcome.status(),report::describe);
