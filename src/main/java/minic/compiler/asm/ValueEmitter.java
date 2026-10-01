@@ -14,10 +14,16 @@ import minic.compiler.ir.model.IrType;
 final class ValueEmitter {
     private final FrameLayout frame;
     private final java.util.Set<String> externalFunctionNames;
+    private final TemporaryLocations locations;
 
     ValueEmitter(FrameLayout frame, java.util.Set<String> externalFunctionNames) {
+        this(frame, externalFunctionNames, TemporaryLocations.allStack(frame));
+    }
+
+    ValueEmitter(FrameLayout frame, java.util.Set<String> externalFunctionNames, TemporaryLocations locations) {
         this.frame = frame;
         this.externalFunctionNames = java.util.Set.copyOf(externalFunctionNames);
+        this.locations = java.util.Objects.requireNonNull(locations, "locations");
     }
 
     void emitLoadValue(StringBuilder builder, IrValue value, String register) {
@@ -31,7 +37,12 @@ final class ValueEmitter {
             return;
         }
         if (value instanceof IrTemporary temporary) {
-            emitLoadStackSlot(builder, register, temporary.type(), frame.temporarySlot(temporary));
+            ValueLocation location = locations.location(temporary);
+            if (location instanceof ValueLocation.StackSlot slot) {
+                emitLoadStackSlot(builder, register, temporary.type(), slot.operand());
+            } else {
+                emitLoadRegister(builder, register, (ValueLocation.Register) location);
+            }
             return;
         }
         if (value instanceof IrParameterRef parameterRef) {
@@ -63,6 +74,29 @@ final class ValueEmitter {
             return;
         }
         throw new IllegalArgumentException("unsupported IR value: " + value.getClass().getSimpleName());
+    }
+
+    void emitStoreTemporary(StringBuilder builder, IrTemporary temporary, String register) {
+        ValueLocation location = locations.location(temporary);
+        IrType type = temporary.type();
+        String source = registerForType(register, type);
+        if (location instanceof ValueLocation.Register && location.operand().equals(source)) return;
+        builder.append(type == IrType.FLOAT ? "    movss " : type == IrType.DOUBLE ? "    movsd " : "    mov ")
+                .append(location.operand()).append(", ").append(source).append(System.lineSeparator());
+    }
+
+    private void emitLoadRegister(StringBuilder builder, String register, ValueLocation.Register location) {
+        IrType type = location.type();
+        if (type.isIntegerScalar() && type.sizeBytes() < Integer.BYTES && !isNarrowRegister(register, type.sizeBytes())) {
+            builder.append(type.isSignedInteger() ? "    movsx " : "    movzx ")
+                    .append(intRegister(register)).append(", ").append(location.operand()).append(System.lineSeparator());
+            return;
+        }
+        String destination = registerForType(register, type);
+        // A 32-bit load also clears the high half of the GPR, as a stack load did.
+        if (destination.equals(location.operand()) && !(type.isIntegerScalar() && type.sizeBytes() == Integer.BYTES)) return;
+        builder.append(type == IrType.FLOAT ? "    movss " : type == IrType.DOUBLE ? "    movsd " : "    mov ")
+                .append(destination).append(", ").append(location.operand()).append(System.lineSeparator());
     }
 
     private void emitLoadFloatConstant(StringBuilder builder, IrFloatConstant constant, String register) {
@@ -100,19 +134,7 @@ final class ValueEmitter {
     }
 
     private String pointerRegister(String register) {
-        return switch (register) {
-            case "eax" -> "rax";
-            case "ecx" -> "rcx";
-            case "edx" -> "rdx";
-            case "r8d" -> "r8";
-            case "r9d" -> "r9";
-            case "al" -> "rax";
-            case "cl" -> "rcx";
-            case "dl" -> "rdx";
-            case "r8b" -> "r8";
-            case "r9b" -> "r9";
-            default -> register;
-        };
+        return ValueLocation.generalRegisterName(register, Long.BYTES);
     }
 
     private String constantRegister(String register, IrType type) {
@@ -131,36 +153,15 @@ final class ValueEmitter {
     }
 
     private String intRegister(String register) {
-        return switch (register) {
-            case "rax" -> "eax";
-            case "rcx" -> "ecx";
-            case "rdx" -> "edx";
-            case "r8" -> "r8d";
-            case "r9" -> "r9d";
-            default -> register;
-        };
+        return ValueLocation.generalRegisterName(register, Integer.BYTES);
     }
 
     private String byteRegister(String register) {
-        return switch (pointerRegister(register)) {
-            case "rax" -> "al";
-            case "rcx" -> "cl";
-            case "rdx" -> "dl";
-            case "r8" -> "r8b";
-            case "r9" -> "r9b";
-            default -> register;
-        };
+        return ValueLocation.generalRegisterName(register, Byte.BYTES);
     }
 
     private String wordRegister(String register) {
-        return switch (pointerRegister(register)) {
-            case "rax" -> "ax";
-            case "rcx" -> "cx";
-            case "rdx" -> "dx";
-            case "r8" -> "r8w";
-            case "r9" -> "r9w";
-            default -> register;
-        };
+        return ValueLocation.generalRegisterName(register, Short.BYTES);
     }
 
     String loadRegister(String preferredRegister, IrType type) {
@@ -219,17 +220,11 @@ final class ValueEmitter {
     }
 
     private boolean isByteRegister(String register) {
-        return switch (register) {
-            case "al", "cl", "dl", "r8b", "r9b" -> true;
-            default -> false;
-        };
+        return ValueLocation.REGISTER_ALIASES.containsKey(register) && byteRegister(register).equals(register);
     }
 
     private boolean isWordRegister(String register) {
-        return switch (register) {
-            case "ax", "cx", "dx", "r8w", "r9w" -> true;
-            default -> false;
-        };
+        return ValueLocation.REGISTER_ALIASES.containsKey(register) && wordRegister(register).equals(register);
     }
 
     private boolean isNarrowRegister(String register, int sizeBytes) {

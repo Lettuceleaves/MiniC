@@ -37,12 +37,17 @@ final class InstructionEmitter {
     private final Set<String> addressedLocals;
 
     InstructionEmitter(FrameLayout frame, Set<String> externalFunctionNames, IrFunction function) {
+        this(frame, externalFunctionNames, function, TemporaryLocations.allStack(frame));
+    }
+
+    InstructionEmitter(FrameLayout frame, Set<String> externalFunctionNames, IrFunction function,
+                       TemporaryLocations locations) {
         this.frame = frame;
         this.externalFunctionNames = Set.copyOf(externalFunctionNames);
         addressedLocals = function.blocks().stream().flatMap(block -> block.instructions().stream())
                 .filter(IrAddressOfLocalInstruction.class::isInstance).map(IrAddressOfLocalInstruction.class::cast)
                 .map(address -> address.local().name()).collect(Collectors.toUnmodifiableSet());
-        valueEmitter = new ValueEmitter(frame, externalFunctionNames);
+        valueEmitter = new ValueEmitter(frame, externalFunctionNames, locations);
     }
 
     void emitParameterStores(StringBuilder builder, IrFunction function) {
@@ -103,10 +108,8 @@ final class InstructionEmitter {
             }
             case IrLoadLocalInstruction loadLocal -> {
                 emitLoadMemoryToRegister(builder, frame.localSlot(loadLocal.local()), loadLocal.local().type(), "rcx");
-                emitStoreRegisterToMemory(
-                        builder,
-                        frame.temporarySlot(loadLocal.result()),
-                        loadLocal.result().type(),
+                valueEmitter.emitStoreTemporary(
+                        builder, loadLocal.result(),
                         storeValueRegister(loadLocal.result().type())
                 );
             }
@@ -132,16 +135,14 @@ final class InstructionEmitter {
             case IrAddressOfLocalInstruction addressOfLocal -> {
                 builder.append("    lea rax, ").append(frame.localAddress(addressOfLocal.local()))
                         .append(System.lineSeparator());
-                builder.append("    mov ").append(frame.temporarySlot(addressOfLocal.result()))
-                        .append(", rax").append(System.lineSeparator());
+                valueEmitter.emitStoreTemporary(builder, addressOfLocal.result(), "rax");
             }
             case IrElementAddressInstruction elementAddress -> {
                 valueEmitter.emitLoadValue(builder, elementAddress.baseAddress(), "rax");
                 valueEmitter.emitLoadValue(builder, elementAddress.index(), "ecx");
                 builder.append("    movsxd rcx, ecx").append(System.lineSeparator());
                 emitElementAddressScale(builder, elementAddress.elementSizeBytes());
-                builder.append("    mov ").append(frame.temporarySlot(elementAddress.result()))
-                        .append(", rax").append(System.lineSeparator());
+                valueEmitter.emitStoreTemporary(builder, elementAddress.result(), "rax");
             }
             case IrFieldAddressInstruction fieldAddress -> {
                 valueEmitter.emitLoadValue(builder, fieldAddress.baseAddress(), "rax");
@@ -149,8 +150,7 @@ final class InstructionEmitter {
                     builder.append("    lea rax, [rax+").append(fieldAddress.offset()).append("]")
                             .append(System.lineSeparator());
                 }
-                builder.append("    mov ").append(frame.temporarySlot(fieldAddress.result()))
-                        .append(", rax").append(System.lineSeparator());
+                valueEmitter.emitStoreTemporary(builder, fieldAddress.result(), "rax");
             }
             case IrLoadPointerInstruction loadPointer -> {
                 valueEmitter.emitLoadValue(builder, loadPointer.address(), "rax");
@@ -160,10 +160,8 @@ final class InstructionEmitter {
                         loadPointer.result().type(),
                         "rax"
                 );
-                emitStoreRegisterToMemory(
-                        builder,
-                        frame.temporarySlot(loadPointer.result()),
-                        loadPointer.result().type(),
+                valueEmitter.emitStoreTemporary(
+                        builder, loadPointer.result(),
                         valueEmitter.storeRegister("rax", loadPointer.result().type())
                 );
             }
@@ -293,10 +291,8 @@ final class InstructionEmitter {
             case GREATER_EQUAL -> emitComparison(builder, operationType,
                     operationType.isFloatingScalar() || operationType.isUnsignedInteger() ? "setae" : "setge", leftRegister, rightRegister);
         }
-        emitStoreRegisterToMemory(
-                builder,
-                frame.temporarySlot(binary.result()),
-                binary.result().type(),
+        valueEmitter.emitStoreTemporary(
+                builder, binary.result(),
                 valueEmitter.storeRegister("rax", binary.result().type())
         );
     }
@@ -330,10 +326,8 @@ final class InstructionEmitter {
                 }
             }
         }
-        emitStoreRegisterToMemory(
-                builder,
-                frame.temporarySlot(unary.result()),
-                unary.result().type(),
+        valueEmitter.emitStoreTemporary(
+                builder, unary.result(),
                 valueEmitter.storeRegister("rax", unary.result().type())
         );
     }
@@ -346,20 +340,18 @@ final class InstructionEmitter {
                 .append(", 0").append(System.lineSeparator());
         builder.append("    je ").append(falseLabel).append(System.lineSeparator());
         valueEmitter.emitLoadValue(builder, select.thenValue(), storeValueRegister(select.result().type()));
-        emitStoreRegisterToMemory(builder, frame.temporarySlot(select.result()), select.result().type(), storeValueRegister(select.result().type()));
+        valueEmitter.emitStoreTemporary(builder, select.result(), storeValueRegister(select.result().type()));
         builder.append("    jmp ").append(endLabel).append(System.lineSeparator());
         builder.append(falseLabel).append(":").append(System.lineSeparator());
         valueEmitter.emitLoadValue(builder, select.elseValue(), storeValueRegister(select.result().type()));
-        emitStoreRegisterToMemory(builder, frame.temporarySlot(select.result()), select.result().type(), storeValueRegister(select.result().type()));
+        valueEmitter.emitStoreTemporary(builder, select.result(), storeValueRegister(select.result().type()));
         builder.append(endLabel).append(":").append(System.lineSeparator());
     }
 
     private void emitMove(StringBuilder builder, IrMoveInstruction move) {
         valueEmitter.emitLoadValue(builder, move.value(), storeValueRegister(move.result().type()));
-        emitStoreRegisterToMemory(
-                builder,
-                frame.temporarySlot(move.result()),
-                move.result().type(),
+        valueEmitter.emitStoreTemporary(
+                builder, move.result(),
                 storeValueRegister(move.result().type())
         );
     }
@@ -379,13 +371,13 @@ final class InstructionEmitter {
         IrType targetType = cast.result().type();
         if (sourceType == targetType) {
             valueEmitter.emitLoadValue(builder, cast.value(), valueEmitter.storeRegister("rax", targetType));
-            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, valueEmitter.storeRegister("rax", targetType));
+            valueEmitter.emitStoreTemporary(builder, cast.result(), valueEmitter.storeRegister("rax", targetType));
             return;
         }
         if (sourceType.isFloatingScalar() && targetType == IrType.BOOL) {
             valueEmitter.emitLoadValue(builder, cast.value(), "xmm0");
             emitFloatingTruthFromXmm0(builder, sourceType);
-            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, "rax");
+            valueEmitter.emitStoreTemporary(builder, cast.result(), "rax");
             return;
         }
         if (sourceType.isIntegerScalar() && targetType == IrType.BOOL) {
@@ -394,7 +386,7 @@ final class InstructionEmitter {
                     .append(", 0").append(System.lineSeparator());
             builder.append("    setne al").append(System.lineSeparator());
             builder.append("    movzx eax, al").append(System.lineSeparator());
-            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, "rax");
+            valueEmitter.emitStoreTemporary(builder, cast.result(), "rax");
             return;
         }
         if (targetType.isFloatingScalar()) {
@@ -411,14 +403,14 @@ final class InstructionEmitter {
             } else {
                 valueEmitter.emitLoadValue(builder, cast.value(), "xmm0");
             }
-            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, "xmm0");
+            valueEmitter.emitStoreTemporary(builder, cast.result(), "xmm0");
             return;
         }
         if (sourceType.isFloatingScalar() && targetType.isIntegerScalar()) {
             valueEmitter.emitLoadValue(builder, cast.value(), "xmm0");
             builder.append(sourceType == IrType.FLOAT ? "    cvttss2si " : "    cvttsd2si ")
                     .append(integerCastRegister(targetType)).append(", xmm0").append(System.lineSeparator());
-            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, integerCastRegister(targetType));
+            valueEmitter.emitStoreTemporary(builder, cast.result(), integerCastRegister(targetType));
             return;
         }
         if (sourceType.isIntegerScalar() && targetType.isIntegerScalar()) {
@@ -437,12 +429,12 @@ final class InstructionEmitter {
                     builder.append("    mov eax, eax").append(System.lineSeparator());
                 }
             }
-            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType,
+            valueEmitter.emitStoreTemporary(builder, cast.result(),
                     valueEmitter.storeRegister("rax", targetType));
             return;
         }
         valueEmitter.emitLoadValue(builder, cast.value(), valueEmitter.storeRegister("rax", sourceType));
-        emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, valueEmitter.storeRegister("rax", targetType));
+        valueEmitter.emitStoreTemporary(builder, cast.result(), valueEmitter.storeRegister("rax", targetType));
     }
 
     private void emitComparison(
@@ -487,7 +479,7 @@ final class InstructionEmitter {
                 ))
                 .append(System.lineSeparator());
         if (call.result() != null) {
-            emitStoreRegisterToMemory(builder, frame.temporarySlot(call.result()), call.result().type(), returnRegister(call.result().type()));
+            valueEmitter.emitStoreTemporary(builder, call.result(), returnRegister(call.result().type()));
         }
     }
 
@@ -496,7 +488,7 @@ final class InstructionEmitter {
         valueEmitter.emitLoadValue(builder, call.calleeAddress(), "rax");
         builder.append("    call rax").append(System.lineSeparator());
         if (call.result() != null) {
-            emitStoreRegisterToMemory(builder, frame.temporarySlot(call.result()), call.result().type(), returnRegister(call.result().type()));
+            valueEmitter.emitStoreTemporary(builder, call.result(), returnRegister(call.result().type()));
         }
     }
 
