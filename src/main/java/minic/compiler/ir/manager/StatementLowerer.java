@@ -261,7 +261,7 @@ final class StatementLowerer {
 
         builder.switchToBlock(conditionLabel);
         IrValue condition = expressionLowerer.lowerExpression(whileStmt.condition());
-        builder.addInstruction(new IrBranchInstruction(condition, bodyLabel, exitLabel, whileStmt.condition().range()));
+        addLoopCondition(condition, bodyLabel, exitLabel, whileStmt.condition().range());
 
         builder.switchToBlock(bodyLabel);
         lowerLoopBranch(whileStmt.body(), exitLabel, conditionLabel);
@@ -284,7 +284,7 @@ final class StatementLowerer {
         if (forStmt.conditionOptional().isPresent()) {
             Expression condition = forStmt.conditionOptional().orElseThrow();
             IrValue conditionValue = expressionLowerer.lowerExpression(condition);
-            builder.addInstruction(new IrBranchInstruction(conditionValue, bodyLabel, exitLabel, condition.range()));
+            addLoopCondition(conditionValue, bodyLabel, exitLabel, condition.range());
         } else {
             builder.addJumpIfOpen(bodyLabel, forStmt.range());
         }
@@ -314,9 +314,19 @@ final class StatementLowerer {
 
         builder.switchToBlock(conditionLabel);
         IrValue condition = expressionLowerer.lowerExpression(doWhileStmt.condition());
-        builder.addInstruction(new IrBranchInstruction(condition, bodyLabel, exitLabel, doWhileStmt.condition().range()));
+        addLoopCondition(condition, bodyLabel, exitLabel, doWhileStmt.condition().range());
 
         builder.switchToBlock(exitLabel);
+    }
+
+    /** Preserve the no-fallthrough contract of literal infinite loops in the CFG.
+     * The condition has already been lowered, including any comma-expression effects. */
+    private void addLoopCondition(IrValue condition, String body, String exit, minic.SourceRange range) {
+        if (condition instanceof IrConstant constant) {
+            builder.addInstruction(new IrJumpInstruction(constant.value() != 0 ? body : exit, range));
+        } else {
+            builder.addInstruction(new IrBranchInstruction(condition, body, exit, range));
+        }
     }
 
     private void lowerSwitch(SwitchStmt switchStmt) {
