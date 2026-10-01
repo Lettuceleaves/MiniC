@@ -53,6 +53,7 @@ public final class AstChildren {
             case DoWhileStmt n -> present(n.body(), n.condition());
             case ForStmt n -> present(n.initializer(), n.condition(), n.step(), n.body());
             case CppRangeForStmt n -> present(n.declaration(), n.initializer(), n.body());
+            case CppStructuredBindingDecl n -> prepend(n.initializer(),n.names());
             case CppLambdaExpr n -> {var children=new ArrayList<AstNode>(n.captures());children.addAll(n.parameters());children.add(n.body());yield List.copyOf(children);}
             case CppLambdaExpr.Capture n -> present(n.initializer());
             case SwitchStmt n -> prepend(n.selector(), n.cases());
@@ -102,6 +103,7 @@ public final class AstChildren {
     private static void typeExpressions(AstNode node, List<AstNode> result) {
         minic.compiler.type.MiniType type = switch (node) {
             case CppLambdaExpr n -> n.returnType();
+            case CppStructuredBindingDecl n -> n.type();
             case FunctionDecl n -> n.returnType(); case Parameter n -> n.type();
             case CppBase n -> n.type();
             case GlobalVarDecl n -> n.type(); case StructField n -> n.type();
@@ -151,7 +153,7 @@ public final class AstChildren {
         while (!pending.isEmpty()) {
             AstNode node = pending.removeFirst();
             if (!visited.add(node)) continue;
-            if (!onlyReferences && (node instanceof CppLambdaExpr || node instanceof CppRangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
+            if (!onlyReferences && (node instanceof CppStructuredBindingDecl || node instanceof CppLambdaExpr || node instanceof CppRangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
                     || node instanceof CppTypeQueryExpr || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
@@ -188,6 +190,7 @@ public final class AstChildren {
             case CppConstructionExpr n -> n.type();
             case CppTypeQueryExpr.TypeArgument n -> n.type();
             case CppTypeMemberExpr n -> n.ownerType();
+            case CppStructuredBindingDecl n -> n.type();
             case CppDestructorCallExpr n -> n.ownerType();
             case LetExpr n -> n.type();
             case MaterializeExpr n -> n.type();

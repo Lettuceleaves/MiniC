@@ -160,6 +160,12 @@ public final class DeclarationManager {
             }
         }
         if (internal && external) state.report(startToken, "static 与 extern 不能用于同一声明");
+        if(typeReader.startsStructuredBinding()) {
+            if(external||internal||noReturn)state.report(startToken,"C++17 structured bindings cannot have storage or function specifiers");
+            var binding=statementManager.parseStructuredBinding(false);
+            if(binding!=null)state.exit("functionDecl",binding.range());
+            return binding;
+        }
         Parser.ParsedNamedType declaration = typeReader.parseNamedType(
                 "期望函数返回类型",
                 "期望函数名",

@@ -7,6 +7,7 @@ import minic.compiler.parser.node.AstChildren;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.CppInitializer;
 import minic.compiler.parser.node.CppRangeForStmt;
+import minic.compiler.parser.node.CppStructuredBindingDecl;
 import minic.compiler.parser.node.CppLambdaExpr;
 import minic.compiler.parser.node.ConversionName;
 import minic.compiler.parser.node.CppConstructionExpr;
@@ -256,6 +257,7 @@ public final class CppNameBinder {
         private final Map<Entity, List<Diagnostic>> deletedConstructors = new IdentityHashMap<>();
         private final Map<Entity, List<Diagnostic>> deletedDestructors = new IdentityHashMap<>();
         private final Map<Statement, Expression> localCleanups = new IdentityHashMap<>();
+        private final Map<Entity, MiniType> structuredBindingTypes = new IdentityHashMap<>();
         private final Map<Statement, List<VarDeclStmt>> localPreludes = new IdentityHashMap<>();
         private final List<Declaration> declarations = new ArrayList<>();
         private final List<StructDecl> structs = new ArrayList<>();
@@ -394,6 +396,7 @@ public final class CppNameBinder {
                     }
                     case UsingDecl node -> bindUsing(node, namespace, null);
                     case GlobalVarDecl node -> bindGlobal(node, namespace);
+                    case CppStructuredBindingDecl node -> structuredBinding(node,namespace,null);
                     case FunctionDecl node -> bindFunction(node, namespace);
                     case OutOfLineMethodDecl node -> bindOutOfLineMethod(node, namespace);
                     case OutOfLineStaticFieldDecl node -> bindStaticFieldDefinition(node, namespace);
@@ -768,7 +771,28 @@ public final class CppNameBinder {
                 for (AstNode child : AstChildren.of(loop)) validateTemplateNames(child, nested, names);
                 return;
             }
-            if (node instanceof VarDeclStmt variable) {
+            if(node instanceof CppRangeForStmt loop) {
+                validateTemplateNames(loop.initializer(),scope,dependent);
+                Local nested=new Local(scope,scope.namespace);Set<String> names=new HashSet<>(dependent);
+                boolean inferredDependent=dependentTemplateExpression(loop.initializer(),dependent);
+                if(loop.declaration() instanceof VarDeclStmt variable) {
+                    nested.values.put(variable.name(),new Entity(variable.name(),variable.name(),Kind.VARIABLE,null,variable.type(),null,true));
+                    if(inferredDependent||variable.type().containsTemplateType())names.add(variable.name());
+                } else if(loop.declaration() instanceof CppStructuredBindingDecl binding) {
+                    for(var name:binding.names()) {
+                        nested.values.put(name.name(),new Entity(name.name(),name.name(),Kind.VARIABLE,null,MiniType.AUTO,null,true));
+                        if(inferredDependent)names.add(name.name());
+                    }
+                }
+                validateTemplateNames(loop.body(),nested,names);return;
+            }
+            if(node instanceof CppStructuredBindingDecl binding) {
+                boolean inferredDependent=binding.initializer()!=null&&dependentTemplateExpression(binding.initializer(),dependent);
+                for(var name:binding.names()) {
+                    scope.values.put(name.name(),new Entity(name.name(),name.name(),Kind.VARIABLE,null,MiniType.AUTO,null,true));
+                    if(inferredDependent)dependent.add(name.name());
+                }
+            } else if (node instanceof VarDeclStmt variable) {
                 scope.values.put(variable.name(), new Entity(variable.name(), variable.name(), Kind.VARIABLE, null, variable.type(), null, true));
                 if (variable.type().containsTemplateType()) dependent.add(variable.name());
             } else if (node instanceof TypedefStmt alias) {
@@ -1966,8 +1990,8 @@ public final class CppNameBinder {
             try {named = operand instanceof NameExpr name ? lookupName(name.name(), namespace, local, name.range())
                     : operand instanceof QualifiedNameExpr name ? resolveQualifiedName(name.name(), namespace, local) : null;}
             finally {unevaluatedDepth--;}
-            if(named instanceof UnevaluatedLambdaLocal unavailable)return checkedDeduced(unavailable.entity.type,operand.range());
-            if (named instanceof Entity entity) { decltypeExpression(operand,namespace,local); return checkedDeduced(entity.type, operand.range()); }
+            if(named instanceof UnevaluatedLambdaLocal unavailable)return checkedDeduced(structuredBindingTypes.getOrDefault(unavailable.entity,unavailable.entity.type),operand.range());
+            if (named instanceof Entity entity) { decltypeExpression(operand,namespace,local); return checkedDeduced(structuredBindingTypes.getOrDefault(entity,entity.type), operand.range()); }
             if (named instanceof OverloadSet overloads && overloads.functions.size() == 1) {
                 decltypeExpression(operand,namespace,local); return checkedDeduced(overloads.functions.getFirst().type, operand.range()); }
             if (named instanceof ImplicitField field) {
@@ -2658,6 +2682,7 @@ public final class CppNameBinder {
             Namespace namespace = scope.namespace;
             Statement core = switch (node) {
                 case BlockStmt n -> block(n, scope, true);
+                case CppStructuredBindingDecl n -> structuredBinding(n,namespace,scope);
                 case VarDeclStmt n -> {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
                     if (n.staticStorage()) yield bindLocalStatic(n, namespace, scope, type);
@@ -2715,12 +2740,11 @@ public final class CppNameBinder {
                     Expression step = fullExpression(expression(n.step(), namespace, loop), false, n);
                     // C++ forbids redeclaring the for-init name in the body's outermost block.
                     Statement loopBody = n.body() instanceof BlockStmt b ? block(b, loop, false) : body(n.body(), loop);
-                    if (localCleanups.containsKey(initializer)) {
+                    if (localCleanups.containsKey(initializer) || localPreludes.containsKey(initializer)) {
                         ForStmt loopStatement = new ForStmt(null, condition, step, loopBody, n.range());
                         List<Statement> sequence = new ArrayList<>(localPreludes.getOrDefault(initializer, List.of()));
-                        sequence.add(initializer);
-                        sequence.add(new CleanupScopeStmt(loopStatement, localCleanups.get(initializer), n.range()));
-                        yield new BlockStmt(sequence, n.range());
+                        sequence.add(initializer); sequence.add(loopStatement);
+                        yield new BlockStmt(withLocalCleanups(sequence), n.range());
                     }
                     yield new ForStmt(initializer, condition, step, loopBody, n.range());
                 }
@@ -2735,7 +2759,7 @@ public final class CppNameBinder {
                         Expression value = expression(item.value(), namespace, casesScope);
                         cases.add(mapped(item, new SwitchCase(value, statements(item.statements(), casesScope), item.range())));
                         crossesInitialization |= item.statements().stream()
-                                .anyMatch(s -> s instanceof VarDeclStmt v && (v.initializer() != null || localCleanups.containsKey(origins.get(v))));
+                                .anyMatch(s -> s instanceof CppStructuredBindingDecl || s instanceof VarDeclStmt v && (v.initializer() != null || localCleanups.containsKey(origins.get(v))));
                     }
                     yield new SwitchStmt(selector, cases, n.range());
                 }
@@ -2797,6 +2821,11 @@ public final class CppNameBinder {
 
         private Candidate ensureLambdaCapture(LambdaInfo lambda,String name,CppLambdaExpr.Capture explicit,SourceRange range) {
             if(lambda.captures.containsKey(name))return new ImplicitField(lambda.type,name);
+            if(explicit==null||explicit.initializer()==null) {
+                Candidate original=lambdaOuter(lambda,()->lookupName(name,lambda.namespace,lambda.lexicalScope,range));
+                if(original instanceof Entity entity&&structuredBindingTypes.containsKey(entity))
+                    report("CPP004",range,"Capturing a structured binding requires C++20; use an init-capture in C++17.");
+            }
             if(explicit==null && lambda.source.captureDefault()==CppLambdaExpr.CaptureDefault.NONE) {
                 report("CPP004",range,"An automatic variable must be captured before it is used in a lambda: "+name);
                 Candidate candidate=lambdaOuter(lambda,()->lookupName(name,lambda.namespace,lambda.lexicalScope,range));
@@ -2974,6 +3003,10 @@ public final class CppNameBinder {
                     Set<String> inner=new HashSet<>(localNames);
                     for(Statement statement:block.statements())collectGenericLambdaCaptures(lambda,statement,inner);return;
                 }
+                case CppStructuredBindingDecl binding -> {
+                    binding.names().forEach(name->localNames.add(name.name()));
+                    collectGenericLambdaCaptures(lambda,binding.initializer(),localNames);return;
+                }
                 case VarDeclStmt variable -> {
                     localNames.add(variable.name());collectGenericLambdaCaptures(lambda,variable.initializer(),localNames);return;
                 }
@@ -2999,7 +3032,10 @@ public final class CppNameBinder {
                 }
                 case CppRangeForStmt loop -> {
                     collectGenericLambdaCaptures(lambda,loop.initializer(),localNames);
-                    Set<String> inner=new HashSet<>(localNames);inner.add(loop.declaration().name());collectGenericLambdaCaptures(lambda,loop.body(),inner);return;
+                    Set<String> inner=new HashSet<>(localNames);
+                    if(loop.declaration() instanceof VarDeclStmt variable)inner.add(variable.name());
+                    else if(loop.declaration() instanceof CppStructuredBindingDecl binding)binding.names().forEach(name->inner.add(name.name()));
+                    collectGenericLambdaCaptures(lambda,loop.body(),inner);return;
                 }
                 case CppLambdaExpr nested -> {
                     Set<String> inner=new HashSet<>(localNames);
@@ -3094,6 +3130,190 @@ public final class CppNameBinder {
             if(converted!=null)bindMethod(converted,lambda.namespace);
         }
 
+        /** A decomposition has one backing object and ordered reference aliases; no component is copied twice. */
+        private Statement structuredBinding(CppStructuredBindingDecl node,Namespace namespace,Local scope) {
+            CppInitializer syntax=node.initializer();
+            if(syntax==null||syntax.kind()==CppInitializer.Kind.DEFAULT) {
+                report("CPP004",node.range(),"A structured binding requires an initializer.");
+                return new BlockStmt(List.of(),node.range());
+            }
+            MiniType pattern=normalizeType(node.type(),namespace,scope,node.range());
+            if(autoPlaceholder(pattern)==null||autoPlaceholder(pattern).decltypeAuto()
+                    ||!(pattern.unqualified() instanceof MiniType.AutoType||pattern.isReference()&&pattern.referent().unqualified() instanceof MiniType.AutoType)) {
+                report("CPP004",node.range(),"A structured binding requires cv auto with an optional reference qualifier.");
+                return new BlockStmt(List.of(),node.range());
+            }
+            // Every binding name reaches its point of declaration before the initializer.
+            // Publish undeduced placeholders so an outer name cannot silently be used instead.
+            List<Entity> aliases=new ArrayList<>();
+            Set<String> uniqueNames=new HashSet<>();
+            for(var name:node.names()) {
+                if(!uniqueNames.add(name.name()))report("CPP004",name.range(),"Duplicate structured binding name: "+name.name());
+                aliases.add(scope==null?declareNamespaceValue(name.name(),Kind.VARIABLE,MiniType.AUTO,true,namespace,name.range())
+                        :declareLocal(name.name(),MiniType.AUTO,scope,name.range()));
+            }
+            Expression only=syntax.arguments().size()==1?syntax.arguments().getFirst():null;
+            Expression inspected=only==null?null:unevaluatedExpression(only,namespace,scope);
+            MiniType actual=inspected==null?null:declaredExpressionType(inspected);
+            boolean copyArray=!pattern.isReference()&&actual!=null&&actual.isArray();
+            MiniType storageType=copyArray?MiniType.qualified(actual,pattern.qualifiers())
+                    :deduceVariableType(pattern,syntax,syntax,namespace,scope,node.range());
+            MiniType objectType=objectTypeOfReference(storageType);
+            requireComplete(objectType,node.range());
+            if(!objectType.isArray()&&!objectType.isStruct()) {
+                report("CPP004",node.range(),"Only arrays and class objects can be decomposed.");
+                return new BlockStmt(List.of(),node.range());
+            }
+            String hiddenName=freshName("structured_object");
+            Entity hidden=scope==null?declareNamespaceValue(hiddenName,Kind.VARIABLE,storageType,true,namespace,node.range())
+                    :declareLocal(hiddenName,storageType,scope,node.range());
+            List<VarDeclStmt> sequence=new ArrayList<>();
+            boolean savedStatic=staticInitialization;
+            if(scope==null)staticInitialization=true;
+            try {
+                Expression initialized=copyArray?structuredArrayCopy(storageType,expression(only,namespace,scope,true),syntax.kind(),node.range())
+                        :variableInitializer(storageType,syntax,syntax,namespace,scope,node.range(),hiddenName);
+                if(storageType.isReference())initialized=extendTemporaryLifetime(initialized,new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE,node));
+                if(initializerListElement(storageType)!=null)initialized=extendListLifetime(initialized,new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE,node));
+                if(copyArray)initialized=mapped(syntax,initialized);
+                AstNode backing=structuredStorage(hidden,initialized,node,scope,sequence);
+                if(scope==null)mapped(node,backing);
+                Expression object=typed(reference(hiddenName,node.range(),hidden,true),objectType);
+                // The tuple protocol takes precedence whenever tuple_size<E> is complete.
+                TypeEntity tupleSize=structuredTupleSize(objectType,namespace,scope,node.range());
+                TypeEntity owner=objectType(objectType);
+                int count;
+                if(objectType.isArray())count=objectType.arrayLength();
+                else if(tupleSize!=null) {
+                    StaticField size=tupleSize.staticFields.get("value");
+                    try {
+                        if(size==null||size.constant==null)throw new IllegalArgumentException("tuple_size::value is not an integral constant");
+                        requireStaticAccess(size,node.range());
+                        TemplateArgument.Integral number=evaluateTemplateConstant(size.constant);
+                        if(number.value()<0||number.value()>Integer.MAX_VALUE)throw new IllegalArgumentException("tuple_size::value is out of range");
+                        count=(int)number.value();
+                    } catch(IllegalArgumentException invalid) {
+                        report("CPP004",node.range(),"Invalid structured binding tuple size: "+invalid.getMessage());count=-1;
+                    }
+                } else {
+                    if(owner==null||owner.union||owner.fields.stream().anyMatch(StructField::anonymous)) {
+                        report("CPP004",node.range(),"A class decomposition cannot contain an anonymous union or decompose a union.");count=-1;
+                    } else count=owner.fields.size();
+                }
+                if(count!=node.names().size())report("CPP004",node.range(),"The structured binding name count must match the number of elements ("+count+").");
+                for(int index=0;index<node.names().size();index++) {
+                    var name=node.names().get(index);
+                    if(index>=count)continue;
+                    MiniType referenced;
+                    Expression element;
+                    if(objectType.isArray()) {
+                        referenced=elementType(objectType);
+                        element=typed(new IndexExpr(object,new IntegerLiteralExpr(index,Integer.toString(index),name.range()),name.range()),referenced);
+                    } else if(tupleSize!=null) {
+                        if(!templates.containsKey("::std::tuple_element")) {
+                            report("CPP004",name.range(),"Tuple decomposition requires std::tuple_element<I, E>::type.");continue;
+                        }
+                        MiniType trait=templateType(new MiniType.TemplateIdType("::std::tuple_element",List.of(
+                                new TemplateArgument.Integral(index,MiniType.UNSIGNED_LONG_LONG),new TemplateArgument.Type(objectType))),namespace,scope,name.range());
+                        referenced=normalizeType(new MiniType.MemberType(trait,"type"),namespace,scope,name.range());
+                        element=structuredGet(hidden,objectType,storageType.isLvalueReference(),index,namespace,scope,name.range());
+                    } else {
+                        StructField field=owner.fields.get(index);
+                        requireAccessible(objectType,field.name(),name.range(),"structured binding");
+                        referenced=inheritObjectQualifiers(objectType,field.type());
+                        element=typed(fieldReference(object,field.name(),false,objectType,name.range()),objectTypeOfReference(referenced));
+                    }
+                    MiniType referenceType=tupleSize!=null&&valueCategory(element)!=CppValueCategory.LVALUE
+                            ? referenced.rvalueReferenceTo():referenced.referenceTo();
+                    Entity entity=aliases.get(index);entity.type=referenceType;
+                    structuredBindingTypes.put(entity,referenced);
+                    Expression address=bindReferenceValue(referenceType,element,element,name.range());
+                    address=extendTemporaryLifetime(address,new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE,name));
+                    AstNode declaration=structuredStorage(entity,address,name,scope,sequence);
+                    mapped(name,declaration);
+                }
+            } finally {staticInitialization=savedStatic;}
+            Statement marker=new ExprStmt(new CastExpr(MiniType.VOID,new IntegerLiteralExpr(0,"0",node.range()),node.range()),node.range());
+            if(!sequence.isEmpty())localPreludes.put(marker,List.copyOf(sequence));
+            return scope==null?marker:mapped(node,marker);
+        }
+
+        private AstNode structuredStorage(Entity entity,Expression initialized,AstNode source,Local scope,List<VarDeclStmt> sequence) {
+            if(scope==null) {
+                boolean constant=initialized==null||constantInitializer(initialized);
+                GlobalVarDecl global=new GlobalVarDecl(entity.coreName,coreType(entity.type),constant?initialized:null,false,List.of(),source.range());
+                globals.add(global);declarations.add(global);
+                for(Statement action:staticActions(entity,entity.type,constant?null:initialized,source.range()))staticLifetime.startup(action);
+                return global;
+            }
+            Statement variable=boundRangeLocal(entity,initialized,new NameExpr(entity.name,source.range()),source);
+            sequence.addAll(localPreludes.getOrDefault(variable,List.of()));
+            sequence.add((VarDeclStmt)variable);
+            return variable;
+        }
+
+        private Expression structuredArrayCopy(MiniType type,Expression source,CppInitializer.Kind kind,SourceRange range) {
+            String destination=freshName("structured_array_destination");
+            String sourceName=freshName("structured_array_source");
+            MiniType sourceType=declaredExpressionType(source);
+            Expression target=typed(new UnaryExpr(TokenType.STAR,typed(new NameExpr(destination,range),coreType(type).pointerTo()),range),type);
+            Expression input=typed(new UnaryExpr(TokenType.STAR,typed(new NameExpr(sourceName,range),coreType(sourceType).pointerTo()),range),sourceType);
+            Expression body=structuredArrayElement(target,type,input,kind,range);
+            body=typed(new LetExpr(sourceName,coreType(sourceType).pointerTo(),address(source),body,range),MiniType.VOID);
+            return typed(new ObjectInitExpr(coreType(type),destination,body,range),type);
+        }
+
+        private Expression structuredArrayElement(Expression target,MiniType type,Expression source,CppInitializer.Kind kind,SourceRange range) {
+            if(type.isArray()) {
+                List<Expression> actions=new ArrayList<>();
+                for(int index=0;index<type.arrayLength();index++) {
+                    Expression subscript=new IntegerLiteralExpr(index,Integer.toString(index),range);
+                    actions.add(structuredArrayElement(typed(new IndexExpr(target,subscript,range),elementType(type)),elementType(type),
+                            typed(new IndexExpr(source,subscript,range),elementType(declaredExpressionType(source))),kind,range));
+                }
+                return typed(new CommaExpr(actions,range),MiniType.VOID);
+            }
+            Expression value=type.isStruct()?copyInitialize(type,source,range,kind==CppInitializer.Kind.COPY?CppInitializer.Kind.COPY:CppInitializer.Kind.DIRECT_PAREN)
+                    :convertCallValue(type.unqualified(),source,source);
+            return typed(new InitializeExpr(target,value,range),MiniType.VOID);
+        }
+
+        private TypeEntity structuredTupleSize(MiniType type,Namespace namespace,Local scope,SourceRange range) {
+            if(type.isArray()||!templates.containsKey("::std::tuple_size"))return null;
+            MiniType size=templateType(new MiniType.TemplateIdType("::std::tuple_size",List.of(new TemplateArgument.Type(type))),namespace,scope,range);
+            TypeEntity entity=objectType(size);
+            if(entity!=null)completeTemplate(entity,range);
+            return entity!=null&&entity.complete?entity:null;
+        }
+
+        private Expression structuredGet(Entity hidden,MiniType type,boolean lvalue,int index,Namespace namespace,Local scope,SourceRange range) {
+            Expression object=new NameExpr(hidden.name,range);
+            if(!lvalue)object=new CastExpr(type.rvalueReferenceTo(),object,range);
+            TypeEntity owner=objectType(type);
+            List<TemplateArgument> arguments=List.of(new TemplateArgument.Integral(index,MiniType.UNSIGNED_LONG_LONG));
+            MethodSet methods=owner==null?null:owner.methods.get("get");
+            boolean member=methods!=null&&methods.methods.stream().anyMatch(method->{
+                FunctionTemplateDefinition template=functionTemplates.get(method.function);
+                return template!=null&&!template.parameters.isEmpty()&&template.parameters.getFirst() instanceof ClassTemplateDecl.ValueParameter;
+            });
+            if(member) {
+                Expression callee=new CppTemplateIdExpr(new FieldAccessExpr(object,"get",false,range),arguments,range);
+                return expression(new CallExpr(callee,List.of(),range),namespace,scope,true);
+            }
+            Set<Namespace> associated=new LinkedHashSet<>();
+            rangeAssociatedNamespaces(type,associated,new HashSet<>());
+            Set<Entity> candidates=new LinkedHashSet<>();
+            for(Namespace target:associated)if(target.values.get("get") instanceof OverloadSet set)candidates.addAll(set.functions);
+            if(candidates.isEmpty()) {
+                report("CPP004",range,"No ADL-only get<I> customization exists for this tuple-like object.");
+                return typed(new IntegerLiteralExpr(0,"0",range),MiniType.INT);
+            }
+            Expression callee=new NameExpr("get",range);
+            CallExpr call=new CallExpr(callee,List.of(object),range);
+            BoundCallee bound=bindOverloadedCall(new OverloadSet(new ArrayList<>(candidates)),callee,callee,call.arguments(),namespace,scope,arguments,null);
+            return bindCallExpression(call,bound,namespace,scope);
+        }
+
         /** C++17 exposition lowering: one range object, one begin/end pair, one scoped element per iteration. */
         private Statement rangeFor(CppRangeForStmt node, Local parent) {
             Namespace namespace=parent.namespace;
@@ -3147,7 +3367,9 @@ public final class CppNameBinder {
             Expression element=new UnaryExpr(TokenType.STAR,beginName,node.declaration().range());
             var declaration=node.declaration();
             var syntax=new CppInitializer(CppInitializer.Kind.COPY,List.of(element),declaration.range());
-            var initialized=new VarDeclStmt(declaration.name(),declaration.type(),element,declaration.alignmentSpecs(),syntax,declaration.range());
+            Statement initialized=declaration instanceof CppStructuredBindingDecl binding
+                    ? new CppStructuredBindingDecl(binding.type(),binding.names(),syntax,binding.range())
+                    : new VarDeclStmt(((VarDeclStmt)declaration).name(),((VarDeclStmt)declaration).type(),element,((VarDeclStmt)declaration).alignmentSpecs(),syntax,declaration.range());
             Statement variable=statement(initialized,iteration);
             mapped(declaration,variable);
             // Unlike an ordinary nested block, the body's outermost declarations share the range variable scope.
@@ -6877,6 +7099,7 @@ public final class CppNameBinder {
                 case UsingDecl n -> reserved.addAll(n.target().segments());
                 case FunctionDecl n -> { reserved.add(n.name()); n.parameters().forEach(this::reserveNames); }
                 case GlobalVarDecl n -> reserved.add(n.name());
+                case CppStructuredBindingDecl n -> n.names().forEach(name->reserved.add(name.name()));
                 case VarDeclStmt n -> reserved.add(n.name());
                 case Parameter n -> reserved.add(n.name());
                 case TypedefDecl n -> reserved.add(n.name());

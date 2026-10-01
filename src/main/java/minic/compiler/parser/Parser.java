@@ -1759,6 +1759,25 @@ public final class Parser extends Stage {
             return type;
         }
 
+        public boolean startsStructuredBinding() {
+            if(!isCpp())return false;
+            int offset=0;
+            while(context.peekAt(offset).type()==TokenType.CONST || context.peekAt(offset).type()==TokenType.VOLATILE)offset++;
+            if(context.peekAt(offset++).type()!=TokenType.AUTO)return false;
+            while(context.peekAt(offset).type()==TokenType.CONST || context.peekAt(offset).type()==TokenType.VOLATILE)offset++;
+            if(context.peekAt(offset).type()==TokenType.AMPERSAND || context.peekAt(offset).type()==TokenType.AMPERSAND_AMPERSAND)offset++;
+            return context.peekAt(offset).type()==TokenType.LEFT_BRACKET;
+        }
+
+        public ParsedType parseStructuredBindingType() {
+            BaseType base=parseBaseType("Structured bindings require auto");
+            if(base==null)return null;
+            MiniType type=base.type();
+            if(context.match(TokenType.AMPERSAND))type=type.referenceTo();
+            else if(context.match(TokenType.AMPERSAND_AMPERSAND))type=type.rvalueReferenceTo();
+            return new ParsedType(type,base.startToken(),SourceRange.span(base.startToken().range(),context.previous().range()));
+        }
+
         private BaseType parseBaseType(String expectedMessage) {
             Token start = context.peek();
             java.util.EnumSet<MiniType.TypeQualifier> qualifiers = java.util.EnumSet.noneOf(

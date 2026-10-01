@@ -5,6 +5,7 @@ import minic.compiler.parser.Parser;
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.CppInitializer;
 import minic.compiler.parser.node.CppRangeForStmt;
+import minic.compiler.parser.node.CppStructuredBindingDecl;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.parser.node.Expression.DesignatedInitExpr;
 import minic.compiler.parser.node.Expression.Designator;
@@ -278,17 +279,19 @@ public final class StatementManager {
     }
 
     private Statement parseRangeFor(Token start) {
-        Parser.ParsedNamedType named=typeReader.parseNamedType("期望范围变量类型", "期望范围变量名");
+        CppStructuredBindingDecl binding=typeReader.startsStructuredBinding()?parseStructuredBinding(true):null;
+        Parser.ParsedNamedType named=binding==null?typeReader.parseNamedType("期望范围变量类型", "期望范围变量名"):null;
         Token colon=state.consume(TokenType.COLON, "范围 for 声明期望 ':'");
         Expression initializer=state.check(TokenType.LEFT_BRACE)
                 ? parseCppInitializer() : expressionManager.parseExpression();
         Token close=state.consume(TokenType.RIGHT_PAREN, "范围 for 期望 ')'");
         // The range initializer is resolved outside the iteration variable's scope.
         if(named!=null)typeReader.declareOrdinaryName(named.name(),named.range());
+        if(binding!=null)for(var name:binding.names())typeReader.declareOrdinaryName(name.name(),name.range());
         Statement body=parseControlledStatement();
-        if(start==null||named==null||colon==null||initializer==null||close==null||body==null)return null;
-        if(named.type().isFunction())state.report(named.range(),"范围变量必须声明对象或引用");
-        var declaration=new VarDeclStmt(named.name(),named.type(),null,named.alignmentSpecs(),named.range());
+        if(start==null||(named==null&&binding==null)||colon==null||initializer==null||close==null||body==null)return null;
+        if(named!=null&&named.type().isFunction())state.report(named.range(),"范围变量必须声明对象或引用");
+        Statement declaration=binding!=null?binding:new VarDeclStmt(named.name(),named.type(),null,named.alignmentSpecs(),named.range());
         var result=new CppRangeForStmt(declaration,initializer,body,SourceRange.span(start.range(),body.range()));
         state.build(result,"CppRangeForStmt",result.range());
         return result;
@@ -387,8 +390,12 @@ public final class StatementManager {
         return parseExprStmt();
     }
 
-    private VarDeclStmt parseVarDeclStmt() {
+    private Statement parseVarDeclStmt() {
         Token storage = typeReader.isCpp() && state.match(TokenType.STATIC) ? state.previous() : null;
+        if(typeReader.startsStructuredBinding()) {
+            if(storage!=null)state.report(storage,"Static structured bindings require C++20");
+            return parseStructuredBinding(false);
+        }
         Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望变量类型", "期望变量名");
         if (typeReader.isCpp() && declaration != null) {
             typeReader.declareOrdinaryName(declaration.name(), declaration.range());
@@ -415,6 +422,28 @@ public final class StatementManager {
         if (!typeReader.isCpp()) typeReader.declareOrdinaryName(varDeclStmt.name(), varDeclStmt.range());
         state.build(varDeclStmt, "VarDeclStmt " + varDeclStmt.name(), varDeclStmt.range());
         return varDeclStmt;
+    }
+
+    public CppStructuredBindingDecl parseStructuredBinding(boolean rangeDeclaration) {
+        Parser.ParsedType parsed=typeReader.parseStructuredBindingType();
+        Token open=state.consume(TokenType.LEFT_BRACKET,"Structured binding requires '['");
+        var names=new ArrayList<CppStructuredBindingDecl.BindingName>();
+        do {
+            Token name=state.consume(TokenType.IDENTIFIER,"Expected a structured binding name");
+            if(name==null)break;
+            names.add(new CppStructuredBindingDecl.BindingName(name.lexeme(),name.range()));
+        } while(state.match(TokenType.COMMA));
+        Token close=state.consume(TokenType.RIGHT_BRACKET,"Structured binding requires ']'");
+        if(parsed==null||open==null||close==null||names.isEmpty())return null;
+        if(rangeDeclaration)return new CppStructuredBindingDecl(parsed.type(),names,null,SourceRange.span(parsed.range(),close.range()));
+        for(var name:names)typeReader.declareOrdinaryName(name.name(),name.range());
+        ParsedInitializer initialized=parseVariableInitializer(parsed.type(),parsed.range());
+        Token end=state.consume(TokenType.SEMICOLON,"Expected ';' after structured binding");
+        if(end==null)return null;
+        if(initialized.cppInitializer()==null||initialized.cppInitializer().kind()==CppInitializer.Kind.DEFAULT)
+            state.report(close,"A structured binding requires an initializer");
+        var result=new CppStructuredBindingDecl(parsed.type(),names,initialized.cppInitializer(),SourceRange.span(parsed.range(),end.range()));
+        state.build(result,"CppStructuredBindingDecl",result.range());return result;
     }
 
     private TypedefStmt parseTypedefStmt() {
