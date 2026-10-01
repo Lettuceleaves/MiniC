@@ -228,6 +228,8 @@ public final class CppNameBinder {
         private record TemplateDefinition(ClassTemplateDecl source, Namespace owner,
                                           Map<Namespace, NamespaceView> lookup) {}
         private final Map<String, TemplateDefinition> templates = new LinkedHashMap<>();
+        private final Map<String,List<TemplateDefinition>> templateSpecializations=new LinkedHashMap<>();
+        private record TemplateSelection(TemplateDefinition definition,CppTemplateDeduction.Bindings bindings) {}
         private final Map<MiniType.TemplateIdType, TypeEntity> templateInstances = new LinkedHashMap<>();
         private final Map<TypeEntity, MiniType.TemplateIdType> instanceKeys = new IdentityHashMap<>();
         private final Map<TypeEntity, Map<Namespace, NamespaceView>> instanceLookup = new IdentityHashMap<>();
@@ -344,6 +346,35 @@ public final class CppNameBinder {
         }
 
         private void declareTemplate(ClassTemplateDecl node, Namespace namespace) {
+            if(!node.specializationArguments().isEmpty()) {
+                if(!templates.containsKey(node.record().name())){report("CPP003",node.range(),"Template specialization needs a primary declaration");return;}
+                var specializations=templateSpecializations.computeIfAbsent(node.record().name(),ignored->new ArrayList<>());
+                var definition=new TemplateDefinition(node,namespace,snapshotLookup());
+                var pattern=templatePattern(definition);
+                var primary=templates.get(node.record().name());
+                if(!node.parameters().isEmpty() && CppTemplateDeduction.match(templatePattern(primary),pattern,primary.source.parameters(),this::expandTemplateType)!=null
+                        && CppTemplateDeduction.match(pattern,templatePattern(primary),node.parameters(),this::expandTemplateType)!=null) {
+                    report("CPP004",node.range(),"Partial specialization must specialize the primary arguments");return;
+                }
+                if(!node.parameters().isEmpty() && CppTemplateDeduction.match(pattern,pattern,node.parameters(),this::expandTemplateType)==null) {
+                    report("CPP004",node.range(),"Partial specialization has undeducible parameters");return;
+                }
+                for(int index=0;index<specializations.size();index++) {
+                    var old=specializations.get(index);
+                    if(CppTemplateDeduction.match(templatePattern(old),pattern,old.source.parameters(),this::expandTemplateType)!=null
+                            &&CppTemplateDeduction.match(pattern,templatePattern(old),node.parameters(),this::expandTemplateType)!=null) {
+                        if(old.source.record().definition()&&node.record().definition())report("CPP004",node.range(),"Duplicate template specialization");
+                        else if(node.record().definition())specializations.set(index,definition);
+                        return;
+                    }
+                }
+                for(var entry:templateInstances.entrySet())if(entry.getKey().templateName().equals(node.record().name())&&entry.getValue().complete
+                        &&CppTemplateDeduction.match(pattern,entry.getKey().arguments(),node.parameters(),this::expandTemplateType)!=null)
+                    report("CPP004",node.range(),"Template specialization appears after instantiation");
+                specializations.add(definition);
+                if(node.record().definition())validateTemplateNames(node.record(),namespace);
+                return;
+            }
             TemplateDefinition previous = templates.get(node.record().name());
             if (previous != null && previous.source.record().definition() && node.record().definition()) {
                 report("CPP004", node.range(), "Duplicate class template definition: " + node.record().name());
@@ -501,18 +532,71 @@ public final class CppNameBinder {
             return type.toString();
         }
 
+        private MiniType expandTemplateType(MiniType type) {
+            if(type instanceof MiniType.StructType record) {
+                TypeEntity entity=coreTypes.get(record.name());
+                if(entity!=null && instanceKeys.containsKey(entity))return instanceKeys.get(entity);
+            }
+            return type;
+        }
+
+        private MiniType templatePatternType(MiniType type,TemplateDefinition definition) {
+            if(type instanceof MiniType.StructType)return normalizeType(type,definition.owner,null,definition.source.range());
+            if(type instanceof MiniType.PointerType pointer)return templatePatternType(pointer.pointee(),definition).pointerTo();
+            if(type instanceof MiniType.ReferenceType reference)return templatePatternType(reference.referent(),definition).referenceTo();
+            if(type instanceof MiniType.QualifiedType qualified)return MiniType.qualified(templatePatternType(qualified.baseType(),definition),qualified.qualifiers());
+            if(type instanceof MiniType.ArrayType array)return templatePatternType(array.elementType(),definition).arrayOf(array.length());
+            if(type instanceof MiniType.TemplateIdType id)return new MiniType.TemplateIdType(id.templateName(),id.arguments().stream().map(a->a instanceof TemplateArgument.Type t?(TemplateArgument)new TemplateArgument.Type(templatePatternType(t.type(),definition)):a).toList());
+            return type;
+        }
+        private List<TemplateArgument> templatePattern(TemplateDefinition definition) {
+            if(definition.source.specializationArguments().isEmpty())return definition.source.parameters().stream().map(p->p instanceof ClassTemplateDecl.TypeParameter
+                    ?(TemplateArgument)new TemplateArgument.Type(p.type()):new TemplateArgument.Value(new CppTemplateValueExpr(p.type(),((ClassTemplateDecl.ValueParameter)p).valueType(),p.range()))).toList();
+            return definition.source.specializationArguments().stream().map(a->a instanceof TemplateArgument.Type t
+                    ?(TemplateArgument)new TemplateArgument.Type(templatePatternType(t.type(),definition)):a).toList();
+        }
+        private TemplateSelection selectTemplate(MiniType.TemplateIdType key,SourceRange range) {
+            var matches=new ArrayList<TemplateSelection>();
+            for(var candidate:templateSpecializations.getOrDefault(key.templateName(),List.of())) {
+                var bindings=CppTemplateDeduction.match(templatePattern(candidate),key.arguments(),candidate.source.parameters(),this::expandTemplateType);
+                if(bindings!=null)matches.add(new TemplateSelection(candidate,bindings));
+            }
+            if(matches.isEmpty()) {
+                var primary=templates.get(key.templateName());
+                var bindings=CppTemplateDeduction.match(templatePattern(primary),key.arguments(),primary.source.parameters(),this::expandTemplateType);
+                if(bindings==null){report("CPP004",range,"Template parameters could not be deduced");return null;}
+                return new TemplateSelection(primary,bindings);
+            }
+            var full=matches.stream().filter(m->m.definition.source.parameters().isEmpty()).toList();
+            if(full.size()==1)return full.getFirst();
+            if(full.size()>1){report("CPP004",range,"Ambiguous explicit class specialization");return null;}
+            TemplateSelection best=null;
+            for(var candidate:matches) {
+                boolean dominates=true;
+                for(var other:matches)if(other!=candidate) {
+                    boolean otherAccepts=CppTemplateDeduction.match(templatePattern(other.definition),templatePattern(candidate.definition),other.definition.source.parameters(),this::expandTemplateType)!=null;
+                    boolean candidateAccepts=CppTemplateDeduction.match(templatePattern(candidate.definition),templatePattern(other.definition),candidate.definition.source.parameters(),this::expandTemplateType)!=null;
+                    if(!otherAccepts||candidateAccepts){dominates=false;break;}
+                }
+                if(dominates){best=candidate;break;}
+            }
+            if(best==null)report("CPP004",range,"Ambiguous class template partial specializations");
+            return best;
+        }
+
         private void completeTemplate(TypeEntity entity, SourceRange range) {
             MiniType.TemplateIdType key = instanceKeys.get(entity);
             if (key == null || entity.complete || instantiating.contains(entity)) return;
-            TemplateDefinition definition = templates.get(key.templateName());
-            if (definition == null || !definition.source.record().definition()) return;
-            Map<MiniType.TemplateParameterType, MiniType> arguments = new LinkedHashMap<>();
+            TemplateSelection selection=selectTemplate(key,range);
+            if(selection==null)return;
+            TemplateDefinition definition=selection.definition();
+            if (!definition.source.record().definition()) return;
+            Map<MiniType.TemplateParameterType, MiniType> arguments = new LinkedHashMap<>(selection.bindings().types());
             Map<MiniType.TemplateParameterType,Expression> values=new LinkedHashMap<>();
-            for (int index = 0; index < key.arguments().size(); index++) {
-                var identity=definition.source.parameters().get(index).type();
-                var argument=key.arguments().get(index);
-                if(argument instanceof TemplateArgument.Type t)arguments.put(identity,t.type());
-                else if(argument instanceof TemplateArgument.Integral v)values.put(identity,new IntegerConstantExpr(v.value(),v.type(),v.toString(),range));
+            for(var entry:selection.bindings().values().entrySet()) {
+                var argument=entry.getValue();
+                if(argument instanceof TemplateArgument.Integral v)values.put(entry.getKey(),new IntegerConstantExpr(v.value(),v.type(),v.toString(),range));
+                else if(argument instanceof TemplateArgument.Value v)values.put(entry.getKey(),v.expression());
             }
             CppTemplateSubstitution substitution = new CppTemplateSubstitution(arguments, values, definition.source.record().name(), entity.canonicalName);
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;

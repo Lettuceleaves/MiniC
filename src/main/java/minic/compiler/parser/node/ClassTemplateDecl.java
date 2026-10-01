@@ -7,15 +7,16 @@ import java.util.Objects;
 
 /** A generic source record; only concrete specializations may enter the core record indexes. */
 public record ClassTemplateDecl(List<Parameter> parameters, Declaration.StructDecl record,
-                                SourceRange range) implements Declaration {
+                                List<minic.compiler.type.TemplateArgument> specializationArguments, SourceRange range) implements Declaration {
     public ClassTemplateDecl(java.util.Collection<? extends Parameter> parameters, Declaration.StructDecl record, SourceRange range) {
-        this(List.copyOf(parameters),record,range);
+        this(List.copyOf(parameters),record,List.of(),range);
     }
     public ClassTemplateDecl {
         parameters = List.copyOf(parameters);
+        specializationArguments = List.copyOf(specializationArguments);
         Objects.requireNonNull(record, "record");
         Objects.requireNonNull(range, "range");
-        if (parameters.isEmpty()) throw new IllegalArgumentException("a primary template needs parameters");
+        if (parameters.isEmpty() && specializationArguments.isEmpty()) throw new IllegalArgumentException("a primary template needs parameters");
         for (int index = 0; index < parameters.size(); index++) {
             MiniType.TemplateParameterType type = parameters.get(index).type();
             if (!type.owner().equals(record.name()) || type.index() != index)

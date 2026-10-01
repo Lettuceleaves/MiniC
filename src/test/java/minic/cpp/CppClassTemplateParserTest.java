@@ -127,11 +127,9 @@ final class CppClassTemplateParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {
-        "template<class T>struct Box{T value;};template<>struct Box<int>{int value;};",
-        "template<class T>struct Box{T value;};template<class T>struct Box<T*>{T* value;};",
         "template<class T>struct Box{T get();};template<class T>T Box<T>::get(){return T();}"
     })
-    void specializationAndOutOfLineTemplatesRemainExplicitBoundaries(String text) throws Exception {
+    void outOfLineTemplatesRemainExplicitBoundaries(String text) throws Exception {
         assertTrue(reference(text));
         var parser=parse(text,LanguageMode.CPP17_ALGORITHM);
         assertFalse(parser.succeeded());
