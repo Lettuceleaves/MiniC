@@ -1012,7 +1012,7 @@ public final class CppNameBinder {
             if (switch (node.operatorName().kind()) {
                 case ADD, SUBTRACT, MULTIPLY, DIVIDE, REMAINDER, BIT_XOR, BIT_AND, BIT_OR,
                         BIT_NOT, LOGICAL_NOT, LESS, GREATER, SHIFT_LEFT, SHIFT_RIGHT, EQUAL, NOT_EQUAL,
-                        LESS_EQUAL, GREATER_EQUAL, INCREMENT, DECREMENT, CALL, SUBSCRIPT -> true;
+                        LESS_EQUAL, GREATER_EQUAL, INCREMENT, DECREMENT, CALL, SUBSCRIPT, MEMBER_ACCESS -> true;
                 default -> false;
             }) return false;
             report("CPP005", node.operatorName().range(), "运算符重载声明已解析；重载选择和执行语义尚未实现。");
@@ -1025,6 +1025,7 @@ public final class CppNameBinder {
             int count = parameters.size() + (member ? 1 : 0);
             boolean valid = switch (kind) {
                 case CALL -> member;
+                case MEMBER_ACCESS -> member && count == 1;
                 case SUBSCRIPT -> member && count == 2;
                 case ADD, SUBTRACT, MULTIPLY, BIT_AND -> count == 1 || count == 2;
                 case BIT_NOT, LOGICAL_NOT -> count == 1;
@@ -1546,6 +1547,7 @@ public final class CppNameBinder {
                 }
                 case FieldAccessExpr n -> {
                     Expression target = expression(n.target(), namespace, local, !n.viaPointer());
+                    if (n.viaPointer()) target = arrowReceiver(target, n, namespace, local);
                     if (!n.viaPointer()) target = materializedReceiver(target);
                     MiniType owner = declaredExpressionType(target);
                     owner = n.viaPointer() ? elementType(owner) : owner;
@@ -1723,6 +1725,7 @@ public final class CppNameBinder {
 
         private Expression explicitDestruction(CppDestructorCallExpr source, Namespace namespace, Local local) {
             Expression receiver = expression(source.receiver(), namespace, local, !source.viaPointer());
+            if (source.viaPointer()) receiver = arrowReceiver(receiver, source, namespace, local);
             MiniType receiverType = declaredExpressionType(receiver);
             MiniType object = source.viaPointer() ? elementType(receiverType) : receiverType;
             if (object == null || object.isVoid() || object.isArray() || object.isFunction()
@@ -1818,6 +1821,28 @@ public final class CppNameBinder {
         }
 
         private record OperatorCandidate(Entity function, Method method, List<MiniType> parameters) { }
+
+        private record ArrowStep(MiniType type, CppValueCategory category) { }
+
+        /** Each arrow result is reused as the next receiver; lookup never evaluates it twice. */
+        private Expression arrowReceiver(Expression receiver, Expression source, Namespace namespace, Local local) {
+            Set<ArrowStep> visited = new HashSet<>();
+            while (objectType(declaredExpressionType(receiver)) != null) {
+                ArrowStep step = new ArrowStep(declaredExpressionType(receiver), valueCategory(receiver));
+                if (!visited.add(step)) {
+                    report("CPP004", source.range(), "Recursive operator-> does not reach a pointer type.");
+                    return receiver;
+                }
+                Expression next = operatorExpression("operator->", source, List.of(source),
+                        List.of(receiver), namespace, local, true);
+                if (next == null) break;
+                receiver = next;
+            }
+            MiniType result = declaredExpressionType(receiver);
+            if (result == null || !result.isPointer())
+                report("CPP004", source.range(), "Arrow member access requires a pointer or a class operator-> returning one.");
+            return receiver;
+        }
 
         /** The operand list is shared by member and free candidates; no expression is evaluated during selection. */
         private Expression operatorExpression(String name, Expression original, List<Expression> sources,
@@ -2026,6 +2051,7 @@ public final class CppNameBinder {
                 }
             } else if (designator instanceof FieldAccessExpr field) {
                 Expression target = expression(field.target(), namespace, local, !field.viaPointer());
+                if (field.viaPointer()) target = arrowReceiver(target, field, namespace, local);
                 if (!field.viaPointer()) target = materializedReceiver(target);
                 MiniType owner = declaredExpressionType(target);
                 owner = field.viaPointer() ? elementType(owner) : owner;
