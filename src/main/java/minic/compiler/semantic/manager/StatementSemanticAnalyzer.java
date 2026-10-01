@@ -356,6 +356,7 @@ public final class StatementSemanticAnalyzer {
 
     private boolean alwaysReturns(Statement statement) {
         if (statement instanceof CleanupScopeStmt cleanup) return alwaysReturns(cleanup.body());
+        if (statement instanceof SwitchStmt selection) return exhaustiveSwitchTerminates(selection);
         if (statement instanceof ReturnStmt) {
             return true;
         }
@@ -373,6 +374,7 @@ public final class StatementSemanticAnalyzer {
 
     private boolean neverReturns(Statement statement) {
         if(statement instanceof Statement.DeclGroupStmt group)return group.statements().stream().anyMatch(this::neverReturns);
+        if (statement instanceof SwitchStmt selection) return exhaustiveSwitchTerminates(selection);
         if (statement instanceof CleanupScopeStmt cleanup)
             return neverReturns(cleanup.body()) || isNoReturnExpression(cleanup.cleanup());
         if (statement instanceof ReturnStmt) {
@@ -409,6 +411,32 @@ public final class StatementSemanticAnalyzer {
             return isNoReturnExpression(exprStmt.expression());
         }
         return false;
+    }
+
+    /** Every case label is a possible entry; fallthrough inherits the following case's completion. */
+    private boolean exhaustiveSwitchTerminates(SwitchStmt selection) {
+        if(selection.cases().stream().noneMatch(item->item.value()==null))return false;
+        boolean followingTerminates=false;
+        for(int index=selection.cases().size()-1;index>=0;index--) {
+            followingTerminates=switchSequenceTerminates(selection.cases().get(index).statements(),followingTerminates);
+            if(!followingTerminates)return false;
+        }
+        return true;
+    }
+
+    private boolean switchSequenceTerminates(List<Statement> statements,boolean continuation) {
+        for(int index=statements.size()-1;index>=0;index--)continuation=switchStatementTerminates(statements.get(index),continuation);
+        return continuation;
+    }
+
+    private boolean switchStatementTerminates(Statement statement,boolean continuation) {
+        if(statement instanceof ReturnStmt)return true;
+        if(statement instanceof BreakStmt||statement instanceof ContinueStmt)return false;
+        if(statement instanceof CleanupScopeStmt cleanup)return switchStatementTerminates(cleanup.body(),continuation);
+        if(statement instanceof BlockStmt block)return switchSequenceTerminates(block.statements(),continuation);
+        if(statement instanceof IfStmt condition)return switchStatementTerminates(condition.thenBranch(),continuation)
+                &&condition.elseBranchOptional().map(branch->switchStatementTerminates(branch,continuation)).orElse(continuation);
+        return neverReturns(statement)||continuation;
     }
 
     private boolean isNoReturnExpression(Expression expression) {

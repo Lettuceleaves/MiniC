@@ -161,7 +161,8 @@ public final class TypeCompatibility {
     private static boolean isPointerDifference(MiniType leftType, MiniType rightType, TokenType operator) {
         return operator == TokenType.MINUS
                 && isObjectPointer(leftType)
-                && leftType.equals(rightType);
+                && isObjectPointer(rightType)
+                && leftType.pointee().unqualified().equals(rightType.pointee().unqualified());
     }
 
     private static boolean isObjectPointer(MiniType type) {

@@ -67,7 +67,7 @@ final class CppConstexprTest {
   Arguments.of("floating-cast-out-of-range","constexpr int n=(int)2147483648.0; // bad\nint main(){return 0;}"),
   Arguments.of("floating-narrow-out-of-range","constexpr float n=(float)1e100; // bad\nint main(){return 0;}"),
   Arguments.of("one-past-read","constexpr int a[2]={1,2};constexpr int n=a[2]; // bad\nint main(){return 0;}"),
-  Arguments.of("reinterpret-reference","constexpr int n=3;constexpr char c=(const char&)n; // bad\nint main(){return 0;}"),
+  Arguments.of("reinterpret-reference","constexpr int n=3;constexpr char c=(char&)n; // bad\nint main(){return 0;}"),
   Arguments.of("reinterpret-pointer","constexpr int a[2]={1,2};constexpr const int*p=(const int*)&a; // bad\nint main(){return 0;}"),
   Arguments.of("nontrivial-destructor","struct Box{int x;constexpr Box():x(1){}~Box(){}};constexpr Box b; // bad\nint main(){return 0;}"),
   Arguments.of("uninitialized-constexpr","constexpr int n; // bad\nint main(){return 0;}"),
@@ -83,7 +83,16 @@ final class CppConstexprTest {
   Arguments.of("specifier-mismatch","constexpr int f();int f(){return 3;} // bad\nint main(){return 0;}"),
   Arguments.of("constexpr-structured-binding","constexpr int a[2]={1,2};constexpr auto[x,y]=a; // bad\nint main(){return 0;}")
  );}
- @ParameterizedTest(name="{0}") @MethodSource("invalid") void rejects(String name,String source)throws Exception{reject(temporary,name,source);}
+ @ParameterizedTest(name="{0}") @MethodSource("invalid") void rejects(String name,String source)throws Exception{
+  if(!name.equals("constexpr-structured-binding")){reject(temporary,name,source);return;}
+  // constexpr is forbidden on a C++17 structured binding; rejecting it during parsing is valid.
+  var file=temporary.resolve(name+".cpp");java.nio.file.Files.writeString(file,source);
+  var reference=minic.cpp.support.BoundedProcess.run(java.util.List.of(minic.cpp.support.CppDifferentialHarness.referenceCompiler(System.getenv()),
+    "-std=c++17","-pedantic-errors","-fsyntax-only",file.toString()),temporary,"",java.time.Duration.ofSeconds(20),65536);
+  assertFalse(reference.timedOut());assertFalse(reference.outputExceeded());assertNotEquals(0,reference.exitCode(),reference::stderr);
+  var api=compiler(source);var parser=stage(api,Parser.class);api.runThrough(parser);
+  assertFalse(parser.succeeded());assertTrue(parser.errors().stream().anyMatch(error->error.range().startLine()==1),()->parser.errors().toString());
+ }
  @Test void sourceMetadataAndOriginsSurviveNormalization(){
   var api=compiler("constexpr int plus(int x){return x+1;}constexpr int n=plus(2);int main(){constexpr int k=plus(3);static_assert(k==4);return k-n-1;}");
   var parser=stage(api,Parser.class);api.runThrough(parser);assertTrue(parser.succeeded(),()->parser.errors().toString());

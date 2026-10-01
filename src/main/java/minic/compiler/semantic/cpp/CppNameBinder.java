@@ -2142,6 +2142,7 @@ public final class CppNameBinder {
             AutoReturnContext savedAutoReturn=currentAutoReturn; currentAutoReturn=null;
             currentClass = owner; currentThis = self; currentReturnType = MiniType.VOID;
             int diagnosticStart = diagnostics.size();
+            List<Diagnostic> constexprInitializationErrors = new ArrayList<>();
             try {
                 BlockStmt body = null;
                 if (original.body() != null) {
@@ -2163,7 +2164,8 @@ public final class CppNameBinder {
                             action = initializeField(owner, field, syntax, scope, range);
                             if (action != null && entry.origin() == CppMemberInitializationPlan.Origin.EXPLICIT) mapped(entry.source(), action);
                         }
-                        if(action==null&&original.constexprSpecifier())report("CPP004",entry.source().range(),"A constexpr constructor must initialize every subobject");
+                        if(action==null&&original.constexprSpecifier())constexprInitializationErrors.add(new Diagnostic("CPP004",Diagnostic.Severity.ERROR,
+                                "A constexpr constructor must initialize every subobject",entry.source().range()));
                         if (action != null) statements.add(new ExprStmt(action, action.range()));
                     }
                     statements.addAll(block(original.body(), scope, false).statements());
@@ -2175,6 +2177,9 @@ public final class CppNameBinder {
                     constructor.function.defined = false;
                     body = null;
                 }
+                // A genuinely deleted defaulted constructor is exempt. Missing constexpr
+                // initialization alone must not silently turn a usable default constructor into a deleted one.
+                if (!deletedConstructors.containsKey(constructor.function)) diagnostics.addAll(constexprInitializationErrors);
                 FunctionDecl core = mapped(original, new FunctionDecl(constructor.function.coreName, MiniType.VOID,
                         parameters, original.variadic(), body, false, original.range()));
                 functions.add(core); declarations.add(core);
@@ -6601,6 +6606,14 @@ public final class CppNameBinder {
                 if (!standardViable(new CppOverloadResolver.Argument(actual, valueCategory(value), false), target)) {
                     Expression converted = userConversion(target, value, ConversionContext.EXPLICIT, range);
                     if (converted != null) { value = converted; actual = declaredExpressionType(value); }
+                }
+                // C-style notation tries static_cast before reinterpret_cast. A const
+                // reference can bind a converted scalar temporary even when the source is an lvalue.
+                if (standardViable(new CppOverloadResolver.Argument(actual,valueCategory(value),isNullIntegerLiteral(value)),target)) {
+                    Expression pointer=bindReferenceValue(target,value,value,range,ConversionContext.EXPLICIT);
+                    Expression result=referenceResult(target,pointer,range);
+                    temporaryAddressPaths.add(result);
+                    return result;
                 }
                 // Cast notation also admits const_cast/reinterpret_cast for addressable objects.
                 if ((valueCategory(value) == CppValueCategory.LVALUE || target.isRvalueReference()&&valueCategory(value)==CppValueCategory.XVALUE) && addressableObject(value)

@@ -140,7 +140,10 @@ public final class CppFunctionTemplateDeduction {
             if(element!=null)for(var item:actual.listElements())addConstraints(element,item,patterns,arguments,initializerListElement,parameters);
             return;
         }
-        MiniType argument=actual.type();
+        // Array cv can be spelled on the array object (constexpr/typedef) or its elements.
+        // Structural deduction must treat both representations as the same source type.
+        pattern=canonicalArrayCv(pattern);
+        MiniType argument=canonicalArrayCv(actual.type());
         boolean forwarding=pattern.isRvalueReference()&&pattern.referent() instanceof MiniType.TemplateParameterType parameter
                 && parameters.stream().anyMatch(p->p instanceof ClassTemplateDecl.TypeParameter&&p.type().equals(parameter));
         if(forwarding&&actual.category()==CppValueCategory.LVALUE) {
@@ -164,7 +167,21 @@ public final class CppFunctionTemplateDeduction {
             return MiniType.qualified(qualificationAdjustment(qualified.baseType(),actual.unqualified()),cv);
         }
         if(pattern instanceof MiniType.PointerType p && actual instanceof MiniType.PointerType a)return qualificationAdjustment(p.pointee(),a.pointee()).pointerTo();
+        if(pattern instanceof MiniType.ArrayType p && actual instanceof MiniType.ArrayType a)
+            return qualificationAdjustment(p.elementType(),a.elementType()).arrayOf(a.length());
+        if(pattern instanceof MiniType.DependentArrayType p && actual instanceof MiniType.ArrayType a)
+            return qualificationAdjustment(p.elementType(),a.elementType()).arrayOf(a.length());
         return actual;
+    }
+    private static MiniType canonicalArrayCv(MiniType type) {
+        MiniType base=type.unqualified();
+        if(base instanceof MiniType.ArrayType array)
+            return canonicalArrayCv(MiniType.qualified(array.elementType(),type.qualifiers())).arrayOf(array.length());
+        if(base instanceof MiniType.DependentArrayType array)
+            return new MiniType.DependentArrayType(canonicalArrayCv(MiniType.qualified(array.elementType(),type.qualifiers())),array.bound());
+        MiniType result=base instanceof MiniType.PointerType pointer?canonicalArrayCv(pointer.pointee()).pointerTo()
+                :base instanceof MiniType.ReferenceType reference?canonicalArrayCv(reference.referent()).referenceTo(reference.kind()):base;
+        return MiniType.qualified(result,type.qualifiers());
     }
     private static boolean nonDeduced(MiniType type) {
         if(type instanceof MiniType.MemberType || type instanceof MiniType.DecltypeType)return true;

@@ -292,7 +292,7 @@ public final class CppConstantEvaluator {
             }
             case IndexExpr n -> {
                 Value base=eval(n.target(),frame);long index=integer(eval(n.index(),frame),n.range());
-                PointerValue address=base instanceof ObjectValue object?new PointerValue(object.storage,0,type(n).pointerTo()):(PointerValue)base;
+                PointerValue address=indexBase(base,type(n).pointerTo(),n.range());
                 yield dereference(offset(address,index,n.range()),n.range());
             }
             case FieldAccessExpr n -> {
@@ -313,7 +313,7 @@ public final class CppConstantEvaluator {
             if(operand instanceof UnaryExpr unary&&unary.operator()==TokenType.STAR){Value address=eval(unary.operand(),frame);if(address instanceof FunctionValue function)return new FunctionValue(function.name,type(expression));if(address instanceof PointerValue pointer)return new PointerValue(pointer.base,pointer.offset,type(expression));}
             if(operand instanceof IndexExpr index){
                 Value base=eval(index.target(),frame);long position=integer(eval(index.index(),frame),index.range());
-                PointerValue address=base instanceof ObjectValue object?new PointerValue(object.storage,0,type(expression)):(PointerValue)base;
+                PointerValue address=indexBase(base,type(expression),index.range());
                 PointerValue result=offset(address,position,range);return new PointerValue(result.base,result.offset,type(expression));
             }
             return pointer(lvalue(expression.operand(),frame),type(expression));
@@ -385,7 +385,12 @@ public final class CppConstantEvaluator {
         if(from.isPointer()&&to.isPointer())return similarObjectType(from.pointee(),to.pointee());
         return from.equals(to);
     }
-    private boolean wholeObjectPointer(PointerValue pointer){return pointer.base!=null&&pointer.type.isPointer()&&pointer.type.pointee().unqualified().equals(pointer.base.type.unqualified());}
+    private PointerValue indexBase(Value value,MiniType pointerType,SourceRange range){
+        if(value instanceof ObjectValue object&&object.type().isArray())return new PointerValue(object.storage,0,pointerType);
+        if(value instanceof PointerValue pointer)return pointer;
+        throw fail(range,"Indexing requires an array or object pointer in a constant expression");
+    }
+    private boolean wholeObjectPointer(PointerValue pointer){return pointer.base!=null&&pointer.type.isPointer()&&similarObjectType(pointer.type.pointee(),pointer.base.type);}
     private Value convert(Value value,MiniType target,SourceRange range){
         if(target.isVoid())return new VoidValue();target=target.unqualified();
         if(target.equals(MiniType.BOOL))return bool(truth(value,range));
@@ -497,4 +502,3 @@ public final class CppConstantEvaluator {
         if(value instanceof ObjectValue object&&seen.add(object.storage)){accessible(object.storage,range);for(Cell cell:object.storage.members.values())validateResult(read(cell,range),range,seen);}
     }
 }
-
