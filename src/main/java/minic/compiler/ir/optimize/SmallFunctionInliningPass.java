@@ -14,7 +14,7 @@ import minic.compiler.type.TypeLayout;
 
 import java.util.*;
 
-/** Bounded, native-only expansion of small direct calls. */
+/** Bounded, native-only expansion of small direct calls, with callees prepared before callers. */
 public final class SmallFunctionInliningPass implements IrPass {
     public record Limits(int maxCalleeInstructions, int maxCalleeBlocks, int maxCallerGrowth,
                          int maxModuleGrowth, int maxAddedFrameBytes, int maxSitesPerCaller) {
@@ -39,18 +39,14 @@ public final class SmallFunctionInliningPass implements IrPass {
                 if (instruction instanceof IrCallInstruction call) edges.add(call.calleeName());
             calls.put(function.name(), edges);
         }
+        var originalFunctions = new LinkedHashMap<String, IrFunction>();
+        input.functions().forEach(function -> originalFunctions.put(function.name(), function));
         Map<String, Candidate> candidates = new LinkedHashMap<>();
-        for (IrFunction function : input.functions()) {
-            if (recursive(function.name(), calls)) continue;
-            Candidate candidate = candidate(function);
-            if (candidate != null) candidates.put(function.name(), candidate);
-        }
-        if (candidates.isEmpty()) return input;
-
         int moduleGrowth = 0;
         boolean changed = false;
-        var functions = new ArrayList<IrFunction>();
-        for (IrFunction caller : input.functions()) {
+        var rewrittenFunctions = new HashMap<String, IrFunction>();
+        for (String callerName : calleeFirst(calls)) {
+            IrFunction caller = originalFunctions.get(callerName);
             var names = new Names(caller);
             var callerFlow = IrControlFlow.analyze(caller);
             var blocks = new ArrayList<IrBlock>();
@@ -89,14 +85,63 @@ public final class SmallFunctionInliningPass implements IrPass {
                 }
                 blocks.add(new IrBlock(label, body));
             }
-            if (sites == 0) functions.add(caller);
-            else {
+            IrFunction rewritten = caller;
+            if (sites != 0) {
                 changed = true;
-                functions.add(new IrFunction(caller.name(), caller.returnType(), caller.parameters(), caller.variadic(), blocks, caller.range()));
+                rewritten = new IrFunction(caller.name(), caller.returnType(), caller.parameters(), caller.variadic(), blocks, caller.range());
+            }
+            rewrittenFunctions.put(callerName, rewritten);
+            if (!recursive(callerName, calls) && !usesIncomingArgumentArea(rewritten)) {
+                // Candidate copies are simplified after their own callees were expanded. This
+                // makes wrapper chains available in one bounded traversal, without rerunning
+                // the inliner or resetting any caller/module/frame budgets. Emitted originals
+                // retain their instruction identities unless an actual call was expanded.
+                Candidate prepared = candidate(simplifyCandidate(rewritten));
+                if (prepared != null) candidates.put(callerName, prepared);
             }
         }
+        var functions = input.functions().stream().map(function -> rewrittenFunctions.get(function.name())).toList();
         return !changed ? input : new IrResult(functions, input.stringData(), input.globalData(), input.externalFunctionNames(),
                 input.externalObjectNames(), input.structLayouts(), input.currentAstNode(), input.currentSubject(), input.displayNames(), input.entryFunction());
+    }
+
+    private static IrFunction simplifyCandidate(IrFunction function) {
+        IrResult result = new IrResult(List.of(function));
+        result = new ConstantPropagationPass().apply(result);
+        result = new NonZeroCheckEliminationPass().apply(result);
+        result = new DeadCodeEliminationPass().apply(result);
+        return result.functions().getFirst();
+    }
+
+    private static boolean usesIncomingArgumentArea(IrFunction function) {
+        for (var block : function.blocks()) for (var instruction : block.instructions()) {
+            IrLocal local = localOf(instruction);
+            if (local != null && local.incomingArgumentArea()) return true;
+        }
+        return false;
+    }
+
+    /** Iterative DFS avoids consuming the Java stack for deep template/wrapper call graphs. */
+    private static List<String> calleeFirst(Map<String, Set<String>> calls) {
+        var visited = new HashSet<String>();
+        var ordered = new ArrayList<String>();
+        record Pending(String name, Iterator<String> children) { }
+        for (String root : calls.keySet()) {
+            if (!visited.add(root)) continue;
+            var stack = new ArrayDeque<Pending>();
+            stack.push(new Pending(root, calls.get(root).iterator()));
+            while (!stack.isEmpty()) {
+                Pending current = stack.peek();
+                if (!current.children().hasNext()) {
+                    ordered.add(stack.pop().name());
+                    continue;
+                }
+                String child = current.children().next();
+                if (calls.containsKey(child) && visited.add(child))
+                    stack.push(new Pending(child, calls.get(child).iterator()));
+            }
+        }
+        return ordered;
     }
 
     private Candidate candidate(IrFunction function) {

@@ -123,11 +123,11 @@ final class SmallFunctionInliningTest {
         assertSame(indirectSource,run(indirectSource));
     }
 
-    @Test void newlyClonedCallsAreNotRecursivelyExpandedInTheSamePass() {
+    @Test void preparedWrapperBodiesContainTheirAlreadyExpandedCallees() {
         var wrapper = caller("wrapper", List.of(P), call(X, "helper", P.ref()), ret(X));
         var result = run(program(simple(), wrapper, caller("main", List.of(), call(X, "wrapper", ONE), ret(X))));
-        assertEquals(1, calls(fn(result, "main")));
-        assertTrue(instructions(fn(result, "main")).stream().anyMatch(i -> i instanceof IrCallInstruction c && c.calleeName().equals("helper")));
+        assertEquals(0, calls(fn(result, "main")));
+        assertEquals(0, calls(fn(result, "wrapper")));
     }
 
     @Test void growthAndFrameBudgetsAreHardLimitsAndDecliningDoesNotMutateInput() {
