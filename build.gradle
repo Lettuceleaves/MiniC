@@ -130,3 +130,12 @@ tasks.register('stlPerf', JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'minic.benchmark.StlBenchmarkMain'
 }
+
+tasks.register('ojPerf', JavaExec) {
+    group = 'verification'
+    description = '真实算法题四构建校验、性能矩阵和离线审计；--args="--help" 查看阶段'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'minic.benchmark.OjScenarioMain'
+    maxHeapSize = '512m'
+}

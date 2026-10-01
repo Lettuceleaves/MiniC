@@ -1,9 +1,11 @@
 package minic.benchmark;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import java.util.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("native-perf-contract")
 class OjScenarioWorkloadsTest {
  private static OjScenarioWorkloads.Scenario scenario(String id){return OjScenarioWorkloads.scenarios().stream().filter(s->s.id().equals(id)).findFirst().orElseThrow();}
  private static String expected(long... values){return "round=0 observations="+values.length+" hash="+Long.toUnsignedString(OjScenarioWorkloads.sequenceHash(values))+"\n";}

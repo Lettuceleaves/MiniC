@@ -44,6 +44,18 @@ The hash starts at 14695981039346656037. Each observed integer is converted modu
 
 ## Runner and validation boundary
 
+The `ojPerf` Gradle task exposes the runner. Start with `./gradlew ojPerf --args="--help"`. Its contract tests are included in `nativePerfContract` and therefore `stlCheck`; `stlContract` includes the separate functional OJ combinations. The individual stages are:
+
+```text
+./gradlew ojPerf --args="--stage=dry-run --output=build/oj-plan"
+./gradlew ojPerf --args="--stage=compile --repository=. --revision=<commit> --output=D:/MiniC-artifacts/oj-cache"
+./gradlew ojPerf --args="--stage=validate --cache=D:/MiniC-artifacts/oj-cache --output=D:/MiniC-artifacts/oj-validation"
+./gradlew ojPerf --args="--stage=measure --cache=D:/MiniC-artifacts/oj-cache --output=D:/MiniC-artifacts/oj-measurement --repetitions=12 --warmups=2 --host-note=idle-fixed-host"
+./gradlew ojPerf --args="--stage=audit --run=D:/MiniC-artifacts/oj-measurement"
+```
+
+Each output directory must be new. Cache compilation resolves a committed revision and rebuilds the compiler from its archive. Keep cache and run directories at their recorded absolute paths for replay/audit. `--scenario=<id>` or `--config-id=<id>` supports targeted diagnosis, but filtered results always remain partial. The measurement stage requires a quiet host after functional verification; compilation and tests must have finished before invoking it. Calibration aims for 200 ms to give margin over the 100 ms minimum for every measured sample. Each sample retains its full input, so the complete matrix may require tens of GB on the output disk.
+
 The new runner compiles each source once per frozen product/build combination and reuses the resulting 32 artifacts for 96 inputs. BASE, OPT, G++ own headers and G++ system headers must all match the same Java oracle before performance acceptance. Calibration changes rounds uniformly for all builds of a configuration, generates new full input, and must meet the minimum sample duration; insufficient calibration is not a pass. Formal reports retain every configuration and its distribution rather than averaging away failures.
 
 This workload slice was prepared against product revision 6d6441d633cf3beb3824177fd60aa1a36c8bf51f. The first oracle test compile failed because the registry did not yet exist. Nine Java tests subsequently passed, including all 96 generated configurations, hand-solved answers for all eight algorithms, shape distributions, signed hashes, malformed input and 64-bit distances. The three added shape tests initially contained a Java regex escape error; that test-only error was corrected. No C++ compilation, four-backend run or performance sampling is claimed by this slice; those are pending the unified committed runner/product validation.
