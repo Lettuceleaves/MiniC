@@ -188,6 +188,9 @@ final class ExpressionLowerer {
         if (expression instanceof UnaryExpr unaryExpr) {
             return lowerUnary(unaryExpr);
         }
+        if (expression instanceof Expression.PostfixUpdateExpr update) {
+            return lowerUpdate(update.target(), update.operator(), true, update.range());
+        }
         if (expression instanceof IndexExpr indexExpr) {
             IrValue address = lowerElementAddress(indexExpr);
             if (isAggregateType(expressionTypes.get(indexExpr))) {
@@ -588,28 +591,44 @@ final class ExpressionLowerer {
             return lowerExpression(unaryExpr.operand());
         }
         if (unaryExpr.operator() == TokenType.PLUS_PLUS || unaryExpr.operator() == TokenType.MINUS_MINUS) {
-            IrValue currentValue = lowerExpression(unaryExpr.operand());
-            MiniType operandType = expressionTypes.get(unaryExpr.operand());
-            long amount = operandType != null && operandType.isPointer()
-                    ? sizeOfType(operandType.pointee())
-                    : 1;
-            IrConstant one = new IrConstant(amount, currentValue.type() == IrType.POINTER
-                    ? IrType.LONG_LONG
-                    : currentValue.type());
-            IrTemporary updated = builder.newTemporary(currentValue.type());
-            builder.addInstruction(new IrBinaryInstruction(
-                    updated,
-                    unaryExpr.operator() == TokenType.PLUS_PLUS
-                            ? minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.ADD
-                            : minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.SUBTRACT,
-                    currentValue,
-                    one,
-                    unaryExpr.range()
-            ));
-            lowerStore(unaryExpr.operand(), updated, unaryExpr.range());
-            return updated;
+            return lowerUpdate(unaryExpr.operand(), unaryExpr.operator(), false, unaryExpr.range());
         }
         throw new IllegalArgumentException("unsupported unary expression: " + unaryExpr.operator());
+    }
+
+    /** Capture a complex target's address once; keep ordinary local updates on the direct local path. */
+    private IrValue lowerUpdate(Expression target, TokenType operator, boolean postfix, minic.SourceRange range) {
+        Expression unwrapped = target;
+        while (unwrapped instanceof GroupingExpr grouping) unwrapped = grouping.expression();
+        IrLocal local = unwrapped instanceof NameExpr name ? builder.resolveLocal(name.name()) : null;
+        IrValue address = local == null ? lowerAddress(target) : null;
+        MiniType targetType = expressionTypes.get(target);
+        IrType valueType = IrTypeLowerer.lower(targetType);
+        boolean volatileAccess = volatileAccess(target);
+        IrTemporary oldValue = builder.newTemporary(valueType);
+        if (local != null) {
+            builder.addInstruction(new IrCheckInitializedInstruction(local, target.range()));
+            builder.addInstruction(new IrLoadLocalInstruction(oldValue, local, volatileAccess, range));
+        } else {
+            builder.addInstruction(new IrLoadPointerInstruction(oldValue, address, volatileAccess, range));
+        }
+
+        IrType arithmeticType = valueType.isIntegerScalar() ? defaultArgumentPromotion(valueType) : valueType;
+        IrValue current = castIfNeeded(oldValue, arithmeticType, range);
+        long amount = targetType.isPointer() ? sizeOfType(targetType.pointee()) : 1;
+        IrValue delta = arithmeticType.isFloatingScalar()
+                ? new IrFloatConstant(1.0, arithmeticType)
+                : new IrConstant(amount, arithmeticType == IrType.POINTER ? IrType.LONG_LONG : arithmeticType);
+        IrTemporary updated = builder.newTemporary(arithmeticType);
+        builder.addInstruction(new IrBinaryInstruction(updated,
+                operator == TokenType.PLUS_PLUS
+                        ? minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.ADD
+                        : minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.SUBTRACT,
+                current, delta, range));
+        IrValue storedValue = castIfNeeded(updated, valueType, range);
+        if (local != null) builder.addInstruction(new IrStoreLocalInstruction(local, storedValue, volatileAccess, range));
+        else builder.addInstruction(new IrStorePointerInstruction(address, storedValue, volatileAccess, range));
+        return postfix ? oldValue : storedValue;
     }
 
     /**

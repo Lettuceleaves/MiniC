@@ -623,13 +623,13 @@ public final class CppNameBinder {
                 case UnaryExpr n -> {
                     Expression operand = expression(n.operand(), namespace, local);
                     if (n.operator() == TokenType.PLUS_PLUS || n.operator() == TokenType.MINUS_MINUS) {
-                        requireComplete(elementType(declaredExpressionType(operand)), n.range());
+                        requireUpdateOperand(operand, n.range());
                     }
                     yield new UnaryExpr(n.operator(), operand, n.range());
                 }
                 case PostfixUpdateExpr n -> {
                     Expression target = expression(n.target(), namespace, local);
-                    requireComplete(elementType(declaredExpressionType(target)), n.range());
+                    requireUpdateOperand(target, n.range());
                     yield new PostfixUpdateExpr(target, n.operator(), n.range());
                 }
                 case SizeofExpr n -> {
@@ -675,6 +675,14 @@ public final class CppNameBinder {
                 }
             };
             return mapped(node, core);
+        }
+
+        private void requireUpdateOperand(Expression operand, SourceRange range) {
+            MiniType type = declaredExpressionType(operand);
+            if (type != null && type.unqualified().equals(MiniType.BOOL)) {
+                report("CPP004", range, "C++17 不允许对 bool 进行自增或自减");
+            }
+            requireComplete(elementType(type), range);
         }
 
         /**

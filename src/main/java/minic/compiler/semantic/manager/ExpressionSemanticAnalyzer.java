@@ -120,6 +120,7 @@ final class ExpressionSemanticAnalyzer {
             case IndexExpr indexExpr -> analyzeIndex(indexExpr, scope);
             case FieldAccessExpr fieldAccessExpr -> analyzeFieldAccess(fieldAccessExpr, scope);
             case UnaryExpr unaryExpr -> analyzeUnary(unaryExpr, scope);
+            case Expression.PostfixUpdateExpr update -> analyzeUpdate(update.target(), update.range(), scope);
             case ConditionalExpr conditionalExpr -> analyzeConditional(conditionalExpr, scope);
             case CastExpr castExpr -> analyzeCast(castExpr, scope);
             case CommaExpr commaExpr -> analyzeComma(commaExpr, scope);
@@ -175,6 +176,9 @@ final class ExpressionSemanticAnalyzer {
             MiniType operandType = analyzeAddressOperand(unaryExpr.operand(), scope, unaryExpr.range());
             return operandType.pointerTo();
         }
+        if (unaryExpr.operator() == TokenType.PLUS_PLUS || unaryExpr.operator() == TokenType.MINUS_MINUS) {
+            return analyzeUpdate(unaryExpr.operand(), unaryExpr.range(), scope);
+        }
         MiniType operandType = analyzeExpression(unaryExpr.operand(), scope);
         if (unaryExpr.operator() == TokenType.STAR) {
             if (!operandType.isPointer()) {
@@ -195,14 +199,6 @@ final class ExpressionSemanticAnalyzer {
             }
             return operandType.isIntegerScalar() ? TypeCompatibility.integerPromotion(operandType) : MiniType.INT;
         }
-        if (unaryExpr.operator() == TokenType.PLUS_PLUS || unaryExpr.operator() == TokenType.MINUS_MINUS) {
-            MiniType targetType = analyzeAssignmentTarget(unaryExpr.operand(), scope, unaryExpr.range());
-            if ((!targetType.isScalar() && !targetType.isPointer())
-                    || (targetType.isPointer() && targetType.pointee().isFunction())) {
-                report(unaryExpr.range(), "自增自减操作数必须是标量或对象指针");
-            }
-            return targetType;
-        }
         if (unaryExpr.operator() == TokenType.MINUS || unaryExpr.operator() == TokenType.PLUS) {
             if (!operandType.isScalar()) {
                 report(unaryExpr.range(), "一元 +/- 操作数必须是标量类型");
@@ -212,6 +208,18 @@ final class ExpressionSemanticAnalyzer {
                     : operandType.isScalar() ? operandType : MiniType.INT;
         }
         throw new IllegalArgumentException("unsupported unary operator: " + unaryExpr.operator());
+    }
+
+    private MiniType analyzeUpdate(Expression target, SourceRange range, Scope scope) {
+        MiniType targetType = analyzeAssignmentTarget(target, scope, range);
+        if ((!targetType.isScalar() && !targetType.isPointer())
+                || (targetType.isPointer() && (targetType.pointee().isFunction() || targetType.pointee().isVoid()))) {
+            report(range, "自增自减操作数必须是标量或对象指针");
+        } else if (targetType.isPointer() && !TypeLayout.hasFixedLayout(targetType.pointee())
+                && !hasStructLayout(targetType.pointee())) {
+            report(range, "自增自减要求指向完整对象类型的指针");
+        }
+        return targetType;
     }
 
     private MiniType analyzeAddressOperand(Expression operand, Scope scope, SourceRange range) {

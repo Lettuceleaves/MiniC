@@ -112,6 +112,9 @@ public final class ExpressionManager {
     }
 
     private boolean isAssignmentTarget(Expression expression) {
+        if (expression instanceof GroupingExpr grouping) {
+            return isAssignmentTarget(grouping.expression());
+        }
         if (expression instanceof NameExpr || expression instanceof Expression.QualifiedNameExpr) {
             return true;
         }
@@ -391,16 +394,9 @@ public final class ExpressionManager {
                     state.report(operatorToken, "自增自减操作数必须是可赋值表达式");
                     continue;
                 }
-                IntegerLiteralExpr one = new IntegerLiteralExpr(1, "1", operatorToken.range());
-                TokenType binaryOperator = operatorToken.type() == TokenType.PLUS_PLUS ? TokenType.PLUS : TokenType.MINUS;
-                BinaryExpr updatedValue = new BinaryExpr(
-                        expression,
-                        binaryOperator,
-                        one,
-                        SourceRange.span(expression.range(), operatorToken.range())
-                );
-                state.build(updatedValue, "BinaryExpr " + updatedValue.operator(), updatedValue.range());
-                expression = buildAssignment(expression, TokenType.EQUAL, updatedValue);
+                expression = new Expression.PostfixUpdateExpr(expression, operatorToken.type(),
+                        SourceRange.span(expression.range(), operatorToken.range()));
+                state.build(expression, "PostfixUpdateExpr " + operatorToken.type(), expression.range());
                 continue;
             }
             break;

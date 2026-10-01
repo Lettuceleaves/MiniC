@@ -433,6 +433,7 @@ public final class SemanticAnalyzer extends Stage {
             }
             case FieldAccessExpr fieldAccessExpr -> appendVisitNode(fieldAccessExpr.target(), nodes);
             case UnaryExpr unaryExpr -> appendVisitNode(unaryExpr.operand(), nodes);
+            case Expression.PostfixUpdateExpr update -> appendVisitNode(update.target(), nodes);
             case VaStartExpr vaStartExpr -> {
                 appendVisitNode(vaStartExpr.list(), nodes);
                 appendVisitNode(vaStartExpr.lastParameter(), nodes);
