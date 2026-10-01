@@ -24,7 +24,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Syntax and source metadata only; implicit/explicit conversion selection is a separate slice. */
+/** Conversion declarations retain source metadata and bind to methods with explicit receiver ABI. */
 @Tag("cpp-frontend") @Timeout(30) @Execution(ExecutionMode.SAME_THREAD)
 final class CppConversionDeclarationParserTest {
     @TempDir Path temporary;
@@ -196,18 +196,15 @@ final class CppConversionDeclarationParserTest {
             "struct Value{operator bool() const{return true;}};",
             "struct Value{explicit operator bool() const;};Value::operator bool() const{return true;}",
             "struct Value{operator int*();};int value;Value::operator int*(){return &value;}"})
-    void parsedConversionSemanticsCannotSilentlyBecomeOrdinaryMethods(String declaration) {
+    void parsedConversionMethodsBindWithTheirDeclaredSourceSemantics(String declaration) {
         String text = declaration + "int main(){return 0;}";
         successful(text);
         var compiler = new CompilerApi(new SourceFile("guard.cpp", text), LanguageMode.CPP17_ALGORITHM);
         var semantic = compiler.stages().stream().filter(SemanticAnalyzer.class::isInstance).map(SemanticAnalyzer.class::cast).findFirst().orElseThrow();
         compiler.runThrough(semantic);
-        assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005")), () -> semantic.errors().toString());
-        semantic.errors().stream().filter(d -> d.code().equals("CPP005")).forEach(d -> {
-            String site = new SourceFile("guard.cpp", text).text(d.range());
-            assertTrue(site.equals("Value") || site.startsWith("operator"), site);
-        });
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        assertTrue(semantic.semanticResult().program().functions().stream().anyMatch(function -> function.parameters().size() == 1),
+                "conversion methods retain an implicit receiver in their lowered signature");
     }
 
     @Test void cIdentifiersExplicitAndOperatorStillBehaveAsOrdinaryNames() {

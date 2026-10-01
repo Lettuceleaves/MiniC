@@ -11,7 +11,7 @@ import static minic.compiler.type.MiniType.TypeQualifier.*;
  * Source-type overload selection, independent of name lookup and core ABI lowering.
  * Implements standard conversions for the current scalar/pointer/lvalue-reference subset.
  * Candidates must already have resolved types and distinct entity identities. This class does
- * not implement inheritance, user conversions, templates, default arguments, initializer lists,
+ * not implement inheritance, templates, default arguments, initializer lists,
  * ref-qualified methods, access checks, or deleted/copy constructor checks.
  *
  * Ranking follows C++17 [over.ics.rank], [over.ics.ref], [dcl.init.ref], and [conv.qual].
@@ -55,16 +55,42 @@ public final class CppOverloadResolver {
                 throw new IllegalArgumentException("inconsistent overload resolution");
         }
     }
+    /** The frontend selects one user step without evaluating expressions. An ambiguous step
+     * remains viable at user-defined rank, so it cannot incorrectly fall back to ellipsis. */
+    public record UserConversion(Object identity, Argument result, boolean ambiguous) {
+        public UserConversion { Objects.requireNonNull(identity); Objects.requireNonNull(result); }
+    }
+    @FunctionalInterface public interface UserConversionProvider {
+        UserConversion find(Object candidateIdentity, Argument source, MiniType target);
+    }
+    public static boolean standardViable(Argument source, MiniType target) {
+        return convert(source, canonical(target)) != null;
+    }
+    /** Qualification-only tail accepted for an explicit conversion function in direct initialization. */
+    public static boolean qualificationOnly(MiniType source, MiniType target) {
+        source = expressionType(source).unqualified(); target = expressionType(target).unqualified();
+        return source.equals(target) || source.isPointer() && target.isPointer() && qualificationConvertible(source, target);
+    }
+    /** Inputs must each have a standard conversion; negative means the first sequence is better. */
+    public static int compareStandard(Argument first, MiniType firstTarget, Argument second, MiniType secondTarget) {
+        Conversion a = convert(first, canonical(firstTarget)), b = convert(second, canonical(secondTarget));
+        if (a == null || b == null) throw new IllegalArgumentException("Comparison requires viable standard conversions");
+        return compare(a, b);
+    }
     public static <T> Resolution<T> resolve(List<Candidate<T>> candidates, List<Argument> arguments) {
         return resolve(candidates, arguments, null);
     }
     public static <T> Resolution<T> resolve(List<Candidate<T>> candidates, List<Argument> arguments,
                                           Argument receiver) {
+        return resolve(candidates, arguments, receiver, null);
+    }
+    public static <T> Resolution<T> resolve(List<Candidate<T>> candidates, List<Argument> arguments,
+                                           Argument receiver, UserConversionProvider provider) {
         candidates = List.copyOf(candidates);
         arguments = List.copyOf(arguments);
         var viable = new ArrayList<Viable<T>>();
         for (var candidate : candidates) {
-            var conversions = conversions(candidate, arguments, receiver);
+            var conversions = conversions(candidate, arguments, receiver, provider);
             if (conversions != null) viable.add(new Viable<>(candidate, conversions));
         }
         return choose(viable);
@@ -72,13 +98,17 @@ public final class CppOverloadResolver {
 
     /** Operator notation compares member receivers and free-function first arguments together. */
     public static <T> Resolution<T> resolveOperators(List<Candidate<T>> candidates, List<Argument> operands) {
+        return resolveOperators(candidates, operands, null);
+    }
+    public static <T> Resolution<T> resolveOperators(List<Candidate<T>> candidates, List<Argument> operands,
+                                                    UserConversionProvider provider) {
         candidates = List.copyOf(candidates);
         operands = List.copyOf(operands);
         var viable = new ArrayList<Viable<T>>();
         for (var candidate : candidates) {
             if (candidate.implicitObjectType != null && operands.isEmpty()) continue;
-            var conversions = candidate.implicitObjectType == null ? conversions(candidate, operands, null)
-                    : conversions(candidate, operands.subList(1, operands.size()), operands.getFirst());
+            var conversions = candidate.implicitObjectType == null ? conversions(candidate, operands, null, provider)
+                    : conversions(candidate, operands.subList(1, operands.size()), operands.getFirst(), provider);
             if (conversions != null) viable.add(new Viable<>(candidate, conversions));
         }
         return choose(viable);
@@ -100,14 +130,19 @@ public final class CppOverloadResolver {
         return new Resolution<>(Status.AMBIGUOUS, null, entities);
     }
 
-    private enum Rank { EXACT, PROMOTION, CONVERSION, ELLIPSIS }
+    private enum Rank { EXACT, PROMOTION, CONVERSION, USER_DEFINED, ELLIPSIS }
     // Lvalue/array/function transformations are deliberately excluded from subsequence ranking.
     private enum Step { NONE, NUMERIC, NULL_POINTER, POINTER_VOID, POINTER_BOOL, ELLIPSIS }
-    private record Conversion(Rank rank, Step step, boolean qualification,
-                              MiniType target, boolean reference) {}
+    private record Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference,
+                              Object userIdentity, Conversion trailing, boolean ambiguous) {
+        Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference) {
+            this(rank, step, qualification, target, reference, null, null, false);
+        }
+    }
     private record Viable<T>(Candidate<T> candidate, List<Conversion> conversions) {}
 
-    private static <T> List<Conversion> conversions(Candidate<T> candidate, List<Argument> args, Argument receiver) {
+    private static <T> List<Conversion> conversions(Candidate<T> candidate, List<Argument> args, Argument receiver,
+                                                    UserConversionProvider provider) {
         int fixed = candidate.parameterTypes.size();
         if (args.size() < fixed || (!candidate.variadic && args.size() != fixed)) return null;
         var result = new ArrayList<Conversion>();
@@ -124,6 +159,15 @@ public final class CppOverloadResolver {
             if (expressionType(args.get(i).type).isVoid()) return null;
             Conversion converted = i < fixed ? convert(args.get(i), canonical(candidate.parameterTypes.get(i)))
                     : new Conversion(Rank.ELLIPSIS, Step.ELLIPSIS, false, null, false);
+            if (converted == null && i < fixed && provider != null) {
+                MiniType target = canonical(candidate.parameterTypes.get(i));
+                UserConversion user = provider.find(candidate.identity, args.get(i), target);
+                if (user != null) {
+                    Conversion trailing = convert(user.result, target); // no recursive user-defined step
+                    if (trailing != null) converted = new Conversion(Rank.USER_DEFINED, Step.NONE, false,
+                            target, target.isReference(), user.identity, trailing, user.ambiguous);
+                }
+            }
             if (converted == null) return null;
             result.add(converted);
         }
@@ -190,6 +234,10 @@ public final class CppOverloadResolver {
     private static int compare(Conversion first, Conversion second) {
         if (first.rank != second.rank) return first.rank.compareTo(second.rank);
         if (first.rank == Rank.ELLIPSIS) return 0;
+        if (first.rank == Rank.USER_DEFINED) {
+            if (first.ambiguous || second.ambiguous || first.userIdentity != second.userIdentity) return 0;
+            return compare(first.trailing, second.trailing);
+        }
         if ((first.step == Step.POINTER_BOOL) != (second.step == Step.POINTER_BOOL))
             return first.step == Step.POINTER_BOOL ? 1 : -1;
         if (first.step == second.step && first.step != Step.NULL_POINTER) {

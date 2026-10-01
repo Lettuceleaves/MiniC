@@ -449,6 +449,17 @@ public final class ExpressionManager {
         if (state.languageMode() == LanguageMode.CPP17_ALGORITHM) {
             if (state.match(TokenType.TILDE)) return finishDestructorCall(target, viaPointer, state.previous());
             if (state.check(TokenType.OPERATOR)) {
+                if (typeReader.canStartTypeAt(1)) {
+                    Token keyword = state.advance();
+                    Parser.ParsedType type = typeReader.parseCppTypeWithoutFunctionSuffix("operator 后期望转换目标类型");
+                    if (type == null) return null;
+                    var name = new minic.compiler.parser.node.ConversionName(type.type(), false,
+                            SourceRange.span(keyword.range(), type.range()));
+                    var member = new FieldAccessExpr(target, name.spelling(), viaPointer,
+                            SourceRange.span(target.range(), name.range()));
+                    state.build(member, "FieldAccessExpr " + member.fieldName(), member.range());
+                    return member;
+                }
                 var operator = minic.compiler.parser.CppOperatorNameParser.parse(state);
                 if (operator == null) return null;
                 var member = new FieldAccessExpr(target, operator.spelling(), viaPointer,

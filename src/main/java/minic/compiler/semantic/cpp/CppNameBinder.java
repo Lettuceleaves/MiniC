@@ -988,7 +988,7 @@ public final class CppNameBinder {
             List<MiniType> coreParameters = new ArrayList<>();
             coreParameters.add(methodThisType(owner, member));
             parameterTypes.stream().map(MiniType::unqualified).forEach(coreParameters::add);
-            MiniType signature = MiniType.function(returnType.unqualified(), coreParameters, sourceMethod.variadic());
+            MiniType signature = MiniType.function(returnType, coreParameters, sourceMethod.variadic());
             List<Method> previous = owner.methods.containsKey(name) ? owner.methods.get(name).methods : List.of();
             for (Method method : previous) {
                 MiniType.FunctionType earlier = (MiniType.FunctionType) method.function.type;
@@ -1075,7 +1075,7 @@ public final class CppNameBinder {
             List<MiniType> coreParameters = new ArrayList<>();
             coreParameters.add(methodThisType(owner, member));
             parameterTypes.stream().map(MiniType::unqualified).forEach(coreParameters::add);
-            MiniType signature = MiniType.function(returnType.unqualified(), coreParameters, definition.variadic());
+            MiniType signature = MiniType.function(returnType, coreParameters, definition.variadic());
             Method previous = overloads.methods.stream().filter(method -> method.function.type.equals(signature)
                     && method.returnType.equals(returnType)).findFirst().orElse(null);
             if (previous == null) {
@@ -1369,10 +1369,6 @@ public final class CppNameBinder {
         }
 
         private boolean unsupportedOperator(FunctionDecl node) {
-            if (node.conversionName() != null) {
-                report("CPP005", node.conversionName().range(), "转换函数声明已解析；转换选择和执行语义尚未实现。");
-                return true;
-            }
             if (node.operatorName() == null) return false;
             if (switch (node.operatorName().kind()) {
                 case ADD, SUBTRACT, MULTIPLY, DIVIDE, REMAINDER, BIT_XOR, BIT_AND, BIT_OR,
@@ -1423,6 +1419,9 @@ public final class CppNameBinder {
         }
 
         private void bindFunction(FunctionDecl node, Namespace namespace) {
+            if (node.conversionName() != null) {
+                report("CPP004", node.range(), "转换函数必须是非静态类成员。"); return;
+            }
             boolean allocation = node.operatorName() != null && node.operatorName().kind().allocation();
             if (!allocation && unsupportedOperator(node)) return;
             if (namespace != root && node.external() && !existingInternal(namespace, node.name())) report("CPP005", node.range(),
@@ -1665,18 +1664,17 @@ public final class CppNameBinder {
                     if (currentReturnType != null && currentReturnType.isStruct()) destructorForUse(currentReturnType, n.range());
                     yield new ReturnStmt(fullExpression(currentReturnType != null && currentReturnType.isReference()
                             ? bindReference(currentReturnType, n.expression(), namespace, scope, n.range())
-                            : copyInitialize(currentReturnType, expressionForTarget(currentReturnType, n.expression(), namespace, scope),
-                                    n.range(), CppInitializer.Kind.COPY),
+                            : convertCallValue(currentReturnType, expressionForTarget(currentReturnType, n.expression(), namespace, scope), n.expression()),
                             currentReturnType != null && currentReturnType.isStruct(), n), n.range());
                 }
-                case IfStmt n -> new IfStmt(fullExpression(expression(n.condition(), namespace, scope), false, n),
+                case IfStmt n -> new IfStmt(fullExpression(contextualBool(expression(n.condition(), namespace, scope)), false, n),
                         body(n.thenBranch(), scope), body(n.elseBranch(), scope), n.range());
-                case WhileStmt n -> new WhileStmt(fullExpression(expression(n.condition(), namespace, scope), false, n), body(n.body(), scope), n.range());
-                case DoWhileStmt n -> new DoWhileStmt(body(n.body(), scope), fullExpression(expression(n.condition(), namespace, scope), false, n), n.range());
+                case WhileStmt n -> new WhileStmt(fullExpression(contextualBool(expression(n.condition(), namespace, scope)), false, n), body(n.body(), scope), n.range());
+                case DoWhileStmt n -> new DoWhileStmt(body(n.body(), scope), fullExpression(contextualBool(expression(n.condition(), namespace, scope)), false, n), n.range());
                 case ForStmt n -> {
                     Local loop = new Local(scope, namespace);
                     Statement initializer = statement(n.initializer(), loop);
-                    Expression condition = fullExpression(expression(n.condition(), namespace, loop), false, n);
+                    Expression condition = fullExpression(contextualBool(expression(n.condition(), namespace, loop)), false, n);
                     Expression step = fullExpression(expression(n.step(), namespace, loop), false, n);
                     // C++ forbids redeclaring the for-init name in the body's outermost block.
                     Statement loopBody = n.body() instanceof BlockStmt b ? block(b, loop, false) : body(n.body(), loop);
@@ -1690,7 +1688,7 @@ public final class CppNameBinder {
                     yield new ForStmt(initializer, condition, step, loopBody, n.range());
                 }
                 case SwitchStmt n -> {
-                    Expression selector = fullExpression(expression(n.selector(), namespace, scope), false, n);
+                    Expression selector = fullExpression(contextualIntegral(expression(n.selector(), namespace, scope)), false, n);
                     Local casesScope = new Local(scope, namespace);
                     List<SwitchCase> cases = new ArrayList<>();
                     boolean crossesInitialization = false;
@@ -1801,8 +1799,10 @@ public final class CppNameBinder {
                     if (n.compoundBinaryOperator().isPresent()) {
                         Expression overloaded = operatorExpression(operatorName(n.operator()), n,
                                 List.of(n.target(), n.value()), List.of(target, value), namespace, local, false);
-                        if (overloaded != null) yield overloaded;
+                        if (overloaded != null) yield overloaded instanceof AssignmentExpr builtin
+                                ? normalizedAssignment(builtin, addressDemand) : overloaded;
                     }
+                    if (n.operator() == TokenType.EQUAL) value = convertCallValue(targetType, value, n.value());
                     AssignmentExpr assignment = new AssignmentExpr(target, n.operator(), value, n.range());
                     yield normalizedAssignment(assignment, addressDemand);
                 }
@@ -1820,9 +1820,11 @@ public final class CppNameBinder {
                     yield hasBooleanResult(n.operator()) ? booleanResult(operation) : operation;
                 }
                 case ConditionalExpr n -> {
-                    Expression condition = expression(n.condition(), namespace, local);
+                    Expression condition = contextualBool(expression(n.condition(), namespace, local));
                     Expression first = expression(n.thenExpression(), namespace, local, addressDemand);
                     Expression second = expression(n.elseExpression(), namespace, local, addressDemand);
+                    List<Expression> convertedBranches = conditionalConversions(first, second, n.range());
+                    first = convertedBranches.get(0); second = convertedBranches.get(1);
                     MiniType firstType = declaredExpressionType(first), secondType = declaredExpressionType(second);
                     MiniType common = conditionalLvalueType(firstType, secondType);
                     boolean lvalues = valueCategory(first) == CppValueCategory.LVALUE && valueCategory(second) == CppValueCategory.LVALUE;
@@ -1905,12 +1907,8 @@ public final class CppNameBinder {
                 }
                 case CastExpr n -> {
                     MiniType type = normalizeType(n.targetType(), namespace, local, n.range());
-                    if (type.isReference()) report("CPP005", n.range(), "引用类型显式转换的值类别规则尚未实现。");
                     Expression operand = expressionForTarget(type, n.operand(), namespace, local);
-                    requireExplicitConversion(type, operand, n.range());
-                    CastExpr cast = new CastExpr(coreType(type), operand, n.range());
-                    declaredExpressionTypes.put(cast, type);
-                    yield cast;
+                    yield explicitConversion(type, operand, n.range());
                 }
                 case CommaExpr n -> {
                     Expression folded = expression(n.expressions().getFirst(), namespace, local, true);
@@ -1961,7 +1959,12 @@ public final class CppNameBinder {
                     Expression operand = expression(n.operand(), namespace, local, update || n.operator() == TokenType.AMPERSAND);
                     Expression overloaded = operatorExpression(operatorName(n.operator()), n,
                             List.of(n.operand()), List.of(operand), namespace, local, false);
-                    if (overloaded != null) yield overloaded;
+                    if (overloaded != null) {
+                        if (update && addressDemand && overloaded instanceof UnaryExpr operation
+                                && (operation.operator() == TokenType.PLUS_PLUS || operation.operator() == TokenType.MINUS_MINUS))
+                            yield addressUpdateResult(operation);
+                        yield overloaded;
+                    }
                     if (n.operator() == TokenType.AMPERSAND && valueCategory(operand) != CppValueCategory.LVALUE) {
                         report("CPP004", n.range(), "内置取址要求左值或函数，不能对临时对象的子对象取址。");
                     }
@@ -2205,7 +2208,18 @@ public final class CppNameBinder {
             return symbol == null ? null : "operator" + symbol;
         }
 
-        private record OperatorCandidate(Entity function, Method method, List<MiniType> parameters) { }
+        private record OperatorCandidate(Entity function, Method method, List<MiniType> parameters, String builtin) {
+            OperatorCandidate(Entity function, Method method, List<MiniType> parameters) { this(function, method, parameters, null); }
+        }
+
+        private Expression addressUpdateResult(UnaryExpr operation) {
+            Expression operand = operation.operand(); MiniType type = declaredExpressionType(operand);
+            if (type == null || !addressableObject(operand)) return operation;
+            Capture pointer = capture(type.pointerTo(), address(operand), operation.range());
+            Expression target = typed(new UnaryExpr(TokenType.STAR, pointer.name(), operand.range()), type);
+            Expression body = new CommaExpr(List.of(new UnaryExpr(operation.operator(), target, operation.range()), pointer.name()), operation.range());
+            return typed(new UnaryExpr(TokenType.STAR, pointer.wrap(body), operation.range()), type);
+        }
 
         private Expression builtinComma(Expression first, Expression last, SourceRange range) {
             if (addressableObject(last)) {
@@ -2256,6 +2270,7 @@ public final class CppNameBinder {
                 var candidate = new OperatorCandidate(function, null, type.parameterTypes());
                 candidates.add(new CppOverloadResolver.Candidate<>(candidate, type.parameterTypes(), type.variadic()));
             }
+            addBuiltinOperators(name, original, values, candidates);
             List<CppOverloadResolver.Argument> arguments = new ArrayList<>();
             for (int index = 0; index < values.size(); index++) {
                 Expression value = values.get(index);
@@ -2266,7 +2281,7 @@ public final class CppNameBinder {
                 }
                 arguments.add(new CppOverloadResolver.Argument(type, valueCategory(value), isNullIntegerLiteral(sources.get(index))));
             }
-            var resolution = CppOverloadResolver.resolveOperators(candidates, arguments);
+            var resolution = CppOverloadResolver.resolveOperators(candidates, arguments, this::implicitUserConversion);
             if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
                 // C++ unary & falls back to builtin address-of only when no candidate is viable.
                 if ((name.equals("operator&") && values.size() == 1 || name.equals("operator,"))
@@ -2276,6 +2291,7 @@ public final class CppNameBinder {
                 return new IntegerLiteralExpr(0, "0", original.range());
             }
             OperatorCandidate selected = resolution.winner().identity();
+            if (selected.builtin != null) return lowerBuiltinOperator(selected, original, values);
             List<Expression> lowered = new ArrayList<>();
             int offset = selected.method == null ? 0 : 1;
             if (selected.method != null) {
@@ -2302,6 +2318,164 @@ public final class CppNameBinder {
             if (signature.returnType().isReference())
                 return typed(new UnaryExpr(TokenType.STAR, call, original.range()), signature.returnType().referent());
             return signature.returnType().isStruct() ? recordPrvalue(signature.returnType(), call, original.range()) : call;
+        }
+
+        private static final List<MiniType> PROMOTED_ARITHMETIC = List.of(MiniType.INT, MiniType.UNSIGNED_INT,
+                MiniType.LONG, MiniType.UNSIGNED_LONG, MiniType.LONG_LONG, MiniType.UNSIGNED_LONG_LONG, MiniType.FLOAT, MiniType.DOUBLE);
+
+        private boolean contextualOperator(String name) {
+            return "operator!".equals(name) || "operator&&".equals(name) || "operator||".equals(name);
+        }
+
+        /** N4659 over.built: candidates describe conversions, then the core checks the actual builtin operands. */
+        private void addBuiltinOperators(String name, Expression original, List<Expression> values,
+                                          List<CppOverloadResolver.Candidate<OperatorCandidate>> candidates) {
+            Set<List<MiniType>> signatures = new LinkedHashSet<>();
+            Set<MiniType> pointers = new LinkedHashSet<>();
+            Set<MiniType> objects = new LinkedHashSet<>();
+            for (Expression value : values) {
+                MiniType type = declaredExpressionType(value);
+                if (type == null) continue;
+                List<MiniType> reachable = new ArrayList<>(); reachable.add(type);
+                for (Method conversion : conversionMethods(type)) if (!conversion.source.method().conversionName().explicitSpecifier())
+                    reachable.add(objectTypeOfReference(conversion.returnType));
+                for (MiniType result : reachable) {
+                    objects.add(result);
+                    MiniType decayed = TypeCompatibility.decay(result).unqualified();
+                    if (decayed.isPointer()) pointers.add(decayed);
+                }
+            }
+            // Include a composite cv pointer when neither existing spelling contains both qualifications.
+            for (MiniType first : List.copyOf(pointers)) for (MiniType second : List.copyOf(pointers))
+                if (first.pointee().unqualified().equals(second.pointee().unqualified())) {
+                    var qualifiers = new HashSet<>(first.pointee().qualifiers()); qualifiers.addAll(second.pointee().qualifiers());
+                    pointers.add(MiniType.qualified(first.pointee().unqualified(), qualifiers).pointerTo());
+                }
+            if (original instanceof AssignmentExpr assignment) {
+                MiniType left = declaredExpressionType(values.getFirst());
+                if (left != null && !left.isConstQualified() && objectType(left) == null) {
+                    boolean integralOnly = Set.of(TokenType.PERCENT_EQUAL, TokenType.AMPERSAND_EQUAL, TokenType.PIPE_EQUAL,
+                            TokenType.CARET_EQUAL, TokenType.LESS_LESS_EQUAL, TokenType.GREATER_GREATER_EQUAL).contains(assignment.operator());
+                    if (left.isScalar() && (!integralOnly || left.isIntegerScalar())) {
+                        for (MiniType right : PROMOTED_ARITHMETIC) if (!integralOnly || right.isIntegerScalar())
+                            signatures.add(List.of(left.referenceTo(), right));
+                    } else if (left.isPointer() && !left.pointee().isVoid() && !left.pointee().isFunction()
+                            && (assignment.operator() == TokenType.PLUS_EQUAL || assignment.operator() == TokenType.MINUS_EQUAL))
+                        signatures.add(List.of(left.referenceTo(), MiniType.LONG_LONG));
+                }
+            }
+            if (name.equals("operator()")) {
+                for (MiniType pointer : pointers) if (pointer.pointee().isFunction()) {
+                    MiniType.FunctionType signature = (MiniType.FunctionType) pointer.pointee().unqualified();
+                    List<MiniType> parameters = new ArrayList<>(); parameters.add(pointer); parameters.addAll(signature.parameterTypes());
+                    OperatorCandidate builtin = new OperatorCandidate(null, null, parameters, name);
+                    candidates.add(new CppOverloadResolver.Candidate<>(builtin, parameters, signature.variadic()));
+                }
+                return;
+            }
+            boolean unary = values.size() == 1;
+            boolean update = name.equals("operator++") || name.equals("operator--");
+            if (contextualOperator(name)) signatures.add(java.util.Collections.nCopies(values.size(), MiniType.BOOL));
+            else if (update) {
+                for (MiniType type : objects) if (!type.isConstQualified() && !type.unqualified().equals(MiniType.BOOL)
+                        && (type.isScalar() || type.isPointer() && !type.pointee().isVoid() && !type.pointee().isFunction()))
+                    signatures.add(unary ? List.of(type.referenceTo()) : List.of(type.referenceTo(), MiniType.INT));
+            } else if (unary) {
+                if (name.equals("operator+") || name.equals("operator-"))
+                    for (MiniType type : PROMOTED_ARITHMETIC) signatures.add(List.of(type));
+                if (name.equals("operator~")) for (MiniType type : PROMOTED_ARITHMETIC)
+                    if (type.isIntegerScalar()) signatures.add(List.of(type));
+                if (name.equals("operator+") || name.equals("operator*")) for (MiniType pointer : pointers)
+                    if (!name.equals("operator*") || !pointer.pointee().isVoid()) signatures.add(List.of(pointer));
+            } else if (values.size() == 2) {
+                boolean comparison = Set.of("operator==", "operator!=", "operator<", "operator>", "operator<=", "operator>=").contains(name);
+                boolean arithmetic = comparison || Set.of("operator+", "operator-", "operator*", "operator/", "operator?:").contains(name);
+                boolean integral = Set.of("operator%", "operator&", "operator|", "operator^", "operator<<", "operator>>").contains(name);
+                if (arithmetic || integral) for (MiniType first : PROMOTED_ARITHMETIC) for (MiniType second : PROMOTED_ARITHMETIC)
+                    if (!integral || first.isIntegerScalar() && second.isIntegerScalar()) signatures.add(List.of(first, second));
+                for (MiniType pointer : pointers) {
+                    if (comparison || name.equals("operator?:")) signatures.add(List.of(pointer, pointer));
+                    if (pointer.pointee().isVoid() || pointer.pointee().isFunction()) continue;
+                    if (Set.of("operator+", "operator-", "operator[]").contains(name)) signatures.add(List.of(pointer, MiniType.LONG_LONG));
+                    if (name.equals("operator+") || name.equals("operator[]")) signatures.add(List.of(MiniType.LONG_LONG, pointer));
+                    if (name.equals("operator-")) signatures.add(List.of(pointer, pointer));
+                }
+                if (name.equals("operator==") || name.equals("operator!=")) signatures.add(List.of(MiniType.NULL, MiniType.NULL));
+            }
+            for (List<MiniType> parameters : signatures) {
+                if (candidates.stream().anyMatch(candidate -> candidate.identity().method == null
+                        && candidate.identity().function != null && candidate.parameterTypes().equals(parameters))) continue;
+                OperatorCandidate builtin = new OperatorCandidate(null, null, parameters, name);
+                candidates.add(new CppOverloadResolver.Candidate<>(builtin, parameters, false));
+            }
+        }
+
+        private Expression lowerBuiltinOperator(OperatorCandidate selected, Expression original, List<Expression> values) {
+            List<Expression> converted = new ArrayList<>();
+            for (int index = 0; index < values.size(); index++) {
+                Expression value = values.get(index);
+                if (index < selected.parameters.size() && objectType(declaredExpressionType(value)) != null) {
+                    Expression conversion = userConversion(selected.parameters.get(index), value,
+                            contextualOperator(selected.builtin) ? ConversionContext.BOOLEAN : ConversionContext.IMPLICIT, value.range());
+                    if (conversion != null) value = conversion;
+                }
+                // Do not apply the trailing standard sequence: the actual builtin must still
+                // reject e.g. pointer + a class converting to double (over.match.oper/7).
+                converted.add(contextualOperator(selected.builtin) ? contextualBool(value) : value);
+            }
+            if (original instanceof AssignmentExpr assignment)
+                return new AssignmentExpr(converted.get(0), assignment.operator(), converted.get(1), original.range());
+            if (original instanceof CallExpr) {
+                Expression callee = converted.getFirst();
+                MiniType.FunctionType signature = functionSignature(declaredExpressionType(callee));
+                List<Expression> arguments = new ArrayList<>();
+                for (int index = 1; index < converted.size(); index++) {
+                    Expression argument = converted.get(index);
+                    MiniType parameter = index - 1 < signature.parameterTypes().size() ? signature.parameterTypes().get(index - 1) : null;
+                    arguments.add(parameter != null && parameter.isReference()
+                            ? bindReferenceValue(parameter, argument, values.get(index), argument.range())
+                            : convertCallValue(parameter, argument, values.get(index)));
+                }
+                requireComplete(signature.returnType(), original.range());
+                destructorForUse(signature.returnType(), original.range());
+                Expression call = typed(new CallExpr(callee, arguments, original.range()), coreType(signature.returnType()));
+                if (signature.returnType().isReference()) return typed(new UnaryExpr(TokenType.STAR, call, original.range()), signature.returnType().referent());
+                return signature.returnType().isStruct() ? recordPrvalue(signature.returnType(), call, original.range()) : call;
+            }
+            if (original instanceof BinaryExpr binary) {
+                Expression left = converted.get(0), right = converted.get(1);
+                if (binary.operator() == TokenType.PLUS || binary.operator() == TokenType.MINUS) {
+                    requireComplete(elementType(declaredExpressionType(left)), original.range());
+                    requireComplete(elementType(declaredExpressionType(right)), original.range());
+                }
+                Expression operation = new BinaryExpr(left, binary.operator(), right, original.range());
+                return hasBooleanResult(binary.operator()) ? booleanResult(operation) : operation;
+            }
+            if (original instanceof UnaryExpr unary) {
+                Expression value = converted.getFirst();
+                if (unary.operator() == TokenType.PLUS_PLUS || unary.operator() == TokenType.MINUS_MINUS) requireUpdateOperand(value, original.range());
+                if (unary.operator() == TokenType.PLUS && declaredExpressionType(value).isPointer()) return value;
+                Expression operation = new UnaryExpr(unary.operator(), value, original.range());
+                return unary.operator() == TokenType.BANG ? booleanResult(operation) : operation;
+            }
+            if (original instanceof PostfixUpdateExpr update) {
+                requireUpdateOperand(converted.getFirst(), original.range());
+                return new PostfixUpdateExpr(converted.getFirst(), update.operator(), original.range());
+            }
+            if (original instanceof IndexExpr) {
+                Expression pointer = converted.get(0), index = converted.get(1);
+                if (!TypeCompatibility.decay(declaredExpressionType(pointer)).isPointer()) {
+                    // a[b] sequences a before b even for the symmetric integer[pointer] builtin.
+                    Capture first = capture(declaredExpressionType(pointer), pointer, original.range());
+                    MiniType element = elementType(declaredExpressionType(index));
+                    requireComplete(element, original.range());
+                    Expression indexed = typed(new IndexExpr(index, first.name(), original.range()), element);
+                    return typed(new UnaryExpr(TokenType.STAR, first.wrap(address(indexed)), original.range()), element);
+                }
+                requireComplete(elementType(declaredExpressionType(pointer)), original.range());
+                return typed(new IndexExpr(pointer, index, original.range()), elementType(declaredExpressionType(pointer)));
+            }
+            throw new IllegalStateException("Unsupported builtin operator result: " + selected.builtin);
         }
 
         /** Ordinary lookup ignores class members; ADL adds only the associated namespace's declarations. */
@@ -2585,7 +2759,7 @@ public final class CppNameBinder {
                 if (viable) contextual.add(new CppOverloadResolver.Candidate<>(candidate.identity(), parameters,
                         candidate.variadic(), candidate.implicitObjectType()));
             }
-            var resolution = CppOverloadResolver.resolve(contextual, arguments, receiver);
+            var resolution = CppOverloadResolver.resolve(contextual, arguments, receiver, this::implicitUserConversion);
             if (resolution.status() == CppOverloadResolver.Status.SELECTED) return resolution.winner().identity();
             report("CPP004", sourceCallee.range(), resolution.status() == CppOverloadResolver.Status.AMBIGUOUS
                     ? "重载函数调用具有二义性。" : "没有与实参匹配的重载函数。");
@@ -2617,7 +2791,15 @@ public final class CppNameBinder {
             if (parameter == null || value == null) return value; // ellipsis/arity remains a core check
             MiniType actual = declaredExpressionType(value);
             if (actual == null) return value; // unsupported initializer forms retain their existing diagnostics
+            if (parameter.isVoid() && actual.isVoid()) return value; // void return with a void expression
             var argument = new CppOverloadResolver.Argument(actual, valueCategory(value), isNullIntegerLiteral(source));
+            if (!CppOverloadResolver.standardViable(argument, parameter)) {
+                Expression converted = userConversion(parameter, value, ConversionContext.IMPLICIT, source.range());
+                if (converted != null) {
+                    value = converted; actual = declaredExpressionType(value);
+                    argument = new CppOverloadResolver.Argument(actual, valueCategory(value), false);
+                }
+            }
             if (CppOverloadResolver.resolve(List.of(new CppOverloadResolver.Candidate<>("argument", List.of(parameter), false)),
                     List.of(argument)).status() != CppOverloadResolver.Status.SELECTED) {
                 report("CPP004", source.range(), initializedVariable == null
@@ -3013,7 +3195,9 @@ public final class CppNameBinder {
                 Expression argument = legacy != null && !(legacy instanceof CppInitializer) ? legacy
                         : arguments.size() == 1 ? arguments.getFirst() : null;
                 if (list && !(argument instanceof AggregateInitExpr)) argument = new AggregateInitExpr(arguments, syntax.range());
-                return bindReference(target, argument, namespace, local, range);
+                return bindReference(target, argument, namespace, local, range,
+                        syntax.kind() == CppInitializer.Kind.COPY || syntax.kind() == CppInitializer.Kind.COPY_LIST
+                                ? ConversionContext.IMPLICIT : ConversionContext.EXPLICIT);
             }
             TypeEntity object = objectType(target);
             if (object != null && needsConstruction(object)) {
@@ -3027,6 +3211,7 @@ public final class CppNameBinder {
                         MiniType actual = declaredExpressionType(value);
                         if (actual != null && actual.unqualified().equals(target.unqualified()))
                             return initializerMapping(syntax, copyInitialize(target, value, syntax.range(), syntax.kind()));
+                        return initializerMapping(syntax, directClassConversion(target, value, syntax.range()));
                     }
                     report("CPP005", syntax.range(), "Parenthesized aggregate initialization requires a constructor in C++17.");
                     return arguments.isEmpty() ? null : expression(arguments.getFirst(), namespace, local);
@@ -3049,6 +3234,12 @@ public final class CppNameBinder {
                 return expression(arguments.getFirst(), namespace, local);
             }
             Expression value = expressionForTarget(target, arguments.getFirst(), namespace, local);
+            if (objectType(declaredExpressionType(value)) != null) {
+                ConversionContext mode = syntax.kind() == CppInitializer.Kind.COPY
+                        || syntax.kind() == CppInitializer.Kind.COPY_LIST ? ConversionContext.IMPLICIT : ConversionContext.EXPLICIT;
+                Expression converted = userConversion(target, value, mode, arguments.getFirst().range());
+                if (converted != null) value = converted;
+            }
             if (list) requireNonNarrowing(target, value, arguments.getFirst().range());
             return initializerMapping(syntax, convertCallValue(target.unqualified(), value, arguments.getFirst(), sourceName));
         }
@@ -3101,8 +3292,12 @@ public final class CppNameBinder {
                 report("CPP004", source.range(), "Braced construction requires an object type; void has no object.");
                 return new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", source.range()), source.range());
             }
+            if (type.isReference() && arguments.size() == 1) {
+                Expression value = expression(arguments.getFirst(), namespace, local, true);
+                return explicitConversion(type, value, source.range());
+            }
             if (type.isReference() || type.isArray() || type.isFunction()) {
-                report("CPP005", source.typeRange(), "Functional construction of reference, array or function types is not supported yet.");
+                report("CPP005", source.typeRange(), "Functional construction requires a single argument for a reference and an object result otherwise.");
                 return new NullLiteralExpr("nullptr", source.range());
             }
             TypeEntity owner = objectType(type);
@@ -3118,6 +3313,9 @@ public final class CppNameBinder {
                     if (actual != null && type.unqualified().equals(actual.unqualified())) {
                         Expression copied = copyInitialize(type, value, source.range(), syntax.kind());
                         return ObjectInitExpr.occursInResultOf(copied) ? copied : recordPrvalue(type, copied, source.range());
+                    }
+                    if (syntax.kind() == CppInitializer.Kind.DIRECT_PAREN) {
+                        return directClassConversion(type, value, source.range());
                     }
                 }
                 String destination = freshName("construction");
@@ -3159,8 +3357,239 @@ public final class CppNameBinder {
             if (arguments.size() > 1) report("CPP004", syntax.range(), "A scalar functional conversion requires at most one argument.");
             Expression value = arguments.isEmpty() ? new IntegerLiteralExpr(0, "0", source.range())
                     : expression(arguments.getFirst(), namespace, local);
-            requireExplicitConversion(type, value, source.range());
-            return typed(new CastExpr(coreType(type.unqualified()), value, source.range()), type.unqualified());
+            return explicitConversion(type, value, source.range());
+        }
+
+        private enum ConversionContext { IMPLICIT, EXPLICIT, BOOLEAN }
+        private record UserChoice(Method method, Constructor constructor, CppOverloadResolver.Argument output,
+                                  CppOverloadResolver.Argument input, MiniType inputTarget) {
+            Object identity() { return method != null ? method.function : constructor.function; }
+        }
+        private record UserSelection(List<UserChoice> viable, UserChoice selected) {
+            boolean ambiguous() { return selected == null && !viable.isEmpty(); }
+        }
+        private List<Method> conversionMethods(MiniType type) {
+            TypeEntity owner = objectType(type);
+            if (owner == null) return List.of();
+            return owner.methods.values().stream().flatMap(set -> set.methods.stream())
+                    .filter(method -> method.source.method().conversionName() != null).toList();
+        }
+        private UserSelection selectUserConversion(MiniType target, CppOverloadResolver.Argument source, ConversionContext mode) {
+            List<UserChoice> choices = new ArrayList<>();
+            for (Method method : conversionMethods(source.type())) {
+                boolean explicit = method.source.method().conversionName().explicitSpecifier();
+                if (explicit && mode == ConversionContext.IMPLICIT) continue;
+                // Explicit conversion functions may not acquire an unrelated target via
+                // a second arithmetic/pointer conversion (N4659 over.match.conv).
+                if (explicit && !CppOverloadResolver.qualificationOnly(method.returnType, target)) continue;
+                MiniType receiver = methodThisType(method.owner, method.source).pointee();
+                if (!receiver.qualifiers().containsAll(source.type().qualifiers())) continue;
+                MiniType result = objectTypeOfReference(method.returnType);
+                var output = new CppOverloadResolver.Argument(result, method.returnType.isReference()
+                        ? CppValueCategory.LVALUE : CppValueCategory.PRVALUE, false);
+                if (!CppOverloadResolver.standardViable(output, target)) continue;
+                var input = new CppOverloadResolver.Argument(source.type(), CppValueCategory.LVALUE, false);
+                choices.add(new UserChoice(method, null, output, input, receiver.referenceTo()));
+            }
+            MiniType objectTarget = objectTypeOfReference(target).unqualified();
+            TypeEntity owner = objectType(objectTarget);
+            if (owner != null && !objectTarget.equals(source.type().unqualified()) && mode != ConversionContext.BOOLEAN) {
+                var output = new CppOverloadResolver.Argument(objectTarget, CppValueCategory.PRVALUE, false);
+                if (CppOverloadResolver.standardViable(output, target)) for (Constructor constructor : owner.constructors) {
+                    if (constructor.parameterTypes.size() != 1 || constructor.source.variadic()
+                            || constructor.source.explicitSpecifier() && mode == ConversionContext.IMPLICIT) continue;
+                    MiniType parameter = constructor.parameterTypes.getFirst();
+                    if (CppOverloadResolver.standardViable(source, parameter))
+                        choices.add(new UserChoice(null, constructor, output, source, parameter));
+                }
+            }
+            UserChoice winner = null;
+            for (UserChoice candidate : choices) {
+                boolean best = true;
+                for (UserChoice other : choices) if (candidate != other) {
+                    int initial = CppOverloadResolver.compareStandard(candidate.input, candidate.inputTarget, other.input, other.inputTarget);
+                    int trailing = CppOverloadResolver.compareStandard(candidate.output, target, other.output, target);
+                    if (!(initial < 0 || initial == 0 && trailing < 0)) { best = false; break; }
+                }
+                if (best) { winner = candidate; break; }
+            }
+            return new UserSelection(List.copyOf(choices), winner);
+        }
+        private CppOverloadResolver.UserConversion implicitUserConversion(Object candidate, CppOverloadResolver.Argument source, MiniType target) {
+            ConversionContext mode = candidate instanceof OperatorCandidate operator && contextualOperator(operator.builtin)
+                    ? ConversionContext.BOOLEAN : ConversionContext.IMPLICIT;
+            UserSelection selection = selectUserConversion(target, source, mode);
+            if (selection.viable.isEmpty()) return null;
+            if (selection.ambiguous()) return new CppOverloadResolver.UserConversion(selection,
+                    new CppOverloadResolver.Argument(objectTypeOfReference(target), target.isReference()
+                            ? CppValueCategory.LVALUE : CppValueCategory.PRVALUE, false), true);
+            return new CppOverloadResolver.UserConversion(selection.selected.identity(), selection.selected.output, false);
+        }
+        /** Emits the chosen user step; the caller applies its validated trailing standard conversion. */
+        private Expression userConversion(MiniType target, Expression value, ConversionContext mode, SourceRange range) {
+            MiniType actual = declaredExpressionType(value);
+            if (actual == null) return null;
+            var argument = new CppOverloadResolver.Argument(actual, valueCategory(value), isNullIntegerLiteral(value));
+            UserSelection selection = selectUserConversion(target, argument, mode);
+            if (selection.viable.isEmpty()) return null;
+            if (selection.ambiguous()) { report("CPP004", range, "用户定义转换具有二义性。"); return value; }
+            return emitUserConversion(selection.selected, value, range);
+        }
+
+        private Expression emitUserConversion(UserChoice selected, Expression value, SourceRange range) {
+            if (selected.method != null) {
+                Method method = selected.method;
+                instantiateMethod(method);
+                requireMethodAccess(method, range);
+                Expression receiver = materializedReceiver(value);
+                if (!addressableObject(receiver)) {
+                    report("CPP005", range, "此转换函数接收者尚无可用的对象存储。"); return value;
+                }
+                destructorForUse(method.returnType, range);
+                Expression call = typed(new CallExpr(new NameExpr(method.function.coreName, range), List.of(address(receiver)), range),
+                        coreType(method.returnType));
+                if (method.returnType.isReference()) return typed(new UnaryExpr(TokenType.STAR, call, range), method.returnType.referent());
+                return method.returnType.isStruct() ? recordPrvalue(method.returnType, call, range) : call;
+            }
+            Constructor constructor = selected.constructor;
+            instantiateConstructor(constructor);
+            if (constructor == constructor.owner.implicitCopy) emitImplicitCopy(constructor.owner);
+            if (constructor.access != Access.PUBLIC && currentClass != constructor.owner)
+                report("CPP004", range, "转换构造函数不可访问。");
+            if (deletedConstructors.containsKey(constructor.function)) {
+                report("CPP004", range, "转换构造函数已删除或不可用。"); return value;
+            }
+            MiniType parameter = constructor.parameterTypes.getFirst();
+            Expression lowered = parameter.isReference() ? bindReferenceValue(parameter, value, value, range)
+                    : convertCallValue(parameter, value, value);
+            destructorForUse(constructor.owner.type, range);
+            String destination = freshName("conversion");
+            Expression call = typed(new CallExpr(new NameExpr(constructor.function.coreName, range),
+                    List.of(typed(new NameExpr(destination, range), constructor.owner.type.pointerTo()), lowered), range), MiniType.VOID);
+            return typed(new ObjectInitExpr(constructor.owner.type, destination, call, range), constructor.owner.type);
+        }
+        private Expression contextualBool(Expression value) {
+            if (value == null) return null;
+            MiniType type = declaredExpressionType(value);
+            if (objectType(type) == null) return value;
+            Expression converted = userConversion(MiniType.BOOL, value, ConversionContext.BOOLEAN, value.range());
+            if (converted == null) { report("CPP004", value.range(), "条件没有可行的布尔转换。"); return value; }
+            return typed(new CastExpr(MiniType.BOOL, converted, value.range()), MiniType.BOOL);
+        }
+
+        private List<Constructor> allConstructors(TypeEntity owner) {
+            List<Constructor> result = new ArrayList<>(owner.constructors);
+            for (Constructor copy : copyConstructors(owner)) if (!result.contains(copy)) result.add(copy);
+            return result;
+        }
+
+        private Expression directClassConversion(MiniType target, Expression value, SourceRange range) {
+            TypeEntity owner = objectType(target);
+            if (owner == null) return value;
+            List<CppOverloadResolver.Candidate<Constructor>> candidates = allConstructors(owner).stream()
+                    .map(constructor -> new CppOverloadResolver.Candidate<>(constructor, constructor.parameterTypes, constructor.source.variadic())).toList();
+            var resolution = CppOverloadResolver.resolve(candidates,
+                    List.of(new CppOverloadResolver.Argument(declaredExpressionType(value), valueCategory(value), isNullIntegerLiteral(value))),
+                    null, this::implicitUserConversion);
+            if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
+                report("CPP004", range, "直接初始化没有唯一的可行构造函数。"); return value;
+            }
+            Constructor selected = resolution.winner().identity();
+            var source = new CppOverloadResolver.Argument(declaredExpressionType(value), valueCategory(value), isNullIntegerLiteral(value));
+            var output = new CppOverloadResolver.Argument(owner.type, CppValueCategory.PRVALUE, false);
+            return emitUserConversion(new UserChoice(null, selected, output, source, selected.parameterTypes.getFirst()), value, range);
+        }
+
+        private Expression explicitConversion(MiniType target, Expression value, SourceRange range) {
+            if (target.isVoid()) return typed(new CastExpr(MiniType.VOID, value, range), MiniType.VOID);
+            MiniType actual = declaredExpressionType(value);
+            if (actual == null) return value;
+            if (target.isReference()) {
+                if (!CppOverloadResolver.standardViable(new CppOverloadResolver.Argument(actual, valueCategory(value), false), target)) {
+                    Expression converted = userConversion(target, value, ConversionContext.EXPLICIT, range);
+                    if (converted != null) { value = converted; actual = declaredExpressionType(value); }
+                }
+                // Cast notation also admits const_cast/reinterpret_cast for addressable objects.
+                if (valueCategory(value) == CppValueCategory.LVALUE && addressableObject(value)
+                        && !actual.isVoid() && !target.referent().isVoid()) {
+                    Expression pointer = typed(new CastExpr(coreType(target.referent()).pointerTo(), address(value), range),
+                            target.referent().pointerTo());
+                    return typed(new UnaryExpr(TokenType.STAR, pointer, range), target.referent());
+                }
+                Expression pointer = bindReferenceValue(target, value, value, range);
+                return typed(new UnaryExpr(TokenType.STAR, pointer, range), target.referent());
+            }
+            if (target.isStruct()) {
+                if (actual.unqualified().equals(target.unqualified()))
+                    return copyInitialize(target, value, range, CppInitializer.Kind.DIRECT_PAREN);
+                return directClassConversion(target, value, range);
+            }
+            if (objectType(actual) != null) {
+                Expression converted = userConversion(target, value, ConversionContext.EXPLICIT, range);
+                if (converted == null) { report("CPP004", range, "没有可行的显式用户定义转换。"); return value; }
+                value = converted;
+                if (target.isStruct()) return convertCallValue(target, value, value);
+            }
+            requireExplicitConversion(target, value, range);
+            return typed(new CastExpr(coreType(target.unqualified()), value, range), target.unqualified());
+        }
+
+        private Expression contextualIntegral(Expression value) {
+            if (objectType(declaredExpressionType(value)) == null) return value;
+            Set<MiniType> targets = new LinkedHashSet<>();
+            for (Method method : conversionMethods(declaredExpressionType(value)))
+                if (!method.source.method().conversionName().explicitSpecifier()
+                        && objectTypeOfReference(method.returnType).isIntegerScalar())
+                    targets.add(objectTypeOfReference(method.returnType).unqualified());
+            if (targets.size() != 1) { report("CPP004", value.range(), "switch 要求唯一的整型转换目标。"); return value; }
+            Expression result = userConversion(targets.iterator().next(), value, ConversionContext.IMPLICIT, value.range());
+            if (result == null) { report("CPP004", value.range(), "switch 没有可行的整型转换。"); return value; }
+            return result;
+        }
+
+        private UserSelection conditionalSelection(Expression from, Expression to) {
+            MiniType type = declaredExpressionType(to), actual = declaredExpressionType(from);
+            if (type == null || actual == null) return new UserSelection(List.of(), null);
+            var source = new CppOverloadResolver.Argument(actual, valueCategory(from), isNullIntegerLiteral(from));
+            if (valueCategory(to) == CppValueCategory.LVALUE) {
+                UserSelection reference = selectUserConversion(type.referenceTo(), source, ConversionContext.IMPLICIT);
+                if (reference.ambiguous() || reference.selected != null && reference.selected.output.category() == CppValueCategory.LVALUE)
+                    return reference;
+            }
+            return selectUserConversion(TypeCompatibility.decay(type).unqualified(), source, ConversionContext.IMPLICIT);
+        }
+
+        private Expression conditionalConversion(UserChoice choice, Expression source, Expression other, SourceRange range) {
+            Expression value = emitUserConversion(choice, source, range);
+            MiniType target = declaredExpressionType(other);
+            if (valueCategory(other) == CppValueCategory.LVALUE && valueCategory(value) == CppValueCategory.LVALUE
+                    && referenceCompatible(target, declaredExpressionType(value))) return value;
+            target = TypeCompatibility.decay(target).unqualified();
+            value = convertCallValue(target, value, source);
+            return target.isStruct() ? value : typed(new CastExpr(coreType(target), value, range), target);
+        }
+
+        private List<Expression> conditionalConversions(Expression first, Expression second, SourceRange range) {
+            MiniType a = declaredExpressionType(first), b = declaredExpressionType(second);
+            if (a == null || b == null || objectType(a) == null && objectType(b) == null
+                    || a.unqualified().equals(b.unqualified())) return List.of(first, second);
+            UserSelection toSecond = conditionalSelection(first, second), toFirst = conditionalSelection(second, first);
+            if (toSecond.ambiguous() || toFirst.ambiguous() || toSecond.selected != null && toFirst.selected != null) {
+                report("CPP004", range, "条件运算符两分支的用户转换具有二义性。"); return List.of(first, second);
+            }
+            if (toSecond.selected != null) return List.of(conditionalConversion(toSecond.selected, first, second, range), second);
+            if (toFirst.selected != null) return List.of(first, conditionalConversion(toFirst.selected, second, first, range));
+            // If neither class can become the other, choose the builtin common arithmetic/pointer operands.
+            List<CppOverloadResolver.Candidate<OperatorCandidate>> candidates = new ArrayList<>();
+            addBuiltinOperators("operator?:", null, List.of(first, second), candidates);
+            var resolution = CppOverloadResolver.resolveOperators(candidates,
+                    List.of(new CppOverloadResolver.Argument(a, valueCategory(first), isNullIntegerLiteral(first)),
+                            new CppOverloadResolver.Argument(b, valueCategory(second), isNullIntegerLiteral(second))), this::implicitUserConversion);
+            if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
+                report("CPP004", range, "条件运算符没有唯一的共同类型。"); return List.of(first, second);
+            }
+            List<MiniType> types = resolution.winner().identity().parameters;
+            return List.of(convertCallValue(types.get(0), first, first), convertCallValue(types.get(1), second, second));
         }
 
         private void requireExplicitConversion(MiniType target, Expression value, SourceRange range) {
@@ -3537,17 +3966,30 @@ public final class CppNameBinder {
                 report("CPP005", range, "Nonempty aggregate lists with default member initialization require member-wise list binding.");
             }
             PreparedArguments prepared = prepareArguments(arguments, namespace, local);
+            if (syntax.kind() == CppInitializer.Kind.COPY && arguments.size() == 1 && prepared.values.getFirst() != null) {
+                Expression value = prepared.values.getFirst();
+                MiniType actual = declaredExpressionType(value);
+                if (actual != null && !actual.unqualified().equals(target.unqualified())) {
+                    Expression converted = userConversion(target, value, ConversionContext.IMPLICIT, range);
+                    if (converted != null) return convertCallValue(target, converted, arguments.getFirst());
+                    report("CPP004", range, "复制初始化没有唯一可行的单次用户定义转换。");
+                    return value;
+                }
+            }
             if (arguments.size() == 1 && prepared.values.getFirst() != null) {
                 Expression value = prepared.values.getFirst();
                 MiniType sourceType = declaredExpressionType(value);
                 if (sourceType != null && target.unqualified().equals(sourceType.unqualified()))
                     return copyInitialize(target, value, range, syntax.kind());
             }
-            List<CppOverloadResolver.Candidate<Constructor>> candidates = owner.constructors.stream()
+            List<CppOverloadResolver.Candidate<Constructor>> candidates = allConstructors(owner).stream()
                     .filter(c -> syntax.kind() != CppInitializer.Kind.COPY || !c.source.explicitSpecifier())
                     .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
             Constructor selected = selectOverload(candidates, new NameExpr(owner.name, range), arguments, prepared, null);
-            if (selected != null) instantiateConstructor(selected);
+            if (selected != null) {
+                instantiateConstructor(selected);
+                if (selected == owner.implicitCopy) emitImplicitCopy(owner);
+            }
             if (selected == null) return typed(new ObjectInitExpr(coreType(target), freshName("construction"),
                     new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", range), range), range), target);
             if (list && arguments.isEmpty() && selected.implicit && owner.aggregateInitializer != null) selected = owner.aggregateInitializer;
@@ -3588,6 +4030,11 @@ public final class CppNameBinder {
 
         /** Forms an address without reading the referred-to object or changing source expression identity. */
         private Expression bindReference(MiniType reference, Expression sourceNode, Namespace namespace, Local local, SourceRange range) {
+            return bindReference(reference, sourceNode, namespace, local, range, ConversionContext.IMPLICIT);
+        }
+
+        private Expression bindReference(MiniType reference, Expression sourceNode, Namespace namespace, Local local,
+                                         SourceRange range, ConversionContext mode) {
             if (sourceNode == null) {
                 report("CPP004", range, "引用必须绑定到初始化表达式。");
                 return new NullLiteralExpr("nullptr", range);
@@ -3597,7 +4044,7 @@ public final class CppNameBinder {
                     report("CPP004", list.range(), "引用列表初始化要求一个元素。");
                     return new NullLiteralExpr("nullptr", range);
                 }
-                Expression address = bindReference(reference, list.values().getFirst(), namespace, local, range);
+                Expression address = bindReference(reference, list.values().getFirst(), namespace, local, range, mode);
                 checkReferenceListConversion(reference.referent(), address, list.range());
                 return mapped(list, new GroupingExpr(address, list.range()));
             }
@@ -3606,8 +4053,23 @@ public final class CppNameBinder {
             try {
                 Expression value = contextualFunctionAddress(reference, sourceNode, namespace, local);
                 if (value == null) value = expression(sourceNode, namespace, local, true);
+                return bindReferenceValue(reference, value, sourceNode, range, mode);
+            } finally { fullExpressionOwner = savedOwner; }
+        }
+
+        private Expression bindReferenceValue(MiniType reference, Expression value, Expression sourceNode, SourceRange range) {
+            return bindReferenceValue(reference, value, sourceNode, range, ConversionContext.IMPLICIT);
+        }
+
+        private Expression bindReferenceValue(MiniType reference, Expression value, Expression sourceNode,
+                                              SourceRange range, ConversionContext mode) {
                 MiniType target = reference.referent();
                 MiniType actual = declaredExpressionType(value);
+                if (actual != null && !CppOverloadResolver.standardViable(
+                        new CppOverloadResolver.Argument(actual, valueCategory(value), isNullIntegerLiteral(sourceNode)), reference)) {
+                    Expression converted = userConversion(reference, value, mode, range);
+                    if (converted != null) { value = converted; actual = declaredExpressionType(value); }
+                }
                 CppValueCategory category = valueCategory(value);
                 boolean compatible = actual != null && referenceCompatible(target, actual);
                 boolean direct = category == CppValueCategory.LVALUE && compatible && addressableObject(value);
@@ -3639,7 +4101,6 @@ public final class CppNameBinder {
                     address = typed(new CastExpr(coreType(target).pointerTo(), address, sourceNode.range()), target.pointerTo());
                 }
                 return address;
-            } finally { fullExpressionOwner = savedOwner; }
         }
 
         private boolean isNullIntegerLiteral(Expression source) {
@@ -3818,10 +4279,7 @@ public final class CppNameBinder {
             TypeEntity object = objectType(target);
             if (!(bound instanceof AggregateInitExpr list)) {
                 MiniType value = declaredExpressionType(bound);
-                if (nonAggregate(object) && (value == null || !target.unqualified().equals(value.unqualified()))) {
-                    report("CPP005", sourceNode.range(), "尚未支持对此非聚合类型省略花括号或转换形式的初始化：" + object.canonicalName);
-                }
-                return copyInitialize(target, bound, sourceNode.range(), CppInitializer.Kind.COPY);
+                return convertCallValue(target, bound, sourceNode);
             }
             AggregateInitExpr original = (AggregateInitExpr) sourceNode;
             if (object != null && list.values().size() == 1) {
