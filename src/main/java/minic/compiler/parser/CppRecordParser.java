@@ -6,6 +6,7 @@ import minic.compiler.lexer.token.TokenType;
 import minic.compiler.parser.manager.StatementManager;
 import minic.compiler.parser.node.Declaration.*;
 import minic.compiler.parser.node.CppInitializer;
+import minic.compiler.parser.node.ConversionName;
 import minic.compiler.parser.node.QualifiedName;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.type.MiniType;
@@ -68,23 +69,50 @@ public final class CppRecordParser {
             while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
                 if (state.match(TokenType.SEMICOLON)) continue;
                 int before = state.currentIndex();
+                Token declarationStart = state.peek();
+                boolean explicitSpecifier = state.match(TokenType.EXPLICIT);
                 Token start = state.peek();
+                boolean constructorStart = start.type() == TokenType.IDENTIFIER && start.lexeme().equals(simpleName)
+                        && state.peekAt(1).type() == TokenType.LEFT_PAREN;
+                if (explicitSpecifier && !constructorStart && start.type() != TokenType.OPERATOR) {
+                    state.report(declarationStart.range(), "explicit 只能用于类内构造函数或转换函数声明");
+                    recoverMember();
+                    continue;
+                }
                 if (isAccess(start.type())) {
                     state.advance();
                     Token colon = state.consume(TokenType.COLON, "访问说明符后期望 ':'");
                     if (union) state.unsupportedCpp(start.range(), "union 访问说明符尚未实现");
                     else if (colon != null) members.add(new AccessLabel(access(start.type()), SourceRange.span(start.range(), colon.range())));
-                } else if (start.type() == TokenType.IDENTIFIER && start.lexeme().equals(simpleName)
-                        && state.peekAt(1).type() == TokenType.LEFT_PAREN) {
+                } else if (constructorStart) {
                     if (union) {
                         state.unsupportedCpp(start.range(), "union 构造函数尚未实现");
                         recoverMember();
                     } else {
                         state.advance();
-                        DeferredConstructor constructor = readConstructor(start.lexeme(), start.range(), start.range(), members.size());
+                        DeferredConstructor constructor = readConstructor(start.lexeme(), start.range(), declarationStart.range(),
+                                members.size(), explicitSpecifier);
                         if (constructor == null) recoverMember();
                         else { members.add(constructor.signature()); constructors.add(constructor); }
                     }
+                } else if (start.type() == TokenType.OPERATOR) {
+                    if (union) {
+                        state.unsupportedCpp(start.range(), "union 转换函数尚未实现");
+                        recoverMember();
+                    } else {
+                        ParsedConversion conversion = readConversion(declarationStart.range(), explicitSpecifier);
+                        if (conversion == null) recoverMember();
+                        else {
+                            int index = members.size();
+                            members.add(conversion.member());
+                            if (conversion.body() != null) deferred.add(new DeferredMethod(index,
+                                    conversion.member().method(), conversion.body(), List.of()));
+                        }
+                    }
+                } else if (start.type() == TokenType.STATIC && (state.peekAt(1).type() == TokenType.OPERATOR
+                        || state.peekAt(1).type() == TokenType.IDENTIFIER && state.peekAt(1).lexeme().equals(simpleName))) {
+                    state.report(start.range(), "构造函数和转换函数不能声明为 static");
+                    recoverMember();
                 } else if (start.type() == TokenType.TILDE) {
                     state.advance();
                     Token name = state.consume(TokenType.IDENTIFIER, "析构函数期望类名称");
@@ -171,7 +199,7 @@ public final class CppRecordParser {
                 BlockStmt body = state.inTokenWindow(item.body(), () -> statements.parseFunctionBlock(
                         signature.parameters().stream().map(Parameter::name).toList()));
                 var method = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
-                        signature.variadic(), body, false, false, signature.range(), signature.operatorName());
+                        signature.variadic(), body, false, false, signature.range(), signature.operatorName(), signature.conversionName());
                 MethodMember old = (MethodMember) members.get(item.memberIndex());
                 var member = new MethodMember(method, old.constQualified(), old.nameRange());
                 members.set(item.memberIndex(), member);
@@ -222,7 +250,7 @@ public final class CppRecordParser {
         SourceRange nameRange = state.previous().range();
         types.enterMemberDefinitionScope(name);
         try {
-            var deferred = readConstructor(name.segments().getLast(), nameRange, name.range(), -1);
+            var deferred = readConstructor(name.segments().getLast(), nameRange, name.range(), -1, false);
             if (deferred == null) {
                 recoverMember();
                 state.markDeclarationBoundaryRecovered();
@@ -236,6 +264,87 @@ public final class CppRecordParser {
         } finally {
             types.exitMemberDefinitionScope();
         }
+    }
+
+    /** A no-return-type qualified operator declaration is a conversion function. */
+    public boolean startsOutOfLineConversion() {
+        int offset = state.peekAt(0).type() == TokenType.SCOPE ? 1 : 0;
+        boolean owner = false;
+        while (state.peekAt(offset).type() == TokenType.IDENTIFIER
+                && state.peekAt(offset + 1).type() == TokenType.SCOPE) {
+            owner = true;
+            offset += 2;
+        }
+        return owner && state.peekAt(offset).type() == TokenType.OPERATOR;
+    }
+
+    public OutOfLineMethodDecl parseOutOfLineConversion() {
+        Token start = state.peek();
+        boolean global = state.match(TokenType.SCOPE);
+        List<String> segments = new ArrayList<>();
+        while (state.check(TokenType.IDENTIFIER) && state.peekAt(1).type() == TokenType.SCOPE) {
+            segments.add(state.advance().lexeme());
+            state.advance();
+        }
+        segments.add("operator");
+        // Member-definition lookup uses the owner prefix; the final name is resolved below.
+        types.enterMemberDefinitionScope(new QualifiedName(global, segments,
+                SourceRange.span(start.range(), state.peek().range())));
+        try {
+            ParsedConversion conversion = readConversion(start.range(), false);
+            if (conversion == null) {
+                recoverMember();
+                state.markDeclarationBoundaryRecovered();
+                return null;
+            }
+            MethodMember member = conversion.member();
+            if (conversion.body() == null)
+                state.report(member.nameRange(), "类外转换声明必须提供定义");
+            BlockStmt body = conversion.body() == null ? null : state.inTokenWindow(conversion.body(),
+                    () -> statements.parseFunctionBlock(List.of()));
+            FunctionDecl signature = member.method();
+            FunctionDecl function = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
+                    signature.variadic(), body, false, false, signature.range(), null, signature.conversionName());
+            segments.set(segments.size() - 1, function.name());
+            QualifiedName name = new QualifiedName(global, segments, SourceRange.span(start.range(), member.nameRange()));
+            var result = new OutOfLineMethodDecl(name, function, member.constQualified(), member.nameRange());
+            state.build(result, "OutOfLineConversion " + function.name(), result.range());
+            return result;
+        } finally {
+            types.exitMemberDefinitionScope();
+        }
+    }
+
+    private ParsedConversion readConversion(SourceRange start, boolean explicitSpecifier) {
+        Token operator = state.consume(TokenType.OPERATOR, "转换函数期望 operator");
+        if (operator == null) return null;
+        var target = types.parseCppTypeWithoutFunctionSuffix("期望转换目标类型");
+        if (target == null) return null;
+        if (target.type().unqualified().isArray() || target.type().unqualified().isFunction())
+            state.report(target.range(), "转换函数不能转换到数组或函数类型");
+        SourceRange nameRange = SourceRange.span(operator.range(), target.range());
+        Token open = state.consume(TokenType.LEFT_PAREN, "转换函数期望 '('");
+        if (open == null) return null;
+        var parameters = types.parseParameterList();
+        Token close = state.consume(TokenType.RIGHT_PAREN, "转换函数期望 ')'");
+        if (close == null) return null;
+        if (!parameters.parameters().isEmpty() || parameters.variadic())
+            state.report(SourceRange.span(open.range(), close.range()), "转换函数不能声明参数");
+        boolean constQualified = state.match(TokenType.CONST);
+        if (state.check(TokenType.CONST)) {
+            state.report(state.peek().range(), "转换函数 const 限定符重复");
+            return null;
+        }
+        Parser.Context.TokenWindow body = null;
+        if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
+        else if (!state.match(TokenType.SEMICOLON)) {
+            state.unsupportedCpp(state.peek().range(), "转换函数限定符或说明符尚未实现");
+            return null;
+        }
+        ConversionName name = new ConversionName(target.type(), explicitSpecifier, nameRange);
+        FunctionDecl method = new FunctionDecl(name.spelling(), target.type(), List.of(), false, null,
+                false, false, SourceRange.span(start, state.previous().range()), null, name);
+        return new ParsedConversion(new MethodMember(method, constQualified, nameRange), body);
     }
 
     /** This spelling cannot be a variable declarator, so classification needs no speculative type mutation. */
@@ -314,7 +423,8 @@ public final class CppRecordParser {
         return destructor;
     }
 
-    private DeferredConstructor readConstructor(String name, SourceRange nameRange, SourceRange start, int index) {
+    private DeferredConstructor readConstructor(String name, SourceRange nameRange, SourceRange start, int index,
+                                                boolean explicitSpecifier) {
         if (state.consume(TokenType.LEFT_PAREN, "构造参数期望 '('") == null) return null;
         var parameters = types.parseParameterList();
         if (state.consume(TokenType.RIGHT_PAREN, "构造参数期望 ')'") == null) return null;
@@ -337,6 +447,10 @@ public final class CppRecordParser {
         if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
         else if (state.match(TokenType.SEMICOLON)) {
             if (!initializers.isEmpty()) state.report(state.previous(), "成员初始化列表必须具有构造函数体");
+        } else if (state.check(TokenType.CONST) || state.check(TokenType.VOLATILE)
+                || state.check(TokenType.AMPERSAND) || state.check(TokenType.AMPERSAND_AMPERSAND)) {
+            state.report(state.peek().range(), "构造函数不能声明 cv 或引用限定符");
+            return null;
         } else {
             state.unsupportedCpp(state.peek().range(), "此构造函数限定符或说明符尚未实现");
             return null;
@@ -349,7 +463,7 @@ public final class CppRecordParser {
             resolved.add(new Parameter(parameter.name().isEmpty() ? "__unnamed" + i : parameter.name(), parameter.type(), parameter.range()));
         }
         var signature = new ConstructorMember(name, resolved, parameters.variadic(), List.of(), null,
-                nameRange, SourceRange.span(start, state.previous().range()));
+                nameRange, SourceRange.span(start, state.previous().range()), explicitSpecifier);
         return new DeferredConstructor(index, signature, initializers, body, unnamed);
     }
 
@@ -365,14 +479,13 @@ public final class CppRecordParser {
                 if (value != null) initializers.add(new MemberInitializer(initializer.target(), value, initializer.range()));
             }
             if (deferred.body() != null) {
-                deferred.unnamedParameters().forEach(range -> state.report(range, "构造函数定义中的参数必须命名"));
                 body = state.inTokenWindow(deferred.body(), statements::parseBlock);
             }
         } finally {
             types.exitScope();
         }
         var constructor = new ConstructorMember(signature.name(), signature.parameters(), signature.variadic(),
-                initializers, body, signature.nameRange(), signature.range());
+                initializers, body, signature.nameRange(), signature.range(), signature.explicitSpecifier());
         state.build(constructor, "ConstructorDecl " + signature.name(), constructor.range());
         return constructor;
     }
@@ -443,4 +556,5 @@ public final class CppRecordParser {
                                        Parser.Context.TokenWindow body, List<SourceRange> unnamedParameters) { }
     private record DeferredDestructor(int memberIndex, DestructorMember signature, Parser.Context.TokenWindow body) { }
     private record DeferredField(int memberIndex, Parser.Context.TokenWindow initializer) { }
+    private record ParsedConversion(MethodMember member, Parser.Context.TokenWindow body) { }
 }

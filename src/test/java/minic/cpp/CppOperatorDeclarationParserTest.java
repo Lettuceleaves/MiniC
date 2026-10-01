@@ -163,11 +163,10 @@ final class CppOperatorDeclarationParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {
-            "struct Value{operator bool() const;};",
             "unsigned long long operator \"\" _sample(unsigned long long value);",
             "void* operator new(unsigned long long size);",
             "void operator delete(void* pointer);"})
-    void conversionLiteralAndAllocationOperatorsStayExplicitlyUnsupported(String text) {
+    void literalAndAllocationOperatorsStayExplicitlyUnsupported(String text) {
         var parser = parse(text, LanguageMode.CPP17_ALGORITHM);
         assertFalse(parser.succeeded());
         assertTrue(parser.errors().stream().anyMatch(error -> error.code().equals("CPP001")), () -> parser.errors().toString());

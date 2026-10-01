@@ -723,7 +723,7 @@ public final class Parser extends Stage {
             declaration.fields().forEach(this::declareMemberField);
             if (declaration.cppInfo() != null) {
                 for (var member : declaration.cppInfo().members()) {
-                    if (member instanceof Declaration.MethodMember method) {
+                    if (member instanceof Declaration.MethodMember method && method.method().conversionName() == null) {
                         declareOrdinaryName(method.method().name(), method.nameRange());
                     }
                 }
@@ -853,6 +853,43 @@ public final class Parser extends Stage {
                 }
             }
             return null;
+        }
+
+        /** Reads a C++ type prefix without consuming a following function/initializer suffix. */
+        public ParsedType parseCppTypeWithoutFunctionSuffix(String expectedMessage) {
+            if (!isCpp()) throw new IllegalStateException("C++ type prefix requires C++ mode");
+            int offset = 0;
+            while (isTypeQualifier(context.peekAt(offset).type())) offset++;
+            Token key = context.peekAt(offset);
+            if (key.type() == TokenType.STRUCT || key.type() == TokenType.CLASS
+                    || key.type() == TokenType.UNION || key.type() == TokenType.ENUM) {
+                offset++;
+                while (context.peekAt(offset).type() == TokenType.IDENTIFIER
+                        || context.peekAt(offset).type() == TokenType.SCOPE) offset++;
+                if (context.peekAt(offset).type() == TokenType.LEFT_BRACE) {
+                    context.report(SourceRange.span(key.range(), context.peekAt(offset).range()), "此类型名称中不能定义类或枚举");
+                    return null;
+                }
+            }
+            BaseType base = parseBaseType(expectedMessage);
+            if (base == null) return null;
+            MiniType type = base.type();
+            Token end = base.endToken();
+            while (context.check(TokenType.STAR) || context.check(TokenType.AMPERSAND)
+                    || context.check(TokenType.AMPERSAND_AMPERSAND)) {
+                Token operator = context.advance();
+                boolean reference = operator.type() != TokenType.STAR;
+                if (operator.type() == TokenType.AMPERSAND_AMPERSAND)
+                    context.unsupportedCpp(operator.range(), "右值引用尚未实现");
+                var qualifiers = parseTypeQualifiers();
+                if (reference && !qualifiers.isEmpty())
+                    context.report(operator.range(), "引用声明器不能直接带 const/volatile 限定符");
+                type = reference ? type.referenceTo() : MiniType.qualified(type.pointerTo(), qualifiers);
+                end = context.previous();
+            }
+            SourceRange range = SourceRange.span(base.startToken().range(), end.range());
+            validateReferenceShape(type, range);
+            return new ParsedType(type, base.startToken(), range);
         }
 
         public ParsedType parseType(String expectedMessage) {

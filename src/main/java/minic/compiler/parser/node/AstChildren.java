@@ -100,7 +100,7 @@ public final class AstChildren {
                     || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
-                    || node instanceof FunctionDecl function && function.operatorName() != null
+                    || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null)
                     || node instanceof StructDecl record && record.cppInfo() != null)) return node;
             AstNode reference = referenceTypeOwner(node);
             if (reference != null) return reference;

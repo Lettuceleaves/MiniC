@@ -139,12 +139,11 @@ class CppConstructorParserTest {
         assertTrue(constructors(record).getLast().parameters().getFirst().type().isReference());
     }
 
-    @Test void unnamedParametersAreAllowedInDeclarationsButDiagnosedInBodiesWithoutGuessingNames() {
-        // A current MiniC function-body restriction, not a C++ validity rule; lift with constructor execution.
+    @Test void unnamedParametersAreAllowedInDeclarationsAndDefinitions() {
         successful("struct Box { Box(int); Box(int __unnamed0, int extra):value(__unnamed0) {} int value; };");
         var parser = parse("struct Box { Box(int):value(1) {} int value; }; int after(){return 0;}");
-        assertFalse(parser.succeeded());
-        assertTrue(parser.errors().stream().anyMatch(d -> d.message().contains("参数必须命名")));
+        assertTrue(parser.succeeded(), () -> parser.errors().toString());
+        assertEquals(MiniType.INT, constructors(record(parser)).getFirst().parameters().getFirst().type());
         assertAfter(parser);
     }
 
@@ -192,8 +191,8 @@ class CppConstructorParserTest {
         assertAfter(parser);
     }
 
-    @ParameterizedTest @ValueSource(strings = { "Box() const {}", "Box() = default;", "Box() = delete;",
-            "explicit Box() {}", "constexpr Box() {}", "Box() noexcept {}", "Box():Box(1) {}" })
+    @ParameterizedTest @ValueSource(strings = { "Box() = default;", "Box() = delete;",
+            "constexpr Box() {}", "Box() noexcept {}", "Box():Box(1) {}" })
     void unsupportedConstructorExtensionsAreExplicitAndRecoveryIsBounded(String member) {
         var parser = parse("struct Box { " + member + " int retained; }; int after(){return 0;}");
         assertFalse(parser.succeeded());

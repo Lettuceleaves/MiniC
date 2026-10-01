@@ -132,6 +132,10 @@ public final class DeclarationManager {
     }
 
     public Declaration parseFunctionOrGlobalDecl() {
+        if (typeReader.isCpp() && state.match(TokenType.EXPLICIT))
+            state.report(state.previous().range(), "explicit 只能用于类内构造函数或转换函数声明");
+        if (cppRecordParser != null && cppRecordParser.startsOutOfLineConversion())
+            return cppRecordParser.parseOutOfLineConversion();
         if (cppRecordParser != null && cppRecordParser.startsOutOfLineDestructor())
             return cppRecordParser.parseOutOfLineDestructor();
         if (cppRecordParser != null && cppRecordParser.startsOutOfLineConstructor())

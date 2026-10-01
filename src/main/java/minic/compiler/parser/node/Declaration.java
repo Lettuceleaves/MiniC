@@ -171,7 +171,8 @@ public interface Declaration extends AstNode {
             boolean external,
             boolean noReturn,
             SourceRange range,
-            OperatorName operatorName
+            OperatorName operatorName,
+            ConversionName conversionName
     ) implements Declaration {
         public FunctionDecl {
             Objects.requireNonNull(name, "name");
@@ -185,6 +186,15 @@ public interface Declaration extends AstNode {
             if (operatorName != null && !name.equals(operatorName.spelling())) {
                 throw new IllegalArgumentException("Operator metadata must match the function name");
             }
+            if (conversionName != null && (operatorName != null || !name.equals(conversionName.spelling())
+                    || !returnType.equals(conversionName.targetType()))) {
+                throw new IllegalArgumentException("Conversion metadata must match its name and target type");
+            }
+        }
+
+        public FunctionDecl(String name, MiniType returnType, List<Parameter> parameters, boolean variadic,
+                            BlockStmt body, boolean external, boolean noReturn, SourceRange range, OperatorName operatorName) {
+            this(name, returnType, parameters, variadic, body, external, noReturn, range, operatorName, null);
         }
 
         public FunctionDecl(String name, MiniType returnType, List<Parameter> parameters, boolean variadic,
@@ -264,7 +274,12 @@ public interface Declaration extends AstNode {
     /** Constructor spelling and signature are source syntax, not an ordinary named method. */
     record ConstructorMember(String name, List<Parameter> parameters, boolean variadic,
                              List<MemberInitializer> initializers, BlockStmt body,
-                             SourceRange nameRange, SourceRange range) implements CppMember {
+                             SourceRange nameRange, SourceRange range, boolean explicitSpecifier) implements CppMember {
+        public ConstructorMember(String name, List<Parameter> parameters, boolean variadic,
+                                 List<MemberInitializer> initializers, BlockStmt body,
+                                 SourceRange nameRange, SourceRange range) {
+            this(name, parameters, variadic, initializers, body, nameRange, range, false);
+        }
         public ConstructorMember {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(nameRange, "nameRange");

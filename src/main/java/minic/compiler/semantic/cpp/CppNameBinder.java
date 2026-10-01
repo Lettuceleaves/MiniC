@@ -472,6 +472,10 @@ public final class CppNameBinder {
         }
 
         private Constructor declareConstructor(TypeEntity owner, ConstructorMember member, Access access, boolean implicit) {
+            if (member.explicitSpecifier()) {
+                report("CPP005", member.nameRange(), "explicit 构造声明已解析；显式构造选择语义尚未实现。");
+                return null;
+            }
             if (owner.union) {
                 report("CPP005", member.nameRange(), "Union construction is not supported yet.");
                 return null;
@@ -987,6 +991,10 @@ public final class CppNameBinder {
         }
 
         private boolean unsupportedOperator(FunctionDecl node) {
+            if (node.conversionName() != null) {
+                report("CPP005", node.conversionName().range(), "转换函数声明已解析；转换选择和执行语义尚未实现。");
+                return true;
+            }
             if (node.operatorName() == null) return false;
             report("CPP005", node.operatorName().range(), "运算符重载声明已解析；重载选择和执行语义尚未实现。");
             return true;
