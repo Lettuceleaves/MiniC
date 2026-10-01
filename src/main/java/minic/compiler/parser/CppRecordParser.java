@@ -110,7 +110,7 @@ public final class CppRecordParser {
                                 SourceRange.span(start.range(), end.range())), fields, members);
                     } else recoverMember();
                 } else {
-                    var declaration = types.parseNamedType("期望成员类型", "期望成员名称");
+                    var declaration = types.parseNamedType("期望成员类型", "期望成员名称", false, true);
                     if (declaration == null) recoverMember();
                     else if (declaration.name().equals(simpleName) && declaration.type().unqualified().isFunction()) {
                         state.unsupportedCpp(declaration.nameRange(), "构造函数不能声明返回类型");
@@ -168,11 +168,10 @@ public final class CppRecordParser {
             // Member declarations are now complete. Every body still owns a separate parameter/local scope.
             for (DeferredMethod item : deferred) {
                 FunctionDecl signature = item.signature();
-                item.unnamedParameters().forEach(range -> state.report(range, "方法定义中的参数必须命名"));
                 BlockStmt body = state.inTokenWindow(item.body(), () -> statements.parseFunctionBlock(
                         signature.parameters().stream().map(Parameter::name).toList()));
                 var method = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
-                        signature.variadic(), body, false, false, signature.range());
+                        signature.variadic(), body, false, false, signature.range(), signature.operatorName());
                 MethodMember old = (MethodMember) members.get(item.memberIndex());
                 var member = new MethodMember(method, old.constQualified(), old.nameRange());
                 members.set(item.memberIndex(), member);
@@ -205,7 +204,7 @@ public final class CppRecordParser {
             parameters.add(new Parameter(parsed.name().isEmpty() ? "__unnamed" + index : parsed.name(), parsed.type(), parsed.range()));
         }
         return new FunctionDecl(declaration.name(), function.returnType(), parameters, function.variadic(), body,
-                false, false, SourceRange.span(declaration.range(), end));
+                false, false, SourceRange.span(declaration.range(), end), declaration.operatorName());
     }
 
     /** Lookup distinguishes injected constructor names from namespace-qualified ordinary types. */

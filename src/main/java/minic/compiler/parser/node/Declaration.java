@@ -170,7 +170,8 @@ public interface Declaration extends AstNode {
             BlockStmt body,
             boolean external,
             boolean noReturn,
-            SourceRange range
+            SourceRange range,
+            OperatorName operatorName
     ) implements Declaration {
         public FunctionDecl {
             Objects.requireNonNull(name, "name");
@@ -181,6 +182,14 @@ public interface Declaration extends AstNode {
                 throw new IllegalArgumentException("name must not be blank");
             }
             parameters = List.copyOf(parameters);
+            if (operatorName != null && !name.equals(operatorName.spelling())) {
+                throw new IllegalArgumentException("Operator metadata must match the function name");
+            }
+        }
+
+        public FunctionDecl(String name, MiniType returnType, List<Parameter> parameters, boolean variadic,
+                            BlockStmt body, boolean external, boolean noReturn, SourceRange range) {
+            this(name, returnType, parameters, variadic, body, external, noReturn, range, null);
         }
 
         public Optional<BlockStmt> bodyOptional() {

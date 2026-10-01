@@ -522,6 +522,7 @@ public final class CppNameBinder {
         }
 
         private Method declareMethod(TypeEntity owner, MethodMember member, Access access, Namespace namespace) {
+            if (unsupportedOperator(member.method())) return null;
             FunctionDecl sourceMethod = member.method();
             String name = sourceMethod.name();
             if (fieldPath(owner.type, name, new HashSet<>()) != null) {
@@ -591,6 +592,7 @@ public final class CppNameBinder {
         }
 
         private void bindOutOfLineMethod(OutOfLineMethodDecl node, Namespace namespace) {
+            if (unsupportedOperator(node.method())) return;
             QualifiedName path = node.qualifiedName();
             QualifiedName ownerName = new QualifiedName(path.global(),
                     path.segments().subList(0, path.segments().size() - 1), path.range());
@@ -852,7 +854,14 @@ public final class CppNameBinder {
             globals.add(core); declarations.add(core);
         }
 
+        private boolean unsupportedOperator(FunctionDecl node) {
+            if (node.operatorName() == null) return false;
+            report("CPP005", node.operatorName().range(), "运算符重载声明已解析；重载选择和执行语义尚未实现。");
+            return true;
+        }
+
         private void bindFunction(FunctionDecl node, Namespace namespace) {
+            if (unsupportedOperator(node)) return;
             if (namespace != root && node.external()) report("CPP005", node.range(),
                     "尚未支持命名空间中的外部函数链接：" + namespace.qualify(node.name()));
             MiniType returnType = normalizeType(node.returnType(), namespace, null, node.range());

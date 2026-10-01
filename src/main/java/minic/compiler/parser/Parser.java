@@ -18,6 +18,7 @@ import minic.compiler.parser.node.Declaration.TypedefDecl;
 import minic.compiler.parser.node.Declaration.GlobalVarDecl;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.QualifiedName;
+import minic.compiler.parser.node.OperatorName;
 import minic.compiler.type.MiniType;
 import minic.compiler.Diagnostic;
 import minic.SourceRange;
@@ -871,6 +872,10 @@ public final class Parser extends Stage {
             if (declarator == null) {
                 return null;
             }
+            if (declarator.operatorName() != null) {
+                context.report(declarator.operatorName().range(), "类型名称不能声明运算符函数");
+                return null;
+            }
             MiniType type = resolveDeclarator(declarator, baseType.type());
             return new ParsedType(
                     type,
@@ -889,6 +894,11 @@ public final class Parser extends Stage {
 
         public ParsedNamedType parseNamedType(String expectedTypeMessage, String expectedNameMessage,
                                              boolean allowQualifiedName) {
+            return parseNamedType(expectedTypeMessage, expectedNameMessage, allowQualifiedName, allowQualifiedName);
+        }
+
+        public ParsedNamedType parseNamedType(String expectedTypeMessage, String expectedNameMessage,
+                                             boolean allowQualifiedName, boolean allowOperatorName) {
             List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs = parseAlignmentSpecs();
             BaseType baseType = parseBaseType(expectedTypeMessage);
             if (baseType == null) {
@@ -898,7 +908,15 @@ public final class Parser extends Stage {
             if (declarator == null || declarator.name().isEmpty()) {
                 return null;
             }
+            if (declarator.operatorName() != null && !allowOperatorName) {
+                context.report(declarator.operatorName().range(), "此声明不能使用运算符函数名称");
+                return null;
+            }
             MiniType resolvedType = resolveDeclarator(declarator, baseType.type());
+            if (declarator.operatorName() != null && !(resolvedType.unqualified() instanceof MiniType.FunctionType)) {
+                context.report(declarator.operatorName().range(), "运算符名称必须声明函数");
+                return null;
+            }
             FunctionModifier topFunction = declarator.topFunction();
             List<ParsedParameter> resolvedParameters;
             boolean resolvedVariadic;
@@ -925,7 +943,8 @@ public final class Parser extends Stage {
                     resolvedVariadic,
                     alignmentSpecs,
                     declarator.nameToken().range(),
-                    declarator.qualifiedName()
+                    declarator.qualifiedName(),
+                    declarator.operatorName()
             );
         }
 
@@ -1131,13 +1150,18 @@ public final class Parser extends Stage {
             }
 
             Declarator direct;
-            if (isCpp() && allowQualifiedName && (context.check(TokenType.SCOPE)
+            if (isCpp() && context.check(TokenType.OPERATOR)) {
+                OperatorName operator = CppOperatorNameParser.parse(context);
+                if (operator == null) return null;
+                Token name = new Token(TokenType.IDENTIFIER, operator.spelling(), operator.range());
+                direct = new Declarator(name.lexeme(), new ArrayList<>(), name, name, name, null, operator);
+            } else if (isCpp() && allowQualifiedName && (context.check(TokenType.SCOPE)
                     || context.check(TokenType.IDENTIFIER) && context.peekAt(1).type() == TokenType.SCOPE)) {
                 Token first = context.peek();
-                QualifiedName qualified = CppNameParser.parseName(context);
-                if (qualified == null) return null;
-                Token last = context.previous();
-                direct = new Declarator(qualified.segments().getLast(), new ArrayList<>(), first, last, last, qualified);
+                var parsed = CppOperatorNameParser.parseQualified(context);
+                if (parsed == null) return null;
+                Token last = parsed.nameToken();
+                direct = new Declarator(last.lexeme(), new ArrayList<>(), first, last, last, parsed.qualifiedName(), parsed.operatorName());
             } else if (context.match(TokenType.IDENTIFIER)) {
                 Token nameToken = context.previous();
                 direct = new Declarator(nameToken.lexeme(), new ArrayList<>(), nameToken, nameToken, nameToken);
@@ -1271,6 +1295,10 @@ public final class Parser extends Stage {
                     }
                 } else {
                     declarator = new Declarator("", new ArrayList<>(), baseType.endToken(), baseType.endToken(), baseType.endToken());
+                }
+                if (declarator.operatorName() != null) {
+                    context.report(declarator.operatorName().range(), "形参不能使用运算符函数名称");
+                    break;
                 }
                 MiniType parameterType = adjustParameterType(resolveDeclarator(declarator, baseType.type()));
                 SourceRange range = SourceRange.span(baseType.startToken().range(), declarator.endToken().range());
@@ -1676,11 +1704,12 @@ public final class Parser extends Stage {
                 Token startToken,
                 Token endToken,
                 Token nameToken,
-                QualifiedName qualifiedName
+                QualifiedName qualifiedName,
+                OperatorName operatorName
         ) {
             private Declarator(String name, ArrayList<DeclaratorModifier> modifiers, Token startToken,
                                Token endToken, Token nameToken) {
-                this(name, modifiers, startToken, endToken, nameToken, null);
+                this(name, modifiers, startToken, endToken, nameToken, null, null);
             }
             private FunctionModifier topFunction() {
                 return !modifiers.isEmpty() && modifiers.getFirst() instanceof FunctionModifier function
@@ -1689,15 +1718,15 @@ public final class Parser extends Stage {
             }
 
             private Declarator withRange(Token start, Token end) {
-                return new Declarator(name, modifiers, start, end, nameToken, qualifiedName);
+                return new Declarator(name, modifiers, start, end, nameToken, qualifiedName, operatorName);
             }
 
             private Declarator withStart(Token start) {
-                return new Declarator(name, modifiers, start, endToken, nameToken, qualifiedName);
+                return new Declarator(name, modifiers, start, endToken, nameToken, qualifiedName, operatorName);
             }
 
             private Declarator withEnd(Token end) {
-                return new Declarator(name, modifiers, startToken, end, nameToken, qualifiedName);
+                return new Declarator(name, modifiers, startToken, end, nameToken, qualifiedName, operatorName);
             }
         }
 
@@ -1719,8 +1748,14 @@ public final class Parser extends Stage {
             boolean variadic,
             List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs,
             SourceRange nameRange,
-            QualifiedName qualifiedName
+            QualifiedName qualifiedName,
+            OperatorName operatorName
     ) {
+        public ParsedNamedType(String name, MiniType type, SourceRange range, List<ParsedParameter> parameters,
+                               boolean variadic, List<Declaration.AlignmentSpec> alignmentSpecs, SourceRange nameRange,
+                               QualifiedName qualifiedName) {
+            this(name, type, range, parameters, variadic, alignmentSpecs, nameRange, qualifiedName, null);
+        }
         public ParsedNamedType(String name, MiniType type, SourceRange range, List<ParsedParameter> parameters,
                                boolean variadic, List<Declaration.AlignmentSpec> alignmentSpecs, SourceRange nameRange) {
             this(name, type, range, parameters, variadic, alignmentSpecs, nameRange, null);

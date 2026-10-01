@@ -153,14 +153,14 @@ final class CppRecordParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {"Box() {}", "int field = 3;"})
-    void constructionSyntaxIsRetainedAndGuardedBeforeExecutableLowering(String member) {
-        var parser = successful("struct Box { " + member + " int retained; }; int after() { return 0; }");
+    void constructionSyntaxIsRetainedAndBoundBeforeExecutableLowering(String member) {
+        var parser = successful("struct Box { " + member + " int retained; }; int after() { return 0; } int main(){return after();}");
         var record = parser.result().program().structs().getFirst();
         var sourceMember = record.cppInfo().members().getFirst();
         if (sourceMember instanceof ConstructorMember constructor) assertNotNull(constructor.body());
         else assertNotNull(assertInstanceOf(FieldMember.class, sourceMember).defaultInitializer());
         var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
-        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005")));
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
         assertTrue(record.fields().stream().anyMatch(f -> f.name().equals("retained")));
         assertTrue(parser.result().program().functions().stream().anyMatch(f -> f.name().equals("after")));
     }
@@ -195,9 +195,8 @@ final class CppRecordParserTest {
 
     @Test void generatedPlaceholderSpellingDoesNotMakeAnExplicitParameterUnnamed() {
         successful("struct Box { int method(int __unnamed0) { return __unnamed0; } };");
-        var missing = parse("struct Box { int method(int) { return 0; } };");
-        assertFalse(missing.succeeded());
-        assertTrue(missing.errors().stream().anyMatch(d -> d.message().contains("参数必须命名")));
+        var unnamed = successful("struct Box { int method(int) { return 0; } };");
+        assertEquals("__unnamed0", method(unnamed.result().program().structs().getFirst(), "method").parameters().getFirst().name());
     }
 
     @Test void emptyMemberDeclarationsAndTrailingMethodSemicolonsAreAccepted() {

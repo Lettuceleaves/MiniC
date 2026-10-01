@@ -214,7 +214,7 @@ public final class DeclarationManager {
         ArrayList<Parameter> parameters = new ArrayList<>();
         for (int index = 0; index < declaration.parameters().size(); index++) {
             Parser.ParsedParameter parameter = declaration.parameters().get(index);
-            if (body != null && parameter.name().isEmpty()) {
+            if (body != null && parameter.name().isEmpty() && !typeReader.isCpp()) {
                 state.report(parameter.range(), "函数定义中的参数必须命名");
                 return null;
             }
@@ -230,7 +230,8 @@ public final class DeclarationManager {
                 body,
                 external,
                 noReturn,
-                SourceRange.span(startToken.range(), endRange)
+                SourceRange.span(startToken.range(), endRange),
+                declaration.operatorName()
         );
         if (!typeReader.isCpp()) typeReader.declareOrdinaryName(functionDecl.name(), functionDecl.range());
         state.build(functionDecl, "FunctionDecl " + functionDecl.name(), functionDecl.range());
