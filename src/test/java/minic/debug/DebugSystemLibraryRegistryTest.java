@@ -22,6 +22,7 @@ final class DebugSystemLibraryRegistryTest {
                 Set.of(
                         "malloc", "minic_string_malloc", "calloc", "realloc", "free",
                         "printf", "scanf", "getchar", "putchar", "puts",
+                        "minic_iob_base", "fgetc", "fputc", "ungetc", "fflush",
                         "sprintf", "snprintf", "sscanf", "remove", "rename",
                         "clock", "difftime", "time", "mktime", "gmtime", "localtime", "strftime",
                         "setlocale", "localeconv",

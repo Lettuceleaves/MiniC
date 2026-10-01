@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class StdioCatalogTest {
     private static final Set<String> PUBLIC_FUNCTIONS = Set.of(
             "printf", "scanf", "getchar", "putchar", "puts",
-            "sprintf", "sscanf", "remove", "rename"
+            "sprintf", "sscanf", "remove", "rename", "fgetc", "fputc", "ungetc", "fflush"
     );
 
     @Test
@@ -39,10 +39,12 @@ final class StdioCatalogTest {
     }
 
     @Test
-    void stdioHeaderPublishesOnlyTheSupportedHandleFreeSubset() {
+    void stdioHeaderPublishesOpaqueStandardStreamsAndTheirSharedCrtOperations() {
         String header = SystemLibraryCatalog.defaults().header("stdio.mh").orElseThrow().content();
 
-        assertEquals(PUBLIC_FUNCTIONS, declaredFunctions(header));
+        var declarations = new java.util.LinkedHashSet<>(PUBLIC_FUNCTIONS);
+        declarations.add("minic_iob_base");
+        assertEquals(declarations, declaredFunctions(header));
         assertTrue(header.contains("#define EOF (-1)"));
         assertTrue(header.contains("extern int getchar(void);"));
         assertTrue(header.contains("extern int putchar(int character);"));
@@ -51,7 +53,13 @@ final class StdioCatalogTest {
         assertTrue(header.contains("extern int sscanf(const char *buffer, const char *format, ...);"));
         assertTrue(header.contains("extern int remove(const char *filename);"));
         assertTrue(header.contains("extern int rename(const char *oldName, const char *newName);"));
-        assertFalse(header.contains("FILE"));
+        assertTrue(header.contains("typedef struct __minic_file FILE;"));
+        assertTrue(header.contains("#define stdin ((FILE *)minic_iob_base())"));
+        assertTrue(header.contains("#define stdout ((FILE *)((char *)minic_iob_base() + 48))"));
+        assertTrue(header.contains("#define stderr ((FILE *)((char *)minic_iob_base() + 96))"));
+        var bridge = SystemLibraryCatalog.defaults().binding("minic_iob_base").orElseThrow();
+        assertEquals("msvcrt.dll", bridge.dllName());
+        assertEquals("__iob_func", bridge.exportName());
     }
 
     @Test

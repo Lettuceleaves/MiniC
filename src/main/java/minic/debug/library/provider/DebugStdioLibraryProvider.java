@@ -18,6 +18,11 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         registered.put("printf", this::printf);
         registered.put("scanf", this::scanf);
         registered.put("getchar", this::getchar);
+        registered.put("minic_iob_base", this::iobBase);
+        registered.put("fgetc", this::fgetc);
+        registered.put("fputc", this::fputc);
+        registered.put("ungetc", this::ungetc);
+        registered.put("fflush", this::fflush);
         registered.put("putchar", this::putchar);
         registered.put("puts", this::puts);
         registered.put("sprintf", this::sprintf);
@@ -53,8 +58,41 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
     private DebugLibraryCallResult putchar(DebugRuntime runtime, List<Value> arguments) {
         DebugLibrarySupport.requireCount("putchar", arguments, 1);
         int character = (int) arguments.getFirst().integer() & 0xff;
-        runtime.appendOutput(Character.toString((char) character));
+        runtime.appendOutputByte(character, false);
         return integerResult(character);
+    }
+
+    private DebugLibraryCallResult iobBase(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("minic_iob_base", arguments, 0);
+        return new Returned(Value.of(IrType.POINTER, runtime.standardStreamsAddress()));
+    }
+
+    private DebugLibraryCallResult fgetc(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("fgetc", arguments, 1);
+        if (runtime.standardStream(arguments.getFirst().integer()) != 0) return integerResult(-1);
+        return integerResult(runtime.readInputCharacter());
+    }
+
+    private DebugLibraryCallResult fputc(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("fputc", arguments, 2);
+        int stream = runtime.standardStream(arguments.get(1).integer());
+        if (stream == 0) return integerResult(-1);
+        int character = (int) arguments.getFirst().integer() & 0xff;
+        runtime.appendOutputByte(character, stream == 2);
+        return integerResult(character);
+    }
+
+    private DebugLibraryCallResult ungetc(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("ungetc", arguments, 2);
+        if (runtime.standardStream(arguments.get(1).integer()) != 0) return integerResult(-1);
+        return integerResult(runtime.unreadInputCharacter((int) arguments.getFirst().integer()));
+    }
+
+    private DebugLibraryCallResult fflush(DebugRuntime runtime, List<Value> arguments) {
+        DebugLibrarySupport.requireCount("fflush", arguments, 1);
+        // Virtual output is already committed to its byte stream. NULL flushes all.
+        if (arguments.getFirst().integer() != 0) runtime.standardStream(arguments.getFirst().integer());
+        return integerResult(0);
     }
 
     private DebugLibraryCallResult puts(DebugRuntime runtime, List<Value> arguments) {
@@ -388,7 +426,8 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         private int offset;
 
         private StringScanInput(String input) {
-            this.input = input;
+            this.input = new String(input.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.nio.charset.StandardCharsets.ISO_8859_1);
         }
 
         @Override

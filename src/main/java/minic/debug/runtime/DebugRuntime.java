@@ -33,10 +33,13 @@ public final class DebugRuntime {
     private final Map<String, Long> symbols = new LinkedHashMap<>();
     private final Map<Long, String> functions = new LinkedHashMap<>();
     private long nextAddress = 0x10000;
-    private final String input;
+    private final byte[] input;
     private int inputOffset;
-    final StringBuilder output = new StringBuilder();
-    final StringBuilder errorOutput = new StringBuilder();
+    private int inputPushback = -1;
+    private boolean inputEof;
+    private long standardStreamsAddress;
+    private final java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+    private final java.io.ByteArrayOutputStream errorOutput = new java.io.ByteArrayOutputStream();
     private int errno;
     private long errnoPointer;
     private long randomState = 1;
@@ -73,7 +76,8 @@ public final class DebugRuntime {
 
     DebugRuntime(DebugProgram code, String input, DebugTimeSource timeSource, int heapCapacity) {
         this.code = code;
-        this.input = Objects.requireNonNull(input, "input");
+        this.input = Objects.requireNonNull(input, "input").replace("\r\n", "\n")
+                .getBytes(StandardCharsets.UTF_8);
         this.timeSource = Objects.requireNonNull(timeSource, "timeSource");
         if (heapCapacity < 0) {
             throw new IllegalArgumentException("heapCapacity must not be negative");
@@ -107,8 +111,8 @@ public final class DebugRuntime {
     }
 
     public DebugProgram code() { return code; }
-    public String stdout() { return output.toString(); }
-    public String stderr() { return errorOutput.toString(); }
+    public String stdout() { return output.toString(StandardCharsets.UTF_8); }
+    public String stderr() { return errorOutput.toString(StandardCharsets.UTF_8); }
     public int stdinCursor() { return inputOffset; }
     public int errno() {
         return errnoPointer == 0
@@ -192,7 +196,9 @@ public final class DebugRuntime {
                 localeConventionCalls(),
                 localeNamePointer(),
                 localeConventionPointer(),
-                termination()
+                termination(),
+                new StdioState(standardStreamsAddress, inputPushback, inputEof,
+                        HexFormat.of().formatHex(output.toByteArray()), HexFormat.of().formatHex(errorOutput.toByteArray()))
         );
     }
 
@@ -326,11 +332,28 @@ public final class DebugRuntime {
     }
 
     void appendOutput(String text) {
-        output.append(text);
+        output.writeBytes(text.getBytes(StandardCharsets.UTF_8));
     }
 
     void appendError(String text) {
-        errorOutput.append(text);
+        errorOutput.writeBytes(text.getBytes(StandardCharsets.UTF_8));
+    }
+
+    void appendOutputByte(int character, boolean error) {
+        (error ? errorOutput : output).write(character & 0xff);
+    }
+
+    long standardStreamsAddress() {
+        if (standardStreamsAddress == 0)
+            standardStreamsAddress = allocateZeroed(3 * 48, Long.BYTES, "library", "standard FILE streams");
+        return standardStreamsAddress;
+    }
+
+    int standardStream(long pointer) {
+        long offset = pointer - standardStreamsAddress();
+        if (offset < 0 || offset > 96 || offset % 48 != 0)
+            throw new IllegalStateException("Invalid or unsupported FILE stream");
+        return (int) (offset / 48);
     }
 
     void setErrno(int value) {
@@ -514,27 +537,36 @@ public final class DebugRuntime {
     }
 
     void skipInputWhitespace() {
-        while (inputOffset < input.length() && Character.isWhitespace(input.charAt(inputOffset))) {
-            inputOffset++;
-        }
+        while (inputWhitespace(peekInputCharacter())) readInputCharacter();
     }
 
     String readInputToken(int maximumLength) {
         skipInputWhitespace();
-        int start = inputOffset;
-        while (inputOffset < input.length()
-                && !Character.isWhitespace(input.charAt(inputOffset))
-                && inputOffset - start < maximumLength) {
-            inputOffset++;
-        }
-        return input.substring(start, inputOffset);
+        StringBuilder token = new StringBuilder();
+        while (token.length() < maximumLength && peekInputCharacter() >= 0
+                && !inputWhitespace(peekInputCharacter())) token.append((char) readInputCharacter());
+        return token.toString();
+    }
+
+    private static boolean inputWhitespace(int character) {
+        return character == ' ' || character >= '\t' && character <= '\r';
+    }
+
+    private int peekInputCharacter() {
+        return inputPushback >= 0 ? inputPushback : inputOffset >= input.length ? -1 : input[inputOffset] & 0xff;
     }
 
     int readInputCharacter() {
-        if (inputOffset >= input.length()) {
-            return -1;
-        }
-        return input.charAt(inputOffset++);
+        if (inputPushback >= 0) { int value = inputPushback; inputPushback = -1; return value; }
+        if (inputOffset >= input.length) { inputEof = true; return -1; }
+        return input[inputOffset++] & 0xff;
+    }
+
+    int unreadInputCharacter(int character) {
+        if (character == -1 || inputPushback >= 0) return -1;
+        inputPushback = character & 0xff;
+        inputEof = false;
+        return inputPushback;
     }
 
     private Allocation allocation(long address, int size) {
@@ -750,7 +782,8 @@ public final class DebugRuntime {
             int localeConventionCalls,
             long localeNamePointer,
             long localeConventionPointer,
-            TerminationState termination
+            TerminationState termination,
+            StdioState stdio
     ) {
         public RuntimeState {
             stack = List.copyOf(stack);
@@ -763,8 +796,13 @@ public final class DebugRuntime {
             Objects.requireNonNull(stderr, "stderr");
             Objects.requireNonNull(strerrorMessage, "strerrorMessage");
             Objects.requireNonNull(termination, "termination");
+            Objects.requireNonNull(stdio, "stdio");
         }
     }
+
+    /** Immutable byte state keeps partial UTF-8 and ungetc visible in debug history. */
+    public record StdioState(long standardStreamsAddress, int inputPushback, boolean inputEof,
+                             String stdoutBytes, String stderrBytes) { }
 
     public enum TerminationKind {
         RUNNING,
