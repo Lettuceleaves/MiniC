@@ -203,9 +203,12 @@ public final class CppOverloadResolver {
             result.add(new Conversion(Rank.EXACT, Step.STATIC_OBJECT, false, null, false));
         if (receiver != null && !candidate.staticMember) {
             MiniType source = expressionType(receiver.type), target = canonical(candidate.implicitObjectType);
-            if (!sameUnqualified(source, target) || !cv(target).containsAll(cv(source))) return null;
-            // No ref-qualifiers in this subset: same-class prvalues may bind to a mutable receiver.
-            result.add(new Conversion(Rank.EXACT, Step.NONE, false, target, true));
+            int distance=provider==null?0:provider.baseDistance(source.unqualified(),target.unqualified());
+            if ((!sameUnqualified(source, target)&&distance<=0) || !cv(target).containsAll(cv(source))) return null;
+            // No ref-qualifiers: prvalues also bind to mutable implicit object parameters.
+            result.add(distance>0?new Conversion(Rank.CONVERSION,Step.BASE,!cv(source).equals(cv(target)),
+                    target,true,null,null,false,0,0,null,distance)
+                    :new Conversion(Rank.EXACT, Step.NONE, !cv(source).equals(cv(target)), target, true));
         }
         for (int i=0; i<args.size(); i++) {
             if (!args.get(i).braced() && expressionType(args.get(i).type).isVoid()) return null;

@@ -55,7 +55,7 @@ public final class CppRecordParser {
             return forward;
         }
         if (state.consume(TokenType.LEFT_BRACE, "期望 '{'") == null) return null;
-        StructDecl definition = parseDefinition(type, union, key);
+        StructDecl definition = parseDefinition(type, union, key, bases);
         Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
         if (definition == null || semicolon == null) return null;
         if(union&&!bases.isEmpty())state.report(name.range(),"union 不能拥有基类");
@@ -70,6 +70,10 @@ public final class CppRecordParser {
 
     /** Opening brace was consumed by the surrounding declaration/type parser. */
     public StructDecl parseDefinition(MiniType type, boolean union, Token key) {
+        return parseDefinition(type,union,key,List.of());
+    }
+
+    private StructDecl parseDefinition(MiniType type,boolean union,Token key,List<CppBase> bases) {
         String identity = ((MiniType.StructType) type.unqualified()).name();
         String simpleName = identity.substring(identity.lastIndexOf("::") + 2);
         List<StructField> fields = new ArrayList<>();
@@ -80,6 +84,7 @@ public final class CppRecordParser {
         List<DeferredField> defaults = new ArrayList<>();
         List<DeferredMemberTemplate> templates = new ArrayList<>();
         types.enterMemberScope(type);
+        types.inheritMemberNames(bases);
         try {
             while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
                 if (state.match(TokenType.SEMICOLON)) continue;

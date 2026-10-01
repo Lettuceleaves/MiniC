@@ -1034,6 +1034,25 @@ public final class Parser extends Stage {
             if (isCpp()) { cppTypes.exitMemberScope(); cppMemberDepth--; }
         }
 
+        /** Nondependent base aliases participate in parsing; dependent bases are resolved by binding. */
+        public void inheritMemberNames(List<Declaration.CppBase> bases) {
+            for(var base:bases)inheritMemberNames(base.type(),new java.util.HashSet<>());
+        }
+
+        private void inheritMemberNames(MiniType base,java.util.Set<String> visited) {
+            if(!(base.unqualified() instanceof MiniType.StructType record)||!visited.add(record.name()))return;
+            StructDecl declaration=aggregateDeclarations.get(record.name());
+            if(declaration==null||declaration.cppInfo()==null)return;
+            for(var ancestor:declaration.cppInfo().bases())inheritMemberNames(ancestor.type(),visited);
+            for(var member:declaration.cppInfo().members()) {
+                if(member instanceof Declaration.MemberTypedef alias)
+                    cppTypes.inheritMember(alias.declaration().name(),new MiniType.MemberType(base,alias.declaration().name()));
+                else if(member instanceof Declaration.StaticFieldMember field)cppTypes.inheritMember(field.declaration().name(),null);
+                else if(member instanceof Declaration.MethodMember method&&method.method().conversionName()==null)
+                    cppTypes.inheritMember(method.method().name(),null);
+            }
+        }
+
         /** Retain anonymous aggregate members so a containing class can promote their names. */
         public void recordAggregateFields(StructDecl declaration) {
             if (isCpp()) {
@@ -1074,6 +1093,7 @@ public final class Parser extends Stage {
                 }
             }
             declaration.fields().forEach(this::declareMemberField);
+            if(declaration.cppInfo()!=null)inheritMemberNames(declaration.cppInfo().bases());
             if (declaration.cppInfo() != null) {
                 for (var member : declaration.cppInfo().members()) {
                     if (member instanceof Declaration.MemberTypedef alias) {

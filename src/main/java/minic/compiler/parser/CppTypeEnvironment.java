@@ -78,6 +78,7 @@ public final class CppTypeEnvironment {
         final Local parent;
         final Namespace namespace;
         final boolean member;
+        final Map<String,Slot> inheritedNames=new LinkedHashMap<>();
         boolean template;
         Local(Local parent, Namespace namespace, int id, boolean member) {
             super(namespace.qualify((member ? "<member" : "<block") + id + ">"));
@@ -180,6 +181,14 @@ public final class CppTypeEnvironment {
     public void exitMemberScope() {
         if (local == null || !local.member) throw new IllegalStateException("no member scope to exit");
         local = local.parent;
+    }
+
+    /** Classification-only inherited names stay separate so derived declarations can hide them. */
+    public void inheritMember(String name,MiniType type) {
+        if(local==null||!local.member)throw new IllegalStateException("no member scope");
+        Slot slot=new Slot();
+        slot.ordinary=new Entry(type==null?Kind.VALUE:Kind.TYPE,local.qualify(name),type,local,null,false,false,true);
+        local.inheritedNames.put(name,slot);
     }
 
     /** Reenters an existing owner's namespace; no namespace or class is created during lookup. */
@@ -368,6 +377,7 @@ public final class CppTypeEnvironment {
 
     private Entry direct(Scope at, String name, Search search) {
         Slot slot = at.names.get(name);
+        if(slot==null&&at instanceof Local member)slot=member.inheritedNames.get(name);
         if (slot == null) return null;
         if (slot.ordinary != null) {
             Entry entry = slot.ordinary;

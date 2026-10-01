@@ -1145,26 +1145,29 @@ public final class CppNameBinder {
             }
         }
 
-        /** Empty tag hierarchies need source inheritance but no runtime layout or dispatch machinery. */
+        /** Stateless public bases share address zero and need no runtime base layout or dispatch. */
         private boolean markerRecord(StructDecl node) {
             return node!=null&&node.definition()&&!node.union()&&node.fields().isEmpty()
-                    &&(node.cppInfo()==null||node.cppInfo().members().stream().allMatch(AccessLabel.class::isInstance));
+                    &&(node.cppInfo()==null||node.cppInfo().members().stream().allMatch(member ->
+                        member instanceof AccessLabel || member instanceof MemberTypedef || member instanceof StaticFieldMember
+                        || member instanceof MethodMember method && !method.method().name().equals("operator=")
+                        || member instanceof TemplateMethodMember method && !method.method().method().name().equals("operator=")));
         }
         private void bindMarkerBase(TypeEntity entity,StructDecl node,Namespace namespace) {
             if(node.cppInfo()==null||node.cppInfo().bases().isEmpty())return;
             if(node.cppInfo().bases().size()!=1||!markerRecord(node)) {
-                report("CPP005",node.range(),"Inheritance currently requires a single public base and empty marker classes.");return;
+                report("CPP005",node.range(),"Inheritance currently requires a single public base and classes without instance data or user-declared special members.");return;
             }
             CppBase base=node.cppInfo().bases().getFirst();
             if(base.virtualBase()||base.access()!=Access.PUBLIC) {
-                report("CPP005",base.range(),"Only public non-virtual marker inheritance is supported.");return;
+                report("CPP005",base.range(),"Only public non-virtual stateless inheritance is supported.");return;
             }
             MiniType type=normalizeType(base.type(),namespace,null,base.range());
             TypeEntity parent=objectType(type);
             if(parent==null||parent==entity) {report("CPP004",base.range(),"A base must be a distinct complete class.");return;}
             completeTemplate(parent,base.range());
             if(!parent.complete){report("CPP004",base.range(),"A base class must be complete.");return;}
-            if(!markerRecord(parent.sourceRecord)){report("CPP005",base.range(),"A marker base cannot contain members or user-defined operations.");return;}
+            if(!markerRecord(parent.sourceRecord)){report("CPP005",base.range(),"A stateless base cannot contain instance data or user-declared constructors, destructors, or assignment operators.");return;}
             entity.markerBase=parent;
         }
         private int baseDistance(MiniType source,MiniType target) {
@@ -1263,6 +1266,7 @@ public final class CppNameBinder {
             }
             TypeEntity entity = declareClass(sourceName, node.union(), namespace, node.range());
             if (node.definition() && entity.complete) report("CPP004", node.range(), "重复类型定义：" + entity.canonicalName);
+            if(node.definition())bindMarkerBase(entity,node,namespace);
             Map<StructField, Access> access = new IdentityHashMap<>();
             Map<MethodMember, Access> methodAccess = new IdentityHashMap<>();
             Map<StaticFieldMember, Access> staticAccess = new IdentityHashMap<>();
@@ -1310,7 +1314,6 @@ public final class CppNameBinder {
             if (node.definition()) {
                 entity.fields = List.copyOf(sourceFields);
                 entity.sourceRecord = node;
-                bindMarkerBase(entity,node,namespace);
             }
             structs.add(core); declarations.add(core);
             if (node.definition()) {
@@ -2063,7 +2066,7 @@ public final class CppNameBinder {
         }
 
         private StaticField staticField(MiniType type, String name) {
-            TypeEntity owner = objectType(type);
+            TypeEntity owner = declaringMember(objectType(type),name);
             return owner == null ? null : owner.staticFields.get(name);
         }
 
@@ -2559,6 +2562,7 @@ public final class CppNameBinder {
                 MiniType ownerType=normalizeType(member.owner(),namespace,local,range);
                 TypeEntity owner=objectType(ownerType);
                 if(owner!=null)completeTemplate(owner,range);
+                owner=declaringMember(owner,member.name());
                 MiniType result=owner==null?null:owner.memberTypes.get(member.name());
                 if(result==null) {report("CPP003",range,"No member type "+member.name()+" in "+ownerType);return MiniType.INT;}
                 if(owner.memberTypeAccess.getOrDefault(member.name(),Access.PUBLIC)!=Access.PUBLIC && currentClass!=owner)
@@ -3661,7 +3665,7 @@ public final class CppNameBinder {
                 int count;
                 if(objectType.isArray())count=objectType.arrayLength();
                 else if(tupleSize!=null) {
-                    StaticField size=tupleSize.staticFields.get("value");
+                    StaticField size=staticField(tupleSize.type,"value");
                     try {
                         if(size==null||size.constant==null)throw new IllegalArgumentException("tuple_size::value is not an integral constant");
                         requireStaticAccess(size,node.range());
@@ -3876,8 +3880,7 @@ public final class CppNameBinder {
         }
 
         private boolean rangeMember(TypeEntity owner,String name) {
-            return owner!=null&&(owner.methods.containsKey(name)||owner.staticFields.containsKey(name)
-                    ||owner.memberTypes.containsKey(name)||fieldPath(owner.type,name,new HashSet<>())!=null);
+            return declaringMember(owner,name)!=null;
         }
 
         private Expression rangeAccessCall(String name,Expression range,MiniType type,boolean members,Namespace namespace,Local scope) {
@@ -4554,7 +4557,7 @@ public final class CppNameBinder {
                     report("CPP005", sources.getFirst().range(), "尚未支持此运算符接收者值类别。");
                     return new IntegerLiteralExpr(0, "0", original.range());
                 }
-                lowered.add(address(receiver));
+                lowered.add(methodReceiver(selected.method,address(receiver)));
             }
             lowered.addAll(lowerSelectedArguments(selected.function,selected.parameters, sources.subList(offset, sources.size()),
                     values.subList(offset, values.size()), namespace, local));
@@ -4760,6 +4763,7 @@ public final class CppNameBinder {
                     TypeEntity owner = objectType(type);
                     if (owner != null) {
                         namespaces.add(owner.owner);
+                        if(owner.markerBase!=null)associatedNamespaces(owner.markerBase.type,namespaces);
                         MiniType.TemplateIdType key=instanceKeys.get(owner);
                         if(key!=null)for(TemplateArgument argument:key.arguments())if(argument instanceof TemplateArgument.Type t)associatedNamespaces(t.type(),namespaces);
                     }
@@ -4984,7 +4988,7 @@ public final class CppNameBinder {
             instantiateMethod(selected);
             Expression callee = new NameExpr(selected.function.coreName, sourceCallee.range());
             if (selected.source.staticMember()) callee = evaluateReceiver(receiver, callee, sourceCallee.range());
-            return new BoundCallee(mapped(sourceCallee, callee), selected.source.staticMember() ? null : receiver,
+            return new BoundCallee(mapped(sourceCallee, callee), selected.source.staticMember() ? null : methodReceiver(selected,receiver),
                     lowerSelectedArguments(selected.function,selected.parameterTypes, sourceArguments, values, namespace, local));
         }
 
@@ -5371,9 +5375,24 @@ public final class CppNameBinder {
             return CppValueCategory.PRVALUE;
         }
 
+        /** Any declaration in a derived class hides the entire base name, across member kinds. */
+        private TypeEntity declaringMember(TypeEntity owner,String name) {
+            for(TypeEntity at=owner;at!=null;at=at.markerBase)
+                if(at.staticFields.containsKey(name)||at.methods.containsKey(name)||at.memberTypes.containsKey(name)
+                        ||at.fields.stream().anyMatch(field->field.name().equals(name)))return at;
+            return null;
+        }
+
+        private Expression methodReceiver(Method method,Expression pointer) {
+            if(pointer==null||method.source.staticMember())return pointer;
+            MiniType target=methodThisType(method.owner,method.source),actual=declaredExpressionType(pointer);
+            return actual!=null&&!actual.equals(target)?typed(new CastExpr(coreType(target),pointer,pointer.range()),target):pointer;
+        }
+
         private MethodSet memberMethods(MiniType owner, String name) {
             TypeEntity type = objectType(owner);
             if (type != null && name.equals("operator=")) {ensureImplicitAssignment(type);ensureImplicitMove(type);}
+            type=declaringMember(type,name);
             return type == null ? null : type.methods.get(name);
         }
 
@@ -6105,8 +6124,13 @@ public final class CppNameBinder {
         private List<Method> conversionMethods(MiniType type) {
             TypeEntity owner = objectType(type);
             if (owner == null) return List.of();
-            return owner.methods.values().stream().flatMap(set -> set.methods.stream())
-                    .filter(method -> method.source.method().conversionName() != null).toList();
+            List<Method> result=new ArrayList<>();Set<String> hidden=new HashSet<>();
+            for(TypeEntity at=owner;at!=null;at=at.markerBase) {
+                for(var entry:at.methods.entrySet())if(hidden.add(entry.getKey()))
+                    entry.getValue().methods.stream().filter(method->method.source.method().conversionName()!=null).forEach(result::add);
+                hidden.addAll(at.staticFields.keySet());hidden.addAll(at.memberTypes.keySet());
+            }
+            return List.copyOf(result);
         }
         private UserSelection selectUserConversion(MiniType target, CppOverloadResolver.Argument source, ConversionContext mode) {
             prepareGenericLambdaConversion(source.type(),target);
@@ -6184,7 +6208,7 @@ public final class CppNameBinder {
                     report("CPP005", range, "此转换函数接收者尚无可用的对象存储。"); return value;
                 }
                 destructorForUse(methodReturnType(method), range);
-                Expression call = typed(new CallExpr(new NameExpr(method.function.coreName, range), List.of(address(receiver)), range),
+                Expression call = typed(new CallExpr(new NameExpr(method.function.coreName, range), List.of(methodReceiver(method,address(receiver))), range),
                         coreType(methodReturnType(method)));
                 if (methodReturnType(method).isReference()) return referenceResult(methodReturnType(method),call,range);
                 return methodReturnType(method).isStruct() ? recordPrvalue(methodReturnType(method), call, range) : call;
@@ -7347,9 +7371,10 @@ public final class CppNameBinder {
                 if (scope.typedefs.containsKey(name)) return scope.typedefs.get(name);
             }
             if (currentClass != null) {
-                StaticField field = currentClass.staticFields.get(name);
+                TypeEntity declaring=declaringMember(currentClass,name);
+                StaticField field = declaring==null?null:declaring.staticFields.get(name);
                 if (field != null) return field.entity;
-                MethodSet methods = currentClass.methods.get(name);
+                MethodSet methods = declaring==null?null:declaring.methods.get(name);
                 if (methods != null) return methods;
                 if (fieldPath(currentClass.type, name, new HashSet<>()) != null) return new ImplicitField(currentClass, name);
             }
@@ -7409,9 +7434,10 @@ public final class CppNameBinder {
 
         private Candidate classMember(TypeEntity owner, String name, SourceRange range) {
             if (owner == null) { report("CPP004", range, "Member qualifier must denote a class type."); return null; }
-            StaticField field = owner.staticFields.get(name);
+            TypeEntity declaring=declaringMember(owner,name);
+            StaticField field = declaring==null?null:declaring.staticFields.get(name);
             if (field != null) return field.entity;
-            MethodSet method = owner.methods.get(name);
+            MethodSet method = declaring==null?null:declaring.methods.get(name);
             if (method != null) return method;
             if (fieldPath(owner.type, name, new HashSet<>()) != null) return new ImplicitField(owner, name);
             report("CPP003", range, "Class member is not declared: " + owner.canonicalName + "::" + name);
