@@ -132,6 +132,8 @@ public final class DeclarationManager {
     }
 
     public Declaration parseFunctionOrGlobalDecl() {
+        if (cppRecordParser != null && cppRecordParser.startsOutOfLineConstructor())
+            return cppRecordParser.parseOutOfLineConstructor();
         state.enter("functionDecl");
         Token startToken = state.peek();
         boolean external = false;

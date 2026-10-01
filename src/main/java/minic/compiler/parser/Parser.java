@@ -438,6 +438,24 @@ public final class Parser extends Stage {
             return new TokenWindow(start, currentIndex);
         }
 
+        /** Retain a constructor's argument list without interpreting names before class completion. */
+        public TokenWindow deferParentheses() {
+            if (!check(TokenType.LEFT_PAREN)) throw new IllegalStateException("Expected deferred arguments");
+            int start = currentIndex, depth = 0, braces = 0;
+            while (!isAtEnd()) {
+                TokenType type = peek().type();
+                // Neither a class terminator nor a member separator can belong to these arguments.
+                if (type == TokenType.SEMICOLON || type == TokenType.RIGHT_BRACE && braces == 0) break;
+                currentIndex++;
+                if (type == TokenType.LEFT_BRACE) braces++;
+                if (type == TokenType.RIGHT_BRACE) braces--;
+                if (type == TokenType.LEFT_PAREN) depth++;
+                if (type == TokenType.RIGHT_PAREN && --depth == 0) return new TokenWindow(start, currentIndex);
+            }
+            report(tokens.get(start), "未闭合的构造初始化参数，期望 ')'");
+            return new TokenWindow(start, currentIndex);
+        }
+
         public <T> T inTokenWindow(TokenWindow window, java.util.function.Supplier<T> parse) {
             if (window.start() < 0 || window.end() <= window.start() || window.end() > tokenLimit) {
                 throw new IllegalArgumentException("Invalid token window");
@@ -543,6 +561,11 @@ public final class Parser extends Stage {
                     && previous().type() != TokenType.SEMICOLON) {
                 advance();
             }
+        }
+
+        /** A specialized declaration parser already consumed its own failed declaration. */
+        public void markDeclarationBoundaryRecovered() {
+            functionBoundaryRecovered = true;
         }
 
         /**
@@ -704,6 +727,16 @@ public final class Parser extends Stage {
                     }
                 }
             }
+        }
+
+        /** Pure disambiguation: a namespace-qualified type may also precede a parenthesized variable. */
+        public boolean namesConstructor(QualifiedName name) {
+            if (!isCpp() || name.segments().size() < 2) return false;
+            var owner = new QualifiedName(name.global(), name.segments().subList(0, name.segments().size() - 1), name.range());
+            var lookup = cppTypes.lookup(owner);
+            if (lookup.kind() != CppTypeEnvironment.Kind.TYPE || !(lookup.type().unqualified() instanceof MiniType.StructType record)) return false;
+            String injectedName = record.name().substring(record.name().lastIndexOf("::") + 2);
+            return injectedName.equals(name.segments().getLast());
         }
 
         public void exitMemberDefinitionScope() {
@@ -1090,7 +1123,8 @@ public final class Parser extends Stage {
             return direct;
         }
 
-        private ParameterList parseParameterList() {
+        /** The caller owns the surrounding parentheses; shared by functions and constructors. */
+        public ParameterList parseParameterList() {
             if (!isCpp()) return parseParameterListContents();
             enterScope(List.of());
             try { return parseParameterListContents(); }
@@ -1558,8 +1592,8 @@ public final class Parser extends Stage {
             }
         }
 
-        private record ParameterList(List<ParsedParameter> parameters, boolean variadic) {
-            private ParameterList {
+        public record ParameterList(List<ParsedParameter> parameters, boolean variadic) {
+            public ParameterList {
                 parameters = List.copyOf(parameters);
             }
         }

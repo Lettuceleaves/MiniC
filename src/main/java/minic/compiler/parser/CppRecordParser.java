@@ -5,6 +5,8 @@ import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.parser.manager.StatementManager;
 import minic.compiler.parser.node.Declaration.*;
+import minic.compiler.parser.node.CppInitializer;
+import minic.compiler.parser.node.QualifiedName;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.type.MiniType;
 
@@ -58,6 +60,8 @@ public final class CppRecordParser {
         List<StructField> fields = new ArrayList<>();
         List<CppMember> members = new ArrayList<>();
         List<DeferredMethod> deferred = new ArrayList<>();
+        List<DeferredConstructor> constructors = new ArrayList<>();
+        List<DeferredField> defaults = new ArrayList<>();
         types.enterMemberScope(type);
         try {
             while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
@@ -69,7 +73,18 @@ public final class CppRecordParser {
                     Token colon = state.consume(TokenType.COLON, "访问说明符后期望 ':'");
                     if (union) state.unsupportedCpp(start.range(), "union 访问说明符尚未实现");
                     else if (colon != null) members.add(new AccessLabel(access(start.type()), SourceRange.span(start.range(), colon.range())));
-                } else if (unsupportedPrefix(start, simpleName)) {
+                } else if (start.type() == TokenType.IDENTIFIER && start.lexeme().equals(simpleName)
+                        && state.peekAt(1).type() == TokenType.LEFT_PAREN) {
+                    if (union) {
+                        state.unsupportedCpp(start.range(), "union 构造函数尚未实现");
+                        recoverMember();
+                    } else {
+                        state.advance();
+                        DeferredConstructor constructor = readConstructor(start.lexeme(), start.range(), start.range(), members.size());
+                        if (constructor == null) recoverMember();
+                        else { members.add(constructor.signature()); constructors.add(constructor); }
+                    }
+                } else if (unsupportedPrefix(start)) {
                     state.unsupportedCpp(start.range(), "此类成员语法尚未实现：" + start.lexeme());
                     recoverMember();
                 } else if (isAnonymousMember()) {
@@ -82,6 +97,10 @@ public final class CppRecordParser {
                 } else {
                     var declaration = types.parseNamedType("期望成员类型", "期望成员名称");
                     if (declaration == null) recoverMember();
+                    else if (declaration.name().equals(simpleName) && declaration.type().unqualified().isFunction()) {
+                        state.unsupportedCpp(declaration.nameRange(), "构造函数不能声明返回类型");
+                        recoverMember();
+                    }
                     else if (declaration.type().unqualified() instanceof MiniType.FunctionType function) {
                         types.declareOrdinaryName(declaration.name(), declaration.nameRange());
                         boolean constQualified = state.match(TokenType.CONST);
@@ -103,8 +122,23 @@ public final class CppRecordParser {
                             if (body != null) deferred.add(new DeferredMethod(index, method, body,
                                     declaration.parameters().stream().filter(p -> p.name().isEmpty()).map(Parser.ParsedParameter::range).toList()));
                         }
+                    } else if (state.check(TokenType.EQUAL) || state.check(TokenType.LEFT_BRACE)) {
+                        if (union) {
+                            state.unsupportedCpp(state.peek().range(), "union 默认成员初始化尚未实现");
+                            deferFieldInitializer();
+                            state.match(TokenType.SEMICOLON);
+                        } else {
+                            var initializer = deferFieldInitializer();
+                            Token end = state.consume(TokenType.SEMICOLON, "期望 ';'");
+                            if (end != null) {
+                                int index = members.size();
+                                addField(new StructField(declaration.name(), declaration.type(), declaration.alignmentSpecs(),
+                                        SourceRange.span(declaration.range(), end.range())), fields, members);
+                                defaults.add(new DeferredField(index, initializer));
+                            }
+                        }
                     } else if (!state.check(TokenType.SEMICOLON)) {
-                        state.unsupportedCpp(state.peek().range(), "成员默认初始化、位域或多声明器尚未实现");
+                        state.unsupportedCpp(state.peek().range(), "成员位域或多声明器尚未实现");
                         recoverMember();
                     } else {
                         Token end = state.advance();
@@ -128,6 +162,11 @@ public final class CppRecordParser {
                 var member = new MethodMember(method, old.constQualified(), old.nameRange());
                 members.set(item.memberIndex(), member);
                 state.build(method, "MethodDecl " + method.name(), method.range());
+            }
+            for (DeferredConstructor item : constructors) members.set(item.memberIndex(), completeConstructor(item));
+            for (DeferredField item : defaults) {
+                FieldMember field = (FieldMember) members.get(item.memberIndex());
+                members.set(item.memberIndex(), new FieldMember(field.field(), parseDeferredInitializer(item.initializer())));
             }
             return new StructDecl(identity, fields, true, union, metadata(key, union, members),
                     SourceRange.span(key.range(), close.range()));
@@ -153,10 +192,122 @@ public final class CppRecordParser {
                 false, false, SourceRange.span(declaration.range(), end));
     }
 
-    private boolean unsupportedPrefix(Token token, String simpleName) {
+    /** Lookup distinguishes injected constructor names from namespace-qualified ordinary types. */
+    public boolean startsOutOfLineConstructor() {
+        QualifiedName name = CppNameParser.peekName(state, 0);
+        if (name == null || !types.namesConstructor(name)) return false;
+        var parts = name.segments();
+        int after = parts.size() * 2 - 1 + (name.global() ? 1 : 0);
+        return state.peekAt(after).type() == TokenType.LEFT_PAREN;
+    }
+
+    public OutOfLineConstructorDecl parseOutOfLineConstructor() {
+        QualifiedName name = CppNameParser.parseName(state);
+        if (name == null) return null;
+        SourceRange nameRange = state.previous().range();
+        types.enterMemberDefinitionScope(name);
+        try {
+            var deferred = readConstructor(name.segments().getLast(), nameRange, name.range(), -1);
+            if (deferred == null) {
+                recoverMember();
+                state.markDeclarationBoundaryRecovered();
+                return null;
+            }
+            if (deferred.body() == null) state.unsupportedCpp(name.range(), "类外构造声明必须提供定义");
+            ConstructorMember constructor = completeConstructor(deferred);
+            var definition = new OutOfLineConstructorDecl(name, constructor, nameRange);
+            state.build(definition, "OutOfLineConstructor " + constructor.name(), definition.range());
+            return definition;
+        } finally {
+            types.exitMemberDefinitionScope();
+        }
+    }
+
+    private DeferredConstructor readConstructor(String name, SourceRange nameRange, SourceRange start, int index) {
+        if (state.consume(TokenType.LEFT_PAREN, "构造参数期望 '('") == null) return null;
+        var parameters = types.parseParameterList();
+        if (state.consume(TokenType.RIGHT_PAREN, "构造参数期望 ')'") == null) return null;
+        List<DeferredInitializer> initializers = new ArrayList<>();
+        if (state.match(TokenType.COLON)) {
+            do {
+                QualifiedName target = CppNameParser.parseName(state);
+                if (target == null) return null;
+                if (target.segments().size() == 1 && target.segments().getFirst().equals(name))
+                    state.unsupportedCpp(target.range(), "委托构造函数尚未实现");
+                Parser.Context.TokenWindow arguments;
+                if (state.check(TokenType.LEFT_PAREN)) arguments = state.deferParentheses();
+                else if (state.check(TokenType.LEFT_BRACE)) arguments = state.deferBlock();
+                else { state.report(state.peek(), "成员初始化期望 '(' 或 '{'"); return null; }
+                initializers.add(new DeferredInitializer(target, arguments,
+                        SourceRange.span(target.range(), state.previous().range())));
+            } while (state.match(TokenType.COMMA));
+        }
+        Parser.Context.TokenWindow body = null;
+        if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
+        else if (state.match(TokenType.SEMICOLON)) {
+            if (!initializers.isEmpty()) state.report(state.previous(), "成员初始化列表必须具有构造函数体");
+        } else {
+            state.unsupportedCpp(state.peek().range(), "此构造函数限定符或说明符尚未实现");
+            return null;
+        }
+        List<Parameter> resolved = new ArrayList<>();
+        List<SourceRange> unnamed = new ArrayList<>();
+        for (int i = 0; i < parameters.parameters().size(); i++) {
+            var parameter = parameters.parameters().get(i);
+            if (parameter.name().isEmpty()) unnamed.add(parameter.range());
+            resolved.add(new Parameter(parameter.name().isEmpty() ? "__unnamed" + i : parameter.name(), parameter.type(), parameter.range()));
+        }
+        var signature = new ConstructorMember(name, resolved, parameters.variadic(), List.of(), null,
+                nameRange, SourceRange.span(start, state.previous().range()));
+        return new DeferredConstructor(index, signature, initializers, body, unnamed);
+    }
+
+    private ConstructorMember completeConstructor(DeferredConstructor deferred) {
+        var signature = deferred.signature();
+        List<MemberInitializer> initializers = new ArrayList<>();
+        BlockStmt body = null;
+        // The same parameter scope is available to mem-initializers and the function body only.
+        types.enterScope(signature.parameters().stream().map(Parameter::name).toList());
+        try {
+            for (var initializer : deferred.initializers()) {
+                CppInitializer value = parseDeferredInitializer(initializer.arguments());
+                if (value != null) initializers.add(new MemberInitializer(initializer.target(), value, initializer.range()));
+            }
+            if (deferred.body() != null) {
+                deferred.unnamedParameters().forEach(range -> state.report(range, "构造函数定义中的参数必须命名"));
+                body = state.inTokenWindow(deferred.body(), statements::parseBlock);
+            }
+        } finally {
+            types.exitScope();
+        }
+        var constructor = new ConstructorMember(signature.name(), signature.parameters(), signature.variadic(),
+                initializers, body, signature.nameRange(), signature.range());
+        state.build(constructor, "ConstructorDecl " + signature.name(), constructor.range());
+        return constructor;
+    }
+
+    private CppInitializer parseDeferredInitializer(Parser.Context.TokenWindow window) {
+        return state.inTokenWindow(window, () -> {
+            CppInitializer initializer = statements.parseCppInitializer();
+            if (!state.isAtEnd()) state.report(state.peek(), "初始化器后存在未解析的语法");
+            return initializer;
+        });
+    }
+
+    /** A member initializer cannot contain an unparenthesized declaration separator. */
+    private Parser.Context.TokenWindow deferFieldInitializer() {
+        int start = state.currentIndex(), braces = 0;
+        while (!state.isAtEnd() && !state.check(TokenType.SEMICOLON)) {
+            if (state.check(TokenType.RIGHT_BRACE) && braces == 0) break;
+            TokenType token = state.advance().type();
+            if (token == TokenType.LEFT_BRACE) braces++;
+            if (token == TokenType.RIGHT_BRACE) braces--;
+        }
+        return new Parser.Context.TokenWindow(start, state.currentIndex());
+    }
+
+    private boolean unsupportedPrefix(Token token) {
         return token.type() == TokenType.TILDE
-                || token.type() == TokenType.IDENTIFIER && token.lexeme().equals(simpleName)
-                && state.peekAt(1).type() == TokenType.LEFT_PAREN
                 || token.type() == TokenType.TYPEDEF || token.type() == TokenType.USING
                 || token.type().isCppToken() && token.type() != TokenType.CLASS && token.type() != TokenType.SCOPE;
     }
@@ -196,4 +347,8 @@ public final class CppRecordParser {
     private static Access access(TokenType token) { return switch (token) { case PUBLIC -> Access.PUBLIC; case PROTECTED -> Access.PROTECTED; default -> Access.PRIVATE; }; }
     private record DeferredMethod(int memberIndex, FunctionDecl signature, Parser.Context.TokenWindow body,
                                   List<SourceRange> unnamedParameters) { }
+    private record DeferredInitializer(QualifiedName target, Parser.Context.TokenWindow arguments, SourceRange range) { }
+    private record DeferredConstructor(int memberIndex, ConstructorMember signature, List<DeferredInitializer> initializers,
+                                       Parser.Context.TokenWindow body, List<SourceRange> unnamedParameters) { }
+    private record DeferredField(int memberIndex, Parser.Context.TokenWindow initializer) { }
 }

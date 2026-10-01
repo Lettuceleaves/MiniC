@@ -3,6 +3,7 @@ package minic.compiler.parser.manager;
 import minic.compiler.parser.Parser;
 
 import minic.compiler.parser.node.Expression;
+import minic.compiler.parser.node.CppInitializer;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.parser.node.Expression.DesignatedInitExpr;
 import minic.compiler.parser.node.Expression.Designator;
@@ -387,6 +388,40 @@ public final class StatementManager {
         return state.check(TokenType.LEFT_BRACE)
                 ? parseAggregateInitializer()
                 : expressionManager.parseAssignmentExpression();
+    }
+
+    /** Source-only constructor/default-member syntax; ordinary declarations retain their core form. */
+    public CppInitializer parseCppInitializer() {
+        Token start = state.peek();
+        boolean copy = state.match(TokenType.EQUAL);
+        if (copy && !state.check(TokenType.LEFT_BRACE)) {
+            Expression value = expressionManager.parseAssignmentExpression();
+            return value == null ? null : new CppInitializer(CppInitializer.Kind.COPY, java.util.List.of(value),
+                    SourceRange.span(start.range(), value.range()));
+        }
+        boolean list = state.match(TokenType.LEFT_BRACE);
+        if (!list && (copy || !state.match(TokenType.LEFT_PAREN))) {
+            state.report(state.peek(), "初始化器期望 '(' 或 '{'");
+            return null;
+        }
+        TokenType closing = list ? TokenType.RIGHT_BRACE : TokenType.RIGHT_PAREN;
+        ArrayList<Expression> arguments = new ArrayList<>();
+        boolean valid = true;
+        if (!state.check(closing)) {
+            do {
+                Expression argument = state.check(TokenType.LEFT_BRACE)
+                        ? parseCppInitializer() : expressionManager.parseAssignmentExpression();
+                if (argument == null) { valid = false; break; }
+                arguments.add(argument);
+                if (!state.match(TokenType.COMMA)) break;
+                if (list && state.check(closing)) break;
+            } while (!state.isAtEnd());
+        }
+        Token end = state.consume(closing, list ? "初始化列表期望 '}'" : "初始化参数期望 ')'");
+        if (!valid || end == null) return null;
+        var kind = copy ? CppInitializer.Kind.COPY_LIST
+                : list ? CppInitializer.Kind.DIRECT_LIST : CppInitializer.Kind.DIRECT_PAREN;
+        return new CppInitializer(kind, arguments, SourceRange.span(start.range(), end.range()));
     }
 
     /** Reference-only C++ direct/list initialization shares the ordinary initializer AST. */

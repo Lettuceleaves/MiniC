@@ -140,15 +140,28 @@ final class CppRecordParserTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "Box() {}", "~Box() {}", "template<class T> int method(T item) { return 0; }",
+            "~Box() {}", "template<class T> int method(T item) { return 0; }",
             "static int method();", "int method() const volatile;", "int method() volatile;",
-            "int method() &;", "int method() = 0;", "int field = 3;"
+            "int method() &;", "int method() = 0;"
     })
     void unsupportedMemberSyntaxIsExplicitAndRecoveryKeepsFollowingDeclarations(String unsupported) {
         var parser = parse("struct Box { " + unsupported + " int retained; }; int after() { return 0; }");
         assertFalse(parser.succeeded());
         assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("CPP001")), () -> parser.errors().toString());
         assertTrue(parser.result().program().structs().getFirst().fields().stream().anyMatch(f -> f.name().equals("retained")));
+        assertTrue(parser.result().program().functions().stream().anyMatch(f -> f.name().equals("after")));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"Box() {}", "int field = 3;"})
+    void constructionSyntaxIsRetainedAndGuardedBeforeExecutableLowering(String member) {
+        var parser = successful("struct Box { " + member + " int retained; }; int after() { return 0; }");
+        var record = parser.result().program().structs().getFirst();
+        var sourceMember = record.cppInfo().members().getFirst();
+        if (sourceMember instanceof ConstructorMember constructor) assertNotNull(constructor.body());
+        else assertNotNull(assertInstanceOf(FieldMember.class, sourceMember).defaultInitializer());
+        var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
+        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005")));
+        assertTrue(record.fields().stream().anyMatch(f -> f.name().equals("retained")));
         assertTrue(parser.result().program().functions().stream().anyMatch(f -> f.name().equals("after")));
     }
 
