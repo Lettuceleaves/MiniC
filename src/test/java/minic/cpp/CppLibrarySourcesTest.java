@@ -51,7 +51,11 @@ final class CppLibrarySourcesTest {
         Arguments.of("library-noexcept/sequence-contract.cpp",""),
         Arguments.of("library-noexcept/trait-base-contract.cpp",""),
         Arguments.of("library-noexcept/type-traits-only.cpp",""),
-        Arguments.of("library-noexcept/vector-relocation.cpp","")
+        Arguments.of("library-noexcept/vector-relocation.cpp",""),
+        Arguments.of("library-math/float-overloads.cpp",""),
+        Arguments.of("library-math/promoted-overloads.cpp",""),
+        Arguments.of("library-math/float-exponent.cpp",""),
+        Arguments.of("library-math/cstdlib-abs.cpp","")
     );}
     @ParameterizedTest(name="{0}") @MethodSource("programs")
     void libraryProgramsAgree(String name,String input)throws Exception{

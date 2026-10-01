@@ -1,6 +1,7 @@
 #ifndef MINIC_CPP_CSTDLIB_MH
 #define MINIC_CPP_CSTDLIB_MH
 #include <stdlib.h>
+#include <math.h>
 namespace std {
 using ::malloc;
 using ::calloc;
@@ -24,6 +25,8 @@ using ::srand;
 using ::abort;
 using ::exit;
 #if defined(__MINIC__) || defined(__MINIC_SELF_STL__)
+float abs(float value){return (float)::fabs((double)value);}
+double abs(double value){return ::fabs(value);}
 long abs(long value){return ::labs(value);}
 long long abs(long long value){return ::llabs(value);}
 #endif
