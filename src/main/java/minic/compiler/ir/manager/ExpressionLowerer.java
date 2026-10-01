@@ -109,7 +109,7 @@ final class ExpressionLowerer {
         }
         if (expression instanceof Expression.LetExpr capture) {
             IrValue value = captureCallValue(castIfNeeded(lowerExpression(capture.initializer()),
-                    IrTypeLowerer.lower(capture.type()), capture.initializer().range()), capture.range());
+                    IrTypeLowerer.lower(capture.type()), capture.initializer().range()), capture.body().range());
             IrValue previous = capturedValues.put(capture.name(), value);
             try {
                 return lowerExpression(capture.body());
