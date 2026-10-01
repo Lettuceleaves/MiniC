@@ -133,7 +133,7 @@ final class ExpressionLowerer {
         if (expression instanceof CastExpr castExpr) {
             IrValue operand = lowerExpression(castExpr.operand());
             if (castExpr.targetType().isVoid()) return new IrConstant(0);
-            return castIfNeeded(operand, IrTypeLowerer.lower(castExpr.targetType()), castExpr.range());
+            return lowerExplicitCast(operand, IrTypeLowerer.lower(castExpr.targetType()), castExpr.range());
         }
         if (expression instanceof CommaExpr commaExpr) {
             IrValue result = new IrConstant(0);
@@ -562,6 +562,29 @@ final class ExpressionLowerer {
 
     IrValue castForTarget(IrValue value, IrType targetType, minic.SourceRange range) {
         return castIfNeeded(value, targetType, range);
+    }
+
+    private IrValue lowerExplicitCast(IrValue value, IrType targetType, minic.SourceRange range) {
+        IrType sourceType = value.type();
+        boolean pointerToInteger = sourceType == IrType.POINTER && targetType.isIntegerScalar();
+        boolean integerToPointer = sourceType.isIntegerScalar() && targetType == IrType.POINTER;
+        if (!pointerToInteger && !integerToPointer) return castIfNeeded(value, targetType, range);
+
+        IrTemporary result = builder.newTemporary(targetType);
+        if (pointerToInteger && targetType == IrType.BOOL) {
+            // A pointer's low byte can be zero even when the full address is not.
+            builder.addInstruction(new IrBinaryInstruction(result,
+                    minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator.NOT_EQUAL,
+                    value, new IrConstant(0, IrType.POINTER), range));
+            return result;
+        }
+        if (integerToPointer && sourceType.sizeBytes() < Long.BYTES) {
+            // The existing scalar cast implements signed/unsigned extension;
+            // only then reinterpret the full Windows x64 word as an address.
+            value = castIfNeeded(value, sourceType.isSignedInteger() ? IrType.LONG_LONG : IrType.UNSIGNED_LONG_LONG, range);
+        }
+        builder.addInstruction(new IrCastInstruction(result, value, range));
+        return result;
     }
 
     private IrValue lowerUnary(UnaryExpr unaryExpr) {
