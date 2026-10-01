@@ -1012,7 +1012,8 @@ public final class CppNameBinder {
             if (switch (node.operatorName().kind()) {
                 case ADD, SUBTRACT, MULTIPLY, DIVIDE, REMAINDER, BIT_XOR, BIT_AND, BIT_OR,
                         BIT_NOT, LOGICAL_NOT, LESS, GREATER, SHIFT_LEFT, SHIFT_RIGHT, EQUAL, NOT_EQUAL,
-                        LESS_EQUAL, GREATER_EQUAL, INCREMENT, DECREMENT, CALL, SUBSCRIPT, MEMBER_ACCESS -> true;
+                        LESS_EQUAL, GREATER_EQUAL, INCREMENT, DECREMENT, CALL, SUBSCRIPT, MEMBER_ACCESS,
+                        LOGICAL_AND, LOGICAL_OR, COMMA -> true;
                 default -> false;
             }) return false;
             report("CPP005", node.operatorName().range(), "运算符重载声明已解析；重载选择和执行语义尚未实现。");
@@ -1528,22 +1529,17 @@ public final class CppNameBinder {
                     yield cast;
                 }
                 case CommaExpr n -> {
-                    List<Expression> values = new ArrayList<>();
-                    for (int index = 0; index < n.expressions().size(); index++) {
-                        values.add(expression(n.expressions().get(index), namespace, local,
-                                index == n.expressions().size() - 1 && addressDemand));
+                    Expression folded = expression(n.expressions().getFirst(), namespace, local, true);
+                    for (int index = 1; index < n.expressions().size(); index++) {
+                        Expression sourceRight = n.expressions().get(index);
+                        Expression right = expression(sourceRight, namespace, local, true);
+                        Expression prefix = index == 1 ? n.expressions().getFirst()
+                                : new CommaExpr(n.expressions().subList(0, index), n.range());
+                        Expression overloaded = operatorExpression("operator,", n, List.of(prefix, sourceRight),
+                                List.of(folded, right), namespace, local, false);
+                        folded = overloaded != null ? overloaded : builtinComma(folded, right, n.range());
                     }
-                    Expression last = values.getLast();
-                    MiniType lastType = declaredExpressionType(last);
-                    if (addressableObject(last) && (addressDemand || lastType != null && lastType.isFunction())) {
-                        values.set(values.size() - 1, address(last));
-                        Expression object = typed(new UnaryExpr(TokenType.STAR, new CommaExpr(values, n.range()), n.range()),
-                                declaredExpressionType(last));
-                        temporaryAddressPaths.add(object);
-                        valueCategories.put(object, valueCategory(last));
-                        yield object;
-                    }
-                    yield new CommaExpr(values, n.range());
+                    yield folded;
                 }
                 case FieldAccessExpr n -> {
                     Expression target = expression(n.target(), namespace, local, !n.viaPointer());
@@ -1815,12 +1811,24 @@ public final class CppNameBinder {
                 case LESS -> "<"; case GREATER -> ">"; case LESS_LESS -> "<<"; case GREATER_GREATER -> ">>";
                 case EQUAL_EQUAL -> "=="; case BANG_EQUAL -> "!="; case LESS_EQUAL -> "<="; case GREATER_EQUAL -> ">=";
                 case PLUS_PLUS -> "++"; case MINUS_MINUS -> "--";
+                case AMPERSAND_AMPERSAND -> "&&"; case PIPE_PIPE -> "||";
                 default -> null;
             };
             return symbol == null ? null : "operator" + symbol;
         }
 
         private record OperatorCandidate(Entity function, Method method, List<MiniType> parameters) { }
+
+        private Expression builtinComma(Expression first, Expression last, SourceRange range) {
+            if (addressableObject(last)) {
+                Expression object = typed(new UnaryExpr(TokenType.STAR,
+                        new CommaExpr(List.of(first, address(last)), range), range), declaredExpressionType(last));
+                temporaryAddressPaths.add(object);
+                valueCategories.put(object, valueCategory(last));
+                return object;
+            }
+            return typed(new CommaExpr(List.of(first, last), range), declaredExpressionType(last));
+        }
 
         private record ArrowStep(MiniType type, CppValueCategory category) { }
 
@@ -1873,7 +1881,7 @@ public final class CppNameBinder {
             var resolution = CppOverloadResolver.resolveOperators(candidates, arguments);
             if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
                 // C++ unary & falls back to builtin address-of only when no candidate is viable.
-                if (name.equals("operator&") && values.size() == 1
+                if ((name.equals("operator&") && values.size() == 1 || name.equals("operator,"))
                         && resolution.status() == CppOverloadResolver.Status.NO_VIABLE) return null;
                 report("CPP004", original.range(), resolution.status() == CppOverloadResolver.Status.AMBIGUOUS
                         ? "运算符重载具有二义性：" + name : "没有匹配的运算符重载：" + name);
