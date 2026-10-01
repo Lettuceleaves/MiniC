@@ -8,6 +8,7 @@ import minic.compiler.ir.optimize.IrOptimizationPipeline;
 import minic.compiler.ir.optimize.OptimizationLevel;
 import minic.compiler.ir.optimize.GlobalRegisterPlan;
 import minic.compiler.ir.optimize.ComparisonBranchPlan;
+import minic.compiler.ir.optimize.FieldLoadPlan;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
@@ -380,6 +381,7 @@ public final class Assembler extends Stage {
         private final InstructionEmitter instructionEmitter;
         private final GlobalRegisterPlan registerPlan;
         private final ComparisonBranchPlan comparisonBranches;
+        private final FieldLoadPlan fieldLoads;
         private final ValueEmitter stackValues;
         private final ArrayDeque<PendingInstructionLine> pendingInstructionLines = new ArrayDeque<>();
         private FunctionSection section = FunctionSection.PROC;
@@ -391,6 +393,7 @@ public final class Assembler extends Stage {
         private FunctionState(IrFunction function, java.util.Set<String> externalFunctionNames, boolean optimizeValueLocations) {
             this.function = function;
             comparisonBranches = optimizeValueLocations ? ComparisonBranchPlan.analyze(function) : null;
+            fieldLoads = optimizeValueLocations ? FieldLoadPlan.analyze(function) : null;
             registerPlan = optimizeValueLocations ? GlobalRegisterPlan.allocate(function, true) : null;
             frame = FrameLayout.create(function, optimizeValueLocations).withCalleeSavedRegisters(
                     registerPlan == null ? List.of() : registerPlan.calleeSavedRegisters());
@@ -505,7 +508,15 @@ public final class Assembler extends Stage {
                 }
                 if (instructionIndex < block.instructions().size()) {
                     var fusion = comparisonBranches == null ? null : comparisonBranches.at(block.label(), instructionIndex);
-                    if (fusion == null) {
+                    var fieldFusion = fieldLoads == null ? null : fieldLoads.at(block.label(), instructionIndex);
+                    if (fieldFusion != null) {
+                        instructionIndex += fieldFusion.instructionCount();
+                        var text = new StringBuilder();
+                        instructionEmitter.emitFieldLoad(text, fieldFusion.fieldAddress(), fieldFusion.load());
+                        splitLines(text.toString()).stream()
+                                .map(line -> new PendingInstructionLine(line, fieldFusion.load().range()))
+                                .forEach(pendingInstructionLines::add);
+                    } else if (fusion == null) {
                         IrInstruction instruction = block.instructions().get(instructionIndex++);
                         enqueueInstruction(instruction);
                     } else {

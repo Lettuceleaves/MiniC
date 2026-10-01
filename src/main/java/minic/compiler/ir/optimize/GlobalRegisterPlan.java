@@ -41,7 +41,10 @@ public final class GlobalRegisterPlan {
         var fusedTemporaries = new HashSet<String>();
         if (allowCalleeSaved) {
             var branches = ComparisonBranchPlan.analyze(function);
+            var fieldLoads = FieldLoadPlan.analyze(function);
             for (var block : function.blocks()) for (int i = 0; i < block.instructions().size(); i++) {
+                var fieldFusion = fieldLoads.at(block.label(), i);
+                if (fieldFusion != null) fusedTemporaries.add(fieldFusion.fieldAddress().result().name());
                 var fusion = branches.at(block.label(), i);
                 if (fusion != null) {
                     for (var temporary : fusion.discardedTemporaries()) fusedTemporaries.add(temporary.name());

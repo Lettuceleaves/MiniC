@@ -800,6 +800,14 @@ final class InstructionEmitter {
         return (type == IrType.FLOAT ? "DWORD PTR" : "QWORD PTR") + " [rsp]";
     }
 
+    /** Only the address producer is omitted; the one typed memory access remains at its original position. */
+    void emitFieldLoad(StringBuilder builder, IrFieldAddressInstruction field, IrLoadPointerInstruction load) {
+        valueEmitter.emitLoadValue(builder, field.baseAddress(), "rax");
+        String address = field.offset() == 0 ? "[rax]" : "[rax+" + field.offset() + "]";
+        emitLoadMemoryToRegister(builder, memoryPrefix(load.result().type()) + " " + address, load.result().type(), "rax");
+        valueEmitter.emitStoreTemporary(builder, load.result(), valueEmitter.storeRegister("rax", load.result().type()));
+    }
+
     /** Called only for an adjacent, single-use comparison/[bool cast]/branch emission group. */
     void emitComparisonBranch(StringBuilder builder, String functionName, IrBinaryInstruction comparison, IrBranchInstruction branch) {
         IrType type = binaryOperationType(comparison);
