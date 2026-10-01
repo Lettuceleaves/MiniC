@@ -1727,6 +1727,12 @@ public final class CppNameBinder {
                     destructor.function.defined = false;
                     body = null;
                 }
+                // Checking an implicit template destructor in an unevaluated operand
+                // determines deletion/access, but must not emit its uninstantiated callees.
+                if (body != null && unevaluatedDepth > 0 && instanceKeys.containsKey(owner)) {
+                    pendingTemplateDestructors.put(destructor.function, destructor);
+                    body = null;
+                }
                 FunctionDecl core = mapped(original, new FunctionDecl(destructor.function.coreName, MiniType.VOID,
                         List.of(new Parameter(self.coreName, self.type, original.nameRange())), false, body, false, original.range()));
                 functions.add(core); declarations.add(core);
