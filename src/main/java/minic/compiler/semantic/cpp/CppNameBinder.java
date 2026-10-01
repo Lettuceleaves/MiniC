@@ -2958,7 +2958,7 @@ public final class CppNameBinder {
             List<Expression> values=syntax!=null?syntax.arguments():legacy==null?List.of():legacy instanceof AggregateInitExpr aggregate?aggregate.values():List.of(legacy);
             int count=0;
             if(values.size()==1&&values.getFirst() instanceof StringLiteralExpr text
-                    && elementType(type).unqualified().equals(stringLiteralType(text).elementType().unqualified()))count=stringLiteralType(text).arrayLength();
+                    && characterArrayElement(type,text))count=stringLiteralType(text).arrayLength();
             else if(syntax!=null&&isList(syntax)||legacy instanceof AggregateInitExpr) {
                 int index=0;
                 while(index<values.size()) {index=skipArrayInitializer(elementType(type),values,index,namespace,scope);count++;}
@@ -5364,6 +5364,8 @@ public final class CppNameBinder {
             return convertCallValue(target, value, source);
         }
         private Expression listArrayValue(MiniType target, List<Expression> sources, Namespace namespace, Local local, SourceRange range) {
+            Expression characters=characterArrayInitializer(target,new AggregateInitExpr(sources,range));
+            if(characters!=null)return characters;
             if (target.arrayLength() < 0 || sources.size() > target.arrayLength()) {
                 report("CPP004", range, "An array list requires a complete bound and no excess elements.");
                 return new AggregateInitExpr(List.of(), range);
@@ -7512,6 +7514,8 @@ public final class CppNameBinder {
         }
         private Expression checkInitializer(MiniType target, Expression sourceNode, Expression bound, boolean listElement) {
             if (target == null) return bound;
+            Expression characters=characterArrayInitializer(target,sourceNode);
+            if(characters!=null)return characters;
             TypeEntity object = objectType(target);
             if (!(bound instanceof AggregateInitExpr list)) {
                 return listElement ? convertListElement(target, bound, sourceNode) : convertCallValue(target, bound, sourceNode);
@@ -7567,6 +7571,57 @@ public final class CppNameBinder {
                 }
             }
             return mapped(sourceNode, new AggregateInitExpr(values, list.range()));
+        }
+
+        /** String array initialization copies code units into new storage; it is not pointer conversion. */
+        private Expression characterArrayInitializer(MiniType target,Expression sourceNode) {
+            if(!target.isArray())return null;
+            Expression source=sourceNode;
+            if(isBraced(source)) {
+                List<Expression> items=listItems(source);
+                if(items.size()!=1)return null;
+                source=items.getFirst();
+            }
+            while(source instanceof GroupingExpr group)source=group.expression();
+            if(!(source instanceof StringLiteralExpr literal))return null;
+            if(!characterArrayElement(target,literal)) {
+                report("CPP004",literal.range(),"String literal encoding does not match the character array element type.");
+                return typed(new AggregateInitExpr(List.of(),sourceNode.range()),target);
+            }
+            int[] units=switch(literal.encoding()) {
+                case ORDINARY,UTF8 -> {
+                    byte[] bytes=literal.value().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                    int[] values=new int[bytes.length];
+                    for(int i=0;i<bytes.length;i++)values[i]=bytes[i]&255;
+                    yield values;
+                }
+                case UTF16 -> literal.value().chars().toArray();
+                case UTF32 -> literal.value().codePoints().toArray();
+            };
+            if(target.arrayLength()<units.length+1) {
+                report("CPP004",literal.range(),"The character array must have room for every string code unit and its terminating zero.");
+                return typed(new AggregateInitExpr(List.of(),sourceNode.range()),target);
+            }
+            MiniType element=elementType(target).unqualified();
+            List<Expression> values=new ArrayList<>();
+            for(int i=0;i<=units.length;i++) {
+                int unit=i<units.length?units[i]:0;
+                values.add(typed(new CastExpr(coreType(element),
+                        new IntegerLiteralExpr(unit,Integer.toString(unit),literal.range()),literal.range()),element));
+            }
+            // Core aggregate initialization supplies zeroes for any remaining array elements.
+            return mapped(sourceNode,typed(new AggregateInitExpr(values,sourceNode.range()),target));
+        }
+
+        private boolean characterArrayElement(MiniType array,StringLiteralExpr literal) {
+            if(!array.isArray())return false;
+            MiniType element=elementType(array).unqualified();
+            return switch(literal.encoding()) {
+                case ORDINARY,UTF8 -> element.equals(MiniType.CHAR)||element.equals(MiniType.SIGNED_CHAR)
+                        ||element.equals(MiniType.UNSIGNED_CHAR);
+                case UTF16 -> element.equals(MiniType.UNSIGNED_SHORT);
+                case UTF32 -> element.equals(MiniType.UNSIGNED_INT);
+            };
         }
 
         private MiniType designatedTarget(MiniType target, List<Designator> designators) {

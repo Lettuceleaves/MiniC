@@ -22,14 +22,14 @@ using ::strtok;
 using ::memset;
 // Preserve the cv-qualification of the searched object in the C++ API.
 const void* memchr(const void* text,int value,size_t count){return ::memchr(text,value,count);}
-void* memchr(void* text,int value,size_t count){return ::memchr(text,value,count);}
+void* memchr(void* text,int value,size_t count){return (void*)::memchr(text,value,count);}
 const char* strchr(const char* text,int value){return ::strchr(text,value);}
-char* strchr(char* text,int value){return ::strchr(text,value);}
+char* strchr(char* text,int value){return (char*)::strchr(text,value);}
 const char* strrchr(const char* text,int value){return ::strrchr(text,value);}
-char* strrchr(char* text,int value){return ::strrchr(text,value);}
+char* strrchr(char* text,int value){return (char*)::strrchr(text,value);}
 const char* strpbrk(const char* text,const char* accept){return ::strpbrk(text,accept);}
-char* strpbrk(char* text,const char* accept){return ::strpbrk(text,accept);}
+char* strpbrk(char* text,const char* accept){return (char*)::strpbrk(text,accept);}
 const char* strstr(const char* text,const char* needle){return ::strstr(text,needle);}
-char* strstr(char* text,const char* needle){return ::strstr(text,needle);}
+char* strstr(char* text,const char* needle){return (char*)::strstr(text,needle);}
 }
 #endif

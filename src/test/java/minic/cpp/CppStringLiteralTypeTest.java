@@ -123,9 +123,7 @@ class CppStringLiteralTypeTest {
         assertEquals(MiniType.CHAR.pointerTo(), result.typeOf(literal).orElseThrow());
     }
 
-    @Test void characterArrayCopyInitializationRemainsAnExplicitExistingBoundary() {
-        // These valid C++ forms were already unsupported before source literal typing. F06
-        // initialization must handle copying code units; incomplete [] also needs inference.
+    @Test void characterArrayCopyInitializationAcceptsLocalGlobalAndNestedStorage() {
         for (String declaration : List.of("int main(){char text[]=\"abc\";return 0;}",
                 "char text[]=\"abc\";int main(){return 0;}",
                 "int main(){char text[4]=\"abc\";return 0;}",
@@ -135,7 +133,7 @@ class CppStringLiteralTypeTest {
             var api = new CompilerApi(new SourceFile("array-copy.cpp", declaration), LanguageMode.CPP17_ALGORITHM);
             var semantic = api.stages().stream().filter(SemanticAnalyzer.class::isInstance).map(SemanticAnalyzer.class::cast).findFirst().orElseThrow();
             api.runThrough(semantic);
-            assertTrue(api.stages().stream().anyMatch(stage -> !stage.errors().isEmpty()), declaration);
+            assertTrue(semantic.succeeded(), () -> declaration + " " + semantic.errors());
         }
     }
 
