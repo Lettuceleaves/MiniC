@@ -29,6 +29,23 @@ import static org.junit.jupiter.api.Assertions.*;
 final class CppOptimizationCompositionTest {
     @TempDir Path temporary;
 
+    @Test void configuredPipelinePromotesPrivateAddressesExposedByInlining() {
+        var source=new SourceFile("inlined-reference.cpp","""
+                void step(int& value){value+=1;}
+                int sum(int n){int result=0;while(n>0){step(result);n-=1;}return result;}
+                int main(){return sum(7);}
+                """);
+        var original=new CompilerApi(source,LanguageMode.CPP17_ALGORITHM).runToIr();
+        var optimized=minic.compiler.ir.optimize.IrOptimizationPipeline.forLevel(OptimizationLevel.OPTIMIZED).apply(original).ir();
+        var code=optimized.findFunction("sum").orElseThrow().blocks().stream().flatMap(b->b.instructions().stream()).toList();
+        assertTrue(code.stream().noneMatch(i->i instanceof IrCallInstruction),"reference helper must first be inlined");
+        assertTrue(code.stream().noneMatch(i->i instanceof minic.compiler.ir.instruction.MemoryInstruction.IrAddressOfLocalInstruction
+                || i instanceof minic.compiler.ir.instruction.MemoryInstruction.IrLoadPointerInstruction
+                || i instanceof minic.compiler.ir.instruction.MemoryInstruction.IrStorePointerInstruction
+                || i instanceof IrLoadLocalInstruction || i instanceof IrStoreLocalInstruction),
+                "addresses that become private after inlining must use scalar temporary homes");
+    }
+
     @Test void configuredPipelinePromotesPrivateCompoundAssignments() {
         var source=new SourceFile("private-compound.cpp","""
                 int sum(int n){int result=0;while(n>0){result+=n;n-=1;}return result;}
@@ -65,7 +82,7 @@ final class CppOptimizationCompositionTest {
                 || i instanceof IrLoadLocalInstruction || i instanceof IrStoreLocalInstruction),
                 "private locals from the caller and inlined helper must be promoted");
         assertEquals(List.of("known-function-call-resolution","private-address-normalization","initialized-check-elimination","early-simplification",
-                        "small-function-inlining","local-scalar-promotion","read-only-parameter-promotion","constant-propagation",
+                        "small-function-inlining","post-inlining-scalar-preparation","local-scalar-promotion","read-only-parameter-promotion","constant-propagation",
                         "nonzero-check-elimination","loop-invariant-code-motion","dead-code-elimination","control-flow-simplification"), assembler.optimizationResult().passNames());
         var calls=instructions.stream().filter(IrCallInstruction.class::isInstance).map(IrCallInstruction.class::cast).toList();
         assertEquals(1,calls.size());
