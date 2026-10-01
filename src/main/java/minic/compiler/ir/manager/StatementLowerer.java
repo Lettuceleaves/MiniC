@@ -3,6 +3,7 @@ package minic.compiler.ir.manager;
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.CleanupScopeStmt;
 import minic.compiler.ir.instruction.ComputeInstruction.IrMoveInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrCastInstruction;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.parser.node.Statement.BreakStmt;
 import minic.compiler.parser.node.Statement.ContinueStmt;
@@ -597,6 +598,14 @@ final class StatementLowerer {
                     range
             ));
         } else {
+            // Pointer stores derive their width and representation from the value,
+            // so initializer conversion must precede the store (including null pointers).
+            IrType storageType = IrTypeLowerer.lower(targetType);
+            if (!targetType.isArray() && value.type() != storageType) {
+                IrTemporary converted = builder.newTemporary(storageType);
+                builder.addInstruction(new IrCastInstruction(converted, value, range));
+                value = converted;
+            }
             builder.addInstruction(new IrStorePointerInstruction(
                     address, value, targetType.isVolatileQualified(), range));
         }
