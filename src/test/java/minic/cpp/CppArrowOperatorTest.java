@@ -39,23 +39,26 @@ final class CppArrowOperatorTest {
         assertTrue(report.passed(),report::describe);
         report.outcomes().values().forEach(outcome->assertEquals(expected,outcome.stdout()));
     }
-    @ParameterizedTest @ValueSource(strings={
-        "struct P{int operator->(){return 1;}};int main(){P p;return p->n;}",
-        "struct P{void operator->(){}};int main(){P p;p->n;return 0;}",
-        "struct P{P&operator->(){return *this;}};int main(){P p;return p->n;}",
-        "struct T{int n;};class P{T*operator->();};int main(){P p;return p->n;}",
-        "struct T{int n;};struct P{T*operator->();};int main(){const P p={};return p->n;}",
-        "struct T{int n;};struct P{const T*operator->();};int main(){P p;p->n=2;return 0;}",
-        "struct T;struct P{T*operator->();};int main(){P p;return p->n;}",
-        "struct P{};P*operator->(P&p);int main(){return 0;}",
-        "struct P{P*operator->(int);};int main(){return 0;}"
-    })
-    void invalidArrowProgramsHaveSourceDiagnostics(String source) throws Exception {
+    static Stream<Arguments> invalidPrograms() { return Stream.of(
+        Arguments.of("struct P{int operator->(){return 1;}};int main(){P p;return p->n;}", "CPP004", "requires a pointer", "p->n"),
+        Arguments.of("struct P{void operator->(){}};int main(){P p;p->n;return 0;}", "CPP004", "requires a pointer", "p->n"),
+        Arguments.of("struct P{P&operator->(){return *this;}};int main(){P p;return p->n;}", "CPP004", "Recursive operator->", "p->n"),
+        Arguments.of("struct T{int n;};class P{T*operator->();};int main(){P p;return p->n;}", "CPP004", "private", "p->n"),
+        Arguments.of("struct T{int n;};struct P{T*operator->();};int main(){const P p={};return p->n;}", "CPP004", "没有匹配的运算符重载", "p->n"),
+        Arguments.of("struct T{int n;};struct P{const T*operator->();};int main(){P p;p->n=2;return 0;}", "SEM001", "const", "p->n=2"),
+        Arguments.of("struct T;struct P{T*operator->();};int main(){P p;return p->n;}", "CPP005", "完整对象类型", "p->n"),
+        Arguments.of("struct P{};P*operator->(P&p);int main(){return 0;}", "CPP004", "成员形式", "operator->"),
+        Arguments.of("struct P{P*operator->(int);};int main(){return 0;}", "CPP004", "参数个数", "operator->")
+    ); }
+    @ParameterizedTest @MethodSource("invalidPrograms")
+    void invalidArrowProgramsHaveSourceDiagnostics(String source, String code, String reason, String site) throws Exception {
         Path file=temporary.resolve("invalid.cpp");Files.writeString(file,source);
         var result=BoundedProcess.run(List.of(CppDifferentialHarness.referenceCompiler(System.getenv()),"-std=c++17","-pedantic-errors","-fsyntax-only",file.toString()),temporary,"",Duration.ofSeconds(20),65536);
         assertFalse(result.timedOut());assertNotEquals(0,result.exitCode());
         var api=compiler(source);var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);
         assertFalse(semantic.succeeded());assertFalse(semantic.errors().isEmpty());
-        assertTrue(semantic.errors().stream().noneMatch(error->error.code().equals("CPP005")),()->semantic.errors().toString());
+        var original = new minic.compiler.SourceFile("arrow.cpp", source);
+        assertTrue(semantic.errors().stream().anyMatch(error -> error.code().equals(code)
+                && error.message().contains(reason) && original.text(error.range()).contains(site)), () -> semantic.errors().toString());
     }
 }

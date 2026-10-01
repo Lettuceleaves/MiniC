@@ -62,8 +62,6 @@ final class CppClassTemplateParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {
-        "template<class... T>struct Box{};",
-        "template<class T>T identity(T value){return value;}",
         "template<class T>struct Box{union{T value;};};"
     })
     void unfinishedTemplateFormsHaveExplicitUnsupportedDiagnostics(String text) throws Exception {
@@ -71,6 +69,20 @@ final class CppClassTemplateParserTest {
         Parser parser = parse(text, LanguageMode.CPP17_ALGORITHM);
         assertFalse(parser.succeeded());
         assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("CPP001")), () -> parser.errors().toString());
+    }
+
+    @ParameterizedTest @ValueSource(strings = {
+        "template<class... T>struct Box{};int main(){Box<int,double> value;return sizeof(value)==1?0:1;}",
+        "template<class T>T identity(T value){return value;}int main(){return identity(3)-3;}"
+    })
+    void packsAndFunctionTemplatesRetainSourceNodesAndBindInstances(String text) throws Exception {
+        assertTrue(reference(text));
+        var parser = parse(text, LanguageMode.CPP17_ALGORITHM);
+        assertTrue(parser.succeeded(), () -> parser.errors().toString());
+        assertNotNull(AstChildren.firstCppSyntax(parser.result().program()));
+        var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        assertNull(AstChildren.firstCppSyntax(semantic.program()));
     }
 
     @ParameterizedTest @ValueSource(strings = {
@@ -127,13 +139,16 @@ final class CppClassTemplateParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {
-        "template<class T>struct Box{T get();};template<class T>T Box<T>::get(){return T();}"
+        "template<class T>struct Box{T get();};template<class T>T Box<T>::get(){return T();} int main(){Box<int> b;return b.get();}"
     })
-    void outOfLineTemplatesRemainExplicitBoundaries(String text) throws Exception {
+    void outOfLineTemplatesRetainSourceDefinitionsAndBindSelectedMethods(String text) throws Exception {
         assertTrue(reference(text));
         var parser=parse(text,LanguageMode.CPP17_ALGORITHM);
-        assertFalse(parser.succeeded());
-        assertTrue(parser.errors().stream().anyMatch(d->d.code().equals("CPP001")),()->parser.errors().toString());
+        assertTrue(parser.succeeded(), () -> parser.errors().toString());
+        assertTrue(parser.result().program().declarations().stream().anyMatch(minic.compiler.parser.node.CppTemplateMemberDefinition.class::isInstance));
+        var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        assertNull(AstChildren.firstCppSyntax(semantic.program()));
     }
 
     @ParameterizedTest @ValueSource(strings = {

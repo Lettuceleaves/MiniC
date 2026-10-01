@@ -140,9 +140,7 @@ final class CppRecordParserTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "template<class T> int method(T item) { return 0; }",
-            "static int method();", "int method() const volatile;", "int method() volatile;",
-            "int method() &;", "int method() = 0;"
+            "int method() const volatile;", "int method() volatile;", "int method() &;"
     })
     void unsupportedMemberSyntaxIsExplicitAndRecoveryKeepsFollowingDeclarations(String unsupported) {
         var parser = parse("struct Box { " + unsupported + " int retained; }; int after() { return 0; }");
@@ -165,11 +163,34 @@ final class CppRecordParserTest {
         assertTrue(parser.result().program().functions().stream().anyMatch(f -> f.name().equals("after")));
     }
 
-    @Test void inheritanceIsExplicitlyRejectedWithoutConsumingTheFollowingDeclaration() {
-        var parser = parse("struct Base { int value; }; class Derived : public Base { int extra; }; int after() { return 0; }");
-        assertFalse(parser.succeeded());
-        assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("CPP001")));
+    @Test void inheritanceParsesButStatefulBaseRemainsAnExplicitSemanticBoundary() {
+        var parser = successful("struct Base { int value; }; class Derived : public Base { int extra; }; int after(){return 0;} int main(){return after();}");
+        var derived = parser.result().program().structs().get(1);
+        assertEquals(MiniType.struct("::Base"), derived.cppInfo().bases().getFirst().type());
+        var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
+        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005")
+                && d.message().contains("without instance data") && d.range().equals(derived.range())), () -> semantic.errors().toString());
         assertTrue(parser.result().program().functions().stream().anyMatch(f -> f.name().equals("after")));
+    }
+
+    @Test void nonvirtualPureSpecifierIsAnInvalidDeclarationRatherThanUnsupportedSyntax() {
+        var parser = parse("struct Box {int method() = 0; int retained;};int after(){return 0;}");
+        assertFalse(parser.succeeded());
+        assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("PAR001")
+                && d.message().contains("default") && d.message().contains("delete")), () -> parser.errors().toString());
+        assertTrue(parser.result().program().structs().getFirst().fields().stream().anyMatch(f -> f.name().equals("retained")));
+        assertTrue(parser.result().program().functions().stream().anyMatch(f -> f.name().equals("after")));
+    }
+
+    @Test void memberTemplatesAndStaticMethodsKeepDistinctMetadataAndBindCalls() {
+        var parser = successful("struct Box {template<class T> int method(T item){return item;} static int other(){return 4;} int retained;};"
+                + "int main(){Box b;return b.method(3)+Box::other()-7;}");
+        var members = parser.result().program().structs().getFirst().cppInfo().members();
+        assertInstanceOf(TemplateMethodMember.class, members.getFirst());
+        assertTrue(assertInstanceOf(MethodMember.class, members.get(1)).staticMember());
+        var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        assertNull(AstChildren.firstCppSyntax(semantic.program()));
     }
 
     @ParameterizedTest @ValueSource(strings = {"int method();", "public: int value;"})

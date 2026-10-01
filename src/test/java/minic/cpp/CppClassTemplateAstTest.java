@@ -26,7 +26,10 @@ final class CppClassTemplateAstTest {
         assertNotEquals(id,new MiniType.TemplateIdType("::N::Box",List.of(MiniType.DOUBLE)));
         assertNotEquals(id,new MiniType.TemplateIdType("::Other::Box",List.of(MiniType.INT)));
         assertThrows(IllegalArgumentException.class,()->new MiniType.TemplateParameterType("::Box",-1));
-        assertThrows(IllegalArgumentException.class,()->new MiniType.TemplateIdType("::Box",List.<minic.compiler.type.TemplateArgument>of()));
+        var empty = new MiniType.TemplateIdType("::Box", List.<minic.compiler.type.TemplateArgument>of());
+        assertTrue(empty.arguments().isEmpty(), "Empty arguments are valid for defaults and empty packs");
+        assertEquals("::Box", empty.templateName());
+        assertNotEquals(id, empty);
     }
 
     @Test void sourceTemplateTypesCannotBypassCoreThroughNestedSignaturesOrFlatIndexes() {

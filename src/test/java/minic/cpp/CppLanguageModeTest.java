@@ -58,13 +58,25 @@ final class CppLanguageModeTest {
     }
 
     @Test
-    void unsupportedCppSyntaxProducesExplicitErrorAtOriginalMacroUse() {
-        var source = new SourceFile("unsupported.cpp", "#define DECL template\n\nDECL<class T> struct Box {};\n");
+    void supportedTemplateMacroRetainsOriginalSourceRangeAndBinds() {
+        var source = new SourceFile("template.cpp", "#define DECL template\n\nDECL<class T> struct Box {};\nint main(){Box<int> value;return 0;}\n");
         var api = new CompilerApi(source, LanguageMode.CPP17_ALGORITHM);
-        var parser = stage(api, Parser.class);
-        api.runThrough(parser);
+        var parser = stage(api, Parser.class); api.runThrough(parser);
+        assertTrue(parser.succeeded(), () -> parser.errors().toString());
+        var template = assertInstanceOf(minic.compiler.parser.node.ClassTemplateDecl.class,
+                parser.result().program().declarations().getFirst());
+        assertEquals(3, template.range().startLine());
+        assertTrue(source.text(template.range()).startsWith("DECL<class T>"));
+        assertNotNull(api.runToIr().findFunction("main").orElseThrow());
+    }
+
+    @Test
+    void unsupportedVirtualMacroStillReportsItsOriginalUse() {
+        var source = new SourceFile("unsupported.cpp", "#define DECL virtual\nstruct Box {\nDECL int method();\n};\n");
+        var api = new CompilerApi(source, LanguageMode.CPP17_ALGORITHM);
+        var parser = stage(api, Parser.class); api.runThrough(parser);
         var error = parser.errors().stream().filter(d -> d.code().equals("CPP001")).findFirst().orElseThrow();
-        assertTrue(error.message().contains("template"), error::message);
+        assertTrue(error.message().contains("virtual"), error::message);
         assertEquals(3, error.range().startLine());
         assertEquals("DECL", source.text(error.range()));
         assertFalse(parser.succeeded());

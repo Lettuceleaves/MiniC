@@ -116,12 +116,22 @@ class CppConstructorAstTest {
     }
 
     @ParameterizedTest @EnumSource(Kind.class)
-    void sourceInitializerIsNeverAcceptedAsAnOrdinaryCoreExpression(Kind kind) {
+    void initializerClausesAreValidatedBeforeBindingAndCannotEscapeIntoRawC(Kind kind) {
         var initializer = new CppInitializer(kind, kind == Kind.DEFAULT ? List.of()
                 : List.of(new IntegerLiteralExpr(1, "1", INIT)), INIT);
         var main = main(new VarDeclStmt("value", MiniType.INT, initializer, RANGE));
         var cpp = program(LanguageMode.CPP17_ALGORITHM, main);
-        assertTrue(CppNameBinder.bind(cpp).diagnostics().stream().anyMatch(d -> d.code().equals("CPP005")));
+        var binding = CppNameBinder.bind(cpp);
+        if (kind == Kind.DIRECT_LIST || kind == Kind.COPY_LIST) {
+            assertTrue(binding.diagnostics().isEmpty(), () -> binding.diagnostics().toString());
+            assertNull(AstChildren.firstCppSyntax(binding.program()));
+            assertTrue(analyze(cpp).succeeded());
+        } else {
+            // These are declaration-initialization forms, not naked expression clauses.
+            assertTrue(binding.diagnostics().stream().anyMatch(d -> d.code().equals("CPP004")
+                    && d.message().contains("naked initializer clause") && d.range().equals(INIT)),
+                    () -> binding.diagnostics().toString());
+        }
         var c = program(LanguageMode.C, main);
         assertSame(initializer, AstChildren.firstCppSyntax(c));
         assertTrue(analyze(c).errors().stream().anyMatch(d -> d.code().equals("CPP002") && d.range().equals(INIT)));

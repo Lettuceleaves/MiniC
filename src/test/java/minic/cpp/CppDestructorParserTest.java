@@ -93,7 +93,7 @@ class CppDestructorParserTest {
         assertAfter(parser);
     }
 
-    @ParameterizedTest @ValueSource(strings = {"N::Box::~Box() const {}", "N::Box::~Box(int Size) {}", "N::Box::~Box(){ int broken = ; }", "N::Box::~Box() = delete;", "N::Box::~Missing() {}"})
+    @ParameterizedTest @ValueSource(strings = {"N::Box::~Box() const {}", "N::Box::~Box(int Size) {}", "N::Box::~Box(){ int broken = ; }", "N::Box::~Missing() {}"})
     void erroneousOutOfLineDefinitionsRestoreScopesAndRecoverAtTheNextDeclaration(String declaration) {
         var parser = parse("typedef long long Size; namespace N { typedef char Size; struct Box { ~Box(); }; } "
                 + declaration + " Size afterValue; int after(){return 0;}");
@@ -189,14 +189,36 @@ class CppDestructorParserTest {
         assertAfter(parser);
     }
 
-    @ParameterizedTest @ValueSource(strings = {
-            "~Box() = default;", "~Box() = delete;", "~Box() noexcept {}", "virtual ~Box() {}"
-    })
-    void currentlyUnsupportedButLegalExtensionsRemainExplicit(String member) {
-        var parser = parse("struct Box { " + member + " int retained; }; int after(){return 0;}");
+    @ParameterizedTest @ValueSource(strings = {"~Box() = default;", "~Box() = delete;", "~Box() noexcept {}"})
+    void supportedDestructorSpecifiersRetainMetadataAndBind(String member) {
+        var parser = successful("struct Box { " + member + " int retained; }; int after(){return 0;} int main(){return after();}");
+        var destructor = parser.result().program().structs().getFirst().cppInfo().members().stream()
+                .filter(DestructorMember.class::isInstance).map(DestructorMember.class::cast).findFirst().orElseThrow();
+        assertEquals(member.contains("default") ? DefinitionKind.DEFAULTED : member.contains("delete")
+                ? DefinitionKind.DELETED : DefinitionKind.ORDINARY, destructor.definitionKind());
+        assertEquals(member.contains("noexcept"), destructor.exceptionSpecification().specified());
+        var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        assertAfter(parser);
+    }
+
+    @Test void virtualDestructorRemainsAnExplicitUnsupportedBoundary() {
+        var parser = parse("struct Box { virtual ~Box() {} int retained; }; int after(){return 0;}");
         assertFalse(parser.succeeded());
         assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("CPP001")), () -> parser.errors().toString());
         assertAfter(parser);
+    }
+
+    @Test void deletedOutOfLineDestructorParsesButCannotRedefineAnEarlierDeclaration() {
+        var parser = successful("typedef long long Size; namespace N {typedef char Size; struct Box {~Box();};} "
+                + "N::Box::~Box()=delete; Size after; int main(){return 0;}");
+        assertEquals(MiniType.LONG_LONG, parser.result().program().globals().getFirst().type());
+        var out = parser.result().program().declarations().stream().filter(OutOfLineDestructorDecl.class::isInstance)
+                .map(OutOfLineDestructorDecl.class::cast).findFirst().orElseThrow();
+        assertEquals(DefinitionKind.DELETED, out.destructor().definitionKind());
+        var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
+        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP004")
+                && d.message().contains("first declaration") && d.range().equals(out.range())), () -> semantic.errors().toString());
     }
 
     @Test void unionDestructorMetadataCannotDisappear() {

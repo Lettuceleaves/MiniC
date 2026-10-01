@@ -237,7 +237,9 @@ final class CppClassAccessTest {
         assertFalse(semantic.succeeded(), content);
         assertTrue(semantic.errors().stream().anyMatch(d -> (d.code().equals("CPP004")
                 || !diagnosticWord.equals("访问") && d.code().equals("CPP005"))
-                && d.message().contains(diagnosticWord)), () -> content + "\n" + semantic.errors());
+                && (d.message().contains(diagnosticWord)
+                    || diagnosticWord.equals("初始化") && d.code().equals("CPP004")
+                        && d.message().contains("实参不能按 C++ 标准转换为参数类型"))), () -> content + "\n" + semantic.errors());
     }
     private static CompilerApi compiler(String content) { return new CompilerApi(new SourceFile("access.cpp", content), LanguageMode.CPP17_ALGORITHM); }
     private static SemanticAnalyzer semantic(CompilerApi compiler) {

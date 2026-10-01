@@ -138,7 +138,7 @@ final class CppConversionDeclarationParserTest {
     @ParameterizedTest @ValueSource(strings = {
             "static operator bool();", "operator bool(int);", "operator bool(...);",
             "operator bool() const const;", "int operator bool();", "explicit int value;",
-            "explicit int ordinary();", "explicit explicit Value();", "explicit(false) Value();",
+            "explicit int ordinary();", "explicit(false) Value();",
             "static Value();", "Value() const;", "Value() volatile;", "Value() &;",
             "operator int[2]();", "operator int& const();", "operator void&();"
     })
@@ -182,14 +182,38 @@ final class CppConversionDeclarationParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {
-            "operator bool() volatile;", "operator bool() const volatile;", "operator bool() &;",
-            "operator auto(){return 1;}", "operator int&&();"})
+            "operator bool() volatile;", "operator bool() const volatile;", "operator bool() &;"})
     void validDeferredGrammarRemainsExplicitlyUnsupported(String declaration) throws Exception {
         String text = "struct Value{" + declaration + "int retained;};";
         referenceAccepts(text);
         var parser = parse(text, LanguageMode.CPP17_ALGORITHM);
         assertFalse(parser.succeeded());
         assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("CPP001")), () -> parser.errors().toString());
+    }
+
+    @Test void duplicateExplicitSpecifierRemainsReservedAndRecoveryIsBounded() throws Exception {
+        String text = "struct Value{explicit explicit Value();int retained;};int after(){return 0;}";
+        assertFalse(reference(text));
+        var parser = parse(text, LanguageMode.CPP17_ALGORITHM);
+        assertFalse(parser.succeeded());
+        var source = new SourceFile("conversions.cpp", text);
+        assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("CPP001")
+                && source.text(d.range()).equals("explicit")), () -> parser.errors().toString());
+        assertTrue(parser.result().program().structs().getFirst().fields().stream().anyMatch(f -> f.name().equals("retained")));
+        assertTrue(parser.result().program().functions().stream().anyMatch(f -> f.name().equals("after")));
+    }
+
+    @ParameterizedTest @ValueSource(strings = {"operator auto(){return 1;}", "operator int&&();"})
+    void deducedAndRvalueReferenceConversionsRetainTargetsAndBind(String declaration) throws Exception {
+        String text = "struct Value{" + declaration + "int retained;};int main(){return 0;}";
+        referenceAccepts(text);
+        var parser = successful(text);
+        var method = ((MethodMember) parser.result().program().structs().getFirst().cppInfo().members().getFirst()).method();
+        assertNotNull(method.conversionName());
+        if (declaration.contains("auto")) assertTrue(method.returnType().containsAuto());
+        else assertTrue(method.returnType().isRvalueReference());
+        var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
     }
 
     @ParameterizedTest @ValueSource(strings = {

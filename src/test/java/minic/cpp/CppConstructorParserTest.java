@@ -171,8 +171,7 @@ class CppConstructorParserTest {
         assertTrue(parser.result().program().functions().stream().anyMatch(f -> f.name().equals("afterFunction")));
     }
 
-    @ParameterizedTest @ValueSource(strings = {"N::Box::Box() const {}", "N::Box::Box(Unknown parameter) {}",
-            "N::Box::Box() = delete;"})
+    @ParameterizedTest @ValueSource(strings = {"N::Box::Box() const {}", "N::Box::Box(Unknown parameter) {}"})
     void rejectedOutOfLineHeaderDoesNotRecoverPastTheNextDeclaration(String broken) {
         var parser = parse("typedef long long Size; namespace N { typedef char Size; struct Box { Box(); }; } "
                 + broken + " Size after; int afterFunction(){return 0;}");
@@ -192,13 +191,38 @@ class CppConstructorParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = { "Box() = default;", "Box() = delete;",
-            "constexpr Box() {}", "Box() noexcept {}", "Box():Box(1) {}" })
-    void unsupportedConstructorExtensionsAreExplicitAndRecoveryIsBounded(String member) {
-        var parser = parse("struct Box { " + member + " int retained; }; int after(){return 0;}");
+            "constexpr Box() {}", "Box() noexcept {}" })
+    void supportedConstructorSpecifiersRetainMetadataAndBind(String member) {
+        var parser = successful("struct Box { " + member + " int retained = 0; }; int after(){return 0;} int main(){return after();}");
+        var constructor = constructors(record(parser)).getFirst();
+        assertEquals(member.contains("default") ? DefinitionKind.DEFAULTED : member.contains("delete")
+                ? DefinitionKind.DELETED : DefinitionKind.ORDINARY, constructor.definitionKind());
+        assertEquals(member.contains("constexpr"), constructor.constexprSpecifier());
+        assertEquals(member.contains("noexcept"), constructor.exceptionSpecification().specified());
+        var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        assertTrue(record(parser).fields().stream().anyMatch(f -> f.name().equals("retained")));
+        assertAfter(parser);
+    }
+
+    @Test void delegatingConstructorRemainsAnExplicitUnsupportedBoundary() {
+        var parser = parse("struct Box { Box():Box(1) {} int retained; }; int after(){return 0;}");
         assertFalse(parser.succeeded());
         assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("CPP001")), () -> parser.errors().toString());
         assertTrue(record(parser).fields().stream().anyMatch(f -> f.name().equals("retained")));
         assertAfter(parser);
+    }
+
+    @Test void deletedOutOfLineConstructorParsesButCannotRedefineAnEarlierDeclaration() {
+        var parser = successful("typedef long long Size; namespace N {typedef char Size; struct Box {Box();};} "
+                + "N::Box::Box()=delete; Size after; int main(){return 0;}");
+        assertEquals(MiniType.LONG_LONG, parser.result().program().globals().getFirst().type());
+        var out = parser.result().program().declarations().stream().filter(OutOfLineConstructorDecl.class::isInstance)
+                .map(OutOfLineConstructorDecl.class::cast).findFirst().orElseThrow();
+        assertEquals(DefinitionKind.DELETED, out.constructor().definitionKind());
+        var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
+        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP004")
+                && d.message().contains("first declaration") && d.range().equals(out.range())), () -> semantic.errors().toString());
     }
 
     @ParameterizedTest @ValueSource(strings = {"Data() {}", "int value = 1;", "int value{1};"})
