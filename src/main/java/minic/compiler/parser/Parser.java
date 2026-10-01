@@ -238,6 +238,7 @@ public final class Parser extends Stage {
 
     private Declaration parseDeclaration() {
         if (languageMode() == LanguageMode.CPP17_ALGORITHM) {
+            if (context.check(TokenType.STATIC_ASSERT)) return declarationManager.parseStaticAssert();
             if (context.check(TokenType.TEMPLATE)) return parseClassTemplate();
             if (context.check(TokenType.NAMESPACE)) return parseNamespace();
             if (context.check(TokenType.USING)) {

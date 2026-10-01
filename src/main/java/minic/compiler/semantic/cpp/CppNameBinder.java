@@ -228,6 +228,151 @@ public final class CppNameBinder {
 
     private static final class Binding {
         private final Program source;
+        private final Map<String,CppConstantEvaluator.Global> constantObjects=new LinkedHashMap<>();
+        private final Map<Entity,Boolean> constexprFunctions=new IdentityHashMap<>();
+        private CppConstantEvaluator constantEvaluator(){
+            return new CppConstantEvaluator(new CppConstantEvaluator.Context(){
+                public MiniType type(Expression value){return coreType(declaredExpressionType(value));}
+                public CppConstantEvaluator.Function function(String name){
+                    Entity entity=coreValues.get(name);
+                    if(entity!=null){
+                        int saved=unevaluatedDepth;unevaluatedDepth=0;
+                        try{
+                            if(functionTemplateInstances.containsKey(entity))instantiateFunctionTemplate(entity);
+                            Method method=pendingTemplateMethods.get(entity);if(method!=null)instantiateMethod(method);
+                            Constructor constructor=pendingTemplateConstructors.get(entity);if(constructor!=null)instantiateConstructor(constructor);
+                        }finally{unevaluatedDepth=saved;}
+                    }
+                    FunctionDecl result=null;
+                    for(FunctionDecl function:functions)if(function.name().equals(name)&&(result==null||function.hasBody()))result=function;
+                    return result==null?null:new CppConstantEvaluator.Function(result,constexprEligible(entity));
+                }
+                public CppConstantEvaluator.Global global(String name){
+                    var stored=constantObjects.get(name);if(stored!=null)return stored;
+                    Entity value=coreValues.get(name);
+                    return value==null?null:new CppConstantEvaluator.Global(coreType(value.type),null,false,value.owner!=null||staticLocalEntities.contains(value));
+                }
+                public List<StructField> fields(MiniType type){
+                    for(StructDecl record:structs)if(record.definition()&&MiniType.struct(record.name()).unqualified().equals(type.unqualified()))return record.fields();
+                    return List.of();
+                }
+                private minic.compiler.semantic.manager.StructRegistry registry(){
+                    var errors=new ArrayList<Diagnostic>();var registry=new minic.compiler.semantic.manager.StructRegistry(new minic.compiler.semantic.model.Scope(),errors);
+                    registry.defineStructs(new Program(structs,List.of(),source.range()));
+                    if(!errors.isEmpty())throw new IllegalArgumentException(errors.getFirst().message());return registry;
+                }
+                public int sizeOf(MiniType type){return registry().completeObjectSize(coreType(type));}
+                public int alignmentOf(MiniType type){return registry().completeObjectAlignment(coreType(type));}
+                public boolean union(MiniType type){TypeEntity record=objectType(type);return record!=null&&record.union;}
+                public String staticTemporary(MaterializeExpr temporary){return freshName("constant_reference_temporary");}
+                public void initializedTemporary(String name,MiniType type,Expression initializer){
+                    Entity storage=new Entity(name,name,Kind.VARIABLE,root,type,null,true);coreValues.put(name,storage);
+                    constantObjects.put(name,new CppConstantEvaluator.Global(type,initializer,true,true));
+                    addStaticGlobal(new GlobalVarDecl(name,type,initializer,false,List.of(),initializer.range()));
+                }
+
+                public boolean baseConversion(MiniType from,MiniType to){return baseDistance(from,to)>0;}
+                public boolean internalArrayDecay(CastExpr expression,MiniType from,MiniType to){
+                    if(!from.pointee().isArray()||!from.pointee().elementType().unqualified().equals(to.pointee().unqualified()))return false;
+                    for(var origin:origins.entrySet())if((origin.getKey() instanceof CastExpr
+                            ||origin.getKey() instanceof CppConstructionExpr construction&&construction.type().isPointer())&&containsNode(origin.getValue(),expression))return false;
+                    return true;
+                }
+
+            },CppConstantEvaluator.Limits.defaults());
+        }
+        private boolean containsNode(AstNode tree,AstNode target){if(tree==target)return true;for(AstNode child:AstChildren.of(tree))if(containsNode(child,target))return true;return false;}
+        private boolean constexprEligible(Entity function){
+            if(function==null)return false;
+            Boolean explicit=constexprFunctions.get(function);if(explicit!=null)return explicit;
+            if(inferredExceptionBodies.containsKey(function))return true;
+            var specialization=functionTemplateInstances.get(function);
+            if(specialization!=null&&specialization.method!=null&&lambdaTypes.containsKey(specialization.method.owner))return constexprBodyAllowed(specialization.definition.source.body());
+            for(TypeEntity owner:coreTypes.values()){
+                for(Constructor constructor:constantConstructors(owner))if(constructor.function==function)
+                    return constructor.source.constexprSpecifier()||constructor.implicit||defaulted(constructor)&&!userProvidedDefaulted.contains(function);
+                if(owner.aggregateInitializer!=null&&owner.aggregateInitializer.function==function)return true;
+                if(owner.destructor!=null&&owner.destructor.function==function&&trivialConstantDestructor(owner,new HashSet<>()))return true;
+                for(MethodSet set:owner.methods.values())for(Method method:set.methods)if(method.function==function)
+                    return method.source.method().constexprSpecifier()||lambdaTypes.containsKey(owner)&&constexprBodyAllowed(method.source.method().body())
+                            ||defaulted(method)&&!userProvidedDefaulted.contains(function);
+                if(owner.implicitAssignment!=null&&owner.implicitAssignment.function==function||owner.implicitMoveAssignment!=null&&owner.implicitMoveAssignment.function==function)return true;
+            }
+            return false;
+        }
+        private List<Constructor> constantConstructors(TypeEntity owner){
+            var result=new ArrayList<>(owner.constructors);if(owner.implicitCopy!=null)result.add(owner.implicitCopy);if(owner.implicitMove!=null)result.add(owner.implicitMove);return result;
+        }
+        private boolean constexprBodyAllowed(AstNode node){
+            if(node==null||node instanceof CppLambdaExpr)return true;
+            if(node instanceof VarDeclStmt declaration&&!declaration.type().containsPlaceholder()&&!declaration.type().isDependentTemplate()&&!literalType(declaration.type(),new HashSet<>()))return false;
+            if(node instanceof VarDeclStmt local&&(local.staticStorage()||local.initializer()==null&&!local.type().isStruct()&&!local.type().isDependentTemplate()))return false;
+            if(node instanceof VaStartExpr||node instanceof VaArgExpr||node instanceof VaCopyExpr||node instanceof VaEndExpr)return false;
+            for(AstNode child:AstChildren.of(node))if(!constexprBodyAllowed(child))return false;
+            return true;
+        }
+        private void constexprFunction(Entity entity,boolean requested,BlockStmt body,SourceRange range){
+            Boolean previous=constexprFunctions.putIfAbsent(entity,requested);
+            if(previous!=null&&previous!=requested)report("CPP004",range,"All declarations of a function must agree on constexpr");
+            if(requested&&body!=null&&!constexprBodyAllowed(body))report("CPP004",range,"A C++17 constexpr function cannot contain non-literal, static or uninitialized local objects or variadic cursor operations");
+            if(requested&&body!=null&&entity.type instanceof MiniType.FunctionType function){
+                if(!function.returnType().containsPlaceholder()&&!literalType(function.returnType(),new HashSet<>()))report("CPP004",range,"A constexpr function must return a literal type");
+                for(MiniType parameter:function.parameterTypes())if(!literalType(parameter,new HashSet<>()))report("CPP004",range,"Constexpr function parameters must have literal types");
+            }
+        }
+        private boolean literalType(MiniType type,Set<TypeEntity> active){
+            if(type.isReference()||type.isPointer()||type.isIntegerScalar()||type.unqualified().equals(MiniType.VOID)||type.unqualified().equals(MiniType.FLOAT)||type.unqualified().equals(MiniType.DOUBLE)||type.isNullPointer())return true;
+            if(type.isArray())return type.arrayLength()>0&&literalType(elementType(type),active);
+            TypeEntity owner=objectType(type);if(owner==null&&type.unqualified() instanceof MiniType.StructType record)owner=canonicalTypes.get(record.name());
+            if(owner==null||!active.add(owner))return false;
+            try{
+                if(!trivialConstantDestructor(owner,new HashSet<>()))return false;
+                return owner.fields.stream().allMatch(field->literalType(field.type(),active));
+            }finally{active.remove(owner);}
+        }
+        private boolean trivialConstantDestructor(TypeEntity owner,Set<TypeEntity> seen){
+            if(!seen.add(owner))return true;
+            if(owner.destructor!=null){Destructor destructor=owner.destructor;
+                if(deletedDestructors.containsKey(destructor.function)||!destructor.implicit&&(destructor.source.definitionKind()!=DefinitionKind.DEFAULTED||userProvidedDefaulted.contains(destructor.function)))return false;}
+            for(StructField field:owner.fields){MiniType type=field.type();while(type.isArray())type=type.elementType();
+                TypeEntity member=type.isReference()?null:objectType(type);if(member!=null&&!trivialConstantDestructor(member,seen))return false;}
+            return true;
+        }
+        private Expression foldedConstant(Expression original,Expression folded){
+            origins.replaceAll((source,current)->current==original?folded:current);
+            MiniType type=declaredExpressionTypes.get(original);if(type!=null)declaredExpressionTypes.put(folded,type);
+            CppValueCategory category=valueCategories.get(original);if(category!=null)valueCategories.put(folded,category);
+            return folded;
+        }
+        private Expression constantObject(Entity entity,MiniType type,Expression initializer,boolean required,boolean staticStorage,SourceRange range){
+            boolean readable=required||type.isConstQualified()&&!type.isVolatileQualified()&&type.isIntegerScalar();
+            constantObjects.put(entity.coreName,new CppConstantEvaluator.Global(coreType(type),initializer,readable,staticStorage));
+            if(!required){
+                if(!staticStorage||initializer==null)return initializer;
+                try{var evaluator=constantEvaluator();Expression folded=evaluator.constantExpression(evaluator.initialize(entity.coreName,coreType(type),initializer,true),initializer.range());
+                    constantObjects.put(entity.coreName,new CppConstantEvaluator.Global(coreType(type),folded,readable,true));return foldedConstant(initializer,folded);
+                }catch(IllegalArgumentException notConstant){return initializer;}
+            }
+            if(initializer==null){report("CPP004",range,"A constexpr object requires an initializer");return null;}
+            if(type.isVolatileQualified()||!literalType(type,new HashSet<>())){report("CPP004",range,"A constexpr object requires a literal, non-volatile type");return initializer;}
+            try{
+                var evaluator=constantEvaluator();var result=evaluator.initialize(entity.coreName,coreType(type),initializer,staticStorage);
+                // Local object addresses stay attached to their actual declaration. Globals can use data initializers.
+                Expression folded=evaluator.constantExpression(result,initializer.range());
+                constantObjects.put(entity.coreName,new CppConstantEvaluator.Global(coreType(type),folded,true,staticStorage));
+                return staticStorage||type.isIntegerScalar()||type.unqualified().equals(MiniType.FLOAT)||type.unqualified().equals(MiniType.DOUBLE)?foldedConstant(initializer,folded):initializer;
+            }catch(IllegalArgumentException invalid){report("CPP004",range,"Initializer is not a constant expression: "+invalid.getMessage());return initializer;}
+        }
+        private void staticAssertion(minic.compiler.parser.node.CppStaticAssertDecl node,Namespace namespace,Local scope){
+            try{
+                Expression bound=contextualBool(expression(node.condition(),namespace,scope));
+                validateUnevaluatedCore(bound);
+                var result=constantEvaluator().evaluate(bound);
+                if(!(result instanceof CppConstantEvaluator.IntegerValue value)||value.value()==0)
+                    report("CPP004",node.range(),"Static assertion failed"+(node.message()==null?"":": "+node.message().value()));
+            }catch(IllegalArgumentException invalid){report("CPP004",node.range(),"Static assertion requires a constant expression: "+invalid.getMessage());}
+        }
+
         private final Namespace root = new Namespace(null, "");
         private final List<Diagnostic> diagnostics = new ArrayList<>();
         private int substitutionDepth;
@@ -431,6 +576,7 @@ public final class CppNameBinder {
                         bindDeclarations(node.declarations(), target);
                     }
                     case UsingDecl node -> bindUsing(node, namespace, null);
+                    case minic.compiler.parser.node.CppStaticAssertDecl node -> staticAssertion(node,namespace,null);
                     case GlobalVarDecl node -> bindGlobal(node, namespace);
                     case CppStructuredBindingDecl node -> structuredBinding(node,namespace,null);
                     case FunctionDecl node -> bindFunction(node, namespace);
@@ -526,7 +672,7 @@ public final class CppNameBinder {
         private void declareMemberTemplate(TypeEntity owner,List<ClassTemplateDecl.Parameter> parameters,
                                            MethodMember method,ConstructorMember constructor,Access access) {
             FunctionDecl source=method!=null?method.method():new FunctionDecl(owner.name,MiniType.VOID,constructor.parameters(),constructor.variadic(),constructor.body(),false,constructor.range())
-                    .withDefinitionKind(constructor.definitionKind()).withExceptionSpecification(constructor.exceptionSpecification());
+                    .withDefinitionKind(constructor.definitionKind()).withExceptionSpecification(constructor.exceptionSpecification()).withConstexprSpecifier(constructor.constexprSpecifier());
             if(source.definitionKind()==DefinitionKind.DEFAULTED){report("CPP004",source.range(),"A function template cannot be a defaulted special member");return;}
             List<MiniType> argumentTypes=source.parameters().stream().map(Parameter::type).toList();
             var abi=new ArrayList<MiniType>();
@@ -583,6 +729,9 @@ public final class CppNameBinder {
             }
             if(previous!=null && previous.hasDefinition() && function.hasDefinition()) {report("CPP004",function.range(),"Explicit specialization is defined more than once");return;}
             if(previous!=null && function.definitionKind()==DefinitionKind.DELETED){report("CPP004",function.range(),"A deleted specialization must be its first declaration");return;}
+            // A full specialization owns its constexpr specifier; primary-template qualification is not inherited.
+            if(previous==null)constexprFunctions.remove(selected);
+            constexprFunction(selected,function.constexprSpecifier(),null,function.range());
             if(previous==null || function.hasDefinition())explicitFunctionSpecializations.put(selected,function);
             selected.defined=previous!=null&&previous.hasDefinition() || function.hasDefinition();
             exceptionSource(selected,function.exceptionSpecification(),function.parameters(),parameters,namespace,null,null,false,function.range());
@@ -635,7 +784,7 @@ public final class CppNameBinder {
                 CppTemplateSubstitution substitution=functionSubstitution(definition,bindings);
                 FunctionDecl original=definition.source;
                 FunctionDecl header=new FunctionDecl(original.name(),original.returnType(),original.parameters(),original.variadic(),null,
-                        original.external(),original.noReturn(),original.range(),original.operatorName(),original.conversionName(),original.definitionKind(),original.exceptionSpecification());
+                        original.external(),original.noReturn(),original.range(),original.operatorName(),original.conversionName(),original.definitionKind(),original.exceptionSpecification(),original.constexprSpecifier());
                 FunctionDecl instance=substitution.instantiate(header);
                 List<MiniType> parameters=instance.parameters().stream().map(p->normalizeType(p.type(),definition.owner,null,p.range())).toList();
                 MiniType result=normalizeReturnType(instance.returnType(),instance.parameters(),parameters,definition.owner,definition.record,definition.method,instance.range());
@@ -654,7 +803,7 @@ public final class CppNameBinder {
                 if(definition.constructor!=null) {
                     var originalConstructor=definition.constructor;
                     var member=new ConstructorMember(originalConstructor.name(),instance.parameters(),originalConstructor.variadic(),List.of(),null,
-                            originalConstructor.nameRange(),originalConstructor.range(),originalConstructor.explicitSpecifier(),originalConstructor.definitionKind(),instance.exceptionSpecification());
+                            originalConstructor.nameRange(),originalConstructor.range(),originalConstructor.explicitSpecifier(),originalConstructor.definitionKind(),instance.exceptionSpecification(),instance.constexprSpecifier());
                     constructor=new Constructor(definition.record,member,definition.access,entity,parameters,false);
                 }
                 registerSpecialDefinition(entity,instance.definitionKind(),instance.range());
@@ -663,6 +812,7 @@ public final class CppNameBinder {
                                 :definition.constructor!=null?definition.record.type.pointerTo():null,false,instance.range());
                 functionTemplateCache.put(key,entity);functionTemplateDeclarations.put(entity,declaration);coreValues.put(entity.coreName,entity);
                 functionTemplateInstances.put(entity,new FunctionTemplateInstance(definition,bindings,instance,method,constructor));
+                if(definition.record==null||!lambdaTypes.containsKey(definition.record))constexprFunction(entity,instance.constexprSpecifier(),null,instance.range());
                 recordDefaultArguments(entity,instance.parameters(),definition.owner,definition.record);
                 // A prototype permits recursion. The selected body is still instantiated lazily.
                 declareTemplatePrototype(entity,range);
@@ -1166,6 +1316,8 @@ public final class CppNameBinder {
                 if(declaration instanceof OutOfLineStaticFieldDecl field) {
                     StaticField member=instance.staticFields.get(field.declaration().name());
                     if(member==null)report("CPP004",field.nameRange(),"No matching static data member declaration");
+                    else if(member.source.constexprSpecifier()&&field.declaration().constexprSpecifier()&&field.declaration().initializer()==null)
+                        bindStaticFieldDefinition(field,definition.namespace);
                     else if(member.entity.defined || pendingTemplateStatics.containsKey(member.entity))report("CPP004",field.nameRange(),"Duplicate static data member definition");
                     else pendingTemplateStatics.put(member.entity,new PendingTemplateStatic(field,instance,definition.namespace,definition.lookup));
                 } else bindDeclarations(List.of(declaration),definition.namespace);
@@ -1340,6 +1492,7 @@ public final class CppNameBinder {
                     else if (member instanceof ConstructorMember constructor) constructorAccess.put(constructor, current);
                     else if (member instanceof DestructorMember destructor) destructorAccess.put(destructor, current);
                     else if(member instanceof TemplateMethodMember || member instanceof TemplateConstructorMember)templateAccess.put(member,current);
+                    else if(member instanceof minic.compiler.parser.node.CppStaticAssertDecl){}
                     else report("CPP005", member.range(), "This C++ record member is not supported yet: " + member.getClass().getSimpleName());
                 }
             }
@@ -1432,6 +1585,9 @@ public final class CppNameBinder {
                 ensureImplicitAssignment(entity);
                 ensureImplicitMove(entity);
                 if (!instanceKeys.containsKey(entity)) for (Method method : methods) bindMethod(method, namespace);
+                TypeEntity savedAssertionClass=currentClass;currentClass=entity;
+                try{for(CppMember member:members)if(member instanceof minic.compiler.parser.node.CppStaticAssertDecl assertion)staticAssertion(assertion,namespace,null);}
+                finally{currentClass=savedAssertionClass;}
             }
         }
 
@@ -1881,6 +2037,7 @@ public final class CppNameBinder {
             }
             if(node.constructor().definitionKind()==DefinitionKind.DELETED){report("CPP004",node.range(),"A deleted definition must be the first declaration");return;}
             previous.function.defined = true;
+            if(previous.source.constexprSpecifier()!=node.constructor().constexprSpecifier())report("CPP004",node.range(),"All constructor declarations must agree on constexpr");
             Constructor replacement=new Constructor(owner,node.constructor(),previous.access,previous.function,parameters,false);
             if(defaulted(replacement)&&!validDefaultedConstructor(replacement))return;
             owner.constructors.set(owner.constructors.indexOf(previous),replacement);
@@ -1936,6 +2093,7 @@ public final class CppNameBinder {
         }
 
         private void bindConstructor(Constructor constructor, boolean aggregateList) {
+            if(!constructor.implicit&&!defaulted(constructor))constexprFunction(constructor.function,constructor.source.constexprSpecifier(),constructor.source.body(),constructor.source.range());
             exceptionSource(constructor.function,constructor.source.exceptionSpecification(),
                     constructor.source.parameters(),constructor.parameterTypes,constructor.owner.owner,constructor.owner,constructor.owner.type.pointerTo(),
                     constructor.implicit||defaulted(constructor)&&!userProvidedDefaulted.contains(constructor.function),constructor.source.range());
@@ -1945,7 +2103,7 @@ public final class CppNameBinder {
                 if(!constructor.parameterTypes.isEmpty())return;
                 ConstructorMember source=constructor.source;
                 var bodySource=new ConstructorMember(source.name(),source.parameters(),false,List.of(),new BlockStmt(List.of(),source.range()),
-                        source.nameRange(),source.range(),source.explicitSpecifier()).withExceptionSpecification(source.exceptionSpecification());
+                        source.nameRange(),source.range(),source.explicitSpecifier()).withExceptionSpecification(source.exceptionSpecification()).withConstexprSpecifier(source.constexprSpecifier());
                 bindConstructor(new Constructor(constructor.owner,bodySource,constructor.access,constructor.function,List.of(),
                         !userProvidedDefaulted.contains(constructor.function)),aggregateList);return;
             }
@@ -1989,6 +2147,7 @@ public final class CppNameBinder {
                             action = initializeField(owner, field, syntax, scope, range);
                             if (action != null && entry.origin() == CppMemberInitializationPlan.Origin.EXPLICIT) mapped(entry.source(), action);
                         }
+                        if(action==null&&original.constexprSpecifier())report("CPP004",entry.source().range(),"A constexpr constructor must initialize every subobject");
                         if (action != null) statements.add(new ExprStmt(action, action.range()));
                     }
                     statements.addAll(block(original.body(), scope, false).statements());
@@ -2047,24 +2206,22 @@ public final class CppNameBinder {
                     Kind.VARIABLE, namespace, type, null, false);
             StaticField field = new StaticField(owner, node, access, entity);
             owner.staticFields.put(node.name(), field); staticFields.put(entity, field); coreValues.put(entity.coreName, entity);
-            if (node.initializer() != null) {
-                if (!type.isConstQualified() || type.isVolatileQualified() || !type.isIntegerScalar()) {
-                    report("CPP004", node.range(), "Only a const integral static member can have an in-class initializer without inline/constexpr.");
-                } else {
-                    TypeEntity savedClass = currentClass; Entity savedThis = currentThis;
-                    boolean complete = owner.complete;
-                    currentClass = owner; currentThis = null; owner.complete = false;
-                    try {
-                        Expression value = variableInitializer(type, node.cppInitializer(), node.initializer(), namespace, null, node.range(), node.name());
-                        if (value == null || !constantInitializer(value)) report("CPP004", node.range(), "A static const integral member requires a constant initializer.");
-                        else field.constant = value;
-                    } finally { currentClass = savedClass; currentThis = savedThis; owner.complete = complete; }
-                }
+            Expression initial=null;
+            if(node.constexprSpecifier()||node.initializer()!=null){
+                if(!node.constexprSpecifier()&&(!type.isConstQualified()||type.isVolatileQualified()||!type.isIntegerScalar()))
+                    report("CPP004",node.range(),"Only a const integral or constexpr static member may have an in-class initializer");
+                TypeEntity savedClass=currentClass;Entity savedThis=currentThis;boolean complete=owner.complete;
+                currentClass=owner;currentThis=null;owner.complete=false;
+                try{
+                    initial=variableInitializer(type,node.cppInitializer(),node.initializer(),namespace,null,node.range(),node.name());
+                    initial=constantObject(entity,type,initial,true,true,node.range());
+                    if(type.isIntegerScalar())field.constant=initial;
+                }finally{currentClass=savedClass;currentThis=savedThis;owner.complete=complete;}
             }
-            // A declaration alone allocates no object. Non-ODR constant reads are lowered separately.
-            GlobalVarDecl core = mapped(node, new GlobalVarDecl(entity.coreName, coreType(type), null, true,
-                    normalizeAlignments(node.alignmentSpecs(), namespace, null), node.range()));
-            globals.add(core); declarations.add(core);
+            entity.defined=node.constexprSpecifier();
+            GlobalVarDecl core=mapped(node,new GlobalVarDecl(entity.coreName,coreType(type),entity.defined?initial:null,!entity.defined,
+                    normalizeAlignments(node.alignmentSpecs(),namespace,null),node.range()));
+            globals.add(core);declarations.add(core);
         }
 
         private void bindStaticFieldDefinition(OutOfLineStaticFieldDecl node, Namespace namespace) {
@@ -2080,6 +2237,7 @@ public final class CppNameBinder {
             GlobalVarDecl source = node.declaration();
             MiniType type = normalizeType(source.type(), namespace, null, source.range());
             if (!type.equals(field.entity.type)) report("CPP004", node.nameRange(), "Static data member definition has a different type.");
+            if(field.entity.defined&&field.source.constexprSpecifier()&&source.initializer()==null){mapped(node,globals.stream().filter(g->g.name().equals(field.entity.coreName)).findFirst().orElseThrow());return;}
             if (field.entity.defined) { report("CPP004", node.nameRange(), "Duplicate static data member definition."); return; }
             field.entity.defined = true;
             if (field.constant != null && source.initializer() != null)
@@ -2236,6 +2394,8 @@ public final class CppNameBinder {
                 return;
             }
             FunctionDecl original = method.source.method();
+            if(!lambdaTypes.containsKey(method.owner)&&(!defaulted(method)||original.constexprSpecifier()))constexprFunction(method.function,original.constexprSpecifier(),original.body(),original.range());
+            else if(lambdaTypes.containsKey(method.owner)&&lambdaTypes.get(method.owner).source.constexprSpecifier()&&!constexprBodyAllowed(original.body()))report("CPP004",original.range(),"Invalid constexpr lambda body");
             MiniType returnPattern=methodReturnType(method);
             if(returnPattern.containsAuto()&&!original.hasBody()) { autoReturnPatterns.put(method.function,returnPattern); return; }
             requireSupportedCallLifetime(methodReturnType(method), method.parameterTypes, original.range());
@@ -2320,6 +2480,8 @@ public final class CppNameBinder {
                 report("CPP004", node.nameRange(), "类外定义与成员函数声明的签名不匹配：" + spelling(path));
                 return;
             }
+            if(previous.source.method().constexprSpecifier()!=definition.constexprSpecifier())
+                report("CPP004",definition.range(),"All declarations of a member function must agree on constexpr");
             if (previous.function.defined) {
                 report("CPP004", node.nameRange(), "成员函数重复定义：" + spelling(path));
                 return;
@@ -2570,7 +2732,9 @@ public final class CppNameBinder {
         /** Frontend canonical names are source identities, never linker/layout identities. */
 
         private TemplateArgument.Integral evaluateTemplateConstant(Expression expression) {
-            return TemplateValues.evaluate(resolveTemplateQueries(expression));
+            var value=constantEvaluator().evaluate(expression);
+            if(value instanceof CppConstantEvaluator.IntegerValue integer)return new TemplateArgument.Integral(integer.value(),integer.type());
+            throw new IllegalArgumentException("An integral constant expression is required");
         }
         private Expression resolveTemplateQueries(Expression expression) {
             if(expression instanceof SizeofExpr || expression instanceof AlignofExpr) {
@@ -2761,6 +2925,7 @@ public final class CppNameBinder {
             recordLinkage(entity, node.range());
             Expression value = defined ? bindStaticInitializer(type, node.cppInitializer(), node.initializer(),
                     namespace, null, node, node.name()) : null;
+            value=constantObject(entity,type,value,node.constexprSpecifier(),true,node.range());
             boolean constant = value == null || constantInitializer(value);
             GlobalVarDecl core = mapped(node, new GlobalVarDecl(entity.coreName, coreType(type), constant ? value : null,
                     node.external() && !defined && !internalLinkages.getOrDefault(entity, false), normalizeAlignments(node.alignmentSpecs(), namespace, null), node.range()));
@@ -2848,6 +3013,7 @@ public final class CppNameBinder {
             if (type.containsAuto()) { type = deduceVariableType(type, node.cppInitializer(), node.initializer(), namespace, scope, node.range()); entity.type = type; }
             requireComplete(type, node.range());
             Expression value = bindStaticInitializer(type, node.cppInitializer(), node.initializer(), namespace, scope, node, node.name());
+            value=constantObject(entity,type,value,node.constexprSpecifier(),true,node.range());
             boolean constant = value == null || constantInitializer(value);
             addStaticGlobal(new GlobalVarDecl(entity.coreName, coreType(type), constant ? value : null, false,
                     normalizeAlignments(node.alignmentSpecs(), namespace, scope), node.range()));
@@ -2998,6 +3164,7 @@ public final class CppNameBinder {
                             &&type.parameterTypes().equals(signature.parameterTypes())&&type.variadic()==signature.variadic()))
                 report("CPP004",node.range(),"A deleted definition must be the first declaration");
             Entity entity = instantiated!=null?instantiated:declareNamespaceFunction(node.name(), signature, node.hasDefinition(), namespace, node.range(), node.operatorName() != null);
+            constexprFunction(entity,node.constexprSpecifier(),node.body(),node.range());
             exceptionSource(entity,node.exceptionSpecification(),node.parameters(),parameterTypes,namespace,null,null,false,node.range());
             functionNonThrowing(entity);
             if(instantiated==null)recordDefaultArguments(entity,node.parameters(),namespace,null);
@@ -3207,6 +3374,7 @@ public final class CppNameBinder {
             if (node == null) return null;
             Namespace namespace = scope.namespace;
             Statement core = switch (node) {
+                case minic.compiler.parser.node.CppStaticAssertDecl n -> {staticAssertion(n,namespace,scope);yield new BlockStmt(List.of(),n.range());}
                 case BlockStmt n -> block(n, scope, true);
                 case CppStructuredBindingDecl n -> structuredBinding(n,namespace,scope);
                 case VarDeclStmt n -> {
@@ -3217,6 +3385,7 @@ public final class CppNameBinder {
                     if (type.containsAuto()) { type = deduceVariableType(type, n.cppInitializer(), n.initializer(), namespace, scope, n.range()); value.type = type; }
                     requireComplete(type, n.range());
                     Expression initialized = variableInitializer(type, n.cppInitializer(), n.initializer(), namespace, scope, n.range(), n.name());
+                    initialized=constantObject(value,type,initialized,n.constexprSpecifier(),false,n.range());
                     if (type.isReference() && initialized != null) {
                         initialized = extendTemporaryLifetime(initialized,
                                 new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, n));
@@ -3284,6 +3453,8 @@ public final class CppNameBinder {
                         if (crossesInitialization) report("CPP005", item.range(),
                                 "case/default 跳转会跳过同一 switch 作用域的局部初始化；请用显式块限制变量作用域。");
                         Expression value = expression(item.value(), namespace, casesScope);
+                        if(value!=null)try{var number=evaluateTemplateConstant(value);value=new IntegerConstantExpr(number.value(),number.type(),Long.toString(number.value()),value.range());}
+                        catch(IllegalArgumentException invalid){report("CPP004",item.range(),"Case label is not an integral constant expression: "+invalid.getMessage());}
                         cases.add(mapped(item, new SwitchCase(value, statements(item.statements(), casesScope), item.range())));
                         crossesInitialization |= item.statements().stream()
                                 .anyMatch(s -> s instanceof CppStructuredBindingDecl || s instanceof VarDeclStmt v && (v.initializer() != null || localCleanups.containsKey(origins.get(v))));
@@ -3453,7 +3624,7 @@ public final class CppNameBinder {
                 }
                 MiniType resultType=source.returnType()==MiniType.AUTO?MiniType.AUTO:new MiniType.TrailingReturnType(source.returnType());
                 var function=new FunctionDecl("operator()",resultType,callParameters,source.variadic(),source.body(),false,false,
-                        source.range(),new OperatorName(OperatorName.Kind.CALL,source.range())).withExceptionSpecification(source.exceptionSpecification());
+                        source.range(),new OperatorName(OperatorName.Kind.CALL,source.range())).withExceptionSpecification(source.exceptionSpecification()).withConstexprSpecifier(source.constexprSpecifier());
                 var methodSource=new MethodMember(function,!source.mutable(),source.range());
                 Method method=null;
                 if(generic) {
@@ -3650,6 +3821,7 @@ public final class CppNameBinder {
             Entity thunk=new Entity(name,name,Kind.FUNCTION,lambda.namespace,signature,null,true);
             coreValues.put(name,thunk);lambda.namespace.values.put(name,new OverloadSet(List.of(thunk)));
             var function=new FunctionDecl(name,call.returnType(),call.parameters().subList(1,call.parameters().size()),call.variadic(),call.body(),false,false,call.range());
+            Entity thunkEntity=coreValues.get(name);if(thunkEntity!=null)constexprFunctions.put(thunkEntity,constexprBodyAllowed(call.body()));
             functions.add(function);declarations.add(function);
             MiniType target=signature.pointerTo();SourceRange range=lambda.source.range();
             ConversionName conversion=new ConversionName(target,false,range);
@@ -4119,7 +4291,16 @@ public final class CppNameBinder {
                             ? typed(new CastExpr(firstType.unqualified(), selected, n.range()), firstType.unqualified())
                             : selected;
                 }
-                case CallExpr n -> bindCallExpression(n, bindCallee(n.callee(), n.arguments(), namespace, local), namespace, local);
+                case CallExpr n -> {
+                    if(n.callee() instanceof NameExpr builtin&&builtin.name().equals("__builtin_addressof")){
+                        if(n.arguments().size()!=1){report("CPP004",n.range(),"__builtin_addressof requires one argument");yield new IntegerLiteralExpr(0,"0",n.range());}
+                        Expression operand=expression(n.arguments().getFirst(),namespace,local,true);
+                        if(valueCategory(operand)!=CppValueCategory.LVALUE){report("CPP004",n.range(),"__builtin_addressof requires an lvalue");yield new IntegerLiteralExpr(0,"0",n.range());}
+                        yield typed(address(operand),declaredExpressionType(operand).pointerTo());
+                    }
+                    yield bindCallExpression(n,bindCallee(n.callee(),n.arguments(),namespace,local),namespace,local);
+                }
+
                 case CastExpr n -> {
                     MiniType type = normalizeType(n.targetType(), namespace, local, n.range());
                     Expression operand = expressionForTarget(type, n.operand(), namespace, local);
@@ -6923,7 +7104,7 @@ public final class CppNameBinder {
             if (!target.isScalar() || !actual.isScalar()) return;
             switch (CppListNarrowing.check(actual, target, literalNumericValue(value))) {
                 case NARROWING -> report("CPP004", range, "List initialization requires a non-narrowing conversion.");
-                case NEEDS_CONSTANT -> report("CPP005", range, "This list conversion requires constant-expression evaluation not supported yet.");
+                case NEEDS_CONSTANT -> report("CPP004", range, "This list conversion requires a representable constant expression.");
                 default -> { }
             }
         }
@@ -7138,7 +7319,7 @@ public final class CppNameBinder {
                     || b.sizeBytes() == a.sizeBytes() && b.signed() == a.signed())) return;
             java.math.BigDecimal constant = literalNumericValue(cast.operand());
             if (constant == null) {
-                report("CPP005", range, "此列表引用转换需要常量表达式窄化检查；当前仅支持可直接证明不窄化的类型或数值字面量。");
+                report("CPP004", range, "此列表引用转换需要可表示的常量表达式，不能使用运行时值窄化。");
                 return;
             }
             boolean representable;
@@ -7181,7 +7362,14 @@ public final class CppNameBinder {
                     }
                     yield constant;
                 }
-                default -> null;
+                default -> {
+                    try {
+                        var value=constantEvaluator().evaluate(expression);
+                        if(value instanceof CppConstantEvaluator.IntegerValue integer)yield new java.math.BigDecimal(integer.type().isUnsignedIntegerScalar()?Long.toUnsignedString(integer.value()):Long.toString(integer.value()));
+                        if(value instanceof CppConstantEvaluator.FloatingValue number&&Double.isFinite(number.value()))yield new java.math.BigDecimal(number.value());
+                    }catch(IllegalArgumentException invalid){ }
+                    yield null;
+                }
             };
         }
 
@@ -7640,6 +7828,11 @@ public final class CppNameBinder {
                 case IntegerConstantExpr ignored -> true;
                 case LongLiteralExpr ignored -> true;
                 case NullLiteralExpr ignored -> true;
+                case StringLiteralExpr ignored -> true;
+                case NameExpr n -> coreValues.containsKey(n.name())&&(coreValues.get(n.name()).kind==Kind.FUNCTION
+                        ||coreValues.get(n.name()).type.isArray()&&staticAddressTarget(n));
+                case UnaryExpr n when n.operator()==TokenType.AMPERSAND -> staticAddressTarget(n.operand());
+                case UnaryExpr n when n.operator()==TokenType.STAR && declaredExpressionType(n)!=null && declaredExpressionType(n).isArray() -> constantInitializer(n.operand());
                 case SizeofExpr ignored -> true;
                 case AlignofExpr ignored -> true;
                 case GroupingExpr n -> constantInitializer(n.expression());
@@ -7648,8 +7841,21 @@ public final class CppNameBinder {
                 case UnaryExpr n -> Set.of(TokenType.PLUS, TokenType.MINUS, TokenType.TILDE, TokenType.BANG).contains(n.operator())
                         && constantInitializer(n.operand());
                 case BinaryExpr n -> constantInitializer(n.left()) && constantInitializer(n.right());
+                case ConditionalExpr n -> constantInitializer(n.condition())&&constantInitializer(n.thenExpression())&&constantInitializer(n.elseExpression());
                 case AggregateInitExpr n -> n.values().stream().allMatch(this::constantInitializer);
                 case DesignatedInitExpr n -> constantInitializer(n.value());
+                default -> false;
+            };
+        }
+
+        private boolean staticAddressTarget(Expression expression){
+            return switch(expression){
+                case NameExpr name -> {Entity entity=coreValues.get(name.name());yield entity!=null&&(entity.kind==Kind.FUNCTION||entity.owner!=null||staticLocalEntities.contains(entity));}
+                case StringLiteralExpr ignored -> true;
+                case GroupingExpr group -> staticAddressTarget(group.expression());
+                case FieldAccessExpr field -> field.viaPointer()?constantInitializer(field.target()):staticAddressTarget(field.target());
+                case IndexExpr index -> constantInitializer(index.index())&&(declaredExpressionType(index.target())!=null&&declaredExpressionType(index.target()).isArray()?staticAddressTarget(index.target()):constantInitializer(index.target()));
+                case UnaryExpr unary when unary.operator()==TokenType.STAR -> constantInitializer(unary.operand());
                 default -> false;
             };
         }

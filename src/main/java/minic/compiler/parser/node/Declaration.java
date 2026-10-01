@@ -114,8 +114,10 @@ public interface Declaration extends AstNode {
             boolean external,
             List<AlignmentSpec> alignmentSpecs,
             CppInitializer cppInitializer,
-            SourceRange range
+            SourceRange range,boolean constexprSpecifier
     ) implements Declaration {
+        public GlobalVarDecl(String name,MiniType type,Expression initializer,boolean external,List<AlignmentSpec> alignmentSpecs,CppInitializer cppInitializer,SourceRange range){this(name,type,initializer,external,alignmentSpecs,cppInitializer,range,false);}
+        public GlobalVarDecl withConstexprSpecifier(boolean value){return new GlobalVarDecl(name,value?MiniType.qualified(type,java.util.Set.of(MiniType.TypeQualifier.CONST)):type,initializer,external,alignmentSpecs,cppInitializer,range,value);}
         public GlobalVarDecl {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(type, "type");
@@ -194,21 +196,23 @@ public interface Declaration extends AstNode {
             OperatorName operatorName,
             ConversionName conversionName,
             DefinitionKind definitionKind,
-            MiniType.ExceptionSpecification exceptionSpecification
+            MiniType.ExceptionSpecification exceptionSpecification,boolean constexprSpecifier
     ) implements Declaration {
+        public FunctionDecl(String name,MiniType returnType,List<Parameter> parameters,boolean variadic,BlockStmt body,boolean external,boolean noReturn,SourceRange range,OperatorName operatorName,ConversionName conversionName,DefinitionKind definitionKind,MiniType.ExceptionSpecification exceptionSpecification){this(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,definitionKind,exceptionSpecification,false);}
+        public FunctionDecl withConstexprSpecifier(boolean value){return new FunctionDecl(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,definitionKind,exceptionSpecification,value);}
         public FunctionDecl(String name,MiniType returnType,List<Parameter> parameters,boolean variadic,BlockStmt body,
                             boolean external,boolean noReturn,SourceRange range,OperatorName operatorName,ConversionName conversionName,DefinitionKind definitionKind) {
             this(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,definitionKind,MiniType.ExceptionSpecification.UNSPECIFIED);
         }
         public FunctionDecl withExceptionSpecification(MiniType.ExceptionSpecification specification) {
-            return new FunctionDecl(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,definitionKind,specification);
+            return new FunctionDecl(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,definitionKind,specification,constexprSpecifier);
         }
         public FunctionDecl(String name,MiniType returnType,List<Parameter> parameters,boolean variadic,BlockStmt body,
                             boolean external,boolean noReturn,SourceRange range,OperatorName operatorName,ConversionName conversionName) {
             this(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,DefinitionKind.ORDINARY);
         }
         public FunctionDecl withDefinitionKind(DefinitionKind kind) {
-            return new FunctionDecl(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,kind,exceptionSpecification);
+            return new FunctionDecl(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,kind,exceptionSpecification,constexprSpecifier);
         }
         public boolean hasDefinition(){return body!=null||definitionKind!=DefinitionKind.ORDINARY;}
         public FunctionDecl {
@@ -307,7 +311,7 @@ public interface Declaration extends AstNode {
         }
     }
 
-    sealed interface CppMember extends AstNode permits FieldMember, StaticFieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel, MemberTypedef, TemplateMethodMember, TemplateConstructorMember {}
+    sealed interface CppMember extends AstNode permits FieldMember, StaticFieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel, MemberTypedef, TemplateMethodMember, TemplateConstructorMember, CppStaticAssertDecl {}
 
     record TemplateMethodMember(List<ClassTemplateDecl.Parameter> parameters,MethodMember method) implements CppMember {
         public TemplateMethodMember {parameters=List.copyOf(parameters);Objects.requireNonNull(method);}
@@ -352,13 +356,15 @@ public interface Declaration extends AstNode {
     record ConstructorMember(String name, List<Parameter> parameters, boolean variadic,
                              List<MemberInitializer> initializers, BlockStmt body,
                              SourceRange nameRange, SourceRange range, boolean explicitSpecifier,DefinitionKind definitionKind,
-                             MiniType.ExceptionSpecification exceptionSpecification) implements CppMember {
+                             MiniType.ExceptionSpecification exceptionSpecification,boolean constexprSpecifier) implements CppMember {
+        public ConstructorMember(String name,List<Parameter> parameters,boolean variadic,List<MemberInitializer> initializers,BlockStmt body,SourceRange nameRange,SourceRange range,boolean explicitSpecifier,DefinitionKind definitionKind,MiniType.ExceptionSpecification exceptionSpecification){this(name,parameters,variadic,initializers,body,nameRange,range,explicitSpecifier,definitionKind,exceptionSpecification,false);}
+        public ConstructorMember withConstexprSpecifier(boolean value){return new ConstructorMember(name,parameters,variadic,initializers,body,nameRange,range,explicitSpecifier,definitionKind,exceptionSpecification,value);}
         public ConstructorMember(String name,List<Parameter> parameters,boolean variadic,List<MemberInitializer> initializers,
                                  BlockStmt body,SourceRange nameRange,SourceRange range,boolean explicitSpecifier,DefinitionKind definitionKind) {
             this(name,parameters,variadic,initializers,body,nameRange,range,explicitSpecifier,definitionKind,MiniType.ExceptionSpecification.UNSPECIFIED);
         }
         public ConstructorMember withExceptionSpecification(MiniType.ExceptionSpecification specification) {
-            return new ConstructorMember(name,parameters,variadic,initializers,body,nameRange,range,explicitSpecifier,definitionKind,specification);
+            return new ConstructorMember(name,parameters,variadic,initializers,body,nameRange,range,explicitSpecifier,definitionKind,specification,constexprSpecifier);
         }
         public ConstructorMember(String name,List<Parameter> parameters,boolean variadic,List<MemberInitializer> initializers,
                                  BlockStmt body,SourceRange nameRange,SourceRange range,boolean explicitSpecifier){

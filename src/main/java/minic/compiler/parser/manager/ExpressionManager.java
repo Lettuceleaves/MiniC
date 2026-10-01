@@ -584,11 +584,13 @@ public final class ExpressionManager {
                 for(var parameter:parsed.parameters())parameters.add(new minic.compiler.parser.node.Declaration.Parameter(parameter.name(),parameter.type(),parameter.defaultValue(),parameter.range()));
                 if(state.consume(TokenType.RIGHT_PAREN,"lambda 形参期望 ')'")==null)return null;
             }
-            boolean mutable=state.match(TokenType.MUTABLE);
-            if(mutable&&!parameterClause)state.report(state.previous(),"C++17 mutable lambda 需要形参括号");
-            if(state.check(TokenType.CONSTEXPR)) {
-                state.unsupportedCpp(state.peek().range(),"lambda constexpr 说明符尚未接入");return null;
+            boolean mutable=false;boolean constexpr=false;
+            while(state.check(TokenType.MUTABLE)||state.check(TokenType.CONSTEXPR)){
+                Token specifier=state.advance();
+                if(specifier.type()==TokenType.MUTABLE){if(mutable)state.report(specifier,"Repeated mutable");mutable=true;}
+                else {if(constexpr)state.report(specifier,"Repeated constexpr");constexpr=true;}
             }
+            if((mutable||constexpr)&&!parameterClause)state.report(start,"C++17 lambda specifiers require a parameter clause");
             for(var parameter:parameters)if(!parameter.name().isEmpty())typeReader.declareOrdinaryName(parameter.name(),parameter.range());
             var exceptionSpecification=typeReader.parseExceptionSpecification();
             if(exceptionSpecification.specified()&&!parameterClause)state.report(start,"C++17 noexcept lambda 需要形参括号");
@@ -599,7 +601,7 @@ public final class ExpressionManager {
             }
             var body=statements.parseFunctionBlock(parameters.stream().map(minic.compiler.parser.node.Declaration.Parameter::name).toList());
             if(body==null)return null;
-            var lambda=new minic.compiler.parser.node.CppLambdaExpr(defaultCapture,captures,parameters,variadic,mutable,returnType,body,SourceRange.span(start.range(),body.range()),exceptionSpecification);
+            var lambda=new minic.compiler.parser.node.CppLambdaExpr(defaultCapture,captures,parameters,variadic,mutable,returnType,body,SourceRange.span(start.range(),body.range()),exceptionSpecification,constexpr);
             state.build(lambda,"CppLambdaExpr",lambda.range());return lambda;
         } finally {typeReader.exitScope();}
     }

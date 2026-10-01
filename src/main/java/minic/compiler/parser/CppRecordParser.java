@@ -88,6 +88,7 @@ public final class CppRecordParser {
         try {
             while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
                 if (state.match(TokenType.SEMICOLON)) continue;
+                if(state.check(TokenType.STATIC_ASSERT)){var assertion=statements.parseStaticAssert();if(assertion!=null)members.add(assertion);continue;}
                 if(state.check(TokenType.TEMPLATE)) {
                     DeferredMemberTemplate item=readMemberTemplate(simpleName,members.size());
                     if(item==null)recoverMember();
@@ -104,8 +105,13 @@ public final class CppRecordParser {
                 }
                 int before = state.currentIndex();
                 Token declarationStart = state.peek();
-                boolean staticMember = state.match(TokenType.STATIC);
-                boolean explicitSpecifier = state.match(TokenType.EXPLICIT);
+                boolean staticMember=false,explicitSpecifier=false,constexprSpecifier=false;
+                while(state.check(TokenType.STATIC)||state.check(TokenType.EXPLICIT)||state.check(TokenType.CONSTEXPR)||state.check(TokenType.INLINE)){
+                    Token specifier=state.advance();
+                    if(specifier.type()==TokenType.STATIC){if(staticMember)state.report(specifier,"Repeated static");staticMember=true;}
+                    else if(specifier.type()==TokenType.EXPLICIT){if(explicitSpecifier)state.report(specifier,"Repeated explicit");explicitSpecifier=true;}
+                    else if(specifier.type()==TokenType.CONSTEXPR){if(constexprSpecifier)state.report(specifier,"Repeated constexpr");constexprSpecifier=true;}
+                }
                 Token start = state.peek();
                 boolean constructorStart = start.type() == TokenType.IDENTIFIER && start.lexeme().equals(simpleName)
                         && state.peekAt(1).type() == TokenType.LEFT_PAREN;
@@ -145,6 +151,7 @@ public final class CppRecordParser {
                         state.advance();
                         DeferredConstructor constructor = readConstructor(start.lexeme(), start.range(), declarationStart.range(),
                                 members.size(), explicitSpecifier);
+                        constructor=constexprConstructor(constructor,constexprSpecifier);
                         if (constructor == null) recoverMember();
                         else { members.add(constructor.signature()); constructors.add(constructor); }
                     }
@@ -154,6 +161,7 @@ public final class CppRecordParser {
                         recoverMember();
                     } else {
                         ParsedConversion conversion = readConversion(declarationStart.range(), explicitSpecifier);
+                        if(conversion!=null&&constexprSpecifier)conversion=new ParsedConversion(new MethodMember(conversion.member().method().withConstexprSpecifier(true),conversion.member().constQualified(),conversion.member().nameRange()),conversion.body());
                         if (conversion == null) recoverMember();
                         else {
                             int index = members.size();
@@ -167,6 +175,7 @@ public final class CppRecordParser {
                     state.report(start.range(), "构造函数和转换函数不能声明为 static");
                     recoverMember();
                 } else if (start.type() == TokenType.TILDE) {
+                    if(constexprSpecifier)state.report(declarationStart,"A destructor cannot be constexpr in C++17");
                     state.advance();
                     Token name = state.consume(TokenType.IDENTIFIER, "析构函数期望类名称");
                     if (union) {
@@ -220,7 +229,7 @@ public final class CppRecordParser {
                             Parser.Context.TokenWindow body = state.check(TokenType.LEFT_BRACE) ? state.deferBlock() : null;
                             DefinitionKind kind=DefinitionKind.ORDINARY;
                             if(body==null){if(state.check(TokenType.EQUAL))kind=CppFunctionDefinitionParser.parse(state);else state.advance();}
-                            var method = makeMethod(declaration, function, null, state.previous().range()).withDefinitionKind(kind);
+                            var method = makeMethod(declaration, function, null, state.previous().range()).withDefinitionKind(kind).withConstexprSpecifier(constexprSpecifier);
                             int index = members.size();
                             members.add(new MethodMember(method, constQualified, staticMember, declaration.nameRange()));
                             if (body != null) deferred.add(new DeferredMethod(index, method, body,
@@ -233,8 +242,9 @@ public final class CppRecordParser {
                         if (union) state.unsupportedCpp(declaration.nameRange(), "union 不能具有 static 数据成员");
                         else if (end != null) members.add(new StaticFieldMember(new GlobalVarDecl(declaration.name(), declaration.type(),
                                 initialization.expression(), false, declaration.alignmentSpecs(), initialization.cppInitializer(),
-                                SourceRange.span(declarationStart.range(), end.range()))));
+                                SourceRange.span(declarationStart.range(), end.range())).withConstexprSpecifier(constexprSpecifier)));
                     } else if (state.check(TokenType.EQUAL) || state.check(TokenType.LEFT_BRACE)) {
+                        if(constexprSpecifier)state.report(declarationStart,"A non-static data member cannot be constexpr");
                         if (union) {
                             state.unsupportedCpp(state.peek().range(), "union 默认成员初始化尚未实现");
                             deferFieldInitializer();
@@ -253,6 +263,7 @@ public final class CppRecordParser {
                         state.unsupportedCpp(state.peek().range(), "成员位域或多声明器尚未实现");
                         recoverMember();
                     } else {
+                        if(constexprSpecifier)state.report(declarationStart,"A non-static data member cannot be constexpr");
                         Token end = state.advance();
                         addField(new StructField(declaration.name(), declaration.type(), declaration.alignmentSpecs(),
                                 SourceRange.span(declaration.range(), end.range())), fields, members);
@@ -268,7 +279,7 @@ public final class CppRecordParser {
                 BlockStmt body = state.inTokenWindow(item.body(), () -> statements.parseFunctionBlock(
                         signature.parameters().stream().map(Parameter::name).toList()));
                 var method = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
-                        signature.variadic(), body, false, false, signature.range(), signature.operatorName(), signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification());
+                        signature.variadic(), body, false, false, signature.range(), signature.operatorName(), signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification(),signature.constexprSpecifier());
                 MethodMember old = (MethodMember) members.get(item.memberIndex());
                 var member = new MethodMember(method, old.constQualified(), old.staticMember(), old.nameRange());
                 members.set(item.memberIndex(), member);
@@ -281,7 +292,7 @@ public final class CppRecordParser {
                     else {
                         FunctionDecl signature=item.method();
                         BlockStmt body=item.body()==null?null:state.inTokenWindow(item.body(),()->statements.parseFunctionBlock(signature.parameters().stream().map(Parameter::name).toList()));
-                        FunctionDecl method=new FunctionDecl(signature.name(),signature.returnType(),signature.parameters(),signature.variadic(),body,false,false,signature.range(),signature.operatorName(),signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification());
+                        FunctionDecl method=new FunctionDecl(signature.name(),signature.returnType(),signature.parameters(),signature.variadic(),body,false,false,signature.range(),signature.operatorName(),signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification(),signature.constexprSpecifier());
                         members.set(item.index(),new TemplateMethodMember(item.parameters(),new MethodMember(method,item.constant(),item.statik(),item.nameRange())));
                     }
                 } finally {types.exitFunctionTemplate();}
@@ -306,12 +317,17 @@ public final class CppRecordParser {
             var parameters=types.readTemplateParameters(start,owner);
             if(parameters==null||state.consumeTemplateGreater("模板参数后期望 '>'")==null)return null;
             if(parameters.isEmpty()){state.report(start,"成员模板不能在类内显式特化");return null;}
-            boolean explicit=state.match(TokenType.EXPLICIT);
-            boolean statik=state.match(TokenType.STATIC);
+            boolean explicit=false,statik=false,constexpr=false;
+            while(state.check(TokenType.STATIC)||state.check(TokenType.EXPLICIT)||state.check(TokenType.CONSTEXPR)||state.check(TokenType.INLINE)){
+                Token specifier=state.advance();
+                if(specifier.type()==TokenType.EXPLICIT)explicit=true;
+                else if(specifier.type()==TokenType.STATIC)statik=true;
+                else if(specifier.type()==TokenType.CONSTEXPR)constexpr=true;
+            }
             if(state.check(TokenType.IDENTIFIER)&&state.peek().lexeme().equals(className)&&state.peekAt(1).type()==TokenType.LEFT_PAREN) {
                 Token name=state.advance();
                 if(statik)state.report(name,"构造模板不能是 static");
-                var constructor=readConstructor(name.lexeme(),name.range(),start.range(),index,explicit);
+                var constructor=constexprConstructor(readConstructor(name.lexeme(),name.range(),start.range(),index,explicit),constexpr);
                 return constructor==null?null:new DeferredMemberTemplate(index,parameters,null,constructor,null,false,false,name.range());
             }
             if(explicit){state.report(start,"此成员模板不能使用 explicit");return null;}
@@ -325,7 +341,7 @@ public final class CppRecordParser {
             DefinitionKind kind=DefinitionKind.ORDINARY;
             if(body==null){if(state.check(TokenType.EQUAL))kind=CppFunctionDefinitionParser.parse(state);
                 else if(state.consume(TokenType.SEMICOLON,"期望成员模板函数体或 ';'")==null)return null;}
-            FunctionDecl method=makeMethod(declaration,function,null,state.previous().range()).withDefinitionKind(kind);
+            FunctionDecl method=makeMethod(declaration,function,null,state.previous().range()).withDefinitionKind(kind).withConstexprSpecifier(constexpr);
             return new DeferredMemberTemplate(index,parameters,method,null,body,constant,statik,declaration.nameRange());
         } finally {types.exitFunctionTemplate();}
     }
@@ -372,7 +388,7 @@ public final class CppRecordParser {
                 FunctionDecl signature=parsed.member().method();
                 BlockStmt body=parsed.body()==null?null:state.inTokenWindow(parsed.body(),()->statements.parseFunctionBlock(List.of()));
                 FunctionDecl function=new FunctionDecl(signature.name(),signature.returnType(),signature.parameters(),signature.variadic(),body,
-                        false,false,signature.range(),signature.operatorName(),signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification());
+                        false,false,signature.range(),signature.operatorName(),signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification()).withConstexprSpecifier(signature.constexprSpecifier());
                 segments.set(segments.size()-1,function.name());
                 return new OutOfLineMethodDecl(new QualifiedName(true,segments,qualified.range()),function,parsed.member().constQualified(),parsed.member().nameRange());
             }
@@ -455,7 +471,7 @@ public final class CppRecordParser {
                     () -> statements.parseFunctionBlock(List.of()));
             FunctionDecl signature = member.method();
             FunctionDecl function = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
-                    signature.variadic(), body, false, false, signature.range(), null, signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification());
+                    signature.variadic(), body, false, false, signature.range(), null, signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification(),signature.constexprSpecifier());
             segments.set(segments.size() - 1, function.name());
             QualifiedName name = new QualifiedName(global, segments, SourceRange.span(start.range(), member.nameRange()));
             var result = new OutOfLineMethodDecl(name, function, member.constQualified(), member.nameRange());
@@ -630,6 +646,9 @@ public final class CppRecordParser {
         return new DeferredConstructor(index, signature, initializers, body, unnamed);
     }
 
+    private DeferredConstructor constexprConstructor(DeferredConstructor constructor,boolean value){
+        return constructor==null?null:new DeferredConstructor(constructor.memberIndex(),constructor.signature().withConstexprSpecifier(value),constructor.initializers(),constructor.body(),constructor.unnamedParameters());
+    }
     private ConstructorMember completeConstructor(DeferredConstructor deferred) {
         var signature = deferred.signature();
         List<MemberInitializer> initializers = new ArrayList<>();
@@ -648,7 +667,7 @@ public final class CppRecordParser {
             types.exitScope();
         }
         var constructor = new ConstructorMember(signature.name(), signature.parameters(), signature.variadic(),
-                initializers, body, signature.nameRange(), signature.range(), signature.explicitSpecifier(),signature.definitionKind(),signature.exceptionSpecification());
+                initializers, body, signature.nameRange(), signature.range(), signature.explicitSpecifier(),signature.definitionKind(),signature.exceptionSpecification(),signature.constexprSpecifier());
         state.build(constructor, "ConstructorDecl " + signature.name(), constructor.range());
         return constructor;
     }

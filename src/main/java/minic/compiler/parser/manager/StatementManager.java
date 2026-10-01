@@ -87,7 +87,9 @@ public final class StatementManager {
         }
     }
 
+    public minic.compiler.parser.node.CppStaticAssertDecl parseStaticAssert(){return minic.compiler.parser.CppStaticAssertParser.parse(state,expressionManager);}
     private Statement parseStatement() {
+        if(typeReader.isCpp()&&state.check(TokenType.STATIC_ASSERT))return parseStaticAssert();
         if (typeReader.isCpp() && state.check(TokenType.USING)) {
             var declaration = minic.compiler.parser.CppNameParser.parseUsing(state);
             if (declaration != null) typeReader.registerUsing(declaration);
@@ -391,9 +393,14 @@ public final class StatementManager {
     }
 
     private Statement parseVarDeclStmt() {
-        Token storage = typeReader.isCpp() && state.match(TokenType.STATIC) ? state.previous() : null;
+        Token firstSpecifier=state.peek();Token storage=null;boolean constexpr=false;
+        while(typeReader.isCpp()&&(state.check(TokenType.STATIC)||state.check(TokenType.CONSTEXPR))){
+            Token specifier=state.advance();if(specifier.type()==TokenType.STATIC){if(storage!=null)state.report(specifier,"Repeated static specifier");storage=specifier;}
+            else {if(constexpr)state.report(specifier,"Repeated constexpr specifier");constexpr=true;}
+        }
         if(typeReader.startsStructuredBinding()) {
             if(storage!=null)state.report(storage,"Static structured bindings require C++20");
+            if(constexpr)state.report(state.peek(),"A structured binding cannot be constexpr in C++17");
             return parseStructuredBinding(false);
         }
         Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望变量类型", "期望变量名");
@@ -417,8 +424,8 @@ public final class StatementManager {
                 declaration.alignmentSpecs(),
                 initialization.cppInitializer(),
                 storage != null,
-                SourceRange.span(storage == null ? declaration.range() : storage.range(), semicolonToken.range())
-        );
+                SourceRange.span(firstSpecifier.range(), semicolonToken.range())
+        ).withConstexprSpecifier(constexpr);
         if (!typeReader.isCpp()) typeReader.declareOrdinaryName(varDeclStmt.name(), varDeclStmt.range());
         state.build(varDeclStmt, "VarDeclStmt " + varDeclStmt.name(), varDeclStmt.range());
         return varDeclStmt;
@@ -639,6 +646,6 @@ public final class StatementManager {
     }
 
     private boolean isDeclarationStart() {
-        return typeReader.isCpp() && state.check(TokenType.STATIC) || state.check(TokenType.ALIGNAS) || typeReader.canStartType() && !typeReader.startsCppConstructionStatement();
+        return typeReader.isCpp() && (state.check(TokenType.STATIC)||state.check(TokenType.CONSTEXPR)) || state.check(TokenType.ALIGNAS) || typeReader.canStartType() && !typeReader.startsCppConstructionStatement();
     }
 }

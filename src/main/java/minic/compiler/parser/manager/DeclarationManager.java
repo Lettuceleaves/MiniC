@@ -131,25 +131,38 @@ public final class DeclarationManager {
         return typedefDecl;
     }
 
+    public minic.compiler.parser.node.CppStaticAssertDecl parseStaticAssert(){return statementManager.parseStaticAssert();}
+    private Declaration constexprDeclaration(Declaration declaration,boolean enabled){
+        if(!enabled||declaration==null)return declaration;
+        if(declaration instanceof Declaration.OutOfLineConstructorDecl ctor)return new Declaration.OutOfLineConstructorDecl(ctor.qualifiedName(),ctor.constructor().withConstexprSpecifier(true),ctor.nameRange());
+        if(declaration instanceof Declaration.OutOfLineMethodDecl method)return new Declaration.OutOfLineMethodDecl(method.qualifiedName(),method.method().withConstexprSpecifier(true),method.constQualified(),method.nameRange());
+        state.report(declaration.range(),"A destructor cannot be constexpr in C++17");return declaration;
+    }
     public Declaration parseFunctionOrGlobalDecl() {
+        Token firstSpecifier=state.peek();boolean constexpr=false;
+        while(typeReader.isCpp()&&(state.check(TokenType.CONSTEXPR)||state.check(TokenType.INLINE))){
+            Token specifier=state.advance();if(specifier.type()==TokenType.CONSTEXPR){if(constexpr)state.report(specifier,"Repeated constexpr specifier");constexpr=true;}
+        }
         if (typeReader.isCpp() && state.match(TokenType.EXPLICIT))
             state.report(state.previous().range(), "explicit 只能用于类内构造函数或转换函数声明");
         if(cppRecordParser!=null && cppRecordParser.startsTemplateSpecialMember())
-            return cppRecordParser.parseTemplateSpecialMember();
+            return constexprDeclaration(cppRecordParser.parseTemplateSpecialMember(),constexpr);
         if (cppRecordParser != null && cppRecordParser.startsOutOfLineConversion())
-            return cppRecordParser.parseOutOfLineConversion();
+            return constexprDeclaration(cppRecordParser.parseOutOfLineConversion(),constexpr);
         if (cppRecordParser != null && cppRecordParser.startsOutOfLineDestructor())
-            return cppRecordParser.parseOutOfLineDestructor();
+            return constexprDeclaration(cppRecordParser.parseOutOfLineDestructor(),constexpr);
         if (cppRecordParser != null && cppRecordParser.startsOutOfLineConstructor())
-            return cppRecordParser.parseOutOfLineConstructor();
+            return constexprDeclaration(cppRecordParser.parseOutOfLineConstructor(),constexpr);
         state.enter("functionDecl");
-        Token startToken = state.peek();
+        Token startToken = firstSpecifier;
         boolean external = false;
         boolean noReturn = false;
         boolean internal = false;
         while (state.check(TokenType.EXTERN) || state.check(TokenType.NORETURN)
-                || typeReader.isCpp() && state.check(TokenType.STATIC)) {
+                || typeReader.isCpp() && (state.check(TokenType.STATIC)||state.check(TokenType.CONSTEXPR)||state.check(TokenType.INLINE))) {
             Token specifier = state.advance();
+            if(specifier.type()==TokenType.CONSTEXPR){if(constexpr)state.report(specifier,"Repeated constexpr specifier");constexpr=true;continue;}
+            if(specifier.type()==TokenType.INLINE)continue;
             if (specifier.type() == TokenType.EXTERN) {
                 if (external) state.report(specifier, "extern 函数说明符重复");
                 external = true;
@@ -163,7 +176,7 @@ public final class DeclarationManager {
         }
         if (internal && external) state.report(startToken, "static 与 extern 不能用于同一声明");
         if(typeReader.startsStructuredBinding()) {
-            if(external||internal||noReturn)state.report(startToken,"C++17 structured bindings cannot have storage or function specifiers");
+            if(external||internal||noReturn||constexpr)state.report(startToken,"C++17 structured bindings cannot have storage or function specifiers");
             var binding=statementManager.parseStructuredBinding(false);
             if(binding!=null)state.exit("functionDecl",binding.range());
             return binding;
@@ -197,7 +210,7 @@ public final class DeclarationManager {
             if (semicolon == null) return null;
             GlobalVarDecl global = new GlobalVarDecl(
                     declaration.name(), declaration.type(), initialization.expression(), external,
-                    declaration.alignmentSpecs(), initialization.cppInitializer(), SourceRange.span(startToken.range(), semicolon.range()));
+                    declaration.alignmentSpecs(), initialization.cppInitializer(), SourceRange.span(startToken.range(), semicolon.range())).withConstexprSpecifier(constexpr);
             if (!typeReader.isCpp()) typeReader.declareOrdinaryName(global.name(), global.range());
             state.build(global, "GlobalVarDecl " + global.name(), global.range());
             state.exit("functionDecl", global.range());
@@ -266,7 +279,7 @@ public final class DeclarationManager {
                 noReturn,
                 SourceRange.span(startToken.range(), endRange),
                 declaration.operatorName()
-        ).withDefinitionKind(definitionKind).withExceptionSpecification(functionType.exceptionSpecification());
+        ).withDefinitionKind(definitionKind).withExceptionSpecification(functionType.exceptionSpecification()).withConstexprSpecifier(constexpr);
         if (!typeReader.isCpp()) typeReader.declareOrdinaryName(functionDecl.name(), functionDecl.range());
         state.build(functionDecl, "FunctionDecl " + functionDecl.name(), functionDecl.range());
         state.exit("functionDecl", functionDecl.range());

@@ -40,7 +40,9 @@ public final class TemplateValues {
     }
     /** Record layout and member constants are resolved by the owning semantic context. */
     public static boolean requiresSemanticContext(Expression expression) {
-        if(expression instanceof CppNoexceptExpr||expression instanceof CppTypeQueryExpr||expression instanceof SizeofExpr||expression instanceof AlignofExpr||expression instanceof CppTypeMemberExpr)return true;
+        if(expression instanceof CppNoexceptExpr||expression instanceof CppTypeQueryExpr||expression instanceof SizeofExpr||expression instanceof AlignofExpr||expression instanceof CppTypeMemberExpr
+                ||expression instanceof NameExpr||expression instanceof QualifiedNameExpr||expression instanceof CallExpr||expression instanceof CppConstructionExpr
+                ||expression instanceof FieldAccessExpr||expression instanceof IndexExpr)return true;
         for(AstNode child:AstChildren.of(expression))if(child instanceof Expression e&&requiresSemanticContext(e))return true;
         return false;
     }

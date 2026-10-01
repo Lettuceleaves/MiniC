@@ -14,6 +14,7 @@ public final class AstChildren {
 
     public static List<? extends AstNode> of(AstNode node) {
         List<? extends AstNode> direct = switch (node) {
+            case CppStaticAssertDecl n -> present(n.condition(),n.message());
             case Program n -> n.declarations();
             case NamespaceDecl n -> n.declarations();
             case InternalLinkageDecl n -> present(n.declaration());
@@ -164,15 +165,16 @@ public final class AstChildren {
         while (!pending.isEmpty()) {
             AstNode node = pending.removeFirst();
             if (!visited.add(node)) continue;
-            if (!onlyReferences && (node instanceof CppPackExpansionExpr || node instanceof CppSizeofPackExpr || node instanceof CppStructuredBindingDecl || node instanceof CppLambdaExpr || node instanceof CppRangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
+            if (!onlyReferences && (node instanceof CppStaticAssertDecl || node instanceof CppPackExpansionExpr || node instanceof CppSizeofPackExpr || node instanceof CppStructuredBindingDecl || node instanceof CppLambdaExpr || node instanceof CppRangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
                     || node instanceof CppNoexceptExpr || node instanceof CppTypeQueryExpr || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
-                    || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null || function.definitionKind()!=DefinitionKind.ORDINARY || function.exceptionSpecification().specified())
+                    || node instanceof FunctionDecl function && (function.constexprSpecifier() || function.operatorName() != null || function.conversionName() != null || function.definitionKind()!=DefinitionKind.ORDINARY || function.exceptionSpecification().specified())
                     || node instanceof FunctionTemplateDecl || node instanceof CppTemplateMemberDefinition || node instanceof CppTemplateIdExpr
                     || node instanceof CppTemplateValueExpr
-                    || node instanceof VarDeclStmt variable && variable.staticStorage()
+                    || node instanceof GlobalVarDecl global && global.constexprSpecifier()
+                    || node instanceof VarDeclStmt variable && (variable.staticStorage() || variable.constexprSpecifier())
                     || node instanceof StructDecl record && record.cppInfo() != null)) return node;
             AstNode reference = sourceTypeOwner(node, onlyReferences);
             if (reference != null) return reference;

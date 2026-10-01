@@ -132,8 +132,10 @@ public interface Statement extends AstNode {
             List<AlignmentSpec> alignmentSpecs,
             CppInitializer cppInitializer,
             boolean staticStorage,
-            SourceRange range
+            SourceRange range,boolean constexprSpecifier
     ) implements Statement {
+        public VarDeclStmt(String name,MiniType type,Expression initializer,List<AlignmentSpec> alignmentSpecs,CppInitializer cppInitializer,boolean staticStorage,SourceRange range){this(name,type,initializer,alignmentSpecs,cppInitializer,staticStorage,range,false);}
+        public VarDeclStmt withConstexprSpecifier(boolean value){return new VarDeclStmt(name,value?MiniType.qualified(type,java.util.Set.of(MiniType.TypeQualifier.CONST)):type,initializer,alignmentSpecs,cppInitializer,staticStorage,range,value);}
         public VarDeclStmt {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(type, "type");

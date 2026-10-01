@@ -9,7 +9,8 @@ import java.util.Objects;
 public record CppLambdaExpr(CaptureDefault captureDefault,List<Capture> captures,
                             List<Declaration.Parameter> parameters,boolean variadic,boolean mutable,
                             MiniType returnType,Statement.BlockStmt body,SourceRange range,
-                            MiniType.ExceptionSpecification exceptionSpecification) implements Expression {
+                            MiniType.ExceptionSpecification exceptionSpecification,boolean constexprSpecifier) implements Expression {
+    public CppLambdaExpr(CaptureDefault captureDefault,List<Capture> captures,List<Declaration.Parameter> parameters,boolean variadic,boolean mutable,MiniType returnType,Statement.BlockStmt body,SourceRange range,MiniType.ExceptionSpecification exceptionSpecification){this(captureDefault,captures,parameters,variadic,mutable,returnType,body,range,exceptionSpecification,false);}
     public CppLambdaExpr(CaptureDefault captureDefault,List<Capture> captures,List<Declaration.Parameter> parameters,
                          boolean variadic,boolean mutable,MiniType returnType,Statement.BlockStmt body,SourceRange range) {
         this(captureDefault,captures,parameters,variadic,mutable,returnType,body,range,MiniType.ExceptionSpecification.UNSPECIFIED);
