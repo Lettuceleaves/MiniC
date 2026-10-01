@@ -149,6 +149,8 @@ public final class DeclarationManager {
         if (declaration == null) {
             return null;
         }
+        // In C++, a declarator hides an outer type name in its own initializer/body.
+        if (typeReader.isCpp()) typeReader.declareOrdinaryName(declaration.name(), declaration.range());
         if (!(declaration.type() instanceof MiniType.FunctionType functionType)) {
             if (noReturn) state.report(startToken, "noreturn 只能用于函数");
             Expression initializer = null;
@@ -158,7 +160,7 @@ public final class DeclarationManager {
             GlobalVarDecl global = new GlobalVarDecl(
                     declaration.name(), declaration.type(), initializer, external,
                     declaration.alignmentSpecs(), SourceRange.span(startToken.range(), semicolon.range()));
-            typeReader.declareOrdinaryName(global.name(), global.range());
+            if (!typeReader.isCpp()) typeReader.declareOrdinaryName(global.name(), global.range());
             state.build(global, "GlobalVarDecl " + global.name(), global.range());
             state.exit("functionDecl", global.range());
             return global;
@@ -206,7 +208,7 @@ public final class DeclarationManager {
                 noReturn,
                 SourceRange.span(startToken.range(), endRange)
         );
-        typeReader.declareOrdinaryName(functionDecl.name(), functionDecl.range());
+        if (!typeReader.isCpp()) typeReader.declareOrdinaryName(functionDecl.name(), functionDecl.range());
         state.build(functionDecl, "FunctionDecl " + functionDecl.name(), functionDecl.range());
         state.exit("functionDecl", functionDecl.range());
         return functionDecl;
@@ -223,10 +225,18 @@ public final class DeclarationManager {
         boolean union = state.check(TokenType.UNION);
         Token startToken = state.advance();
         Token nameToken = state.consume(TokenType.IDENTIFIER, "期望结构体名");
+        String internalName = nameToken == null ? "" : union ? unionName(nameToken.lexeme()) : nameToken.lexeme();
+        if (typeReader.isCpp() && nameToken != null) {
+            // Register before parsing fields so injected names and self pointers are visible.
+            MiniType aggregate = typeReader.declareAggregate(nameToken.lexeme(), union,
+                    state.check(TokenType.LEFT_BRACE), nameToken.range());
+            if (aggregate != null && aggregate.unqualified() instanceof MiniType.StructType struct) {
+                internalName = struct.name();
+            }
+        }
         if (state.match(TokenType.SEMICOLON)) {
             Token end = state.previous();
             if (startToken == null || nameToken == null) return null;
-            String internalName = union ? unionName(nameToken.lexeme()) : nameToken.lexeme();
             StructDecl forward = new StructDecl(internalName, java.util.List.of(), false, union,
                     SourceRange.span(startToken.range(), end.range()));
             state.build(forward, "StructForwardDecl " + forward.name(), forward.range());
@@ -235,13 +245,19 @@ public final class DeclarationManager {
         }
         state.consume(TokenType.LEFT_BRACE, "期望 '{'");
         ArrayList<StructField> fields = new ArrayList<>();
-        while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
-            StructField field = parseStructField();
-            if (field != null) {
-                fields.add(field);
-            } else {
-                state.synchronizeStatement();
+        if (typeReader.isCpp()) typeReader.enterMemberScope(MiniType.struct(internalName));
+        try {
+            while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
+                StructField field = parseStructField();
+                if (field != null) {
+                    fields.add(field);
+                    typeReader.declareMemberField(field);
+                } else {
+                    state.synchronizeStatement();
+                }
             }
+        } finally {
+            if (typeReader.isCpp()) typeReader.exitMemberScope();
         }
         state.consume(TokenType.RIGHT_BRACE, "期望 '}'");
         Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");
@@ -249,12 +265,13 @@ public final class DeclarationManager {
             return null;
         }
         StructDecl structDecl = new StructDecl(
-                union ? unionName(nameToken.lexeme()) : nameToken.lexeme(),
+                internalName,
                 fields,
                 true,
                 union,
                 SourceRange.span(startToken.range(), semicolonToken.range())
         );
+        typeReader.recordAggregateFields(structDecl);
         state.build(structDecl, "StructDecl " + structDecl.name(), structDecl.range());
         state.exit("structDecl", structDecl.range());
         return structDecl;

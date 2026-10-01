@@ -6,7 +6,7 @@ import java.util.regex.Pattern;
 
 /** Converts bound identifiers at presentation boundaries without changing executable symbols. */
 public final class SymbolNames {
-    private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z_][A-Za-z_0-9]*");
+    private static final Pattern IDENTIFIER = Pattern.compile("[A-Za-z_$][A-Za-z_0-9$]*");
 
     private SymbolNames() {}
 

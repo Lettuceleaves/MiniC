@@ -85,16 +85,10 @@ public final class StatementManager {
     }
 
     private Statement parseStatement() {
-        if (state.languageMode() == minic.compiler.LanguageMode.CPP17_ALGORITHM) {
-            if (state.check(TokenType.USING)) return minic.compiler.parser.CppNameParser.parseUsing(state);
-            int offset = state.check(TokenType.SCOPE) ? 1 : 0;
-            while (state.peekAt(offset).type() == TokenType.IDENTIFIER
-                    && state.peekAt(offset + 1).type() == TokenType.SCOPE) offset += 2;
-            if (offset > 0 && state.peekAt(offset).type() == TokenType.IDENTIFIER
-                    && state.peekAt(offset + 1).type() == TokenType.IDENTIFIER) {
-                state.unsupportedCpp(state.peek().range(), "限定类型名称查找尚未实现");
-                return null;
-            }
+        if (typeReader.isCpp() && state.check(TokenType.USING)) {
+            var declaration = minic.compiler.parser.CppNameParser.parseUsing(state);
+            if (declaration != null) typeReader.registerUsing(declaration);
+            return declaration;
         }
         if (state.check(TokenType.LEFT_BRACE)) {
             return parseBlock();
@@ -138,10 +132,10 @@ public final class StatementManager {
         state.consume(TokenType.LEFT_PAREN, "期望 '('");
         Expression condition = expressionManager.parseExpression();
         state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
-        Statement thenBranch = parseStatement();
+        Statement thenBranch = parseControlledStatement();
         Statement elseBranch = null;
         if (state.match(TokenType.ELSE)) {
-            elseBranch = parseStatement();
+            elseBranch = parseControlledStatement();
         }
 
         if (startToken == null || condition == null || thenBranch == null) {
@@ -186,7 +180,7 @@ public final class StatementManager {
         state.consume(TokenType.LEFT_PAREN, "期望 '('");
         Expression condition = expressionManager.parseExpression();
         state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
-        Statement body = parseStatement();
+        Statement body = parseControlledStatement();
 
         if (startToken == null || condition == null || body == null) {
             return null;
@@ -202,7 +196,7 @@ public final class StatementManager {
 
     private DoWhileStmt parseDoWhileStmt() {
         Token startToken = state.consume(TokenType.DO, "期望 do");
-        Statement body = parseStatement();
+        Statement body = parseControlledStatement();
         state.consume(TokenType.WHILE, "期望 while");
         state.consume(TokenType.LEFT_PAREN, "期望 '('");
         Expression condition = expressionManager.parseExpression();
@@ -237,7 +231,7 @@ public final class StatementManager {
                 step = expressionManager.parseExpression();
             }
             state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
-            Statement body = parseStatement();
+            Statement body = parseControlledStatement();
 
             if (startToken == null || body == null) {
                 return null;
@@ -262,26 +256,42 @@ public final class StatementManager {
         Expression selector = expressionManager.parseExpression();
         state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
         state.consume(TokenType.LEFT_BRACE, "期望 '{'");
-        ArrayList<SwitchCase> cases = new ArrayList<>();
-        while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
-            SwitchCase switchCase = parseSwitchCase();
-            if (switchCase != null) {
-                cases.add(switchCase);
-            } else {
-                state.synchronizeStatement();
+        if (typeReader.isCpp()) typeReader.enterScope(java.util.List.of());
+        try {
+            ArrayList<SwitchCase> cases = new ArrayList<>();
+            while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
+                SwitchCase switchCase = parseSwitchCase();
+                if (switchCase != null) {
+                    cases.add(switchCase);
+                } else {
+                    state.synchronizeStatement();
+                }
             }
+            Token endToken = state.consume(TokenType.RIGHT_BRACE, "期望 '}'");
+            if (startToken == null || selector == null || endToken == null) {
+                return null;
+            }
+            SwitchStmt switchStmt = new SwitchStmt(
+                    selector,
+                    cases,
+                    SourceRange.span(startToken.range(), endToken.range())
+            );
+            state.build(switchStmt, "SwitchStmt", switchStmt.range());
+            return switchStmt;
+        } finally {
+            if (typeReader.isCpp()) typeReader.exitScope();
         }
-        Token endToken = state.consume(TokenType.RIGHT_BRACE, "期望 '}'");
-        if (startToken == null || selector == null || endToken == null) {
-            return null;
+    }
+
+    /** A C++ controlled declaration has block scope even without explicit braces. */
+    private Statement parseControlledStatement() {
+        if (!typeReader.isCpp() || state.check(TokenType.LEFT_BRACE)) return parseStatement();
+        typeReader.enterScope(java.util.List.of());
+        try {
+            return parseStatement();
+        } finally {
+            typeReader.exitScope();
         }
-        SwitchStmt switchStmt = new SwitchStmt(
-                selector,
-                cases,
-                SourceRange.span(startToken.range(), endToken.range())
-        );
-        state.build(switchStmt, "SwitchStmt", switchStmt.range());
-        return switchStmt;
     }
 
     private SwitchCase parseSwitchCase() {
@@ -335,6 +345,9 @@ public final class StatementManager {
 
     private VarDeclStmt parseVarDeclStmt() {
         Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望变量类型", "期望变量名");
+        if (typeReader.isCpp() && declaration != null) {
+            typeReader.declareOrdinaryName(declaration.name(), declaration.range());
+        }
         Expression initializer = null;
         if (state.match(TokenType.EQUAL)) {
             if (state.check(TokenType.LEFT_BRACE)) {
@@ -355,7 +368,7 @@ public final class StatementManager {
                 declaration.alignmentSpecs(),
                 SourceRange.span(declaration.range(), semicolonToken.range())
         );
-        typeReader.declareOrdinaryName(varDeclStmt.name(), varDeclStmt.range());
+        if (!typeReader.isCpp()) typeReader.declareOrdinaryName(varDeclStmt.name(), varDeclStmt.range());
         state.build(varDeclStmt, "VarDeclStmt " + varDeclStmt.name(), varDeclStmt.range());
         return varDeclStmt;
     }

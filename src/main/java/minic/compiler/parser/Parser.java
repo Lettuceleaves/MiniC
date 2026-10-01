@@ -217,11 +217,10 @@ public final class Parser extends Stage {
     private Declaration parseDeclaration() {
         if (languageMode() == LanguageMode.CPP17_ALGORITHM) {
             if (context.check(TokenType.NAMESPACE)) return parseNamespace();
-            if (context.check(TokenType.USING)) return CppNameParser.parseUsing(context);
-            if (context.check(TokenType.SCOPE) || context.check(TokenType.IDENTIFIER)
-                    && context.peekAt(1).type() == TokenType.SCOPE) {
-                context.unsupportedCpp(context.peek().range(), "限定类型名称查找尚未实现");
-                return null;
+            if (context.check(TokenType.USING)) {
+                var using = CppNameParser.parseUsing(context);
+                if (using != null) typeReader.registerUsing(using);
+                return using;
             }
         }
         if (context.check(TokenType.TYPEDEF)) return declarationManager.parseTypedefDecl();
@@ -252,7 +251,7 @@ public final class Parser extends Stage {
         if (context.consume(TokenType.LEFT_BRACE, "期望 '{'") == null) return null;
         var members = new ArrayList<Declaration>();
         var savedConstants = new java.util.LinkedHashMap<>(enumConstants);
-        typeReader.enterScope(List.of());
+        typeReader.enterNamespace(name);
         namespaceMembers.push(members);
         try {
             while (!context.isAtEnd() && !context.check(TokenType.RIGHT_BRACE)) {
@@ -275,7 +274,7 @@ public final class Parser extends Stage {
             context.build(namespace, "NamespaceDecl", namespace.range());
             return namespace;
         } finally {
-            typeReader.exitScope();
+            typeReader.exitNamespace();
             namespaceMembers.pop();
             enumConstants.clear();
             enumConstants.putAll(savedConstants);
@@ -581,6 +580,10 @@ public final class Parser extends Stage {
         private final java.util.Deque<java.util.Map<String, MiniType>> typedefScopes = new java.util.ArrayDeque<>();
         private final java.util.Deque<java.util.Set<String>> ordinaryNameScopes = new java.util.ArrayDeque<>();
         private final java.util.function.Consumer<StructDecl> aggregateSink;
+        private final CppTypeEnvironment cppTypes;
+        private final java.util.Map<String, List<Declaration.StructField>> aggregateFields = new java.util.LinkedHashMap<>();
+        private int cppLocalDepth;
+        private int cppMemberDepth;
         private int anonymousAggregateIndex;
 
         public TypeReader(Context context) {
@@ -590,15 +593,91 @@ public final class Parser extends Stage {
         public TypeReader(Context context, java.util.function.Consumer<StructDecl> aggregateSink) {
             this.context = Objects.requireNonNull(context, "context");
             this.aggregateSink = Objects.requireNonNull(aggregateSink, "aggregateSink");
-            enterScope(List.of());
+            cppTypes = isCpp() ? new CppTypeEnvironment() : null;
+            typedefScopes.push(new java.util.LinkedHashMap<>());
+            ordinaryNameScopes.push(new java.util.LinkedHashSet<>());
+        }
+
+        public boolean isCpp() { return context.languageMode() == LanguageMode.CPP17_ALGORITHM; }
+
+        public void enterNamespace(minic.compiler.parser.node.QualifiedName name) {
+            cppTypes.enterNamespace(name.segments(), name.range());
+        }
+
+        public void exitNamespace() { cppTypes.exitNamespace(); }
+
+        public void enterMemberScope() {
+            enterMemberScope(null);
+        }
+
+        public void enterMemberScope(MiniType selfType) {
+            if (isCpp()) { cppTypes.enterMemberScope(selfType); cppMemberDepth++; }
+        }
+
+        public void exitMemberScope() {
+            if (isCpp()) { cppTypes.exitMemberScope(); cppMemberDepth--; }
+        }
+
+        /** Retain anonymous aggregate members so a containing class can promote their names. */
+        public void recordAggregateFields(StructDecl declaration) {
+            if (isCpp()) aggregateFields.put(declaration.name(), declaration.fields());
+        }
+
+        public void declareMemberField(Declaration.StructField field) {
+            if (!isCpp()) return;
+            if (field.anonymous()) {
+                promoteAnonymousMemberNames(field.type(), new java.util.HashSet<>());
+            } else {
+                declareOrdinaryName(field.name(), field.range());
+            }
+        }
+
+        private void promoteAnonymousMemberNames(MiniType type, java.util.Set<String> visited) {
+            if (!(type.unqualified() instanceof MiniType.StructType aggregate) || !visited.add(aggregate.name())) return;
+            for (var field : aggregateFields.getOrDefault(aggregate.name(), List.of())) {
+                if (field.anonymous()) promoteAnonymousMemberNames(field.type(), visited);
+                else declareOrdinaryName(field.name(), field.range());
+            }
+        }
+
+        public void registerUsing(Declaration.UsingDecl declaration) {
+            if (isCpp()) cppTypes.registerUsing(declaration.target(), declaration.namespaceDirective(), declaration.range());
+            // Value lookup and invalid using declarations are diagnosed by the binder.
+        }
+
+        public MiniType declareAggregate(String name, boolean union, boolean definition, SourceRange range) {
+            if (!isCpp()) return MiniType.struct(union ? "$union$" + name : name);
+            if ((cppLocalDepth > 0 || cppMemberDepth > 0) && !name.startsWith("$anonymous$")) {
+                context.unsupportedCpp(range, "局部或成员命名结构体声明尚未实现");
+            }
+            int before = cppTypes.diagnostics().size();
+            MiniType result = cppTypes.declareStruct(name, union, definition, range);
+            copyTypeDiagnostics(before);
+            return result;
+        }
+
+        private void copyTypeDiagnostics(int before) {
+            var diagnostics = cppTypes.diagnostics();
+            for (int i = before; i < diagnostics.size(); i++) context.reportedErrors.add(diagnostics.get(i));
         }
 
         public void enterScope(java.util.Collection<String> ordinaryNames) {
+            if (isCpp()) {
+                cppTypes.enterLocalScope();
+                cppLocalDepth++;
+                for (String name : ordinaryNames) cppTypes.declareValue(name, context.peek().range());
+                return;
+            }
             typedefScopes.push(new java.util.LinkedHashMap<>());
             ordinaryNameScopes.push(new java.util.LinkedHashSet<>(ordinaryNames));
         }
 
         public void exitScope() {
+            if (isCpp()) {
+                cppTypes.exitLocalScope();
+                cppLocalDepth--;
+                return;
+            }
             if (typedefScopes.size() <= 1) {
                 throw new IllegalStateException("cannot exit parser global type scope");
             }
@@ -607,6 +686,12 @@ public final class Parser extends Stage {
         }
 
         public boolean defineTypedef(String name, MiniType type, SourceRange range) {
+            if (isCpp()) {
+                int before = cppTypes.diagnostics().size();
+                cppTypes.declareTypedef(name, type, range);
+                copyTypeDiagnostics(before);
+                return before == cppTypes.diagnostics().size();
+            }
             if (typedefScopes.peek().containsKey(name) || ordinaryNameScopes.peek().contains(name)) {
                 context.report(range, "同一作用域中的 typedef 名称重复或与普通标识符冲突：" + name);
                 return false;
@@ -616,6 +701,10 @@ public final class Parser extends Stage {
         }
 
         public void declareOrdinaryName(String name, SourceRange range) {
+            if (isCpp()) {
+                cppTypes.declareValue(name, range);
+                return;
+            }
             if (typedefScopes.peek().containsKey(name)) {
                 context.report(range, "普通标识符与同一作用域的 typedef 名称冲突：" + name);
                 return;
@@ -624,6 +713,10 @@ public final class Parser extends Stage {
         }
 
         public MiniType resolveTypedef(String name) {
+            if (isCpp()) {
+                var result = cppTypes.lookup(new minic.compiler.parser.node.QualifiedName(false, List.of(name), context.peek().range()));
+                return result.kind() == CppTypeEnvironment.Kind.TYPE ? result.type() : null;
+            }
             var typeIterator = typedefScopes.iterator();
             var ordinaryIterator = ordinaryNameScopes.iterator();
             while (typeIterator.hasNext() && ordinaryIterator.hasNext()) {
@@ -717,6 +810,10 @@ public final class Parser extends Stage {
                 offset++;
             }
             TokenType type = context.peekAt(offset).type();
+            if (isCpp() && (type == TokenType.IDENTIFIER || type == TokenType.SCOPE)) {
+                var name = CppNameParser.peekName(context, offset);
+                return name != null && cppTypes.lookup(name).kind() == CppTypeEnvironment.Kind.TYPE;
+            }
             return type == TokenType.BOOL
                     || type == TokenType.CHAR
                     || type == TokenType.INT
@@ -856,6 +953,13 @@ public final class Parser extends Stage {
         }
 
         private ParameterList parseParameterList() {
+            if (!isCpp()) return parseParameterListContents();
+            enterScope(List.of());
+            try { return parseParameterListContents(); }
+            finally { exitScope(); }
+        }
+
+        private ParameterList parseParameterListContents() {
             ArrayList<ParsedParameter> parameters = new ArrayList<>();
             if (context.check(TokenType.RIGHT_PAREN)) {
                 return new ParameterList(parameters, false);
@@ -890,6 +994,7 @@ public final class Parser extends Stage {
                 MiniType parameterType = adjustParameterType(declarator.resolve(baseType.type()));
                 SourceRange range = SourceRange.span(baseType.startToken().range(), declarator.endToken().range());
                 parameters.add(new ParsedParameter(declarator.name(), parameterType, range));
+                if (isCpp() && !declarator.name().isEmpty()) declareOrdinaryName(declarator.name(), range);
             } while (context.match(TokenType.COMMA));
             return new ParameterList(parameters, variadic);
         }
@@ -960,6 +1065,17 @@ public final class Parser extends Stage {
                 if (nameToken == null) return null;
                 type = MiniType.INT;
                 end = nameToken;
+            } else if (isCpp() && (context.check(TokenType.IDENTIFIER) || context.check(TokenType.SCOPE))) {
+                var name = CppNameParser.parseName(context);
+                if (name == null) return null;
+                var result = cppTypes.lookup(name);
+                if (result.kind() != CppTypeEnvironment.Kind.TYPE) {
+                    context.report(name.range(), "此位置不能将名称作为类型使用："
+                            + (name.global() ? "::" : "") + String.join("::", name.segments()) + " (" + result.kind() + ")");
+                    return null;
+                }
+                type = result.type();
+                end = context.previous();
             } else if (context.check(TokenType.IDENTIFIER)
                     && resolveTypedef(context.peek().lexeme()) != null) {
                 Token alias = context.advance();
@@ -1078,6 +1194,7 @@ public final class Parser extends Stage {
 
         private BaseType parseAggregateType(boolean union) {
             Token startToken = context.advance();
+            if (isCpp()) return parseCppAggregateType(union, startToken);
             Token nameToken = context.check(TokenType.IDENTIFIER) ? context.advance() : null;
             if (!context.match(TokenType.LEFT_BRACE)) {
                 if (nameToken == null) {
@@ -1089,6 +1206,54 @@ public final class Parser extends Stage {
             }
             String sourceName = nameToken == null ? "$anonymous$" + anonymousAggregateIndex++ : nameToken.lexeme();
             String internalName = union ? "$union$" + sourceName : sourceName;
+            return parseAggregateDefinition(MiniType.struct(internalName), union, startToken);
+        }
+
+        private BaseType parseCppAggregateType(boolean union, Token startToken) {
+            var name = CppNameParser.peekName(context, 0);
+            if (name != null) name = CppNameParser.parseName(context);
+            Token end = name == null ? startToken : context.previous();
+            if (context.match(TokenType.LEFT_BRACE)) {
+                if (name != null && (name.global() || name.segments().size() != 1)) {
+                    context.unsupportedCpp(name.range(), "限定名称的结构体定义尚未实现");
+                    return null;
+                }
+                String simple = name == null ? "$anonymous$" + anonymousAggregateIndex++ : name.segments().getFirst();
+                MiniType type = declareAggregate(simple, union, true, name == null ? startToken.range() : name.range());
+                return parseAggregateDefinition(type, union, startToken);
+            }
+            if (name == null) {
+                context.report(context.peek(), union ? "期望联合体名称或定义" : "期望结构体名称或定义");
+                return null;
+            }
+            var lookup = cppTypes.lookupElaborated(name);
+            MiniType type;
+            if (lookup.kind() == CppTypeEnvironment.Kind.MISSING && !name.global() && name.segments().size() == 1) {
+                type = declareAggregate(name.segments().getFirst(), union, false, name.range());
+                String identity = ((MiniType.StructType) type.unqualified()).name();
+                aggregateSink.accept(new StructDecl(identity, List.of(), false, union,
+                        SourceRange.span(startToken.range(), end.range())));
+            } else if (lookup.kind() == CppTypeEnvironment.Kind.TYPE && lookup.type().unqualified() instanceof MiniType.StructType tag) {
+                type = lookup.type();
+                if (union != tag.name().startsWith("$union$")) {
+                    context.report(name.range(), "struct/union 种类与已声明类型不一致");
+                    return null;
+                }
+            } else {
+                context.report(name.range(), "此位置未找到可使用的结构体类型：" + String.join("::", name.segments()));
+                return null;
+            }
+            return new BaseType(type, startToken, end);
+        }
+
+        private BaseType parseAggregateDefinition(MiniType type, boolean union, Token startToken) {
+            enterMemberScope(type);
+            try { return parseAggregateDefinitionContents(type, union, startToken); }
+            finally { exitMemberScope(); }
+        }
+
+        private BaseType parseAggregateDefinitionContents(MiniType type, boolean union, Token startToken) {
+            String internalName = ((MiniType.StructType) type.unqualified()).name();
             ArrayList<minic.compiler.parser.node.Declaration.StructField> fields = new ArrayList<>();
             while (!context.check(TokenType.RIGHT_BRACE) && !context.isAtEnd()) {
                 List<minic.compiler.parser.node.Declaration.AlignmentSpec> specs = parseAlignmentSpecs();
@@ -1097,23 +1262,28 @@ public final class Parser extends Stage {
                 if (context.check(TokenType.SEMICOLON)
                         && fieldBase.type().unqualified() instanceof MiniType.StructType) {
                     Token end = context.advance();
-                    fields.add(new minic.compiler.parser.node.Declaration.StructField(
+                    var field = new minic.compiler.parser.node.Declaration.StructField(
                             "", fieldBase.type(), true, specs,
-                            SourceRange.span(fieldBase.startToken().range(), end.range())));
+                            SourceRange.span(fieldBase.startToken().range(), end.range()));
+                    fields.add(field);
+                    declareMemberField(field);
                     continue;
                 }
                 Declarator declarator = parseDeclarator("期望字段名", true);
                 Token end = context.consume(TokenType.SEMICOLON, "期望 ';'");
                 if (declarator != null && end != null) {
-                    fields.add(new minic.compiler.parser.node.Declaration.StructField(
+                    var field = new minic.compiler.parser.node.Declaration.StructField(
                             declarator.name(), declarator.resolve(fieldBase.type()), false, specs,
-                            SourceRange.span(fieldBase.startToken().range(), end.range())));
+                            SourceRange.span(fieldBase.startToken().range(), end.range()));
+                    fields.add(field);
+                    declareMemberField(field);
                 }
             }
             Token close = context.consume(TokenType.RIGHT_BRACE, "期望 '}'");
             if (close == null) return null;
             StructDecl declaration = new StructDecl(internalName, fields, true, union,
                     SourceRange.span(startToken.range(), close.range()));
+            recordAggregateFields(declaration);
             aggregateSink.accept(declaration);
             context.build(declaration, "AnonymousAggregate " + internalName, declaration.range());
             return new BaseType(MiniType.struct(internalName), startToken, close);

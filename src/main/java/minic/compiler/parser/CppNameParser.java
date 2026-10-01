@@ -10,6 +10,24 @@ import java.util.ArrayList;
 public final class CppNameParser {
     private CppNameParser() {}
 
+    /** Lookahead for declaration/cast disambiguation; never consumes tokens or emits diagnostics. */
+    public static QualifiedName peekName(Parser.Context state, int offset) {
+        var start = state.peekAt(offset);
+        boolean global = start.type() == TokenType.SCOPE;
+        if (global) offset++;
+        if (state.peekAt(offset).type() != TokenType.IDENTIFIER) return null;
+        var segments = new ArrayList<String>();
+        var end = state.peekAt(offset++);
+        segments.add(end.lexeme());
+        while (state.peekAt(offset).type() == TokenType.SCOPE) {
+            offset++;
+            if (state.peekAt(offset).type() != TokenType.IDENTIFIER) return null;
+            end = state.peekAt(offset++);
+            segments.add(end.lexeme());
+        }
+        return new QualifiedName(global, segments, SourceRange.span(start.range(), end.range()));
+    }
+
     public static QualifiedName parseName(Parser.Context state) {
         var start = state.peek();
         boolean global = state.match(TokenType.SCOPE);

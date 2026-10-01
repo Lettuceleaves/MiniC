@@ -117,12 +117,19 @@ final class CppNamespaceParserTest {
     }
 
     @Test void unsupportedAliasAndQualifiedTypeLookupHaveExplicitDiagnostics() {
-        for (String source : List.of("namespace Alias = A;", "using Value = int;",
-                "A::Value item;", "int main() { A::Value item; return 0; }")) {
+        for (String source : List.of("namespace Alias = A;", "using Value = int;")) {
             Parser parser = parse(source);
             assertFalse(parser.succeeded(), source);
             assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("CPP001")),
                     () -> source + ": " + parser.errors());
+        }
+        for (String source : List.of("A::Value item;", "int main() { A::Value item; return 0; }")) {
+            Parser parser = parse(source);
+            assertFalse(parser.succeeded(), source);
+            assertTrue(parser.errors().stream().anyMatch(d -> d.code().equals("PAR001")),
+                    () -> source + ": " + parser.errors());
+            assertTrue(parser.errors().stream().noneMatch(d -> d.code().equals("CPP001")),
+                    () -> "Unknown types require a lookup diagnostic: " + parser.errors());
         }
     }
 
