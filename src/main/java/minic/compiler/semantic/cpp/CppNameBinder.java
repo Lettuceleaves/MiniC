@@ -1505,7 +1505,10 @@ public final class CppNameBinder {
                 return;
             }
             TypeEntity entity = declareClass(sourceName, node.union(), namespace, node.range());
-            if (node.definition() && entity.complete) report("CPP004", node.range(), "重复类型定义：" + entity.canonicalName);
+            if (node.definition() && entity.complete) {
+                report("CPP004", node.range(), "重复类型定义：" + entity.canonicalName);
+                return;
+            }
             TypeEntity savedDeclarationClass=currentClass;Entity savedDeclarationThis=currentThis;
             currentClass=entity;currentThis=null;
             try {
@@ -1539,9 +1542,10 @@ public final class CppNameBinder {
             }
             List<StructField> fields = new ArrayList<>();
             List<StructField> sourceFields = new ArrayList<>();
+            boolean completeFields = true;
             for (StructField field : node.fields()) {
                 MiniType type = normalizeType(field.type(), namespace, null, field.range());
-                requireComplete(type, field.range());
+                completeFields &= requireComplete(type, field.range());
                 StructField coreField = mapped(field, new StructField(field.name(), coreType(type), field.anonymous(),
                         normalizeAlignments(field.alignmentSpecs(), namespace, null), field.range()));
                 fields.add(coreField);
@@ -1552,6 +1556,10 @@ public final class CppNameBinder {
                 sourceFields.add(sourceField);
                 if (node.definition()) entity.fieldAccess.put(sourceField, access.getOrDefault(field, Access.PUBLIC));
             }
+            // An invalid value-member graph must remain incomplete. Otherwise implicit
+            // special-member planning recursively visits the very class being defined.
+            // Pointer and reference members do not require complete pointee types.
+            if (!completeFields) return;
             StructDecl core = mapped(node, new StructDecl(((MiniType.StructType) entity.type).name(),
                     fields, node.definition(), node.union(), node.range()));
             entity.complete |= node.definition();
@@ -2956,19 +2964,24 @@ public final class CppNameBinder {
             }).toList();
         }
 
-        private void requireComplete(MiniType type, SourceRange range) {
-            if (type == null) return; // Unknown scalar expression types are checked by the core semantic pass.
-            if (type.containsPlaceholder()) { report("CPP004", range, "The type must be deduced before it is used."); return; }
+        private boolean requireComplete(MiniType type, SourceRange range) {
+            if (type == null) return true; // Unknown scalar expression types are checked by the core semantic pass.
+            if (type.containsPlaceholder()) { report("CPP004", range, "The type must be deduced before it is used."); return false; }
             type = type.unqualified();
             if (type instanceof MiniType.ArrayType array) {
                 if(array.length()<0)report("CPP004",range,"This use requires a complete array bound.");
-                requireComplete(array.elementType(), range);
+                boolean completeElement = requireComplete(array.elementType(), range);
+                return array.length() >= 0 && completeElement;
             }
             else if (type instanceof MiniType.StructType struct) {
                 TypeEntity entity = coreTypes.get(struct.name());
                 if (entity != null) completeTemplate(entity, range);
-                if (entity != null && !entity.complete) report("CPP005", range, "此位置需要完整对象类型，但类型仍不完整：" + entity.canonicalName);
+                if (entity != null && !entity.complete) {
+                    report("CPP005", range, "此位置需要完整对象类型，但类型仍不完整：" + entity.canonicalName);
+                    return false;
+                }
             }
+            return true;
         }
 
         private String simpleTagName(String name) {
