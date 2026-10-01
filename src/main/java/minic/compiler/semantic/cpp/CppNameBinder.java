@@ -52,6 +52,28 @@ public final class CppNameBinder {
 
     private interface Candidate {}
 
+    /** Class identity is independent from value identity; aliases carry the resolved core type. */
+    private static final class TypeEntity implements Candidate {
+        final String name;
+        final String canonicalName;
+        final MiniType type;
+        final boolean classType;
+        final boolean union;
+        final Namespace owner;
+        boolean complete;
+
+        TypeEntity(String name, String canonicalName, MiniType type, boolean classType,
+                   boolean union, Namespace owner, boolean complete) {
+            this.name = name;
+            this.canonicalName = canonicalName;
+            this.type = type;
+            this.classType = classType;
+            this.union = union;
+            this.owner = owner;
+            this.complete = complete;
+        }
+    }
+
     /** An entity survives redeclarations and using aliases; candidate deduplication uses identity. */
     private static final class Entity implements Candidate {
         final String name;
@@ -79,8 +101,8 @@ public final class CppNameBinder {
         final String name;
         final Map<String, Namespace> children = new LinkedHashMap<>();
         final Map<String, Entity> values = new LinkedHashMap<>();
-        final Set<String> typedefs = new HashSet<>();
-        final Set<String> tags = new HashSet<>();
+        final Map<String, TypeEntity> typedefs = new LinkedHashMap<>();
+        final Map<String, TypeEntity> tags = new LinkedHashMap<>();
         final List<Namespace> directives = new ArrayList<>();
 
         Namespace(Namespace parent, String name) { this.parent = parent; this.name = name; }
@@ -93,7 +115,7 @@ public final class CppNameBinder {
         final Local parent;
         final Namespace namespace;
         final Map<String, Entity> values = new LinkedHashMap<>();
-        final Set<String> typedefs = new HashSet<>();
+        final Map<String, TypeEntity> typedefs = new LinkedHashMap<>();
         final List<Namespace> directives = new ArrayList<>();
         Local(Local parent, Namespace namespace) { this.parent = parent; this.namespace = namespace; }
     }
@@ -105,6 +127,9 @@ public final class CppNameBinder {
         private final IdentityHashMap<AstNode, AstNode> origins = new IdentityHashMap<>();
         private final Map<String, String> displayNames = new LinkedHashMap<>();
         private final Set<String> reserved = new HashSet<>();
+        private final Map<String, TypeEntity> canonicalTypes = new LinkedHashMap<>();
+        private final Map<String, TypeEntity> coreTypes = new LinkedHashMap<>();
+        private final Map<String, Entity> coreValues = new LinkedHashMap<>();
         private final List<Declaration> declarations = new ArrayList<>();
         private final List<StructDecl> structs = new ArrayList<>();
         private final List<EnumDecl> enums = new ArrayList<>();
@@ -129,7 +154,7 @@ public final class CppNameBinder {
                     case NamespaceDecl node -> {
                         Namespace target = namespace;
                         for (String name : node.name().segments()) {
-                            if (target.values.containsKey(name) || target.typedefs.contains(name) || target.tags.contains(name)) {
+                            if (target.values.containsKey(name) || target.typedefs.containsKey(name) || target.tags.containsKey(name)) {
                                 report("CPP004", node.range(), "命名空间与已有声明冲突：" + name);
                             }
                             Namespace parent = target;
@@ -140,23 +165,21 @@ public final class CppNameBinder {
                     case UsingDecl node -> bindUsing(node, namespace, null);
                     case GlobalVarDecl node -> bindGlobal(node, namespace);
                     case FunctionDecl node -> bindFunction(node, namespace);
-                    case StructDecl node -> {
-                        if (rejectNamespaceType(namespace, node)) continue;
-                        if (namespace.children.containsKey(node.name())) report("CPP004", node.range(),
-                                "类型声明与命名空间冲突：" + node.name());
-                        namespace.tags.add(node.name());
-                        structs.add(node); declarations.add(node); retainTree(node);
-                    }
+                    case StructDecl node -> bindStruct(node, namespace);
                     case TypedefDecl node -> {
-                        if (rejectNamespaceType(namespace, node)) continue;
-                        declareTypedef(node.name(), namespace, null, node.range());
-                        typedefs.add(node); declarations.add(node); retainTree(node);
+                        MiniType type = normalizeType(node.type(), namespace, null, node.range());
+                        declareTypedef(node.name(), type, namespace, null, node.range());
+                        String name = namespace == root ? node.name() : freshName(namespace.qualify(node.name()));
+                        TypedefDecl core = mapped(node, new TypedefDecl(name, type, node.range()));
+                        typedefs.add(core); declarations.add(core);
                     }
                     case EnumDecl node -> {
                         if (rejectNamespaceType(namespace, node)) continue;
                         if (namespace.children.containsKey(node.name())) report("CPP004", node.range(),
                                 "类型声明与命名空间冲突：" + node.name());
-                        namespace.tags.add(node.name());
+                        // Existing unscoped root enums keep their C representation in this slice.
+                        namespace.tags.put(node.name(), new TypeEntity(node.name(), "::" + namespace.qualify(node.name()),
+                                MiniType.INT, false, false, namespace, true));
                         for (Enumerator item : node.enumerators()) {
                             if (namespace.values.containsKey(item.name()) || namespace.children.containsKey(item.name())) {
                                 report("CPP004", item.range(), "枚举名称重复或冲突：" + item.name());
@@ -179,42 +202,191 @@ public final class CppNameBinder {
             return true;
         }
 
+        private void bindStruct(StructDecl node, Namespace namespace) {
+            String sourceName = simpleTagName(node.name());
+            if (node.name().contains("<block")) {
+                report("CPP005", node.range(), "尚未支持具名局部类型声明的作用域保存。");
+                return;
+            }
+            TypeEntity entity = declareClass(sourceName, node.union(), namespace, node.range());
+            if (node.definition() && entity.complete) report("CPP004", node.range(), "重复类型定义：" + entity.canonicalName);
+            List<StructField> fields = new ArrayList<>();
+            for (StructField field : node.fields()) {
+                MiniType type = normalizeType(field.type(), namespace, null, field.range());
+                requireComplete(type, field.range());
+                fields.add(mapped(field, new StructField(field.name(), type, field.anonymous(),
+                        normalizeAlignments(field.alignmentSpecs(), namespace, null), field.range())));
+            }
+            StructDecl core = mapped(node, new StructDecl(((MiniType.StructType) entity.type).name(),
+                    fields, node.definition(), node.union(), node.range()));
+            entity.complete |= node.definition();
+            structs.add(core); declarations.add(core);
+        }
+
+        private TypeEntity declareClass(String name, boolean union, Namespace namespace, SourceRange range) {
+            if (namespace.children.containsKey(name)) report("CPP004", range, "类型声明与命名空间冲突：" + name);
+            TypeEntity existing = namespace.tags.get(name);
+            if (existing == null && namespace.typedefs.containsKey(name) && namespace.typedefs.get(name).classType) {
+                existing = namespace.typedefs.get(name);
+            }
+            if (existing != null && existing.classType) {
+                if (existing.union != union) report("CPP004", range, "struct/union 类型声明不一致：" + name);
+                return existing;
+            }
+            if (existing != null || namespace.typedefs.containsKey(name)) {
+                report("CPP004", range, "类型声明与已有类型别名冲突：" + name);
+            }
+            String canonical = "::" + namespace.qualify(name);
+            String coreName = freshName(namespace.qualify(name));
+            if (union) {
+                String display = displayNames.remove(coreName);
+                coreName = "$union$" + coreName;
+                displayNames.put(coreName, display);
+            }
+            TypeEntity entity = new TypeEntity(name, canonical, MiniType.struct(coreName), true, union, namespace, false);
+            namespace.tags.put(name, entity);
+            canonicalTypes.put(canonical, entity);
+            coreTypes.put(coreName, entity);
+            return entity;
+        }
+
+        /** Frontend canonical names are source identities, never linker/layout identities. */
+        private MiniType normalizeType(MiniType type, Namespace namespace, Local local, SourceRange range) {
+            if (type == null) return null;
+            if (type instanceof MiniType.QualifiedType qualified) {
+                return MiniType.qualified(normalizeType(qualified.baseType(), namespace, local, range), qualified.qualifiers());
+            }
+            if (type instanceof MiniType.PointerType pointer) return normalizeType(pointer.pointee(), namespace, local, range).pointerTo();
+            if (type instanceof MiniType.ArrayType array) return normalizeType(array.elementType(), namespace, local, range).arrayOf(array.length());
+            if (type instanceof MiniType.FunctionType function) return MiniType.function(
+                    normalizeType(function.returnType(), namespace, local, range),
+                    function.parameterTypes().stream().map(t -> normalizeType(t, namespace, local, range)).toList(), function.variadic());
+            if (!(type instanceof MiniType.StructType struct)) return type;
+            if (coreTypes.containsKey(struct.name())) return type;
+            boolean union = struct.name().startsWith("$union$");
+            String name = union ? struct.name().substring("$union$".length()) : struct.name();
+            TypeEntity entity = null;
+            if (name.startsWith("::")) entity = canonicalTypes.get(name);
+            else {
+                // Legacy ASTs store an elaborated 'struct S' reference without qualification.
+                int beforeLookup = diagnostics.size();
+                entity = lookupLegacyTag(name, namespace, local, range);
+                if (entity == null && diagnostics.size() == beforeLookup && !name.contains("::")) {
+                    if (local != null) {
+                        report("CPP005", range, "尚未支持具名局部类型声明的作用域保存。");
+                        return type;
+                    }
+                    // An unqualified elaborated specifier can introduce an incomplete class.
+                    entity = declareClass(name, union, namespace, range);
+                    var forward = new StructDecl(((MiniType.StructType) entity.type).name(), List.of(), false, union, range);
+                    structs.add(forward); declarations.add(forward);
+                }
+            }
+            if (entity == null) {
+                report("CPP003", range, "此位置尚未声明类型：" + name);
+                return type;
+            }
+            if (!entity.classType || entity.union != union) {
+                report("CPP004", range, "struct/union 类型名称不匹配：" + name);
+                return type;
+            }
+            return entity.type;
+        }
+
+        private TypeEntity lookupLegacyTag(String name, Namespace namespace, Local local, SourceRange range) {
+            for (Local scope = local; scope != null; scope = scope.parent) {
+                TypeEntity type = scope.typedefs.get(name);
+                if (type != null && type.classType) return type;
+            }
+            Map<Namespace, Set<Namespace>> nominated = nominations(namespace, local);
+            for (Namespace scope = namespace; scope != null; scope = scope.parent) {
+                Set<Candidate> candidates = new LinkedHashSet<>(directTags(scope, name));
+                for (Namespace target : nominated.getOrDefault(scope, Set.of())) candidates.addAll(directTags(target, name));
+                if (!candidates.isEmpty()) {
+                    Candidate candidate = selectCandidate(candidates, name, range);
+                    return candidate instanceof TypeEntity type ? type : null;
+                }
+            }
+            return null;
+        }
+
+        private Set<Candidate> directTags(Namespace namespace, String name) {
+            TypeEntity tag = namespace.tags.get(name);
+            if (tag != null) return Set.of(tag);
+            TypeEntity imported = namespace.typedefs.get(name);
+            return imported != null && imported.classType ? Set.of(imported) : Set.of();
+        }
+
+        private List<AlignmentSpec> normalizeAlignments(List<AlignmentSpec> specs, Namespace namespace, Local local) {
+            return specs.stream().map(spec -> {
+                if (spec.type() == null) return mapped(spec, spec);
+                MiniType type = normalizeType(spec.type(), namespace, local, spec.range());
+                requireComplete(type, spec.range());
+                return mapped(spec, AlignmentSpec.type(type, spec.range()));
+            }).toList();
+        }
+
+        private void requireComplete(MiniType type, SourceRange range) {
+            type = type.unqualified();
+            if (type instanceof MiniType.ArrayType array) requireComplete(array.elementType(), range);
+            else if (type instanceof MiniType.StructType struct) {
+                TypeEntity entity = coreTypes.get(struct.name());
+                if (entity != null && !entity.complete) report("CPP005", range, "此位置需要完整对象类型，但类型仍不完整：" + entity.canonicalName);
+            }
+        }
+
+        private String simpleTagName(String name) {
+            if (name.startsWith("$union$")) name = name.substring("$union$".length());
+            int separator = name.lastIndexOf("::");
+            return separator < 0 ? name : name.substring(separator + 2);
+        }
+
         private void bindGlobal(GlobalVarDecl node, Namespace namespace) {
             if (namespace != root && node.external()) report("CPP005", node.range(),
                     "尚未支持命名空间中的外部对象链接：" + namespace.qualify(node.name()));
-            Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, node.type(),
+            MiniType type = normalizeType(node.type(), namespace, null, node.range());
+            if (!node.external() || node.initializer() != null) requireComplete(type, node.range());
+            Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, type,
                     !node.external() || node.initializer() != null, namespace, node.range());
             Expression initializer = expression(node.initializer(), namespace, null);
             if (initializer != null && !constantInitializer(initializer)) {
                 report("CPP005", node.initializer().range(), "尚未支持动态或地址形式的全局初始化；此阶段仅支持可直接写入数据段的常量初始化。");
             }
-            GlobalVarDecl core = mapped(node, new GlobalVarDecl(entity.coreName, node.type(), initializer,
-                    node.external(), node.alignmentSpecs(), node.range()));
-            retainAlignments(node.alignmentSpecs());
+            GlobalVarDecl core = mapped(node, new GlobalVarDecl(entity.coreName, type, initializer,
+                    node.external(), normalizeAlignments(node.alignmentSpecs(), namespace, null), node.range()));
             globals.add(core); declarations.add(core);
         }
 
         private void bindFunction(FunctionDecl node, Namespace namespace) {
             if (namespace != root && node.external()) report("CPP005", node.range(),
                     "尚未支持命名空间中的外部函数链接：" + namespace.qualify(node.name()));
-            MiniType signature = MiniType.function(node.returnType().unqualified(), node.parameters().stream()
-                    .map(p -> p.type().unqualified()).toList(), node.variadic());
+            MiniType returnType = normalizeType(node.returnType(), namespace, null, node.range());
+            List<MiniType> parameterTypes = node.parameters().stream()
+                    .map(p -> normalizeType(p.type(), namespace, null, p.range())).toList();
+            if (node.hasBody()) {
+                requireComplete(returnType, node.range());
+                for (int i = 0; i < parameterTypes.size(); i++) requireComplete(parameterTypes.get(i), node.parameters().get(i).range());
+            }
+            MiniType signature = MiniType.function(returnType.unqualified(), parameterTypes.stream()
+                    .map(MiniType::unqualified).toList(), node.variadic());
             Entity entity = declareNamespaceValue(node.name(), Kind.FUNCTION, signature, node.hasBody(), namespace, node.range());
             Local scope = new Local(null, namespace);
             List<Parameter> parameters = new ArrayList<>();
-            for (Parameter parameter : node.parameters()) {
-                Entity value = declareLocal(parameter.name(), parameter.type(), scope, parameter.range());
-                parameters.add(mapped(parameter, new Parameter(value.coreName, parameter.type(), parameter.range())));
+            for (int i = 0; i < node.parameters().size(); i++) {
+                Parameter parameter = node.parameters().get(i);
+                MiniType type = parameterTypes.get(i);
+                Entity value = declareLocal(parameter.name(), type, scope, parameter.range());
+                parameters.add(mapped(parameter, new Parameter(value.coreName, type, parameter.range())));
             }
             BlockStmt body = node.body() == null ? null : block(node.body(), scope, false);
-            FunctionDecl core = mapped(node, new FunctionDecl(entity.coreName, node.returnType(), parameters,
+            FunctionDecl core = mapped(node, new FunctionDecl(entity.coreName, returnType, parameters,
                     node.variadic(), body, node.external(), node.noReturn(), node.range()));
             functions.add(core); declarations.add(core);
         }
 
         private Entity declareNamespaceValue(String name, Kind kind, MiniType type, boolean definition,
                                              Namespace namespace, SourceRange range) {
-            if (namespace.children.containsKey(name) || namespace.typedefs.contains(name)) {
+            if (namespace.children.containsKey(name) || namespace.typedefs.containsKey(name) && !namespace.typedefs.get(name).classType) {
                 report("CPP004", range, "名称与命名空间或类型别名冲突：" + name);
             }
             Entity existing = namespace.values.get(name);
@@ -236,24 +408,32 @@ public final class CppNameBinder {
             displayNames.put(coreName, namespace.qualify(name));
             Entity entity = new Entity(name, coreName, kind, namespace, type, null, definition);
             namespace.values.put(name, entity);
+            coreValues.put(coreName, entity);
             return entity;
         }
 
         private Entity declareLocal(String name, MiniType type, Local scope, SourceRange range) {
-            if (scope.values.containsKey(name) || scope.typedefs.contains(name)) {
+            if (scope.values.containsKey(name) || scope.typedefs.containsKey(name) && !scope.typedefs.get(name).classType) {
                 report("CPP004", range, "局部名称重复或与 using 声明冲突：" + name);
             }
             Entity entity = new Entity(name, freshName(name), Kind.VARIABLE, null, type, null, true);
             scope.values.put(name, entity);
+            coreValues.put(entity.coreName, entity);
             return entity;
         }
 
-        private void declareTypedef(String name, Namespace namespace, Local local, SourceRange range) {
+        private void declareTypedef(String name, MiniType type, Namespace namespace, Local local, SourceRange range) {
             Map<String, Entity> values = local == null ? namespace.values : local.values;
             if (values.containsKey(name) || (local == null && namespace.children.containsKey(name))) {
                 report("CPP004", range, "类型别名与已有名称冲突：" + name);
             }
-            (local == null ? namespace.typedefs : local.typedefs).add(name);
+            Map<String, TypeEntity> aliases = local == null ? namespace.typedefs : local.typedefs;
+            TypeEntity previous = aliases.get(name);
+            TypeEntity tag = local == null ? namespace.tags.get(name) : null;
+            if (previous != null && !previous.type.equals(type) || tag != null && !tag.type.equals(type)) {
+                report("CPP004", range, "类型别名与已有类型声明冲突：" + name);
+            }
+            aliases.put(name, new TypeEntity(name, "::" + namespace.qualify(name), type, false, false, namespace, true));
         }
 
         private void bindUsing(UsingDecl node, Namespace namespace, Local local) {
@@ -261,13 +441,28 @@ public final class CppNameBinder {
                 Namespace target = resolveNamespace(node.target(), namespace, local);
                 if (target != null) (local == null ? namespace.directives : local.directives).add(target);
             } else {
-                Entity target = resolveQualified(node.target(), namespace, local);
+                Candidate candidate = resolveQualifiedName(node.target(), namespace, local);
+                if (candidate instanceof TypeEntity type) {
+                    String name = node.target().segments().getLast();
+                    Map<String, TypeEntity> aliases = local == null ? namespace.typedefs : local.typedefs;
+                    TypeEntity previous = aliases.putIfAbsent(name, type);
+                    TypeEntity tag = local == null ? namespace.tags.get(name) : null;
+                    if (previous != null && !previous.type.equals(type.type)
+                            || tag != null && !tag.type.equals(type.type)
+                            || !type.classType && (local == null ? namespace.values : local.values).containsKey(name)
+                            || local == null && namespace.children.containsKey(name)) {
+                        report("CPP004", node.range(), "using 类型声明与已有名称冲突：" + name);
+                    }
+                    return;
+                }
+                Entity target = requireValue(candidate, spelling(node.target()), node.range());
                 if (target == null) return;
                 String name = node.target().segments().getLast();
                 Map<String, Entity> values = local == null ? namespace.values : local.values;
                 Entity previous = values.putIfAbsent(name, target);
+                TypeEntity type = (local == null ? namespace.typedefs : local.typedefs).get(name);
                 if (previous != null && previous != target
-                        || (local == null ? namespace.typedefs : local.typedefs).contains(name)
+                        || type != null && !type.classType
                         || (local == null && namespace.children.containsKey(name))) {
                     report("CPP004", node.range(), "using 声明与已有名称冲突：" + name);
                 }
@@ -298,14 +493,16 @@ public final class CppNameBinder {
             Statement core = switch (node) {
                 case BlockStmt n -> block(n, scope, true);
                 case VarDeclStmt n -> {
-                    Entity value = declareLocal(n.name(), n.type(), scope, n.range());
-                    retainAlignments(n.alignmentSpecs());
-                    yield new VarDeclStmt(value.coreName, n.type(), expression(n.initializer(), namespace, scope),
-                            n.alignmentSpecs(), n.range());
+                    MiniType type = normalizeType(n.type(), namespace, scope, n.range());
+                    requireComplete(type, n.range());
+                    Entity value = declareLocal(n.name(), type, scope, n.range());
+                    yield new VarDeclStmt(value.coreName, type, expression(n.initializer(), namespace, scope),
+                            normalizeAlignments(n.alignmentSpecs(), namespace, scope), n.range());
                 }
                 case TypedefStmt n -> {
-                    declareTypedef(n.name(), namespace, scope, n.range());
-                    yield n;
+                    MiniType type = normalizeType(n.type(), namespace, scope, n.range());
+                    declareTypedef(n.name(), type, namespace, scope, n.range());
+                    yield new TypedefStmt(n.name(), type, n.range());
                 }
                 case UsingDecl n -> {
                     bindUsing(n, namespace, scope);
@@ -360,18 +557,41 @@ public final class CppNameBinder {
                 case AssignmentExpr n -> new AssignmentExpr(expression(n.target(), namespace, local), n.operator(), expression(n.value(), namespace, local), n.range());
                 case BinaryExpr n -> new BinaryExpr(expression(n.left(), namespace, local), n.operator(), expression(n.right(), namespace, local), n.range());
                 case ConditionalExpr n -> new ConditionalExpr(expression(n.condition(), namespace, local), expression(n.thenExpression(), namespace, local), expression(n.elseExpression(), namespace, local), n.range());
-                case CallExpr n -> new CallExpr(expression(n.callee(), namespace, local), expressions(n.arguments(), namespace, local), n.range());
-                case CastExpr n -> new CastExpr(n.targetType(), expression(n.operand(), namespace, local), n.range());
+                case CallExpr n -> {
+                    Expression callee = expression(n.callee(), namespace, local);
+                    if (callee instanceof NameExpr name && coreValues.containsKey(name.name())) {
+                        MiniType function = coreValues.get(name.name()).type.unqualified();
+                        if (function instanceof MiniType.PointerType pointer) function = pointer.pointee().unqualified();
+                        if (function instanceof MiniType.FunctionType signature) {
+                            requireComplete(signature.returnType(), n.range());
+                            signature.parameterTypes().forEach(t -> requireComplete(t, n.range()));
+                        }
+                    }
+                    yield new CallExpr(callee, expressions(n.arguments(), namespace, local), n.range());
+                }
+                case CastExpr n -> new CastExpr(normalizeType(n.targetType(), namespace, local, n.range()), expression(n.operand(), namespace, local), n.range());
                 case CommaExpr n -> new CommaExpr(expressions(n.expressions(), namespace, local), n.range());
                 case FieldAccessExpr n -> new FieldAccessExpr(expression(n.target(), namespace, local), n.fieldName(), n.viaPointer(), n.range());
                 case GroupingExpr n -> new GroupingExpr(expression(n.expression(), namespace, local), n.range());
                 case IndexExpr n -> new IndexExpr(expression(n.target(), namespace, local), expression(n.index(), namespace, local), n.range());
                 case UnaryExpr n -> new UnaryExpr(n.operator(), expression(n.operand(), namespace, local), n.range());
                 case PostfixUpdateExpr n -> new PostfixUpdateExpr(expression(n.target(), namespace, local), n.operator(), n.range());
-                case SizeofExpr n -> new SizeofExpr(expression(n.expression(), namespace, local), n.queriedType(), n.range());
-                case AlignofExpr n -> new AlignofExpr(expression(n.expression(), namespace, local), n.queriedType(), n.range());
+                case SizeofExpr n -> {
+                    MiniType type = normalizeType(n.queriedType(), namespace, local, n.range());
+                    if (type != null) requireComplete(type, n.range());
+                    yield new SizeofExpr(expression(n.expression(), namespace, local), type, n.range());
+                }
+                case AlignofExpr n -> {
+                    MiniType type = normalizeType(n.queriedType(), namespace, local, n.range());
+                    if (type != null) requireComplete(type, n.range());
+                    yield new AlignofExpr(expression(n.expression(), namespace, local), type, n.range());
+                }
                 case VaStartExpr n -> new VaStartExpr(expression(n.list(), namespace, local), expression(n.lastParameter(), namespace, local), n.range());
-                case VaArgExpr n -> new VaArgExpr(expression(n.list(), namespace, local), n.requestedType(), n.range());
+                case VaArgExpr n -> {
+                    MiniType type = normalizeType(n.requestedType(), namespace, local, n.range());
+                    requireComplete(type, n.range());
+                    yield new VaArgExpr(expression(n.list(), namespace, local), type, n.range());
+                }
                 case VaCopyExpr n -> new VaCopyExpr(expression(n.destination(), namespace, local), expression(n.source(), namespace, local), n.range());
                 case VaEndExpr n -> new VaEndExpr(expression(n.list(), namespace, local), n.range());
                 case AggregateInitExpr n -> new AggregateInitExpr(expressions(n.values(), namespace, local), n.range());
@@ -410,31 +630,35 @@ public final class CppNameBinder {
         }
 
         private Entity lookupValue(String name, Namespace namespace, Local local, SourceRange range) {
+            return requireValue(lookupName(name, namespace, local, range), name, range);
+        }
+
+        private Candidate lookupName(String name, Namespace namespace, Local local, SourceRange range) {
             for (Local scope = local; scope != null; scope = scope.parent) {
                 Entity value = scope.values.get(name);
                 if (value != null) return value;
-                if (scope.typedefs.contains(name)) {
-                    report("CPP003", range, "类型别名不能作为值使用：" + name);
-                    return null;
-                }
+                if (scope.typedefs.containsKey(name)) return scope.typedefs.get(name);
             }
             Map<Namespace, Set<Namespace>> nominated = nominations(namespace, local);
             for (Namespace scope = namespace; scope != null; scope = scope.parent) {
-                Set<Candidate> candidates = new LinkedHashSet<>();
-                if (scope.values.containsKey(name)) candidates.add(scope.values.get(name));
-                if (scope.children.containsKey(name)) candidates.add(scope.children.get(name));
+                Set<Candidate> candidates = new LinkedHashSet<>(directCandidates(scope, name));
                 for (Namespace target : nominated.getOrDefault(scope, Set.of())) {
-                    if (target.values.containsKey(name)) candidates.add(target.values.get(name));
-                    if (target.children.containsKey(name)) candidates.add(target.children.get(name));
+                    candidates.addAll(directCandidates(target, name));
                 }
-                if (!candidates.isEmpty()) return select(candidates, name, range);
-                if (scope.typedefs.contains(name)) {
-                    report("CPP003", range, "类型别名不能作为值使用：" + name);
-                    return null;
-                }
+                if (!candidates.isEmpty()) return selectCandidate(candidates, name, range);
             }
             report("CPP003", range, "此位置尚未声明名称：" + name);
             return null;
+        }
+
+        private Set<Candidate> directCandidates(Namespace namespace, String name) {
+            Entity value = namespace.values.get(name);
+            if (value != null) return Set.of(value); // An ordinary value can hide the injected class name.
+            Set<Candidate> result = new LinkedHashSet<>();
+            if (namespace.children.containsKey(name)) result.add(namespace.children.get(name));
+            if (namespace.typedefs.containsKey(name)) result.add(namespace.typedefs.get(name));
+            else if (namespace.tags.containsKey(name)) result.add(namespace.tags.get(name));
+            return result;
         }
 
         /** Using directives inject candidates at the common ancestor, not into a local symbol table. */
@@ -463,10 +687,14 @@ public final class CppNameBinder {
         }
 
         private Entity resolveQualified(QualifiedName name, Namespace namespace, Local local) {
+            return requireValue(resolveQualifiedName(name, namespace, local), spelling(name), name.range());
+        }
+
+        private Candidate resolveQualifiedName(QualifiedName name, Namespace namespace, Local local) {
             List<String> segments = name.segments();
             Namespace owner;
             if (segments.size() == 1) {
-                if (!name.global()) return lookupValue(segments.getFirst(), namespace, local, name.range());
+                if (!name.global()) return lookupName(segments.getFirst(), namespace, local, name.range());
                 owner = root;
             } else {
                 owner = resolveNamespace(new QualifiedName(name.global(), segments.subList(0, segments.size() - 1), name.range()), namespace, local);
@@ -474,19 +702,15 @@ public final class CppNameBinder {
             if (owner == null) return null;
             Set<Candidate> values = qualifiedValues(owner, segments.getLast(), new HashSet<>());
             if (values.isEmpty()) {
-                if (owner.typedefs.contains(segments.getLast()) || owner.tags.contains(segments.getLast())) {
-                    report("CPP005", name.range(), "尚未支持 using 或限定名称中的类型绑定：" + spelling(name));
-                } else report("CPP003", name.range(), "此位置尚未声明限定名称：" + spelling(name));
+                report("CPP003", name.range(), "此位置尚未声明限定名称：" + spelling(name));
                 return null;
             }
-            return select(values, spelling(name), name.range());
+            return selectCandidate(values, spelling(name), name.range());
         }
 
         private Set<Candidate> qualifiedValues(Namespace namespace, String name, Set<Namespace> visited) {
             if (!visited.add(namespace)) return Set.of();
-            Set<Candidate> result = new LinkedHashSet<>();
-            if (namespace.values.containsKey(name)) result.add(namespace.values.get(name));
-            if (namespace.children.containsKey(name)) result.add(namespace.children.get(name));
+            Set<Candidate> result = new LinkedHashSet<>(directCandidates(namespace, name));
             if (!result.isEmpty()) return result;
             for (Namespace target : namespace.directives) result.addAll(qualifiedValues(target, name, visited));
             return result;
@@ -505,7 +729,7 @@ public final class CppNameBinder {
 
         private Namespace lookupNamespace(String name, Namespace namespace, Local local, QualifiedName sourceName) {
             for (Local scope = local; scope != null; scope = scope.parent) {
-                if (scope.typedefs.contains(name)) {
+                if (scope.typedefs.containsKey(name) && scope.typedefs.get(name).type.unqualified().isStruct()) {
                     report("CPP005", sourceName.range(), "尚未支持类型限定名称：" + name);
                     return null;
                 }
@@ -524,7 +748,9 @@ public final class CppNameBinder {
         }
 
         private boolean rejectsTypeQualifier(Namespace namespace, String name, SourceRange range) {
-            if (!namespace.typedefs.contains(name) && !namespace.tags.contains(name)) return false;
+            TypeEntity type = namespace.typedefs.get(name);
+            if (type == null) type = namespace.tags.get(name);
+            if (type == null || !type.type.unqualified().isStruct()) return false;
             report("CPP005", range, "尚未支持类型限定名称：" + name);
             return true;
         }
@@ -545,11 +771,20 @@ public final class CppNameBinder {
             return null;
         }
 
-        private Entity select(Set<Candidate> candidates, String name, SourceRange range) {
-            if (candidates.size() == 1) {
-                if (candidates.iterator().next() instanceof Entity entity) return entity;
-                report("CPP003", range, "命名空间不能作为值使用：" + name);
-            } else report("CPP003", range, "名称查找具有二义性：" + name);
+        private Candidate selectCandidate(Set<Candidate> candidates, String name, SourceRange range) {
+            if (candidates.size() == 1) return candidates.iterator().next();
+            if (!candidates.isEmpty() && candidates.stream().allMatch(TypeEntity.class::isInstance)) {
+                TypeEntity first = (TypeEntity) candidates.iterator().next();
+                if (candidates.stream().map(TypeEntity.class::cast).allMatch(t -> t.type.equals(first.type))) return first;
+            }
+            report("CPP003", range, "名称查找具有二义性：" + name);
+            return null;
+        }
+
+        private Entity requireValue(Candidate candidate, String name, SourceRange range) {
+            if (candidate == null) return null;
+            if (candidate instanceof Entity entity) return entity;
+            report("CPP003", range, (candidate instanceof TypeEntity ? "类型" : "命名空间") + "不能作为值使用：" + name);
             return null;
         }
 
@@ -604,15 +839,6 @@ public final class CppNameBinder {
             return candidate;
         }
 
-        private void retainTree(AstNode node) {
-            mapped(node, node);
-            if (node instanceof StructDecl n) {
-                for (StructField field : n.fields()) { mapped(field, field); retainAlignments(field.alignmentSpecs()); }
-            }
-            AstChildren.of(node).forEach(this::retainTree);
-        }
-
-        private void retainAlignments(List<AlignmentSpec> specs) { specs.forEach(s -> mapped(s, s)); }
         private <T extends AstNode> T mapped(AstNode from, T to) { origins.put(from, to); return to; }
         private String spelling(QualifiedName name) { return (name.global() ? "::" : "") + String.join("::", name.segments()); }
         private void report(String code, SourceRange range, String message) {

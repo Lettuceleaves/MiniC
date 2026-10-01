@@ -138,24 +138,28 @@ class CppNameBinderTest {
         }
     }
 
-    @Test void rejectsTypesOverloadsDuplicateDefinitionsAndDynamicInitializersExplicitly() {
-        failure("namespace A {struct S {int x;};} int main(){return 0;}", "类型");
-        failure("namespace A {typedef int T;} int main(){return 0;}", "类型");
+    @Test void rejectsUnsupportedEnumsOverloadsDuplicateDefinitionsAndDynamicInitializersExplicitly() {
+        success("namespace A {struct S {int x;};} int main(){return 0;}");
+        success("namespace A {typedef int T;} int main(){return 0;}");
         failure("namespace A {enum E {X};} int main(){return 0;}", "类型");
         failure("namespace A {int f(int x); int f(double x);} int main(){return 0;}", "重载");
         failure("namespace A {int x; int x;} int main(){return 0;}", "重复");
         failure("namespace A {int x=2;} int y=A::x; int main(){return y;}", "初始化");
         failure("namespace A {int f(){return 1;}} int y=A::f(); int main(){return y;}", "初始化");
         failure("namespace A {extern int printf(char *s, ...);} int main(){return 0;}", "外部");
-        failure("namespace A {int x;} int main(){typedef int A; return A::x;}", "类型");
-        failure("typedef int T; using ::T; int main(){return 0;}", "类型");
-        failure("namespace A {} struct A {int x;}; int main(){return 0;}", "冲突");
+        success("namespace A {int x;} int main(){typedef int A; return A::x;}");
+        success("typedef int T; using ::T; int main(){return 0;}");
+        Program source = parse("namespace A {} int main(){return 0;}");
+        var declarations = new ArrayList<>(source.declarations());
+        declarations.add(1, new StructDecl("A", List.of(new StructField("x", MiniType.INT, source.range())), source.range()));
+        failure(new Program(source.structs(), source.enums(), source.typedefs(), source.globals(), source.functions(),
+                declarations, source.range()), "冲突");
     }
 
     @Test void keepsGlobalCTypesAndBindsEnumValuesWithoutChangingFields() {
         var result = success("typedef int Number; struct S{int x;}; enum E{one=1}; "
                 + "int main(){struct S s={one}; Number x=one; return s.x+x;}");
-        assertEquals("S", result.program().structs().getFirst().name());
+        assertEquals("S", result.displayNames().get(result.program().structs().getFirst().name()));
         assertEquals("x", result.program().structs().getFirst().fields().getFirst().name());
         assertEquals(1, result.program().typedefs().size());
         assertEquals(1, result.program().enums().size());
@@ -225,7 +229,10 @@ class CppNameBinderTest {
         return result;
     }
     private static void failure(String source, String text) {
-        var result = CppNameBinder.bind(parse(source));
+        failure(parse(source), text);
+    }
+    private static void failure(Program source, String text) {
+        var result = CppNameBinder.bind(source);
         assertTrue(result.diagnostics().stream().anyMatch(d -> d.message().contains(text)), () -> result.diagnostics().toString());
     }
     private static Program parse(String text) {
