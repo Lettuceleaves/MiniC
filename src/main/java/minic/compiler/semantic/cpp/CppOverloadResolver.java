@@ -67,6 +67,24 @@ public final class CppOverloadResolver {
             var conversions = conversions(candidate, arguments, receiver);
             if (conversions != null) viable.add(new Viable<>(candidate, conversions));
         }
+        return choose(viable);
+    }
+
+    /** Operator notation compares member receivers and free-function first arguments together. */
+    public static <T> Resolution<T> resolveOperators(List<Candidate<T>> candidates, List<Argument> operands) {
+        candidates = List.copyOf(candidates);
+        operands = List.copyOf(operands);
+        var viable = new ArrayList<Viable<T>>();
+        for (var candidate : candidates) {
+            if (candidate.implicitObjectType != null && operands.isEmpty()) continue;
+            var conversions = candidate.implicitObjectType == null ? conversions(candidate, operands, null)
+                    : conversions(candidate, operands.subList(1, operands.size()), operands.getFirst());
+            if (conversions != null) viable.add(new Viable<>(candidate, conversions));
+        }
+        return choose(viable);
+    }
+
+    private static <T> Resolution<T> choose(List<Viable<T>> viable) {
         var entities = viable.stream().map(Viable::candidate).toList();
         if (viable.isEmpty()) return new Resolution<>(Status.NO_VIABLE, null, entities);
         for (var candidate : viable) {

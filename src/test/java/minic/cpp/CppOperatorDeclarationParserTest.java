@@ -174,15 +174,13 @@ final class CppOperatorDeclarationParserTest {
             "struct Value {int operator*() const{return 3;}};int main(){return 0;}",
             "struct Value{int field;};int operator+(Value left,Value right){return 3;}int main(){return 0;}",
             "struct Value{int operator*() const;};int Value::operator*() const{return 3;}int main(){return 0;}"})
-    void parsedOperatorsAreRejectedAtBindingUntilOperatorSemanticsExist(String text) {
+    void supportedOperatorDeclarationsBindBeforeCoreLowering(String text) {
         successful(text);
         var compiler = new CompilerApi(new SourceFile("guard.cpp", text), LanguageMode.CPP17_ALGORITHM);
         var semantic = compiler.stages().stream().filter(SemanticAnalyzer.class::isInstance).map(SemanticAnalyzer.class::cast).findFirst().orElseThrow();
         compiler.runThrough(semantic);
-        assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(error -> error.code().equals("CPP005")), () -> semantic.errors().toString());
-        semantic.errors().stream().filter(error -> error.code().equals("CPP005")).forEach(error ->
-                assertTrue(new SourceFile("guard.cpp", text).text(error.range()).startsWith("operator")));
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        assertTrue(semantic.program().functions().stream().allMatch(function -> function.operatorName() == null));
     }
 
     @ParameterizedTest @EnumSource(value=OperatorName.Kind.class, names={"NEW","NEW_ARRAY","DELETE","DELETE_ARRAY"}, mode=EnumSource.Mode.EXCLUDE)

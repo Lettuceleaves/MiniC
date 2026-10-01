@@ -13,6 +13,7 @@ import minic.compiler.parser.node.Declaration.*;
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.Expression.*;
 import minic.compiler.parser.node.QualifiedName;
+import minic.compiler.parser.node.OperatorName;
 import minic.compiler.parser.node.Statement;
 import minic.compiler.parser.node.Statement.*;
 import minic.compiler.type.MiniType;
@@ -671,6 +672,7 @@ public final class CppNameBinder {
             MiniType returnType = normalizeType(sourceMethod.returnType(), namespace, null, sourceMethod.range());
             List<MiniType> parameterTypes = sourceMethod.parameters().stream()
                     .map(parameter -> normalizeType(parameter.type(), namespace, null, parameter.range())).toList();
+            if (!validOperator(sourceMethod, parameterTypes, true)) return null;
             List<MiniType> coreParameters = new ArrayList<>();
             coreParameters.add(methodThisType(owner, member));
             parameterTypes.stream().map(MiniType::unqualified).forEach(coreParameters::add);
@@ -1003,8 +1005,33 @@ public final class CppNameBinder {
                 return true;
             }
             if (node.operatorName() == null) return false;
+            if (switch (node.operatorName().kind()) {
+                case ADD, SUBTRACT, MULTIPLY, DIVIDE, REMAINDER, BIT_XOR, BIT_AND, BIT_OR,
+                        BIT_NOT, LOGICAL_NOT, LESS, GREATER, SHIFT_LEFT, SHIFT_RIGHT, EQUAL, NOT_EQUAL,
+                        LESS_EQUAL, GREATER_EQUAL, INCREMENT, DECREMENT, CALL, SUBSCRIPT -> true;
+                default -> false;
+            }) return false;
             report("CPP005", node.operatorName().range(), "运算符重载声明已解析；重载选择和执行语义尚未实现。");
             return true;
+        }
+
+        private boolean validOperator(FunctionDecl node, List<MiniType> parameters, boolean member) {
+            if (node.operatorName() == null) return true;
+            OperatorName.Kind kind = node.operatorName().kind();
+            int count = parameters.size() + (member ? 1 : 0);
+            boolean valid = switch (kind) {
+                case CALL -> member;
+                case SUBSCRIPT -> member && count == 2;
+                case ADD, SUBTRACT, MULTIPLY, BIT_AND -> count == 1 || count == 2;
+                case BIT_NOT, LOGICAL_NOT -> count == 1;
+                case INCREMENT, DECREMENT -> count == 1 || count == 2
+                        && parameters.getLast().unqualified().equals(MiniType.INT);
+                default -> count == 2;
+            };
+            valid &= !node.variadic() || kind == OperatorName.Kind.CALL;
+            if (!member) valid &= parameters.stream().anyMatch(type -> objectType(objectTypeOfReference(type)) != null);
+            if (!valid) report("CPP004", node.operatorName().range(), "运算符声明的成员形式、参数个数或参数类型不合法。");
+            return valid;
         }
 
         private void bindFunction(FunctionDecl node, Namespace namespace) {
@@ -1014,6 +1041,7 @@ public final class CppNameBinder {
             MiniType returnType = normalizeType(node.returnType(), namespace, null, node.range());
             List<MiniType> parameterTypes = node.parameters().stream()
                     .map(p -> normalizeType(p.type(), namespace, null, p.range())).toList();
+            if (!validOperator(node, parameterTypes, false)) return;
             if (node.hasBody()) {
                 requireComplete(returnType, node.range());
                 for (int i = 0; i < parameterTypes.size(); i++) requireComplete(parameterTypes.get(i), node.parameters().get(i).range());
@@ -1021,7 +1049,7 @@ public final class CppNameBinder {
             requireSupportedCallLifetime(returnType, parameterTypes, node.range());
             MiniType.FunctionType signature = (MiniType.FunctionType) MiniType.function(returnType, parameterTypes.stream()
                     .map(MiniType::unqualified).toList(), node.variadic());
-            Entity entity = declareNamespaceFunction(node.name(), signature, node.hasBody(), namespace, node.range());
+            Entity entity = declareNamespaceFunction(node.name(), signature, node.hasBody(), namespace, node.range(), node.operatorName() != null);
             Local scope = new Local(null, namespace);
             List<Parameter> parameters = new ArrayList<>();
             for (int i = 0; i < node.parameters().size(); i++) {
@@ -1071,7 +1099,7 @@ public final class CppNameBinder {
         }
 
         private Entity declareNamespaceFunction(String name, MiniType.FunctionType type, boolean definition,
-                                                Namespace namespace, SourceRange range) {
+                                                Namespace namespace, SourceRange range, boolean operator) {
             Candidate previous = namespace.values.get(name);
             if (namespace.children.containsKey(name) || namespace.typedefs.containsKey(name)
                     && !namespace.typedefs.get(name).classType || previous != null && !(previous instanceof OverloadSet)) {
@@ -1088,7 +1116,7 @@ public final class CppNameBinder {
                 return function;
             }
             if (namespace == root && name.equals("main") && !visible.isEmpty()) report("CPP004", range, "main 不能重载。");
-            String coreName = namespace == root && visible.isEmpty() ? name : freshName(namespace.qualify(name));
+            String coreName = namespace == root && visible.isEmpty() && !operator ? name : freshName(namespace.qualify(name));
             displayNames.put(coreName, namespace.qualify(name));
             Entity entity = new Entity(name, coreName, Kind.FUNCTION, namespace, type, null, definition);
             List<Entity> functions = new ArrayList<>(visible);
@@ -1367,6 +1395,9 @@ public final class CppNameBinder {
                 case BinaryExpr n -> {
                     Expression left = expression(n.left(), namespace, local);
                     Expression right = expression(n.right(), namespace, local);
+                    Expression overloaded = operatorExpression(operatorName(n.operator()), n,
+                            List.of(n.left(), n.right()), List.of(left, right), namespace, local, false);
+                    if (overloaded != null) yield overloaded;
                     if (n.operator() == TokenType.PLUS || n.operator() == TokenType.MINUS) {
                         requireComplete(elementType(declaredExpressionType(left)), n.range());
                         requireComplete(elementType(declaredExpressionType(right)), n.range());
@@ -1418,6 +1449,12 @@ public final class CppNameBinder {
                 case CallExpr n -> {
                     BoundCallee binding = bindCallee(n.callee(), n.arguments(), namespace, local);
                     Expression callee = binding.expression();
+                    if (objectType(declaredExpressionType(callee)) != null) {
+                        List<Expression> sources = new ArrayList<>(); sources.add(n.callee()); sources.addAll(n.arguments());
+                        List<Expression> values = new ArrayList<>(); values.add(callee);
+                        values.addAll(expressions(n.arguments(), namespace, local));
+                        yield operatorExpression("operator()", n, sources, values, namespace, local, true);
+                    }
                     MiniType.FunctionType signature = functionSignature(declaredExpressionType(callee));
                     if (signature != null) {
                         requireComplete(signature.returnType(), n.range());
@@ -1495,8 +1532,12 @@ public final class CppNameBinder {
                 case GroupingExpr n -> new GroupingExpr(expression(n.expression(), namespace, local, addressDemand), n.range());
                 case IndexExpr n -> {
                     Expression target = expression(n.target(), namespace, local, true);
+                    Expression index = expression(n.index(), namespace, local);
+                    Expression overloaded = operatorExpression("operator[]", n, List.of(n.target(), n.index()),
+                            List.of(target, index), namespace, local, true);
+                    if (overloaded != null) yield overloaded;
                     requireComplete(elementType(declaredExpressionType(target)), n.range());
-                    Expression indexed = new IndexExpr(target, expression(n.index(), namespace, local), n.range());
+                    Expression indexed = new IndexExpr(target, index, n.range());
                     MiniType targetType = declaredExpressionType(target);
                     valueCategories.put(indexed, targetType != null && targetType.isArray()
                             ? valueCategory(target) : CppValueCategory.LVALUE);
@@ -1505,6 +1546,9 @@ public final class CppNameBinder {
                 case UnaryExpr n -> {
                     boolean update = n.operator() == TokenType.PLUS_PLUS || n.operator() == TokenType.MINUS_MINUS;
                     Expression operand = expression(n.operand(), namespace, local, update || n.operator() == TokenType.AMPERSAND);
+                    Expression overloaded = operatorExpression(operatorName(n.operator()), n,
+                            List.of(n.operand()), List.of(operand), namespace, local, false);
+                    if (overloaded != null) yield overloaded;
                     if (n.operator() == TokenType.AMPERSAND && valueCategory(operand) != CppValueCategory.LVALUE) {
                         report("CPP004", n.range(), "内置取址要求左值或函数，不能对临时对象的子对象取址。");
                     }
@@ -1523,6 +1567,10 @@ public final class CppNameBinder {
                 }
                 case PostfixUpdateExpr n -> {
                     Expression target = expression(n.target(), namespace, local, true);
+                    Expression zero = new IntegerLiteralExpr(0, "0", n.range());
+                    Expression overloaded = operatorExpression(operatorName(n.operator()), n,
+                            List.of(n.target(), zero), List.of(target, zero), namespace, local, false);
+                    if (overloaded != null) yield overloaded;
                     requireUpdateOperand(target, n.range());
                     yield new PostfixUpdateExpr(target, n.operator(), n.range());
                 }
@@ -1692,6 +1740,121 @@ public final class CppNameBinder {
 
         private record BoundCallee(Expression expression, Expression receiver, List<Expression> arguments) {
             BoundCallee(Expression expression, Expression receiver) { this(expression, receiver, null); }
+        }
+
+        private String operatorName(TokenType token) {
+            String symbol = switch (token) {
+                case PLUS -> "+"; case MINUS -> "-"; case STAR -> "*"; case SLASH -> "/"; case PERCENT -> "%";
+                case CARET -> "^"; case AMPERSAND -> "&"; case PIPE -> "|"; case TILDE -> "~"; case BANG -> "!";
+                case LESS -> "<"; case GREATER -> ">"; case LESS_LESS -> "<<"; case GREATER_GREATER -> ">>";
+                case EQUAL_EQUAL -> "=="; case BANG_EQUAL -> "!="; case LESS_EQUAL -> "<="; case GREATER_EQUAL -> ">=";
+                case PLUS_PLUS -> "++"; case MINUS_MINUS -> "--";
+                default -> null;
+            };
+            return symbol == null ? null : "operator" + symbol;
+        }
+
+        private record OperatorCandidate(Entity function, Method method, List<MiniType> parameters) { }
+
+        /** The operand list is shared by member and free candidates; no expression is evaluated during selection. */
+        private Expression operatorExpression(String name, Expression original, List<Expression> sources,
+                                              List<Expression> values, Namespace namespace, Local local, boolean memberOnly) {
+            if (name == null || values.stream().noneMatch(value -> objectType(declaredExpressionType(value)) != null)) return null;
+            List<CppOverloadResolver.Candidate<OperatorCandidate>> candidates = new ArrayList<>();
+            MethodSet members = memberMethods(declaredExpressionType(values.getFirst()), name);
+            if (members != null) for (Method method : members.methods) {
+                var candidate = new OperatorCandidate(method.function, method, method.parameterTypes);
+                candidates.add(new CppOverloadResolver.Candidate<>(candidate, method.parameterTypes,
+                        method.source.method().variadic(), methodThisType(method.owner, method.source).pointee()));
+            }
+            if (!memberOnly) for (Entity function : operatorFunctions(name, values, namespace, local)) {
+                MiniType.FunctionType type = (MiniType.FunctionType) function.type;
+                var candidate = new OperatorCandidate(function, null, type.parameterTypes());
+                candidates.add(new CppOverloadResolver.Candidate<>(candidate, type.parameterTypes(), type.variadic()));
+            }
+            List<CppOverloadResolver.Argument> arguments = new ArrayList<>();
+            for (int index = 0; index < values.size(); index++) {
+                Expression value = values.get(index);
+                MiniType type = declaredExpressionType(value);
+                if (type == null) {
+                    report("CPP004", sources.get(index).range(), "无法确定运算符实参类型。");
+                    return new IntegerLiteralExpr(0, "0", original.range());
+                }
+                arguments.add(new CppOverloadResolver.Argument(type, valueCategory(value), isNullIntegerLiteral(sources.get(index))));
+            }
+            var resolution = CppOverloadResolver.resolveOperators(candidates, arguments);
+            if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
+                // C++ unary & falls back to builtin address-of only when no candidate is viable.
+                if (name.equals("operator&") && values.size() == 1
+                        && resolution.status() == CppOverloadResolver.Status.NO_VIABLE) return null;
+                report("CPP004", original.range(), resolution.status() == CppOverloadResolver.Status.AMBIGUOUS
+                        ? "运算符重载具有二义性：" + name : "没有匹配的运算符重载：" + name);
+                return new IntegerLiteralExpr(0, "0", original.range());
+            }
+            OperatorCandidate selected = resolution.winner().identity();
+            List<Expression> lowered = new ArrayList<>();
+            int offset = selected.method == null ? 0 : 1;
+            if (selected.method != null) {
+                requireMethodAccess(selected.method, original.range());
+                Expression receiver = materializedReceiver(values.getFirst());
+                if (!addressableObject(receiver)) {
+                    report("CPP005", sources.getFirst().range(), "尚未支持此运算符接收者值类别。");
+                    return new IntegerLiteralExpr(0, "0", original.range());
+                }
+                lowered.add(address(receiver));
+            }
+            lowered.addAll(lowerSelectedArguments(selected.parameters, sources.subList(offset, sources.size()),
+                    values.subList(offset, values.size()), namespace, local));
+            MiniType.FunctionType signature = (MiniType.FunctionType) selected.function.type;
+            requireComplete(signature.returnType(), original.range());
+            signature.parameterTypes().forEach(type -> requireComplete(type, original.range()));
+            requireSupportedCallLifetime(signature.returnType(), signature.parameterTypes(), original.range());
+            CallExpr call = new CallExpr(new NameExpr(selected.function.coreName, original.range()), lowered, original.range());
+            declaredExpressionTypes.put(call, signature.returnType().isReference()
+                    ? coreType(signature.returnType()) : signature.returnType());
+            if (signature.returnType().isReference())
+                return typed(new UnaryExpr(TokenType.STAR, call, original.range()), signature.returnType().referent());
+            return signature.returnType().isStruct() ? recordPrvalue(signature.returnType(), call, original.range()) : call;
+        }
+
+        /** Ordinary lookup ignores class members; ADL adds only the associated namespace's declarations. */
+        private Set<Entity> operatorFunctions(String name, List<Expression> values, Namespace namespace, Local local) {
+            Set<Entity> functions = new LinkedHashSet<>();
+            Candidate localCandidate = null;
+            for (Local at = local; at != null && localCandidate == null; at = at.parent) localCandidate = at.values.get(name);
+            if (localCandidate instanceof OverloadSet set) functions.addAll(set.functions);
+            if (localCandidate == null) {
+                Map<Namespace, Set<Namespace>> nominated = nominations(namespace, local);
+                for (Namespace at = namespace; at != null; at = at.parent) {
+                    Set<Candidate> found = new LinkedHashSet<>(directCandidates(at, name));
+                    for (Namespace target : nominated.getOrDefault(at, Set.of())) found.addAll(directCandidates(target, name));
+                    for (Candidate candidate : found) if (candidate instanceof OverloadSet set) functions.addAll(set.functions);
+                    if (!found.isEmpty()) break;
+                }
+            }
+            Set<Namespace> associated = new LinkedHashSet<>();
+            for (Expression value : values) associatedNamespaces(declaredExpressionType(value), associated);
+            for (Namespace at : associated)
+                if (at.values.get(name) instanceof OverloadSet set) functions.addAll(set.functions);
+            return functions;
+        }
+
+        private void associatedNamespaces(MiniType type, Set<Namespace> namespaces) {
+            if (type == null) return;
+            switch (type.unqualified()) {
+                case MiniType.StructType ignored -> {
+                    TypeEntity owner = objectType(type);
+                    if (owner != null) namespaces.add(owner.owner);
+                }
+                case MiniType.PointerType pointer -> associatedNamespaces(pointer.pointee(), namespaces);
+                case MiniType.ReferenceType reference -> associatedNamespaces(reference.referent(), namespaces);
+                case MiniType.ArrayType array -> associatedNamespaces(array.elementType(), namespaces);
+                case MiniType.FunctionType function -> {
+                    associatedNamespaces(function.returnType(), namespaces);
+                    function.parameterTypes().forEach(parameter -> associatedNamespaces(parameter, namespaces));
+                }
+                default -> { }
+            }
         }
 
         private record OverloadDesignator(Expression source, Expression name, OverloadSet set, boolean addressOf) { }
