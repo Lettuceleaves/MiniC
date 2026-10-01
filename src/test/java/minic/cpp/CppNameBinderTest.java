@@ -78,8 +78,8 @@ class CppNameBinderTest {
         var result = success("namespace A {int f(int x); int f(int x){if(x) return f(x-1); return 0;}} "
                 + "int main(){return A::f(2);}");
         assertEquals(result.program().functions().get(0).name(), result.program().functions().get(1).name());
-        failure("namespace A {int f(){return later();} int later(){return 1;}} int main(){return A::f();}", "未声明");
-        failure("namespace A {int f(){return x;} int x=1;} int main(){return A::f();}", "未声明");
+        failureCode("namespace A {int f(){return later();} int later(){return 1;}} int main(){return A::f();}", "CPP003", "later");
+        failureCode("namespace A {int f(){return x;} int x=1;} int main(){return A::f();}", "CPP003", "x");
     }
 
     @Test void usingDeclarationFreezesTheEntityAndRespectsBlockLifetime() {
@@ -141,23 +141,45 @@ class CppNameBinderTest {
         }
     }
 
-    @Test void supportsOverloadsAndRejectsUnsupportedEnumsDuplicateDefinitionsAndDynamicInitializersExplicitly() {
+    @Test void supportsOverloadsAndRejectsUnsupportedEnumsDuplicateDefinitionsAndLinkageExplicitly() {
         success("namespace A {struct S {int x;};} int main(){return 0;}");
         success("namespace A {typedef int T;} int main(){return 0;}");
         failure("namespace A {enum E {X};} int main(){return 0;}", "类型");
         var overloads = success("namespace A {int f(int x); int f(double x);} int main(){return 0;}");
         assertNotEquals(overloads.program().functions().get(0).name(), overloads.program().functions().get(1).name());
         failure("namespace A {int x; int x;} int main(){return 0;}", "重复");
-        failure("namespace A {int x=2;} int y=A::x; int main(){return y;}", "初始化");
-        failure("namespace A {int f(){return 1;}} int y=A::f(); int main(){return y;}", "初始化");
         failure("namespace A {extern int printf(char *s, ...);} int main(){return 0;}", "外部");
-        success("namespace A {int x;} int main(){typedef int A; return A::x;}");
+        // N4659 [basic.lookup.qual]/1: a non-class typedef cannot qualify a member.
+        failureCode("namespace A {int x;} int main(){typedef int A; return A::x;}", "CPP004", "class type");
         success("typedef int T; using ::T; int main(){return 0;}");
         Program source = parse("namespace A {} int main(){return 0;}");
         var declarations = new ArrayList<>(source.declarations());
         declarations.add(1, new StructDecl("A", List.of(new StructField("x", MiniType.INT, source.range())), source.range()));
         failure(new Program(source.structs(), source.enums(), source.typedefs(), source.globals(), source.functions(),
                 declarations, source.range()), "冲突");
+    }
+
+    @Test void dynamicGlobalInitializersKeepTheirBindingInTheStartupEntry() {
+        for (String text : List.of(
+                "namespace A {int x=2;} int y=A::x; int main(){return y;}",
+                "namespace A {int f(){return 1;}} int y=A::f(); int main(){return y;}")) {
+            Program source = parse(text);
+            GlobalVarDecl original = source.globals().getLast();
+            var bound = success(source);
+            var global = assertInstanceOf(GlobalVarDecl.class, bound.sourceToCore().get(original));
+            assertNull(global.initializer(), "Dynamic initialization belongs to the startup sequence");
+            assertNotEquals("main", bound.program().entryFunction());
+            var entry = bound.program().functions().stream()
+                    .filter(f -> f.name().equals(bound.program().entryFunction())).findFirst().orElseThrow();
+            var initialization = nodes(entry).stream().filter(InitializeExpr.class::isInstance)
+                    .map(InitializeExpr.class::cast)
+                    .filter(init -> init.target() instanceof NameExpr name && name.name().equals(global.name()))
+                    .findFirst().orElseThrow();
+            assertEquals(original.range(), initialization.range());
+            assertNotNull(bound.sourceToCore().get(original.initializer()));
+            var ir = new CompilerApi(new SourceFile("dynamic-binding.cpp", text), LanguageMode.CPP17_ALGORITHM).runToIr();
+            assertTrue(ir.findFunction(bound.program().entryFunction()).isPresent());
+        }
     }
 
     @Test void keepsGlobalCTypesAndBindsEnumValuesWithoutChangingFields() {
@@ -243,6 +265,11 @@ class CppNameBinderTest {
     }
     private static void failure(String source, String text) {
         failure(parse(source), text);
+    }
+    private static void failureCode(String source, String code, String name) {
+        var result = CppNameBinder.bind(parse(source));
+        assertTrue(result.diagnostics().stream().anyMatch(d -> d.code().equals(code) && d.message().contains(name)),
+                () -> result.diagnostics().toString());
     }
     private static void failure(Program source, String text) {
         var result = CppNameBinder.bind(source);

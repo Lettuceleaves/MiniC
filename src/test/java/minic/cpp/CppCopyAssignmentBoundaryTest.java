@@ -25,12 +25,10 @@ final class CppCopyAssignmentBoundaryTest {
             struct B{int n;B&operator=(int v){n=v;return *this;}};
             int main(){B a={1};B b={7};a=3;a=b;printf("%d\\n",a.n);return 0;}
             ""","7\n"),
-        // Reference disagreement is retained for the final validation: local GCC 8 rejects
-        // this case, whereas the expected rule is N4659 [class.copy.assign]/7.2 and /7.4.
-        Arguments.of("const-class-member-with-const-assignment","""
+        Arguments.of("const-class-member-with-explicit-containing-assignment","""
             #include <stdio.h>
             struct M{int*p;M(int*q):p(q){}const M&operator=(const M&o)const{*p=*o.p;return *this;}};
-            struct O{const M m;O(int*p):m(p){}};
+            struct O{const M m;O(int*p):m(p){}O&operator=(const O&o){m=o.m;return *this;}};
             int main(){int x=1;int y=9;O a(&x);O b(&y);a=b;printf("%d %d\\n",x,a.m.p==&x);return 0;}
             ""","9 1\n"),
         Arguments.of("implicit-array-assignment","""
@@ -84,6 +82,41 @@ final class CppCopyAssignmentBoundaryTest {
             ""","3\n"));}
     @ParameterizedTest(name="{0}") @MethodSource("programs")
     void copyAssignmentMatchesCpp17(String name,String source,String expected)throws Exception{agree(temporary,name,source,expected);}
+
+    @Test void implicitAssignmentCanAssignAConstClassMemberWithACallableConstAssignment() throws Exception {
+        // N4659 [class.copy.assign]/7.2 concerns const NON-CLASS members. For class members,
+        // /7.4 requires a usable assignment operator and /12.1 calls it on the subobject.
+        // https://timsong-cpp.github.io/cppwp/n4659/class.copy.assign#7
+        // G++ 8 rejects this valid implicit-assignment case. Keep its exact normative source
+        // checked by both MiniC backends; the explicit equivalent above also uses the G++ oracle.
+        String source = """
+            #include <stdio.h>
+            struct M{int*p;M(int*q):p(q){}const M&operator=(const M&o)const{*p=*o.p;return *this;}};
+            struct O{const M m;O(int*p):m(p){}};
+            int main(){int x=1;int y=9;O a(&x);O b(&y);a=b;printf("%d %d\\n",x,a.m.p==&x);return 0;}
+            """;
+        var file = new minic.compiler.SourceFile("const-class-assignment.cpp", source);
+        var ir = compiler(source).runToIr();
+        var debug = minic.debug.DebugApi.fromIr(file, ir, "");
+        for (int steps = 0; debug.canNext() && steps < 5000; steps++) debug.next();
+        assertFalse(debug.canNext(), "The complete program must finish within its step budget");
+        assertEquals(minic.debug.Debugger.Status.COMPLETED, debug.current().stop().status(), debug.current().stop()::error);
+        assertEquals("9 1\n", debug.current().runtime().stdout().replace("\r\n", "\n"));
+        for (var level : minic.compiler.ir.optimize.OptimizationLevel.values()) {
+            String name = "const-class-assignment-" + level;
+            var assembler = new minic.compiler.asm.Assembler(ir, level);
+            var object = new minic.compiler.obj.ObjBuilder(file, assembler, temporary, name);
+            var linker = new minic.compiler.link.Linker(file, object, temporary, name);
+            new minic.compiler.CompilerApi(java.util.List.of(assembler, object, linker)).runThrough(linker);
+            assertTrue(linker.succeeded(), () -> linker.errors().toString());
+            var result = minic.cpp.support.BoundedProcess.run(java.util.List.of(temporary.resolve(name + ".exe").toString()),
+                    temporary, "", java.time.Duration.ofSeconds(10), 65536);
+            assertFalse(result.timedOut());
+            assertFalse(result.outputExceeded());
+            assertEquals(0, result.exitCode(), result::stderr);
+            assertEquals("9 1\n", result.stdout().replace("\r\n", "\n"));
+        }
+    }
     static Stream<Arguments> invalid(){return Stream.of(
         Arguments.of("private-assignment","class B{B&operator=(const B&);public:B(){}};int main(){B a;B b;a=b; // bad\nreturn 0;}"),
         Arguments.of("implicit-private-member-assignment","class M{M&operator=(const M&);public:M(){}};struct O{M m;};int main(){O a;O b;a=b; // bad\nreturn 0;}"),
