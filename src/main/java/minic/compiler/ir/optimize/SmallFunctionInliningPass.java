@@ -51,37 +51,45 @@ public final class SmallFunctionInliningPass implements IrPass {
             var callerFlow = IrControlFlow.analyze(caller);
             var blocks = new ArrayList<IrBlock>();
             int callerGrowth = 0, frameGrowth = 0, sites = 0;
-            for (IrBlock block : caller.blocks()) {
+            var selected = new HashMap<SiteKey, Expansion>();
+            // Budget decisions prefer cyclic call sites, but do not move any evaluation.
+            // Each site is identified by its position, not instruction identity: valid
+            // hand-built IR can reuse the same instruction object at several positions.
+            for (InliningSite site : orderedSites(caller, callerFlow, candidates)) {
+                if (sites == limits.maxSitesPerCaller()) break;
+                var expansion = new Expansion(site.candidate(), site.call(), names);
+                int growth = Math.max(0, expansion.instructionCount() - 1);
+                int frame = expansion.frameBytes();
+                if (growth <= limits.maxCallerGrowth() - callerGrowth
+                        && growth <= limits.maxModuleGrowth() - moduleGrowth
+                        && frame <= limits.maxAddedFrameBytes() - frameGrowth) {
+                    selected.put(site.key(), expansion);
+                    sites++; callerGrowth += growth; moduleGrowth += growth; frameGrowth += frame;
+                }
+            }
+            // Emit selected expansions strictly in original block/instruction order.
+            for (int blockIndex = 0; blockIndex < caller.blocks().size(); blockIndex++) {
+                IrBlock block = caller.blocks().get(blockIndex);
                 String label = block.label();
                 var body = new ArrayList<IrInstruction>();
-                boolean executable = callerFlow.reachable().contains(label);
-                for (IrInstruction instruction : block.instructions()) {
-                    Candidate candidate = executable && instruction instanceof IrCallInstruction call && !call.variadic()
-                            ? candidates.get(call.calleeName()) : null;
-                    if (candidate != null && sites < limits.maxSitesPerCaller()) {
+                for (int instructionIndex = 0; instructionIndex < block.instructions().size(); instructionIndex++) {
+                    IrInstruction instruction = block.instructions().get(instructionIndex);
+                    Expansion expansion = selected.get(new SiteKey(blockIndex, instructionIndex));
+                    if (expansion != null) {
                         var call = (IrCallInstruction) instruction;
-                        var expansion = new Expansion(candidate, call, names);
-                        int growth = Math.max(0, expansion.instructionCount() - 1);
-                        int frame = expansion.frameBytes();
-                        if (growth <= limits.maxCallerGrowth() - callerGrowth
-                                && growth <= limits.maxModuleGrowth() - moduleGrowth
-                                && frame <= limits.maxAddedFrameBytes() - frameGrowth) {
-                            sites++; callerGrowth += growth; moduleGrowth += growth; frameGrowth += frame;
-                            body.addAll(expansion.setup);
-                            if (expansion.straightLine) {
-                                body.addAll(expansion.blocks.getFirst().instructions());
-                            } else {
-                                body.add(new IrJumpInstruction(expansion.blocks.getFirst().label(), call.range()));
-                                blocks.add(new IrBlock(label, body));
-                                blocks.addAll(expansion.blocks);
-                                label = expansion.continuation;
-                                body = new ArrayList<>();
-                            }
-                            continue;
+                        body.addAll(expansion.setup);
+                        if (expansion.straightLine) {
+                            body.addAll(expansion.blocks.getFirst().instructions());
+                        } else {
+                            body.add(new IrJumpInstruction(expansion.blocks.getFirst().label(), call.range()));
+                            blocks.add(new IrBlock(label, body));
+                            blocks.addAll(expansion.blocks);
+                            label = expansion.continuation;
+                            body = new ArrayList<>();
                         }
+                        continue;
                     }
                     body.add(instruction);
-                    if (IrControlFlow.isTerminator(instruction)) executable = false;
                 }
                 blocks.add(new IrBlock(label, body));
             }
@@ -103,6 +111,41 @@ public final class SmallFunctionInliningPass implements IrPass {
         var functions = input.functions().stream().map(function -> rewrittenFunctions.get(function.name())).toList();
         return !changed ? input : new IrResult(functions, input.stringData(), input.globalData(), input.externalFunctionNames(),
                 input.externalObjectNames(), input.structLayouts(), input.currentAstNode(), input.currentSubject(), input.displayNames(), input.entryFunction());
+    }
+
+    private record SiteKey(int blockIndex, int instructionIndex) { }
+    private record InliningSite(SiteKey key, Candidate candidate, IrCallInstruction call, boolean cyclic) { }
+
+    private static List<InliningSite> orderedSites(IrFunction caller, IrControlFlow flow, Map<String, Candidate> candidates) {
+        var sites = new ArrayList<InliningSite>();
+        for (int blockIndex = 0; blockIndex < caller.blocks().size(); blockIndex++) {
+            var block = caller.blocks().get(blockIndex);
+            if (!flow.reachable().contains(block.label())) continue;
+            Boolean cyclic = null;
+            var code = flow.effectiveInstructions(block.label());
+            for (int index = 0; index < code.size(); index++) {
+                if (!(code.get(index) instanceof IrCallInstruction call) || call.variadic()) continue;
+                Candidate candidate = candidates.get(call.calleeName());
+                if (candidate == null) continue;
+                if (cyclic == null) cyclic = inCycle(flow, block.label());
+                sites.add(new InliningSite(new SiteKey(blockIndex, index), candidate, call, cyclic));
+            }
+        }
+        // Stable source order is the tie breaker within cyclic and acyclic groups.
+        sites.sort(Comparator.comparing(InliningSite::cyclic).reversed()
+                .thenComparingInt(site -> site.key().blockIndex()).thenComparingInt(site -> site.key().instructionIndex()));
+        return sites;
+    }
+
+    private static boolean inCycle(IrControlFlow flow, String block) {
+        var pending = new ArrayDeque<>(flow.successors(block));
+        var visited = new HashSet<String>();
+        while (!pending.isEmpty()) {
+            String next = pending.removeFirst();
+            if (next.equals(block)) return true;
+            if (visited.add(next)) pending.addAll(flow.successors(next));
+        }
+        return false;
     }
 
     private static IrFunction simplifyCandidate(IrFunction function) {
