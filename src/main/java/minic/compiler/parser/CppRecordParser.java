@@ -205,7 +205,10 @@ public final class CppRecordParser {
                                 SourceRange.span(start.range(), end.range())), fields, members);
                     } else recoverMember();
                 } else {
-                    var declaration = types.parseNamedType("期望成员类型", "期望成员名称", false, true);
+                    var staticSpecifiers = staticMember ? types.parseDeclarationSpecifiers("期望成员类型") : null;
+                    var declaration = staticMember
+                            ? staticSpecifiers == null ? null : types.parseMemberDeclarator(staticSpecifiers, "期望成员名称", true)
+                            : types.parseNamedType("期望成员类型", "期望成员名称", false, true);
                     if (declaration == null) recoverMember();
                     else if (declaration.name().equals(simpleName) && declaration.type().unqualified().isFunction()) {
                         state.unsupportedCpp(declaration.nameRange(), "构造函数不能声明返回类型");
@@ -236,13 +239,28 @@ public final class CppRecordParser {
                                     declaration.parameters().stream().filter(p -> p.name().isEmpty()).map(Parser.ParsedParameter::range).toList()));
                         }
                     } else if (staticMember) {
-                        types.declareOrdinaryName(declaration.name(), declaration.nameRange());
-                        var initialization = statements.parseVariableInitializer(declaration.type(), declaration.range());
-                        Token end = state.consume(TokenType.SEMICOLON, "期望 ';'");
-                        if (union) state.unsupportedCpp(declaration.nameRange(), "union 不能具有 static 数据成员");
-                        else if (end != null) members.add(new StaticFieldMember(new GlobalVarDecl(declaration.name(), declaration.type(),
-                                initialization.expression(), false, declaration.alignmentSpecs(), initialization.cppInitializer(),
-                                SourceRange.span(declarationStart.range(), end.range())).withConstexprSpecifier(constexprSpecifier)));
+                        boolean first = true;
+                        while (declaration != null) {
+                            types.declareOrdinaryName(declaration.name(), declaration.nameRange());
+                            var initialization = statements.parseVariableInitializer(declaration.type(), declaration.range());
+                            Token end = state.previous();
+                            boolean more = state.check(TokenType.COMMA);
+                            if (!more) end = state.consume(TokenType.SEMICOLON, "期望 ';'");
+                            if (union) state.unsupportedCpp(declaration.nameRange(), "union 不能具有 static 数据成员");
+                            else if (end != null) members.add(new StaticFieldMember(new GlobalVarDecl(declaration.name(), declaration.type(),
+                                    initialization.expression(), false, declaration.alignmentSpecs(), initialization.cppInitializer(),
+                                    SourceRange.span(first ? declarationStart.range() : declaration.range(), end.range()))
+                                    .withConstexprSpecifier(constexprSpecifier)));
+                            if (!more || end == null) break;
+                            state.advance();
+                            first = false;
+                            declaration = types.parseMemberDeclarator(staticSpecifiers, "期望成员名称", false);
+                            if (declaration == null) { recoverMember(); break; }
+                            if (declaration.type().unqualified().isFunction()) {
+                                state.unsupportedCpp(declaration.range(), "同一声明中的函数与数据成员混合声明尚未实现");
+                                recoverMember(); break;
+                            }
+                        }
                     } else if (declaration.type().containsAuto()) {
                         state.report(declaration.range(), "A non-static data member cannot have an auto or decltype(auto) placeholder type");
                         recoverMember();

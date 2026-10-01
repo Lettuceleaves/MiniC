@@ -1124,11 +1124,12 @@ public final class Parser extends Stage {
             }
             return null;
         }
-        private boolean qualifiedMemberIsType(int end) {
+        private boolean qualifiedMemberIsType(int end) { return qualifiedMemberIsType(0, end); }
+        private boolean qualifiedMemberIsType(int offset, int end) {
             int errors=context.reportedErrors.size(),traces=context.traceEvents==null?0:context.traceEvents.size();
             int start=context.currentIndex();
             try {
-                MiniType type=context.inTokenWindow(new Context.TokenWindow(start,start+end),()->parseCppNamedType(false));
+                MiniType type=context.inTokenWindow(new Context.TokenWindow(start+offset,start+end),()->parseCppNamedType(false));
                 return type!=null&&knownMemberType(type,new java.util.HashSet<>())!=null;
             } finally {
                 context.reportedErrors.subList(errors,context.reportedErrors.size()).clear();
@@ -1422,6 +1423,9 @@ public final class Parser extends Stage {
         public ParsedNamedType parseNamedDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
             return parseNamedDeclarator(specifiers,expectedNameMessage,false,false,first?specifiers.range():context.peek().range());
         }
+        public ParsedNamedType parseMemberDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
+            return parseNamedDeclarator(specifiers,expectedNameMessage,false,true,first?specifiers.range():context.peek().range());
+        }
         private ParsedNamedType parseNamedDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,
                                                      boolean allowQualifiedName,boolean allowOperatorName,SourceRange startRange){
             List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs=specifiers.alignmentSpecs();
@@ -1499,6 +1503,13 @@ public final class Parser extends Stage {
         /** Functional notation accepts a simple-type-specifier, not an arbitrary declarator. */
         public int cppConstructionDelimiterAt(int offset) {
             if (!isCpp()) return -1;
+            int member = cppTypeMemberDelimiterAt(offset);
+            if (member >= 0) {
+                int end = member + 2;
+                if (!qualifiedMemberIsType(offset, end)) return -1;
+                TokenType following = context.peekAt(end).type();
+                return following == TokenType.LEFT_PAREN || following == TokenType.LEFT_BRACE ? end : -1;
+            }
             TokenType token = context.peekAt(offset).type();
             int end;
             if(token==TokenType.DECLTYPE) {
@@ -1611,7 +1622,8 @@ public final class Parser extends Stage {
 
         /** Type-id grammar wins sizeof/alignof ambiguity; function pointer casts remain type-ids. */
         public boolean cppTypeOperandAt(int offset, boolean query) {
-            if (cppTypeMemberDelimiterAt(offset) >= 0) return false;
+            int member = cppTypeMemberDelimiterAt(offset);
+            if (member >= 0 && !qualifiedMemberIsType(offset, member + 2)) return false;
             int delimiter = cppConstructionDelimiterAt(offset);
             if (delimiter < 0) return true;
             if (context.peekAt(delimiter).type() == TokenType.LEFT_BRACE) return false;
