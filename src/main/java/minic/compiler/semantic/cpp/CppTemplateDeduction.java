@@ -10,35 +10,74 @@ import java.util.function.UnaryOperator;
 public final class CppTemplateDeduction {
     private CppTemplateDeduction() {}
     public record Bindings(Map<MiniType.TemplateParameterType,MiniType> types,
-                           Map<MiniType.TemplateParameterType,TemplateArgument> values) {
-        public Bindings {types=Map.copyOf(types);values=Map.copyOf(values);}
+                           Map<MiniType.TemplateParameterType,TemplateArgument> values,
+                           Map<MiniType.TemplateParameterType,List<TemplateArgument>> packs) {
+        public Bindings(Map<MiniType.TemplateParameterType,MiniType> types,Map<MiniType.TemplateParameterType,TemplateArgument> values){this(types,values,Map.of());}
+        public Bindings {types=Map.copyOf(types);values=Map.copyOf(values);
+            var copy=new LinkedHashMap<MiniType.TemplateParameterType,List<TemplateArgument>>();packs.forEach((key,value)->copy.put(key,List.copyOf(value)));packs=Map.copyOf(copy);}
     }
     public static Bindings match(List<TemplateArgument> pattern,List<TemplateArgument> actual,
                                  List<ClassTemplateDecl.Parameter> parameters, UnaryOperator<MiniType> expand) {
-        if(pattern.size()!=actual.size())return null;
         var matcher=new Matcher(parameters,expand);
-        for(int index=0;index<pattern.size();index++)if(!matcher.argument(pattern.get(index),actual.get(index)))return null;
+        if(!matcher.argumentList(pattern,actual))return null;
         for(var parameter:parameters) {
+            if(parameter.pack()){matcher.packs.putIfAbsent(parameter.type(),List.of());continue;}
             if(parameter instanceof ClassTemplateDecl.TypeParameter && !matcher.types.containsKey(parameter.type()))return null;
             if(parameter instanceof ClassTemplateDecl.ValueParameter && !matcher.values.containsKey(parameter.type()))return null;
         }
-        return new Bindings(matcher.types,matcher.values);
+        return new Bindings(matcher.types,matcher.values,matcher.packs);
     }
     /** Function deduction may intentionally leave parameters for explicit/default arguments. */
     public static Bindings deduce(List<MiniType> pattern,List<MiniType> actual,List<ClassTemplateDecl.Parameter> parameters,
                                   Map<MiniType.TemplateParameterType,MiniType> initialTypes,
                                   Map<MiniType.TemplateParameterType,TemplateArgument> initialValues,UnaryOperator<MiniType> expand) {
-        if(pattern.size()!=actual.size())return null;
         var matcher=new Matcher(parameters,expand);matcher.types.putAll(initialTypes);matcher.values.putAll(initialValues);
-        for(int index=0;index<pattern.size();index++)if(!matcher.type(pattern.get(index),actual.get(index)))return null;
-        return new Bindings(matcher.types,matcher.values);
+        if(!matcher.typeList(pattern,actual))return null;
+        return new Bindings(matcher.types,matcher.values,matcher.packs);
     }
     private static final class Matcher {
         final Set<MiniType.TemplateParameterType> parameters=new HashSet<>();
         final Map<MiniType.TemplateParameterType,MiniType> types=new LinkedHashMap<>();
         final Map<MiniType.TemplateParameterType,TemplateArgument> values=new LinkedHashMap<>();
+        final Map<MiniType.TemplateParameterType,List<TemplateArgument>> packs=new LinkedHashMap<>();
+        final List<ClassTemplateDecl.Parameter> declarations;
+        final Set<MiniType.TemplateParameterType> packParameters=new LinkedHashSet<>();
         final UnaryOperator<MiniType> expand;
-        Matcher(List<ClassTemplateDecl.Parameter> parameters,UnaryOperator<MiniType> expand){parameters.forEach(p->this.parameters.add(p.type()));this.expand=expand;}
+        Matcher(List<ClassTemplateDecl.Parameter> parameters,UnaryOperator<MiniType> expand){this.declarations=parameters;parameters.forEach(p->{this.parameters.add(p.type());if(p.pack())packParameters.add(p.type());});this.expand=expand;}
+        boolean typeList(List<MiniType> pattern,List<MiniType> actual) {
+            return argumentList(pattern.stream().map(type->type instanceof MiniType.PackExpansionType pack
+                    ?(TemplateArgument)new TemplateArgument.Expansion(new TemplateArgument.Type(pack.pattern())):new TemplateArgument.Type(type)).toList(),
+                    actual.stream().map(type->type instanceof MiniType.PackExpansionType pack
+                            ?(TemplateArgument)new TemplateArgument.Expansion(new TemplateArgument.Type(pack.pattern())):new TemplateArgument.Type(type)).toList());
+        }
+        boolean argumentList(List<TemplateArgument> pattern,List<TemplateArgument> actual) {
+            int index=0;
+            for(int p=0;p<pattern.size();p++) {
+                TemplateArgument value=pattern.get(p);
+                if(value instanceof TemplateArgument.Expansion expansion) {
+                    if(p+1!=pattern.size())return false; // a class argument expansion is trailing
+                    var identities=new LinkedHashSet<>(CppTemplatePacks.parameters(expansion.pattern()));identities.retainAll(packParameters);
+                    if(identities.isEmpty())return false;
+                    var sequences=new LinkedHashMap<MiniType.TemplateParameterType,List<TemplateArgument>>();identities.forEach(id->sequences.put(id,new ArrayList<>()));
+                    while(index<actual.size()) {
+                        var child=new Matcher(declarations,expand);child.types.putAll(types);child.values.putAll(values);
+                        TemplateArgument argument=actual.get(index++);if(argument instanceof TemplateArgument.Expansion a)argument=a.pattern();
+                        if(!child.argument(expansion.pattern(),argument))return false;
+                        for(var identity:identities) {
+                            TemplateArgument found=child.types.containsKey(identity)?new TemplateArgument.Type(child.types.get(identity)):child.values.get(identity);
+                            if(found==null)return false;sequences.get(identity).add(found);
+                        }
+                        child.types.forEach((key,item)->{if(!identities.contains(key))types.put(key,item);});
+                        child.values.forEach((key,item)->{if(!identities.contains(key))values.put(key,item);});
+                        for(var nested:child.packs.entrySet()){var old=packs.putIfAbsent(nested.getKey(),nested.getValue());if(old!=null&&!old.equals(nested.getValue()))return false;}
+                    }
+                    for(var sequence:sequences.entrySet()){var old=packs.putIfAbsent(sequence.getKey(),List.copyOf(sequence.getValue()));if(old!=null&&!old.equals(sequence.getValue()))return false;}
+                    return true;
+                }
+                if(index>=actual.size()||!argument(value,actual.get(index++)))return false;
+            }
+            return index==actual.size();
+        }
         boolean argument(TemplateArgument pattern,TemplateArgument actual) {
             if(pattern instanceof TemplateArgument.Type p && actual instanceof TemplateArgument.Type a)return type(p.type(),a.type());
             if(pattern instanceof TemplateArgument.Type || actual instanceof TemplateArgument.Type)return false;
@@ -76,14 +115,10 @@ public final class CppTemplateDeduction {
             if(pattern instanceof MiniType.DependentArrayType p && actual instanceof MiniType.ArrayType a)
                 return a.length()>0&&type(p.elementType(),a.elementType())&&argument(new TemplateArgument.Value(p.bound()),new TemplateArgument.Integral(a.length(),MiniType.INT));
             if(pattern instanceof MiniType.TemplateIdType p && actual instanceof MiniType.TemplateIdType a) {
-                if(!p.templateName().equals(a.templateName())||p.arguments().size()!=a.arguments().size())return false;
-                for(int index=0;index<p.arguments().size();index++)if(!argument(p.arguments().get(index),a.arguments().get(index)))return false;
-                return true;
+                return p.templateName().equals(a.templateName()) && argumentList(p.arguments(),a.arguments());
             }
             if(pattern instanceof MiniType.FunctionType p && actual instanceof MiniType.FunctionType a) {
-                if(p.variadic()!=a.variadic()||p.parameterTypes().size()!=a.parameterTypes().size()||!type(p.returnType(),a.returnType()))return false;
-                for(int index=0;index<p.parameterTypes().size();index++)if(!type(p.parameterTypes().get(index),a.parameterTypes().get(index)))return false;
-                return true;
+                return p.variadic()==a.variadic() && type(p.returnType(),a.returnType()) && typeList(p.parameterTypes(),a.parameterTypes());
             }
             return pattern.equals(actual);
         }

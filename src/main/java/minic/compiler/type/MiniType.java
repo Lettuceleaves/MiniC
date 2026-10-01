@@ -23,7 +23,7 @@ public sealed interface MiniType permits
     /**
      * 组合节点。每个节点只描述一层组合，因此指针、数组和函数可以任意递归嵌套。
      */
-    sealed interface CombinationType extends MiniType permits PointerType, ArrayType, DependentArrayType, FunctionType, ReferenceType {
+    sealed interface CombinationType extends MiniType permits PointerType, ArrayType, DependentArrayType, FunctionType, ReferenceType, PackExpansionType {
     }
     /**
      * MiniC bool 类型。
@@ -165,6 +165,7 @@ public sealed interface MiniType permits
     /** Source template types must be instantiated before core semantics or layout. */
     default boolean containsTemplateType() {
         return switch (unqualified()) {
+            case PackExpansionType ignored -> true;
             case TemplateParameterType ignored -> true;
             case TemplateIdType ignored -> true;
             case MemberType ignored -> true;
@@ -185,6 +186,7 @@ public sealed interface MiniType permits
     default MiniType substituteTemplateParameters(java.util.Map<TemplateParameterType, MiniType> arguments,
                                                    java.util.Map<TemplateParameterType,minic.compiler.parser.node.Expression> values) {
         return switch (this) {
+            case PackExpansionType pack -> new PackExpansionType(pack.pattern().substituteTemplateParameters(arguments,values));
             case TemplateParameterType parameter -> arguments.getOrDefault(parameter, parameter);
             case MemberType member -> new MemberType(member.owner().substituteTemplateParameters(arguments,values),member.name());
             case TemplateIdType id -> new TemplateIdType(id.templateName(), id.arguments().stream().map(t -> t.substitute(arguments,values)).toList());
@@ -225,7 +227,7 @@ public sealed interface MiniType permits
         public TemplateIdType {
             Objects.requireNonNull(templateName, "templateName");
             arguments = List.copyOf(arguments);
-            if (templateName.isBlank() || arguments.isEmpty()) throw new IllegalArgumentException("invalid template-id");
+            if (templateName.isBlank()) throw new IllegalArgumentException("invalid template-id");
         }
         @Override public String toString() {
             return templateName + "<" + String.join(", ", arguments.stream().map(Object::toString).toList()) + ">";
@@ -240,8 +242,9 @@ public sealed interface MiniType permits
 
     default boolean isDependentTemplate() {
         return switch(this) {
+            case PackExpansionType ignored -> true;
             case TemplateParameterType ignored -> true;
-            case TemplateIdType id -> id.arguments().stream().anyMatch(a -> a instanceof TemplateArgument.Type t && t.type().isDependentTemplate()
+            case TemplateIdType id -> id.arguments().stream().anyMatch(a -> a instanceof TemplateArgument.Expansion || a instanceof TemplateArgument.Type t && t.type().isDependentTemplate()
                     || a instanceof TemplateArgument.Value v && TemplateValues.dependent(v.expression()));
             case MemberType member -> member.owner().isDependentTemplate();
             case DependentArrayType array -> true;
@@ -252,6 +255,12 @@ public sealed interface MiniType permits
             case FunctionType function -> function.returnType().isDependentTemplate()||function.parameterTypes().stream().anyMatch(MiniType::isDependentTemplate);
             default -> false;
         };
+    }
+
+    /** Source-only function parameter/type-list expansion, expanded before the core pipeline. */
+    record PackExpansionType(MiniType pattern) implements CombinationType {
+        public PackExpansionType { Objects.requireNonNull(pattern); }
+        @Override public String toString() { return pattern + "..."; }
     }
 
     /** Source-only array bound, evaluated after non-type parameters are substituted. */

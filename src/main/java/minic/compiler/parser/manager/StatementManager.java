@@ -524,7 +524,7 @@ public final class StatementManager {
                 Expression argument = state.check(TokenType.LEFT_BRACE)
                         ? parseCppInitializer() : expressionManager.parseAssignmentExpression();
                 if (argument == null) { valid = false; break; }
-                arguments.add(argument);
+                arguments.add(expressionManager.finishPackExpansion(argument));
                 if (!state.match(TokenType.COMMA)) break;
                 if (list && state.check(closing)) break;
             } while (!state.isAtEnd());

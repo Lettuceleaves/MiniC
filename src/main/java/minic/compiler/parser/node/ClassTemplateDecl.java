@@ -7,7 +7,8 @@ import java.util.Objects;
 
 /** A generic source record; only concrete specializations may enter the core record indexes. */
 public record ClassTemplateDecl(List<Parameter> parameters, Declaration.StructDecl record,
-                                List<minic.compiler.type.TemplateArgument> specializationArguments, SourceRange range) implements Declaration {
+                                List<minic.compiler.type.TemplateArgument> specializationArguments, boolean specialization, SourceRange range) implements Declaration {
+    public ClassTemplateDecl(List<Parameter> parameters, Declaration.StructDecl record, List<minic.compiler.type.TemplateArgument> arguments, SourceRange range) { this(parameters,record,arguments,!arguments.isEmpty(),range); }
     public ClassTemplateDecl(java.util.Collection<? extends Parameter> parameters, Declaration.StructDecl record, SourceRange range) {
         this(List.copyOf(parameters),record,List.of(),range);
     }
@@ -16,7 +17,7 @@ public record ClassTemplateDecl(List<Parameter> parameters, Declaration.StructDe
         specializationArguments = List.copyOf(specializationArguments);
         Objects.requireNonNull(record, "record");
         Objects.requireNonNull(range, "range");
-        if (parameters.isEmpty() && specializationArguments.isEmpty()) throw new IllegalArgumentException("a primary template needs parameters");
+        if (parameters.isEmpty() && !specialization) throw new IllegalArgumentException("a primary template needs parameters");
         for (int index = 0; index < parameters.size(); index++) {
             MiniType.TemplateParameterType type = parameters.get(index).type();
             if (!type.owner().equals(record.name()) || type.index() != index)
@@ -27,18 +28,21 @@ public record ClassTemplateDecl(List<Parameter> parameters, Declaration.StructDe
     public sealed interface Parameter extends AstNode permits TypeParameter, ValueParameter {
         String name();
         MiniType.TemplateParameterType type();
+        boolean pack();
         default MiniType defaultType() { return null; }
     }
 
     public record ValueParameter(String name, MiniType.TemplateParameterType type, MiniType valueType,
-                                 Expression defaultValue, SourceRange range) implements Parameter {
+                                 Expression defaultValue, boolean pack, SourceRange range) implements Parameter {
+        public ValueParameter(String name, MiniType.TemplateParameterType type, MiniType valueType, Expression defaultValue, SourceRange range) { this(name,type,valueType,defaultValue,false,range); }
         public ValueParameter {
             Objects.requireNonNull(name); Objects.requireNonNull(type);
             Objects.requireNonNull(valueType); Objects.requireNonNull(range);
         }
     }
 
-    public record TypeParameter(String name, MiniType.TemplateParameterType type, MiniType defaultType, SourceRange range) implements Parameter {
+    public record TypeParameter(String name, MiniType.TemplateParameterType type, MiniType defaultType, boolean pack, SourceRange range) implements Parameter {
+        public TypeParameter(String name, MiniType.TemplateParameterType type, MiniType defaultType, SourceRange range) { this(name,type,defaultType,false,range); }
         public TypeParameter(String name, MiniType.TemplateParameterType type, SourceRange range) {
             this(name, type, null, range);
         }

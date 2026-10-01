@@ -6,7 +6,12 @@ import java.util.Map;
 import java.util.Objects;
 
 /** Source template arguments distinguish types, dependent expressions, and canonical integral values. */
-public sealed interface TemplateArgument permits TemplateArgument.Type, TemplateArgument.Value, TemplateArgument.Integral {
+public sealed interface TemplateArgument permits TemplateArgument.Type, TemplateArgument.Value, TemplateArgument.Integral, TemplateArgument.Expansion {
+    /** Source expansion; flattened during specialization, never part of a concrete cache key. */
+    record Expansion(TemplateArgument pattern) implements TemplateArgument {
+        public Expansion { Objects.requireNonNull(pattern); }
+        @Override public String toString() { return pattern + "..."; }
+    }
     record Type(MiniType type) implements TemplateArgument {
         public Type { Objects.requireNonNull(type); }
         @Override public String toString() { return type.toString(); }
@@ -22,6 +27,7 @@ public sealed interface TemplateArgument permits TemplateArgument.Type, Template
     default TemplateArgument substitute(Map<MiniType.TemplateParameterType, MiniType> types,
                                         Map<MiniType.TemplateParameterType, Expression> values) {
         return switch (this) {
+            case Expansion e -> new Expansion(e.pattern().substitute(types,values));
             case Type t -> new Type(t.type().substituteTemplateParameters(types,values));
             case Value v -> new Value(TemplateValues.substitute(v.expression(), types, values));
             case Integral i -> i;

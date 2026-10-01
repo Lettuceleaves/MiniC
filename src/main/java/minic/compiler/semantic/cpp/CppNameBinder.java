@@ -298,7 +298,7 @@ public final class CppNameBinder {
         private record FunctionTemplateDefinition(List<ClassTemplateDecl.Parameter> parameters, FunctionDecl source,
                 Namespace owner, TypeEntity record, MethodMember method, ConstructorMember constructor, Access access,
                 Map<Namespace, NamespaceView> lookup) {}
-        private record FunctionTemplateKey(Entity declaration,List<TemplateArgument> arguments) {}
+        private record FunctionTemplateKey(Entity declaration,List<TemplateArgument> arguments,Map<MiniType.TemplateParameterType,List<TemplateArgument>> packs) {}
         private record FunctionTemplateInstance(FunctionTemplateDefinition definition,CppTemplateDeduction.Bindings bindings,FunctionDecl function,
                 Method method,Constructor constructor) {}
         private final Map<Entity,FunctionTemplateDefinition> functionTemplates=new IdentityHashMap<>();
@@ -478,7 +478,7 @@ public final class CppNameBinder {
             var values=new LinkedHashMap<MiniType.TemplateParameterType,Expression>();
             for(int i=0;i<parameters.size();i++) {
                 var from=old.parameters.get(i);var to=parameters.get(i);
-                if(from.getClass()!=to.getClass())return false;
+                if(from.getClass()!=to.getClass() || from.pack()!=to.pack())return false;
                 if(from instanceof ClassTemplateDecl.TypeParameter)types.put(from.type(),to.type());
                 else values.put(from.type(),new CppTemplateValueExpr(to.type(),((ClassTemplateDecl.ValueParameter)to).valueType(),to.range()));
             }
@@ -519,6 +519,7 @@ public final class CppNameBinder {
         }
         private MiniType functionTemplatePattern(MiniType type,Namespace namespace,SourceRange range) {
             if(!type.isDependentTemplate())return normalizeType(type,namespace,null,range);
+            if(type instanceof MiniType.PackExpansionType pack)return new MiniType.PackExpansionType(functionTemplatePattern(pack.pattern(),namespace,range));
             if(type instanceof MiniType.PointerType pointer)return functionTemplatePattern(pointer.pointee(),namespace,range).pointerTo();
             if(type instanceof MiniType.ReferenceType reference)return functionTemplatePattern(reference.referent(),namespace,range).referenceTo(reference.kind());
             if(type instanceof MiniType.QualifiedType qualified)return MiniType.qualified(functionTemplatePattern(qualified.baseType(),namespace,range),qualified.qualifiers());
@@ -534,9 +535,9 @@ public final class CppNameBinder {
         private Entity deduceFunctionTemplateShapes(Entity declaration,List<CppOverloadResolver.Argument> actual,List<TemplateArgument> explicit,SourceRange range) {
             FunctionTemplateDefinition definition=functionTemplates.get(declaration);
             if(definition==null)return explicit==null?declaration:null;
-            int required=definition.source.parameters().size();
-            while(required>0&&definition.source.parameters().get(required-1).defaultValue()!=null)required--;
-            if(actual.size()<required||!definition.source.variadic()&&actual.size()>definition.source.parameters().size())return null;
+            int required=(int)definition.source.parameters().stream().filter(p->!(p.type() instanceof MiniType.PackExpansionType)&&p.defaultValue()==null).count();
+            boolean packParameters=definition.source.parameters().stream().anyMatch(p->p.type() instanceof MiniType.PackExpansionType);
+            if(actual.size()<required||!packParameters&&!definition.source.variadic()&&actual.size()>definition.source.parameters().size())return null;
             var savedLookup=currentTemplateLookup;TypeEntity savedClass=currentClass;Entity savedThis=currentThis;
             currentTemplateLookup=definition.lookup;currentClass=definition.record;currentThis=null;
             int errors=diagnostics.size();
@@ -546,9 +547,12 @@ public final class CppNameBinder {
                         t->normalizeType(t,definition.owner,null,range),e->evaluateTemplateConstant(expression(e,definition.owner,null)),this::initializerListElementPattern);
                 if(bindings==null)return null;
                 var arguments=new ArrayList<TemplateArgument>();
-                for(var parameter:definition.parameters)arguments.add(parameter instanceof ClassTemplateDecl.TypeParameter
+                for(var parameter:definition.parameters) {
+                    if(parameter.pack())arguments.addAll(bindings.packs().getOrDefault(parameter.type(),List.of()));
+                    else arguments.add(parameter instanceof ClassTemplateDecl.TypeParameter
                         ?new TemplateArgument.Type(normalizeType(bindings.types().get(parameter.type()),definition.owner,null,range)):bindings.values().get(parameter.type()));
-                var key=new FunctionTemplateKey(declaration,List.copyOf(arguments));
+                }
+                var key=new FunctionTemplateKey(declaration,List.copyOf(arguments),bindings.packs());
                 Entity existing=functionTemplateCache.get(key);if(existing!=null)return existing;
                 CppTemplateSubstitution substitution=functionSubstitution(definition,bindings);
                 FunctionDecl original=definition.source;
@@ -591,7 +595,21 @@ public final class CppNameBinder {
         }
         private CppTemplateSubstitution functionSubstitution(FunctionTemplateDefinition definition,CppTemplateDeduction.Bindings bindings) {
             String owner=definition.record==null?"::"+definition.owner.qualify(definition.source.name()):definition.record.canonicalName;
-            return new CppTemplateSubstitution(bindings.types(),CppFunctionTemplateDeduction.expressions(bindings.values(),definition.parameters),owner,owner);
+            var types=new LinkedHashMap<>(bindings.types());
+            var replacements=new LinkedHashMap<>(CppFunctionTemplateDeduction.expressions(bindings.values(),definition.parameters));
+            var packs=new LinkedHashMap<>(bindings.packs());
+            var parameters=new ArrayList<>(definition.parameters);
+            MiniType.TemplateIdType classKey=definition.record==null?null:instanceKeys.get(definition.record);
+            if(classKey!=null) {
+                TemplateSelection selection=selectTemplate(classKey,definition.source.range());
+                if(selection!=null) {
+                    selection.bindings().types().forEach(types::putIfAbsent);
+                    CppFunctionTemplateDeduction.expressions(selection.bindings().values(),selection.definition.source.parameters()).forEach(replacements::putIfAbsent);
+                    selection.bindings().packs().forEach(packs::putIfAbsent);
+                    parameters.addAll(selection.definition.source.parameters());
+                }
+            }
+            return new CppTemplateSubstitution(types,replacements,packs,parameters,owner,owner);
         }
         private void instantiateFunctionTemplate(Entity entity) {
             var instance=functionTemplateInstances.get(entity);
@@ -604,12 +622,14 @@ public final class CppNameBinder {
             var bindings=instance.bindings;
             if(definition!=instance.definition) {
                 var types=new LinkedHashMap<MiniType.TemplateParameterType,MiniType>();var values=new LinkedHashMap<MiniType.TemplateParameterType,TemplateArgument>();
+                var packs=new LinkedHashMap<MiniType.TemplateParameterType,List<TemplateArgument>>();
                 for(int index=0;index<definition.parameters.size();index++) {
                     var old=instance.definition.parameters.get(index);var current=definition.parameters.get(index);
+                    if(current.pack()){packs.put(current.type(),bindings.packs().getOrDefault(old.type(),List.of()));continue;}
                     if(current instanceof ClassTemplateDecl.TypeParameter)types.put(current.type(),bindings.types().get(old.type()));
                     else values.put(current.type(),bindings.values().get(old.type()));
                 }
-                bindings=new CppTemplateDeduction.Bindings(types,values);
+                bindings=new CppTemplateDeduction.Bindings(types,values,packs);
             }
             emittedFunctionTemplates.add(entity);functionTemplateDepth++;
             int savedUnevaluatedDepth=unevaluatedDepth;unevaluatedDepth=0;
@@ -642,6 +662,7 @@ public final class CppNameBinder {
             if(bindings==null)return null;
             var arguments=new ArrayList<TemplateArgument>();
             for(var parameter:definition.parameters) {
+                if(parameter.pack()){arguments.addAll(bindings.packs().getOrDefault(parameter.type(),List.of()));continue;}
                 TemplateArgument argument=parameter instanceof ClassTemplateDecl.TypeParameter?new TemplateArgument.Type(bindings.types().getOrDefault(parameter.type(),parameter.type())):bindings.values().get(parameter.type());
                 if(argument==null||argument instanceof TemplateArgument.Type type&&type.type().isDependentTemplate())return null;
                 arguments.add(argument);
@@ -686,7 +707,7 @@ public final class CppNameBinder {
         }
 
         private void declareTemplate(ClassTemplateDecl node, Namespace namespace) {
-            if(!node.specializationArguments().isEmpty()) {
+            if(node.specialization()) {
                 if(!templates.containsKey(node.record().name())){report("CPP003",node.range(),"Template specialization needs a primary declaration");return;}
                 var specializations=templateSpecializations.computeIfAbsent(node.record().name(),ignored->new ArrayList<>());
                 var definition=new TemplateDefinition(node,namespace,snapshotLookup());
@@ -758,7 +779,7 @@ public final class CppNameBinder {
         }
 
         private boolean dependentTemplateExpression(AstNode node, Set<String> names) {
-            if (node instanceof ThisExpr || node instanceof CppTemplateValueExpr) return true;
+            if (node instanceof ThisExpr || node instanceof CppTemplateValueExpr || node instanceof minic.compiler.parser.node.CppSizeofPackExpr || node instanceof minic.compiler.parser.node.CppPackExpansionExpr) return true;
             if (node instanceof CppTypeQueryExpr query && query.arguments().stream().anyMatch(argument -> argument.type().containsTemplateType())) return true;
             if(node instanceof CppTemplateIdExpr id && id.arguments().stream().anyMatch(a->a instanceof TemplateArgument.Type t?t.type().isDependentTemplate():a instanceof TemplateArgument.Value v&&TemplateValues.dependent(v.expression())))return true;
             if (node instanceof CppTypeMemberExpr member && member.ownerType().containsTemplateType()) return true;
@@ -849,18 +870,20 @@ public final class CppNameBinder {
             }
             var arguments = new ArrayList<TemplateArgument>();
             Map<MiniType.TemplateParameterType,MiniType> typeArguments=new LinkedHashMap<>();
-            if(source.arguments().size()!=template.source.parameters().size()) {
+            boolean hasPack=!template.source.parameters().isEmpty()&&template.source.parameters().getLast().pack();
+            int fixedCount=template.source.parameters().size()-(hasPack?1:0);
+            if(source.arguments().size()<fixedCount || !hasPack&&source.arguments().size()!=fixedCount) {
                 report("CPP004",range,"Class template argument count mismatch");return MiniType.INT;
             }
             try {
                 for(int index=0;index<source.arguments().size();index++) {
-                    var parameter=template.source.parameters().get(index);
+                    var parameter=template.source.parameters().get(Math.min(index,template.source.parameters().size()-1));
                     var sourceArgument=source.arguments().get(index);
                     if(parameter instanceof ClassTemplateDecl.TypeParameter) {
                         if(!(sourceArgument instanceof TemplateArgument.Type supplied))throw new IllegalArgumentException("Expected type template argument");
                         MiniType actual=normalizeType(supplied.type(),namespace,local,range);
                         if(actual.containsTemplateType())throw new IllegalArgumentException("Unsubstituted type template argument");
-                        arguments.add(new TemplateArgument.Type(actual));typeArguments.put(parameter.type(),actual);
+                        arguments.add(new TemplateArgument.Type(actual));if(!parameter.pack())typeArguments.put(parameter.type(),actual);
                     } else {
                         var valueParameter=(ClassTemplateDecl.ValueParameter)parameter;
                         MiniType target=normalizeType(valueParameter.valueType().substituteTemplateParameters(typeArguments),namespace,local,range);
@@ -915,8 +938,10 @@ public final class CppNameBinder {
             return type;
         }
         private List<TemplateArgument> templatePattern(TemplateDefinition definition) {
-            if(definition.source.specializationArguments().isEmpty())return definition.source.parameters().stream().map(p->p instanceof ClassTemplateDecl.TypeParameter
-                    ?(TemplateArgument)new TemplateArgument.Type(p.type()):new TemplateArgument.Value(new CppTemplateValueExpr(p.type(),((ClassTemplateDecl.ValueParameter)p).valueType(),p.range()))).toList();
+            if(!definition.source.specialization())return definition.source.parameters().stream().map(p->{
+                TemplateArgument argument=p instanceof ClassTemplateDecl.TypeParameter?new TemplateArgument.Type(p.type()):new TemplateArgument.Value(new CppTemplateValueExpr(p.type(),((ClassTemplateDecl.ValueParameter)p).valueType(),p.range()));
+                return p.pack()?new TemplateArgument.Expansion(argument):argument;
+            }).toList();
             return definition.source.specializationArguments().stream().map(a->a instanceof TemplateArgument.Type t
                     ?(TemplateArgument)new TemplateArgument.Type(templatePatternType(t.type(),definition)):a).toList();
         }
@@ -963,7 +988,7 @@ public final class CppNameBinder {
                 if(argument instanceof TemplateArgument.Integral v)values.put(entry.getKey(),new IntegerConstantExpr(v.value(),v.type(),v.toString(),range));
                 else if(argument instanceof TemplateArgument.Value v)values.put(entry.getKey(),v.expression());
             }
-            CppTemplateSubstitution substitution = new CppTemplateSubstitution(arguments, values, definition.source.record().name(), entity.canonicalName);
+            CppTemplateSubstitution substitution = new CppTemplateSubstitution(arguments, values, selection.bindings().packs(), definition.source.parameters(), definition.source.record().name(), entity.canonicalName);
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;
             instantiating.add(entity);
             instanceLookup.put(entity, definition.lookup);
@@ -2137,6 +2162,7 @@ public final class CppNameBinder {
 
         private MiniType normalizeType(MiniType type, Namespace namespace, Local local, SourceRange range) {
             if (type == null) return null;
+            if(type instanceof MiniType.PackExpansionType) {report("CPP004",range,"Unexpanded function parameter pack");return MiniType.INT;}
             if(type instanceof MiniType.DependentArrayType array) {
                 MiniType element=normalizeType(array.elementType(),namespace,local,range);
                 try {
@@ -3743,6 +3769,8 @@ public final class CppNameBinder {
                     requireUpdateOperand(target, n.range());
                     yield new PostfixUpdateExpr(target, n.operator(), n.range());
                 }
+                case minic.compiler.parser.node.CppPackExpansionExpr n -> { report("CPP004",n.range(),"Parameter pack expansion requires a template expansion context"); yield new IntegerLiteralExpr(0,"0",n.range()); }
+                case minic.compiler.parser.node.CppSizeofPackExpr n -> { report("CPP004",n.range(),"sizeof... requires a substituted parameter pack"); yield new IntegerLiteralExpr(0,"0",n.range()); }
                 case CppTemplateIdExpr n -> {
                     OverloadDesignator designator=overloadDesignator(n,namespace,local);
                     if(designator==null){report("CPP004",n.range(),"Template-id does not denote a function template");yield new IntegerLiteralExpr(0,"0",n.range());}

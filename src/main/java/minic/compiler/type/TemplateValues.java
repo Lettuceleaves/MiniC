@@ -29,7 +29,7 @@ public final class TemplateValues {
         };
     }
     public static boolean dependent(Expression expression) {
-        if (expression instanceof CppTemplateValueExpr) return true;
+        if (expression instanceof CppTemplateValueExpr || expression instanceof CppSizeofPackExpr || expression instanceof CppPackExpansionExpr) return true;
         if (expression instanceof CppTypeQueryExpr query && query.arguments().stream().anyMatch(argument -> argument.packExpansion() || argument.type().isDependentTemplate())) return true;
         if (expression instanceof AlignofExpr align && align.queriedType()!=null && align.queriedType().isDependentTemplate()) return true;
         if (expression instanceof CppTypeMemberExpr member && member.ownerType().isDependentTemplate()) return true;

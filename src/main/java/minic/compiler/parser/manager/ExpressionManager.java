@@ -368,6 +368,13 @@ public final class ExpressionManager {
     }
 
     private Expression parseSizeof(Token sizeofToken) {
+        if (state.languageMode()==minic.compiler.LanguageMode.CPP17_ALGORITHM && state.match(TokenType.ELLIPSIS)) {
+            if(state.consume(TokenType.LEFT_PAREN,"sizeof... 后期望 '('")==null)return null;
+            Token name=state.consume(TokenType.IDENTIFIER,"sizeof... 需要参数包名称");
+            Token end=state.consume(TokenType.RIGHT_PAREN,"sizeof... 后期望 ')'");
+            return name==null||end==null?null:new minic.compiler.parser.node.CppSizeofPackExpr(name.lexeme(),SourceRange.span(sizeofToken.range(),end.range()));
+        }
+
         if (state.match(TokenType.LEFT_PAREN)) {
             if (typeReader.canStartType() && typeReader.cppTypeOperandAt(0, true)) {
                 Parser.ParsedType type = typeReader.parseType("期望 sizeof 类型");
@@ -594,8 +601,9 @@ public final class ExpressionManager {
             do {
                 Parser.ParsedType type = typeReader.parseType("类型查询期望类型实参");
                 if (type == null) return null;
-                boolean expansion = state.match(TokenType.ELLIPSIS);
-                arguments.add(new minic.compiler.parser.node.CppTypeQueryExpr.TypeArgument(type.type(), expansion,
+                boolean expansion = state.match(TokenType.ELLIPSIS) || type.type() instanceof MiniType.PackExpansionType;
+                MiniType argumentType=type.type() instanceof MiniType.PackExpansionType pack?pack.pattern():type.type();
+                arguments.add(new minic.compiler.parser.node.CppTypeQueryExpr.TypeArgument(argumentType, expansion,
                         expansion ? SourceRange.span(type.range(), state.previous().range()) : type.range()));
             } while (state.match(TokenType.COMMA));
         }
@@ -897,13 +905,19 @@ public final class ExpressionManager {
         return expression;
     }
 
+    public Expression finishPackExpansion(Expression value) {
+        if(value!=null && state.languageMode()==minic.compiler.LanguageMode.CPP17_ALGORITHM && state.match(TokenType.ELLIPSIS))
+            return new minic.compiler.parser.node.CppPackExpansionExpr(value,SourceRange.span(value.range(),state.previous().range()));
+        return value;
+    }
+
     private Expression finishCall(Expression callee) {
         ArrayList<Expression> arguments = new ArrayList<>();
         if (!state.check(TokenType.RIGHT_PAREN)) {
             do {
                 Expression argument = parseInitializerClause();
                 if (argument != null) {
-                    arguments.add(argument);
+                    arguments.add(finishPackExpansion(argument));
                 }
             } while (state.match(TokenType.COMMA));
         }
@@ -930,7 +944,7 @@ public final class ExpressionManager {
             do {
                 Expression value = state.check(TokenType.LEFT_BRACE) ? parseConstructionInitializer() : parseAssignment();
                 if (value == null) return null;
-                arguments.add(value);
+                arguments.add(finishPackExpansion(value));
                 if (!state.match(TokenType.COMMA)) break;
                 if (list && state.check(close)) break;
             } while (!state.isAtEnd());

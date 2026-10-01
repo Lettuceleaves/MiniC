@@ -12,6 +12,10 @@ import java.util.*;
 public final class CppTemplateSubstitution {
     private final Map<MiniType.TemplateParameterType, MiniType> arguments;
     private final Map<MiniType.TemplateParameterType, Expression> values;
+    private final Map<MiniType.TemplateParameterType,List<minic.compiler.type.TemplateArgument>> packs;
+    private final Map<String,MiniType.TemplateParameterType> templateNames;
+    private final Map<String,List<String>> parameterPacks=new LinkedHashMap<>();
+    private final Map<String,String> selectedNames=new LinkedHashMap<>();
     private final String primaryName;
     private final String instanceName;
     private final IdentityHashMap<Object, Object> copies = new IdentityHashMap<>();
@@ -25,12 +29,22 @@ public final class CppTemplateSubstitution {
     public CppTemplateSubstitution(Map<MiniType.TemplateParameterType, MiniType> arguments,
                                    Map<MiniType.TemplateParameterType, Expression> values,
                                    String primaryName, String instanceName) {
+        this(arguments,values,Map.of(),List.of(),primaryName,instanceName);
+    }
+
+    public CppTemplateSubstitution(Map<MiniType.TemplateParameterType, MiniType> arguments,
+            Map<MiniType.TemplateParameterType, Expression> values,
+            Map<MiniType.TemplateParameterType,List<minic.compiler.type.TemplateArgument>> packs,
+            List<ClassTemplateDecl.Parameter> parameters,String primaryName,String instanceName) {
+        this.packs=new LinkedHashMap<>();packs.forEach((key,value)->this.packs.put(key,List.copyOf(value)));
+        this.templateNames=new LinkedHashMap<>();parameters.forEach(p->{if(p.pack())templateNames.put(p.name(),p.type());});
         this.arguments = Map.copyOf(arguments);
         this.values = Map.copyOf(values);
         this.primaryName = Objects.requireNonNull(primaryName);
         this.instanceName = Objects.requireNonNull(instanceName);
     }
 
+    public Expression expression(Expression source) { return (Expression)copy(source); }
     public FunctionDecl instantiate(FunctionDecl source) { return (FunctionDecl)copy(source); }
     public ConstructorMember instantiate(ConstructorMember source) { return (ConstructorMember)copy(source); }
     public StructDecl instantiate(StructDecl source) { return (StructDecl) copy(source); }
@@ -46,10 +60,10 @@ public final class CppTemplateSubstitution {
             case MiniType.ArrayType array -> type(array.elementType()).arrayOf(array.length());
             case MiniType.DependentArrayType array -> new MiniType.DependentArrayType(type(array.elementType()),(Expression)copy(array.bound()))
                     .substituteTemplateParameters(arguments,values);
-            case MiniType.TemplateIdType id -> new MiniType.TemplateIdType(id.templateName(),id.arguments().stream()
-                    .map(argument -> (minic.compiler.type.TemplateArgument)copy(argument)).toList());
+            case MiniType.TemplateIdType id -> new MiniType.TemplateIdType(id.templateName(),copyList(id.arguments()));
+            case MiniType.PackExpansionType pack -> new MiniType.PackExpansionType(type(pack.pattern()));
             case MiniType.MemberType member -> new MiniType.MemberType(type(member.owner()),member.name());
-            case MiniType.FunctionType function -> MiniType.function(type(function.returnType()),function.parameterTypes().stream().map(this::type).toList(),function.variadic());
+            case MiniType.FunctionType function -> MiniType.function(type(function.returnType()),copyList(function.parameterTypes()),function.variadic());
             default -> source.substituteTemplateParameters(arguments,values);
         };
     }
@@ -58,6 +72,17 @@ public final class CppTemplateSubstitution {
         if (source == null || source instanceof String || source instanceof Number || source instanceof Boolean
                 || source instanceof Character || source instanceof Enum<?> || source instanceof SourceRange) return source;
         if (source instanceof MiniType type) return type(type);
+        if(source instanceof CppSizeofPackExpr size) {
+            Integer count=parameterPacks.containsKey(size.name())?parameterPacks.get(size.name()).size():null;
+            var identity=templateNames.get(size.name());if(identity!=null && packs.containsKey(identity))count=packs.get(identity).size();
+            if(count==null)return source; // a nested member template can still own this pack
+            return new Expression.IntegerConstantExpr(count,MiniType.UNSIGNED_LONG_LONG,Integer.toString(count),size.range());
+        }
+        if(source instanceof Expression.NameExpr name && selectedNames.containsKey(name.name()))
+            return new Expression.NameExpr(selectedNames.get(name.name()),name.range());
+        if(source instanceof Expression.CallExpr call)return copyCall(call);
+        if(source instanceof minic.compiler.type.TemplateArgument.Expansion expansion)
+            return new minic.compiler.type.TemplateArgument.Expansion((minic.compiler.type.TemplateArgument)copy(expansion.pattern()));
         if(source instanceof minic.compiler.type.TemplateArgument.Type argument)return new minic.compiler.type.TemplateArgument.Type(type(argument.type()));
         if(source instanceof minic.compiler.type.TemplateArgument.Value argument)return new minic.compiler.type.TemplateArgument.Value((Expression)copy(argument.expression()));
         if(source instanceof minic.compiler.type.TemplateArgument.Integral argument)return argument;
@@ -72,10 +97,20 @@ public final class CppTemplateSubstitution {
         Object existing = copies.get(source);
         if (existing != null) return existing;
         if (source instanceof List<?> list) {
-            List<?> result = list.stream().map(this::copy).toList();
+            List<?> result = copyList(list);
             copies.put(source, result);
             return result;
         }
+        List<Parameter> parameters=source instanceof FunctionDecl function?function.parameters():source instanceof ConstructorMember constructor?constructor.parameters():null;
+        if(parameters!=null) {
+            var saved=new LinkedHashMap<>(parameterPacks);
+            try {prepareParameters(parameters);return copyRecord(source);}
+            finally {parameterPacks.clear();parameterPacks.putAll(saved);}
+        }
+        return copyRecord(source);
+    }
+
+    private Object copyRecord(Object source) {
         Class<?> kind = source.getClass();
         if (!kind.isRecord() || !kind.getPackageName().equals("minic.compiler.parser.node"))
             throw new IllegalArgumentException("unsupported source component during template substitution: " + kind.getName());
@@ -103,6 +138,88 @@ public final class CppTemplateSubstitution {
             Throwable cause = error instanceof InvocationTargetException invocation ? invocation.getCause() : error;
             throw new IllegalArgumentException("cannot instantiate source node " + kind.getSimpleName(), cause);
         }
+    }
+
+    private void prepareParameters(List<Parameter> parameters) {
+        for(Parameter parameter:parameters)if(parameter.type() instanceof MiniType.PackExpansionType expansion) {
+            int count=expansionCount(expansion.pattern());
+            if(count<0)continue;
+            var names=new ArrayList<String>();for(int i=0;i<count;i++)names.add(parameter.name()+"$pack"+i);
+            parameterPacks.put(parameter.name(),List.copyOf(names));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T> List<T> copyList(List<T> source) {
+        var result=new ArrayList<T>();
+        for(Object item:source) {
+            Object pattern=expansionPattern(item);
+            if(pattern==null){result.add((T)copy(item));continue;}
+            int count=expansionCount(pattern);
+            if(count<0){result.add((T)copy(item));continue;}
+            for(int index=0;index<count;index++) {
+                CppTemplateSubstitution child=at(index,pattern);
+                Object expanded;
+                if(item instanceof Parameter parameter) {
+                    var pack=(MiniType.PackExpansionType)parameter.type();
+                    expanded=new Parameter(parameter.name()+"$pack"+index,child.type(pack.pattern()),(Expression)child.copy(parameter.defaultValue()),parameter.range());
+                } else if(item instanceof CppTypeQueryExpr.TypeArgument argument) {
+                    expanded=new CppTypeQueryExpr.TypeArgument(child.type(argument.type()),false,argument.range());
+                } else expanded=child.copy(pattern);
+                result.add((T)expanded);origins.putAll(child.origins);
+                if(expanded instanceof AstNode clone && item instanceof AstNode original)origins.put(clone,original);
+            }
+        }
+        return List.copyOf(result);
+    }
+    private Object expansionPattern(Object source) {
+        if(source instanceof MiniType.PackExpansionType pack)return pack.pattern();
+        if(source instanceof CppPackExpansionExpr pack)return pack.pattern();
+        if(source instanceof minic.compiler.type.TemplateArgument.Expansion pack)return pack.pattern();
+        if(source instanceof Parameter parameter && parameter.type() instanceof MiniType.PackExpansionType pack)return pack.pattern();
+        if(source instanceof CppTypeQueryExpr.TypeArgument argument && argument.packExpansion())return argument.type();
+        return null;
+    }
+    private int expansionCount(Object pattern) {
+        Integer count=null;boolean unknown=false;
+        for(var parameter:CppTemplatePacks.parameters(pattern)) {
+            var arguments=packs.get(parameter);
+            if(arguments==null){if(!this.arguments.containsKey(parameter)&&!values.containsKey(parameter))unknown=true;continue;}
+            if(count!=null && count!=arguments.size())throw new IllegalArgumentException("Simultaneous parameter packs have different lengths");
+            count=arguments.size();
+        }
+        for(String name:CppTemplatePacks.names(pattern))if(parameterPacks.containsKey(name)) {
+            int size=parameterPacks.get(name).size();
+            if(count!=null && count!=size)throw new IllegalArgumentException("Simultaneous parameter packs have different lengths");
+            count=size;
+        }
+        if(count==null && !unknown)throw new IllegalArgumentException("Pack expansion pattern contains no unexpanded parameter pack");
+        return unknown?-1:count;
+    }
+    private CppTemplateSubstitution at(int index,Object pattern) {
+        var types=new LinkedHashMap<>(arguments);var replacements=new LinkedHashMap<>(values);
+        for(var parameter:CppTemplatePacks.parameters(pattern)) {
+            var sequence=packs.get(parameter);if(sequence==null)continue;
+            var argument=sequence.get(index);
+            if(argument instanceof minic.compiler.type.TemplateArgument.Type type)types.put(parameter,type.type());
+            else if(argument instanceof minic.compiler.type.TemplateArgument.Value value)replacements.put(parameter,value.expression());
+            else if(argument instanceof minic.compiler.type.TemplateArgument.Integral value)
+                replacements.put(parameter,new Expression.IntegerConstantExpr(value.value(),value.type(),value.toString(),new SourceRange(1,0,1,0)));
+        }
+        var child=new CppTemplateSubstitution(types,replacements,packs,List.of(),primaryName,instanceName);
+        child.templateNames.putAll(templateNames);child.parameterPacks.putAll(parameterPacks);child.selectedNames.putAll(selectedNames);
+        for(String name:CppTemplatePacks.names(pattern))if(parameterPacks.containsKey(name))child.selectedNames.put(name,parameterPacks.get(name).get(index));
+        return child;
+    }
+    private Expression.CallExpr copyCall(Expression.CallExpr source) {
+        Expression callee=(Expression)copy(source.callee());
+        var arguments=new ArrayList<Expression>();var groups=new ArrayList<List<Integer>>();
+        for(Expression argument:source.arguments()) {
+            List<Expression> expanded=copyList(List.of(argument));
+            var group=new ArrayList<Integer>();for(Expression item:expanded){group.add(arguments.size());arguments.add(item);}groups.add(group);
+        }
+        var order=new ArrayList<Integer>();for(int original:source.argumentEvaluationOrder())order.addAll(groups.get(original));
+        var result=new Expression.CallExpr(callee,arguments,order,source.range());copies.put(source,result);origins.put(result,source);return result;
     }
 
     private static String simple(String name) { return name.substring(name.lastIndexOf("::") + 2); }

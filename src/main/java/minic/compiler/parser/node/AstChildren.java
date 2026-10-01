@@ -22,6 +22,8 @@ public final class AstChildren {
             case TemplateMethodMember n -> prepend(n.method(),n.parameters());
             case TemplateConstructorMember n -> prepend(n.constructor(),n.parameters());
             case CppTemplateIdExpr n -> prepend(n.target(),n.arguments().stream().filter(minic.compiler.type.TemplateArgument.Value.class::isInstance).map(minic.compiler.type.TemplateArgument.Value.class::cast).map(minic.compiler.type.TemplateArgument.Value::expression).toList());
+            case CppPackExpansionExpr n -> present(n.pattern());
+            case CppSizeofPackExpr n -> List.of();
             case Parameter n -> present(n.defaultValue());
             case ClassTemplateDecl.ValueParameter n -> present(n.defaultValue());
             case StructDecl n -> n.cppInfo() == null ? n.fields() : java.util.stream.Stream.concat(n.cppInfo().bases().stream(),n.cppInfo().members().stream()).toList();
@@ -153,7 +155,7 @@ public final class AstChildren {
         while (!pending.isEmpty()) {
             AstNode node = pending.removeFirst();
             if (!visited.add(node)) continue;
-            if (!onlyReferences && (node instanceof CppStructuredBindingDecl || node instanceof CppLambdaExpr || node instanceof CppRangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
+            if (!onlyReferences && (node instanceof CppPackExpansionExpr || node instanceof CppSizeofPackExpr || node instanceof CppStructuredBindingDecl || node instanceof CppLambdaExpr || node instanceof CppRangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
                     || node instanceof CppTypeQueryExpr || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer

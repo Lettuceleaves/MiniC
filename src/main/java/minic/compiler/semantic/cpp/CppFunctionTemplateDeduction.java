@@ -25,43 +25,101 @@ public final class CppFunctionTemplateDeduction {
             List<CppOverloadResolver.Argument> actual,List<TemplateArgument> explicit,UnaryOperator<MiniType> expand,UnaryOperator<MiniType> normalize,
             java.util.function.Function<Expression,TemplateArgument.Integral> evaluate,
             java.util.function.Function<MiniType,MiniType> initializerListElement) {
-        if(explicit.size()>parameters.size())return null;
+        boolean hasPack=parameters.stream().anyMatch(ClassTemplateDecl.Parameter::pack);
+        if(!hasPack&&explicit.size()>parameters.size())return null;
         var types=new LinkedHashMap<MiniType.TemplateParameterType,MiniType>();
         var values=new LinkedHashMap<MiniType.TemplateParameterType,TemplateArgument>();
+        var packs=new LinkedHashMap<MiniType.TemplateParameterType,List<TemplateArgument>>();
         try {
-            for(int index=0;index<explicit.size();index++) {
-                var parameter=parameters.get(index);var argument=explicit.get(index);
-                if(parameter instanceof ClassTemplateDecl.TypeParameter && argument instanceof TemplateArgument.Type t)types.put(parameter.type(),t.type());
-                else if(parameter instanceof ClassTemplateDecl.ValueParameter value && !(argument instanceof TemplateArgument.Type)) {
-                    var constant=argument instanceof TemplateArgument.Integral i?i:evaluate.apply(((TemplateArgument.Value)argument).expression());
-                    values.put(parameter.type(),TemplateValues.convert(constant,normalize.apply(value.valueType().substituteTemplateParameters(types)),true));
-                } else return null;
-            }
-            var patterns=new ArrayList<MiniType>();var arguments=new ArrayList<MiniType>();
-            Map<MiniType.TemplateParameterType,Expression> replacements=expressions(values,parameters);
-            for(int index=0;index<actual.size()&&index<signature.size();index++) {
-                MiniType pattern=signature.get(index).substituteTemplateParameters(types,replacements);
-                addConstraints(pattern,actual.get(index),patterns,arguments,initializerListElement,parameters);
-            }
-            var deduction=CppTemplateDeduction.deduce(patterns,arguments,parameters,types,values,expand);
-            if(deduction==null)return null;
-            types.putAll(deduction.types());values.putAll(deduction.values());
+            int explicitIndex=0;
             for(var parameter:parameters) {
+                if(explicitIndex>=explicit.size())break;
+                if(parameter.pack()) {
+                    var sequence=new ArrayList<TemplateArgument>();
+                    while(explicitIndex<explicit.size())sequence.add(canonicalArgument(parameter,explicit.get(explicitIndex++),types,normalize,evaluate));
+                    packs.put(parameter.type(),sequence);break;
+                }
+                TemplateArgument argument=canonicalArgument(parameter,explicit.get(explicitIndex++),types,normalize,evaluate);
+                if(argument instanceof TemplateArgument.Type type)types.put(parameter.type(),type.type());else values.put(parameter.type(),argument);
+            }
+            int argumentIndex=0;
+            for(int signatureIndex=0;signatureIndex<signature.size();signatureIndex++) {
+                MiniType original=signature.get(signatureIndex);
+                if(original instanceof MiniType.PackExpansionType pack) {
+                    var identities=new LinkedHashSet<>(CppTemplatePacks.parameters(pack.pattern()));
+                    identities.removeIf(identity->parameters.stream().noneMatch(p->p.pack()&&p.type().equals(identity)));
+                    if(identities.isEmpty())return null;
+                    int count=signatureIndex+1==signature.size()?actual.size()-argumentIndex:
+                            identities.stream().map(packs::get).filter(Objects::nonNull).mapToInt(List::size).findFirst().orElse(0);
+                    if(count<0||argumentIndex+count>actual.size())return null;
+                    var sequence=new LinkedHashMap<MiniType.TemplateParameterType,List<TemplateArgument>>();identities.forEach(id->sequence.put(id,new ArrayList<>()));
+                    for(int index=0;index<count;index++) {
+                        var itemTypes=new LinkedHashMap<>(types);var itemValues=new LinkedHashMap<>(values);
+                        for(var identity:identities)if(packs.containsKey(identity)&&index<packs.get(identity).size()) {
+                            var argument=packs.get(identity).get(index);
+                            if(argument instanceof TemplateArgument.Type type)itemTypes.put(identity,type.type());else itemValues.put(identity,argument);
+                        }
+                        var deduction=deduceOne(pack.pattern(),actual.get(argumentIndex++),parameters,itemTypes,itemValues,expand,initializerListElement);
+                        if(deduction==null)return null;
+                        for(var identity:identities) {
+                            TemplateArgument argument=deduction.types().containsKey(identity)?new TemplateArgument.Type(deduction.types().get(identity)):deduction.values().get(identity);
+                            if(argument==null)return null;sequence.get(identity).add(argument);
+                        }
+                        deduction.types().forEach((id,value)->{if(!identities.contains(id))types.put(id,value);});
+                        deduction.values().forEach((id,value)->{if(!identities.contains(id))values.put(id,value);});
+                        if(!mergePacks(packs,deduction.packs()))return null;
+                    }
+                    for(var entry:sequence.entrySet()) {
+                        var prefix=packs.get(entry.getKey());if(prefix!=null&&prefix.size()>entry.getValue().size())return null;
+                        packs.put(entry.getKey(),List.copyOf(entry.getValue()));
+                    }
+                } else if(argumentIndex<actual.size()) {
+                    var deduction=deduceOne(original,actual.get(argumentIndex++),parameters,types,values,expand,initializerListElement);
+                    if(deduction==null)return null;types.putAll(deduction.types());values.putAll(deduction.values());
+                    if(!mergePacks(packs,deduction.packs()))return null;
+                }
+            }
+            for(var parameter:parameters) {
+                if(parameter.pack()){packs.putIfAbsent(parameter.type(),List.of());continue;}
                 if(parameter instanceof ClassTemplateDecl.TypeParameter type&&!types.containsKey(type.type())) {
                     if(type.defaultType()==null)return null;
-                    types.put(type.type(),normalize.apply(type.defaultType().substituteTemplateParameters(types,expressions(values,parameters))));
+                    var substitution=new CppTemplateSubstitution(types,expressions(values,parameters),packs,parameters,"<function>","<function>");
+                    types.put(type.type(),normalize.apply(substitution.type(type.defaultType())));
                 } else if(parameter instanceof ClassTemplateDecl.ValueParameter value) {
                     TemplateArgument argument=values.get(value.type());
                     if(argument==null) {
                         if(value.defaultValue()==null)return null;
-                        argument=new TemplateArgument.Value(TemplateValues.substitute(value.defaultValue(),types,expressions(values,parameters)));
+                        argument=new TemplateArgument.Value(new CppTemplateSubstitution(types,expressions(values,parameters),packs,parameters,"<function>","<function>").expression(value.defaultValue()));
                     }
                     var integral=argument instanceof TemplateArgument.Integral i?i:evaluate.apply(((TemplateArgument.Value)argument).expression());
-                    values.put(value.type(),TemplateValues.convert(integral,normalize.apply(value.valueType().substituteTemplateParameters(types)),true));
+                    values.put(value.type(),TemplateValues.convert(integral,normalize.apply(new CppTemplateSubstitution(types,expressions(values,parameters),packs,parameters,"<function>","<function>").type(value.valueType())),true));
                 }
             }
-            return new CppTemplateDeduction.Bindings(types,values);
+            return new CppTemplateDeduction.Bindings(types,values,packs);
         } catch(IllegalArgumentException error){return null;}
+    }
+    private static boolean mergePacks(Map<MiniType.TemplateParameterType,List<TemplateArgument>> target,Map<MiniType.TemplateParameterType,List<TemplateArgument>> source) {
+        for(var entry:source.entrySet()){var old=target.putIfAbsent(entry.getKey(),entry.getValue());if(old!=null&&!old.equals(entry.getValue()))return false;}
+        return true;
+    }
+    private static TemplateArgument canonicalArgument(ClassTemplateDecl.Parameter parameter,TemplateArgument argument,
+            Map<MiniType.TemplateParameterType,MiniType> types,UnaryOperator<MiniType> normalize,
+            java.util.function.Function<Expression,TemplateArgument.Integral> evaluate) {
+        if(parameter instanceof ClassTemplateDecl.TypeParameter && argument instanceof TemplateArgument.Type type)return type;
+        if(parameter instanceof ClassTemplateDecl.ValueParameter value && !(argument instanceof TemplateArgument.Type)) {
+            var constant=argument instanceof TemplateArgument.Integral integral?integral:evaluate.apply(((TemplateArgument.Value)argument).expression());
+            return TemplateValues.convert(constant,normalize.apply(value.valueType().substituteTemplateParameters(types)),true);
+        }
+        throw new IllegalArgumentException("Template argument kind mismatch");
+    }
+    private static CppTemplateDeduction.Bindings deduceOne(MiniType source,CppOverloadResolver.Argument actual,
+            List<ClassTemplateDecl.Parameter> parameters,Map<MiniType.TemplateParameterType,MiniType> types,
+            Map<MiniType.TemplateParameterType,TemplateArgument> values,UnaryOperator<MiniType> expand,
+            java.util.function.Function<MiniType,MiniType> initializerListElement) {
+        MiniType pattern=source.substituteTemplateParameters(types,expressions(values,parameters));
+        var patterns=new ArrayList<MiniType>();var arguments=new ArrayList<MiniType>();
+        addConstraints(pattern,actual,patterns,arguments,initializerListElement,parameters);
+        return CppTemplateDeduction.deduce(patterns,arguments,parameters,types,values,expand);
     }
     private static void addConstraints(MiniType pattern,CppOverloadResolver.Argument actual,List<MiniType> patterns,
             List<MiniType> arguments,java.util.function.Function<MiniType,MiniType> initializerListElement,List<ClassTemplateDecl.Parameter> parameters) {
