@@ -42,6 +42,10 @@ public final class SmallFunctionInliningPass implements IrPass {
         var originalFunctions = new LinkedHashMap<String, IrFunction>();
         input.functions().forEach(function -> originalFunctions.put(function.name(), function));
         Map<String, Candidate> candidates = new LinkedHashMap<>();
+        // Only size-rejected, otherwise safe candidates can be rescued by a
+        // literal call. Eligible generic candidates keep their existing path.
+        Map<String, Candidate> oversized = new LinkedHashMap<>();
+        Map<ConstantSite, Optional<Candidate>> specializations = new HashMap<>();
         int moduleGrowth = 0;
         boolean changed = false;
         var rewrittenFunctions = new HashMap<String, IrFunction>();
@@ -55,7 +59,7 @@ public final class SmallFunctionInliningPass implements IrPass {
             // Budget decisions prefer cyclic call sites, but do not move any evaluation.
             // Each site is identified by its position, not instruction identity: valid
             // hand-built IR can reuse the same instruction object at several positions.
-            for (InliningSite site : orderedSites(caller, callerFlow, candidates)) {
+            for (InliningSite site : orderedSites(caller, callerFlow, candidates, oversized, specializations)) {
                 if (sites == limits.maxSitesPerCaller()) break;
                 var expansion = new Expansion(site.candidate(), site.call(), names);
                 int growth = Math.max(0, expansion.instructionCount() - 1);
@@ -105,7 +109,10 @@ public final class SmallFunctionInliningPass implements IrPass {
                 // the inliner or resetting any caller/module/frame budgets. Emitted originals
                 // retain their instruction identities unless an actual call was expanded.
                 Candidate prepared = candidate(simplifyCandidate(rewritten));
-                if (prepared != null) candidates.put(callerName, prepared);
+                if (prepared != null) {
+                    if (withinCalleeLimits(prepared)) candidates.put(callerName, prepared);
+                    else oversized.put(callerName, prepared);
+                }
             }
         }
         var functions = input.functions().stream().map(function -> rewrittenFunctions.get(function.name())).toList();
@@ -115,8 +122,10 @@ public final class SmallFunctionInliningPass implements IrPass {
 
     private record SiteKey(int blockIndex, int instructionIndex) { }
     private record InliningSite(SiteKey key, Candidate candidate, IrCallInstruction call, boolean cyclic) { }
+    private record ConstantSite(String callee, Map<String, IrConstant> arguments) { }
 
-    private static List<InliningSite> orderedSites(IrFunction caller, IrControlFlow flow, Map<String, Candidate> candidates) {
+    private List<InliningSite> orderedSites(IrFunction caller, IrControlFlow flow, Map<String, Candidate> candidates,
+                                          Map<String, Candidate> oversized, Map<ConstantSite, Optional<Candidate>> specializations) {
         var sites = new ArrayList<InliningSite>();
         for (int blockIndex = 0; blockIndex < caller.blocks().size(); blockIndex++) {
             var block = caller.blocks().get(blockIndex);
@@ -126,6 +135,8 @@ public final class SmallFunctionInliningPass implements IrPass {
             for (int index = 0; index < code.size(); index++) {
                 if (!(code.get(index) instanceof IrCallInstruction call) || call.variadic()) continue;
                 Candidate candidate = candidates.get(call.calleeName());
+                if (candidate == null && oversized.containsKey(call.calleeName()))
+                    candidate = specialize(oversized.get(call.calleeName()), call, specializations);
                 if (candidate == null) continue;
                 if (cyclic == null) cyclic = inCycle(flow, block.label());
                 sites.add(new InliningSite(new SiteKey(blockIndex, index), candidate, call, cyclic));
@@ -135,6 +146,63 @@ public final class SmallFunctionInliningPass implements IrPass {
         sites.sort(Comparator.comparing(InliningSite::cyclic).reversed()
                 .thenComparingInt(site -> site.key().blockIndex()).thenComparingInt(site -> site.key().instructionIndex()));
         return sites;
+    }
+
+    private Candidate specialize(Candidate original, IrCallInstruction call,
+                                 Map<ConstantSite, Optional<Candidate>> cache) {
+        if (call.arguments().size() != original.function().parameters().size()) return null;
+        var excluded = new HashSet<>(original.storedParameters());
+        // Inspect dead tails too: a later IR cleanup must not turn a discarded
+        // parameter-address use into a false immutability assumption.
+        for (var block : original.function().blocks()) for (var instruction : block.instructions())
+            for (var value : IrValueUses.inputs(instruction))
+                if (value instanceof IrParameterAddress address) excluded.add(address.name());
+        var constants = new LinkedHashMap<String, IrConstant>();
+        for (int index = 0; index < original.function().parameters().size(); index++) {
+            var formal = original.function().parameters().get(index);
+            var actual = call.arguments().get(index);
+            if (excluded.contains(formal.name()) || !formal.declaredType().isIntegerScalar()
+                    || !formal.type().isIntegerScalar() || !(actual instanceof IrConstant constant)
+                    || actual.type() != formal.type()) continue;
+            IrConstant normalized = integerLiteral(constant);
+            if (normalized != null) constants.put(formal.name(), normalized);
+        }
+        if (constants.isEmpty()) return null;
+        var key = new ConstantSite(call.calleeName(), Map.copyOf(constants));
+        return cache.computeIfAbsent(key, ignored -> {
+            var blocks = new ArrayList<IrBlock>();
+            for (var block : original.function().blocks()) {
+                var body = block.instructions().stream().map(instruction -> IrValueRewriter.inputs(instruction, value ->
+                        value instanceof IrParameterRef reference && constants.containsKey(reference.name())
+                                ? constants.get(reference.name()) : value)).toList();
+                blocks.add(new IrBlock(block.label(), body));
+            }
+            var function = original.function();
+            var copy = new IrFunction(function.name(), function.returnType(), function.parameters(), function.variadic(), blocks, function.range());
+            Candidate prepared = candidate(simplifyCandidate(copy));
+            return prepared != null && withinCalleeLimits(prepared) ? Optional.of(prepared) : Optional.empty();
+        }).orElse(null);
+    }
+
+    private static IrConstant integerLiteral(IrConstant value) {
+        if (value.type() == IrType.BOOL && value.value() != 0 && value.value() != 1) return null;
+        long number = value.value();
+        int bits = value.type().sizeBytes() * Byte.SIZE;
+        if (bits < Long.SIZE) {
+            number &= (1L << bits) - 1;
+            if (value.type().isSignedInteger() && (number & (1L << (bits - 1))) != 0) number |= -1L << bits;
+        }
+        return new IrConstant(number, value.type());
+    }
+
+    private boolean withinCalleeLimits(Candidate candidate) {
+        if (candidate.flow().reachable().size() > limits.maxCalleeBlocks()) return false;
+        int count = 0;
+        for (String label : candidate.flow().reachable()) {
+            count += candidate.flow().effectiveInstructions(label).size();
+            if (count > limits.maxCalleeInstructions()) return false;
+        }
+        return true;
     }
 
     private static boolean inCycle(IrControlFlow flow, String block) {
@@ -191,14 +259,11 @@ public final class SmallFunctionInliningPass implements IrPass {
     private Candidate candidate(IrFunction function) {
         if (function.variadic() || function.blocks().isEmpty()) return null;
         var flow = IrControlFlow.analyze(function);
-        if (flow.reachable().size() > limits.maxCalleeBlocks()) return null;
-        int count = 0;
         boolean hasReturn = false;
         var storedParameters = new HashSet<String>();
         for (IrParameter parameter : function.parameters())
             if (parameter.declaredType().isVolatileQualified()) storedParameters.add(parameter.name());
         for (String label : flow.reachable()) for (IrInstruction instruction : flow.effectiveInstructions(label)) {
-            if (++count > limits.maxCalleeInstructions()) return null;
             if (instruction instanceof IrReturnInstruction) hasReturn = true;
             // These checks return from the current native frame; cloning them would return from the wrong function.
             if (instruction instanceof IrCheckInitializedInstruction || instruction instanceof IrCheckNonZeroInstruction

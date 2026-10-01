@@ -131,7 +131,9 @@ final class SmallFunctionInliningTest {
     }
 
     @Test void growthAndFrameBudgetsAreHardLimitsAndDecliningDoesNotMutateInput() {
-        var source = program(simple(), caller("main", List.of(), call(X, "helper", ONE), call(Y, "helper", ONE), ret(Y)));
+        // Unknown actuals keep this an exact generic-body budget test; literals
+        // are separately allowed to simplify an oversized candidate.
+        var source = program(simple(), caller("main", List.of(P), call(X, "helper", P.ref()), call(Y, "helper", P.ref()), ret(Y)));
         assertSame(source, run(source,new SmallFunctionInliningPass.Limits(1,6,96,512,256,8)));
         assertSame(source, run(source,new SmallFunctionInliningPass.Limits(24,6,0,0,256,8)));
         assertSame(source, run(source,new SmallFunctionInliningPass.Limits(24,6,96,512,0,8)));
@@ -214,7 +216,7 @@ final class SmallFunctionInliningTest {
         assertSame(input,run(input,new SmallFunctionInliningPass.Limits(2,1,96,512,30,8)));
         assertEquals(0,calls(fn(run(input,new SmallFunctionInliningPass.Limits(2,1,96,512,31,8)),"main")));
         var branched=function("helper",List.of(P),block("entry",new IrBranchInstruction(P.ref(),"yes","no",R)),block("yes",ret(ONE)),block("no",ret(ZERO)));
-        var branchInput=program(branched,caller("main",List.of(),call(X,"helper",ONE),ret(X)));
+        var branchInput=program(branched,caller("main",List.of(P),call(X,"helper",P.ref()),ret(X)));
         assertSame(branchInput,run(branchInput,new SmallFunctionInliningPass.Limits(24,2,96,512,256,8)));
         assertEquals(0,calls(fn(run(branchInput,new SmallFunctionInliningPass.Limits(24,3,96,512,256,8)),"main")));
     }
