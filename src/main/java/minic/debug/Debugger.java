@@ -239,16 +239,31 @@ public final class Debugger {
                 default -> throw new IllegalStateException("Invalid floating operator: " + operator);
             });
         }
+        IrType operandType = integerOperationType(left.type(), right.type());
+        a = Value.of(operandType, a).integer();
+        b = Value.of(operandType, b).integer();
+        boolean unsigned = operandType.isUnsignedInteger();
+        int comparison = unsigned ? Long.compareUnsigned(a, b) : Long.compare(a, b);
         return Value.of(type, switch (operator) {
             case ADD -> a + b; case SUBTRACT -> a - b; case MULTIPLY -> a * b;
-            case DIVIDE -> a / b; case MODULO -> a % b;
+            case DIVIDE -> unsigned ? Long.divideUnsigned(a, b) : a / b;
+            case MODULO -> unsigned ? Long.remainderUnsigned(a, b) : a % b;
             case BITWISE_AND -> a & b; case BITWISE_OR -> a | b; case BITWISE_XOR -> a ^ b;
-            case SHIFT_LEFT -> a << b; case SHIFT_RIGHT -> a >> b;
+            case SHIFT_LEFT -> a << b; case SHIFT_RIGHT -> unsigned ? a >>> b : a >> b;
             case LOGICAL_AND -> a != 0 && b != 0 ? 1 : 0; case LOGICAL_OR -> a != 0 || b != 0 ? 1 : 0;
             case EQUAL -> a == b ? 1 : 0; case NOT_EQUAL -> a != b ? 1 : 0;
-            case LESS_THAN -> a < b ? 1 : 0; case LESS_EQUAL -> a <= b ? 1 : 0;
-            case GREATER_THAN -> a > b ? 1 : 0; case GREATER_EQUAL -> a >= b ? 1 : 0;
+            case LESS_THAN -> comparison < 0 ? 1 : 0; case LESS_EQUAL -> comparison <= 0 ? 1 : 0;
+            case GREATER_THAN -> comparison > 0 ? 1 : 0; case GREATER_EQUAL -> comparison >= 0 ? 1 : 0;
         });
+    }
+
+    /** Matches native IR operation selection; comparison result type is commonly INT. */
+    private static IrType integerOperationType(IrType left, IrType right) {
+        if (left == right) return left;
+        if (left == IrType.POINTER || right == IrType.POINTER) return IrType.POINTER;
+        if (left.sizeBytes() > right.sizeBytes()) return left;
+        if (right.sizeBytes() > left.sizeBytes()) return right;
+        return left.isUnsignedInteger() ? left : right;
     }
 
     public enum Status { READY, PAUSED, COMPLETED, FAILED }
