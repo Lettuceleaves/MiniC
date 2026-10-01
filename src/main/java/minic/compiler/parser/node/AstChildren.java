@@ -52,6 +52,7 @@ public final class AstChildren {
             case WhileStmt n -> present(n.condition(), n.body());
             case DoWhileStmt n -> present(n.body(), n.condition());
             case ForStmt n -> present(n.initializer(), n.condition(), n.step(), n.body());
+            case CppRangeForStmt n -> present(n.declaration(), n.initializer(), n.body());
             case SwitchStmt n -> prepend(n.selector(), n.cases());
             case SwitchCase n -> prepend(n.value(), n.statements());
             case AssignmentExpr n -> present(n.target(), n.value());
@@ -144,7 +145,7 @@ public final class AstChildren {
         while (!pending.isEmpty()) {
             AstNode node = pending.removeFirst();
             if (!visited.add(node)) continue;
-            if (!onlyReferences && (node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
+            if (!onlyReferences && (node instanceof CppRangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
                     || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer

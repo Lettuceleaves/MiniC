@@ -4,6 +4,7 @@ import minic.compiler.parser.Parser;
 
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.CppInitializer;
+import minic.compiler.parser.node.CppRangeForStmt;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.parser.node.Expression.DesignatedInitExpr;
 import minic.compiler.parser.node.Expression.Designator;
@@ -216,11 +217,12 @@ public final class StatementManager {
         return doWhileStmt;
     }
 
-    private ForStmt parseForStmt() {
+    private Statement parseForStmt() {
         Token startToken = state.consume(TokenType.FOR, "期望 for");
         state.consume(TokenType.LEFT_PAREN, "期望 '('");
         typeReader.enterScope(java.util.List.of());
         try {
+            if (typeReader.isCpp() && rangeHeader()) return parseRangeFor(startToken);
             Statement initializer = parseForInitializer();
             Expression condition = null;
             if (!state.check(TokenType.SEMICOLON)) {
@@ -249,6 +251,47 @@ public final class StatementManager {
         } finally {
             typeReader.exitScope();
         }
+    }
+
+    /** Only a top-level non-conditional colon can delimit a range declaration. */
+    private boolean rangeHeader() {
+        if (!isDeclarationStart()) return false;
+        int parentheses=0, brackets=0, braces=0, conditional=0;
+        for (int offset=0;;offset++) {
+            TokenType token=state.peekAt(offset).type();
+            if (token==TokenType.EOF) return false;
+            if (parentheses==0 && brackets==0 && braces==0) {
+                if (token==TokenType.SEMICOLON || token==TokenType.RIGHT_PAREN) return false;
+                if (token==TokenType.QUESTION) conditional++;
+                if (token==TokenType.COLON) { if (conditional==0) return true; conditional--; }
+            }
+            switch(token) {
+                case LEFT_PAREN -> parentheses++;
+                case RIGHT_PAREN -> parentheses--;
+                case LEFT_BRACKET -> brackets++;
+                case RIGHT_BRACKET -> brackets--;
+                case LEFT_BRACE -> braces++;
+                case RIGHT_BRACE -> braces--;
+                default -> { }
+            }
+        }
+    }
+
+    private Statement parseRangeFor(Token start) {
+        Parser.ParsedNamedType named=typeReader.parseNamedType("期望范围变量类型", "期望范围变量名");
+        Token colon=state.consume(TokenType.COLON, "范围 for 声明期望 ':'");
+        Expression initializer=state.check(TokenType.LEFT_BRACE)
+                ? parseCppInitializer() : expressionManager.parseExpression();
+        Token close=state.consume(TokenType.RIGHT_PAREN, "范围 for 期望 ')'");
+        // The range initializer is resolved outside the iteration variable's scope.
+        if(named!=null)typeReader.declareOrdinaryName(named.name(),named.range());
+        Statement body=parseControlledStatement();
+        if(start==null||named==null||colon==null||initializer==null||close==null||body==null)return null;
+        if(named.type().isFunction())state.report(named.range(),"范围变量必须声明对象或引用");
+        var declaration=new VarDeclStmt(named.name(),named.type(),null,named.alignmentSpecs(),named.range());
+        var result=new CppRangeForStmt(declaration,initializer,body,SourceRange.span(start.range(),body.range()));
+        state.build(result,"CppRangeForStmt",result.range());
+        return result;
     }
 
     private SwitchStmt parseSwitchStmt() {

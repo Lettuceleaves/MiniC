@@ -6,6 +6,7 @@ import minic.compiler.lexer.token.TokenType;
 import minic.compiler.parser.node.AstChildren;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.CppInitializer;
+import minic.compiler.parser.node.CppRangeForStmt;
 import minic.compiler.parser.node.CppConstructionExpr;
 import minic.compiler.parser.node.CppDestructorCallExpr;
 import minic.compiler.parser.node.CppNewExpr;
@@ -2488,6 +2489,7 @@ public final class CppNameBinder {
                         body(n.thenBranch(), scope), body(n.elseBranch(), scope), n.range());
                 case WhileStmt n -> new WhileStmt(fullExpression(contextualBool(expression(n.condition(), namespace, scope)), false, n), body(n.body(), scope), n.range());
                 case DoWhileStmt n -> new DoWhileStmt(body(n.body(), scope), fullExpression(contextualBool(expression(n.condition(), namespace, scope)), false, n), n.range());
+                case CppRangeForStmt n -> rangeFor(n, scope);
                 case ForStmt n -> {
                     Local loop = new Local(scope, namespace);
                     Statement initializer = statement(n.initializer(), loop);
@@ -2527,6 +2529,118 @@ public final class CppNameBinder {
                 }
             };
             return mapped(node, core);
+        }
+
+        /** C++17 exposition lowering: one range object, one begin/end pair, one scoped element per iteration. */
+        private Statement rangeFor(CppRangeForStmt node, Local parent) {
+            Namespace namespace=parent.namespace;
+            Local loop=new Local(parent,namespace);
+            Expression range;
+            if(isBraced(node.initializer())) {
+                var syntax=new CppInitializer(CppInitializer.Kind.COPY_LIST,listItems(node.initializer()),node.initializer().range());
+                MiniType type=deduceVariableType(MiniType.AUTO,syntax,
+                        new AggregateInitExpr(syntax.arguments(),syntax.range()),namespace,parent,syntax.range());
+                range=bindListValue(type,syntax,namespace,parent);
+            } else range=expression(node.initializer(),namespace,parent,true);
+            MiniType type=declaredExpressionType(range);
+            if(type==null || !(type.isArray()||type.isStruct())) {
+                report("CPP004",node.initializer().range(),"A range-for initializer must provide an array or begin/end customization.");
+                return new BlockStmt(List.of(),node.range());
+            }
+            requireComplete(type,node.initializer().range());
+            Expression pointer=valueCategory(range)==CppValueCategory.LVALUE || addressableObject(range)
+                    ? address(range) : materialize(type,range);
+            pointer=extendTemporaryLifetime(pointer,new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE,node));
+            Entity rangeEntity=declareLocal(freshName("range"),type.referenceTo(),loop,node.initializer().range());
+            Statement rangeVariable=boundRangeLocal(rangeEntity,pointer,node.initializer(),node);
+            Expression rangeName=new NameExpr(rangeEntity.name,node.initializer().range());
+            Expression begin;
+            Expression end;
+            if(type.isArray()) {
+                MiniType element=MiniType.qualified(type.elementType(),type.qualifiers());
+                begin=typed(new CastExpr(coreType(element).pointerTo(),expression(rangeName,namespace,loop),rangeName.range()),element.pointerTo());
+                end=typed(new BinaryExpr(expression(rangeName,namespace,loop),TokenType.PLUS,
+                        new IntegerLiteralExpr(type.arrayLength(),Integer.toString(type.arrayLength()),rangeName.range()),rangeName.range()),element.pointerTo());
+            } else {
+                TypeEntity owner=objectType(type);
+                boolean members=rangeMember(owner,"begin")&&rangeMember(owner,"end");
+                begin=rangeAccessCall("begin",rangeName,type,members,namespace,loop);
+                end=rangeAccessCall("end",rangeName,type,members,namespace,loop);
+            }
+            MiniType beginType=checkedDeduced(declaredExpressionType(begin),node.initializer().range());
+            MiniType endType=checkedDeduced(declaredExpressionType(end),node.initializer().range());
+            beginType=TypeCompatibility.decay(beginType).unqualified();
+            endType=TypeCompatibility.decay(endType).unqualified();
+            Entity beginEntity=declareLocal(freshName("range_begin"),beginType,loop,node.range());
+            Statement beginVariable=boundRangeLocal(beginEntity,convertCallValue(beginType,begin,node.initializer()),node.initializer(),node);
+            Entity endEntity=declareLocal(freshName("range_end"),endType,loop,node.range());
+            Statement endVariable=boundRangeLocal(endEntity,convertCallValue(endType,end,node.initializer()),node.initializer(),node);
+            var beginName=new NameExpr(beginEntity.name,node.declaration().range());
+            var endName=new NameExpr(endEntity.name,node.declaration().range());
+            Expression condition=fullExpression(contextualBool(expression(new BinaryExpr(beginName,TokenType.BANG_EQUAL,endName,node.range()),namespace,loop)),false,node);
+            Expression step=fullExpression(expression(new UnaryExpr(TokenType.PLUS_PLUS,beginName,node.range()),namespace,loop),false,node);
+            Local iteration=new Local(loop,namespace);
+            Expression element=new UnaryExpr(TokenType.STAR,beginName,node.declaration().range());
+            var declaration=node.declaration();
+            var syntax=new CppInitializer(CppInitializer.Kind.COPY,List.of(element),declaration.range());
+            var initialized=new VarDeclStmt(declaration.name(),declaration.type(),element,declaration.alignmentSpecs(),syntax,declaration.range());
+            Statement variable=statement(initialized,iteration);
+            mapped(declaration,variable);
+            // Unlike an ordinary nested block, the body's outermost declarations share the range variable scope.
+            Statement body=node.body() instanceof BlockStmt block ? block(block,iteration,false) : body(node.body(),iteration);
+            List<Statement> iterationStatements=new ArrayList<>(localPreludes.getOrDefault(variable,List.of()));
+            iterationStatements.add(variable);iterationStatements.add(body);
+            Statement iterationBody=new BlockStmt(withLocalCleanups(iterationStatements),node.body().range());
+            Statement forLoop=new ForStmt(null,condition,step,iterationBody,node.range());
+            List<Statement> sequence=new ArrayList<>();
+            for(Statement variableStatement:List.of(rangeVariable,beginVariable,endVariable)) {
+                sequence.addAll(localPreludes.getOrDefault(variableStatement,List.of()));sequence.add(variableStatement);
+            }
+            sequence.add(forLoop);
+            return new BlockStmt(withLocalCleanups(sequence),node.range());
+        }
+
+        private Statement boundRangeLocal(Entity entity,Expression initializer,Expression origin,AstNode owner) {
+            MiniType type=entity.type;
+            var lifetime=lowerLifetime(initializer,type.isStruct()||type.isArray(),owner);
+            var variable=new VarDeclStmt(entity.coreName,coreType(type),lifetime.expression(),origin.range());
+            if(!lifetime.declarations().isEmpty())localPreludes.put(variable,lifetime.declarations());
+            Expression storage=typed(new NameExpr(entity.coreName,origin.range()),coreType(type));
+            Expression cleanup=destruction(type,address(storage),origin.range());
+            if(lifetime.scopeCleanup()!=null)cleanup=cleanup==null?lifetime.scopeCleanup()
+                    :new CommaExpr(List.of(cleanup,lifetime.scopeCleanup()),origin.range());
+            if(cleanup!=null)localCleanups.put(variable,cleanup);
+            return variable;
+        }
+
+        private boolean rangeMember(TypeEntity owner,String name) {
+            return owner!=null&&(owner.methods.containsKey(name)||owner.staticFields.containsKey(name)
+                    ||owner.memberTypes.containsKey(name)||fieldPath(owner.type,name,new HashSet<>())!=null);
+        }
+
+        private Expression rangeAccessCall(String name,Expression range,MiniType type,boolean members,Namespace namespace,Local scope) {
+            if(members)return expression(new CallExpr(new FieldAccessExpr(range,name,false,range.range()),List.of(),range.range()),namespace,scope);
+            Set<Namespace> associated=new LinkedHashSet<>();
+            rangeAssociatedNamespaces(type,associated,new HashSet<>());
+            Set<Entity> candidates=new LinkedHashSet<>();
+            for(Namespace owner:associated)if(owner.values.get(name) instanceof OverloadSet set)candidates.addAll(set.functions);
+            if(candidates.isEmpty()) {
+                report("CPP004",range.range(),"No ADL-only "+name+" customization exists for this range.");
+                return typed(new IntegerLiteralExpr(0,"0",range.range()),MiniType.INT);
+            }
+            var callee=new NameExpr(name,range.range());
+            var call=new CallExpr(callee,List.of(range),range.range());
+            BoundCallee binding=bindOverloadedCall(new OverloadSet(new ArrayList<>(candidates)),callee,callee,call.arguments(),namespace,scope,null,null);
+            return bindCallExpression(call,binding,namespace,scope);
+        }
+
+        private void rangeAssociatedNamespaces(MiniType type,Set<Namespace> associated,Set<String> seen) {
+            associatedNamespaces(type,associated);
+            TypeEntity owner=objectType(type);
+            if(owner==null||!seen.add(owner.canonicalName))return;
+            MiniType.TemplateIdType instance=instanceKeys.get(owner);
+            if(instance!=null)for(var argument:instance.arguments())if(argument instanceof TemplateArgument.Type item)
+                rangeAssociatedNamespaces(item.type(),associated,seen);
         }
 
         private Expression fullExpression(Expression value, boolean resultOwned, AstNode owner) {
@@ -2685,50 +2799,7 @@ public final class CppNameBinder {
                             ? typed(new CastExpr(firstType.unqualified(), selected, n.range()), firstType.unqualified())
                             : selected;
                 }
-                case CallExpr n -> {
-                    BoundCallee binding = bindCallee(n.callee(), n.arguments(), namespace, local);
-                    Expression callee = binding.expression();
-                    if (objectType(declaredExpressionType(callee)) != null) {
-                        List<Expression> sources = new ArrayList<>(); sources.add(n.callee()); sources.addAll(n.arguments());
-                        List<Expression> values = new ArrayList<>(); values.add(callee);
-                        values.addAll(expressions(n.arguments(), namespace, local));
-                        yield operatorExpression("operator()", n, sources, values, namespace, local, true);
-                    }
-                    MiniType.FunctionType signature = functionSignature(declaredExpressionType(callee));
-                    if (signature != null) {
-                        if(n!=decltypeOperand) requireComplete(signature.returnType(), n.range());
-                        signature.parameterTypes().forEach(t -> requireComplete(t, n.range()));
-                        requireSupportedCallLifetime(signature.returnType(), signature.parameterTypes(), n.range());
-                        if(n!=decltypeOperand) destructorForUse(signature.returnType(), n.range());
-                        signature.parameterTypes().forEach(type -> destructorForUse(type, n.range()));
-                    }
-                    List<Expression> arguments = new ArrayList<>();
-                    if (binding.receiver() != null) arguments.add(binding.receiver());
-                    int offset = arguments.size();
-                    if (binding.arguments() != null) arguments.addAll(binding.arguments());
-                    else for (int index = 0; index < n.arguments().size(); index++) {
-                        Expression argument = n.arguments().get(index);
-                        MiniType parameter = signature != null && index + offset < signature.parameterTypes().size()
-                                ? signature.parameterTypes().get(index + offset) : null;
-                        arguments.add(parameter != null && parameter.isReference()
-                                ? bindReference(parameter, argument, namespace, local, argument.range())
-                                : convertCallValue(parameter, expressionForTarget(parameter, argument, namespace, local), argument));
-                    }
-                    List<Integer> evaluationOrder = new ArrayList<>();
-                    if (binding.receiver() != null) evaluationOrder.add(0);
-                    for (int index : n.argumentEvaluationOrder()) evaluationOrder.add(index + offset);
-                    for(int index=n.arguments().size()+offset;index<arguments.size();index++)evaluationOrder.add(index);
-                    CallExpr call = new CallExpr(callee, arguments, evaluationOrder, n.range());
-                    if (signature != null) declaredExpressionTypes.put(call, signature.returnType().isReference()
-                            ? coreType(signature.returnType()) : signature.returnType());
-                    if (signature != null && signature.returnType().isReference()) {
-                        UnaryExpr object = new UnaryExpr(TokenType.STAR, call, n.range());
-                        declaredExpressionTypes.put(object, signature.returnType().referent());
-                        yield object;
-                    }
-                    yield signature != null && signature.returnType().isStruct()
-                            ? recordPrvalue(signature.returnType(), call, n.range()) : call;
-                }
+                case CallExpr n -> bindCallExpression(n, bindCallee(n.callee(), n.arguments(), namespace, local), namespace, local);
                 case CastExpr n -> {
                     MiniType type = normalizeType(n.targetType(), namespace, local, n.range());
                     Expression operand = expressionForTarget(type, n.operand(), namespace, local);
@@ -2921,6 +2992,51 @@ public final class CppNameBinder {
                         AMPERSAND_AMPERSAND, PIPE_PIPE -> true;
                 default -> false;
             };
+        }
+
+        /** A selected callee can also come from ADL-only range customization lookup. */
+        private Expression bindCallExpression(CallExpr n, BoundCallee binding, Namespace namespace, Local local) {
+                    Expression callee = binding.expression();
+                    if (objectType(declaredExpressionType(callee)) != null) {
+                        List<Expression> sources = new ArrayList<>(); sources.add(n.callee()); sources.addAll(n.arguments());
+                        List<Expression> values = new ArrayList<>(); values.add(callee);
+                        values.addAll(expressions(n.arguments(), namespace, local));
+                        return operatorExpression("operator()", n, sources, values, namespace, local, true);
+                    }
+                    MiniType.FunctionType signature = functionSignature(declaredExpressionType(callee));
+                    if (signature != null) {
+                        if(n!=decltypeOperand) requireComplete(signature.returnType(), n.range());
+                        signature.parameterTypes().forEach(t -> requireComplete(t, n.range()));
+                        requireSupportedCallLifetime(signature.returnType(), signature.parameterTypes(), n.range());
+                        if(n!=decltypeOperand) destructorForUse(signature.returnType(), n.range());
+                        signature.parameterTypes().forEach(type -> destructorForUse(type, n.range()));
+                    }
+                    List<Expression> arguments = new ArrayList<>();
+                    if (binding.receiver() != null) arguments.add(binding.receiver());
+                    int offset = arguments.size();
+                    if (binding.arguments() != null) arguments.addAll(binding.arguments());
+                    else for (int index = 0; index < n.arguments().size(); index++) {
+                        Expression argument = n.arguments().get(index);
+                        MiniType parameter = signature != null && index + offset < signature.parameterTypes().size()
+                                ? signature.parameterTypes().get(index + offset) : null;
+                        arguments.add(parameter != null && parameter.isReference()
+                                ? bindReference(parameter, argument, namespace, local, argument.range())
+                                : convertCallValue(parameter, expressionForTarget(parameter, argument, namespace, local), argument));
+                    }
+                    List<Integer> evaluationOrder = new ArrayList<>();
+                    if (binding.receiver() != null) evaluationOrder.add(0);
+                    for (int index : n.argumentEvaluationOrder()) evaluationOrder.add(index + offset);
+                    for(int index=n.arguments().size()+offset;index<arguments.size();index++)evaluationOrder.add(index);
+                    CallExpr call = new CallExpr(callee, arguments, evaluationOrder, n.range());
+                    if (signature != null) declaredExpressionTypes.put(call, signature.returnType().isReference()
+                            ? coreType(signature.returnType()) : signature.returnType());
+                    if (signature != null && signature.returnType().isReference()) {
+                        UnaryExpr object = new UnaryExpr(TokenType.STAR, call, n.range());
+                        declaredExpressionTypes.put(object, signature.returnType().referent());
+                        return object;
+                    }
+                    return signature != null && signature.returnType().isStruct()
+                            ? recordPrvalue(signature.returnType(), call, n.range()) : call;
         }
 
         private MiniType stringLiteralType(StringLiteralExpr literal) {
