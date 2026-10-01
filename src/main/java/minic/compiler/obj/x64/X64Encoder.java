@@ -219,8 +219,18 @@ public final class X64Encoder {
     }
 
     private void shift(ByteWriter w, MachineInstruction i, int group, Map<String, Integer> symbols, List<MachineRelocation> relocs) {
-        count(i, 2); if (!reg(i.operands().get(1)).name.equals("cl")) throw new IllegalArgumentException("variable shift count must use cl");
+        count(i, 2);
         MachineOperand target = i.operands().get(0); int width = width(target);
+        if (i.operands().get(1) instanceof ImmediateOperand immediate) {
+            if (width != 8 && width != 16 && width != 32 && width != 64)
+                throw new IllegalArgumentException("integer shift target must have width 8, 16, 32 or 64");
+            if (immediate.value() < 0 || immediate.value() > 255)
+                throw new IllegalArgumentException("immediate shift count must fit an unsigned byte");
+            emitRm(w, operandSizePrefix(width), width == 64, new int[]{width == 8 ? 0xC0 : 0xC1}, group, target, symbols, relocs);
+            w.u8((int) immediate.value());
+            return;
+        }
+        if (!reg(i.operands().get(1)).name.equals("cl")) throw new IllegalArgumentException("variable shift count must use cl");
         emitRm(w, operandSizePrefix(width), width == 64, new int[]{width == 8 ? 0xD2 : 0xD3}, group, target, symbols, relocs);
     }
 

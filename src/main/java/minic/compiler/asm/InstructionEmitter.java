@@ -242,6 +242,7 @@ final class InstructionEmitter {
 
     private void emitBinary(StringBuilder builder, IrBinaryInstruction binary) {
         IrType operationType = binaryOperationType(binary);
+        if (emitPowerOfTwoDivision(builder, binary, operationType)) return;
         if (emitBinaryToRegisterHome(builder, binary, operationType)) return;
         String leftRegister = arithmeticRegister("rax", operationType);
         String rightRegister = arithmeticRegister("rcx", operationType);
@@ -323,6 +324,58 @@ final class InstructionEmitter {
                 builder, binary.result(),
                 valueEmitter.storeRegister("rax", binary.result().type())
         );
+    }
+
+    /** Exact integer division by a positive power of two, using only reserved scratch registers. */
+    private boolean emitPowerOfTwoDivision(StringBuilder builder, IrBinaryInstruction binary, IrType type) {
+        if (!optimizeInstructions || !type.isIntegerScalar() || type.sizeBytes() < 4
+                || binary.left().type() != type || binary.result().type() != type
+                || !(binary.right() instanceof IrConstant constant) || constant.type() != type
+                || (binary.operator() != IrBinaryOperator.DIVIDE && binary.operator() != IrBinaryOperator.MODULO)) return false;
+        long divisor = type.sizeBytes() == 4
+                ? (type.isUnsignedInteger() ? constant.value() & 0xffffffffL : (int) constant.value())
+                : constant.value();
+        // The unsigned high bit is a valid divisor; signed negative values keep the hardware path,
+        // including -1, whose minimum-value overflow must not be silently optimized away.
+        if (divisor == 0 || (divisor & (divisor - 1)) != 0 || type.isSignedInteger() && divisor < 0) return false;
+        int shift = Long.numberOfTrailingZeros(divisor);
+        String accumulator = arithmeticRegister("rax", type);
+        String bias = arithmeticRegister("rdx", type);
+        valueEmitter.emitLoadValue(builder, binary.left(), accumulator);
+        if (shift == 0) {
+            if (binary.operator() == IrBinaryOperator.MODULO)
+                builder.append("    xor eax, eax").append(System.lineSeparator());
+        } else if (type.isUnsignedInteger()) {
+            if (binary.operator() == IrBinaryOperator.DIVIDE)
+                builder.append("    shr ").append(accumulator).append(", ").append(shift).append(System.lineSeparator());
+            else emitPowerOfTwoMask(builder, type, divisor - 1);
+        } else {
+            // bias = x < 0 ? divisor-1 : 0. This addition cannot overflow: positive x adds zero,
+            // negative x moves towards zero. It implements truncation rather than floor division.
+            builder.append(type.sizeBytes() == 8 ? "    cqo" : "    cdq").append(System.lineSeparator());
+            builder.append("    shr ").append(bias).append(", ").append(type.sizeBytes() * 8 - shift).append(System.lineSeparator());
+            builder.append("    add ").append(accumulator).append(", ").append(bias).append(System.lineSeparator());
+            if (binary.operator() == IrBinaryOperator.DIVIDE)
+                builder.append("    sar ").append(accumulator).append(", ").append(shift).append(System.lineSeparator());
+            else {
+                emitPowerOfTwoMask(builder, type, divisor - 1);
+                builder.append("    sub ").append(accumulator).append(", ").append(bias).append(System.lineSeparator());
+            }
+        }
+        // Read the old operand fully before writing the result, including a non-SSA in-place update.
+        valueEmitter.emitStoreTemporary(builder, binary.result(), accumulator);
+        return true;
+    }
+
+    private void emitPowerOfTwoMask(StringBuilder builder, IrType type, long mask) {
+        String accumulator = arithmeticRegister("rax", type);
+        // x64 AND r64,imm32 sign-extends its immediate. Wide positive masks need a scratch GPR.
+        if (mask <= Integer.MAX_VALUE) {
+            builder.append("    and ").append(accumulator).append(", ").append(mask).append(System.lineSeparator());
+        } else {
+            builder.append("    mov rcx, ").append(mask).append(System.lineSeparator());
+            builder.append("    and ").append(accumulator).append(", rcx").append(System.lineSeparator());
+        }
     }
 
     /** Integer IR values are already evaluated and loading one into rcx changes no allocated home. */
