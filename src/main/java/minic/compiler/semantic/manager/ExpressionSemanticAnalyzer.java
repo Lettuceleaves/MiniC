@@ -105,6 +105,7 @@ final class ExpressionSemanticAnalyzer {
             };
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case Expression.LetExpr capture -> analyzeCapture(capture, scope);
+            case Expression.MaterializeExpr temporary -> analyzeMaterialization(temporary, scope);
             case AssignmentExpr assignmentExpr -> analyzeAssignment(assignmentExpr, scope);
             case BinaryExpr binaryExpr -> {
                 MiniType leftType = analyzeExpression(binaryExpr.left(), scope);
@@ -177,6 +178,18 @@ final class ExpressionSemanticAnalyzer {
         bodyScope.define(symbol);
         valueCaptures.add(symbol);
         return analyzeExpression(capture.body(), bodyScope);
+    }
+
+    private MiniType analyzeMaterialization(Expression.MaterializeExpr temporary, Scope scope) {
+        MiniType type = temporary.type();
+        MiniType value = analyzeExpression(temporary.initializer(), scope);
+        if ((!type.isScalar() && !type.isPointer() && !type.isStruct())
+                || (!TypeLayout.hasFixedLayout(type) && !hasStructLayout(type))) {
+            report(temporary.range(), "临时对象需要完整的标量、指针或记录类型");
+        } else if (!TypeCompatibility.isAssignmentCompatible(type, value, temporary.initializer())) {
+            report(temporary.range(), "临时对象初始化类型不兼容");
+        }
+        return type.pointerTo();
     }
 
     private MiniType analyzeComma(CommaExpr commaExpr, Scope scope) {

@@ -13,6 +13,27 @@ import java.util.Optional;
  */
 public interface Expression extends AstNode {
 
+    /** Source ownership for later cleanup insertion; the owner is not an executable child. */
+    record TemporaryLifetime(Kind kind, AstNode sourceOwner) {
+        public TemporaryLifetime {
+            Objects.requireNonNull(kind, "kind");
+            Objects.requireNonNull(sourceOwner, "sourceOwner");
+        }
+
+        public enum Kind { REFERENCE_SCOPE, FULL_EXPRESSION }
+    }
+
+    /** Compiler-only object initialization whose result is the address of its stack storage. */
+    record MaterializeExpr(MiniType type, Expression initializer, TemporaryLifetime lifetime, SourceRange range)
+            implements Expression {
+        public MaterializeExpr {
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(initializer, "initializer");
+            Objects.requireNonNull(lifetime, "lifetime");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
     /** Compiler-only, expression-scoped value capture; it does not create an addressable object. */
     record LetExpr(String name, MiniType type, Expression initializer, Expression body, SourceRange range)
             implements Expression {

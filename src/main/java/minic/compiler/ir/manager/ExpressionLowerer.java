@@ -92,6 +92,21 @@ final class ExpressionLowerer {
     }
 
     IrValue lowerExpression(Expression expression) {
+        if (expression instanceof Expression.MaterializeExpr temporary) {
+            IrValue value = lowerExpression(temporary.initializer());
+            IrLocal object = builder.declareAnonymousLocal(temporary.type(), temporary.range());
+            builder.addInstruction(new IrDeclareLocalInstruction(object, temporary.range()));
+            IrTemporary address = builder.newTemporary(IrType.POINTER);
+            builder.addInstruction(new IrAddressOfLocalInstruction(address, object, temporary.range()));
+            if (temporary.type().isStruct()) {
+                builder.addInstruction(new IrMemCopyInstruction(address, value, builder.sizeOf(temporary.type()),
+                        temporary.type().isVolatileQualified(), temporary.range()));
+            } else {
+                builder.addInstruction(new IrStoreLocalInstruction(object,
+                        castIfNeeded(value, object.type(), temporary.range()), temporary.type().isVolatileQualified(), temporary.range()));
+            }
+            return address;
+        }
         if (expression instanceof Expression.LetExpr capture) {
             IrValue value = captureCallValue(castIfNeeded(lowerExpression(capture.initializer()),
                     IrTypeLowerer.lower(capture.type()), capture.initializer().range()), capture.range());
