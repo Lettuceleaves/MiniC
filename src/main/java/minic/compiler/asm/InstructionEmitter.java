@@ -86,14 +86,16 @@ final class InstructionEmitter {
     ) {
         switch (instruction) {
             case IrDeclareLocalInstruction declareLocal -> {
-                builder.append("    mov ").append(frame.localInitializedSlot(declareLocal.local()))
+                if (frame.hasLocalInitializedFlag(declareLocal.local()))
+                    builder.append("    mov ").append(frame.localInitializedSlot(declareLocal.local()))
                         .append(", 0").append(System.lineSeparator());
             }
             case IrStoreLocalInstruction storeLocal -> {
                 String register = storeLocalRegister(storeLocal.local().type());
                 valueEmitter.emitLoadValue(builder, storeLocal.value(), register);
                 emitStoreRegisterToMemory(builder, frame.localSlot(storeLocal.local()), storeLocal.local().type(), register);
-                builder.append("    mov ").append(frame.localInitializedSlot(storeLocal.local()))
+                if (frame.hasLocalInitializedFlag(storeLocal.local()))
+                    builder.append("    mov ").append(frame.localInitializedSlot(storeLocal.local()))
                         .append(", 1").append(System.lineSeparator());
             }
             case IrCheckInitializedInstruction checkInitialized -> {

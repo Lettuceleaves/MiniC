@@ -39,16 +39,19 @@ final class TemporaryFrameLayoutTest {
     @Test void temporaryBaseIsAlignedAndNeverAliasesParameterLocalOrInitializationFlag() {
         var parameter=new IrParameter("parameter",MiniType.CHAR,IrType.CHAR,R);
         var local=new IrLocal("local","local",MiniType.SHORT,IrType.SHORT,2,2,R);
+        var checked=new IrLocal("checked","checked",MiniType.INT,IrType.INT,4,4,R);
         var address=new IrTemporary("address",IrType.POINTER);
         var wide=new IrTemporary("wide",IrType.LONG_LONG);
         var narrow=new IrTemporary("narrow",IrType.CHAR);
         var function=new IrFunction("function",MiniType.INT,List.of(parameter),false,List.of(new IrBlock("entry",List.of(
                 new IrDeclareLocalInstruction(local,R),new IrAddressOfLocalInstruction(address,local,R),
+                new IrDeclareLocalInstruction(checked,R),new IrCheckInitializedInstruction(checked,R),
                 new IrMoveInstruction(wide,new IrConstant(3,IrType.LONG_LONG),R),
                 new IrMoveInstruction(narrow,new IrConstant(2,IrType.CHAR),R),new IrReturnInstruction(ONE,R)))),R);
         var layout=FrameLayout.create(function,true);
         assertEquals(1,layout.parameterOffsets().get("parameter"));
-        int fixedEnd=layout.localInitializedOffsets().get("local");
+        int fixedEnd=layout.localInitializedOffsets().get("checked");
+        assertFalse(layout.localInitializedOffsets().containsKey("local"));
         assertEquals(0,layout.temporaryOffsets().get("address")%8);
         assertEquals(0,layout.temporaryOffsets().get("wide")%8);
         assertTrue(layout.temporaryOffsets().get("address")-8>=fixedEnd);
@@ -99,7 +102,8 @@ final class TemporaryFrameLayoutTest {
         var local=new IrLocal("local","local",MiniType.CHAR,IrType.CHAR,1,1,R);
         var temporary=new IrTemporary("temporary",IrType.CHAR);
         var function=new IrFunction("function",MiniType.INT,parameters,false,List.of(new IrBlock("entry",List.of(
-                new IrDeclareLocalInstruction(local,R),new IrMoveInstruction(temporary,new IrConstant(1,IrType.CHAR),R),
+                new IrDeclareLocalInstruction(local,R),new IrCheckInitializedInstruction(local,R),
+                new IrMoveInstruction(temporary,new IrConstant(1,IrType.CHAR),R),
                 new IrReturnInstruction(ONE,R)))),R);
         var baseline=FrameLayout.create(function);
         var optimized=FrameLayout.create(function,true);

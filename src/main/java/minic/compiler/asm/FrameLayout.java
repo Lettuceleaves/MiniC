@@ -26,6 +26,8 @@ import minic.compiler.ir.optimize.TemporarySlotPlan;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 
 record FrameLayout(
         Map<String, Integer> parameterOffsets,
@@ -41,6 +43,14 @@ record FrameLayout(
         FrameLayout baseline = create(function);
         if (!reuseTemporarySlots) return baseline;
         TemporarySlotPlan plan = TemporarySlotPlan.allocate(function);
+        Set<String> checkedLocals = new HashSet<>();
+        Set<String> addressedLocals = new HashSet<>();
+        for (var block : function.blocks()) for (IrInstruction instruction : block.instructions()) {
+            if (instruction instanceof IrCheckInitializedInstruction check) checkedLocals.add(check.local().name());
+            if (instruction instanceof IrAddressOfLocalInstruction address) addressedLocals.add(address.local().name());
+        }
+        // Match the native check contract: private flags cannot observe writes through aliases.
+        checkedLocals.removeAll(addressedLocals);
         LinkedHashMap<String, Integer> localOffsets = new LinkedHashMap<>();
         LinkedHashMap<String, Integer> initializedOffsets = new LinkedHashMap<>();
         LinkedHashMap<String, Integer> temporaries = new LinkedHashMap<>();
@@ -54,14 +64,20 @@ record FrameLayout(
                 case IrStoreLocalInstruction value -> value.local();
                 default -> null;
             };
-            if (local != null) nextOffset = ensureLocal(local, localOffsets, initializedOffsets, nextOffset);
+            if (local != null) nextOffset = ensureLocal(local, localOffsets, initializedOffsets, nextOffset,
+                    checkedLocals.contains(local.name()));
         }
         // Fixed homes and source objects never alias temporary slots. Plan offsets require an aligned base.
         int temporaryBase = plan.temporaryCount() == 0 ? nextOffset : alignTo(nextOffset, Long.BYTES);
         plan.slots().forEach((name, slot) -> temporaries.put(name, Math.addExact(temporaryBase, slot.offset())));
         int frameSize = CallingConvention.alignTo16(Math.addExact(baseline.outgoingArgumentAreaSize(), Math.addExact(temporaryBase, plan.storageBytes())));
         // Alignment padding in a tiny function must not increase the native frame.
-        if (frameSize > baseline.frameSize()) return baseline;
+        if (frameSize > baseline.frameSize()) {
+            var retainedFlags = new LinkedHashMap<>(baseline.localInitializedOffsets());
+            retainedFlags.keySet().retainAll(checkedLocals);
+            return new FrameLayout(baseline.parameterOffsets(), baseline.parameterTypes(), baseline.localOffsets(),
+                    retainedFlags, baseline.temporaryOffsets(), baseline.outgoingArgumentAreaSize(), baseline.frameSize(), null);
+        }
         return new FrameLayout(baseline.parameterOffsets(), baseline.parameterTypes(), localOffsets, initializedOffsets,
                 temporaries, baseline.outgoingArgumentAreaSize(), frameSize, plan);
     }
@@ -127,6 +143,10 @@ record FrameLayout(
             throw new IllegalArgumentException("incoming argument pseudo local has no initialized flag");
         }
         return stackSlot(localInitializedOffsets.get(local.name()), IrType.INT);
+    }
+
+    boolean hasLocalInitializedFlag(IrLocal local) {
+        return localInitializedOffsets.containsKey(local.name());
     }
 
     String temporarySlot(IrTemporary temporary) {
@@ -230,14 +250,21 @@ record FrameLayout(
             Map<String, Integer> localInitializedOffsets,
             int nextOffset
     ) {
+        return ensureLocal(local, localOffsets, localInitializedOffsets, nextOffset, true);
+    }
+
+    private static int ensureLocal(IrLocal local, Map<String, Integer> localOffsets,
+                                   Map<String, Integer> localInitializedOffsets, int nextOffset, boolean needsFlag) {
         if (local.incomingArgumentArea()) {
             return nextOffset;
         }
         if (!localOffsets.containsKey(local.name())) {
             nextOffset = alignTo(nextOffset + local.sizeBytes(), local.alignmentBytes());
             localOffsets.put(local.name(), nextOffset);
-            nextOffset += 4;
-            localInitializedOffsets.put(local.name(), nextOffset);
+            if (needsFlag) {
+                nextOffset += 4;
+                localInitializedOffsets.put(local.name(), nextOffset);
+            }
         }
         return nextOffset;
     }
