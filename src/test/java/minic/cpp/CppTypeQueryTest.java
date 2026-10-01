@@ -43,7 +43,9 @@ final class CppTypeQueryTest {
             "__is_constructible(int,)", "__is_assignable(1,int)" })
     void malformedTypeQueriesDiagnoseWithoutThrowing(String expression) {
         var source = new SourceFile("bad-query.cpp", "int main(){return " + expression + ";}");
-        var parser = new Parser(new Lexer(source, LanguageMode.CPP17_ALGORITHM));
+        var lexer = new Lexer(source, LanguageMode.CPP17_ALGORITHM);
+        lexer.lex();
+        var parser = new Parser(lexer);
         assertDoesNotThrow(parser::parse);
         assertFalse(parser.succeeded());
     }
@@ -216,7 +218,9 @@ final class CppTypeQueryTest {
     }
 
     private static Program parse(SourceFile source, LanguageMode mode) {
-        var parser = new Parser(new Lexer(source, mode));
+        var lexer = new Lexer(source, mode);
+        lexer.lex();
+        var parser = new Parser(lexer);
         Program program = parser.parse().program();
         assertTrue(parser.succeeded(), parser.errors()::toString);
         return program;

@@ -75,12 +75,14 @@ final class CppNoexceptModelTest {
     }
     @Test void malformedNoexceptOperandsDoNotCrashTheParser() {
         for(String text:List.of("int f()noexcept();","int main(){return noexcept();}","int f()noexcept(1;")) {
-            var parser=new Parser(new Lexer(new SourceFile("bad.cpp",text),LanguageMode.CPP17_ALGORITHM));
+            var lexer=new Lexer(new SourceFile("bad.cpp",text),LanguageMode.CPP17_ALGORITHM);lexer.lex();
+            var parser=new Parser(lexer);
             assertDoesNotThrow(parser::parse);assertFalse(parser.succeeded(),text);
         }
     }
     private static Program parse(SourceFile source,LanguageMode mode) {
-        var parser=new Parser(new Lexer(source,mode));parser.parse();assertTrue(parser.succeeded(),()->parser.errors().toString());return parser.result().program();
+        var lexer=new Lexer(source,mode);lexer.lex();
+        var parser=new Parser(lexer);parser.parse();assertTrue(parser.succeeded(),()->parser.errors().toString());return parser.result().program();
     }
     private static List<AstNode> nodes(AstNode node) {var result=new ArrayList<AstNode>();collect(node,result,Collections.newSetFromMap(new IdentityHashMap<>()));return result;}
     private static void collect(AstNode node,List<AstNode> nodes,Set<AstNode> seen){if(node==null||!seen.add(node))return;nodes.add(node);for(var child:AstChildren.of(node))collect(child,nodes,seen);}
