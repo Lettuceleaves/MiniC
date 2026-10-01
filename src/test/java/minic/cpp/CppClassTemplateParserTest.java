@@ -62,8 +62,7 @@ final class CppClassTemplateParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {
-        "template<class T=int>struct Box{};", "template<int N>struct Box{};",
-        "template<class T,class U>struct Box{};", "template<class... T>struct Box{};",
+        "template<int N>struct Box{};", "template<class... T>struct Box{};",
         "template<class T>T identity(T value){return value;}",
         "template<class T>struct Box{union{T value;};};",
         "template<class T>struct Box{typename T::type value;};"
@@ -129,12 +128,11 @@ final class CppClassTemplateParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {
-        "template<class T>struct Box{T value;};Box<Box<int>> value;",
         "template<class T>struct Box{T value;};template<>struct Box<int>{int value;};",
         "template<class T>struct Box{T value;};template<class T>struct Box<T*>{T* value;};",
         "template<class T>struct Box{T get();};template<class T>T Box<T>::get(){return T();}"
     })
-    void nestedClosingTokensSpecializationAndOutOfLineTemplatesRemainExplicitBoundaries(String text) throws Exception {
+    void specializationAndOutOfLineTemplatesRemainExplicitBoundaries(String text) throws Exception {
         assertTrue(reference(text));
         var parser=parse(text,LanguageMode.CPP17_ALGORITHM);
         assertFalse(parser.succeeded());

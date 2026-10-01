@@ -132,6 +132,8 @@ public final class CppTypeEnvironment {
         local.template = true;
     }
 
+    public String namespaceIdentity(String name) { requireName(name); return namespace.qualify(name); }
+
     public void exitTemplateScope() {
         if (local == null || !local.template) throw new IllegalStateException("no template scope to exit");
         local = local.parent;

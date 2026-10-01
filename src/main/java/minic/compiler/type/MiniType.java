@@ -133,6 +133,21 @@ public sealed interface MiniType permits
         };
     }
 
+    /** Structural substitution used by defaults and instantiation; no textual type-name rewriting. */
+    default MiniType substituteTemplateParameters(java.util.Map<TemplateParameterType, MiniType> arguments) {
+        return switch (this) {
+            case TemplateParameterType parameter -> arguments.getOrDefault(parameter, parameter);
+            case TemplateIdType id -> new TemplateIdType(id.templateName(), id.arguments().stream().map(t -> t.substituteTemplateParameters(arguments)).toList());
+            case QualifiedType qualified -> MiniType.qualified(qualified.baseType().substituteTemplateParameters(arguments), qualified.qualifiers());
+            case PointerType pointer -> pointer.pointee().substituteTemplateParameters(arguments).pointerTo();
+            case ReferenceType reference -> reference.referent().substituteTemplateParameters(arguments).referenceTo();
+            case ArrayType array -> array.elementType().substituteTemplateParameters(arguments).arrayOf(array.length());
+            case FunctionType function -> MiniType.function(function.returnType().substituteTemplateParameters(arguments),
+                    function.parameterTypes().stream().map(t -> t.substituteTemplateParameters(arguments)).toList(), function.variadic());
+            default -> this;
+        };
+    }
+
     /** Parameter identity is independent of its spelling in a redeclaration. */
     record TemplateParameterType(String owner, int index) implements NamedType {
         public TemplateParameterType {

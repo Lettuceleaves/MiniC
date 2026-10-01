@@ -252,34 +252,41 @@ public final class Parser extends Stage {
     private ClassTemplateDecl parseClassTemplate() {
         Token start = context.advance();
         if (context.consume(TokenType.LESS, "template 后期望 '<'") == null) return null;
-        Token key = context.peek();
-        if (!context.match(TokenType.TYPENAME) && !context.match(TokenType.CLASS)) {
-            context.unsupportedCpp(key.range(), "此切片仅支持单个类型模板参数");
-            return null;
-        }
-        if (context.check(TokenType.ELLIPSIS)) {
-            context.unsupportedCpp(context.peek().range(), "模板参数包尚未实现");
-            return null;
-        }
-        Token parameter = context.consume(TokenType.IDENTIFIER, "期望模板类型参数名称");
-        if (parameter == null) return null;
-        if (context.check(TokenType.EQUAL) || context.check(TokenType.COMMA)) {
-            context.unsupportedCpp(context.peek().range(), "默认模板实参或多个模板参数尚未实现");
-            return null;
-        }
-        if (context.consume(TokenType.GREATER, "模板参数后期望 '>'") == null) return null;
-        if (!(context.check(TokenType.STRUCT) || context.check(TokenType.CLASS))
-                || context.peekAt(1).type() != TokenType.IDENTIFIER) {
+        Token name = peekTemplateClassName();
+        if (name == null) {
             context.unsupportedCpp(context.peek().range(), "此切片仅支持类模板声明");
             return null;
         }
-        if (context.peekAt(2).type() == TokenType.LESS) {
-            context.unsupportedCpp(context.peekAt(2).range(), "类模板特化尚未实现");
-            return null;
-        }
-        Token name = context.peekAt(1);
-        var parameters = typeReader.enterClassTemplate(name, List.of(parameter));
+        String owner = typeReader.beginClassTemplate(name);
         try {
+            var parameters = new ArrayList<ClassTemplateDecl.TypeParameter>();
+            do {
+                Token key = context.peek();
+                if (!context.match(TokenType.TYPENAME) && !context.match(TokenType.CLASS)) {
+                    context.unsupportedCpp(key.range(), "非类型或特化模板参数尚未实现");
+                    return null;
+                }
+                if (context.check(TokenType.ELLIPSIS)) {
+                    context.unsupportedCpp(context.peek().range(), "模板参数包尚未实现");
+                    return null;
+                }
+                Token parameter = context.consume(TokenType.IDENTIFIER, "期望模板类型参数名称");
+                if (parameter == null) return null;
+                var identity = typeReader.declareTemplateParameter(name, parameter, owner, parameters.size());
+                MiniType defaultType = null;
+                if (context.match(TokenType.EQUAL)) {
+                    ParsedType parsed = typeReader.parseType("期望默认模板类型实参");
+                    if (parsed == null) return null;
+                    defaultType = parsed.type();
+                }
+                parameters.add(new ClassTemplateDecl.TypeParameter(parameter.lexeme(), identity, defaultType, parameter.range()));
+            } while (context.match(TokenType.COMMA));
+            if (context.consumeTemplateGreater("模板参数后期望 '>'") == null) return null;
+            if (context.peekAt(2).type() == TokenType.LESS) {
+                context.unsupportedCpp(context.peekAt(2).range(), "类模板特化尚未实现");
+                return null;
+            }
+            typeReader.registerClassTemplate(name, parameters);
             StructDecl record = declarationManager.parseStructDecl();
             if (record == null) return null;
             var result = new ClassTemplateDecl(parameters, record, SourceRange.span(start.range(), record.range()));
@@ -287,6 +294,24 @@ public final class Parser extends Stage {
             return result;
         } finally {
             typeReader.exitClassTemplate();
+        }
+    }
+
+    /** Find the owner without consuming the header or giving its name premature scope. */
+    private Token peekTemplateClassName() {
+        int depth = 1;
+        for (int offset = 0; ; offset++) {
+            TokenType token = context.peekAt(offset).type();
+            if (token == TokenType.EOF || token == TokenType.SEMICOLON || token == TokenType.LEFT_BRACE) return null;
+            if (token == TokenType.LESS) depth++;
+            if (token == TokenType.GREATER) depth--;
+            if (token == TokenType.GREATER_GREATER) depth -= 2;
+            if (depth <= 0) {
+                if (depth < 0) return null;
+                TokenType key = context.peekAt(offset + 1).type();
+                return (key == TokenType.STRUCT || key == TokenType.CLASS) && context.peekAt(offset + 2).type() == TokenType.IDENTIFIER
+                        ? context.peekAt(offset + 2) : null;
+            }
         }
     }
 
@@ -379,6 +404,8 @@ public final class Parser extends Stage {
         private int tokenLimit;
         private Token windowEnd;
         private boolean functionBoundaryRecovered;
+        private Token pendingTemplateGreater;
+        private Token previousOverride;
 
         private Context(List<Token> tokens, LanguageMode languageMode, boolean traceEnabled) {
             if (tokens.isEmpty()) {
@@ -436,10 +463,18 @@ public final class Parser extends Stage {
         }
 
         public Token advance() {
-            if (!isAtEnd()) {
+            Token token;
+            if (pendingTemplateGreater != null) {
+                token = pendingTemplateGreater;
+                pendingTemplateGreater = null;
+                previousOverride = token;
+            } else {
+                previousOverride = null;
+                if (!isAtEnd()) {
                 currentIndex++;
+                }
+                token = previous();
             }
-            Token token = previous();
             if (traceEvents != null) {
                 traceEvents.add(new TraceEvent(
                         "consume",
@@ -456,10 +491,15 @@ public final class Parser extends Stage {
         }
 
         public Token peek() {
+            if (pendingTemplateGreater != null) return pendingTemplateGreater;
             return currentIndex >= tokenLimit ? windowEnd : tokens.get(currentIndex);
         }
 
         public Token peekAt(int offset) {
+            if (pendingTemplateGreater != null) {
+                if (offset == 0) return pendingTemplateGreater;
+                offset--;
+            }
             int index = currentIndex + offset;
             if (index >= tokenLimit && windowEnd != null) return windowEnd;
             return index >= tokens.size() ? tokens.getLast() : tokens.get(index);
@@ -506,23 +546,37 @@ public final class Parser extends Stage {
             }
             int savedIndex = currentIndex, savedLimit = tokenLimit;
             Token savedEnd = windowEnd;
+            Token savedGreater = pendingTemplateGreater, savedPrevious = previousOverride;
             boolean savedRecovery = functionBoundaryRecovered;
             currentIndex = window.start();
             tokenLimit = window.end();
             SourceRange end = tokens.get(window.end() - 1).range();
             windowEnd = new Token(TokenType.EOF, "", new SourceRange(end.endLine(), end.endByte(), end.endLine(), end.endByte()));
             functionBoundaryRecovered = false;
+            pendingTemplateGreater = null; previousOverride = null;
             try { return parse.get(); }
             finally {
                 currentIndex = savedIndex;
                 tokenLimit = savedLimit;
                 windowEnd = savedEnd;
                 functionBoundaryRecovered = savedRecovery;
+                pendingTemplateGreater = savedGreater; previousOverride = savedPrevious;
             }
         }
 
         public Token previous() {
+            if (previousOverride != null) return previousOverride;
             return tokens.get(currentIndex - 1);
+        }
+
+        /** Split >> only when the type grammar asks for a template closing token. */
+        public Token consumeTemplateGreater(String message) {
+            if (!check(TokenType.GREATER_GREATER)) return consume(TokenType.GREATER, message);
+            Token both = advance();
+            SourceRange range = both.range();
+            previousOverride = new Token(TokenType.GREATER, ">", new SourceRange(range.startLine(), range.startByte(), range.startLine(), range.startByte() + 1));
+            pendingTemplateGreater = new Token(TokenType.GREATER, ">", new SourceRange(range.startLine(), range.startByte() + 1, range.endLine(), range.endByte()));
+            return previousOverride;
         }
 
         public void report(Token token, String message) {
@@ -713,6 +767,7 @@ public final class Parser extends Stage {
         private int anonymousAggregateIndex;
         private CppRecordParser cppRecordParser;
         private final java.util.Map<String, List<MiniType>> classTemplates = new java.util.LinkedHashMap<>();
+        private final java.util.Map<String, List<Optional<MiniType>>> classTemplateDefaults = new java.util.LinkedHashMap<>();
         private final java.util.Deque<String> activeClassTemplates = new java.util.ArrayDeque<>();
 
         public TypeReader(Context context) {
@@ -729,7 +784,23 @@ public final class Parser extends Stage {
 
         public boolean isCpp() { return context.languageMode() == LanguageMode.CPP17_ALGORITHM; }
 
-        public List<ClassTemplateDecl.TypeParameter> enterClassTemplate(Token name, List<Token> names) {
+        public String beginClassTemplate(Token name) {
+            String owner = cppTypes.namespaceIdentity(name.lexeme());
+            activeClassTemplates.push(owner);
+            cppTypes.enterTemplateScope();
+            return owner;
+        }
+
+        public MiniType.TemplateParameterType declareTemplateParameter(Token className, Token name, String owner, int index) {
+            if (name.lexeme().equals(className.lexeme())) context.report(className.range(), "类名不能重声明模板参数");
+            var type = new MiniType.TemplateParameterType(owner, index);
+            int before = cppTypes.diagnostics().size();
+            cppTypes.declareTypedef(name.lexeme(), type, name.range());
+            copyTypeDiagnostics(before);
+            return type;
+        }
+
+        public void registerClassTemplate(Token name, List<ClassTemplateDecl.TypeParameter> parameters) {
             int before = cppTypes.diagnostics().size();
             var existing = cppTypes.lookupElaborated(new QualifiedName(false, List.of(name.lexeme()), name.range()));
             var owner = (MiniType.StructType) cppTypes.declareStruct(name.lexeme(), false, false, name.range());
@@ -737,18 +808,22 @@ public final class Parser extends Stage {
             if (existing.kind() == CppTypeEnvironment.Kind.TYPE && owner.name().equals(existing.canonicalName())
                     && !classTemplates.containsKey(owner.name()))
                 context.report(name.range(), "类模板与普通类型声明冲突");
-            var parameters = new ArrayList<ClassTemplateDecl.TypeParameter>();
-            for (int index = 0; index < names.size(); index++) {
-                Token parameter = names.get(index);
-                if (parameter.lexeme().equals(name.lexeme())) context.report(name.range(), "类名不能重声明模板参数");
-                parameters.add(new ClassTemplateDecl.TypeParameter(parameter.lexeme(),
-                        new MiniType.TemplateParameterType(owner.name(), index), parameter.range()));
+            List<MiniType> previous = classTemplates.get(owner.name());
+            if (previous != null && previous.size() != parameters.size()) context.report(name.range(), "类模板重声明的参数数量不匹配");
+            List<Optional<MiniType>> priorDefaults = classTemplateDefaults.getOrDefault(owner.name(), List.of());
+            var defaults = new ArrayList<Optional<MiniType>>();
+            boolean seenDefault = false;
+            for (int index = 0; index < parameters.size(); index++) {
+                MiniType supplied = parameters.get(index).defaultType();
+                Optional<MiniType> old = index < priorDefaults.size() ? priorDefaults.get(index) : Optional.empty();
+                if (old.isPresent() && supplied != null) context.report(parameters.get(index).range(), "默认模板实参不能重复声明");
+                Optional<MiniType> actual = supplied == null ? old : Optional.of(supplied);
+                if (seenDefault && actual.isEmpty()) context.report(parameters.get(index).range(), "默认模板参数之后的参数也需要默认实参");
+                seenDefault |= actual.isPresent();
+                defaults.add(actual);
             }
             classTemplates.put(owner.name(), parameters.stream().map(p -> (MiniType) p.type()).toList());
-            activeClassTemplates.push(owner.name());
-            cppTypes.enterTemplateScope();
-            parameters.forEach(p -> cppTypes.declareTypedef(p.name(), p.type(), p.range()));
-            return List.copyOf(parameters);
+            classTemplateDefaults.put(owner.name(), List.copyOf(defaults));
         }
 
         public void exitClassTemplate() {
@@ -1537,19 +1612,30 @@ public final class Parser extends Stage {
             if (!(type instanceof MiniType.StructType record) || !classTemplates.containsKey(record.name())) return type;
             if (context.match(TokenType.LESS)) {
                 var arguments = new ArrayList<MiniType>();
-                do {
-                    ParsedType argument = parseType("期望类型模板实参");
-                    if (argument == null) return null;
-                    arguments.add(argument.type());
-                } while (context.match(TokenType.COMMA));
-                if (context.check(TokenType.GREATER_GREATER)) {
-                    context.unsupportedCpp(context.peek().range(), "相邻关闭符的嵌套模板实参尚未实现");
-                    return null;
+                if (!context.check(TokenType.GREATER) && !context.check(TokenType.GREATER_GREATER)) {
+                    do {
+                        ParsedType argument = parseType("期望类型模板实参");
+                        if (argument == null) return null;
+                        arguments.add(argument.type());
+                    } while (context.match(TokenType.COMMA));
                 }
-                if (context.consume(TokenType.GREATER, "模板实参后期望 '>'") == null) return null;
-                if (arguments.size() != classTemplates.get(record.name()).size()) {
+                if (context.consumeTemplateGreater("模板实参后期望 '>'") == null) return null;
+                List<MiniType> parameters = classTemplates.get(record.name());
+                if (arguments.size() > parameters.size()) {
                     context.report(nameRange, "类模板实参数量不匹配");
                     return null;
+                }
+                var substitution = new java.util.LinkedHashMap<MiniType.TemplateParameterType, MiniType>();
+                for (int index = 0; index < parameters.size(); index++) {
+                    if (index >= arguments.size()) {
+                        MiniType defaultType = classTemplateDefaults.get(record.name()).get(index).orElse(null);
+                        if (defaultType == null) {
+                            context.report(nameRange, "缺少必需的模板实参");
+                            return null;
+                        }
+                        arguments.add(defaultType.substituteTemplateParameters(substitution));
+                    }
+                    substitution.put((MiniType.TemplateParameterType) parameters.get(index), arguments.get(index));
                 }
                 return new MiniType.TemplateIdType(record.name(), arguments);
             }

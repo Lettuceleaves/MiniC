@@ -20,7 +20,10 @@ public record ClassTemplateDecl(List<TypeParameter> parameters, Declaration.Stru
         }
     }
 
-    public record TypeParameter(String name, MiniType.TemplateParameterType type, SourceRange range) implements AstNode {
+    public record TypeParameter(String name, MiniType.TemplateParameterType type, MiniType defaultType, SourceRange range) implements AstNode {
+        public TypeParameter(String name, MiniType.TemplateParameterType type, SourceRange range) {
+            this(name, type, null, range);
+        }
         public TypeParameter {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(type, "type");
