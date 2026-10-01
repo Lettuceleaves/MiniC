@@ -1,6 +1,7 @@
 package minic.cpp;
 
 import minic.compiler.LanguageMode;
+import minic.compiler.ir.optimize.OptimizationLevel;
 import minic.cpp.support.CppDifferentialHarness;
 import minic.cpp.support.CppOwnLibraryReference;
 import org.junit.jupiter.api.Tag;
@@ -105,11 +106,16 @@ final class CppLibraryRandomizedTest {
         template<class C>bool tree_ok(C& c){return true;}
         #endif
         """;
-    @ParameterizedTest(name="{0}") @MethodSource("cases")
-    void generatedTraceMatchesIndependentModel(String name,Program program)throws Exception{
+    static Stream<Arguments> casesWithOptimization(){return cases().flatMap(arguments->{
+        Object[] values=arguments.get();
+        return Stream.of(OptimizationLevel.BASELINE,OptimizationLevel.OPTIMIZED)
+                .map(level->Arguments.of(values[0],values[1],level));
+    });}
+    @ParameterizedTest(name="{0} [{2}]") @MethodSource("casesWithOptimization")
+    void generatedTraceMatchesIndependentModel(String name,Program program,OptimizationLevel level)throws Exception{
         var limits=new CppDifferentialHarness.Limits(Duration.ofSeconds(120),Duration.ofSeconds(45),10_000_000,1_048_576);
-        var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),limits,LanguageMode.CPP17_ALGORITHM)
-                .run(name,program.source(),"");
+        var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),limits,LanguageMode.CPP17_ALGORITHM,level)
+                .run(name+"-"+level,program.source(),"");
         var own=CppOwnLibraryReference.run(temporary,program.source(),"",limits);
         assertAll(()->assertTrue(report.passed(),report::describe),()->assertTrue(own.passed(),own::toString));
         for(var outcome:report.outcomes().values())assertEquals(program.expected(),outcome.stdout().replace("\r\n","\n"),report::describe);

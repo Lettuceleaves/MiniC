@@ -1,6 +1,7 @@
 package minic.cpp;
 
 import minic.compiler.LanguageMode;
+import minic.compiler.ir.optimize.OptimizationLevel;
 import minic.cpp.support.CppDifferentialHarness;
 import minic.cpp.support.CppOwnLibraryReference;
 import org.junit.jupiter.api.Tag;
@@ -63,15 +64,20 @@ final class CppLibrarySourcesTest {
         Arguments.of("library-lookup/lookup-participation.cpp",""),
         Arguments.of("library-lookup/nullptr-stream.cpp","")
     );}
-    @ParameterizedTest(name="{0}") @MethodSource("programs")
-    void libraryProgramsAgree(String name,String input)throws Exception{
+    static Stream<Arguments> programsWithOptimization(){return programs().flatMap(arguments->{
+        Object[] values=arguments.get();
+        return Stream.of(OptimizationLevel.BASELINE,OptimizationLevel.OPTIMIZED)
+                .map(level->Arguments.of(values[0],values[1],level));
+    });}
+    @ParameterizedTest(name="{0} [{2}]") @MethodSource("programsWithOptimization")
+    void libraryProgramsAgree(String name,String input,OptimizationLevel level)throws Exception{
         String source;
         try(var resource=getClass().getResourceAsStream("/cpp/"+name)){
             assertNotNull(resource,name);source=new String(resource.readAllBytes(),StandardCharsets.UTF_8);
         }
         var limits=new CppDifferentialHarness.Limits(Duration.ofSeconds(90),Duration.ofSeconds(30),2_000_000,1_048_576);
         var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),limits,
-                LanguageMode.CPP17_ALGORITHM).run(name,source,input);
+                LanguageMode.CPP17_ALGORITHM,level).run(name+"-"+level,source,input);
         var own=CppOwnLibraryReference.run(temporary,source,input,limits);
         assertAll(()->assertTrue(report.passed(),report::describe),()->assertTrue(own.passed(),own::toString));
         var reference=report.outcomes().get(CppDifferentialHarness.Backend.GXX);
@@ -89,15 +95,17 @@ final class CppLibrarySourcesTest {
         "library-lookup/negative/opaque-map-lookup.cpp",
         "library-lookup/negative/opaque-set-lookup.cpp"
     );}
-    @ParameterizedTest(name="reject {0}") @MethodSource("rejectedPrograms")
-    void invalidLibraryProgramsAreRejected(String name)throws Exception{
+    static Stream<Arguments> rejectedProgramsWithOptimization(){return rejectedPrograms().flatMap(name->
+        Stream.of(OptimizationLevel.BASELINE,OptimizationLevel.OPTIMIZED).map(level->Arguments.of(name,level)));}
+    @ParameterizedTest(name="reject {0} [{1}]") @MethodSource("rejectedProgramsWithOptimization")
+    void invalidLibraryProgramsAreRejected(String name,OptimizationLevel level)throws Exception{
         String source;
         try(var resource=getClass().getResourceAsStream("/cpp/"+name)){
             assertNotNull(resource);source=new String(resource.readAllBytes(),StandardCharsets.UTF_8);
         }
         var limits=new CppDifferentialHarness.Limits(Duration.ofSeconds(90),Duration.ofSeconds(30),2_000_000,1_048_576);
         var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),limits,
-                LanguageMode.CPP17_ALGORITHM).compile(name,source);
+                LanguageMode.CPP17_ALGORITHM,level).compile(name+"-"+level,source);
         var own=CppOwnLibraryReference.compile(temporary,source,limits);
         for(var outcome:report.outcomes().values())
             assertEquals(CppDifferentialHarness.Status.COMPILE_ERROR,outcome.status(),report::describe);
