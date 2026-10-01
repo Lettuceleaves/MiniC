@@ -273,10 +273,14 @@ public interface Declaration extends AstNode {
     enum Access { PUBLIC, PROTECTED, PRIVATE }
 
     /** Source-only C++ record information; member order determines effective access later. */
-    record CppRecordInfo(RecordKey key, List<CppMember> members, SourceRange keyRange) {
+    record CppBase(MiniType type, Access access, boolean virtualBase, SourceRange range) implements AstNode {}
+
+    record CppRecordInfo(RecordKey key, List<CppMember> members, List<CppBase> bases, SourceRange keyRange) {
+        public CppRecordInfo(RecordKey key,List<CppMember> members,SourceRange keyRange){this(key,members,List.of(),keyRange);}
         public CppRecordInfo {
             Objects.requireNonNull(key, "key");
             members = List.copyOf(members);
+            bases = List.copyOf(bases);
             Objects.requireNonNull(keyRange, "keyRange");
         }
     }

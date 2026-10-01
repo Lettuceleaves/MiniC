@@ -86,9 +86,14 @@ public final class CppOverloadResolver {
         UserConversion find(Object candidateIdentity, Argument source, MiniType target);
         /** Returns E only for the actual std::initializer_list<E> template identity. */
         default MiniType initializerListElement(MiniType target) { return null; }
+        /** Positive only for an accessible, unambiguous base subobject. */
+        default int baseDistance(MiniType source,MiniType target) { return 0; }
     }
     public static boolean standardViable(Argument source, MiniType target) {
         return convert(source, canonical(target)) != null;
+    }
+    public static boolean standardViable(Argument source,MiniType target,UserConversionProvider provider) {
+        return convertWithBases(source,canonical(target),provider)!=null;
     }
     /** Qualification-only tail accepted for an explicit conversion function in direct initialization. */
     public static boolean qualificationOnly(MiniType source, MiniType target) {
@@ -166,22 +171,22 @@ public final class CppOverloadResolver {
 
     private enum Rank { EXACT, PROMOTION, CONVERSION, USER_DEFINED, ELLIPSIS }
     // Lvalue/array/function transformations are deliberately excluded from subsequence ranking.
-    private enum Step { STATIC_OBJECT, NONE, NUMERIC, NULL_POINTER, POINTER_VOID, POINTER_BOOL, ELLIPSIS }
+    private enum Step { STATIC_OBJECT, NONE, NUMERIC, NULL_POINTER, POINTER_VOID, POINTER_BOOL, BASE, ELLIPSIS }
     private record Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference,
                               Object userIdentity, Conversion trailing, boolean ambiguous, int listKind, int listBound,
-                              MiniType.ReferenceKind referenceKind) {
+                              MiniType.ReferenceKind referenceKind,int baseDistance) {
         Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference) {
             this(rank,step,qualification,target,reference,null,null,false);
         }
         Conversion(Rank rank,Step step,boolean qualification,MiniType target,boolean reference,Object identity,Conversion trailing,boolean ambiguous) {
-            this(rank,step,qualification,target,reference,identity,trailing,ambiguous,0,0,reference?MiniType.ReferenceKind.LVALUE:null);
+            this(rank,step,qualification,target,reference,identity,trailing,ambiguous,0,0,reference?MiniType.ReferenceKind.LVALUE:null,0);
         }
         Conversion list(int kind,int bound) {
-            return new Conversion(rank,step,qualification,target,reference,userIdentity,trailing,ambiguous,kind,bound,referenceKind);
+            return new Conversion(rank,step,qualification,target,reference,userIdentity,trailing,ambiguous,kind,bound,referenceKind,baseDistance);
         }
         Conversion withReference(MiniType parameter) {
             return new Conversion(rank,step,qualification,parameter.referent(),true,userIdentity,trailing,ambiguous,listKind,listBound,
-                    ((MiniType.ReferenceType)parameter.unqualified()).kind());
+                    ((MiniType.ReferenceType)parameter.unqualified()).kind(),baseDistance);
         }
     }
     private record Viable<T>(Candidate<T> candidate, List<Conversion> conversions) {}
@@ -216,11 +221,11 @@ public final class CppOverloadResolver {
     private static Conversion convertArgument(Object identity, Argument argument, MiniType parameter,
                                                 UserConversionProvider provider) {
         if (argument.braced()) return listConversion(identity, argument, parameter, provider);
-        Conversion converted = convert(argument, parameter);
+        Conversion converted = convertWithBases(argument, parameter,provider);
         if (converted == null && provider != null) {
             UserConversion user = provider.find(identity, argument, parameter);
             if (user != null) {
-                Conversion trailing = convert(user.result, parameter);
+                Conversion trailing = convertWithBases(user.result, parameter,provider);
                 if (trailing != null) converted = new Conversion(Rank.USER_DEFINED, Step.NONE, false,
                         parameter, parameter.isReference(), user.identity, trailing, user.ambiguous);
             }
@@ -232,6 +237,11 @@ public final class CppOverloadResolver {
                                               UserConversionProvider provider) {
         MiniType target = parameter.isReference() ? parameter.referent() : parameter;
         List<Argument> elements = list.listElements;
+        if(elements.size()==1&&!elements.getFirst().braced()&&provider!=null
+                &&provider.baseDistance(elements.getFirst().type.unqualified(),target.unqualified())>0) {
+            Conversion direct=convertWithBases(elements.getFirst(),parameter,provider);
+            return direct==null?null:direct.list(1,0);
+        }
         if (parameter.isReference() && elements.size() == 1 && !elements.getFirst().braced()
                 && sameUnqualified(elements.getFirst().type, target)) {
             Conversion direct = convert(elements.getFirst(), parameter);
@@ -265,7 +275,7 @@ public final class CppOverloadResolver {
                 Conversion exact = convert(elements.getFirst(), parameter);
                 if (exact != null) return exact.list(1, 0);
             }
-            Conversion trailing = convert(user.result, parameter);
+            Conversion trailing = convertWithBases(user.result, parameter,provider);
             return trailing == null ? null : new Conversion(Rank.USER_DEFINED, Step.NONE, false,
                     parameter, parameter.isReference(), user.identity, trailing, user.ambiguous).list(1, 0);
         }
@@ -280,6 +290,23 @@ public final class CppOverloadResolver {
         return empty.list(1,0);
     }
 
+    private static Conversion convertWithBases(Argument argument,MiniType parameter,UserConversionProvider provider) {
+        Conversion direct=convert(argument,parameter);
+        if(direct!=null||provider==null||argument.braced())return direct;
+        MiniType source=expressionType(argument.type),target=parameter.isReference()?parameter.referent():parameter;
+        boolean pointer=!parameter.isReference()&&source.isPointer()&&target.isPointer();
+        if(pointer){source=source.pointee();target=target.pointee();}
+        if(!source.isStruct()||!target.isStruct())return null;
+        int distance=provider.baseDistance(source.unqualified(),target.unqualified());
+        if(distance<=0)return null;
+        if((pointer||parameter.isReference())&&!cv(target).containsAll(cv(source)))return null;
+        if(parameter.isRvalueReference()&&argument.category==CppValueCategory.LVALUE)return null;
+        if(parameter.isLvalueReference()&&argument.category!=CppValueCategory.LVALUE
+                &&(!cv(target).contains(CONST)||cv(target).contains(VOLATILE)))return null;
+        return new Conversion(Rank.CONVERSION,Step.BASE,!cv(source).equals(cv(target)),
+                parameter.isReference()?target:parameter,parameter.isReference(),null,null,false,0,0,
+                parameter.isReference()?((MiniType.ReferenceType)parameter.unqualified()).kind():null,distance);
+    }
     private static Conversion convert(Argument argument, MiniType parameter) {
         if (argument.braced()) return null;
         MiniType source = expressionType(argument.type);
@@ -352,6 +379,10 @@ public final class CppOverloadResolver {
         }
         if (first.rank != second.rank) return first.rank.compareTo(second.rank);
         if (first.rank == Rank.ELLIPSIS) return 0;
+        if(first.step==Step.BASE&&second.step==Step.BASE&&first.baseDistance!=second.baseDistance)
+            return Integer.compare(first.baseDistance,second.baseDistance);
+        if(first.step==Step.BASE&&second.step==Step.POINTER_VOID)return -1;
+        if(second.step==Step.BASE&&first.step==Step.POINTER_VOID)return 1;
         if (first.rank == Rank.USER_DEFINED) {
             if (first.ambiguous || second.ambiguous || first.userIdentity != second.userIdentity) return 0;
             return compare(first.trailing, second.trailing);

@@ -89,6 +89,7 @@ public final class CppNameBinder {
         final Map<String, Access> memberTypeAccess = new LinkedHashMap<>();
         final Map<String, StaticField> staticFields = new LinkedHashMap<>();
         StructDecl sourceRecord;
+        TypeEntity markerBase;
         final List<Constructor> constructors = new ArrayList<>();
         final Map<String, Entity> defaultInitializers = new LinkedHashMap<>();
         Constructor aggregateInitializer;
@@ -249,6 +250,7 @@ public final class CppNameBinder {
                 return source.braced() ? listUserConversion(source, target) : implicitUserConversion(candidate, source, target);
             }
             public MiniType initializerListElement(MiniType target) { return Binding.this.initializerListElement(target); }
+            public int baseDistance(MiniType source,MiniType target) { return Binding.this.baseDistance(source,target); }
         };
         private record NamespaceView(Map<String, Candidate> values, Map<String, Namespace> children,
                                      Map<String, TypeEntity> typedefs, Map<String, TypeEntity> tags,
@@ -906,6 +908,48 @@ public final class CppNameBinder {
             }
         }
 
+        /** Empty tag hierarchies need source inheritance but no runtime layout or dispatch machinery. */
+        private boolean markerRecord(StructDecl node) {
+            return node!=null&&node.definition()&&!node.union()&&node.fields().isEmpty()
+                    &&(node.cppInfo()==null||node.cppInfo().members().stream().allMatch(AccessLabel.class::isInstance));
+        }
+        private void bindMarkerBase(TypeEntity entity,StructDecl node,Namespace namespace) {
+            if(node.cppInfo()==null||node.cppInfo().bases().isEmpty())return;
+            if(node.cppInfo().bases().size()!=1||!markerRecord(node)) {
+                report("CPP005",node.range(),"Inheritance currently requires a single public base and empty marker classes.");return;
+            }
+            CppBase base=node.cppInfo().bases().getFirst();
+            if(base.virtualBase()||base.access()!=Access.PUBLIC) {
+                report("CPP005",base.range(),"Only public non-virtual marker inheritance is supported.");return;
+            }
+            MiniType type=normalizeType(base.type(),namespace,null,base.range());
+            TypeEntity parent=objectType(type);
+            if(parent==null||parent==entity) {report("CPP004",base.range(),"A base must be a distinct complete class.");return;}
+            completeTemplate(parent,base.range());
+            if(!parent.complete){report("CPP004",base.range(),"A base class must be complete.");return;}
+            if(!markerRecord(parent.sourceRecord)){report("CPP005",base.range(),"A marker base cannot contain members or user-defined operations.");return;}
+            entity.markerBase=parent;
+        }
+        private int baseDistance(MiniType source,MiniType target) {
+            TypeEntity from=objectType(source),to=objectType(target);
+            if(from==null||to==null||from==to)return 0;
+            int distance=0;
+            for(TypeEntity parent=from.markerBase;parent!=null;parent=parent.markerBase) {
+                ++distance;if(parent==to)return distance;
+            }
+            return 0;
+        }
+        private boolean standardViable(CppOverloadResolver.Argument source,MiniType target) {
+            return CppOverloadResolver.standardViable(source,target,conversions);
+        }
+        private Expression markerBaseValue(MiniType target,Expression source,SourceRange range) {
+            String destination=freshName("base_value");
+            Expression slot=typed(new UnaryExpr(TokenType.STAR,typed(new NameExpr(destination,range),target.pointerTo()),range),target);
+            Expression initialize=new InitializeExpr(slot,new AggregateInitExpr(List.of(),range),range);
+            Expression action=new CommaExpr(List.of(source,initialize),range);
+            return typed(new ObjectInitExpr(coreType(target),destination,action,range),target);
+        }
+
         private void instantiateMethod(Method method) {
             if(functionTemplateInstances.containsKey(method.function)){instantiateFunctionTemplate(method.function);return;}
             if (unevaluatedDepth > 0 && !methodReturnType(method).containsAuto()) return;
@@ -1015,6 +1059,7 @@ public final class CppNameBinder {
             if (node.definition()) {
                 entity.fields = List.copyOf(sourceFields);
                 entity.sourceRecord = node;
+                bindMarkerBase(entity,node,namespace);
             }
             structs.add(core); declarations.add(core);
             if (node.definition()) {
@@ -4043,15 +4088,14 @@ public final class CppNameBinder {
             if (actual == null) return value; // unsupported initializer forms retain their existing diagnostics
             if (parameter.isVoid() && actual.isVoid()) return value; // void return with a void expression
             var argument = new CppOverloadResolver.Argument(actual, valueCategory(value), isNullIntegerLiteral(source));
-            if (!CppOverloadResolver.standardViable(argument, parameter)) {
+            if (!standardViable(argument, parameter)) {
                 Expression converted = userConversion(parameter, value, ConversionContext.IMPLICIT, source.range());
                 if (converted != null) {
                     value = converted; actual = declaredExpressionType(value);
                     argument = new CppOverloadResolver.Argument(actual, valueCategory(value), false);
                 }
             }
-            if (CppOverloadResolver.resolve(List.of(new CppOverloadResolver.Candidate<>("argument", List.of(parameter), false)),
-                    List.of(argument)).status() != CppOverloadResolver.Status.SELECTED) {
+            if (!standardViable(argument,parameter)) {
                 report("CPP004", source.range(), initializedVariable == null
                         ? "实参不能按 C++ 标准转换为参数类型。"
                         : "变量“" + initializedVariable + "”的初始化值不能按 C++ 标准转换为目标类型。");
@@ -4059,6 +4103,7 @@ public final class CppNameBinder {
             }
             MiniType target = TypeCompatibility.decay(parameter).unqualified();
             MiniType from = TypeCompatibility.decay(actual).unqualified();
+            if (target.isStruct() && baseDistance(from,target)>0) return markerBaseValue(target,value,source.range());
             if (target.isStruct() && target.equals(from)) return copyInitialize(target, value, source.range(), CppInitializer.Kind.COPY);
             if (!target.equals(from) && (target.isPointer() || target.equals(MiniType.BOOL) && from.isPointer())) {
                 // Core C is narrower for pointer-to-bool and deep qualification conversions.
@@ -4654,7 +4699,7 @@ public final class CppNameBinder {
                 MiniType result = objectTypeOfReference(methodReturnType(method));
                 var output = new CppOverloadResolver.Argument(result, methodReturnType(method).isReference()
                         ? methodReturnType(method).isRvalueReference()?CppValueCategory.XVALUE:CppValueCategory.LVALUE : CppValueCategory.PRVALUE, false);
-                if (!CppOverloadResolver.standardViable(output, target)) continue;
+                if (!standardViable(output, target)) continue;
                 var input = new CppOverloadResolver.Argument(source.type(), CppValueCategory.LVALUE, false);
                 choices.add(new UserChoice(method, null, output, input, receiver.referenceTo()));
             }
@@ -4662,14 +4707,14 @@ public final class CppNameBinder {
             TypeEntity owner = objectType(objectTarget);
             if (owner != null && !objectTarget.equals(source.type().unqualified()) && mode != ConversionContext.BOOLEAN) {
                 var output = new CppOverloadResolver.Argument(objectTarget, CppValueCategory.PRVALUE, false);
-                if (CppOverloadResolver.standardViable(output, target)) for (Constructor declaration : owner.constructors) {
+                if (standardViable(output, target)) for (Constructor declaration : owner.constructors) {
                     Entity concrete=deduceFunctionTemplateShapes(declaration.function,List.of(source),null,definitionRange(declaration));
                     if(concrete==null)continue;
                     Constructor constructor=concrete==declaration.function?declaration:functionTemplateInstances.get(concrete).constructor;
                     if (constructor.parameterTypes.isEmpty() || requiredParameters(constructor.function,constructor.parameterTypes.size())>1
                             || constructor.source.explicitSpecifier() && mode == ConversionContext.IMPLICIT) continue;
                     MiniType parameter = constructor.parameterTypes.getFirst();
-                    if (CppOverloadResolver.standardViable(source, parameter))
+                    if (standardViable(source, parameter))
                         choices.add(new UserChoice(null, constructor, output, source, parameter));
                 }
             }
@@ -4779,7 +4824,7 @@ public final class CppNameBinder {
             MiniType actual = declaredExpressionType(value);
             if (actual == null) return value;
             if (target.isReference()) {
-                if (!CppOverloadResolver.standardViable(new CppOverloadResolver.Argument(actual, valueCategory(value), false), target)) {
+                if (!standardViable(new CppOverloadResolver.Argument(actual, valueCategory(value), false), target)) {
                     Expression converted = userConversion(target, value, ConversionContext.EXPLICIT, range);
                     if (converted != null) { value = converted; actual = declaredExpressionType(value); }
                 }
@@ -5492,20 +5537,18 @@ public final class CppNameBinder {
                                               SourceRange range, ConversionContext mode) {
                 MiniType target = reference.referent();
                 MiniType actual = declaredExpressionType(value);
-                if (actual != null && !CppOverloadResolver.standardViable(
+                if (actual != null && !standardViable(
                         new CppOverloadResolver.Argument(actual, valueCategory(value), isNullIntegerLiteral(sourceNode)), reference)) {
                     Expression converted = userConversion(reference, value, mode, range);
                     if (converted != null) { value = converted; actual = declaredExpressionType(value); }
                 }
                 CppValueCategory category = valueCategory(value);
                 boolean compatible = actual != null && referenceCompatible(target, actual);
-                boolean direct = compatible && addressableObject(value) && CppOverloadResolver.standardViable(
+                boolean direct = compatible && addressableObject(value) && standardViable(
                         new CppOverloadResolver.Argument(actual,category,isNullIntegerLiteral(sourceNode)),reference);
                 if (!direct) {
-                    boolean viable = actual != null && CppOverloadResolver.resolve(
-                            List.of(new CppOverloadResolver.Candidate<>("reference", List.of(reference), false)),
-                            List.of(new CppOverloadResolver.Argument(actual, category, isNullIntegerLiteral(sourceNode))))
-                            .status() == CppOverloadResolver.Status.SELECTED;
+                    boolean viable = actual != null && standardViable(
+                            new CppOverloadResolver.Argument(actual, category, isNullIntegerLiteral(sourceNode)),reference);
                     if (!viable) {
                         report("CPP004", sourceNode.range(), "引用不能绑定到此类型或值类别，或绑定会丢弃 const/volatile 限定符。");
                         return address(value);
@@ -5513,6 +5556,10 @@ public final class CppNameBinder {
                     // A materialized class subobject already has storage; binding extends its
                     // whole owner. Conversions and scalar prvalues need their own object.
                     if (!compatible || !addressableObject(value)) {
+                        if(compatible&&baseDistance(actual,target)>0) {
+                            Expression storage=materialize(actual,value);
+                            return typed(new CastExpr(coreType(target).pointerTo(),storage,range),target.pointerTo());
+                        }
                         requireComplete(target, sourceNode.range());
                         if (!target.unqualified().equals(actual.unqualified()) && !(compatible && target.isArray())) {
                             // Viability above validates C++ implicit conversion rules. Spell the
@@ -5525,7 +5572,7 @@ public final class CppNameBinder {
                 Expression address = address(value);
                 // Array CV resides on elements; the checked C++ qualification conversion is
                 // represented explicitly for the core pointer-to-array ABI.
-                if (actual != null && target.isArray() && compatible && !target.equals(actual)) {
+                if (actual != null && compatible && (target.isArray()&&!target.equals(actual)||baseDistance(actual,target)>0)) {
                     address = typed(new CastExpr(coreType(target).pointerTo(), address, sourceNode.range()), target.pointerTo());
                 }
                 return address;
@@ -5665,7 +5712,7 @@ public final class CppNameBinder {
                         && referenceCompatible(elementType(target), elementType(actual));
             }
             if (!target.qualifiers().containsAll(actual.qualifiers())) return false;
-            return target.unqualified().equals(actual.unqualified());
+            return target.unqualified().equals(actual.unqualified())||baseDistance(actual,target)>0;
         }
 
         private void requireImplicitInitialization(MiniType target, boolean valueInitialization, SourceRange range) {
@@ -5716,6 +5763,8 @@ public final class CppNameBinder {
             if (object != null && list.values().size() == 1) {
                 Expression value = list.values().getFirst();
                 MiniType valueType = declaredExpressionType(value);
+                if(valueType!=null&&baseDistance(valueType,target)>0)
+                    return mapped(sourceNode,markerBaseValue(target.unqualified(),value,list.range()));
                 if (valueType != null && target.unqualified().equals(valueType.unqualified())) {
                     // C++17 permits {sameTypeObject}, including implicit copies of non-aggregates.
                     return mapped(sourceNode, new GroupingExpr(copyInitialize(target, value, list.range(), CppInitializer.Kind.COPY_LIST), list.range()));

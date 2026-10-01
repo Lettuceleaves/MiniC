@@ -24,7 +24,7 @@ public final class AstChildren {
             case CppTemplateIdExpr n -> prepend(n.target(),n.arguments().stream().filter(minic.compiler.type.TemplateArgument.Value.class::isInstance).map(minic.compiler.type.TemplateArgument.Value.class::cast).map(minic.compiler.type.TemplateArgument.Value::expression).toList());
             case Parameter n -> present(n.defaultValue());
             case ClassTemplateDecl.ValueParameter n -> present(n.defaultValue());
-            case StructDecl n -> n.cppInfo() == null ? n.fields() : n.cppInfo().members();
+            case StructDecl n -> n.cppInfo() == null ? n.fields() : java.util.stream.Stream.concat(n.cppInfo().bases().stream(),n.cppInfo().members().stream()).toList();
             case StaticFieldMember n -> present(n.declaration());
             case OutOfLineStaticFieldDecl n -> present(n.declaration());
             case FieldMember n -> present(n.field(), n.defaultInitializer());
@@ -99,6 +99,7 @@ public final class AstChildren {
     private static void typeExpressions(AstNode node, List<AstNode> result) {
         minic.compiler.type.MiniType type = switch (node) {
             case FunctionDecl n -> n.returnType(); case Parameter n -> n.type();
+            case CppBase n -> n.type();
             case GlobalVarDecl n -> n.type(); case StructField n -> n.type();
             case TypedefDecl n -> n.type(); case VarDeclStmt n -> n.type(); case TypedefStmt n -> n.type();
             case CastExpr n -> n.targetType(); case CppConstructionExpr n -> n.type();

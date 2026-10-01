@@ -33,13 +33,21 @@ public final class CppRecordParser {
         Token name = state.consume(TokenType.IDENTIFIER, "期望类或结构体名称");
         if (name == null) return null;
         if(state.check(TokenType.LESS) && types.parseSpecializedRecordName(name)==null)return null;
-        if (state.match(TokenType.COLON)) {
-            state.unsupportedCpp(state.previous().range(), "类继承尚未实现");
-            while (!state.check(TokenType.LEFT_BRACE) && !state.check(TokenType.SEMICOLON) && !state.isAtEnd()) state.advance();
-        }
+        List<CppBase> bases=new ArrayList<>();
+        if (state.match(TokenType.COLON)) do {
+            Token start=state.peek();Access access=key.type()==TokenType.CLASS?Access.PRIVATE:Access.PUBLIC;
+            boolean virtualBase=state.match(TokenType.VIRTUAL);
+            if(state.match(TokenType.PUBLIC))access=Access.PUBLIC;
+            else if(state.match(TokenType.PROTECTED))access=Access.PROTECTED;
+            else if(state.match(TokenType.PRIVATE))access=Access.PRIVATE;
+            virtualBase=state.match(TokenType.VIRTUAL)||virtualBase;
+            var base=types.parseType("期望基类类型");if(base==null)return null;
+            bases.add(new CppBase(base.type(),access,virtualBase,SourceRange.span(start.range(),state.previous().range())));
+        } while(state.match(TokenType.COMMA));
         MiniType type = types.declareAggregate(name.lexeme(), union, state.check(TokenType.LEFT_BRACE), name.range());
         String identity = ((MiniType.StructType) type.unqualified()).name();
         if (state.match(TokenType.SEMICOLON)) {
+            if(!bases.isEmpty())state.report(name.range(),"基类列表需要类定义");
             var forward = new StructDecl(identity, List.of(), false, union, metadata(key, union, List.of()),
                     SourceRange.span(key.range(), state.previous().range()));
             state.build(forward, "CppRecordForward " + identity, forward.range());
@@ -49,7 +57,10 @@ public final class CppRecordParser {
         StructDecl definition = parseDefinition(type, union, key);
         Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
         if (definition == null || semicolon == null) return null;
-        var result = new StructDecl(identity, definition.fields(), true, union, definition.cppInfo(),
+        if(union&&!bases.isEmpty())state.report(name.range(),"union 不能拥有基类");
+        CppRecordInfo info=definition.cppInfo();
+        if(info!=null)info=new CppRecordInfo(info.key(),info.members(),bases,info.keyRange());
+        var result = new StructDecl(identity, definition.fields(), true, union, info,
                 SourceRange.span(key.range(), semicolon.range()));
         types.recordAggregateFields(result);
         state.build(result, "CppRecord " + identity, result.range());
