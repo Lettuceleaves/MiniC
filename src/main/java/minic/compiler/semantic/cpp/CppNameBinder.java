@@ -7397,6 +7397,8 @@ public final class CppNameBinder {
         }
 
         private boolean isNullIntegerLiteral(Expression source) {
+            // Constant folding of a static field preserves its lvalue identity, not literal syntax.
+            if (valueCategory(source) != CppValueCategory.PRVALUE) return false;
             while (source instanceof GroupingExpr group) source = group.expression();
             // A substituted non-type argument remains an id-expression, even when its value is zero.
             if(templateOrigins.get(source) instanceof CppTemplateValueExpr)return false;
