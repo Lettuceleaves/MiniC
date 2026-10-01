@@ -828,7 +828,8 @@ public final class CppNameBinder {
                         requireComplete(elementType(declaredExpressionType(left)), n.range());
                         requireComplete(elementType(declaredExpressionType(right)), n.range());
                     }
-                    yield new BinaryExpr(left, n.operator(), right, n.range());
+                    Expression operation = new BinaryExpr(left, n.operator(), right, n.range());
+                    yield hasBooleanResult(n.operator()) ? booleanResult(operation) : operation;
                 }
                 case ConditionalExpr n -> {
                     Expression condition = expression(n.condition(), namespace, local);
@@ -856,7 +857,14 @@ public final class CppNameBinder {
                             yield value;
                         }
                     }
-                    yield new ConditionalExpr(condition, first, second, n.range());
+                    Expression selected = new ConditionalExpr(condition, first, second, n.range());
+                    // C++ keeps a common integer type after lvalue-to-rvalue conversion. Core C
+                    // promotes narrow integers here; restore char/short/bool without affecting
+                    // mixed-type arithmetic conversions or the glvalue paths above.
+                    yield firstType != null && secondType != null && firstType.isIntegerScalar()
+                            && firstType.unqualified().equals(secondType.unqualified())
+                            ? typed(new CastExpr(firstType.unqualified(), selected, n.range()), firstType.unqualified())
+                            : selected;
                 }
                 case CallExpr n -> {
                     BoundCallee binding = bindCallee(n.callee(), namespace, local);
@@ -940,7 +948,8 @@ public final class CppNameBinder {
                         Expression body = new CommaExpr(List.of(new UnaryExpr(n.operator(), target, n.range()), pointer.name()), n.range());
                         yield typed(new UnaryExpr(TokenType.STAR, pointer.wrap(body), n.range()), type);
                     }
-                    yield new UnaryExpr(n.operator(), operand, n.range());
+                    Expression operation = new UnaryExpr(n.operator(), operand, n.range());
+                    yield n.operator() == TokenType.BANG ? booleanResult(operation) : operation;
                 }
                 case PostfixUpdateExpr n -> {
                     Expression target = expression(n.target(), namespace, local, true);
@@ -1019,6 +1028,19 @@ public final class CppNameBinder {
         private <T extends Expression> T typed(T expression, MiniType type) {
             declaredExpressionTypes.put(expression, type);
             return expression;
+        }
+
+        private static boolean hasBooleanResult(TokenType operator) {
+            return switch (operator) {
+                case LESS, LESS_EQUAL, GREATER, GREATER_EQUAL, EQUAL_EQUAL, BANG_EQUAL,
+                        AMPERSAND_AMPERSAND, PIPE_PIPE -> true;
+                default -> false;
+            };
+        }
+
+        /** Preserve the source bool type while retaining core operand validation and short-circuit IR. */
+        private Expression booleanResult(Expression operation) {
+            return typed(new CastExpr(MiniType.BOOL, operation, operation.range()), MiniType.BOOL);
         }
 
         private Expression address(Expression value) {
@@ -1218,6 +1240,7 @@ public final class CppNameBinder {
                 case ConditionalExpr conditional -> conditionalDeclaredType(
                         declaredExpressionType(conditional.thenExpression()), declaredExpressionType(conditional.elseExpression()));
                 case BinaryExpr binary -> {
+                    if (hasBooleanResult(binary.operator())) yield MiniType.BOOL;
                     MiniType left = declaredExpressionType(binary.left());
                     MiniType right = declaredExpressionType(binary.right());
                     boolean leftPointer = elementType(left) != null;
@@ -1234,7 +1257,7 @@ public final class CppNameBinder {
                         case STAR -> operand != null && operand.isFunction() ? operand : elementType(operand);
                         case AMPERSAND -> operand == null ? null : operand.pointerTo();
                         case PLUS_PLUS, MINUS_MINUS -> operand;
-                        case BANG -> MiniType.INT;
+                        case BANG -> MiniType.BOOL;
                         case TILDE, PLUS, MINUS -> operand == null ? null
                                 : operand.isIntegerScalar() ? TypeCompatibility.integerPromotion(operand) : operand;
                         default -> null;
