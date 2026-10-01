@@ -4,6 +4,9 @@ import minic.compiler.CompilerApi;
 import minic.compiler.LanguageMode;
 import minic.compiler.SourceFile;
 import minic.compiler.asm.Assembler;
+import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator;
+import minic.compiler.ir.optimize.GlobalRegisterPlan;
 import minic.compiler.ir.optimize.IrOptimizationPipeline;
 import minic.compiler.ir.optimize.OptimizationLevel;
 import minic.cpp.support.CppDifferentialHarness;
@@ -84,7 +87,18 @@ final class CppIntegerInstructionSelectionTest {
             assertTrue(assembler.succeeded(),()->assembler.errors().toString());
             assertSame(ir,assembler.input().irResult());
             if(level==OptimizationLevel.OPTIMIZED){
-                assertTrue(text.contains("add eax, 17") && text.contains("imul eax, 3"),text);
+                var function=ir.functions().stream().filter(f->ir.displayName(f.name()).equals("f")).findFirst().orElseThrow();
+                var plan=GlobalRegisterPlan.allocate(function,true);
+                var binaries=function.blocks().stream().flatMap(b->b.instructions().stream())
+                        .filter(IrBinaryInstruction.class::isInstance).map(IrBinaryInstruction.class::cast).toList();
+                assertEquals(2,binaries.size());
+                for(var binary:binaries){
+                    String home=plan.registers().get(binary.result().name());
+                    assertNotNull(home,"fixture must assign each result a register home");
+                    String mnemonic=binary.operator()==IrBinaryOperator.ADD?"add":"imul";
+                    String immediate=binary.operator()==IrBinaryOperator.ADD?"17":"3";
+                    assertTrue(text.contains(mnemonic+" "+home+"d, "+immediate),text);
+                }
                 assertFalse(text.contains("push rax") || text.contains("pop rax"),text);
             }else{
                 assertTrue(text.contains("add eax, ecx") && text.contains("imul eax, ecx"),text);

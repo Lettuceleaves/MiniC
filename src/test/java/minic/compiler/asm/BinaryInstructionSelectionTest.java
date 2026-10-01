@@ -63,8 +63,8 @@ final class BinaryInstructionSelectionTest {
 
     @Test void resultStillGoesToItsAssignedRegister() {
         String text = emit(binary(IrBinaryOperator.MULTIPLY, IrType.LONG_LONG, 7), true, true);
-        assertTrue(text.contains("imul rax, 7"), text);
-        assertTrue(text.contains("mov r11, rax"), text);
+        assertTrue(text.contains("imul r11, 7"), text);
+        assertFalse(text.contains("mov r11, rax"), text);
         assertFalse(text.contains("push rax"), text);
     }
 

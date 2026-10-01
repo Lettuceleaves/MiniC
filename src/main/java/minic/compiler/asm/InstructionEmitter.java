@@ -2,6 +2,7 @@ package minic.compiler.asm;
 
 import minic.compiler.ir.instruction.MemoryInstruction.IrAddressOfLocalInstruction;
 import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator;
 import minic.compiler.ir.instruction.ControlInstruction.IrBranchInstruction;
 import minic.compiler.ir.instruction.CallInstruction.IrCallInstruction;
 import minic.compiler.ir.instruction.ComputeInstruction.IrCastInstruction;
@@ -27,13 +28,16 @@ import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrValue.IrFloatConstant;
 import minic.compiler.ir.value.IrValue.IrConstant;
+import minic.compiler.ir.value.IrValue.IrTemporary;
 
 import java.util.Set;
 import java.util.stream.Collectors;
 
 final class InstructionEmitter {
+    private static final Set<String> BINARY_REGISTER_HOMES = Set.of("r10", "r11", "rbx", "r12", "r13", "r14", "r15");
     private final FrameLayout frame;
     private final ValueEmitter valueEmitter;
+    private final TemporaryLocations locations;
     private final Set<String> externalFunctionNames;
     private final Set<String> addressedLocals;
     private final boolean optimizeInstructions;
@@ -50,6 +54,7 @@ final class InstructionEmitter {
     InstructionEmitter(FrameLayout frame, Set<String> externalFunctionNames, IrFunction function,
                        TemporaryLocations locations, boolean optimizeInstructions) {
         this.frame = frame;
+        this.locations = locations;
         this.optimizeInstructions = optimizeInstructions;
         this.externalFunctionNames = Set.copyOf(externalFunctionNames);
         addressedLocals = function.blocks().stream().flatMap(block -> block.instructions().stream())
@@ -228,6 +233,7 @@ final class InstructionEmitter {
 
     private void emitBinary(StringBuilder builder, IrBinaryInstruction binary) {
         IrType operationType = binaryOperationType(binary);
+        if (emitBinaryToRegisterHome(builder, binary, operationType)) return;
         String leftRegister = arithmeticRegister("rax", operationType);
         String rightRegister = arithmeticRegister("rcx", operationType);
         if (emitImmediateBinary(builder, binary, operationType, leftRegister)) return;
@@ -310,13 +316,46 @@ final class InstructionEmitter {
         );
     }
 
+    /** Integer IR values are already evaluated and loading one into rcx changes no allocated home. */
+    private boolean emitBinaryToRegisterHome(StringBuilder builder, IrBinaryInstruction binary, IrType type) {
+        if (!optimizeInstructions || !type.isIntegerScalar() || type.sizeBytes() < 4
+                || binary.result().type() != type || binary.left().type() != type || binary.right().type() != type
+                || !(locations.location(binary.result()) instanceof ValueLocation.Register home)
+                || !BINARY_REGISTER_HOMES.contains(home.name())) return false;
+        String mnemonic = integerBinaryMnemonic(binary.operator());
+        if (mnemonic == null) return false;
+        Long immediate = integerImmediate(binary, type);
+        String right = arithmeticRegister("rcx", type);
+        // The result may be the right operand of a non-SSA update. Save that old value
+        // before loading the left operand into the destination register.
+        if (immediate == null) valueEmitter.emitLoadValue(builder, binary.right(), right);
+        boolean alreadyInHome = binary.left() instanceof IrTemporary temporary
+                && locations.location(temporary).equals(home);
+        // A 32-bit arithmetic instruction itself clears the high half, so unlike an
+        // ordinary value load it does not need a redundant self-move first.
+        if (!alreadyInHome) valueEmitter.emitLoadValue(builder, binary.left(), home.operand());
+        builder.append("    ").append(mnemonic).append(" ").append(home.operand()).append(", ")
+                .append(immediate == null ? right : immediate.toString()).append(System.lineSeparator());
+        return true;
+    }
+
     /** IR values are already evaluated; integer loads into rcx do not clobber rax. */
     private boolean emitImmediateBinary(StringBuilder builder, IrBinaryInstruction binary,
                                         IrType type, String leftRegister) {
-        if (!optimizeInstructions || !(binary.right() instanceof IrConstant constant)
-                || binary.left().type() != type || constant.type() != type
-                || type.isFloatingScalar() || type.sizeBytes() < 4) return false;
-        String mnemonic = switch (binary.operator()) {
+        if (!optimizeInstructions) return false;
+        String mnemonic = integerBinaryMnemonic(binary.operator());
+        Long immediate = integerImmediate(binary, type);
+        if (mnemonic == null || immediate == null) return false;
+        valueEmitter.emitLoadValue(builder, binary.left(), leftRegister);
+        builder.append("    ").append(mnemonic).append(" ").append(leftRegister).append(", ")
+                .append(immediate).append(System.lineSeparator());
+        valueEmitter.emitStoreTemporary(builder, binary.result(),
+                valueEmitter.storeRegister("rax", binary.result().type()));
+        return true;
+    }
+
+    private static String integerBinaryMnemonic(IrBinaryOperator operator) {
+        return switch (operator) {
             case ADD -> "add";
             case SUBTRACT -> "sub";
             case MULTIPLY -> "imul";
@@ -325,17 +364,15 @@ final class InstructionEmitter {
             case BITWISE_XOR -> "xor";
             default -> null;
         };
-        if (mnemonic == null) return false;
+    }
+
+    private static Long integerImmediate(IrBinaryInstruction binary, IrType type) {
+        if (!(binary.right() instanceof IrConstant constant) || binary.left().type() != type || constant.type() != type
+                || type.isFloatingScalar() || type.sizeBytes() < 4) return null;
         // 32-bit operations consume the low 32 bits. A 64-bit x64 operation sign-extends
         // its encoded immediate, so 0x00000000ffffffff must not be emitted as -1.
         long immediate = type.sizeBytes() == 4 ? (int) constant.value() : constant.value();
-        if (immediate < Integer.MIN_VALUE || immediate > Integer.MAX_VALUE) return false;
-        valueEmitter.emitLoadValue(builder, binary.left(), leftRegister);
-        builder.append("    ").append(mnemonic).append(" ").append(leftRegister).append(", ")
-                .append(immediate).append(System.lineSeparator());
-        valueEmitter.emitStoreTemporary(builder, binary.result(),
-                valueEmitter.storeRegister("rax", binary.result().type()));
-        return true;
+        return immediate < Integer.MIN_VALUE || immediate > Integer.MAX_VALUE ? null : immediate;
     }
 
     private void emitUnary(StringBuilder builder, IrUnaryInstruction unary) {
