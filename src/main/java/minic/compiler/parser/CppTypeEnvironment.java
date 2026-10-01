@@ -167,6 +167,16 @@ public final class CppTypeEnvironment {
         }
     }
 
+    /** Keep the class tag identity while giving its injected name the current dependent arguments. */
+    public void replaceInjectedClassType(MiniType.TemplateIdType type) {
+        if(local==null || !local.member)throw new IllegalStateException("no member scope");
+        String name=type.templateName();name=name.substring(name.lastIndexOf("::")+2);
+        Slot slot=local.names.get(name);
+        if(slot==null || slot.tag==null)throw new IllegalArgumentException("missing injected class name");
+        Entry old=slot.tag;
+        slot.tag=new Entry(Kind.TYPE,old.canonicalName,type,local,null,true,false,true);
+    }
+
     public void exitMemberScope() {
         if (local == null || !local.member) throw new IllegalStateException("no member scope to exit");
         local = local.parent;

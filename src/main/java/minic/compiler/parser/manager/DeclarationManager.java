@@ -134,6 +134,8 @@ public final class DeclarationManager {
     public Declaration parseFunctionOrGlobalDecl() {
         if (typeReader.isCpp() && state.match(TokenType.EXPLICIT))
             state.report(state.previous().range(), "explicit 只能用于类内构造函数或转换函数声明");
+        if(cppRecordParser!=null && cppRecordParser.startsTemplateSpecialMember())
+            return cppRecordParser.parseTemplateSpecialMember();
         if (cppRecordParser != null && cppRecordParser.startsOutOfLineConversion())
             return cppRecordParser.parseOutOfLineConversion();
         if (cppRecordParser != null && cppRecordParser.startsOutOfLineDestructor())
@@ -209,8 +211,12 @@ public final class DeclarationManager {
             state.report(declaration.range(), "函数声明不能使用 alignas");
         }
         if(typeReader.isCpp())typeReader.registerPendingFunctionTemplate(declaration.name());
-        boolean constQualified = qualified && state.match(TokenType.CONST);
-        functionType = typeReader.parseTrailingReturn(typeReader.parseFunctionException(functionType));
+        boolean constQualified;
+        if(qualified)typeReader.enterMemberDefinitionScope(declaration.qualifiedName());
+        try {
+            constQualified = qualified && state.match(TokenType.CONST);
+            functionType = typeReader.parseTrailingReturn(typeReader.parseFunctionException(functionType));
+        } finally {if(qualified)typeReader.exitMemberDefinitionScope();}
         if (qualified && external) state.unsupportedCpp(startToken.range(), "类外成员定义不能使用 extern");
         Token semicolonToken = null;
         Declaration.DefinitionKind definitionKind=Declaration.DefinitionKind.ORDINARY;

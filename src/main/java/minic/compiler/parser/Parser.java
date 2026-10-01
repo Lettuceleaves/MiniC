@@ -279,6 +279,7 @@ public final class Parser extends Stage {
             StructDecl record = declarationManager.parseStructDecl();
             if (record == null) return null;
             var result = new ClassTemplateDecl(parameters, record, typeReader.currentSpecializationArguments(), specialization, SourceRange.span(start.range(), record.range()));
+            typeReader.recordTemplateDeclaration(result);
             context.build(result, "ClassTemplateDecl " + record.name(), result.range());
             return result;
         } finally {
@@ -292,14 +293,24 @@ public final class Parser extends Stage {
             var parameters=typeReader.readTemplateParameters(start,owner);
             if(parameters==null||context.consumeTemplateGreater("模板参数后期望 '>'")==null)return null;
             typeReader.pendingFunctionTemplateParameters=parameters;
+            typeReader.definitionTemplateParameters=parameters;
+            typeReader.templateDefinitionOwner=null;
             Declaration declaration=declarationManager.parseFunctionOrGlobalDecl();
+            if(declaration!=null && typeReader.templateDefinitionOwner!=null) {
+                for(var parameter:parameters)if(parameter.defaultType()!=null || parameter instanceof ClassTemplateDecl.ValueParameter value&&value.defaultValue()!=null)
+                    context.report(parameter.range(),"类模板类外成员定义不能重复默认模板实参");
+                var result=new minic.compiler.parser.node.CppTemplateMemberDefinition(parameters,typeReader.templateDefinitionOwner,
+                        declaration,SourceRange.span(start.range(),declaration.range()));
+                context.build(result,"TemplateMemberDefinition",result.range());return result;
+            }
             if(!(declaration instanceof FunctionDecl function)) {
                 context.unsupportedCpp(start.range(),"此模板声明需要普通函数定义或声明");return null;
             }
             typeReader.registerFunctionTemplate(function.name(),parameters);
             var result=new FunctionTemplateDecl(parameters,function,SourceRange.span(start.range(),function.range()));
             context.build(result,"FunctionTemplate "+function.name(),result.range());return result;
-        } finally {typeReader.pendingFunctionTemplateParameters=null;typeReader.exitFunctionTemplate();}
+        } finally {typeReader.pendingFunctionTemplateParameters=null;typeReader.definitionTemplateParameters=null;
+            typeReader.templateDefinitionOwner=null;typeReader.exitFunctionTemplate();}
     }
 
     /** Find the owner without consuming the header or giving its name premature scope. */
@@ -781,6 +792,20 @@ public final class Parser extends Stage {
         private final java.util.Map<String, List<Optional<TemplateArgument>>> classTemplateDefaults = new java.util.LinkedHashMap<>();
         private ExpressionManager expressionManager;
         private List<ClassTemplateDecl.Parameter> pendingFunctionTemplateParameters;
+        private List<ClassTemplateDecl.Parameter> definitionTemplateParameters;
+        private MiniType.TemplateIdType templateDefinitionOwner;
+        private final java.util.Map<String,List<ClassTemplateDecl>> templateDeclarations=new java.util.LinkedHashMap<>();
+        private void recordTemplateDeclaration(ClassTemplateDecl declaration) {
+            if(declaration.record().definition())templateDeclarations.computeIfAbsent(declaration.record().name(),key->new ArrayList<>()).add(declaration);
+        }
+        private List<TemplateArgument> templateOwnerPattern(ClassTemplateDecl declaration) {
+            if(declaration.specialization())return declaration.specializationArguments();
+            return declaration.parameters().stream().map(parameter->{
+                TemplateArgument argument=parameter instanceof ClassTemplateDecl.TypeParameter?new TemplateArgument.Type(parameter.type())
+                        :new TemplateArgument.Value(new CppTemplateValueExpr(parameter.type(),((ClassTemplateDecl.ValueParameter)parameter).valueType(),parameter.range()));
+                return parameter.pack()?new TemplateArgument.Expansion(argument):argument;
+            }).toList();
+        }
         private final java.util.Map<String,List<ClassTemplateDecl.Parameter>> functionTemplateNames=new java.util.LinkedHashMap<>();
         private final java.util.Deque<java.util.Map<String,CppTemplateValueExpr>> templateValues = new java.util.ArrayDeque<>();
         private final java.util.Deque<List<TemplateArgument>> specializationArguments = new java.util.ArrayDeque<>();
@@ -817,7 +842,7 @@ public final class Parser extends Stage {
             }
         }
         public void registerPendingFunctionTemplate(String name){
-            if(pendingFunctionTemplateParameters!=null){registerFunctionTemplate(name,pendingFunctionTemplateParameters);pendingFunctionTemplateParameters=null;}
+            if(pendingFunctionTemplateParameters!=null && templateDefinitionOwner==null){registerFunctionTemplate(name,pendingFunctionTemplateParameters);pendingFunctionTemplateParameters=null;}
         }
         public void registerFunctionTemplate(String name,List<ClassTemplateDecl.Parameter> parameters){functionTemplateNames.put(name,List.copyOf(parameters));}
         public List<ClassTemplateDecl.Parameter> readTemplateParameters(Token anchor,String owner) {
@@ -1025,11 +1050,34 @@ public final class Parser extends Stage {
             if (!(type instanceof MiniType.StructType record)) return;
             StructDecl declaration = aggregateDeclarations.get(record.name());
             if (declaration == null) return;
+            var replacements=new java.util.LinkedHashMap<MiniType.TemplateParameterType,MiniType>();
+            var valueReplacements=new java.util.LinkedHashMap<MiniType.TemplateParameterType,Expression>();
+            if(templateDefinitionOwner!=null && templateDefinitionOwner.templateName().equals(record.name())) {
+                cppTypes.replaceInjectedClassType(templateDefinitionOwner);
+                for(var source:templateDeclarations.getOrDefault(record.name(),List.of())) {
+                    var bindings=minic.compiler.semantic.cpp.CppTemplateDeduction.match(templateOwnerPattern(source),templateDefinitionOwner.arguments(),
+                            source.parameters(),java.util.function.UnaryOperator.identity());
+                    if(bindings==null || minic.compiler.semantic.cpp.CppTemplateDeduction.match(templateDefinitionOwner.arguments(),templateOwnerPattern(source),
+                            definitionTemplateParameters,java.util.function.UnaryOperator.identity())==null)continue;
+                    declaration=source.record();replacements.putAll(bindings.types());
+                    for(var entry:bindings.values().entrySet())if(entry.getValue() instanceof TemplateArgument.Value value)valueReplacements.put(entry.getKey(),value.expression());
+                    for(var entry:bindings.packs().entrySet())if(entry.getValue().size()==1) {
+                        var argument=entry.getValue().getFirst();
+                        if(argument instanceof TemplateArgument.Type value)replacements.put(entry.getKey(),value.type());
+                        if(argument instanceof TemplateArgument.Value value)valueReplacements.put(entry.getKey(),value.expression());
+                    }
+                    break;
+                }
+                if(definitionTemplateParameters!=null)for(var parameter:definitionTemplateParameters) {
+                    if(parameter instanceof ClassTemplateDecl.TypeParameter)cppTypes.declareTypedef(parameter.name(),parameter.type(),parameter.range());
+                    else cppTypes.declareValue(parameter.name(),parameter.range());
+                }
+            }
             declaration.fields().forEach(this::declareMemberField);
             if (declaration.cppInfo() != null) {
                 for (var member : declaration.cppInfo().members()) {
                     if (member instanceof Declaration.MemberTypedef alias) {
-                        defineTypedef(alias.declaration().name(),alias.declaration().type(),alias.range());
+                        defineTypedef(alias.declaration().name(),alias.declaration().type().substituteTemplateParameters(replacements,valueReplacements),alias.range());
                     } else if (member instanceof Declaration.MethodMember method && method.method().conversionName() == null) {
                         declareOrdinaryName(method.method().name(), method.nameRange());
                     } else if (member instanceof Declaration.StaticFieldMember field) {
@@ -1413,6 +1461,23 @@ public final class Parser extends Stage {
                     && context.peekAt(end+2).type()==TokenType.SCOPE)end+=2;
             return context.peekAt(end).type()==TokenType.SCOPE?end:-1;
         }
+        /** A declaration owner containing a template-id; the final member stays unconsumed. */
+        public int templateMemberDelimiter() {
+            if(definitionTemplateParameters==null)return -1;
+            int end=cppTypeMemberDelimiterAt(0);if(end<0)return -1;
+            for(int i=0;i<end;i++)if(context.peekAt(i).type()==TokenType.LESS)return end;
+            return -1;
+        }
+        public QualifiedName parseTemplateMemberOwner() {
+            ParsedType parsed=parseCppTypeMemberOwner();
+            if(parsed==null || !(parsed.type().unqualified() instanceof MiniType.TemplateIdType id)) {
+                context.unsupportedCpp(context.peek().range(),"类外模板成员需要直接类模板限定类型");return null;
+            }
+            if(context.consume(TokenType.SCOPE,"成员前期望 '::'")==null)return null;
+            templateDefinitionOwner=id;
+            String name=id.templateName();if(name.startsWith("::"))name=name.substring(2);
+            return new QualifiedName(true,List.of(name.split("::")),parsed.range());
+        }
         public ParsedType parseCppTypeMemberOwner() {
             int length=cppTypeMemberDelimiterAt(0);if(length<0)return null;
             int start=context.currentIndex();typeOwnerDepth++;
@@ -1605,7 +1670,18 @@ public final class Parser extends Stage {
 
             boolean pack = isCpp() && context.match(TokenType.ELLIPSIS);
             Declarator direct;
-            if (isCpp() && context.check(TokenType.OPERATOR)) {
+            if(isCpp() && allowQualifiedName && templateMemberDelimiter()>=0) {
+                Token first=context.peek();QualifiedName owner=parseTemplateMemberOwner();if(owner==null)return null;
+                OperatorName operator=null;Token name;
+                if(context.check(TokenType.OPERATOR)) {
+                    operator=CppOperatorNameParser.parse(context);if(operator==null)return null;
+                    name=new Token(TokenType.IDENTIFIER,operator.spelling(),operator.range());
+                } else name=context.consume(TokenType.IDENTIFIER,expectedNameMessage);
+                if(name==null)return null;
+                var segments=new ArrayList<>(owner.segments());segments.add(name.lexeme());
+                QualifiedName qualified=new QualifiedName(true,segments,SourceRange.span(first.range(),name.range()));
+                direct=new Declarator(name.lexeme(),new ArrayList<>(),first,name,name,qualified,operator);
+            } else if (isCpp() && context.check(TokenType.OPERATOR)) {
                 OperatorName operator = CppOperatorNameParser.parse(context);
                 if (operator == null) return null;
                 Token name = new Token(TokenType.IDENTIFIER, operator.spelling(), operator.range());
@@ -1938,6 +2014,7 @@ public final class Parser extends Stage {
         }
 
         private MiniType parseTemplateId(MiniType type, SourceRange nameRange) {
+            if(type instanceof MiniType.TemplateIdType injected && context.check(TokenType.LESS))type=MiniType.struct(injected.templateName());
             if (!(type instanceof MiniType.StructType record) || !classTemplates.containsKey(record.name())) return type;
             List<ClassTemplateDecl.Parameter> parameters=classTemplates.get(record.name());
             if (context.match(TokenType.LESS)) {

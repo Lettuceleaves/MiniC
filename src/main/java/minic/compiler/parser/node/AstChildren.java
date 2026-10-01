@@ -19,6 +19,7 @@ public final class AstChildren {
             case InternalLinkageDecl n -> present(n.declaration());
             case ClassTemplateDecl n -> prepend(n.record(), n.parameters());
             case FunctionTemplateDecl n -> prepend(n.function(),n.parameters());
+            case CppTemplateMemberDefinition n -> prepend(n.declaration(),n.parameters());
             case TemplateMethodMember n -> prepend(n.method(),n.parameters());
             case TemplateConstructorMember n -> prepend(n.constructor(),n.parameters());
             case CppTemplateIdExpr n -> prepend(n.target(),n.arguments().stream().filter(minic.compiler.type.TemplateArgument.Value.class::isInstance).map(minic.compiler.type.TemplateArgument.Value.class::cast).map(minic.compiler.type.TemplateArgument.Value::expression).toList());
@@ -164,7 +165,7 @@ public final class AstChildren {
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
                     || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null || function.definitionKind()!=DefinitionKind.ORDINARY || function.exceptionSpecification().specified())
-                    || node instanceof FunctionTemplateDecl || node instanceof CppTemplateIdExpr
+                    || node instanceof FunctionTemplateDecl || node instanceof CppTemplateMemberDefinition || node instanceof CppTemplateIdExpr
                     || node instanceof CppTemplateValueExpr
                     || node instanceof VarDeclStmt variable && variable.staticStorage()
                     || node instanceof StructDecl record && record.cppInfo() != null)) return node;

@@ -1,5 +1,6 @@
 package minic.compiler.parser;
 
+import minic.compiler.parser.node.Declaration;
 import minic.SourceRange;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
@@ -339,6 +340,45 @@ public final class CppRecordParser {
         }
         return new FunctionDecl(declaration.name(), function.returnType(), parameters, function.variadic(), body,
                 false, false, SourceRange.span(declaration.range(), end), declaration.operatorName()).withExceptionSpecification(function.exceptionSpecification());
+    }
+
+    public boolean startsTemplateSpecialMember() {
+        int end=types.templateMemberDelimiter();if(end<0)return false;
+        TokenType next=state.peekAt(end+1).type();
+        if(next==TokenType.TILDE || next==TokenType.OPERATOR)return true;
+        if(next!=TokenType.IDENTIFIER || state.peekAt(end+2).type()!=TokenType.LEFT_PAREN)return false;
+        String owner=null;
+        for(int i=0;i<end;i++)if(state.peekAt(i).type()==TokenType.LESS){owner=state.peekAt(i-1).lexeme();break;}
+        return state.peekAt(end+1).lexeme().equals(owner);
+    }
+
+    public Declaration parseTemplateSpecialMember() {
+        Token start=state.peek();QualifiedName prefix=types.parseTemplateMemberOwner();if(prefix==null)return null;
+        var segments=new ArrayList<>(prefix.segments());
+        boolean conversion=state.check(TokenType.OPERATOR),destructor=state.match(TokenType.TILDE);
+        Token name=conversion?state.peek():state.consume(TokenType.IDENTIFIER,"期望类成员名称");if(name==null)return null;
+        SourceRange nameRange=destructor?SourceRange.span(start.range(),name.range()):name.range();
+        String spelling=conversion?"operator":(destructor?"~":"")+name.lexeme();segments.add(spelling);
+        QualifiedName qualified=new QualifiedName(true,segments,SourceRange.span(start.range(),name.range()));
+        types.enterMemberDefinitionScope(qualified);
+        try {
+            if(conversion) {
+                ParsedConversion parsed=readConversion(start.range(),false);if(parsed==null)return null;
+                FunctionDecl signature=parsed.member().method();
+                BlockStmt body=parsed.body()==null?null:state.inTokenWindow(parsed.body(),()->statements.parseFunctionBlock(List.of()));
+                FunctionDecl function=new FunctionDecl(signature.name(),signature.returnType(),signature.parameters(),signature.variadic(),body,
+                        false,false,signature.range(),signature.operatorName(),signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification());
+                segments.set(segments.size()-1,function.name());
+                return new OutOfLineMethodDecl(new QualifiedName(true,segments,qualified.range()),function,parsed.member().constQualified(),parsed.member().nameRange());
+            }
+            String expected=prefix.segments().getLast();if(!name.lexeme().equals(expected))state.report(nameRange,"构造/析构名称必须是所属类名称");
+            if(destructor) {
+                var item=readDestructor(name.lexeme(),nameRange,start.range(),-1);
+                return item==null?null:new OutOfLineDestructorDecl(qualified,completeDestructor(item),nameRange);
+            }
+            var item=readConstructor(name.lexeme(),nameRange,start.range(),-1,false);
+            return item==null?null:new OutOfLineConstructorDecl(qualified,completeConstructor(item),nameRange);
+        } finally {types.exitMemberDefinitionScope();}
     }
 
     /** Lookup distinguishes injected constructor names from namespace-qualified ordinary types. */

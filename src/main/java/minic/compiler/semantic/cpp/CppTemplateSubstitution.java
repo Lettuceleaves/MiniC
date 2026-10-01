@@ -44,6 +44,7 @@ public final class CppTemplateSubstitution {
         this.instanceName = Objects.requireNonNull(instanceName);
     }
 
+    public Declaration instantiate(Declaration source) { return (Declaration)copy(source); }
     public Expression expression(Expression source) { return (Expression)copy(source); }
     public FunctionDecl instantiate(FunctionDecl source) { return (FunctionDecl)copy(source); }
     public ConstructorMember instantiate(ConstructorMember source) { return (ConstructorMember)copy(source); }

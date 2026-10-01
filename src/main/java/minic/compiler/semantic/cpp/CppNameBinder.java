@@ -1,5 +1,6 @@
 package minic.compiler.semantic.cpp;
 
+import minic.compiler.parser.node.CppTemplateMemberDefinition;
 import minic.SourceRange;
 import minic.compiler.Diagnostic;
 import minic.compiler.lexer.token.TokenType;
@@ -317,6 +318,15 @@ public final class CppNameBinder {
         private int functionTemplateDepth;
         private final Set<Entity> emittedFunctionTemplates=Collections.newSetFromMap(new IdentityHashMap<>());
 
+        private record TemplateMemberDefinition(CppTemplateMemberDefinition source,Namespace namespace,Map<Namespace,NamespaceView> lookup) {}
+        private final Map<String,List<TemplateMemberDefinition>> templateMemberDefinitions=new LinkedHashMap<>();
+        private final Map<TemplateMemberDefinition,Set<TypeEntity>> appliedTemplateMemberDefinitions=new IdentityHashMap<>();
+        private final Map<Entity,Map<Namespace,NamespaceView>> templateMemberLookups=new IdentityHashMap<>();
+        private record PendingTemplateStatic(OutOfLineStaticFieldDecl source,TypeEntity owner,Namespace namespace,Map<Namespace,NamespaceView> lookup) {}
+        private final Map<Entity,PendingTemplateStatic> pendingTemplateStatics=new IdentityHashMap<>();
+        private final Set<Entity> requestedTemplateMembers=Collections.newSetFromMap(new IdentityHashMap<>());
+        private TypeEntity templateDefinitionOwner;
+        private Map<Namespace,NamespaceView> templateDefinitionLookup;
         private final Map<String, TemplateDefinition> templates = new LinkedHashMap<>();
         private final Map<String,List<TemplateDefinition>> templateSpecializations=new LinkedHashMap<>();
         private record TemplateSelection(TemplateDefinition definition,CppTemplateDeduction.Bindings bindings) {}
@@ -361,6 +371,7 @@ public final class CppNameBinder {
 
         Result run() {
             bindDeclarations(source.declarations(), root);
+            finishTemplateMemberRequests();
             for(Entity function:List.copyOf(exceptionSources.keySet()))
                 if(!functionTemplates.containsKey(function)&&!functionTemplateInstances.containsKey(function)
                         &&exceptionSources.get(function).stream().noneMatch(context->context.owner!=null&&instanceKeys.containsKey(context.owner)))
@@ -375,6 +386,7 @@ public final class CppNameBinder {
                     break;
                 }
             }
+            finishTemplateMemberRequests();
             for (StaticField field : staticFields.values()) if (!field.entity.defined)
                 for (SourceRange use : field.uses) report("CPP004", use,
                         "ODR-used static data member has no definition: " + field.owner.canonicalName + "::" + field.entity.name);
@@ -399,6 +411,7 @@ public final class CppNameBinder {
                 switch (declaration) {
                     case ClassTemplateDecl node -> declareTemplate(node, namespace);
                     case FunctionTemplateDecl node -> declareFunctionTemplate(node,namespace);
+                    case CppTemplateMemberDefinition node -> declareTemplateMemberDefinition(node,namespace);
                     case InternalLinkageDecl node -> {
                         boolean saved = internalDeclaration;
                         internalDeclaration = true;
@@ -1032,6 +1045,104 @@ public final class CppNameBinder {
                 currentTemplateLookup = saved;
                 instantiating.remove(entity);
             }
+            applyTemplateMemberDefinitions(entity);
+        }
+
+        private void declareTemplateMemberDefinition(CppTemplateMemberDefinition node,Namespace namespace) {
+            TemplateDefinition primary=templates.get(node.ownerType().templateName());
+            if(primary==null){report("CPP003",node.range(),"Member definition requires an existing class template");return;}
+            boolean enclosing=false;for(Namespace at=primary.owner;at!=null;at=at.parent)enclosing|=at==namespace;
+            if(!enclosing){report("CPP004",node.range(),"Member definition must be in an enclosing namespace");return;}
+            if(!(node.declaration() instanceof OutOfLineMethodDecl || node.declaration() instanceof OutOfLineStaticFieldDecl
+                    || node.declaration() instanceof OutOfLineConstructorDecl || node.declaration() instanceof OutOfLineDestructorDecl)) {
+                report("CPP004",node.range(),"Expected a qualified class template member definition");return;
+            }
+            var owners=new ArrayList<TemplateDefinition>();owners.add(primary);owners.addAll(templateSpecializations.getOrDefault(node.ownerType().templateName(),List.of()));
+            TemplateDefinition sourceOwner=owners.stream().filter(candidate->
+                    CppTemplateDeduction.match(node.ownerType().arguments(),templatePattern(candidate),node.parameters(),this::expandTemplateType)!=null
+                    &&CppTemplateDeduction.match(templatePattern(candidate),node.ownerType().arguments(),candidate.source.parameters(),this::expandTemplateType)!=null).findFirst().orElse(null);
+            if(sourceOwner==null){report("CPP004",node.range(),"Member definition template header does not match a declared class template");return;}
+            validateTemplateMemberNames(node,sourceOwner);
+            var definition=new TemplateMemberDefinition(node,namespace,snapshotLookup());
+            templateMemberDefinitions.computeIfAbsent(node.ownerType().templateName(),key->new ArrayList<>()).add(definition);
+            for(TypeEntity instance:List.copyOf(templateInstances.values()))if(instance.complete)applyTemplateMemberDefinition(definition,instance);
+        }
+
+        private void validateTemplateMemberNames(CppTemplateMemberDefinition definition,TemplateDefinition owner) {
+            StructDecl record=owner.source.record();if(record.cppInfo()==null)return;
+            var members=new ArrayList<CppMember>(record.cppInfo().members());
+            switch(definition.declaration()) {
+                case OutOfLineMethodDecl method -> members.add(new MethodMember(method.method(),method.constQualified(),method.nameRange()));
+                case OutOfLineConstructorDecl constructor -> members.add(constructor.constructor());
+                case OutOfLineDestructorDecl destructor -> members.add(destructor.destructor());
+                case OutOfLineStaticFieldDecl field -> members.add(new StaticFieldMember(field.declaration()));
+                default -> { }
+            }
+            var info=record.cppInfo();
+            // Earlier declarations supply complete-class names; the appended body supplies its own parameters.
+            validateTemplateNames(new StructDecl(record.name(),record.fields(),record.definition(),record.union(),
+                    new CppRecordInfo(info.key(),members,info.bases(),info.keyRange()),record.range()),owner.owner);
+        }
+
+        private void applyTemplateMemberDefinitions(TypeEntity instance) {
+            var key=instanceKeys.get(instance);if(key==null || !instance.complete)return;
+            for(var definition:List.copyOf(templateMemberDefinitions.getOrDefault(key.templateName(),List.of())))
+                applyTemplateMemberDefinition(definition,instance);
+        }
+
+        private void applyTemplateMemberDefinition(TemplateMemberDefinition definition,TypeEntity instance) {
+            var key=instanceKeys.get(instance);if(key==null || !definition.source.ownerType().templateName().equals(key.templateName()))return;
+            if(appliedTemplateMemberDefinitions.computeIfAbsent(definition,ignored->Collections.newSetFromMap(new IdentityHashMap<>())).contains(instance))return;
+            var selection=selectTemplate(key,definition.source.range());if(selection==null)return;
+            // A primary member definition does not define a member of a distinct partial/full class specialization.
+            var pattern=definition.source.ownerType().arguments();
+            if(CppTemplateDeduction.match(pattern,templatePattern(selection.definition),definition.source.parameters(),this::expandTemplateType)==null
+                    ||CppTemplateDeduction.match(templatePattern(selection.definition),pattern,selection.definition.source.parameters(),this::expandTemplateType)==null)return;
+            var bindings=CppTemplateDeduction.match(pattern,key.arguments(),definition.source.parameters(),this::expandTemplateType);
+            if(bindings==null)return;
+            appliedTemplateMemberDefinitions.get(definition).add(instance);
+            var values=new LinkedHashMap<MiniType.TemplateParameterType,Expression>();
+            for(var entry:bindings.values().entrySet()) {
+                if(entry.getValue() instanceof TemplateArgument.Integral v)values.put(entry.getKey(),new IntegerConstantExpr(v.value(),v.type(),v.toString(),definition.source.range()));
+                else if(entry.getValue() instanceof TemplateArgument.Value v)values.put(entry.getKey(),v.expression());
+            }
+            var substitution=new CppTemplateSubstitution(bindings.types(),values,bindings.packs(),definition.source.parameters(),
+                    key.templateName(),instance.canonicalName);
+            TypeEntity savedOwner=templateDefinitionOwner;var savedLookup=currentTemplateLookup;var savedDefinitionLookup=templateDefinitionLookup;
+            templateDefinitionOwner=instance;currentTemplateLookup=definition.lookup;templateDefinitionLookup=definition.lookup;
+            int checkpoint=diagnostics.size();
+            try {
+                Declaration declaration=substitution.instantiate(definition.source.declaration());templateOrigins.putAll(substitution.origins());
+                if(declaration instanceof OutOfLineStaticFieldDecl field) {
+                    StaticField member=instance.staticFields.get(field.declaration().name());
+                    if(member==null)report("CPP004",field.nameRange(),"No matching static data member declaration");
+                    else if(member.entity.defined || pendingTemplateStatics.containsKey(member.entity))report("CPP004",field.nameRange(),"Duplicate static data member definition");
+                    else pendingTemplateStatics.put(member.entity,new PendingTemplateStatic(field,instance,definition.namespace,definition.lookup));
+                } else bindDeclarations(List.of(declaration),definition.namespace);
+            } catch(IllegalArgumentException error) {report("CPP004",definition.source.range(),"Cannot instantiate member definition: "+error.getMessage());}
+            finally {preserveInstantiationDiagnostics(checkpoint);templateDefinitionOwner=savedOwner;currentTemplateLookup=savedLookup;templateDefinitionLookup=savedDefinitionLookup;}
+        }
+
+        private void instantiateStaticField(StaticField field) {
+            PendingTemplateStatic definition=pendingTemplateStatics.remove(field.entity);if(definition==null)return;
+            var savedOwner=templateDefinitionOwner;var savedLookup=currentTemplateLookup;
+            templateDefinitionOwner=definition.owner;currentTemplateLookup=definition.lookup;
+            int checkpoint=diagnostics.size();
+            try {bindStaticFieldDefinition(definition.source,definition.namespace);}
+            finally {preserveInstantiationDiagnostics(checkpoint);templateDefinitionOwner=savedOwner;currentTemplateLookup=savedLookup;}
+        }
+
+        private void finishTemplateMemberRequests() {
+            while(true) {
+                int before=pendingTemplateMethods.size()+pendingTemplateConstructors.size()+pendingTemplateDestructors.size()+pendingTemplateStatics.size();
+                for(StaticField field:List.copyOf(staticFields.values()))if(!field.uses.isEmpty())instantiateStaticField(field);
+                for(Entity entity:List.copyOf(requestedTemplateMembers)) {
+                    Method method=pendingTemplateMethods.get(entity);if(method!=null)instantiateMethod(method);
+                    Constructor constructor=pendingTemplateConstructors.get(entity);if(constructor!=null)instantiateConstructor(constructor);
+                    Destructor destructor=pendingTemplateDestructors.get(entity);if(destructor!=null)instantiateDestructor(destructor);
+                }
+                if(before==pendingTemplateMethods.size()+pendingTemplateConstructors.size()+pendingTemplateDestructors.size()+pendingTemplateStatics.size())break;
+            }
         }
 
         /** Empty tag hierarchies need source inheritance but no runtime layout or dispatch machinery. */
@@ -1082,9 +1193,12 @@ public final class CppNameBinder {
             if(method==method.owner.implicitMoveAssignment){emitImplicitMoveAssignment(method.owner);return;}
             if(functionTemplateInstances.containsKey(method.function)){instantiateFunctionTemplate(method.function);return;}
             if (unevaluatedDepth > 0 && !methodReturnType(method).containsAuto()) return;
-            if (pendingTemplateMethods.remove(method.function) == null) return;
+            if(!pendingTemplateMethods.containsKey(method.function))return;
+            requestedTemplateMembers.add(method.function);
+            if(!method.source.method().hasDefinition())return;
+            pendingTemplateMethods.remove(method.function);
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;
-            currentTemplateLookup = instanceLookup.get(method.owner);
+            currentTemplateLookup = templateMemberLookups.getOrDefault(method.function,instanceLookup.get(method.owner));
             try { bindMethod(method, method.owner.owner); }
             finally { currentTemplateLookup = saved; }
         }
@@ -1120,17 +1234,23 @@ public final class CppNameBinder {
             if(constructor==constructor.owner.implicitCopy){emitImplicitCopy(constructor.owner);return;}
             if(constructor==constructor.owner.implicitMove){emitImplicitMove(constructor.owner);return;}
             if(functionTemplateInstances.containsKey(constructor.function)){instantiateFunctionTemplate(constructor.function);return;}
-            if (unevaluatedDepth > 0 || pendingTemplateConstructors.remove(constructor.function) == null) return;
+            if(unevaluatedDepth>0 || !pendingTemplateConstructors.containsKey(constructor.function))return;
+            requestedTemplateMembers.add(constructor.function);
+            if(!constructor.source.hasDefinition())return;
+            pendingTemplateConstructors.remove(constructor.function);
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;
-            currentTemplateLookup = instanceLookup.get(constructor.owner);
+            currentTemplateLookup = templateMemberLookups.getOrDefault(constructor.function,instanceLookup.get(constructor.owner));
             try { bindConstructor(constructor); }
             finally { currentTemplateLookup = saved; }
         }
 
         private void instantiateDestructor(Destructor destructor) {
-            if (unevaluatedDepth > 0 || pendingTemplateDestructors.remove(destructor.function) == null) return;
+            if(unevaluatedDepth>0 || !pendingTemplateDestructors.containsKey(destructor.function))return;
+            requestedTemplateMembers.add(destructor.function);
+            if(!destructor.source.hasDefinition())return;
+            pendingTemplateDestructors.remove(destructor.function);
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;
-            currentTemplateLookup = instanceLookup.get(destructor.owner);
+            currentTemplateLookup = templateMemberLookups.getOrDefault(destructor.function,instanceLookup.get(destructor.owner));
             try { bindDestructor(destructor); }
             finally { currentTemplateLookup = saved; }
         }
@@ -1304,7 +1424,10 @@ public final class CppNameBinder {
                 previous.function.defined = true;
                 Destructor replacement=new Destructor(owner,node.destructor(),previous.access,previous.function,false);owner.destructor=replacement;
                 if(node.destructor().definitionKind()==DefinitionKind.DEFAULTED)userProvidedDefaulted.add(replacement.function);
-                bindDestructor(replacement);
+                if(templateDefinitionOwner==owner && node.destructor().definitionKind()==DefinitionKind.ORDINARY) {
+                    pendingTemplateDestructors.put(replacement.function,replacement);templateMemberLookups.put(replacement.function,templateDefinitionLookup);
+                    exceptionSource(replacement.function,replacement.source.exceptionSpecification(),List.of(),List.of(),owner.owner,owner,owner.type.pointerTo(),true,replacement.source.range());
+                } else bindDestructor(replacement);
             }
         }
 
@@ -1712,7 +1835,11 @@ public final class CppNameBinder {
                 userProvidedDefaulted.add(replacement.function);registerSpecialDefinition(replacement.function,DefinitionKind.DEFAULTED,node.range());
                 owner.copyPlan=null;owner.movePlanned=false;
             }
-            bindConstructor(replacement);
+            if(templateDefinitionOwner==owner && !defaulted(replacement)) {
+                pendingTemplateConstructors.put(replacement.function,replacement);templateMemberLookups.put(replacement.function,templateDefinitionLookup);
+                exceptionSource(replacement.function,replacement.source.exceptionSpecification(),replacement.source.parameters(),parameters,
+                        owner.owner,owner,owner.type.pointerTo(),false,replacement.source.range());
+            } else bindConstructor(replacement);
             if(defaulted(replacement)){
                 ensureImplicitCopy(owner);ensureImplicitMove(owner);
                 if(isDeleted(replacement.function))report("CPP004",node.range(),"A defaulted definition after the first declaration cannot be deleted");
@@ -1931,7 +2058,7 @@ public final class CppNameBinder {
                 valueCategories.put(value, CppValueCategory.LVALUE);
                 return value;
             }
-            if (unevaluatedDepth == 0) field.uses.add(range);
+            if (unevaluatedDepth == 0) {field.uses.add(range);instantiateStaticField(field);}
             return referenceStorage(field.entity.name, range, field.entity);
         }
 
@@ -2157,10 +2284,16 @@ public final class CppNameBinder {
                 owner.assignmentPlanned=false;owner.movePlanned=false;ensureImplicitAssignment(owner);ensureImplicitMove(owner);
                 if(isDeleted(replacement.function))report("CPP004",node.range(),"A defaulted definition after the first declaration cannot be deleted");
                 else if(replacement==owner.implicitAssignment)emitImplicitAssignment(owner);else if(replacement==owner.implicitMoveAssignment)emitImplicitMoveAssignment(owner);
+            } else if(templateDefinitionOwner==owner) {
+                pendingTemplateMethods.put(replacement.function,replacement);templateMemberLookups.put(replacement.function,templateDefinitionLookup);
             } else bindMethod(replacement,owner.owner);
         }
 
         private TypeEntity resolveMethodOwner(QualifiedName name, Namespace namespace) {
+            if(templateDefinitionOwner!=null) {
+                var key=instanceKeys.get(templateDefinitionOwner);
+                if(key!=null && ("::"+String.join("::",name.segments())).equals(key.templateName()))return templateDefinitionOwner;
+            }
             Set<Candidate> candidates = new LinkedHashSet<>();
             String last = name.segments().getLast();
             if (name.global() || name.segments().size() > 1) {
