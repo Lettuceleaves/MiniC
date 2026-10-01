@@ -9,14 +9,15 @@
 #include <limits.h>
 namespace std {
 
-// The char specialization keeps 15 bytes and a terminator inline. A null
-// buffer_ selects inline storage; it never stores a pointer into its own object.
+// The char specialization keeps 15 bytes and a terminator inline. buffer_
+// always points at live character storage; small moves repair this self-pointer.
 // The named trivial union keeps the x64 string object at 32 bytes.
 union __minic_string_storage { unsigned long long capacity; char small[16]; };
 class string {
     char* buffer_;
     unsigned long long size_;
     __minic_string_storage storage_;
+    bool is_small() const noexcept { return buffer_==storage_.small; }
     static unsigned long long text_length(const char* text) { return ::strlen(text); }
     unsigned long long clipped(unsigned long long position,unsigned long long count) const {
         if(position>size_)::abort();unsigned long long available=size_-position;return count<available?count:available;
@@ -29,17 +30,21 @@ class string {
         if(capacity>max_size())::abort();
         char* next=std::__minic_allocate<char>(capacity+1);
         ::memcpy(next,data(),size_+1);
-        char* old=buffer_;buffer_=next;storage_.capacity=capacity;
+        char* old=is_small()?nullptr:buffer_;buffer_=next;storage_.capacity=capacity;
         std::__minic_deallocate(old);
     }
     void ensure(unsigned long long needed) { if(needed>capacity())allocate_capacity(growth(needed)); }
-    // Destination is empty and distinct from source. A direct first-byte write
-    // activates the small array; copy only its remaining characters and terminator.
+    // Destination has released its old storage and is distinct from source.
+    // A short move starts the destination array lifetime and repairs its pointer;
+    // only heap storage can be transferred by stealing the source pointer.
     void take_storage(string& other) noexcept {
-        buffer_=other.buffer_;size_=other.size_;
-        if(buffer_)storage_.capacity=other.storage_.capacity;
-        else {storage_.small[0]=other.storage_.small[0];if(size_!=0)::memcpy(storage_.small+1,other.storage_.small+1,size_);}
-        other.buffer_=nullptr;other.size_=0;other.storage_.small[0]=0;
+        size_=other.size_;
+        if(other.is_small()) {
+            storage_.small[0]=other.storage_.small[0];
+            if(size_!=0)::memcpy(storage_.small+1,other.storage_.small+1,size_);
+            buffer_=storage_.small;
+        } else {buffer_=other.buffer_;storage_.capacity=other.storage_.capacity;}
+        other.storage_.small[0]=0;other.buffer_=other.storage_.small;other.size_=0;
     }
     // Distinct string objects own disjoint storage. Whole-string copies need
     // no alias snapshot; self assign keeps its storage and value unchanged.
@@ -88,31 +93,31 @@ public:
     typedef std::reverse_iterator<iterator> reverse_iterator;
     typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
     static const size_type npos=0xffffffffffffffffULL;
-    string() noexcept:buffer_(nullptr),size_(0) { storage_.small[0]=0; }
-    string(const char* text):buffer_(nullptr),size_(0) { storage_.small[0]=0;assign(text,text_length(text)); }
-    string(const char* text,size_type n):buffer_(nullptr),size_(0) { storage_.small[0]=0;assign(text,n); }
-    string(size_type n,char value):buffer_(nullptr),size_(0) { storage_.small[0]=0;assign(n,value); }
-    string(const string& other):buffer_(nullptr),size_(0) { storage_.small[0]=0;copy_storage(other); }
-    string(const string& other,size_type position):buffer_(nullptr),size_(0) { storage_.small[0]=0;assign(other,position,npos); }
-    string(const string& other,size_type position,size_type count):buffer_(nullptr),size_(0) { storage_.small[0]=0;assign(other,position,count); }
+    string() noexcept:buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small; }
+    string(const char* text):buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;assign(text,text_length(text)); }
+    string(const char* text,size_type n):buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;assign(text,n); }
+    string(size_type n,char value):buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;assign(n,value); }
+    string(const string& other):buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;copy_storage(other); }
+    string(const string& other,size_type position):buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;assign(other,position,npos); }
+    string(const string& other,size_type position,size_type count):buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;assign(other,position,count); }
     template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
-    string(I first,I last):buffer_(nullptr),size_(0) { storage_.small[0]=0;while(first!=last){push_back(*first);++first;} }
-    string(initializer_list<char> values):buffer_(nullptr),size_(0) { storage_.small[0]=0;assign(values.begin(),values.size()); }
-    string(string&& other) noexcept:buffer_(nullptr),size_(0) { storage_.small[0]=0;take_storage(other); }
-    ~string() { std::__minic_deallocate(buffer_); }
+    string(I first,I last):buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;while(first!=last){push_back(*first);++first;} }
+    string(initializer_list<char> values):buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;assign(values.begin(),values.size()); }
+    string(string&& other) noexcept:buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;take_storage(other); }
+    ~string() { if(!is_small())std::__minic_deallocate(buffer_); }
     string& operator=(const string& other) { if(this!=&other)assign(other);return *this; }
     string& operator=(string&& other) noexcept {
-        if(this!=&other){std::__minic_deallocate(buffer_);buffer_=nullptr;size_=0;storage_.small[0]=0;take_storage(other);}return *this;
+        if(this!=&other){if(!is_small())std::__minic_deallocate(buffer_);take_storage(other);}return *this;
     }
     string& operator=(const char* text) { return assign(text); }
     string& operator=(char value) { return assign(1,value); }
     string& operator=(initializer_list<char> values) { return assign(values); }
-    char* data() noexcept { return buffer_?buffer_:storage_.small; }
-    const char* data() const noexcept { return buffer_?buffer_:storage_.small; }
+    char* data() noexcept { return buffer_; }
+    const char* data() const noexcept { return buffer_; }
     const char* c_str() const noexcept { return data(); }
     size_type size() const noexcept { return size_; }
     size_type length() const noexcept { return size_; }
-    size_type capacity() const noexcept { return buffer_?storage_.capacity:15ULL; }
+    size_type capacity() const noexcept { return is_small()?15ULL:storage_.capacity; }
     size_type max_size() const noexcept { return 0x7ffffffffffffffeULL; }
     bool empty() const noexcept { return size_==0; }
     char& operator[](size_type index) { return data()[index]; }
@@ -139,8 +144,8 @@ public:
     void reserve(size_type n) { if(n>capacity())allocate_capacity(n); }
     void reserve() { shrink_to_fit(); }
     void shrink_to_fit() {
-        if(!buffer_)return;
-        if(size_<=15){char* old=buffer_;storage_.small[0]=old[0];if(size_!=0)::memcpy(storage_.small+1,old+1,size_);buffer_=nullptr;std::__minic_deallocate(old);}
+        if(is_small())return;
+        if(size_<=15){char* old=buffer_;storage_.small[0]=old[0];if(size_!=0)::memcpy(storage_.small+1,old+1,size_);buffer_=storage_.small;std::__minic_deallocate(old);}
         else if(size_<storage_.capacity)allocate_capacity(size_);
     }
     void resize(size_type n,char value) { if(n>size_)replace_fill(size_,0,n-size_,value);else {size_=n;data()[n]=0;} }
