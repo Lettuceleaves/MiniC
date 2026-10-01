@@ -416,8 +416,14 @@ public final class CppConstantEvaluator {
             else throw fail(range,"Pointer to integral conversion is not a constant expression");
             var converted=TemplateValues.convert(integer,target,value instanceof FloatingValue);return new IntegerValue(converted.value(),converted.type());
         }
-        if(target.equals(MiniType.FLOAT)||target.equals(MiniType.DOUBLE)){double number=number(value,range);if(target.equals(MiniType.FLOAT))number=(float)number;
-            if(!Double.isFinite(number))throw fail(range,"Floating constant conversion is outside its finite range");return new FloatingValue(number,target);}
+        if(target.equals(MiniType.FLOAT)||target.equals(MiniType.DOUBLE)){
+            // Match the binary32/binary64 runtime conversion profile (round to nearest,
+            // including signed infinity). This is a floating conversion, not list
+            // narrowing or an overflowing arithmetic operation; those are checked separately.
+            double number=number(value,range);
+            if(target.equals(MiniType.FLOAT))number=(float)number;
+            return new FloatingValue(number,target);
+        }
         if(value instanceof ObjectValue object&&object.type().unqualified().equals(target))return value;
         throw fail(range,"Unsupported constant conversion to "+target);
     }
