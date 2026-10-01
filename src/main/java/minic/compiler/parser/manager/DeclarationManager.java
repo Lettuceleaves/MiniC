@@ -177,12 +177,14 @@ public final class DeclarationManager {
         }
         if (typeReader.isCpp() && !qualified) typeReader.declareOrdinaryName(declaration.name(), declaration.range());
         if (!(declaration.type() instanceof MiniType.FunctionType functionType)) {
-            if (qualified) {
-                state.unsupportedCpp(declaration.nameRange(), "类外限定数据成员声明尚未实现");
-                return null;
-            }
             if (noReturn) state.report(startToken, "noreturn 只能用于函数");
-            var initialization = statementManager.parseVariableInitializer(declaration.type(), declaration.range());
+            StatementManager.ParsedInitializer initialization;
+            if (qualified) typeReader.enterMemberDefinitionScope(declaration.qualifiedName());
+            try {
+                initialization = statementManager.parseVariableInitializer(declaration.type(), declaration.range());
+            } finally {
+                if (qualified) typeReader.exitMemberDefinitionScope();
+            }
             Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
             if (semicolon == null) return null;
             GlobalVarDecl global = new GlobalVarDecl(
@@ -191,6 +193,10 @@ public final class DeclarationManager {
             if (!typeReader.isCpp()) typeReader.declareOrdinaryName(global.name(), global.range());
             state.build(global, "GlobalVarDecl " + global.name(), global.range());
             state.exit("functionDecl", global.range());
+            if (qualified) {
+                if (external) state.report(startToken, "类外 static 数据成员定义不能使用 extern");
+                return new Declaration.OutOfLineStaticFieldDecl(declaration.qualifiedName(), global, declaration.nameRange());
+            }
             return internal ? new Declaration.InternalLinkageDecl(global, global.range()) : global;
         }
         if (!declaration.alignmentSpecs().isEmpty()) {

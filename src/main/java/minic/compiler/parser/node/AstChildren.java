@@ -20,6 +20,8 @@ public final class AstChildren {
             case ClassTemplateDecl n -> prepend(n.record(), n.parameters());
             case ClassTemplateDecl.ValueParameter n -> present(n.defaultValue());
             case StructDecl n -> n.cppInfo() == null ? n.fields() : n.cppInfo().members();
+            case StaticFieldMember n -> present(n.declaration());
+            case OutOfLineStaticFieldDecl n -> present(n.declaration());
             case FieldMember n -> present(n.field(), n.defaultInitializer());
             case MethodMember n -> present(n.method());
             case MemberTypedef n -> present(n.declaration());
@@ -104,7 +106,7 @@ public final class AstChildren {
         while (!pending.isEmpty()) {
             AstNode node = pending.removeFirst();
             if (!visited.add(node)) continue;
-            if (!onlyReferences && (node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
+            if (!onlyReferences && (node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
                     || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
@@ -138,6 +140,7 @@ public final class AstChildren {
             case TypedefStmt n -> n.type();
             case CastExpr n -> n.targetType();
             case CppConstructionExpr n -> n.type();
+            case CppTypeMemberExpr n -> n.ownerType();
             case CppDestructorCallExpr n -> n.ownerType();
             case LetExpr n -> n.type();
             case MaterializeExpr n -> n.type();

@@ -280,7 +280,7 @@ public interface Declaration extends AstNode {
         }
     }
 
-    sealed interface CppMember extends AstNode permits FieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel, MemberTypedef {}
+    sealed interface CppMember extends AstNode permits FieldMember, StaticFieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel, MemberTypedef {}
 
     record MemberTypedef(TypedefDecl declaration) implements CppMember {
         public MemberTypedef { Objects.requireNonNull(declaration); }
@@ -292,6 +292,24 @@ public interface Declaration extends AstNode {
         public FieldMember(StructField field) { this(field, null); }
         public FieldMember { Objects.requireNonNull(field, "field"); }
         @Override public SourceRange range() { return field.range(); }
+    }
+
+    /** A static data member belongs to class lookup but has no instance layout slot. */
+    record StaticFieldMember(GlobalVarDecl declaration) implements CppMember {
+        public StaticFieldMember { Objects.requireNonNull(declaration, "declaration"); }
+        @Override public SourceRange range() { return declaration.range(); }
+    }
+
+    record OutOfLineStaticFieldDecl(QualifiedName qualifiedName, GlobalVarDecl declaration,
+                                    SourceRange nameRange) implements Declaration {
+        public OutOfLineStaticFieldDecl {
+            Objects.requireNonNull(qualifiedName, "qualifiedName");
+            Objects.requireNonNull(declaration, "declaration");
+            Objects.requireNonNull(nameRange, "nameRange");
+            if (qualifiedName.segments().size() < 2 || !qualifiedName.segments().getLast().equals(declaration.name()))
+                throw new IllegalArgumentException("static data definition requires its class owner");
+        }
+        @Override public SourceRange range() { return declaration.range(); }
     }
 
     /** Constructor spelling and signature are source syntax, not an ordinary named method. */
@@ -361,7 +379,10 @@ public interface Declaration extends AstNode {
         @Override public SourceRange range() { return constructor.range(); }
     }
 
-    record MethodMember(FunctionDecl method, boolean constQualified, SourceRange nameRange) implements CppMember {
+    record MethodMember(FunctionDecl method, boolean constQualified, boolean staticMember, SourceRange nameRange) implements CppMember {
+        public MethodMember(FunctionDecl method, boolean constQualified, SourceRange nameRange) {
+            this(method, constQualified, false, nameRange);
+        }
         public MethodMember(FunctionDecl method, SourceRange nameRange) {
             this(method, false, nameRange);
         }

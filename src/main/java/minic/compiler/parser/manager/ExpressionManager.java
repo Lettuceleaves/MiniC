@@ -507,6 +507,16 @@ public final class ExpressionManager {
     }
 
     private Expression parsePrimary() {
+        if (typeReader.cppTypeMemberDelimiterAt(0) >= 0) {
+            Parser.ParsedType type = typeReader.parseCppConstructionType();
+            state.consume(TokenType.SCOPE, "期望 '::'");
+            Token name = state.consume(TokenType.IDENTIFIER, "期望类成员名称");
+            if (type == null || name == null) return null;
+            var member = new minic.compiler.parser.node.CppTypeMemberExpr(type.type(), name.lexeme(), name.range(),
+                    SourceRange.span(type.range(), name.range()));
+            state.build(member, "CppTypeMemberExpr", member.range());
+            return member;
+        }
         if (typeReader.cppConstructionDelimiterAt(0) >= 0) {
             Parser.ParsedType type = typeReader.parseCppConstructionType();
             var initializer = parseConstructionInitializer();

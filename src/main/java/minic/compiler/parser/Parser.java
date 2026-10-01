@@ -942,6 +942,8 @@ public final class Parser extends Stage {
                         defineTypedef(alias.declaration().name(),alias.declaration().type(),alias.range());
                     } else if (member instanceof Declaration.MethodMember method && method.method().conversionName() == null) {
                         declareOrdinaryName(method.method().name(), method.nameRange());
+                    } else if (member instanceof Declaration.StaticFieldMember field) {
+                        declareOrdinaryName(field.declaration().name(), field.range());
                     }
                 }
             }
@@ -1246,6 +1248,24 @@ public final class Parser extends Stage {
             return following == TokenType.LEFT_PAREN || following == TokenType.LEFT_BRACE ? end : -1;
         }
 
+        /** Only the prefix ending at a template-id is consumed here; the member remains a value name. */
+        public int cppTypeMemberDelimiterAt(int offset) {
+            if (!isCpp()) return -1;
+            var name = CppNameParser.peekName(context, offset);
+            if (name == null || cppTypes.lookup(name).kind() != CppTypeEnvironment.Kind.TYPE) return -1;
+            int end = offset + name.segments().size() * 2 - 1 + (name.global() ? 1 : 0);
+            if (context.peekAt(end).type() != TokenType.LESS) return -1;
+            int depth = 1;
+            while (depth > 0) {
+                TokenType next = context.peekAt(++end).type();
+                if (next == TokenType.EOF || next == TokenType.SEMICOLON || next == TokenType.LEFT_BRACE) return -1;
+                if (next == TokenType.LESS) depth++;
+                if (next == TokenType.GREATER) depth--;
+                if (next == TokenType.GREATER_GREATER) depth -= 2;
+            }
+            return depth == 0 && context.peekAt(end + 1).type() == TokenType.SCOPE ? end + 1 : -1;
+        }
+
         public ParsedType parseCppConstructionType() {
             BaseType base = parseBaseType("期望构造类型");
             return base == null ? null : new ParsedType(base.type(), base.startToken(),
@@ -1254,6 +1274,7 @@ public final class Parser extends Stage {
 
         /** Type-id grammar wins sizeof/alignof ambiguity; function pointer casts remain type-ids. */
         public boolean cppTypeOperandAt(int offset, boolean query) {
+            if (cppTypeMemberDelimiterAt(offset) >= 0) return false;
             int delimiter = cppConstructionDelimiterAt(offset);
             if (delimiter < 0) return true;
             if (context.peekAt(delimiter).type() == TokenType.LEFT_BRACE) return false;
@@ -1294,6 +1315,7 @@ public final class Parser extends Stage {
 
         /** In a statement, a syntactically complete declaration wins T(name) ambiguity. */
         public boolean startsCppConstructionStatement() {
+            if (cppTypeMemberDelimiterAt(0) >= 0) return true;
             int delimiter = cppConstructionDelimiterAt(0);
             if (delimiter < 0) return false;
             if (context.peekAt(delimiter).type() == TokenType.LEFT_BRACE) return true;

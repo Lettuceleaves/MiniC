@@ -22,12 +22,16 @@ public final class CppOverloadResolver {
     public enum Status { SELECTED, NO_VIABLE, AMBIGUOUS }
     /** implicitObjectType is the cv-qualified owner class, not its lowered pointer ABI type. */
     public record Candidate<T>(T identity, List<MiniType> parameterTypes, boolean variadic,
-                               MiniType implicitObjectType) {
+                               MiniType implicitObjectType, boolean staticMember) {
         public Candidate {
             Objects.requireNonNull(identity, "identity");
             parameterTypes = List.copyOf(parameterTypes);
+            if (staticMember && implicitObjectType != null) throw new IllegalArgumentException("static member has no implicit object type");
             if (implicitObjectType != null && !implicitObjectType.isStruct())
                 throw new IllegalArgumentException("implicit object must have class type");
+        }
+        public Candidate(T identity, List<MiniType> parameterTypes, boolean variadic, MiniType implicitObjectType) {
+            this(identity, parameterTypes, variadic, implicitObjectType, false);
         }
         public Candidate(T identity, List<MiniType> parameterTypes, boolean variadic) {
             this(identity, parameterTypes, variadic, null);
@@ -132,7 +136,7 @@ public final class CppOverloadResolver {
 
     private enum Rank { EXACT, PROMOTION, CONVERSION, USER_DEFINED, ELLIPSIS }
     // Lvalue/array/function transformations are deliberately excluded from subsequence ranking.
-    private enum Step { NONE, NUMERIC, NULL_POINTER, POINTER_VOID, POINTER_BOOL, ELLIPSIS }
+    private enum Step { STATIC_OBJECT, NONE, NUMERIC, NULL_POINTER, POINTER_VOID, POINTER_BOOL, ELLIPSIS }
     private record Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference,
                               Object userIdentity, Conversion trailing, boolean ambiguous) {
         Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference) {
@@ -148,8 +152,10 @@ public final class CppOverloadResolver {
         var result = new ArrayList<Conversion>();
         // A homogeneous lookup set contains either ordinary functions or member functions.
         // Reject absent/extraneous receivers instead of comparing conversion lists of unequal size.
-        if ((candidate.implicitObjectType != null) != (receiver != null)) return null;
-        if (receiver != null) {
+        if (!candidate.staticMember && (candidate.implicitObjectType != null) != (receiver != null)) return null;
+        if (candidate.staticMember && receiver != null)
+            result.add(new Conversion(Rank.EXACT, Step.STATIC_OBJECT, false, null, false));
+        if (receiver != null && !candidate.staticMember) {
             MiniType source = expressionType(receiver.type), target = canonical(candidate.implicitObjectType);
             if (!sameUnqualified(source, target) || !cv(target).containsAll(cv(source))) return null;
             // No ref-qualifiers in this subset: same-class prvalues may bind to a mutable receiver.
@@ -232,6 +238,8 @@ public final class CppOverloadResolver {
 
     /** Negative means first is better. Zero includes indistinguishable, not just identical. */
     private static int compare(Conversion first, Conversion second) {
+        // [over.match.funcs]: a static member's notional object parameter has no conversion ranking.
+        if (first.step == Step.STATIC_OBJECT || second.step == Step.STATIC_OBJECT) return 0;
         if (first.rank != second.rank) return first.rank.compareTo(second.rank);
         if (first.rank == Rank.ELLIPSIS) return 0;
         if (first.rank == Rank.USER_DEFINED) {

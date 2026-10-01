@@ -70,10 +70,16 @@ public final class CppRecordParser {
                 if (state.match(TokenType.SEMICOLON)) continue;
                 int before = state.currentIndex();
                 Token declarationStart = state.peek();
+                boolean staticMember = state.match(TokenType.STATIC);
                 boolean explicitSpecifier = state.match(TokenType.EXPLICIT);
                 Token start = state.peek();
                 boolean constructorStart = start.type() == TokenType.IDENTIFIER && start.lexeme().equals(simpleName)
                         && state.peekAt(1).type() == TokenType.LEFT_PAREN;
+                if (staticMember && (constructorStart || start.type() == TokenType.TILDE || start.type() == TokenType.OPERATOR)) {
+                    state.report(declarationStart.range(), "构造、析构和转换函数不能声明为 static");
+                    recoverMember();
+                    continue;
+                }
                 if (explicitSpecifier && !constructorStart && start.type() != TokenType.OPERATOR) {
                     state.report(declarationStart.range(), "explicit 只能用于类内构造函数或转换函数声明");
                     recoverMember();
@@ -89,6 +95,9 @@ public final class CppRecordParser {
                         types.defineTypedef(alias.name(),alias.type(),range);
                         members.add(new MemberTypedef(new TypedefDecl(alias.name(),alias.type(),range)));
                     }
+                } else if (staticMember && isAccess(start.type())) {
+                    state.report(declarationStart.range(), "static 必须修饰数据成员或成员函数");
+                    recoverMember();
                 } else if (isAccess(start.type())) {
                     state.advance();
                     Token colon = state.consume(TokenType.COLON, "访问说明符后期望 ':'");
@@ -141,6 +150,11 @@ public final class CppRecordParser {
                     state.unsupportedCpp(start.range(), "此类成员语法尚未实现：" + start.lexeme());
                     recoverMember();
                 } else if (isAnonymousMember()) {
+                    if (staticMember) {
+                        state.report(declarationStart.range(), "匿名聚合成员不能声明为 static");
+                        recoverMember();
+                        continue;
+                    }
                     var anonymous = types.parseType("期望匿名聚合类型");
                     Token end = state.consume(TokenType.SEMICOLON, "期望 ';'");
                     if (anonymous != null && end != null) {
@@ -157,6 +171,7 @@ public final class CppRecordParser {
                     else if (declaration.type().unqualified() instanceof MiniType.FunctionType function) {
                         types.declareOrdinaryName(declaration.name(), declaration.nameRange());
                         boolean constQualified = state.match(TokenType.CONST);
+                        if (staticMember && constQualified) state.report(declaration.nameRange(), "static 成员函数不能带 const 限定符");
                         if (union) {
                             state.unsupportedCpp(declaration.nameRange(), "union 成员方法尚未实现");
                             recoverMember();
@@ -171,10 +186,18 @@ public final class CppRecordParser {
                             if (body == null) state.advance();
                             var method = makeMethod(declaration, function, null, state.previous().range());
                             int index = members.size();
-                            members.add(new MethodMember(method, constQualified, declaration.nameRange()));
+                            members.add(new MethodMember(method, constQualified, staticMember, declaration.nameRange()));
                             if (body != null) deferred.add(new DeferredMethod(index, method, body,
                                     declaration.parameters().stream().filter(p -> p.name().isEmpty()).map(Parser.ParsedParameter::range).toList()));
                         }
+                    } else if (staticMember) {
+                        types.declareOrdinaryName(declaration.name(), declaration.nameRange());
+                        var initialization = statements.parseVariableInitializer(declaration.type(), declaration.range());
+                        Token end = state.consume(TokenType.SEMICOLON, "期望 ';'");
+                        if (union) state.unsupportedCpp(declaration.nameRange(), "union 不能具有 static 数据成员");
+                        else if (end != null) members.add(new StaticFieldMember(new GlobalVarDecl(declaration.name(), declaration.type(),
+                                initialization.expression(), false, declaration.alignmentSpecs(), initialization.cppInitializer(),
+                                SourceRange.span(declarationStart.range(), end.range()))));
                     } else if (state.check(TokenType.EQUAL) || state.check(TokenType.LEFT_BRACE)) {
                         if (union) {
                             state.unsupportedCpp(state.peek().range(), "union 默认成员初始化尚未实现");
@@ -211,7 +234,7 @@ public final class CppRecordParser {
                 var method = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
                         signature.variadic(), body, false, false, signature.range(), signature.operatorName(), signature.conversionName());
                 MethodMember old = (MethodMember) members.get(item.memberIndex());
-                var member = new MethodMember(method, old.constQualified(), old.nameRange());
+                var member = new MethodMember(method, old.constQualified(), old.staticMember(), old.nameRange());
                 members.set(item.memberIndex(), member);
                 state.build(method, "MethodDecl " + method.name(), method.range());
             }
