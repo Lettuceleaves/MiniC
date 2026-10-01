@@ -4375,6 +4375,13 @@ public final class CppNameBinder {
                         requireComplete(elementType(declaredExpressionType(left)), n.range());
                         requireComplete(elementType(declaredExpressionType(right)), n.range());
                     }
+                    if((n.operator()==TokenType.EQUAL_EQUAL||n.operator()==TokenType.BANG_EQUAL)
+                            &&declaredExpressionType(left)!=null&&declaredExpressionType(left).isNullPointer()
+                            &&declaredExpressionType(right)!=null&&declaredExpressionType(right).isNullPointer()) {
+                        // C++ nullptr_t equality is valid; the C core represents it with pointers.
+                        left=typed(new CastExpr(MiniType.VOID.pointerTo(),left,left.range()),MiniType.VOID.pointerTo());
+                        right=typed(new CastExpr(MiniType.VOID.pointerTo(),right,right.range()),MiniType.VOID.pointerTo());
+                    }
                     Expression operation = new BinaryExpr(left, n.operator(), right, n.range());
                     yield hasBooleanResult(n.operator()) ? booleanResult(operation) : operation;
                 }
@@ -4413,6 +4420,10 @@ public final class CppNameBinder {
                             yield value;
                         }
                     }
+                    // Once no common glvalue exists, arrays and function designators decay;
+                    // pointer/nullptr arms then use the C++ composite pointer type.
+                    Expression pointerResult=conditionalPointerResult(condition,first,second,n);
+                    if(pointerResult!=null)yield pointerResult;
                     Expression selected = new ConditionalExpr(condition, first, second, n.range());
                     // C++ keeps a common integer type after lvalue-to-rvalue conversion. Core C
                     // promotes narrow integers here; restore char/short/bool without affecting
@@ -5873,14 +5884,68 @@ public final class CppNameBinder {
             if (first == null) return second;
             if (second == null) return first;
             if (first.unqualified().equals(second.unqualified())) return inheritObjectQualifiers(second, first);
+            first=TypeCompatibility.decay(first).unqualified();second=TypeCompatibility.decay(second).unqualified();
             if (first.isScalar() && second.isScalar()) return TypeCompatibility.conditionalResultType(first, second);
-            if (first.isPointer() && second.isPointer()) {
-                MiniType a = elementType(first), b = elementType(second);
-                if (a.isVoid() || b.isVoid()) return MiniType.VOID.pointerTo();
-                MiniType common = conditionalDeclaredType(a, b);
-                if (common != null) return common.pointerTo();
+            if(first.isNullPointer()&&second.isPointer())return second;
+            if(second.isNullPointer()&&first.isPointer())return first;
+            return compositePointerType(first,second);
+        }
+
+        private Expression conditionalPointerResult(Expression condition,Expression first,Expression second,ConditionalExpr source) {
+            MiniType a=declaredExpressionType(first),b=declaredExpressionType(second);
+            if(a==null||b==null)return null;
+            a=TypeCompatibility.decay(a).unqualified();b=TypeCompatibility.decay(b).unqualified();
+            if(!a.isPointer()&&!b.isPointer()&&!a.isNullPointer()&&!b.isNullPointer())return null;
+            MiniType target;
+            if(a.isPointer()&&(b.isNullPointer()||isNullIntegerLiteral(source.elseExpression())))target=a;
+            else if(b.isPointer()&&(a.isNullPointer()||isNullIntegerLiteral(source.thenExpression())))target=b;
+            else if(a.isNullPointer()&&(b.isNullPointer()||isNullIntegerLiteral(source.elseExpression()))
+                    ||b.isNullPointer()&&isNullIntegerLiteral(source.thenExpression()))target=MiniType.NULL;
+            else target=compositePointerType(a,b);
+            boolean valid=target!=null;
+            if(valid&&!target.isNullPointer()) {
+                valid=standardViable(new CppOverloadResolver.Argument(declaredExpressionType(first),valueCategory(first),isNullIntegerLiteral(source.thenExpression())),target)
+                        &&standardViable(new CppOverloadResolver.Argument(declaredExpressionType(second),valueCategory(second),isNullIntegerLiteral(source.elseExpression())),target);
             }
-            return null;
+            if(!valid){
+                report("CPP004",source.range(),"Conditional branches have no common C++ pointer type.");
+                return new ConditionalExpr(condition,first,second,source.range());
+            }
+            // Explicit core casts encode only the standard conversions validated above. Their
+            // individual ranges and the outer source origin survive; neither arm is evaluated here.
+            first=typed(new CastExpr(coreType(target),first,first.range()),target);
+            second=typed(new CastExpr(coreType(target),second,second.range()),target);
+            Expression result=typed(new ConditionalExpr(condition,first,second,source.range()),target);
+            valueCategories.put(result,CppValueCategory.PRVALUE);
+            return result;
+        }
+
+        private MiniType compositePointerType(MiniType first,MiniType second) {
+            if(!first.isPointer()||!second.isPointer())return null;
+            MiniType pointee=compositePointee(first.pointee(),second.pointee());
+            return pointee==null?null:pointee.pointerTo();
+        }
+
+        /** Qualification-combined pointee, including the intervening const required for T**. */
+        private MiniType compositePointee(MiniType first,MiniType second) {
+            var cv=new HashSet<>(first.qualifiers());cv.addAll(second.qualifiers());
+            MiniType result;
+            if(first.isPointer()&&second.isPointer()) {
+                MiniType child=compositePointee(first.pointee(),second.pointee());
+                if(child==null)return null;
+                if(!child.equals(first.pointee())||!child.equals(second.pointee()))cv.add(MiniType.TypeQualifier.CONST);
+                result=child.pointerTo();
+            }else if(first.isArray()&&second.isArray()&&first.arrayLength()==second.arrayLength()) {
+                MiniType child=compositePointee(elementType(first),elementType(second));
+                if(child==null)return null;result=child.arrayOf(first.arrayLength());
+            }else if(first.unqualified().equals(second.unqualified()))result=first.unqualified();
+            else if(CppOverloadResolver.functionConvertible(first,second))result=second.unqualified();
+            else if(CppOverloadResolver.functionConvertible(second,first))result=first.unqualified();
+            else if((first.isVoid()&&!second.isFunction())||(second.isVoid()&&!first.isFunction()))result=MiniType.VOID;
+            else if(baseDistance(first,second)>0)result=second.unqualified();
+            else if(baseDistance(second,first)>0)result=first.unqualified();
+            else return null;
+            return MiniType.qualified(result,cv);
         }
 
         private MiniType conditionalLvalueType(MiniType first, MiniType second) {
