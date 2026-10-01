@@ -388,6 +388,15 @@ final class InstructionEmitter {
             emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, "rax");
             return;
         }
+        if (sourceType.isIntegerScalar() && targetType == IrType.BOOL) {
+            valueEmitter.emitLoadValue(builder, cast.value(), "rax");
+            builder.append("    cmp ").append(valueEmitter.storeRegister("rax", sourceType))
+                    .append(", 0").append(System.lineSeparator());
+            builder.append("    setne al").append(System.lineSeparator());
+            builder.append("    movzx eax, al").append(System.lineSeparator());
+            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, "rax");
+            return;
+        }
         if (targetType.isFloatingScalar()) {
             if (sourceType == IrType.FLOAT && targetType == IrType.DOUBLE) {
                 valueEmitter.emitLoadValue(builder, cast.value(), "xmm0");
