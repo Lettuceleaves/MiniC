@@ -127,6 +127,19 @@ public final class CppTypeEnvironment {
 
     public void enterLocalScope() { local = new Local(local, namespace, ++nextLocalId, false); }
 
+    /** A parameter-clause syntax probe may declare names, but must leave no visible scope state. */
+    <T> T probeLocalDeclarations(java.util.function.Supplier<T> parse) {
+        Local saved = local;
+        int savedId = nextLocalId, errors = diagnostics.size();
+        enterLocalScope();
+        try { return parse.get(); }
+        finally {
+            local = saved;
+            nextLocalId = savedId;
+            diagnostics.subList(errors, diagnostics.size()).clear();
+        }
+    }
+
     /** Template parameters participate in lookup without giving the declared class a block identity. */
     public void enterTemplateScope() {
         local = new Local(local, namespace, ++nextLocalId, false);

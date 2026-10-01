@@ -325,8 +325,9 @@ public sealed interface MiniType permits
         if (qualifiers.isEmpty()) {
             return type;
         }
-        // CV applied to a typedef naming a reference does not qualify its referent.
-        if (type.isReference()) return type.unqualified();
+        // CV applied through an alias/template neither qualifies a referent nor a function.
+        // Function declarator qualifiers (member const) are a separate notion: [dcl.fct]/7.
+        if (type.isReference() || type.isFunction()) return type.unqualified();
         if (type instanceof QualifiedType qualifiedType) {
             EnumSet<TypeQualifier> merged = EnumSet.copyOf(qualifiedType.qualifiers());
             merged.addAll(qualifiers);

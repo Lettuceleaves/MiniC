@@ -817,6 +817,7 @@ public final class Parser extends Stage {
         private final java.util.Map<String, List<ClassTemplateDecl.Parameter>> classTemplates = new java.util.LinkedHashMap<>();
         private final java.util.Map<String, List<Optional<TemplateArgument>>> classTemplateDefaults = new java.util.LinkedHashMap<>();
         private ExpressionManager expressionManager;
+        private boolean probingParameterClause;
         private List<ClassTemplateDecl.Parameter> pendingFunctionTemplateParameters;
         private List<ClassTemplateDecl.Parameter> definitionTemplateParameters;
         private List<TemplateArgument> functionSpecializationArguments;
@@ -844,7 +845,8 @@ public final class Parser extends Stage {
 
         public TypeReader(Context context, java.util.function.Consumer<StructDecl> aggregateSink) {
             this.context = Objects.requireNonNull(context, "context");
-            this.aggregateSink = Objects.requireNonNull(aggregateSink, "aggregateSink");
+            Objects.requireNonNull(aggregateSink, "aggregateSink");
+            this.aggregateSink = declaration -> { if (!probingParameterClause) aggregateSink.accept(declaration); };
             cppTypes = isCpp() ? new CppTypeEnvironment() : null;
             typedefScopes.push(new java.util.LinkedHashMap<>());
             ordinaryNameScopes.push(new java.util.LinkedHashSet<>());
@@ -1910,6 +1912,8 @@ public final class Parser extends Stage {
                 if (isCpp() && context.check(TokenType.LEFT_PAREN) && !direct.name().isEmpty()
                         && !canStartTypeAt(1) && context.peekAt(1).type() != TokenType.RIGHT_PAREN
                         && context.peekAt(1).type() != TokenType.ELLIPSIS) break;
+                if (isCpp() && !probingParameterClause && context.check(TokenType.LEFT_PAREN)
+                        && !direct.name().isEmpty() && !parameterClauseIsDeclaration()) break;
                 if (context.match(TokenType.LEFT_BRACKET)) {
                     if(isCpp()) {
                         if(context.match(TokenType.RIGHT_BRACKET)) {
@@ -1979,6 +1983,43 @@ public final class Parser extends Stage {
                 direct = direct.withStart(pointerLayers.getFirst().token());
             }
             return direct;
+        }
+
+        /** C++ declaration priority applies only when the entire parameter clause is grammatical. */
+        private boolean parameterClauseIsDeclaration() {
+            int end = 0, depth = 0;
+            do {
+                TokenType token = context.peekAt(end++).type();
+                if (token == TokenType.EOF) return false;
+                if (token == TokenType.LEFT_PAREN) depth++;
+                if (token == TokenType.RIGHT_PAREN) depth--;
+            } while (depth > 0);
+            int start = context.currentIndex(), limit = start + end, errors = context.reportedErrors.size();
+            int traces = context.traceEvents == null ? 0 : context.traceEvents.size();
+            int savedAnonymous = anonymousAggregateIndex;
+            var savedFields = new java.util.LinkedHashMap<>(aggregateFields);
+            var savedDeclarations = new java.util.LinkedHashMap<>(aggregateDeclarations);
+            var savedSpecialization = functionSpecializationArguments;
+            var savedOwner = templateDefinitionOwner;
+            probingParameterClause = true;
+            try {
+                return cppTypes.probeLocalDeclarations(() -> context.inTokenWindow(
+                        new Context.TokenWindow(start, limit), () -> {
+                            context.advance();
+                            parseParameterList();
+                            boolean complete = context.match(TokenType.RIGHT_PAREN) && context.isAtEnd();
+                            return complete && context.reportedErrors.size() == errors;
+                        }));
+            } finally {
+                probingParameterClause = false;
+                anonymousAggregateIndex = savedAnonymous;
+                aggregateFields.clear(); aggregateFields.putAll(savedFields);
+                aggregateDeclarations.clear(); aggregateDeclarations.putAll(savedDeclarations);
+                functionSpecializationArguments = savedSpecialization;
+                templateDefinitionOwner = savedOwner;
+                context.reportedErrors.subList(errors, context.reportedErrors.size()).clear();
+                if (context.traceEvents != null) context.traceEvents.subList(traces, context.traceEvents.size()).clear();
+            }
         }
 
         /** The caller owns the surrounding parentheses; shared by functions and constructors. */
