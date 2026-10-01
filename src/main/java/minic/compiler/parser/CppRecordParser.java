@@ -79,7 +79,17 @@ public final class CppRecordParser {
                     recoverMember();
                     continue;
                 }
-                if (isAccess(start.type())) {
+                if (start.type() == TokenType.TYPEDEF) {
+                    state.advance();
+                    var alias=types.parseNamedType("期望成员 typedef 类型","期望成员 typedef 名称");
+                    Token end=state.consume(TokenType.SEMICOLON,"期望 ';'");
+                    if(alias==null||end==null)recoverMember();
+                    else {
+                        SourceRange range=SourceRange.span(start.range(),end.range());
+                        types.defineTypedef(alias.name(),alias.type(),range);
+                        members.add(new MemberTypedef(new TypedefDecl(alias.name(),alias.type(),range)));
+                    }
+                } else if (isAccess(start.type())) {
                     state.advance();
                     Token colon = state.consume(TokenType.COLON, "访问说明符后期望 ':'");
                     if (union) state.unsupportedCpp(start.range(), "union 访问说明符尚未实现");
@@ -513,7 +523,7 @@ public final class CppRecordParser {
     private boolean unsupportedPrefix(Token token) {
         return token.type() == TokenType.TILDE
                 || token.type() == TokenType.TYPEDEF || token.type() == TokenType.USING
-                || token.type().isCppToken() && token.type() != TokenType.CLASS && token.type() != TokenType.SCOPE;
+                || token.type().isCppToken() && token.type() != TokenType.CLASS && token.type() != TokenType.SCOPE && token.type() != TokenType.TYPENAME;
     }
 
     /** An anonymous type can still have a named, array, or pointer field declarator. */

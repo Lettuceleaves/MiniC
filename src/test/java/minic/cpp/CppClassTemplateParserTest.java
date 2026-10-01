@@ -64,8 +64,7 @@ final class CppClassTemplateParserTest {
     @ParameterizedTest @ValueSource(strings = {
         "template<class... T>struct Box{};",
         "template<class T>T identity(T value){return value;}",
-        "template<class T>struct Box{union{T value;};};",
-        "template<class T>struct Box{typename T::type value;};"
+        "template<class T>struct Box{union{T value;};};"
     })
     void unfinishedTemplateFormsHaveExplicitUnsupportedDiagnostics(String text) throws Exception {
         assertTrue(reference(text));
@@ -122,7 +121,7 @@ final class CppClassTemplateParserTest {
         assertTrue(parser.succeeded(),()->parser.errors().toString());
         var template=(minic.compiler.parser.node.ClassTemplateDecl)parser.result().program().declarations().get(1);
         assertEquals(minic.compiler.type.MiniType.INT,template.record().fields().getFirst().type());
-        var broken=parse("typedef double T;template<class T>struct Broken{typename T::value field;};T retained;",LanguageMode.CPP17_ALGORITHM);
+        var broken=parse("typedef double T;template<class T>struct Broken{typename T:: ;};T retained;",LanguageMode.CPP17_ALGORITHM);
         assertFalse(broken.succeeded());
         assertEquals(minic.compiler.type.MiniType.DOUBLE,broken.result().program().globals().getFirst().type());
     }

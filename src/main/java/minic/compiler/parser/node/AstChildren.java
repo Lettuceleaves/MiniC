@@ -22,6 +22,7 @@ public final class AstChildren {
             case StructDecl n -> n.cppInfo() == null ? n.fields() : n.cppInfo().members();
             case FieldMember n -> present(n.field(), n.defaultInitializer());
             case MethodMember n -> present(n.method());
+            case MemberTypedef n -> present(n.declaration());
             case ConstructorMember n -> {
                 var children = new ArrayList<AstNode>(n.parameters());
                 children.addAll(n.initializers());

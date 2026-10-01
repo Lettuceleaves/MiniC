@@ -938,7 +938,9 @@ public final class Parser extends Stage {
             declaration.fields().forEach(this::declareMemberField);
             if (declaration.cppInfo() != null) {
                 for (var member : declaration.cppInfo().members()) {
-                    if (member instanceof Declaration.MethodMember method && method.method().conversionName() == null) {
+                    if (member instanceof Declaration.MemberTypedef alias) {
+                        defineTypedef(alias.declaration().name(),alias.declaration().type(),alias.range());
+                    } else if (member instanceof Declaration.MethodMember method && method.method().conversionName() == null) {
                         declareOrdinaryName(method.method().name(), method.nameRange());
                     }
                 }
@@ -1335,9 +1337,13 @@ public final class Parser extends Stage {
                 offset++;
             }
             TokenType type = context.peekAt(offset).type();
+            if (isCpp() && type == TokenType.TYPENAME) return true;
             if (isCpp() && (type == TokenType.IDENTIFIER || type == TokenType.SCOPE)) {
                 var name = CppNameParser.peekName(context, offset);
-                return name != null && cppTypes.lookup(name).kind() == CppTypeEnvironment.Kind.TYPE;
+                if(name==null)return false;
+                for(int count=1;count<=name.segments().size();count++)
+                    if(cppTypes.lookup(new QualifiedName(name.global(),name.segments().subList(0,count),name.range())).kind()==CppTypeEnvironment.Kind.TYPE)return true;
+                return false;
             }
             return type == TokenType.BOOL
                     || type == TokenType.CHAR
@@ -1661,18 +1667,11 @@ public final class Parser extends Stage {
                 if (nameToken == null) return null;
                 type = MiniType.INT;
                 end = nameToken;
-            } else if (isCpp() && (context.check(TokenType.IDENTIFIER) || context.check(TokenType.SCOPE))) {
-                var name = CppNameParser.parseName(context);
-                if (name == null) return null;
-                var result = cppTypes.lookup(name);
-                if (result.kind() != CppTypeEnvironment.Kind.TYPE) {
-                    context.report(name.range(), "此位置不能将名称作为类型使用："
-                            + (name.global() ? "::" : "") + String.join("::", name.segments()) + " (" + result.kind() + ")");
-                    return null;
-                }
-                type = parseTemplateId(result.type(), name.range());
-                if (type == null) return null;
-                end = context.previous();
+            } else if (isCpp() && (context.check(TokenType.TYPENAME) || context.check(TokenType.IDENTIFIER) || context.check(TokenType.SCOPE))) {
+                boolean typename=context.match(TokenType.TYPENAME);
+                type=parseCppNamedType(typename);
+                if(type==null)return null;
+                end=context.previous();
             } else if (context.check(TokenType.IDENTIFIER)
                     && resolveTypedef(context.peek().lexeme()) != null) {
                 Token alias = context.advance();
@@ -1688,6 +1687,32 @@ public final class Parser extends Stage {
                 end = context.previous();
             }
             return new BaseType(MiniType.qualified(type, qualifiers), start, end);
+        }
+
+        private MiniType parseCppNamedType(boolean typename) {
+            boolean global=context.match(TokenType.SCOPE);
+            var segments=new ArrayList<String>();
+            Token first=context.peek();
+            MiniType type=null;
+            while(type==null) {
+                Token identifier=context.consume(TokenType.IDENTIFIER,"期望类型名称");
+                if(identifier==null)return null;
+                segments.add(identifier.lexeme());
+                var name=new QualifiedName(global,segments,SourceRange.span(first.range(),identifier.range()));
+                var found=cppTypes.lookup(name);
+                if(found.kind()==CppTypeEnvironment.Kind.TYPE)type=parseTemplateId(found.type(),name.range());
+                else if(found.kind()==CppTypeEnvironment.Kind.NAMESPACE && context.match(TokenType.SCOPE))continue;
+                else {context.report(name.range(),"此位置不能将名称作为类型使用："+name+" ("+found.kind()+")");return null;}
+                if(type==null)return null;
+            }
+            while(context.match(TokenType.SCOPE)) {
+                Token member=context.consume(TokenType.IDENTIFIER,"期望成员类型名称");
+                if(member==null)return null;
+                if(type.isDependentTemplate()&&!typename)context.report(member.range(),"依赖成员类型需要 typename");
+                type=new MiniType.MemberType(type,member.lexeme());
+                if(context.check(TokenType.LESS)) {context.unsupportedCpp(context.peek().range(),"成员类模板尚未实现");return null;}
+            }
+            return type;
         }
 
         private MiniType parseTemplateId(MiniType type, SourceRange nameRange) {

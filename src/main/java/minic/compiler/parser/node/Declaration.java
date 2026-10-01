@@ -280,7 +280,12 @@ public interface Declaration extends AstNode {
         }
     }
 
-    sealed interface CppMember extends AstNode permits FieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel {}
+    sealed interface CppMember extends AstNode permits FieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel, MemberTypedef {}
+
+    record MemberTypedef(TypedefDecl declaration) implements CppMember {
+        public MemberTypedef { Objects.requireNonNull(declaration); }
+        @Override public SourceRange range(){return declaration.range();}
+    }
 
     /** Transparent source wrapper: layout and member views retain the same field node. */
     record FieldMember(StructField field, CppInitializer defaultInitializer) implements CppMember {

@@ -17,7 +17,7 @@ public sealed interface MiniType permits
     /**
      * 具有源码名称的叶子节点。标量名和 {@code struct Name} 都在这里终止递归。
      */
-    sealed interface NamedType extends MiniType permits ScalarType, StructType, VaListType, TemplateParameterType, TemplateIdType {
+    sealed interface NamedType extends MiniType permits ScalarType, StructType, VaListType, TemplateParameterType, TemplateIdType, MemberType {
     }
 
     /**
@@ -124,6 +124,7 @@ public sealed interface MiniType permits
         return switch (unqualified()) {
             case TemplateParameterType ignored -> true;
             case TemplateIdType ignored -> true;
+            case MemberType ignored -> true;
             case DependentArrayType ignored -> true;
             case PointerType pointer -> pointer.pointee().containsTemplateType();
             case ReferenceType reference -> reference.referent().containsTemplateType();
@@ -142,6 +143,7 @@ public sealed interface MiniType permits
                                                    java.util.Map<TemplateParameterType,minic.compiler.parser.node.Expression> values) {
         return switch (this) {
             case TemplateParameterType parameter -> arguments.getOrDefault(parameter, parameter);
+            case MemberType member -> new MemberType(member.owner().substituteTemplateParameters(arguments,values),member.name());
             case TemplateIdType id -> new TemplateIdType(id.templateName(), id.arguments().stream().map(t -> t.substitute(arguments,values)).toList());
             case QualifiedType qualified -> MiniType.qualified(qualified.baseType().substituteTemplateParameters(arguments,values), qualified.qualifiers());
             case PointerType pointer -> pointer.pointee().substituteTemplateParameters(arguments,values).pointerTo();
@@ -183,6 +185,28 @@ public sealed interface MiniType permits
         @Override public String toString() {
             return templateName + "<" + String.join(", ", arguments.stream().map(Object::toString).toList()) + ">";
         }
+    }
+
+    /** Qualified member type awaiting class instantiation and access-checked lookup. */
+    record MemberType(MiniType owner, String name) implements NamedType {
+        public MemberType { Objects.requireNonNull(owner); Objects.requireNonNull(name); if(name.isBlank())throw new IllegalArgumentException("member type needs name"); }
+        @Override public String toString(){return owner+"::"+name;}
+    }
+
+    default boolean isDependentTemplate() {
+        return switch(this) {
+            case TemplateParameterType ignored -> true;
+            case TemplateIdType id -> id.arguments().stream().anyMatch(a -> a instanceof TemplateArgument.Type t && t.type().isDependentTemplate()
+                    || a instanceof TemplateArgument.Value v && TemplateValues.dependent(v.expression()));
+            case MemberType member -> member.owner().isDependentTemplate();
+            case DependentArrayType array -> true;
+            case QualifiedType qualified -> qualified.baseType().isDependentTemplate();
+            case PointerType pointer -> pointer.pointee().isDependentTemplate();
+            case ReferenceType reference -> reference.referent().isDependentTemplate();
+            case ArrayType array -> array.elementType().isDependentTemplate();
+            case FunctionType function -> function.returnType().isDependentTemplate()||function.parameterTypes().stream().anyMatch(MiniType::isDependentTemplate);
+            default -> false;
+        };
     }
 
     /** Source-only array bound, evaluated after non-type parameters are substituted. */

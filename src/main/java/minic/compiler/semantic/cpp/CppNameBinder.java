@@ -81,6 +81,8 @@ public final class CppNameBinder {
         List<StructField> fields = List.of();
         final Map<StructField, Access> fieldAccess = new IdentityHashMap<>();
         final Map<String, MethodSet> methods = new LinkedHashMap<>();
+        final Map<String, MiniType> memberTypes = new LinkedHashMap<>();
+        final Map<String, Access> memberTypeAccess = new LinkedHashMap<>();
         StructDecl sourceRecord;
         final List<Constructor> constructors = new ArrayList<>();
         final Map<String, Entity> defaultInitializers = new LinkedHashMap<>();
@@ -571,6 +573,11 @@ public final class CppNameBinder {
                     if (member instanceof AccessLabel label) current = label.access();
                     else if (member instanceof FieldMember field) {
                         access.put(field.field(), current);
+                    }
+                    else if (member instanceof MemberTypedef alias) {
+                        MiniType type=normalizeType(alias.declaration().type(),namespace,null,alias.range());
+                        entity.memberTypes.put(alias.declaration().name(),type);
+                        entity.memberTypeAccess.put(alias.declaration().name(),current);
                     }
                     else if (member instanceof MethodMember method) methodAccess.put(method, current);
                     else if (member instanceof ConstructorMember constructor) constructorAccess.put(constructor, current);
@@ -1169,6 +1176,16 @@ public final class CppNameBinder {
         /** Frontend canonical names are source identities, never linker/layout identities. */
         private MiniType normalizeType(MiniType type, Namespace namespace, Local local, SourceRange range) {
             if (type == null) return null;
+            if (type instanceof MiniType.MemberType member) {
+                MiniType ownerType=normalizeType(member.owner(),namespace,local,range);
+                TypeEntity owner=objectType(ownerType);
+                if(owner!=null)completeTemplate(owner,range);
+                MiniType result=owner==null?null:owner.memberTypes.get(member.name());
+                if(result==null) {report("CPP003",range,"No member type "+member.name()+" in "+ownerType);return MiniType.INT;}
+                if(owner.memberTypeAccess.getOrDefault(member.name(),Access.PUBLIC)!=Access.PUBLIC && currentClass!=owner)
+                    report("CPP004",range,"Member type is inaccessible: "+member.name());
+                return result;
+            }
             if (type instanceof MiniType.TemplateIdType id) return templateType(id, namespace, local, range);
             if (type instanceof MiniType.TemplateParameterType parameter) {
                 report("CPP004", range, "Unsubstituted template parameter: " + parameter);
