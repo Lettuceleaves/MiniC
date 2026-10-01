@@ -41,7 +41,7 @@ public final class StlBenchmarkProbes {
                 headers.add(new HeaderDigest("lib/"+relative.toString().replace('\\','/'),sha(before),sha(after)));
             }
         }
-        String strategy="count-only: own headers hook two backing malloc and one free call in memory.mh; host STL hooks global new/delete; byte counts include actual allocator requests and over-alignment overhead, exclude unrelated C-runtime allocation";
+        String strategy="count-only: own headers hook two backing malloc and one free call in memory.mh; host STL hooks global new/delete; byte counts include actual allocator requests and over-alignment overhead, exclude unrelated C-runtime allocation; object-operation counters describe Tracked payloads only and remain zero for string/bitset workloads";
         StringBuilder manifest=new StringBuilder("strategy=").append(strategy).append('\n');
         for(var item:headers)manifest.append(item.path()).append('\t').append(item.originalSha256()).append('\t').append(item.instrumentedSha256()).append('\n');
         Files.writeString(destination.resolve("instrumented-headers.tsv"),manifest);
@@ -65,7 +65,7 @@ public final class StlBenchmarkProbes {
             if(fields.get("destroyed")!=constructed||fields.get("live")!=0||fields.get("peak_live")>constructed
                     ||!fields.get("allocations").equals(fields.get("frees"))||!fields.get("allocated_bytes").equals(fields.get("freed_bytes"))
                     ||fields.get("live_bytes")!=0||fields.get("peak_bytes")>fields.get("allocated_bytes"))throw new IllegalStateException("unbalanced lifetime/allocation counters at round "+round);
-            boolean tracked=!workload.id().equals("string")&&!workload.id().equals("bitset");
+            boolean tracked=!Set.of("string","bitset","string-short","bitset-count").contains(workload.id());
             if(tracked&&(constructed<size||fields.get("peak_live")==0||fields.get("allocations")==0))
                 throw new IllegalStateException("tracking hooks did not observe workload objects/allocations");
             if(fields.get("comparisons")>complexity||constructed>complexity*4||fields.get("copy_assign")>complexity*4||fields.get("move_assign")>complexity*4||fields.get("allocations")>64L*size+1024)

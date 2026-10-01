@@ -4,12 +4,17 @@
 #include <map>
 #include <deque>
 #include <string>
+#include <utility>
 #include <bitset>
 unsigned long long state;
 int next_value(){state=(state*1664525ULL+1013904223ULL)&0xffffffffULL;return (int)((state>>8)&65535ULL);}
 unsigned long long hash_value,hash_length;
 void observe(unsigned long long value){hash_value=(hash_value^value)*1099511628211ULL;++hash_length;}
-int main(){int workload=0,n=0,rounds=0,seed=0;if(::scanf("%d %d %d %d",&workload,&n,&rounds,&seed)!=4||workload<0||workload>6||n<1||n>4096||rounds<1||rounds>10000||seed<0)return 2;
+void observe_text(const std::string& value){
+    observe((unsigned long long)value.size());
+    for(unsigned long long i=0;i<value.size();++i)observe((unsigned long long)(unsigned char)value[i]);
+}
+int main(){int workload=0,n=0,rounds=0,seed=0;if(::scanf("%d %d %d %d",&workload,&n,&rounds,&seed)!=4||workload<0||workload>8||n<1||n>4096||rounds<1||rounds>10000||seed<0)return 2;
 for(int round=0;round<rounds;++round){state=((unsigned long long)seed+(unsigned long long)round*1013904223ULL)&0xffffffffULL;hash_value=14695981039346656037ULL;hash_length=0;bench_begin();
 if(workload==0){
 std::vector<Tracked> values;for(int i=0;i<n;++i)values.push_back(Tracked(next_value()));
@@ -43,6 +48,34 @@ else if(workload==6){
 std::bitset<1024> values;for(int i=0;i<n;++i){int index=next_value()%1024;values.flip((unsigned long long)index);if(i%8==0)values.set((unsigned long long)((index+13)%1024));}
 values=(values<<3)^(values>>5);observe((unsigned long long)values.count());
 for(int i=0;i<1024;++i)observe(values[(unsigned long long)i]?1ULL:0ULL);
+}
+else if(workload==7){
+// Each iteration starts at length 0..15 and appends one character, including 15 -> 16.
+// A moved-from string is deliberately never observed: its content is unspecified.
+for(int i=0;i<n;++i){
+    std::string original((unsigned long long)(i%16),(char)('a'+next_value()%26));
+    std::string copied(original);
+    std::string moved(std::move(copied));
+    observe_text(original);observe_text(moved);
+    moved.append(1,(char)('A'+next_value()%26));
+    observe_text(moved);
+    original=moved;
+    std::string assigned;
+    assigned=std::move(original);
+    observe_text(assigned);
+}
+}
+else if(workload==8){
+// Dense spans all 1024 bits; sparse changes only the first 64. Both are mutated
+// before every count, and every result contributes to the ordered checksum.
+std::bitset<1024> dense;dense.set();std::bitset<1024> sparse;
+for(int i=0;i<n;++i){
+    int dense_index=next_value()%1024,sparse_index=next_value()%64;
+    dense.flip((unsigned long long)dense_index);sparse.flip((unsigned long long)sparse_index);
+    observe((unsigned long long)dense_index);observe((unsigned long long)sparse_index);
+    observe((unsigned long long)dense.count());observe((unsigned long long)sparse.count());
+}
+for(int i=0;i<1024;++i){observe(dense[(unsigned long long)i]?1ULL:0ULL);observe(sparse[(unsigned long long)i]?1ULL:0ULL);}
 }
 bench_active=false;unsigned long long result=(hash_value^hash_length)*1099511628211ULL;
 ::printf("round=%d hash=%llu comparisons=%llu value_ctor=%llu copy_ctor=%llu move_ctor=%llu copy_assign=%llu move_assign=%llu destroyed=%llu live=%llu peak_live=%llu allocations=%llu frees=%llu allocated_bytes=%llu freed_bytes=%llu live_bytes=%llu peak_bytes=%llu\n",round,result,comparisons,value_ctor,copy_ctor,move_ctor,copy_assign,move_assign,destroyed,live,peak_live,allocations,frees,allocated_bytes,freed_bytes,live_bytes,peak_bytes);
