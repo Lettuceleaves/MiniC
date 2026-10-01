@@ -44,7 +44,7 @@ public final class StlBenchmarkProbeMain {
                 build.put("artifactSha256",sha(executable));build.put("allocationDomain",id.equals("gxx-host")?"global new/delete":"instrumented own memory.mh backing malloc/free");
                 List<Object> samples=new ArrayList<>();build.put("workloads",samples);boolean passed=true;
                 for(var workload:StlBenchmarkWorkloads.workloads()) {
-                    String input=StlBenchmarkProbes.input(workload,size,rounds,seed);var expected=StlBenchmarkWorkloads.input(workload,size,rounds,seed);Map<String,Object> sample=new LinkedHashMap<>();samples.add(sample);sample.put("id",workload.id());sample.put("input",input);
+                    String input=StlBenchmarkProbes.input(workload,size,rounds,seed);var expected=StlBenchmarkWorkloads.input(workload,size,rounds,seed);Map<String,Object> sample=new LinkedHashMap<>();samples.add(sample);sample.put("id",workload.id());sample.put("operationDefinition",StlBenchmarkWorkloads.operationDescription(workload));sample.put("input",input);
                     var result=WindowsBenchmarkProcess.run(observer,executable,dir.resolve(workload.id()),input,Duration.ofSeconds(30),1048576);
                     try {result.requireSuccess();var verified=StlBenchmarkProbes.validate(workload,expected,result.stdout());sample.put("status","OK");sample.put("rounds",verified.stream().map(value->Map.of("round",value.round(),"hash",Long.toUnsignedString(value.hash()),"counters",value.counters())).toList());}
                     catch(RuntimeException failure){sample.put("status","FAILED");sample.put("error",failure.toString());passed=false;failures++;}

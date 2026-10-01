@@ -2,7 +2,7 @@ package minic.benchmark;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 class StlBenchmarkWorkloadsTest {
- @Test void catalogueIsCompleteAndDistinct(){assertEquals(9,StlBenchmarkWorkloads.workloads().size());assertEquals(9,StlBenchmarkWorkloads.workloads().stream().map(StlBenchmarkWorkloads.Workload::id).distinct().count());}
+ @Test void catalogueIsCompleteAndDistinct(){assertEquals(11,StlBenchmarkWorkloads.workloads().size());assertEquals(11,StlBenchmarkWorkloads.workloads().stream().map(StlBenchmarkWorkloads.Workload::id).distinct().count());}
  @Test void inputIsBoundedAndReproducible(){var w=StlBenchmarkWorkloads.workloads().getFirst();var a=StlBenchmarkWorkloads.input(w,3,2,17);assertEquals("3 2 17\n",a.stdin());assertEquals(a,StlBenchmarkWorkloads.input(w,3,2,17));assertEquals(6,a.operationCount());assertEquals(2,a.expectedStdout().lines().count());assertNotEquals(a.expectedStdout(),StlBenchmarkWorkloads.input(w,3,2,18).expectedStdout());assertThrows(IllegalArgumentException.class,()->StlBenchmarkWorkloads.input(w,0,1,1));assertThrows(IllegalArgumentException.class,()->StlBenchmarkWorkloads.input(w,w.maximumSize()+1,1,1));assertThrows(IllegalArgumentException.class,()->StlBenchmarkWorkloads.input(w,3,0,1));assertThrows(IllegalArgumentException.class,()->StlBenchmarkWorkloads.input(w,3,1,-1));}
  @Test void hashPreservesOrderAndLength(){assertNotEquals(StlBenchmarkWorkloads.sequenceHash(1,2),StlBenchmarkWorkloads.sequenceHash(2,1));assertNotEquals(StlBenchmarkWorkloads.sequenceHash(1),StlBenchmarkWorkloads.sequenceHash(1,0));assertEquals(-4721365089366217608L,StlBenchmarkWorkloads.sequenceHash(1,2,3));}
  @Test void fixedReferenceVectorsCoverEveryOperationSequence(){

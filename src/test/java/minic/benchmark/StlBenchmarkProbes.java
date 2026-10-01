@@ -55,17 +55,22 @@ public final class StlBenchmarkProbes {
         if(lines.size()!=checks.size())throw new IllegalStateException("counter round count mismatch");
         int size=Integer.parseInt(expected.stdin().split(" ")[0]);
         long complexity=128L*size*(33-Integer.numberOfLeadingZeros(size))+1024;
+        boolean stableCount=Set.of("bitset-count-sparse","bitset-count-dense").contains(workload.id());
+        List<String> required=new ArrayList<>(FIELDS);if(stableCount)required.addAll(List.of("count_calls","bit_mutations","count_total"));
+        List<Long> countTotals=stableCount?StlBenchmarkWorkloads.bitsetCountTotals(workload,expected):List.of();
         List<ProbeRound> results=new ArrayList<>();
         for(int round=0;round<lines.size();round++){
             String line=lines.get(round);if(!line.startsWith(checks.get(round)+" "))throw new IllegalStateException("counter checksum mismatch at round "+round);
             Map<String,Long> fields=new LinkedHashMap<>();String[] words=line.substring(checks.get(round).length()+1).split(" ");
-            for(String word:words){String[] item=word.split("=",-1);try{if(item.length!=2||!FIELDS.contains(item[0])||fields.putIfAbsent(item[0],Long.parseLong(item[1]))!=null)throw new IllegalStateException("invalid counter field: "+word);}catch(NumberFormatException invalid){throw new IllegalStateException("invalid counter number",invalid);}}
-            if(fields.size()!=FIELDS.size()||fields.values().stream().anyMatch(value->value<0))throw new IllegalStateException("missing or negative counters");
+            for(String word:words){String[] item=word.split("=",-1);try{if(item.length!=2||!required.contains(item[0])||fields.putIfAbsent(item[0],Long.parseLong(item[1]))!=null)throw new IllegalStateException("invalid counter field: "+word);}catch(NumberFormatException invalid){throw new IllegalStateException("invalid counter number",invalid);}}
+            if(fields.size()!=required.size()||fields.values().stream().anyMatch(value->value<0))throw new IllegalStateException("missing or negative counters");
             long constructed=Math.addExact(Math.addExact(fields.get("value_ctor"),fields.get("copy_ctor")),fields.get("move_ctor"));
             if(fields.get("destroyed")!=constructed||fields.get("live")!=0||fields.get("peak_live")>constructed
                     ||!fields.get("allocations").equals(fields.get("frees"))||!fields.get("allocated_bytes").equals(fields.get("freed_bytes"))
                     ||fields.get("live_bytes")!=0||fields.get("peak_bytes")>fields.get("allocated_bytes"))throw new IllegalStateException("unbalanced lifetime/allocation counters at round "+round);
-            boolean tracked=!Set.of("string","bitset","string-short","bitset-count").contains(workload.id());
+            if(stableCount&&(fields.get("count_calls")!=2L*size||fields.get("bit_mutations")!=2L*size||!fields.get("count_total").equals(countTotals.get(round))))
+                throw new IllegalStateException("stable-density count call/mutation/total mismatch at round "+round);
+            boolean tracked=!Set.of("string","bitset","string-short","bitset-count","bitset-count-sparse","bitset-count-dense").contains(workload.id());
             if(tracked&&(constructed<size||fields.get("peak_live")==0||fields.get("allocations")==0))
                 throw new IllegalStateException("tracking hooks did not observe workload objects/allocations");
             if(fields.get("comparisons")>complexity||constructed>complexity*4||fields.get("copy_assign")>complexity*4||fields.get("move_assign")>complexity*4||fields.get("allocations")>64L*size+1024)

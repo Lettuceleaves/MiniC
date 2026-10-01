@@ -100,7 +100,7 @@ public final class StlBenchmarkMain {
         for(String build:StlBenchmarkSupport.BUILDS){
             Path directory=config.output.resolve("builds").resolve(workload.id()).resolve(build);Files.createDirectories(directory);
             Path executable=directory.resolve("program.exe");var row=new LinkedHashMap<String,Object>();
-            row.put("workload",workload.id());row.put("build",build);row.put("sourceSha256",sourceHash);row.put("sourcePath",source.toString());row.put("directory",directory.toString());row.put("status","compiling");report.builds.add(row);
+            row.put("workload",workload.id());row.put("operationDefinition",StlBenchmarkWorkloads.operationDescription(workload));row.put("build",build);row.put("sourceSha256",sourceHash);row.put("sourcePath",source.toString());row.put("directory",directory.toString());row.put("status","compiling");report.builds.add(row);
             List<String> command;
             if(build.startsWith("minic")){
                 OptimizationLevel level=build.equals("minic-opt")?OptimizationLevel.OPTIMIZED:OptimizationLevel.BASELINE;
