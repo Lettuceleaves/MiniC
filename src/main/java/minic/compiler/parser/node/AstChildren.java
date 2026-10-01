@@ -18,6 +18,7 @@ public final class AstChildren {
             case NamespaceDecl n -> n.declarations();
             case InternalLinkageDecl n -> present(n.declaration());
             case ClassTemplateDecl n -> prepend(n.record(), n.parameters());
+            case ClassTemplateDecl.ValueParameter n -> present(n.defaultValue());
             case StructDecl n -> n.cppInfo() == null ? n.fields() : n.cppInfo().members();
             case FieldMember n -> present(n.field(), n.defaultInitializer());
             case MethodMember n -> present(n.method());
@@ -108,6 +109,7 @@ public final class AstChildren {
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
                     || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null)
+                    || node instanceof CppTemplateValueExpr
                     || node instanceof VarDeclStmt variable && variable.staticStorage()
                     || node instanceof StructDecl record && record.cppInfo() != null)) return node;
             AstNode reference = sourceTypeOwner(node, onlyReferences);

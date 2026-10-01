@@ -6,8 +6,11 @@ import java.util.List;
 import java.util.Objects;
 
 /** A generic source record; only concrete specializations may enter the core record indexes. */
-public record ClassTemplateDecl(List<TypeParameter> parameters, Declaration.StructDecl record,
+public record ClassTemplateDecl(List<Parameter> parameters, Declaration.StructDecl record,
                                 SourceRange range) implements Declaration {
+    public ClassTemplateDecl(java.util.Collection<? extends Parameter> parameters, Declaration.StructDecl record, SourceRange range) {
+        this(List.copyOf(parameters),record,range);
+    }
     public ClassTemplateDecl {
         parameters = List.copyOf(parameters);
         Objects.requireNonNull(record, "record");
@@ -20,7 +23,21 @@ public record ClassTemplateDecl(List<TypeParameter> parameters, Declaration.Stru
         }
     }
 
-    public record TypeParameter(String name, MiniType.TemplateParameterType type, MiniType defaultType, SourceRange range) implements AstNode {
+    public sealed interface Parameter extends AstNode permits TypeParameter, ValueParameter {
+        String name();
+        MiniType.TemplateParameterType type();
+        default MiniType defaultType() { return null; }
+    }
+
+    public record ValueParameter(String name, MiniType.TemplateParameterType type, MiniType valueType,
+                                 Expression defaultValue, SourceRange range) implements Parameter {
+        public ValueParameter {
+            Objects.requireNonNull(name); Objects.requireNonNull(type);
+            Objects.requireNonNull(valueType); Objects.requireNonNull(range);
+        }
+    }
+
+    public record TypeParameter(String name, MiniType.TemplateParameterType type, MiniType defaultType, SourceRange range) implements Parameter {
         public TypeParameter(String name, MiniType.TemplateParameterType type, SourceRange range) {
             this(name, type, null, range);
         }

@@ -663,6 +663,11 @@ public final class ExpressionManager {
         }
         if (state.match(TokenType.IDENTIFIER)) {
             Token nameToken = state.previous();
+            var templateValue = typeReader.templateValueReference(nameToken);
+            if (templateValue != null) {
+                state.build(templateValue, "TemplateValue", templateValue.range());
+                return templateValue;
+            }
             Long enumValue = enumConstants.get(nameToken.lexeme());
             if (enumValue != null) {
                 IntegerConstantExpr expr = new IntegerConstantExpr(enumValue, MiniType.INT,

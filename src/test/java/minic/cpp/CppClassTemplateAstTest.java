@@ -22,11 +22,11 @@ final class CppClassTemplateAstTest {
         assertNotEquals(t,new MiniType.TemplateParameterType("::N::Box",1));
         var arguments=new ArrayList<MiniType>(List.of(MiniType.INT));
         var id=new MiniType.TemplateIdType("::N::Box",arguments);arguments.set(0,MiniType.DOUBLE);
-        assertEquals(List.of(MiniType.INT),id.arguments());
+        assertEquals(List.of(new minic.compiler.type.TemplateArgument.Type(MiniType.INT)),id.arguments());
         assertNotEquals(id,new MiniType.TemplateIdType("::N::Box",List.of(MiniType.DOUBLE)));
         assertNotEquals(id,new MiniType.TemplateIdType("::Other::Box",List.of(MiniType.INT)));
         assertThrows(IllegalArgumentException.class,()->new MiniType.TemplateParameterType("::Box",-1));
-        assertThrows(IllegalArgumentException.class,()->new MiniType.TemplateIdType("::Box",List.of()));
+        assertThrows(IllegalArgumentException.class,()->new MiniType.TemplateIdType("::Box",List.<minic.compiler.type.TemplateArgument>of()));
     }
 
     @Test void sourceTemplateTypesCannotBypassCoreThroughNestedSignaturesOrFlatIndexes() {

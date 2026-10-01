@@ -20,6 +20,9 @@ import minic.compiler.parser.node.OperatorName;
 import minic.compiler.parser.node.Statement;
 import minic.compiler.parser.node.Statement.*;
 import minic.compiler.type.MiniType;
+import minic.compiler.type.TemplateArgument;
+import minic.compiler.type.TemplateValues;
+import minic.compiler.parser.node.CppTemplateValueExpr;
 import minic.compiler.semantic.manager.TypeCompatibility;
 
 import java.util.ArrayList;
@@ -356,7 +359,7 @@ public final class CppNameBinder {
         }
 
         private boolean dependentTemplateExpression(AstNode node, Set<String> names) {
-            if (node instanceof ThisExpr) return true;
+            if (node instanceof ThisExpr || node instanceof CppTemplateValueExpr) return true;
             if (node instanceof NameExpr name && names.contains(name.name())) return true;
             if (node instanceof CppConstructionExpr construction && construction.type().containsTemplateType()) return true;
             for (AstNode child : AstChildren.of(node)) if (dependentTemplateExpression(child, names)) return true;
@@ -421,17 +424,37 @@ public final class CppNameBinder {
                 report("CPP003", range, "Class template is not declared: " + source.templateName());
                 return MiniType.INT;
             }
-            var arguments = source.arguments().stream().map(type -> normalizeType(type, namespace, local, range)).toList();
-            if (arguments.stream().anyMatch(MiniType::containsTemplateType)
-                    || arguments.size() != template.source.parameters().size()) {
-                report("CPP004", range, "Class template arguments could not be substituted: " + source.templateName());
-                return MiniType.INT;
+            var arguments = new ArrayList<TemplateArgument>();
+            Map<MiniType.TemplateParameterType,MiniType> typeArguments=new LinkedHashMap<>();
+            if(source.arguments().size()!=template.source.parameters().size()) {
+                report("CPP004",range,"Class template argument count mismatch");return MiniType.INT;
+            }
+            try {
+                for(int index=0;index<source.arguments().size();index++) {
+                    var parameter=template.source.parameters().get(index);
+                    var sourceArgument=source.arguments().get(index);
+                    if(parameter instanceof ClassTemplateDecl.TypeParameter) {
+                        if(!(sourceArgument instanceof TemplateArgument.Type supplied))throw new IllegalArgumentException("Expected type template argument");
+                        MiniType actual=normalizeType(supplied.type(),namespace,local,range);
+                        if(actual.containsTemplateType())throw new IllegalArgumentException("Unsubstituted type template argument");
+                        arguments.add(new TemplateArgument.Type(actual));typeArguments.put(parameter.type(),actual);
+                    } else {
+                        var valueParameter=(ClassTemplateDecl.ValueParameter)parameter;
+                        MiniType target=normalizeType(valueParameter.valueType().substituteTemplateParameters(typeArguments),namespace,local,range);
+                        var integral=sourceArgument instanceof TemplateArgument.Integral value?value:
+                                sourceArgument instanceof TemplateArgument.Value value?TemplateValues.evaluate(expression(value.expression(),namespace,local)):null;
+                        if(integral==null)throw new IllegalArgumentException("Expected integral template argument");
+                        arguments.add(TemplateValues.convert(integral,target,true));
+                    }
+                }
+            } catch(IllegalArgumentException error) {
+                report("CPP004",range,"Invalid template argument: "+error.getMessage());return MiniType.INT;
             }
             var key = new MiniType.TemplateIdType(source.templateName(), arguments);
             TypeEntity existing = templateInstances.get(key);
             if (existing != null) return existing.type;
             String display = source.templateName().substring(2) + "<"
-                    + String.join(", ", arguments.stream().map(this::templateTypeDisplay).toList()) + ">";
+                    + String.join(", ", arguments.stream().map(argument -> argument instanceof TemplateArgument.Type t ? templateTypeDisplay(t.type()) : argument.toString()).toList()) + ">";
             String name = freshName(display);
             TypeEntity entity = declareClass(name, false, template.owner, range);
             templateInstances.put(key, entity);
@@ -457,9 +480,14 @@ public final class CppNameBinder {
             TemplateDefinition definition = templates.get(key.templateName());
             if (definition == null || !definition.source.record().definition()) return;
             Map<MiniType.TemplateParameterType, MiniType> arguments = new LinkedHashMap<>();
-            for (int index = 0; index < key.arguments().size(); index++)
-                arguments.put(definition.source.parameters().get(index).type(), key.arguments().get(index));
-            CppTemplateSubstitution substitution = new CppTemplateSubstitution(arguments, definition.source.record().name(), entity.canonicalName);
+            Map<MiniType.TemplateParameterType,Expression> values=new LinkedHashMap<>();
+            for (int index = 0; index < key.arguments().size(); index++) {
+                var identity=definition.source.parameters().get(index).type();
+                var argument=key.arguments().get(index);
+                if(argument instanceof TemplateArgument.Type t)arguments.put(identity,t.type());
+                else if(argument instanceof TemplateArgument.Integral v)values.put(identity,new IntegerConstantExpr(v.value(),v.type(),v.toString(),range));
+            }
+            CppTemplateSubstitution substitution = new CppTemplateSubstitution(arguments, values, definition.source.record().name(), entity.canonicalName);
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;
             instantiating.add(entity);
             instanceLookup.put(entity, definition.lookup);

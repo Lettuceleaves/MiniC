@@ -62,7 +62,7 @@ final class CppClassTemplateParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {
-        "template<int N>struct Box{};", "template<class... T>struct Box{};",
+        "template<class... T>struct Box{};",
         "template<class T>T identity(T value){return value;}",
         "template<class T>struct Box{union{T value;};};",
         "template<class T>struct Box{typename T::type value;};"
@@ -162,7 +162,7 @@ final class CppClassTemplateParserTest {
         assertEquals("T",parameter.name());assertEquals("::Box",parameter.type().owner());assertEquals(0,parameter.type().index());
         assertEquals(parameter.type(),template.record().fields().getFirst().type());
         var self=assertInstanceOf(minic.compiler.type.MiniType.TemplateIdType.class,template.record().fields().get(1).type().pointee());
-        assertEquals("::Box",self.templateName());assertEquals(List.of(parameter.type()),self.arguments());
+        assertEquals("::Box",self.templateName());assertEquals(List.of(new minic.compiler.type.TemplateArgument.Type(parameter.type())),self.arguments());
         var method=((MethodMember)template.record().cppInfo().members().get(2)).method();
         assertEquals(parameter.type(),method.returnType());
         var source=new SourceFile("template.cpp",text);

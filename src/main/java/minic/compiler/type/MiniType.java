@@ -23,7 +23,7 @@ public sealed interface MiniType permits
     /**
      * 组合节点。每个节点只描述一层组合，因此指针、数组和函数可以任意递归嵌套。
      */
-    sealed interface CombinationType extends MiniType permits PointerType, ArrayType, FunctionType, ReferenceType {
+    sealed interface CombinationType extends MiniType permits PointerType, ArrayType, DependentArrayType, FunctionType, ReferenceType {
     }
     /**
      * MiniC bool 类型。
@@ -124,6 +124,7 @@ public sealed interface MiniType permits
         return switch (unqualified()) {
             case TemplateParameterType ignored -> true;
             case TemplateIdType ignored -> true;
+            case DependentArrayType ignored -> true;
             case PointerType pointer -> pointer.pointee().containsTemplateType();
             case ReferenceType reference -> reference.referent().containsTemplateType();
             case ArrayType array -> array.elementType().containsTemplateType();
@@ -135,15 +136,27 @@ public sealed interface MiniType permits
 
     /** Structural substitution used by defaults and instantiation; no textual type-name rewriting. */
     default MiniType substituteTemplateParameters(java.util.Map<TemplateParameterType, MiniType> arguments) {
+        return substituteTemplateParameters(arguments,java.util.Map.of());
+    }
+    default MiniType substituteTemplateParameters(java.util.Map<TemplateParameterType, MiniType> arguments,
+                                                   java.util.Map<TemplateParameterType,minic.compiler.parser.node.Expression> values) {
         return switch (this) {
             case TemplateParameterType parameter -> arguments.getOrDefault(parameter, parameter);
-            case TemplateIdType id -> new TemplateIdType(id.templateName(), id.arguments().stream().map(t -> t.substituteTemplateParameters(arguments)).toList());
-            case QualifiedType qualified -> MiniType.qualified(qualified.baseType().substituteTemplateParameters(arguments), qualified.qualifiers());
-            case PointerType pointer -> pointer.pointee().substituteTemplateParameters(arguments).pointerTo();
-            case ReferenceType reference -> reference.referent().substituteTemplateParameters(arguments).referenceTo();
-            case ArrayType array -> array.elementType().substituteTemplateParameters(arguments).arrayOf(array.length());
-            case FunctionType function -> MiniType.function(function.returnType().substituteTemplateParameters(arguments),
-                    function.parameterTypes().stream().map(t -> t.substituteTemplateParameters(arguments)).toList(), function.variadic());
+            case TemplateIdType id -> new TemplateIdType(id.templateName(), id.arguments().stream().map(t -> t.substitute(arguments,values)).toList());
+            case QualifiedType qualified -> MiniType.qualified(qualified.baseType().substituteTemplateParameters(arguments,values), qualified.qualifiers());
+            case PointerType pointer -> pointer.pointee().substituteTemplateParameters(arguments,values).pointerTo();
+            case ReferenceType reference -> reference.referent().substituteTemplateParameters(arguments,values).referenceTo();
+            case ArrayType array -> array.elementType().substituteTemplateParameters(arguments,values).arrayOf(array.length());
+            case DependentArrayType array -> {
+                MiniType element=array.elementType().substituteTemplateParameters(arguments,values);
+                var bound=TemplateValues.substitute(array.bound(),arguments,values);
+                if(TemplateValues.dependent(bound))yield new DependentArrayType(element,bound);
+                long length=TemplateValues.evaluate(bound).value();
+                if(length<=0||length>Integer.MAX_VALUE)throw new IllegalArgumentException("Array bound must be in 1..2147483647");
+                yield element.arrayOf((int)length);
+            }
+            case FunctionType function -> MiniType.function(function.returnType().substituteTemplateParameters(arguments,values),
+                    function.parameterTypes().stream().map(t -> t.substituteTemplateParameters(arguments,values)).toList(), function.variadic());
             default -> this;
         };
     }
@@ -158,7 +171,10 @@ public sealed interface MiniType permits
     }
 
     /** Canonical primary identity and structural argument types, never a manufactured core tag. */
-    record TemplateIdType(String templateName, List<MiniType> arguments) implements NamedType {
+    record TemplateIdType(String templateName, List<TemplateArgument> arguments) implements NamedType {
+        public TemplateIdType(String name, java.util.Collection<? extends MiniType> types) {
+            this(name, types.stream().map(t -> (TemplateArgument)new TemplateArgument.Type(t)).toList());
+        }
         public TemplateIdType {
             Objects.requireNonNull(templateName, "templateName");
             arguments = List.copyOf(arguments);
@@ -167,6 +183,12 @@ public sealed interface MiniType permits
         @Override public String toString() {
             return templateName + "<" + String.join(", ", arguments.stream().map(Object::toString).toList()) + ">";
         }
+    }
+
+    /** Source-only array bound, evaluated after non-type parameters are substituted. */
+    record DependentArrayType(MiniType elementType, minic.compiler.parser.node.Expression bound) implements CombinationType {
+        public DependentArrayType { Objects.requireNonNull(elementType); Objects.requireNonNull(bound); }
+        @Override public String toString() { return elementType + "[dependent]"; }
     }
 
     /**

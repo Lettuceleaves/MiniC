@@ -11,6 +11,7 @@ import java.util.*;
 /** Instantiation-time source AST copying. Never rewrites tokens or interprets a library name. */
 public final class CppTemplateSubstitution {
     private final Map<MiniType.TemplateParameterType, MiniType> arguments;
+    private final Map<MiniType.TemplateParameterType, Expression> values;
     private final String primaryName;
     private final String instanceName;
     private final IdentityHashMap<Object, Object> copies = new IdentityHashMap<>();
@@ -18,7 +19,14 @@ public final class CppTemplateSubstitution {
 
     public CppTemplateSubstitution(Map<MiniType.TemplateParameterType, MiniType> arguments,
                                    String primaryName, String instanceName) {
+        this(arguments,Map.of(),primaryName,instanceName);
+    }
+
+    public CppTemplateSubstitution(Map<MiniType.TemplateParameterType, MiniType> arguments,
+                                   Map<MiniType.TemplateParameterType, Expression> values,
+                                   String primaryName, String instanceName) {
         this.arguments = Map.copyOf(arguments);
+        this.values = Map.copyOf(values);
         this.primaryName = Objects.requireNonNull(primaryName);
         this.instanceName = Objects.requireNonNull(instanceName);
     }
@@ -27,22 +35,21 @@ public final class CppTemplateSubstitution {
     public Map<AstNode, AstNode> origins() { return Collections.unmodifiableMap(origins); }
 
     public MiniType type(MiniType source) {
-        return switch (source) {
-            case MiniType.TemplateParameterType parameter -> arguments.getOrDefault(parameter, parameter);
-            case MiniType.TemplateIdType id -> new MiniType.TemplateIdType(id.templateName(), id.arguments().stream().map(this::type).toList());
-            case MiniType.QualifiedType qualified -> MiniType.qualified(type(qualified.baseType()), qualified.qualifiers());
-            case MiniType.PointerType pointer -> type(pointer.pointee()).pointerTo();
-            case MiniType.ReferenceType reference -> type(reference.referent()).referenceTo();
-            case MiniType.ArrayType array -> type(array.elementType()).arrayOf(array.length());
-            case MiniType.FunctionType function -> MiniType.function(type(function.returnType()), function.parameterTypes().stream().map(this::type).toList(), function.variadic());
-            default -> source;
-        };
+        return source.substituteTemplateParameters(arguments,values);
     }
 
     private Object copy(Object source) {
         if (source == null || source instanceof String || source instanceof Number || source instanceof Boolean
                 || source instanceof Character || source instanceof Enum<?> || source instanceof SourceRange) return source;
         if (source instanceof MiniType type) return type(type);
+        if (source instanceof CppTemplateValueExpr value) {
+            Expression replacement=values.get(value.parameter());
+            if(replacement==null)throw new IllegalArgumentException("Unsubstituted value template parameter: "+value.parameter());
+            Expression result=replacement instanceof Expression.IntegerConstantExpr constant
+                    ?new Expression.IntegerConstantExpr(constant.value(),constant.type(),constant.lexeme(),value.range())
+                    :minic.compiler.type.TemplateValues.substitute(replacement,arguments,values);
+            copies.put(source,result);origins.put(result,value);return result;
+        }
         Object existing = copies.get(source);
         if (existing != null) return existing;
         if (source instanceof List<?> list) {
