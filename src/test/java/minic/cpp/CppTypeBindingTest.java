@@ -45,7 +45,8 @@ class CppTypeBindingTest {
         var ir = new IrLowerer(result.program(), semantic.semanticResult()).lower();
         assertTrue(ir.findFunction("main").isPresent());
         assertEquals(MiniType.struct(result.program().structs().getFirst().name()),
-                result.program().functions().getFirst().returnType());
+                result.program().functions().stream().filter(f -> "A::make".equals(result.displayNames().get(f.name())))
+                        .findFirst().orElseThrow().returnType());
     }
 
     @Test void rootTagAndRootValueHaveIndependentCoreIdentities() {
@@ -137,9 +138,10 @@ class CppTypeBindingTest {
         var result = success(program(List.of(parsed.declarations().getFirst(), wrapper, pass, main), range));
         MiniType normalized = MiniType.struct(result.program().structs().getFirst().name());
         assertEquals(normalized, result.program().structs().get(1).fields().getFirst().type());
-        assertEquals(normalized, result.program().functions().getFirst().returnType());
-        assertEquals(normalized, result.program().functions().getFirst().parameters().getFirst().type());
-        var coreMain = result.program().functions().getLast();
+        var corePass = (FunctionDecl) result.sourceToCore().get(pass);
+        assertEquals(normalized, corePass.returnType());
+        assertEquals(normalized, corePass.parameters().getFirst().type());
+        var coreMain = (FunctionDecl) result.sourceToCore().get(main);
         assertEquals(normalized, ((VarDeclStmt) coreMain.body().statements().getFirst()).type());
         assertEquals(normalized.pointerTo(), ((TypedefStmt) coreMain.body().statements().get(2)).type());
         assertEquals(normalized, ((SizeofExpr) result.sourceToCore().get(expressions.get(0))).queriedType());

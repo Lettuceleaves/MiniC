@@ -37,7 +37,7 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Source reference syntax and the explicit boundaries of the currently implemented binding forms. */
+/** Source reference syntax, source-only type invariants, and malformed declarator diagnostics. */
 @Timeout(60)
 final class CppReferenceSyntaxTest {
     @TempDir Path temporary;
@@ -154,22 +154,14 @@ final class CppReferenceSyntaxTest {
     }
 
     @ParameterizedTest(name="{0}") @MethodSource("validSyntax")
-    void referenceSyntaxEitherBindsOrReportsAnExplicitImplementationBoundary(String name, String source) throws Exception {
+    void referenceSyntaxBindsAllSupportedForms(String name, String source) throws Exception {
         referenceCompile(name, source, true);
         var api = compiler(source, LanguageMode.CPP17_ALGORITHM);
         var parser = stage(api, Parser.class);
         var semantic = stage(api, SemanticAnalyzer.class);
         api.runThrough(semantic);
         assertTrue(parser.succeeded(), () -> parser.errors().toString());
-        boolean supported = Set.of("local", "cv-local", "return-and-parameter", "abstract-parameter",
-                "pointer-reference", "qualified-alias", "sizeof-type", "direct-initialization", "list-initialization",
-                "array-reference", "function-reference", "reference-to-function-returning-reference", "reference-member").contains(name);
-        if (supported) assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
-        else {
-            assertFalse(semantic.succeeded());
-            assertTrue(semantic.errors().stream().anyMatch(error -> error.code().equals("CPP005")),
-                    () -> semantic.errors().toString());
-        }
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
     }
 
     @ParameterizedTest @ValueSource(strings={
@@ -185,14 +177,16 @@ final class CppReferenceSyntaxTest {
     @ParameterizedTest @ValueSource(strings={
             "int main(){int &&value=1; return value;}",
             "int &&declared(); int main(){return 0;}"})
-    void rvalueReferencesHaveAnExplicitUnsupportedDiagnostic(String source) throws Exception {
+    void rvalueReferencesRemainSourceTypesAndReachIr(String source) throws Exception {
         referenceCompile("rvalue", source, true);
         var api = compiler(source, LanguageMode.CPP17_ALGORITHM);
         var parser = stage(api, Parser.class);
         api.runThrough(parser);
-        assertFalse(parser.succeeded());
-        assertTrue(parser.errors().stream().anyMatch(error -> error.code().equals("CPP001") && error.message().contains("右值引用")),
-                () -> parser.errors().toString());
+        assertTrue(parser.succeeded(), () -> parser.errors().toString());
+        assertTrue(CppReferenceTest.nodes(parser.result().program()).stream().anyMatch(node ->
+                node instanceof VarDeclStmt variable && variable.type().isRvalueReference()
+                || node instanceof FunctionDecl function && function.returnType().isRvalueReference()));
+        assertNotNull(api.runToIr());
     }
 
     @ParameterizedTest @ValueSource(strings={
