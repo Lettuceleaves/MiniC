@@ -385,6 +385,13 @@ public final class Preprocessor extends Stage {
 
         Work(Options options) {
             this.options = options;
+            SourceRange builtinRange = new SourceRange(1, 0, 1, 0);
+            macros.put("__MINIC__", new TextReplacementManager.MacroDefinition(
+                    "__MINIC__", List.of(), false, "1", builtinRange, false));
+            if (options.languageMode() == LanguageMode.CPP17_ALGORITHM) {
+                macros.put("__cplusplus", new TextReplacementManager.MacroDefinition(
+                        "__cplusplus", List.of(), false, "201703L", builtinRange, false));
+            }
         }
 
         int[] sourceMap() {

@@ -27,14 +27,16 @@ public final class CppHeaderCatalog {
     }
 
     public boolean isKnown(String requestedName) {
-        return requestedName != null && names.contains(requestedName);
+        return requestedName != null && (names.contains(requestedName)
+                || requestedName.equals("bits/stdc++.h") && names.contains("__all"));
     }
 
     /** Reads only the catalog's library location, never source/include directories. */
     public Optional<SystemLibraryCatalog.Header> header(String requestedName) {
         if (!isKnown(requestedName)) return Optional.empty();
+        String internalName = requestedName.equals("bits/stdc++.h") ? "__all" : requestedName;
         Path file = SystemLibraryCatalog.defaults().includeRoot()
-                .resolve("cpp").resolve(requestedName + ".mh").normalize();
+                .resolve("cpp").resolve(internalName + ".mh").normalize();
         if (!Files.isRegularFile(file)) return Optional.empty();
         try {
             return Optional.of(new SystemLibraryCatalog.Header(requestedName, file.toString(),
