@@ -18,6 +18,7 @@ import java.util.function.Consumer;
  * Bounds captured output and execution, including cleanup of descendants observed while running.
  * ProcessHandle polling is not OS-level containment: an unobserved child that forks and is
  * reparented between snapshots can escape. Windows Job Objects would be needed for that guarantee.
+ * The timeout also cannot interrupt a blocked native process snapshot.
  */
 public final class BoundedProcess {
     private BoundedProcess() {}
@@ -74,14 +75,14 @@ public final class BoundedProcess {
             }
             return new Result(timedOut ? -1 : process.exitValue(), stdout.text(), stderr.text(), timedOut,
                     stdout.exceeded || stderr.exceeded);
+        } catch (IOException | InterruptedException | RuntimeException | Error failure) {
+            // In particular, never retry a failed native snapshot while unwinding.
+            if (!cleaned) terminateKnownAfterFailure(process, observed, failure);
+            throw failure;
         } finally {
-            try {
-                if (!cleaned) terminate(process, observed);
-            } finally {
-                process.getOutputStream().close();
-                process.getInputStream().close();
-                process.getErrorStream().close();
-            }
+            process.getOutputStream().close();
+            process.getInputStream().close();
+            process.getErrorStream().close();
         }
     }
 
@@ -89,13 +90,39 @@ public final class BoundedProcess {
         return Thread.ofPlatform().daemon(true).name(name).start(action);
     }
 
-    private static void terminate(Process process, Map<Long, ProcessHandle> observed)
+    static void terminate(Process process, Map<Long, ProcessHandle> observed)
             throws InterruptedException, IOException {
-        process.descendants().forEach(child -> observed.putIfAbsent(child.pid(), child));
-        // Include descendants of already-observed children even after the direct parent exits.
-        for (ProcessHandle child : List.copyOf(observed.values())) {
-            child.descendants().forEach(descendant -> observed.putIfAbsent(descendant.pid(), descendant));
+        try {
+            // An exited process cannot spawn more children. Avoid a needless system-wide
+            // Windows snapshot; its already-observed live children are still handled below.
+            if (process.isAlive()) {
+                process.descendants().forEach(child -> observed.putIfAbsent(child.pid(), child));
+            }
+            for (ProcessHandle child : List.copyOf(observed.values())) {
+                if (child.isAlive()) {
+                    child.descendants().forEach(descendant -> observed.putIfAbsent(descendant.pid(), descendant));
+                }
+            }
+        } catch (RuntimeException | Error failure) {
+            terminateKnownAfterFailure(process, observed, failure);
+            throw failure;
         }
+        terminateKnown(process, observed);
+    }
+
+    private static void terminateKnownAfterFailure(Process process, Map<Long, ProcessHandle> observed,
+                                                   Throwable failure) {
+        try {
+            terminateKnown(process, observed);
+        } catch (IOException | InterruptedException | RuntimeException | Error cleanupFailure) {
+            failure.addSuppressed(cleanupFailure);
+            if (cleanupFailure instanceof InterruptedException) Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Only touches handles belonging to this run; never performs another process snapshot. */
+    private static void terminateKnown(Process process, Map<Long, ProcessHandle> observed)
+            throws InterruptedException, IOException {
         observed.values().forEach(child -> { if (child.isAlive()) child.destroyForcibly(); });
         if (process.isAlive()) process.destroyForcibly();
         if (!process.waitFor(2, TimeUnit.SECONDS)) {
