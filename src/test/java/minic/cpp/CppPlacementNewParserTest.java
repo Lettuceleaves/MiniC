@@ -24,7 +24,7 @@ final class CppPlacementNewParserTest {
 
     @ParameterizedTest @ValueSource(strings={"new(p) N::A(3)","::new(p) N::A{3}",
             "new(p) const unsigned long long(7)","new(p) int*", "new(p) Empty", "new(p) int{}"})
-    void preservesPlacementConstructionAndRequiresBinding(String expression) throws Exception {
+    void preservesPlacementConstructionAndRequiresAnAllocationDeclaration(String expression) throws Exception {
         String source=PREFIX+"int main(){char storage[64];void*p=storage;"+expression+";return 0;}";
         var api=compiler(source);var parser=stage(api,Parser.class);api.runThrough(parser);
         assertTrue(parser.succeeded(),()->parser.errors().toString());
@@ -32,7 +32,7 @@ final class CppPlacementNewParserTest {
         assertNotNull(node);assertEquals(expression,source.substring(node.range().startByte(),node.range().endByte()));
         assertSame(node,AstChildren.firstCppSyntax(node));
         var semantic=new SemanticAnalyzer(parser.result().program());semantic.analyze();
-        assertFalse(semantic.succeeded());assertTrue(semantic.errors().stream().anyMatch(error->error.code().equals("CPP005")));
+        assertFalse(semantic.succeeded());assertTrue(semantic.errors().stream().anyMatch(error->error.message().contains("operator new")),()->semantic.errors().toString());
         Path cpp=temporary.resolve("placement.cpp");Files.writeString(cpp,"#include <new>\n"+source);
         var result=BoundedProcess.run(java.util.List.of(CppDifferentialHarness.referenceCompiler(System.getenv()),
                 "-std=c++17","-pedantic-errors","-fsyntax-only",cpp.toString()),temporary,"",Duration.ofSeconds(20),65536);

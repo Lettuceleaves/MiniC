@@ -37,7 +37,7 @@ final class CppAllocationOperatorParserTest {
             Arguments.of("operator delete", "void operator delete(void* pointer,unsigned long long size);", 2)); }
 
     @ParameterizedTest(name="{1}") @MethodSource("declarations")
-    void allocationDeclarationsRetainIdentityAndRequireSemanticBinding(String name,String declaration,int parameters) throws Exception {
+    void allocationDeclarationsRetainIdentityAndBindToCore(String name,String declaration,int parameters) throws Exception {
         referenceAccepts(declaration);
         var api=compiler(declaration+"int main(){return 0;}");var parser=stage(api,Parser.class);api.runThrough(parser);
         assertTrue(parser.succeeded(),()->parser.errors().toString());
@@ -48,8 +48,7 @@ final class CppAllocationOperatorParserTest {
         assertSame(function,AstChildren.firstCppSyntax(function));
         assertEquals(declaration,new SourceFile("allocation.cpp",declaration).text(function.range()));
         var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);
-        assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(error->error.code().equals("CPP005")),()->semantic.errors().toString());
+        assertTrue(semantic.succeeded(),()->semantic.errors().toString());
     }
 
     @Test void memberDeclarationsKeepImplicitStaticAllocationIdentityAndQualifiedDefinitions() throws Exception {

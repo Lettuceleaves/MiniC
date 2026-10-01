@@ -8,6 +8,7 @@ import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.CppInitializer;
 import minic.compiler.parser.node.CppConstructionExpr;
 import minic.compiler.parser.node.CppDestructorCallExpr;
+import minic.compiler.parser.node.CppNewExpr;
 import minic.compiler.parser.node.CleanupScopeStmt;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.Declaration.*;
@@ -1037,14 +1038,31 @@ public final class CppNameBinder {
             return valid;
         }
 
+        private void validateAllocationFunction(FunctionDecl node, Namespace namespace,
+                                                MiniType returnType, List<MiniType> parameters) {
+            var kind = node.operatorName().kind();
+            boolean allocating = kind == minic.compiler.parser.node.OperatorName.Kind.NEW
+                    || kind == minic.compiler.parser.node.OperatorName.Kind.NEW_ARRAY;
+            MiniType expectedReturn = allocating ? MiniType.VOID.pointerTo() : MiniType.VOID;
+            MiniType expectedFirst = allocating ? MiniType.UNSIGNED_LONG_LONG : MiniType.VOID.pointerTo();
+            if (namespace != root) report("CPP004", node.operatorName().range(),
+                    "A nonmember allocation or deallocation function must be declared in global scope.");
+            if (!returnType.unqualified().equals(expectedReturn)) report("CPP004", node.range(),
+                    "Invalid allocation or deallocation function return type.");
+            if (parameters.isEmpty() || !parameters.getFirst().unqualified().equals(expectedFirst))
+                report("CPP004", node.range(), "Invalid first allocation or deallocation parameter type.");
+        }
+
         private void bindFunction(FunctionDecl node, Namespace namespace) {
-            if (unsupportedOperator(node)) return;
+            boolean allocation = node.operatorName() != null && node.operatorName().kind().allocation();
+            if (!allocation && unsupportedOperator(node)) return;
             if (namespace != root && node.external()) report("CPP005", node.range(),
                     "尚未支持命名空间中的外部函数链接：" + namespace.qualify(node.name()));
             MiniType returnType = normalizeType(node.returnType(), namespace, null, node.range());
             List<MiniType> parameterTypes = node.parameters().stream()
                     .map(p -> normalizeType(p.type(), namespace, null, p.range())).toList();
-            if (!validOperator(node, parameterTypes, false)) return;
+            if (!allocation && !validOperator(node, parameterTypes, false)) return;
+            if (allocation) validateAllocationFunction(node, namespace, returnType, parameterTypes);
             if (node.hasBody()) {
                 requireComplete(returnType, node.range());
                 for (int i = 0; i < parameterTypes.size(); i++) requireComplete(parameterTypes.get(i), node.parameters().get(i).range());
@@ -1375,6 +1393,7 @@ public final class CppNameBinder {
             Expression core = switch (node) {
                 case CppConstructionExpr n -> constructionExpression(n, namespace, local);
                 case CppDestructorCallExpr n -> explicitDestruction(n, namespace, local);
+                case CppNewExpr n -> placementConstruction(n, namespace, local);
                 case ThisExpr n -> {
                     if (currentThis == null) {
                         report("CPP004", n.range(), "this 只能用于非静态成员函数体内。");
@@ -2474,6 +2493,42 @@ public final class CppNameBinder {
             return initializerMapping(syntax, convertCallValue(target.unqualified(), value, arguments.getFirst()));
         }
 
+        private Expression placementConstruction(CppNewExpr source, Namespace namespace, Local local) {
+            MiniType type = normalizeType(source.type(), namespace, local, source.typeRange());
+            if (type.isVoid() || type.isReference() || type.isFunction() || type.isArray()) {
+                report("CPP004", source.typeRange(), "Placement construction requires a complete non-array object type.");
+                return new NullLiteralExpr("nullptr", source.range());
+            }
+            requireComplete(type, source.typeRange());
+            TypeEntity owner = objectType(type);
+            if (owner != null && !owner.complete) return new NullLiteralExpr("nullptr", source.range());
+            // Class allocation functions remain explicitly rejected at their declarations until
+            // their implicit-static lookup and access rules are available. Global lookup never uses ADL.
+            List<Expression> arguments = new ArrayList<>();
+            arguments.add(new SizeofExpr(null, source.type(), source.typeRange()));
+            arguments.addAll(source.placementArguments());
+            Expression designator = new QualifiedNameExpr(new QualifiedName(true, List.of("operator new"), source.range()));
+            Expression allocation = expression(new CallExpr(designator, arguments, source.range()), namespace, local);
+            String storage = freshName("new_storage");
+            MiniType pointer = type.pointerTo();
+            Expression address = typed(new CastExpr(coreType(pointer),
+                    typed(new NameExpr(storage, source.range()), MiniType.VOID.pointerTo()), source.range()), pointer);
+            CppInitializer syntax = source.initializer();
+            // Empty parentheses value-initialize an aggregate; they do not supply constructor arguments.
+            if (owner != null && !needsConstruction(owner) && syntax.kind() == CppInitializer.Kind.DIRECT_PAREN
+                    && syntax.arguments().isEmpty()) {
+                syntax = new CppInitializer(CppInitializer.Kind.DIRECT_LIST, List.of(), syntax.range());
+            }
+            Expression value = variableInitializer(type, syntax, null, namespace, local, source.range());
+            Expression result = address;
+            if (value != null) {
+                Expression target = typed(new UnaryExpr(TokenType.STAR, address, source.range()), type);
+                Expression initialize = typed(new InitializeExpr(target, value, source.range()), MiniType.VOID);
+                result = typed(new CommaExpr(List.of(initialize, address), source.range()), pointer);
+            }
+            return typed(new LetExpr(storage, MiniType.VOID.pointerTo(), allocation, result, source.range()), pointer);
+        }
+
         private Expression constructionExpression(CppConstructionExpr source, Namespace namespace, Local local) {
             MiniType type = normalizeType(source.type(), namespace, local, source.typeRange());
             requireComplete(type, source.typeRange());
@@ -2811,7 +2866,8 @@ public final class CppNameBinder {
             lowered.add(typed(new NameExpr(destination, range), owner.type.pointerTo()));
             lowered.addAll(lowerSelectedArguments(selected.parameterTypes, arguments, prepared.values, namespace, local));
             Expression call = typed(new CallExpr(new NameExpr(selected.function.coreName, range), lowered, range), MiniType.VOID);
-            if (list && arguments.isEmpty() && selected.implicit && nonAggregate(owner)) {
+            if (arguments.isEmpty() && selected.implicit
+                    && (syntax.kind() == CppInitializer.Kind.DIRECT_PAREN || list && nonAggregate(owner))) {
                 Expression slot = typed(new UnaryExpr(TokenType.STAR, typed(new NameExpr(destination, range), owner.type.pointerTo()), range), owner.type);
                 call = new CommaExpr(List.of(new InitializeExpr(slot, new AggregateInitExpr(List.of(), range), range), call), range);
             }
