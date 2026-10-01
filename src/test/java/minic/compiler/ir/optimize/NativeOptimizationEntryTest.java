@@ -53,8 +53,8 @@ final class NativeOptimizationEntryTest {
         optimized.runThrough(assembler);
         assertSame(original, irStage.result());
         assertDoesNotThrow(() -> IrVerifier.verify(assembler.input().irResult()));
-        assertEquals(List.of("known-function-call-resolution", "initialized-check-elimination", "early-simplification",
-                        "small-function-inlining", "local-scalar-promotion", "constant-propagation",
+        assertEquals(List.of("known-function-call-resolution", "private-address-normalization", "initialized-check-elimination", "early-simplification",
+                        "small-function-inlining", "local-scalar-promotion", "read-only-parameter-promotion", "constant-propagation",
                         "nonzero-check-elimination", "loop-invariant-code-motion", "dead-code-elimination", "control-flow-simplification"),
                 assembler.optimizationResult().passNames());
         for (CompilerApi api : List.of(baseline, explicit)) {

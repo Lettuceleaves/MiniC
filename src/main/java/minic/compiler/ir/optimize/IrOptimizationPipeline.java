@@ -33,9 +33,9 @@ public final class IrOptimizationPipeline {
     public static IrOptimizationPipeline forLevel(OptimizationLevel level) {
         Objects.requireNonNull(level, "level");
         return new IrOptimizationPipeline(level, level == OptimizationLevel.OPTIMIZED
-                ? List.of(new DirectCallResolutionPass(), new InitializedCheckEliminationPass(),
+                ? List.of(new DirectCallResolutionPass(), new PrivateAddressNormalizationPass(), new InitializedCheckEliminationPass(),
                           new EarlySimplificationPass(), new SmallFunctionInliningPass(),
-                          new LocalScalarPromotionPass(), new ConstantPropagationPass(),
+                          new LocalScalarPromotionPass(), new ReadOnlyParameterPromotionPass(), new ConstantPropagationPass(),
                           new NonZeroCheckEliminationPass(), new LoopInvariantCodeMotionPass(),
                           new DeadCodeEliminationPass(), new ControlFlowSimplificationPass()) : List.of());
     }
