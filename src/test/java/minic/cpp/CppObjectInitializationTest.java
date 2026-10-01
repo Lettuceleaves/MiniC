@@ -337,6 +337,99 @@ final class CppObjectInitializationTest {
         agree(ir,0);
     }
 
+    @ParameterizedTest @ValueSource(strings={"named","returned","materialized","parameter"})
+    void constructionPropagatesItsDestinationThroughCallsAndValueParameters(String use) throws Exception {
+        var make = new FunctionDecl("make",BOX,List.of(),false,
+                new BlockStmt(List.of(new ReturnStmt(initialize(7),R)),R),false,R);
+        var forward = new FunctionDecl("forward",BOX,List.of(),false,
+                new BlockStmt(List.of(new ReturnStmt(constructCall("make"),R)),R),false,R);
+        var inspect = new FunctionDecl("inspect",MiniType.INT,List.of(new Parameter("object",BOX,R)),false,
+                new BlockStmt(List.of(new ReturnStmt(sum(field("object","value",false),product(integer(100),
+                        equals(field("object","self",false),address(name("object"))))),R)),R),false,R);
+        Expression value = constructCall(use.equals("returned") ? "forward" : "make");
+        List<Statement> statements;
+        if (use.equals("parameter")) {
+            statements = List.of(new ReturnStmt(new CallExpr(name("inspect"),List.of(value),R),R));
+        } else if (use.equals("materialized")) {
+            var pointer = new MaterializeExpr(BOX,value,new TemporaryLifetime(TemporaryLifetime.Kind.FULL_EXPRESSION,value),R);
+            statements = List.of(new VarDeclStmt("pointer",BOX.pointerTo(),pointer,R),new ReturnStmt(
+                    sum(field("pointer","value",true),product(integer(100),equals(field("pointer","self",true),name("pointer")))),R));
+        } else {
+            statements = List.of(new VarDeclStmt("object",BOX,value,R),new ReturnStmt(
+                    sum(field("object","value",false),product(integer(100),equals(field("object","self",false),address(name("object"))))),R));
+        }
+        var base = program(statements);var functions = new ArrayList<>(base.functions());
+        functions.addAll(1,List.of(make,forward,inspect));
+        var ir = lower(new Program(base.structs(),functions,R));
+        assertNoCopies(ir);agree(ir,107);
+    }
+
+    private static ObjectInitExpr constructCall(String function) {
+        return new ObjectInitExpr(BOX,"result",new InitializeExpr(new UnaryExpr(TokenType.STAR,name("result"),R),
+                new CallExpr(name(function),List.of(),R),R),R);
+    }
+
+    @ParameterizedTest @ValueSource(strings={"group","comma","conditional","mixed"})
+    void recordCallResultPathsKeepTheFinalStorageAndEvaluateOnlyTheSelectedPath(String form) throws Exception {
+        var make = new FunctionDecl("make",BOX,List.of(),false,
+                new BlockStmt(List.of(new ReturnStmt(initialize(7),R)),R),false,R);
+        Expression call = new CallExpr(name("make"),List.of(),R);
+        Expression fail = initialize(new BinaryExpr(integer(1),TokenType.SLASH,integer(0),R));
+        Expression value = switch(form) {
+            case "group" -> new GroupingExpr(call,R);
+            case "comma" -> new CommaExpr(List.of(new UnaryExpr(TokenType.PLUS_PLUS,name("count"),R),call),R);
+            case "conditional" -> new ConditionalExpr(integer(0),fail,call,R);
+            default -> new ConditionalExpr(integer(0),name("original"),call,R);
+        };
+        var initial = new ObjectInitExpr(BOX,"target",new InitializeExpr(
+                new UnaryExpr(TokenType.STAR,name("target"),R),value,R),R);
+        var base = program(List.of(new VarDeclStmt("count",MiniType.INT,integer(0),R),
+                new VarDeclStmt("original",BOX,initialize(3),R),new VarDeclStmt("object",BOX,initial,R),
+                new ReturnStmt(sum(sum(field("object","value",false),name("count")),product(integer(100),
+                        equals(field("object","self",false),address(name("object"))))),R)));
+        var functions = new ArrayList<>(base.functions());functions.add(1,make);
+        var ir = lower(new Program(base.structs(),functions,R));
+        if (!form.equals("mixed")) assertNoCopies(ir);
+        agree(ir,form.equals("comma") ? 108 : 107);
+    }
+
+    @Test void indirectConstructionPreservesCalleeAndStackArgumentsBeforeArgumentSideEffects() throws Exception {
+        var types = Collections.nCopies(5,MiniType.INT);
+        var pointerType = MiniType.function(BOX,types).pointerTo();
+        var parameters = new ArrayList<Parameter>();
+        for(int i=1;i<=5;i++) parameters.add(new Parameter("p"+i,MiniType.INT,R));
+        Expression total = integer(0);
+        for(int i=1;i<=5;i++) total = sum(total,product(name("p"+i),integer(i)));
+        var make = new FunctionDecl("make",BOX,parameters,false,
+                new BlockStmt(List.of(new ReturnStmt(initialize(total),R)),R),false,R);
+        var wrong = new FunctionDecl("wrong",BOX,parameters,false,
+                new BlockStmt(List.of(new ReturnStmt(initialize(1),R)),R),false,R);
+        Expression first = new CommaExpr(List.of(new AssignmentExpr(name("callee"),TokenType.EQUAL,name("wrong"),R),integer(1)),R);
+        var call = new CallExpr(name("callee"),List.of(first,integer(2),integer(3),integer(4),integer(5)),R);
+        var initial = new ObjectInitExpr(BOX,"target",new InitializeExpr(new UnaryExpr(TokenType.STAR,name("target"),R),call,R),R);
+        var forward = new FunctionDecl("forward",BOX,List.of(new Parameter("callee",pointerType,R)),false,
+                new BlockStmt(List.of(new ReturnStmt(initial,R)),R),false,R);
+        var result = new ObjectInitExpr(BOX,"target",new InitializeExpr(new UnaryExpr(TokenType.STAR,name("target"),R),
+                new CallExpr(name("forward"),List.of(name("make")),R),R),R);
+        var base = program(List.of(new VarDeclStmt("object",BOX,result,R),new ReturnStmt(
+                sum(field("object","value",false),product(integer(100),
+                        equals(field("object","self",false),address(name("object"))))),R)));
+        var functions = new ArrayList<>(base.functions());functions.addAll(1,List.of(make,wrong,forward));
+        var ir = lower(new Program(base.structs(),functions,R));assertNoCopies(ir);agree(ir,155);
+    }
+
+    @Test void copyingAnExistingValueThroughResultPathsPreservesVolatileDestinationAccess() throws Exception {
+        var type = MiniType.qualified(BOX,Set.of(MiniType.TypeQualifier.VOLATILE));
+        var value = new ConditionalExpr(integer(1),name("original"),name("original"),R);
+        var ir = lower(program(List.of(new VarDeclStmt("original",BOX,initialize(3),R),
+                new VarDeclStmt("copy",type,null,R),new ExprStmt(new InitializeExpr(name("copy"),value,R),R),
+                new ReturnStmt(sum(field("copy","value",false),product(integer(100),
+                        equals(field("copy","self",false),address(name("original"))))),R))));
+        var copies = ir.findFunction("main").orElseThrow().blocks().stream().flatMap(block->block.instructions().stream())
+                .filter(IrMemCopyInstruction.class::isInstance).map(IrMemCopyInstruction.class::cast).toList();
+        assertEquals(2,copies.size());assertTrue(copies.stream().allMatch(IrMemCopyInstruction::volatileAccess));agree(ir,103);
+    }
+
     private static ObjectInitExpr initialize(int value) { return initialize(integer(value)); }
     private static ObjectInitExpr initialize(Expression value) {
         return new ObjectInitExpr(BOX,"destination",new CallExpr(name("construct"),List.of(name("destination"),value),R),R);

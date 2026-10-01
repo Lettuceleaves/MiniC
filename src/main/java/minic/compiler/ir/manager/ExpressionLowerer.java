@@ -97,18 +97,13 @@ final class ExpressionLowerer {
             IrValue address = captureCallValue(lowerAddress(initialization.target()), initialization.target().range());
             if (initialization.value() instanceof Expression.AggregateInitExpr aggregate && aggregate.values().isEmpty()) {
                 ObjectZeroInitializer.emit(builder, address, type, initialization.range(), true);
-            } else if (Expression.ObjectInitExpr.occursInResultOf(initialization.value())) {
-                initializeObjectAt(initialization.value(), address);
+            } else if (type.isStruct()) {
+                initializeObjectAt(initialization.value(), address, type.isVolatileQualified());
             } else {
                 IrValue value = lowerExpression(initialization.value());
-                if (type.isStruct()) {
-                    builder.addInstruction(new IrMemCopyInstruction(address, value, builder.sizeOf(type),
-                            type.isVolatileQualified(), initialization.range()));
-                } else {
-                    builder.addInstruction(new IrStorePointerInstruction(address,
-                            castIfNeeded(value, IrTypeLowerer.lower(type), initialization.range()),
-                            type.isVolatileQualified(), initialization.range()));
-                }
+                builder.addInstruction(new IrStorePointerInstruction(address,
+                        castIfNeeded(value, IrTypeLowerer.lower(type), initialization.range()),
+                        type.isVolatileQualified(), initialization.range()));
             }
             return new IrConstant(0);
         }
@@ -325,74 +320,88 @@ final class ExpressionLowerer {
                     .orElseGet(() -> expressionTypes.get(alignofExpr.expressionOptional().orElseThrow()));
             return new IrConstant(builder.alignmentOf(queriedType), IrType.UNSIGNED_LONG_LONG);
         }
-        if (expression instanceof CallExpr callExpr) {
-            MiniType callResultType = expressionTypes.get(callExpr);
-            boolean structReturn = callResultType != null && callResultType.isStruct();
-            boolean directCall = isDirectFunctionCall(callExpr);
-            // The callee is sequenced before arguments. A parameter reference denotes a
-            // mutable slot, so capture its value before an argument can modify that slot.
-            IrValue calleeAddress = directCall ? null
-                    : captureCallValue(lowerExpression(callExpr.callee()), callExpr.callee().range());
+        if (expression instanceof CallExpr callExpr) return lowerCall(callExpr, null);
+        throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
+    }
 
-            ArrayList<IrValue> arguments = new ArrayList<>();
-            IrValue returnSlotAddress = null;
-            if (structReturn) {
+    /** A non-null destination belongs to an explicit core initialization, not a C value copy. */
+    private IrValue lowerCall(CallExpr callExpr, IrValue destination) {
+        MiniType callResultType = expressionTypes.get(callExpr);
+        boolean structReturn = callResultType != null && callResultType.isStruct();
+        boolean directCall = isDirectFunctionCall(callExpr);
+        // The callee is sequenced before arguments. A parameter reference denotes a
+        // mutable slot, so capture its value before an argument can modify that slot.
+        IrValue calleeAddress = directCall ? null
+                : captureCallValue(lowerExpression(callExpr.callee()), callExpr.callee().range());
+
+        ArrayList<IrValue> arguments = new ArrayList<>();
+        IrValue returnSlotAddress = destination;
+        if (structReturn) {
+            if (returnSlotAddress == null) {
                 IrLocal returnSlot = builder.declareAnonymousLocal(callResultType, callExpr.range());
                 builder.addInstruction(new IrDeclareLocalInstruction(returnSlot, callExpr.range()));
                 IrTemporary addr = builder.newTemporary(IrType.POINTER);
                 builder.addInstruction(new IrAddressOfLocalInstruction(addr, returnSlot, callExpr.range()));
                 returnSlotAddress = addr;
-                arguments.add(returnSlotAddress);
             }
-
-            for (int i = 0; i < callExpr.arguments().size(); i++) {
-                Expression argument = callExpr.arguments().get(i);
-                IrValue argValue = lowerExpression(argument);
-                MiniType argType = expressionTypes.get(argument);
-                if (argType != null && argType.isStruct()) {
-                    argValue = copyStructForArg(
-                            argValue,
-                            (MiniType.StructType) argType.unqualified(),
-                            callExpr.range()
-                    );
-                } else {
-                    argValue = captureCallValue(argValue, argument.range());
-                }
-                arguments.add(argValue);
-            }
-            boolean returnsVoid = callResultType != null && callResultType.isVoid();
-            IrTemporary result = returnsVoid
-                    ? null
-                    : builder.newTemporary(structReturn ? IrType.POINTER : irTypeOf(callExpr));
-            if (directCall) {
-                boolean variadic = isVariadicDirectCall(callExpr.calleeName());
-                arguments = castArguments(callExpr.calleeName(), arguments, callExpr);
-                builder.addInstruction(new IrCallInstruction(
-                        result,
-                        callExpr.calleeName(),
-                        arguments,
-                        variadic,
-                        callExpr.range()
-                ));
-            } else {
-                boolean variadic = isVariadicIndirectCall(callExpr);
-                arguments = castArguments(callExpr, arguments);
-                builder.addInstruction(new IrIndirectCallInstruction(
-                        result,
-                        calleeAddress,
-                        arguments,
-                        variadic,
-                        callExpr.range()
-                ));
-            }
-            if (structReturn) {
-                return returnSlotAddress;
-            }
-            // void 调用只作为副作用表达式存在；零常量仅满足 lowering 方法的统一返回协议，
-            // 不会成为调用指令的结果或占用栈槽。
-            return result == null ? new IrConstant(0) : result;
+            arguments.add(returnSlotAddress);
         }
-        throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
+
+        for (int i = 0; i < callExpr.arguments().size(); i++) {
+            Expression argument = callExpr.arguments().get(i);
+            MiniType argType = expressionTypes.get(argument);
+            if (argType != null && argType.isStruct() && Expression.ObjectInitExpr.occursInResultOf(argument)) {
+                IrLocal slot = builder.declareAnonymousLocal(argType, argument.range());
+                builder.addInstruction(new IrDeclareLocalInstruction(slot, argument.range()));
+                IrTemporary address = builder.newTemporary(IrType.POINTER);
+                builder.addInstruction(new IrAddressOfLocalInstruction(address, slot, argument.range()));
+                initializeObjectAt(argument, address);
+                arguments.add(address);
+                continue;
+            }
+            IrValue argValue = lowerExpression(argument);
+            if (argType != null && argType.isStruct()) {
+                argValue = copyStructForArg(
+                        argValue,
+                        (MiniType.StructType) argType.unqualified(),
+                        callExpr.range()
+                );
+            } else {
+                argValue = captureCallValue(argValue, argument.range());
+            }
+            arguments.add(argValue);
+        }
+        boolean returnsVoid = callResultType != null && callResultType.isVoid();
+        IrTemporary result = returnsVoid
+                ? null
+                : builder.newTemporary(structReturn ? IrType.POINTER : irTypeOf(callExpr));
+        if (directCall) {
+            boolean variadic = isVariadicDirectCall(callExpr.calleeName());
+            arguments = castArguments(callExpr.calleeName(), arguments, callExpr);
+            builder.addInstruction(new IrCallInstruction(
+                    result,
+                    callExpr.calleeName(),
+                    arguments,
+                    variadic,
+                    callExpr.range()
+            ));
+        } else {
+            boolean variadic = isVariadicIndirectCall(callExpr);
+            arguments = castArguments(callExpr, arguments);
+            builder.addInstruction(new IrIndirectCallInstruction(
+                    result,
+                    calleeAddress,
+                    arguments,
+                    variadic,
+                    callExpr.range()
+            ));
+        }
+        if (structReturn) {
+            return returnSlotAddress;
+        }
+        // void 调用只作为副作用表达式存在；零常量仅满足 lowering 方法的统一返回协议，
+        // 不会成为调用指令的结果或占用栈槽。
+        return result == null ? new IrConstant(0) : result;
     }
 
     private IrValue captureCallValue(IrValue value, minic.SourceRange range) {
@@ -631,13 +640,17 @@ final class ExpressionLowerer {
 
     /** Initialize existing storage, keeping the destination capture private to this expression. */
     void initializeObjectAt(Expression expression, IrValue address) {
+        initializeObjectAt(expression, address, false);
+    }
+
+    private void initializeObjectAt(Expression expression, IrValue address, boolean volatileDestination) {
         if (expression instanceof GroupingExpr group) {
-            initializeObjectAt(group.expression(), address);
+            initializeObjectAt(group.expression(), address, volatileDestination);
             return;
         }
         if (expression instanceof CommaExpr comma) {
             for (int index = 0; index + 1 < comma.expressions().size(); index++) lowerExpression(comma.expressions().get(index));
-            initializeObjectAt(comma.expressions().getLast(), address);
+            initializeObjectAt(comma.expressions().getLast(), address, volatileDestination);
             return;
         }
         if (expression instanceof ConditionalExpr conditional) {
@@ -647,19 +660,23 @@ final class ExpressionLowerer {
             String mergeLabel = builder.newBlockLabel("initialize_merge");
             builder.addInstruction(new IrBranchInstruction(condition, thenLabel, elseLabel, conditional.condition().range()));
             builder.switchToBlock(thenLabel);
-            initializeObjectAt(conditional.thenExpression(), address);
+            initializeObjectAt(conditional.thenExpression(), address, volatileDestination);
             builder.addJumpIfOpen(mergeLabel, conditional.thenExpression().range());
             builder.switchToBlock(elseLabel);
-            initializeObjectAt(conditional.elseExpression(), address);
+            initializeObjectAt(conditional.elseExpression(), address, volatileDestination);
             builder.addJumpIfOpen(mergeLabel, conditional.elseExpression().range());
             builder.switchToBlock(mergeLabel);
+            return;
+        }
+        if (expression instanceof CallExpr call) {
+            lowerCall(call, address);
             return;
         }
         if (!(expression instanceof Expression.ObjectInitExpr construction)) {
             // The other conditional arm may be an existing object requiring an ordinary copy.
             MiniType type = expressionTypes.get(expression);
             builder.addInstruction(new IrMemCopyInstruction(address, lowerExpression(expression), builder.sizeOf(type),
-                    type.isVolatileQualified(), expression.range()));
+                    volatileDestination || type.isVolatileQualified(), expression.range()));
             return;
         }
         IrValue previous = capturedValues.put(construction.destinationName(), address);
