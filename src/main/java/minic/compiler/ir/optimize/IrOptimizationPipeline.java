@@ -31,8 +31,9 @@ public final class IrOptimizationPipeline {
     }
 
     public static IrOptimizationPipeline forLevel(OptimizationLevel level) {
-        // Passes are registered only once their independent correctness gates pass.
-        return new IrOptimizationPipeline(level, List.of());
+        Objects.requireNonNull(level, "level");
+        return new IrOptimizationPipeline(level, level == OptimizationLevel.OPTIMIZED
+                ? List.of(new DeadCodeEliminationPass()) : List.of());
     }
 
     public OptimizationLevel level() { return level; }

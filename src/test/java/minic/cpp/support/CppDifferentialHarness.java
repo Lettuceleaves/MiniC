@@ -1,6 +1,7 @@
 package minic.cpp.support;
 
 import minic.compiler.LanguageMode;
+import minic.compiler.ir.optimize.OptimizationLevel;
 
 import java.nio.file.Path;
 import java.nio.file.Files;
@@ -34,16 +35,27 @@ public final class CppDifferentialHarness {
     private final String referenceCompiler;
     private final Limits limits;
     private final LanguageMode languageMode;
+    private final OptimizationLevel optimizationLevel;
 
     public CppDifferentialHarness(Path temporary, String referenceCompiler, Limits limits) {
         this(temporary, referenceCompiler, limits, LanguageMode.C);
     }
 
     public CppDifferentialHarness(Path temporary, String referenceCompiler, Limits limits, LanguageMode languageMode) {
+        this(temporary, referenceCompiler, limits, languageMode, OptimizationLevel.BASELINE);
+    }
+
+    public CppDifferentialHarness(Path temporary, String referenceCompiler, Limits limits, OptimizationLevel optimizationLevel) {
+        this(temporary, referenceCompiler, limits, LanguageMode.C, optimizationLevel);
+    }
+
+    public CppDifferentialHarness(Path temporary, String referenceCompiler, Limits limits, LanguageMode languageMode,
+                                  OptimizationLevel optimizationLevel) {
         this.temporary = Objects.requireNonNull(temporary).toAbsolutePath();
         this.referenceCompiler = Objects.requireNonNull(referenceCompiler);
         this.limits = Objects.requireNonNull(limits);
         this.languageMode = Objects.requireNonNull(languageMode);
+        this.optimizationLevel = Objects.requireNonNull(optimizationLevel);
     }
 
     /** Uses precisely the same saved source and stdin for all three backends. */
@@ -68,7 +80,7 @@ public final class CppDifferentialHarness {
             var command = ProcessProbe.javaCommand(MiniCWorker.class, backend.name(), source.toString(),
                     input.toString(), resultFile.toString(), Integer.toString(limits.debugSteps()),
                     Integer.toString(limits.maxOutputBytes()), Long.toString(limits.runTimeout().toNanos()), languageMode.name(),
-                    Long.toString(limits.compileTimeout().toNanos()), phaseFile.toString());
+                    Long.toString(limits.compileTimeout().toNanos()), phaseFile.toString(), optimizationLevel.name());
             // Actual phase limits are enforced inside the worker. This outer deadline also bounds
             // JVM startup/reporting and remains a fallback if a watchdog cannot publish its result.
             Duration workerTimeout = limits.compileTimeout().plusSeconds(5);

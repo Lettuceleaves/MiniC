@@ -44,7 +44,7 @@ final class IrOptimizationPipelineTest {
     @Test void baselineAndEmptyOptimizedModeReportNoImaginaryPasses() {
         IrResult original = program(7);
         for (var level : OptimizationLevel.values()) {
-            var result = IrOptimizationPipeline.forLevel(level).apply(original);
+            var result = new IrOptimizationPipeline(level, List.of()).apply(original);
             assertSame(original, result.ir());
             assertTrue(result.passNames().isEmpty());
         }

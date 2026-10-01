@@ -6,6 +6,7 @@ import minic.compiler.SourceFile;
 import minic.compiler.asm.Assembler;
 import minic.compiler.ir.IrLowerer;
 import minic.compiler.ir.IrResult;
+import minic.compiler.ir.optimize.OptimizationLevel;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.link.Linker;
 import minic.compiler.obj.ObjBuilder;
@@ -43,12 +44,14 @@ public final class MiniCWorker {
         LanguageMode languageMode = LanguageMode.valueOf(args[7]);
         long compileTimeoutNanos = Long.parseLong(args[8]);
         Path phasePath = Path.of(args[9]);
+        OptimizationLevel optimizationLevel = args.length > 10 ? OptimizationLevel.valueOf(args[10]) : OptimizationLevel.BASELINE;
         var completed = new AtomicBoolean();
         try {
             Compilation compilation = timed(phasePath, "compile", compileTimeoutNanos, resultPath, backend,
                     Status.COMPILE_TIMEOUT, completed, () -> {
                         SourceFile source = new SourceFile(sourcePath.toString(), Files.readString(sourcePath));
-                        CompilerApi compiler = compiler(source, sourcePath.getParent(), languageMode);
+                        CompilerApi compiler = compiler(source, sourcePath.getParent(), languageMode,
+                                backend == Backend.MINIC_NATIVE ? optimizationLevel : OptimizationLevel.BASELINE);
                         var ir = compiler.stages().stream().filter(IrLowerer.class::isInstance)
                                 .map(IrLowerer.class::cast).findFirst().orElseThrow();
                         var link = compiler.stages().stream().filter(Linker.class::isInstance).findFirst().orElseThrow();
@@ -161,13 +164,14 @@ public final class MiniCWorker {
         }
     }
 
-    private static CompilerApi compiler(SourceFile source, Path directory, LanguageMode languageMode) {
+    private static CompilerApi compiler(SourceFile source, Path directory, LanguageMode languageMode,
+                                        OptimizationLevel optimizationLevel) {
         var preprocessor = new Preprocessor(source, Preprocessor.Options.defaults(languageMode));
         var lexer = new Lexer(preprocessor, languageMode);
         var parser = new Parser(lexer, true);
         var semantic = new SemanticAnalyzer(parser);
         var ir = new IrLowerer(semantic);
-        var assembler = new Assembler(ir);
+        var assembler = new Assembler(ir, optimizationLevel);
         var obj = new ObjBuilder(source, assembler, directory.resolve("native"), "program");
         var linker = new Linker(source, obj, directory.resolve("native"), "program");
         return new CompilerApi(List.of(preprocessor, lexer, parser, semantic, ir, assembler, obj, linker));

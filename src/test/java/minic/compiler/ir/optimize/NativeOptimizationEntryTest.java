@@ -50,14 +50,14 @@ final class NativeOptimizationEntryTest {
         assertEquals(OptimizationLevel.OPTIMIZED, assembler.optimizationLevel());
         optimized.runThrough(assembler);
         assertSame(original, irStage.result());
-        assertSame(original, assembler.input().irResult());
-        assertTrue(assembler.optimizationResult().passNames().isEmpty());
+        assertDoesNotThrow(() -> IrVerifier.verify(assembler.input().irResult()));
+        assertEquals(List.of("dead-code-elimination"), assembler.optimizationResult().passNames());
         for (CompilerApi api : List.of(baseline, explicit)) {
             var other = stage(api, Assembler.class);
             api.runThrough(other);
             assertEquals(OptimizationLevel.BASELINE, other.optimizationLevel());
-            assertEquals(other.result().text(), assembler.result().text());
         }
+        assertEquals(stage(baseline, Assembler.class).result().text(), stage(explicit, Assembler.class).result().text());
     }
 
     @Test void aTransformationChangesOnlyNativeInputAndRunsExactlyOnce() {
