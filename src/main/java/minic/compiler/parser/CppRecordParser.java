@@ -84,6 +84,7 @@ public final class CppRecordParser {
                     if (declaration == null) recoverMember();
                     else if (declaration.type().unqualified() instanceof MiniType.FunctionType function) {
                         types.declareOrdinaryName(declaration.name(), declaration.nameRange());
+                        boolean constQualified = state.match(TokenType.CONST);
                         if (union) {
                             state.unsupportedCpp(declaration.nameRange(), "union 成员方法尚未实现");
                             recoverMember();
@@ -98,7 +99,7 @@ public final class CppRecordParser {
                             if (body == null) state.advance();
                             var method = makeMethod(declaration, function, null, state.previous().range());
                             int index = members.size();
-                            members.add(new MethodMember(method, declaration.nameRange()));
+                            members.add(new MethodMember(method, constQualified, declaration.nameRange()));
                             if (body != null) deferred.add(new DeferredMethod(index, method, body,
                                     declaration.parameters().stream().filter(p -> p.name().isEmpty()).map(Parser.ParsedParameter::range).toList()));
                         }
@@ -124,7 +125,7 @@ public final class CppRecordParser {
                 var method = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
                         signature.variadic(), body, false, false, signature.range());
                 MethodMember old = (MethodMember) members.get(item.memberIndex());
-                var member = new MethodMember(method, old.nameRange());
+                var member = new MethodMember(method, old.constQualified(), old.nameRange());
                 members.set(item.memberIndex(), member);
                 state.build(method, "MethodDecl " + method.name(), method.range());
             }

@@ -270,7 +270,7 @@ public final class CppNameBinder {
             List<MiniType> parameterTypes = sourceMethod.parameters().stream()
                     .map(parameter -> normalizeType(parameter.type(), namespace, null, parameter.range())).toList();
             List<MiniType> coreParameters = new ArrayList<>();
-            coreParameters.add(owner.type.pointerTo());
+            coreParameters.add(methodThisType(owner, member));
             parameterTypes.stream().map(MiniType::unqualified).forEach(coreParameters::add);
             MiniType signature = MiniType.function(returnType.unqualified(), coreParameters, sourceMethod.variadic());
             Method previous = owner.methods.get(name);
@@ -291,7 +291,7 @@ public final class CppNameBinder {
             FunctionDecl original = method.source.method();
             Local scope = new Local(null, namespace);
             Entity self = new Entity("this", freshName("this"), Kind.VARIABLE, null,
-                    method.owner.type.pointerTo(), null, true);
+                    methodThisType(method.owner, method.source), null, true);
             coreValues.put(self.coreName, self);
             List<Parameter> parameters = new ArrayList<>();
             parameters.add(new Parameter(self.coreName, self.type, method.source.nameRange()));
@@ -318,6 +318,12 @@ public final class CppNameBinder {
                 currentClass = savedClass;
                 currentThis = savedThis;
             }
+        }
+
+        private MiniType methodThisType(TypeEntity owner, MethodMember sourceMethod) {
+            MiniType object = sourceMethod.constQualified()
+                    ? MiniType.qualified(owner.type, Set.of(MiniType.TypeQualifier.CONST)) : owner.type;
+            return object.pointerTo();
         }
 
         private TypeEntity declareClass(String name, boolean union, Namespace namespace, SourceRange range) {
@@ -780,7 +786,7 @@ public final class CppNameBinder {
         private Expression simpleReference(String name, SourceRange range, Namespace namespace, Local local) {
             Candidate candidate = lookupName(name, namespace, local, range);
             if (candidate instanceof ImplicitField field) {
-                requireAccessible(field.owner.type, name, range, "数据成员访问");
+                requireAccessible(currentThis.type.pointee(), name, range, "数据成员访问");
                 return new FieldAccessExpr(thisValue(range), name, true, range);
             }
             if (candidate instanceof Method method) {
@@ -809,7 +815,7 @@ public final class CppNameBinder {
                 } else {
                     Expression core;
                     if (candidate instanceof ImplicitField field) {
-                        requireAccessible(field.owner.type, field.name, designator.range(), "数据成员访问");
+                        requireAccessible(currentThis.type.pointee(), field.name, designator.range(), "数据成员访问");
                         core = new FieldAccessExpr(thisValue(designator.range()), field.name, true, designator.range());
                     } else core = reference(sourceName, designator.range(), requireValue(candidate, sourceName, designator.range()));
                     return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
@@ -825,9 +831,6 @@ public final class CppNameBinder {
                     Expression core = new FieldAccessExpr(target, field.fieldName(), field.viaPointer(), field.range());
                     return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
                 }
-                if (owner.isConstQualified() || owner.isVolatileQualified()) {
-                    report("CPP004", field.range(), "非 const/volatile 成员函数不能通过 const/volatile 对象调用：" + field.fieldName());
-                }
                 if (field.viaPointer()) receiver = target;
                 else {
                     if (!addressableObject(target)) report("CPP005", field.range(), "尚未支持临时对象或此值类别作为成员函数接收者。");
@@ -836,6 +839,12 @@ public final class CppNameBinder {
             }
             if (method == null) return new BoundCallee(expression(sourceCallee, namespace, local), null);
             requireMethodAccess(method, sourceCallee.range());
+            MiniType object = elementType(declaredExpressionType(receiver));
+            if (object != null && (object.isVolatileQualified()
+                    || object.isConstQualified() && !method.source.constQualified())) {
+                report("CPP004", sourceCallee.range(), "成员函数限定符与接收者不匹配，不能丢弃 const/volatile："
+                        + method.source.method().name());
+            }
             // The member designator and its parentheses are compile-time lookup syntax. Only
             // the outer callee has an executable counterpart, keeping reverse origins unique.
             Expression core = mapped(sourceCallee, new NameExpr(method.function.coreName, sourceCallee.range()));
@@ -1163,7 +1172,7 @@ public final class CppNameBinder {
             if (currentClass != null) {
                 Method method = currentClass.methods.get(name);
                 if (method != null) return method;
-                if (fieldPath(currentClass.type, name, new HashSet<>()) != null) return new ImplicitField(currentClass, name);
+                if (fieldPath(currentThis.type.pointee(), name, new HashSet<>()) != null) return new ImplicitField(currentClass, name);
             }
             Map<Namespace, Set<Namespace>> nominated = nominations(namespace, local);
             for (Namespace scope = namespace; scope != null; scope = scope.parent) {

@@ -141,7 +141,7 @@ final class CppRecordParserTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "Box() {}", "~Box() {}", "template<class T> int method(T item) { return 0; }",
-            "static int method();", "int method() const;", "int method() volatile;",
+            "static int method();", "int method() const volatile;", "int method() volatile;",
             "int method() &;", "int method() = 0;", "int field = 3;"
     })
     void unsupportedMemberSyntaxIsExplicitAndRecoveryKeepsFollowingDeclarations(String unsupported) {

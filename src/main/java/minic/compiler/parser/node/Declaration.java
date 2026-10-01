@@ -227,7 +227,10 @@ public interface Declaration extends AstNode {
         @Override public SourceRange range() { return field.range(); }
     }
 
-    record MethodMember(FunctionDecl method, SourceRange nameRange) implements CppMember {
+    record MethodMember(FunctionDecl method, boolean constQualified, SourceRange nameRange) implements CppMember {
+        public MethodMember(FunctionDecl method, SourceRange nameRange) {
+            this(method, false, nameRange);
+        }
         public MethodMember {
             Objects.requireNonNull(method, "method");
             Objects.requireNonNull(nameRange, "nameRange");
