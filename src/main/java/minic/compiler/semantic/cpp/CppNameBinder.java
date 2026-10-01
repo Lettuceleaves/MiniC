@@ -4623,7 +4623,7 @@ public final class CppNameBinder {
                     if (signature != null && signature.returnType().isReference()) {
                         return referenceResult(signature.returnType(),call,n.range());
                     }
-                    return signature != null && signature.returnType().isStruct()
+                    return signature != null && signature.returnType().isStruct() && n != decltypeOperand
                             ? recordPrvalue(signature.returnType(), call, n.range()) : call;
         }
 
