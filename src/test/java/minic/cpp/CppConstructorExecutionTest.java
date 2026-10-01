@@ -310,7 +310,6 @@ final class CppConstructorExecutionTest {
 
     @Test void laterConstructionSlicesKeepExplicitSourceDiagnostics() throws Exception {
         var sources=List.of(
-                "struct Box{Box(int n){}};int main(){Box value=Box(3);return 0;}",
                 "struct Box{Box(const Box& other){}};int main(){return 0;}",
                 "struct Box{Box(){}};int main(){Box values[2];return 0;}",
                 "struct Box{int value=1;};int main(){Box value{2};return 0;}",

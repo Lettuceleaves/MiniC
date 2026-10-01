@@ -933,6 +933,112 @@ public final class Parser extends Stage {
             return canStartTypeAt(0);
         }
 
+        /** Functional notation accepts a simple-type-specifier, not an arbitrary declarator. */
+        public int cppConstructionDelimiterAt(int offset) {
+            if (!isCpp()) return -1;
+            TokenType token = context.peekAt(offset).type();
+            int end;
+            if (token == TokenType.IDENTIFIER || token == TokenType.SCOPE) {
+                var name = CppNameParser.peekName(context, offset);
+                if (name == null || cppTypes.lookup(name).kind() != CppTypeEnvironment.Kind.TYPE) return -1;
+                end = offset + name.segments().size() * 2 - 1 + (name.global() ? 1 : 0);
+            } else {
+                if (token != TokenType.BOOL && token != TokenType.CHAR && token != TokenType.INT
+                        && token != TokenType.LONG && token != TokenType.SHORT && token != TokenType.SIGNED
+                        && token != TokenType.UNSIGNED && token != TokenType.FLOAT && token != TokenType.DOUBLE
+                        && token != TokenType.VOID) return -1;
+                end = offset + 1;
+            }
+            TokenType following = context.peekAt(end).type();
+            return following == TokenType.LEFT_PAREN || following == TokenType.LEFT_BRACE ? end : -1;
+        }
+
+        public ParsedType parseCppConstructionType() {
+            BaseType base = parseBaseType("期望构造类型");
+            return base == null ? null : new ParsedType(base.type(), base.startToken(),
+                    SourceRange.span(base.startToken().range(), base.endToken().range()));
+        }
+
+        /** Type-id grammar wins sizeof/alignof ambiguity; function pointer casts remain type-ids. */
+        public boolean cppTypeOperandAt(int offset, boolean query) {
+            int delimiter = cppConstructionDelimiterAt(offset);
+            if (delimiter < 0) return true;
+            if (context.peekAt(delimiter).type() == TokenType.LEFT_BRACE) return false;
+            TokenType first = context.peekAt(delimiter + 1).type();
+            if (first == TokenType.RIGHT_PAREN) return query;
+            if (canStartTypeAt(delimiter + 1)) return query && cppTypeOperandAt(delimiter + 1, true);
+            int end = skipCppAbstractDeclarator(delimiter);
+            return end >= 0 && context.peekAt(end).type() == TokenType.RIGHT_PAREN;
+        }
+
+        private int skipCppAbstractDeclarator(int offset) {
+            int start = offset;
+            while (context.peekAt(offset).type() == TokenType.STAR || context.peekAt(offset).type() == TokenType.AMPERSAND) {
+                offset++;
+                while (isTypeQualifier(context.peekAt(offset).type())) offset++;
+            }
+            if (context.peekAt(offset).type() == TokenType.LEFT_PAREN
+                    && context.peekAt(offset + 1).type() != TokenType.RIGHT_PAREN && !canStartTypeAt(offset + 1)) {
+                int inner = skipCppAbstractDeclarator(offset + 1);
+                if (inner < 0 || context.peekAt(inner).type() != TokenType.RIGHT_PAREN) return -1;
+                offset = inner + 1;
+            }
+            while (context.peekAt(offset).type() == TokenType.LEFT_PAREN || context.peekAt(offset).type() == TokenType.LEFT_BRACKET) {
+                TokenType open = context.peekAt(offset).type();
+                TokenType close = open == TokenType.LEFT_PAREN ? TokenType.RIGHT_PAREN : TokenType.RIGHT_BRACKET;
+                if (open == TokenType.LEFT_PAREN && context.peekAt(offset + 1).type() != close && !canStartTypeAt(offset + 1)) return -1;
+                int depth = 1;
+                while (depth > 0) {
+                    TokenType token = context.peekAt(++offset).type();
+                    if (token == TokenType.EOF || token == TokenType.SEMICOLON) return -1;
+                    if (token == open) depth++;
+                    if (token == close) depth--;
+                }
+                offset++;
+            }
+            return offset == start || context.peekAt(offset).type() == TokenType.IDENTIFIER ? -1 : offset;
+        }
+
+        /** In a statement, a syntactically complete declaration wins T(name) ambiguity. */
+        public boolean startsCppConstructionStatement() {
+            int delimiter = cppConstructionDelimiterAt(0);
+            if (delimiter < 0) return false;
+            if (context.peekAt(delimiter).type() == TokenType.LEFT_BRACE) return true;
+            int after = skipCppGroupedDeclarator(delimiter);
+            if (after < 0) return true;
+            TokenType next = context.peekAt(after).type();
+            return next != TokenType.SEMICOLON && next != TokenType.EQUAL && next != TokenType.COMMA
+                    && next != TokenType.LEFT_BRACE;
+        }
+
+        private int skipCppGroupedDeclarator(int offset) {
+            while (context.peekAt(offset).type() == TokenType.STAR || context.peekAt(offset).type() == TokenType.AMPERSAND) {
+                offset++;
+                while (isTypeQualifier(context.peekAt(offset).type())) offset++;
+            }
+            if (context.peekAt(offset).type() == TokenType.IDENTIFIER) offset++;
+            else if (context.peekAt(offset).type() == TokenType.LEFT_PAREN) {
+                offset = skipCppGroupedDeclarator(offset + 1);
+                if (offset < 0 || context.peekAt(offset).type() != TokenType.RIGHT_PAREN) return -1;
+                offset++;
+            } else return -1;
+            while (context.peekAt(offset).type() == TokenType.LEFT_PAREN || context.peekAt(offset).type() == TokenType.LEFT_BRACKET) {
+                TokenType open = context.peekAt(offset).type();
+                TokenType close = open == TokenType.LEFT_PAREN ? TokenType.RIGHT_PAREN : TokenType.RIGHT_BRACKET;
+                if (open == TokenType.LEFT_PAREN && context.peekAt(offset + 1).type() != close
+                        && !canStartTypeAt(offset + 1)) return -1;
+                int depth = 1;
+                while (depth > 0) {
+                    TokenType token = context.peekAt(++offset).type();
+                    if (token == TokenType.EOF || token == TokenType.SEMICOLON) return -1;
+                    if (token == open) depth++;
+                    if (token == close) depth--;
+                }
+                offset++;
+            }
+            return offset;
+        }
+
         public boolean canStartTypeAt(int offset) {
             while (isTypeQualifier(context.peekAt(offset).type())) {
                 offset++;
@@ -1035,6 +1141,11 @@ public final class Parser extends Stage {
             } else if (context.match(TokenType.IDENTIFIER)) {
                 Token nameToken = context.previous();
                 direct = new Declarator(nameToken.lexeme(), new ArrayList<>(), nameToken, nameToken, nameToken);
+            } else if (!nameRequired && context.check(TokenType.LEFT_PAREN)
+                    && (context.peekAt(1).type() == TokenType.RIGHT_PAREN || canStartTypeAt(1)
+                    || context.peekAt(1).type() == TokenType.ELLIPSIS)) {
+                Token anchor = context.peek();
+                direct = new Declarator("", new ArrayList<>(), anchor, anchor, anchor);
             } else if (context.match(TokenType.LEFT_PAREN)) {
                 Token startToken = context.previous();
                 direct = parseDeclarator(expectedNameMessage, nameRequired, allowQualifiedName, referenceBase);

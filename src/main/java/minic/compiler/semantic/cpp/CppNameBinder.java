@@ -6,6 +6,7 @@ import minic.compiler.lexer.token.TokenType;
 import minic.compiler.parser.node.AstChildren;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.CppInitializer;
+import minic.compiler.parser.node.CppConstructionExpr;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.Declaration.*;
 import minic.compiler.parser.node.Expression;
@@ -1104,6 +1105,7 @@ public final class CppNameBinder {
 
         private Expression expressionWithinFullExpression(Expression node, Namespace namespace, Local local, boolean addressDemand) {
             Expression core = switch (node) {
+                case CppConstructionExpr n -> constructionExpression(n, namespace, local);
                 case ThisExpr n -> {
                     if (currentThis == null) {
                         report("CPP004", n.range(), "this 只能用于非静态成员函数体内。");
@@ -1212,7 +1214,8 @@ public final class CppNameBinder {
                         declaredExpressionTypes.put(object, signature.returnType().referent());
                         yield object;
                     }
-                    yield call;
+                    yield signature != null && signature.returnType().isStruct()
+                            ? recordPrvalue(signature.returnType(), call, n.range()) : call;
                 }
                 case CastExpr n -> {
                     MiniType type = normalizeType(n.targetType(), namespace, local, n.range());
@@ -2020,6 +2023,84 @@ public final class CppNameBinder {
             Expression value = expressionForTarget(target, arguments.getFirst(), namespace, local);
             if (list) requireNonNarrowing(target, value, arguments.getFirst().range());
             return initializerMapping(syntax, convertCallValue(target.unqualified(), value, arguments.getFirst()));
+        }
+
+        private Expression constructionExpression(CppConstructionExpr source, Namespace namespace, Local local) {
+            MiniType type = normalizeType(source.type(), namespace, local, source.typeRange());
+            requireComplete(type, source.typeRange());
+            CppInitializer syntax = source.initializer();
+            List<Expression> arguments = syntax.arguments();
+            if (type.isVoid() && syntax.kind() == CppInitializer.Kind.DIRECT_LIST) {
+                report("CPP004", source.range(), "Braced construction requires an object type; void has no object.");
+                return new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", source.range()), source.range());
+            }
+            if (type.isReference() || type.isArray() || type.isFunction()) {
+                report("CPP005", source.typeRange(), "Functional construction of reference, array or function types is not supported yet.");
+                return new NullLiteralExpr("nullptr", source.range());
+            }
+            TypeEntity owner = objectType(type);
+            if (owner != null && !owner.complete) return new NullLiteralExpr("nullptr", source.range());
+            if (owner != null && needsConstruction(owner)) {
+                Expression value = constructObject(type, syntax, namespace, local, source.range());
+                return ObjectInitExpr.occursInResultOf(value) ? value : recordPrvalue(type, value, source.range());
+            }
+            if (owner != null) {
+                if (arguments.size() == 1 && !(arguments.getFirst() instanceof CppInitializer)) {
+                    Expression value = expression(arguments.getFirst(), namespace, local);
+                    MiniType actual = declaredExpressionType(value);
+                    if (actual != null && type.unqualified().equals(actual.unqualified())) {
+                        if (actual.isVolatileQualified()) report("CPP004", source.range(), "The implicit copy constructor cannot bind a volatile source object.");
+                        return recordPrvalue(type, value, source.range());
+                    }
+                }
+                String destination = freshName("construction");
+                Expression slot = typed(new UnaryExpr(TokenType.STAR,
+                        typed(new NameExpr(destination, source.range()), type.unqualified().pointerTo()), source.range()), type.unqualified());
+                List<Expression> actions = new ArrayList<>();
+                if (arguments.isEmpty()) {
+                    actions.add(new InitializeExpr(slot, new AggregateInitExpr(List.of(), syntax.range()), syntax.range()));
+                } else {
+                    if (syntax.kind() != CppInitializer.Kind.DIRECT_LIST) {
+                        report("CPP004", source.range(), "A C++17 aggregate has no matching parenthesized constructor.");
+                    }
+                    if (nonAggregate(owner) || owner.union) {
+                        report("CPP005", source.range(), "This record requires constructor or union initialization rules not supported yet.");
+                    }
+                    if (arguments.size() > owner.fields.size()) report("CPP004", syntax.range(), "Too many aggregate initializer elements.");
+                    for (int index = 0; index < owner.fields.size(); index++) {
+                        StructField field = owner.fields.get(index);
+                        if (field.type().isArray() || field.type().isStruct() || field.type().isReference()) {
+                            report("CPP005", source.range(), "Nested aggregate, array and reference element lists require member-wise initialization support.");
+                            continue;
+                        }
+                        Expression value = index < arguments.size() ? arguments.get(index) : null;
+                        CppInitializer fieldSyntax = value instanceof CppInitializer nested ? nested
+                                : new CppInitializer(CppInitializer.Kind.DIRECT_LIST, value == null ? List.of() : List.of(value),
+                                        value == null ? syntax.range() : value.range());
+                        Expression initialized = variableInitializer(field.type(), fieldSyntax, null, namespace, local, fieldSyntax.range());
+                        if (initialized != null) actions.add(new InitializeExpr(
+                                typed(new FieldAccessExpr(slot, field.name(), false, fieldSyntax.range()), field.type()), initialized, fieldSyntax.range()));
+                    }
+                }
+                Expression body = actions.isEmpty() ? new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", source.range()), source.range())
+                        : actions.size() == 1 ? actions.getFirst() : new CommaExpr(actions, source.range());
+                return typed(new ObjectInitExpr(coreType(type), destination, body, source.range()), type);
+            }
+            if (syntax.kind() == CppInitializer.Kind.DIRECT_LIST) {
+                return variableInitializer(type, syntax, null, namespace, local, source.range());
+            }
+            if (arguments.size() > 1) report("CPP004", syntax.range(), "A scalar functional conversion requires at most one argument.");
+            Expression value = arguments.isEmpty() ? new IntegerLiteralExpr(0, "0", source.range())
+                    : expression(arguments.getFirst(), namespace, local);
+            return typed(new CastExpr(coreType(type.unqualified()), value, source.range()), type.unqualified());
+        }
+
+        /** A record call's sret destination is supplied by its enclosing initialization context. */
+        private Expression recordPrvalue(MiniType type, Expression value, SourceRange range) {
+            String destination = freshName("record_result");
+            Expression slot = typed(new UnaryExpr(TokenType.STAR,
+                    typed(new NameExpr(destination, range), type.unqualified().pointerTo()), range), type.unqualified());
+            return typed(new ObjectInitExpr(coreType(type), destination, new InitializeExpr(slot, value, range), range), type);
         }
 
         private Expression initializerMapping(CppInitializer syntax, Expression value) {

@@ -564,6 +564,6 @@ public final class StatementManager {
     }
 
     private boolean isDeclarationStart() {
-        return state.check(TokenType.ALIGNAS) || typeReader.canStartType();
+        return state.check(TokenType.ALIGNAS) || typeReader.canStartType() && !typeReader.startsCppConstructionStatement();
     }
 }

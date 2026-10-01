@@ -253,7 +253,8 @@ public final class ExpressionManager {
     }
 
     private Expression parseCast() {
-        if (state.check(TokenType.LEFT_PAREN) && typeReader.canStartTypeAt(1)) {
+        if (state.check(TokenType.LEFT_PAREN) && typeReader.canStartTypeAt(1)
+                && typeReader.cppTypeOperandAt(1, false)) {
             Token start = state.advance();
             Parser.ParsedType target = typeReader.parseType("期望转换目标类型");
             Token close = state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
@@ -306,7 +307,7 @@ public final class ExpressionManager {
             state.report(state.peek(), "alignof 后期望 '('");
             return null;
         }
-        if (typeReader.canStartType()) {
+        if (typeReader.canStartType() && typeReader.cppTypeOperandAt(0, true)) {
             Parser.ParsedType type = typeReader.parseType("期望 alignof 类型");
             Token endToken = state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
             if (type == null || endToken == null) return null;
@@ -326,7 +327,7 @@ public final class ExpressionManager {
 
     private Expression parseSizeof(Token sizeofToken) {
         if (state.match(TokenType.LEFT_PAREN)) {
-            if (typeReader.canStartType()) {
+            if (typeReader.canStartType() && typeReader.cppTypeOperandAt(0, true)) {
                 Parser.ParsedType type = typeReader.parseType("期望 sizeof 类型");
                 Token endToken = state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
                 if (type == null || endToken == null) {
@@ -424,6 +425,15 @@ public final class ExpressionManager {
     }
 
     private Expression parsePrimary() {
+        if (typeReader.cppConstructionDelimiterAt(0) >= 0) {
+            Parser.ParsedType type = typeReader.parseCppConstructionType();
+            var initializer = parseConstructionInitializer();
+            if (type == null || initializer == null) return null;
+            var construction = new minic.compiler.parser.node.CppConstructionExpr(type.type(), initializer,
+                    type.range(), SourceRange.span(type.range(), initializer.range()));
+            state.build(construction, "CppConstructionExpr", construction.range());
+            return construction;
+        }
         if (state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.match(TokenType.THIS)) {
             var expression = new Expression.ThisExpr(state.previous().range());
             state.build(expression, "ThisExpr", expression.range());
@@ -701,6 +711,27 @@ public final class ExpressionManager {
         );
         state.build(callExpr, "CallExpr", callExpr.range());
         return callExpr;
+    }
+
+    private minic.compiler.parser.node.CppInitializer parseConstructionInitializer() {
+        Token start = state.advance();
+        boolean list = start.type() == TokenType.LEFT_BRACE;
+        TokenType close = list ? TokenType.RIGHT_BRACE : TokenType.RIGHT_PAREN;
+        ArrayList<Expression> arguments = new ArrayList<>();
+        if (!state.check(close)) {
+            do {
+                Expression value = state.check(TokenType.LEFT_BRACE) ? parseConstructionInitializer() : parseAssignment();
+                if (value == null) return null;
+                arguments.add(value);
+                if (!state.match(TokenType.COMMA)) break;
+                if (list && state.check(close)) break;
+            } while (!state.isAtEnd());
+        }
+        Token end = state.consume(close, list ? "构造初始化期望 '}'" : "构造初始化期望 ')'");
+        return end == null ? null : new minic.compiler.parser.node.CppInitializer(list
+                ? minic.compiler.parser.node.CppInitializer.Kind.DIRECT_LIST
+                : minic.compiler.parser.node.CppInitializer.Kind.DIRECT_PAREN,
+                arguments, SourceRange.span(start.range(), end.range()));
     }
 
     private Expression combineBinary(Expression left, Token operator, Expression right) {

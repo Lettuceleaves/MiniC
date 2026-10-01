@@ -67,6 +67,7 @@ public final class AstChildren {
             case VaEndExpr n -> present(n.list());
             case AggregateInitExpr n -> n.values();
             case CppInitializer n -> n.arguments();
+            case CppConstructionExpr n -> present(n.initializer());
             case DesignatedInitExpr n -> present(n.value());
             default -> List.of();
         };
@@ -95,7 +96,7 @@ public final class AstChildren {
             if (!visited.add(node)) continue;
             if (!onlyReferences && (node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
-                    || node instanceof CppInitializer || node instanceof ConstructorMember
+                    || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
                     || node instanceof StructDecl record && record.cppInfo() != null)) return node;
@@ -123,6 +124,7 @@ public final class AstChildren {
             case VarDeclStmt n -> n.type();
             case TypedefStmt n -> n.type();
             case CastExpr n -> n.targetType();
+            case CppConstructionExpr n -> n.type();
             case LetExpr n -> n.type();
             case MaterializeExpr n -> n.type();
             case ObjectInitExpr n -> n.type();
