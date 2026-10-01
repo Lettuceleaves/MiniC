@@ -9,22 +9,26 @@ import minic.compiler.ir.value.IrValue.IrTemporary;
 import java.util.*;
 
 /**
- * Fixed Windows x64 r10/r11 homes using conservative whole-function convex intervals, including
- * CFG boundary liveness. There is no interval splitting or edge shuffle. Call survivors have
- * explicit stack save/restore points; cheap survivors and all survivors of cyclic calls stay
- * on stack to avoid introducing transfers on each iteration of a hot loop.
+ * Fixed Windows x64 integer register homes using conservative whole-function convex intervals,
+ * including CFG boundary liveness. There is no interval splitting or edge shuffle. Volatile
+ * call survivors have explicit stack save/restore points; optional nonvolatile homes instead
+ * require one function-level save/restore. The static access threshold is a conservative cost
+ * heuristic, not a claim of profile-guided profitability.
  */
 public final class GlobalRegisterPlan {
     private static final List<String> POOL = List.of("r10", "r11");
+    private static final List<String> CALLEE_SAVED = List.of("rbx", "r12", "r13", "r14", "r15");
     private final Map<String, String> registers;
     private final Map<String, IrType> temporaryTypes;
     private final Set<String> stackTemporaries;
     private final Map<Point, List<IrTemporary>> spills;
+    private final List<String> calleeSavedRegisters;
 
-    private GlobalRegisterPlan(IrFunction function) {
+    private GlobalRegisterPlan(IrFunction function, boolean allowCalleeSaved) {
         var analysis = IrLiveness.analyze(function);
         temporaryTypes = analysis.temporaryTypes();
         var excluded = new HashSet<String>();
+        var volatileExcluded = new HashSet<String>();
         temporaryTypes.forEach((name, type) -> { if (type.isFloatingScalar()) excluded.add(name); });
         var spans = new LinkedHashMap<String, Span>();
         var transfers = new HashMap<String, Integer>();
@@ -47,7 +51,7 @@ public final class GlobalRegisterPlan {
                     survivors.put(new Point(block.label(), index), across);
                     for (String name : across) callCounts.merge(name, 1, Math::addExact);
                     if (!across.isEmpty() && cyclic.computeIfAbsent(block.label(), name -> inCycle(analysis.controlFlow(), name)))
-                        excluded.addAll(across);
+                        volatileExcluded.addAll(across);
                 }
             }
             position = Math.incrementExact(position);
@@ -56,7 +60,7 @@ public final class GlobalRegisterPlan {
         }
         callCounts.forEach((name, count) -> {
             // Each call adds one store and one reload. A single definition/use is cheaper left on stack.
-            if (transfers.getOrDefault(name, 0) <= Math.addExact(Math.multiplyExact(2, count), 1)) excluded.add(name);
+            if (transfers.getOrDefault(name, 0) <= Math.addExact(Math.multiplyExact(2, count), 1)) volatileExcluded.add(name);
         });
 
         var intervals = spans.entrySet().stream().filter(entry -> !excluded.contains(entry.getKey()))
@@ -66,18 +70,29 @@ public final class GlobalRegisterPlan {
         var active = new ArrayList<Active>();
         for (var entry : intervals) {
             Span span = entry.getValue(); active.removeIf(value -> value.end() < span.start());
-            for (String register : POOL) {
+            String name = entry.getKey();
+            // Four removed stack transfers can repay two full-width prologue/epilogue transfers.
+            // Cheap values never open a nonvolatile home, even when another value already paid its save.
+            boolean useNonvolatile = allowCalleeSaved && transfers.getOrDefault(name, 0) >= 4;
+            var candidates = new ArrayList<String>();
+            boolean crossesCall = callCounts.containsKey(name);
+            if (useNonvolatile && crossesCall) candidates.addAll(CALLEE_SAVED);
+            if (!volatileExcluded.contains(name)) candidates.addAll(POOL);
+            if (useNonvolatile && !crossesCall) candidates.addAll(CALLEE_SAVED);
+            for (String register : candidates) {
                 if (active.stream().anyMatch(value -> value.register().equals(register))) continue;
                 assigned.put(entry.getKey(), register); active.add(new Active(register, span.end())); break;
             }
         }
         registers = Collections.unmodifiableMap(assigned);
+        calleeSavedRegisters = CALLEE_SAVED.stream().filter(assigned::containsValue).toList();
         var onStack = new LinkedHashSet<>(temporaryTypes.keySet()); onStack.removeAll(assigned.keySet());
         stackTemporaries = Collections.unmodifiableSet(onStack);
         var saved = new LinkedHashMap<Point, List<IrTemporary>>();
         survivors.forEach((point, names) -> {
             var values = new ArrayList<IrTemporary>();
-            for (String name : names) if (assigned.containsKey(name)) values.add(new IrTemporary(name, temporaryTypes.get(name)));
+            for (String name : names) if (assigned.containsKey(name) && POOL.contains(assigned.get(name)))
+                values.add(new IrTemporary(name, temporaryTypes.get(name)));
             // Stable register order also makes emission and diagnostics reproducible.
             values.sort(Comparator.comparing(value -> assigned.get(value.name())));
             if (!values.isEmpty()) saved.put(point, List.copyOf(values));
@@ -109,12 +124,17 @@ public final class GlobalRegisterPlan {
     }
 
     public static GlobalRegisterPlan allocate(IrFunction function) {
-        return new GlobalRegisterPlan(Objects.requireNonNull(function, "function"));
+        return allocate(function, false);
     }
-    public String strategyName() { return "global-volatile-registers"; }
+    public static GlobalRegisterPlan allocate(IrFunction function, boolean allowCalleeSaved) {
+        return new GlobalRegisterPlan(Objects.requireNonNull(function, "function"), allowCalleeSaved);
+    }
+    public String strategyName() { return calleeSavedRegisters.isEmpty() ? "global-volatile-registers" : "global-callee-saved-registers"; }
     public Map<String, String> registers() { return registers; }
     public Map<String, IrType> temporaryTypes() { return temporaryTypes; }
     public Set<String> stackTemporaries() { return stackTemporaries; }
+    /** Full-width registers that emission must preserve once in this function's prologue/epilogue. */
+    public List<String> calleeSavedRegisters() { return calleeSavedRegisters; }
     public List<IrTemporary> spillsAt(String block, int instructionIndex) {
         return spills.getOrDefault(new Point(block, instructionIndex), List.of());
     }
