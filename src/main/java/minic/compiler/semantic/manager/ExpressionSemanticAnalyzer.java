@@ -598,7 +598,8 @@ final class ExpressionSemanticAnalyzer {
     }
 
     private void analyzeArrayInit(AggregateInitExpr initializer, Scope scope, MiniType.ArrayType arrayType) {
-        if (initializer.values().size() > arrayType.length()) {
+        if (initializer.values().size() > arrayType.length()
+                && initializer.values().stream().noneMatch(DesignatedInitExpr.class::isInstance)) {
             report(initializer.range(),
                     "数组初始化值过多：容量 " + arrayType.length()
                             + " 个，实际 " + initializer.values().size() + " 个");
@@ -628,7 +629,8 @@ final class ExpressionSemanticAnalyzer {
             report(initializer.range(), "未知结构体类型：" + targetStruct.name());
             return;
         }
-        if (initializer.values().size() > fields.size()) {
+        if (initializer.values().size() > fields.size()
+                && initializer.values().stream().noneMatch(DesignatedInitExpr.class::isInstance)) {
             report(initializer.range(),
                     "结构体初始化值过多：字段 " + fields.size()
                             + " 个，实际 " + initializer.values().size() + " 个");

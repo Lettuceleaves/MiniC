@@ -87,6 +87,24 @@ final class CppStaticAddressModelTest {
         assertEquals(List.of(new IrGlobalData.Address(0,"b",0,IrGlobalData.AddressKind.OBJECT)),pointers.addresses());
         assertArrayEquals(new byte[16],pointers.bytes());
     }
+    @Test void repeatedFieldDesignatorsUseTheLastValueInsteadOfCountingClauses(){
+        var source=new minic.compiler.SourceFile("replace-field.c","struct S{int a;int b;};struct S value={.b=3,.a=1,.b=7,.a=5};int main(){return 0;}");
+        var ir=new minic.compiler.CompilerApi(source,minic.compiler.LanguageMode.C).runToIr();
+        var data=ir.globalData().stream().filter(g->g.label().equals("value")).findFirst().orElseThrow();
+        var bytes=ByteBuffer.wrap(data.bytes()).order(ByteOrder.LITTLE_ENDIAN);
+        assertEquals(5,bytes.getInt(0));assertEquals(7,bytes.getInt(4));
+    }
+    @Test void designatorsStillRejectPositionsOutsideTheObject(){
+        for(String declaration:List.of("int a[2]={[2]=1};","int a[2]={[1]=1,2};","struct S{int a;};struct S a={.a=1,2};")){
+            var source=new minic.compiler.SourceFile("bad-designator.c",declaration+"int main(){return 0;}");
+            var api=new minic.compiler.CompilerApi(source,minic.compiler.LanguageMode.C);
+            var semantic=api.stages().stream().filter(minic.compiler.semantic.SemanticAnalyzer.class::isInstance)
+                    .map(minic.compiler.semantic.SemanticAnalyzer.class::cast).findFirst().orElseThrow();
+            api.runThrough(semantic);
+            assertTrue(semantic.errors().stream().anyMatch(error->error.code().equals("SEM001")
+                    && (error.message().contains("下标越界")||error.message().contains("值过多"))),()->semantic.errors().toString());
+        }
+    }
     @Test void scalarConstantArithmeticSharesTypedConversionsWithAddressOffsets(){
         var source=new minic.compiler.SourceFile("constants.c","unsigned char a=(unsigned char)256;unsigned long long b=9007199254740993ULL+2ULL;int c=0&&(1/0);int d=(unsigned)-1<0;float e=(float)16777217.0;int main(){return 0;}");
         var ir=new minic.compiler.CompilerApi(source,minic.compiler.LanguageMode.C).runToIr();
