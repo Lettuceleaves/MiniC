@@ -77,10 +77,12 @@ public final class CppTypeEnvironment {
     private static final class Local extends Scope {
         final Local parent;
         final Namespace namespace;
-        Local(Local parent, Namespace namespace, int id) {
-            super(namespace.qualify("<block" + id + ">"));
+        final boolean member;
+        Local(Local parent, Namespace namespace, int id, boolean member) {
+            super(namespace.qualify((member ? "<member" : "<block") + id + ">"));
             this.parent = parent;
             this.namespace = namespace;
+            this.member = member;
         }
     }
 
@@ -118,10 +120,36 @@ public final class CppTypeEnvironment {
         namespace = namespaceStack.pop();
     }
 
-    public void enterLocalScope() { local = new Local(local, namespace, ++nextLocalId); }
+    public void enterLocalScope() { local = new Local(local, namespace, ++nextLocalId, false); }
+
+    /** Member names have lexical scope; this slice still hoists anonymous aggregate ASTs. */
+    public void enterMemberScope() { enterMemberScope(null); }
+
+    /** The injected class name is a tag, allowing a later value member to hide it. */
+    public void enterMemberScope(MiniType selfType) {
+        if (selfType != null && !(selfType.unqualified() instanceof MiniType.StructType)) {
+            throw new IllegalArgumentException("member scope requires an aggregate self type");
+        }
+        local = new Local(local, namespace, ++nextLocalId, true);
+        if (selfType != null) {
+            String identity = ((MiniType.StructType) selfType.unqualified()).name();
+            boolean union = identity.startsWith("$union$");
+            String canonicalName = union ? identity.substring("$union$".length()) : identity;
+            int separator = canonicalName.lastIndexOf("::");
+            String simpleName = separator < 0 ? canonicalName : canonicalName.substring(separator + 2);
+            Slot slot = new Slot();
+            slot.tag = new Entry(Kind.TYPE, canonicalName, selfType.unqualified(), local, null, true, union, true);
+            local.names.put(simpleName, slot);
+        }
+    }
+
+    public void exitMemberScope() {
+        if (local == null || !local.member) throw new IllegalStateException("no member scope to exit");
+        local = local.parent;
+    }
 
     public void exitLocalScope() {
-        if (local == null) throw new IllegalStateException("no local scope to exit");
+        if (local == null || local.member) throw new IllegalStateException("no local scope to exit");
         local = local.parent;
     }
 
@@ -142,7 +170,11 @@ public final class CppTypeEnvironment {
             previous.defined |= definition;
             return previous.type;
         }
-        String canonicalName = scope.qualify(name);
+        // Parser-generated anonymous names are unique within a translation unit. Their
+        // declarations are hoisted beside the containing aggregate, so preserve that
+        // namespace identity while retaining member lookup lifetime here.
+        String canonicalName = local != null && local.member && name.startsWith("$anonymous$")
+                ? namespace.qualify(name) : scope.qualify(name);
         MiniType type = MiniType.struct((union ? "$union$" : "") + canonicalName);
         if (slot.ordinary != null && slot.ordinary.kind != Kind.VALUE) {
             conflict(range, "聚合类型与已有名称冲突：" + name);
@@ -279,7 +311,15 @@ public final class CppTypeEnvironment {
     private Entry direct(Scope at, String name, Search search) {
         Slot slot = at.names.get(name);
         if (slot == null) return null;
-        if (slot.ordinary != null && (search == Search.ORDINARY || slot.ordinary.kind != Kind.VALUE)) return slot.ordinary;
+        if (slot.ordinary != null) {
+            Entry entry = slot.ordinary;
+            // Nested-name-specifier lookup considers namespaces and class types, not
+            // scalar/pointer/array/function typedefs that merely share their spelling.
+            boolean qualifying = entry.kind == Kind.NAMESPACE || entry.kind == Kind.TYPE
+                    && entry.type.unqualified() instanceof MiniType.StructType;
+            if (search == Search.ORDINARY || search == Search.ELABORATED && entry.kind != Kind.VALUE
+                    || search == Search.QUALIFIER && qualifying) return entry;
+        }
         return slot.tag;
     }
 

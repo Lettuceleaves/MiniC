@@ -73,6 +73,7 @@ class CppTypeEnvironmentTest {
     }
 
     @Test void namespaceQualifierIgnoresValuesButStopsAtInnerType() {
+        MiniType classType = names.declareStruct("ClassType", false, true, RANGE);
         names.enterNamespace(List.of("A"), RANGE);
         names.declareTypedef("T", MiniType.INT, RANGE);
         names.exitNamespace();
@@ -80,9 +81,86 @@ class CppTypeEnvironmentTest {
         names.declareValue("A", RANGE);
         assertEquals(MiniType.INT, lookup("A::T").type());
         names.enterLocalScope();
-        names.declareTypedef("A", MiniType.LONG, RANGE);
+        names.declareTypedef("A", classType, RANGE);
         assertEquals(UNSUPPORTED_QUALIFIER, lookup("A::T").kind());
         assertEquals(MiniType.INT, lookup("::A::T").type());
+    }
+
+    @Test void namespaceQualifiersIgnoreAliasesThatDoNotNameClassTypes() {
+        MiniType classType = names.declareStruct("ClassType", false, true, RANGE);
+        names.enterNamespace(List.of("A"), RANGE);
+        names.declareTypedef("T", MiniType.INT, RANGE);
+        names.exitNamespace();
+        for (MiniType type : List.of(MiniType.DOUBLE, classType.pointerTo(), classType.arrayOf(2),
+                MiniType.function(MiniType.INT, List.of()))) {
+            names.enterLocalScope();
+            names.declareTypedef("A", type, RANGE);
+            assertEquals(type, lookup("A").type());
+            assertEquals(MiniType.INT, lookup("A::T").type(), () -> "Non-class alias must not hide the qualifier: " + type);
+            names.exitLocalScope();
+        }
+    }
+
+    @Test void memberValuesHideOuterTypesOnlyWithinTheirMemberScope() {
+        names.declareTypedef("T", MiniType.INT, RANGE);
+        MiniType self = names.declareStruct("Node", false, true, RANGE);
+        names.enterMemberScope();
+        assertEquals(self, lookup("Node").type());
+        names.declareValue("T", RANGE);
+        names.declareValue("Node", RANGE);
+        assertEquals(VALUE, lookup("T").kind());
+        assertEquals(VALUE, lookup("Node").kind());
+        assertEquals(self, names.lookupElaborated(q("Node")).type());
+        names.exitMemberScope();
+        assertEquals(MiniType.INT, lookup("T").type());
+        assertEquals(self, lookup("Node").type());
+    }
+
+    @Test void anonymousMemberAggregatesRetainNamespaceIdentityForTheirHoistedAst() {
+        names.enterNamespace(List.of("A"), RANGE);
+        names.enterMemberScope();
+        MiniType anonymous = names.declareStruct("$anonymous$1", false, true, RANGE);
+        assertEquals(MiniType.struct("::A::$anonymous$1"), anonymous);
+        names.enterMemberScope();
+        MiniType union = names.declareStruct("$anonymous$2", true, true, RANGE);
+        assertEquals(MiniType.struct("$union$::A::$anonymous$2"), union);
+        names.exitMemberScope();
+        names.exitMemberScope();
+        assertEquals(MISSING, lookup("$anonymous$1").kind());
+        names.enterLocalScope();
+        MiniType local = names.declareStruct("$anonymous$3", false, true, RANGE);
+        assertNotEquals(MiniType.struct("::A::$anonymous$3"), local);
+        names.exitLocalScope();
+        names.exitNamespace();
+    }
+
+    @Test void injectedClassNameHidesOuterValueAndCanItselfBeHiddenByAField() {
+        names.declareValue("Node", RANGE);
+        MiniType self = names.declareStruct("Node", false, true, RANGE);
+        assertEquals(VALUE, lookup("Node").kind());
+        names.enterMemberScope(self);
+        assertEquals(self, lookup("Node").type());
+        names.declareValue("Node", RANGE);
+        assertEquals(VALUE, lookup("Node").kind());
+        assertEquals(self, names.lookupElaborated(q("Node")).type());
+        names.exitMemberScope();
+        assertEquals(VALUE, lookup("Node").kind());
+        assertTrue(names.diagnostics().isEmpty());
+    }
+
+    @Test void injectedUnionNameRetainsCanonicalIdentityAndNestingRestoresOuterMembers() {
+        names.enterNamespace(List.of("A"), RANGE);
+        MiniType self = names.declareStruct("U", true, true, RANGE);
+        names.enterMemberScope(self);
+        names.declareValue("field", RANGE);
+        names.enterMemberScope(MiniType.struct("::A::$anonymous$1"));
+        assertEquals(self, lookup("U").type());
+        assertEquals(VALUE, lookup("field").kind());
+        names.exitMemberScope();
+        assertEquals(self, names.lookupElaborated(q("U")).type());
+        names.exitMemberScope();
+        assertEquals(MISSING, lookup("field").kind());
+        names.exitNamespace();
     }
 
     @Test void importedTypesDeduplicateEntitiesAcrossDiamondsAndCycles() {
