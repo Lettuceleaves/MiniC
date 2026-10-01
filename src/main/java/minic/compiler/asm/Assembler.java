@@ -366,11 +366,12 @@ public final class Assembler extends Stage {
 
         private FunctionState(IrFunction function, java.util.Set<String> externalFunctionNames, boolean optimizeValueLocations) {
             this.function = function;
-            frame = FrameLayout.create(function, optimizeValueLocations);
+            registerPlan = optimizeValueLocations ? GlobalRegisterPlan.allocate(function, true) : null;
+            frame = FrameLayout.create(function, optimizeValueLocations).withCalleeSavedRegisters(
+                    registerPlan == null ? List.of() : registerPlan.calleeSavedRegisters());
             functionSymbol = CallingConvention.functionDefinitionSymbol(function.name());
             epilogueLabel = functionSymbol + "$epilogue";
             TemporaryLocations locations = TemporaryLocations.allStack(frame);
-            registerPlan = optimizeValueLocations ? GlobalRegisterPlan.allocate(function) : null;
             stackValues = new ValueEmitter(frame, externalFunctionNames);
             if (optimizeValueLocations) {
                 var assignments = new java.util.LinkedHashMap<String, ValueLocation>();
@@ -398,12 +399,16 @@ public final class Assembler extends Stage {
                         return structure("    push rbp");
                     }
                     case PROLOG_MOV -> {
-                        section = frame.frameSize() > 0 ? FunctionSection.PROLOG_SUB : FunctionSection.PARAMETER_STORES;
+                        section = frame.frameSize() > 0 ? FunctionSection.PROLOG_SUB : FunctionSection.CALLEE_SAVES;
                         return structure("    mov rbp, rsp");
                     }
                     case PROLOG_SUB -> {
-                        section = FunctionSection.PARAMETER_STORES;
+                        section = FunctionSection.CALLEE_SAVES;
                         return structure("    sub rsp, " + frame.frameSize());
+                    }
+                    case CALLEE_SAVES -> {
+                        enqueueCalleeSavedTransfers(false);
+                        section = FunctionSection.PARAMETER_STORES;
                     }
                     case PARAMETER_STORES -> {
                         enqueueParameterStores();
@@ -424,8 +429,12 @@ public final class Assembler extends Stage {
                         }
                     }
                     case EPILOGUE_LABEL -> {
-                        section = FunctionSection.EPILOGUE_MOV;
+                        section = FunctionSection.CALLEE_RESTORES;
                         return structure(epilogueLabel + ":");
+                    }
+                    case CALLEE_RESTORES -> {
+                        enqueueCalleeSavedTransfers(true);
+                        section = FunctionSection.EPILOGUE_MOV;
                     }
                     case EPILOGUE_MOV -> {
                         section = FunctionSection.EPILOGUE_POP;
@@ -485,6 +494,14 @@ public final class Assembler extends Stage {
             return currentRange;
         }
 
+        private void enqueueCalleeSavedTransfers(boolean restore) {
+            frame.calleeSavedOffsets().forEach((register, offset) -> {
+                String slot = "QWORD PTR " + frame.stackAddress(offset);
+                String operands = restore ? register + ", " + slot : slot + ", " + register;
+                pendingInstructionLines.add(new PendingInstructionLine("    mov " + operands, null));
+            });
+        }
+
         private void enqueueParameterStores() {
             StringBuilder builder = new StringBuilder();
             instructionEmitter.emitParameterStores(builder, function);
@@ -528,10 +545,12 @@ public final class Assembler extends Stage {
         PROLOG_PUSH,
         PROLOG_MOV,
         PROLOG_SUB,
+        CALLEE_SAVES,
         PARAMETER_STORES,
         BLOCKS,
         TRAPS,
         EPILOGUE_LABEL,
+        CALLEE_RESTORES,
         EPILOGUE_MOV,
         EPILOGUE_POP,
         EPILOGUE_RET,

@@ -28,6 +28,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.List;
+import java.util.Collections;
 
 record FrameLayout(
         Map<String, Integer> parameterOffsets,
@@ -37,8 +39,36 @@ record FrameLayout(
         Map<String, Integer> temporaryOffsets,
         int outgoingArgumentAreaSize,
         int frameSize,
-        TemporarySlotPlan temporarySlotPlan
+        TemporarySlotPlan temporarySlotPlan,
+        Map<String, Integer> calleeSavedOffsets
 ) {
+    FrameLayout(Map<String, Integer> parameterOffsets, Map<String, IrType> parameterTypes,
+                Map<String, Integer> localOffsets, Map<String, Integer> localInitializedOffsets,
+                Map<String, Integer> temporaryOffsets, int outgoingArgumentAreaSize, int frameSize,
+                TemporarySlotPlan temporarySlotPlan) {
+        this(parameterOffsets, parameterTypes, localOffsets, localInitializedOffsets, temporaryOffsets,
+                outgoingArgumentAreaSize, frameSize, temporarySlotPlan, Map.of());
+    }
+
+    /** Append private, full-width save slots without changing any existing object or ABI offset. */
+    FrameLayout withCalleeSavedRegisters(List<String> registers) {
+        if (registers.isEmpty()) return this;
+        if (!calleeSavedOffsets.isEmpty()) throw new IllegalArgumentException("callee-saved homes already assigned");
+        var offsets = new LinkedHashMap<String, Integer>();
+        // Both sizes include alignment. The old outgoing area will move down with the new rsp.
+        int nextOffset = frameSize - outgoingArgumentAreaSize;
+        for (String register : registers) {
+            if (!Set.of("rbx", "r12", "r13", "r14", "r15").contains(register) || offsets.containsKey(register))
+                throw new IllegalArgumentException("invalid callee-saved register: " + register);
+            nextOffset = Math.addExact(nextOffset, Long.BYTES);
+            offsets.put(register, nextOffset);
+        }
+        return new FrameLayout(parameterOffsets, parameterTypes, localOffsets, localInitializedOffsets,
+                temporaryOffsets, outgoingArgumentAreaSize,
+                CallingConvention.alignTo16(Math.addExact(nextOffset, outgoingArgumentAreaSize)),
+                temporarySlotPlan, Collections.unmodifiableMap(offsets));
+    }
+
     static FrameLayout create(IrFunction function, boolean reuseTemporarySlots) {
         FrameLayout baseline = create(function);
         if (!reuseTemporarySlots) return baseline;

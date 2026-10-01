@@ -82,7 +82,7 @@ final class CppGlobalRegisterAllocationTest {
             String assembly = assembler.assemble().text();
             assertTrue(assembler.succeeded(), () -> assembler.errors().toString());
             if (level == OptimizationLevel.OPTIMIZED) {
-                var plan = GlobalRegisterPlan.allocate(ir.functions().getFirst());
+                var plan = GlobalRegisterPlan.allocate(ir.functions().getFirst(), true);
                 assertFalse(plan.registers().isEmpty(), "fixture must use register homes");
                 if (requireSpill) {
                     String call = name.startsWith("indirect") ? "call rax" : "call minic$effect";
@@ -93,10 +93,18 @@ final class CppGlobalRegisterAllocationTest {
                     String suffix = switch(type.sizeBytes()) { case 1 -> "b"; case 2 -> "w"; case 8 -> ""; default -> "d"; };
                     String returnRegister = switch(type.sizeBytes()) { case 1 -> "al"; case 2 -> "ax"; case 8 -> "rax"; default -> "eax"; };
                     String restore = type.sizeBytes() < 4 ? (type.isSignedInteger() ? "movsx r11d" : "movzx r11d") : "mov r11" + suffix;
-                    // The save precedes argument/callee setup; the restore follows result placement.
-                    assertTrue(caller.substring(0, callIndex).matches("(?s).*mov " + width + " PTR \\[rbp-[0-9]+\\], r11" + suffix + "\\R.*"), caller);
-                    assertTrue(caller.substring(callIndex).matches("(?s)" + java.util.regex.Pattern.quote(call)
-                            + "\\R    mov r10" + suffix + ", " + returnRegister + "\\R    " + restore + ", " + width + " PTR \\[rbp-[0-9]+\\].*"), caller);
+                    String home = plan.registers().get("survives");
+                    if (plan.calleeSavedRegisters().contains(home)) {
+                        // O08c replaces this survivor's per-call transfers with one full-width save/restore.
+                        assertTrue(caller.substring(0, callIndex).matches("(?s).*mov QWORD PTR \\[rbp-[0-9]+\\], " + home + "\\R.*"), caller);
+                        assertTrue(caller.substring(caller.indexOf("main$epilogue:")).matches("(?s).*mov " + home + ", QWORD PTR \\[rbp-[0-9]+\\].*"), caller);
+                        assertTrue(caller.substring(callIndex).startsWith(call + System.lineSeparator() + "    mov r10" + suffix + ", " + returnRegister), caller);
+                    } else {
+                        // The volatile save precedes argument/callee setup; restore follows result placement.
+                        assertTrue(caller.substring(0, callIndex).matches("(?s).*mov " + width + " PTR \\[rbp-[0-9]+\\], r11" + suffix + "\\R.*"), caller);
+                        assertTrue(caller.substring(callIndex).matches("(?s)" + java.util.regex.Pattern.quote(call)
+                                + "\\R    mov r10" + suffix + ", " + returnRegister + "\\R    " + restore + ", " + width + " PTR \\[rbp-[0-9]+\\].*"), caller);
+                    }
                     String callee = assembly.substring(assembly.indexOf("minic$effect PROC"));
                     assertTrue(callee.contains("mov r10" + suffix + ",") && callee.contains("mov r11" + suffix + ","), "callee must really clobber both allocated registers");
                 }
