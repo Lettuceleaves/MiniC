@@ -193,7 +193,6 @@ final class CppConversionDeclarationParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {
-            "struct Value{explicit Value(int):value(1){} int value;};",
             "struct Value{operator bool() const{return true;}};",
             "struct Value{explicit operator bool() const;};Value::operator bool() const{return true;}",
             "struct Value{operator int*();};int value;Value::operator int*(){return &value;}"})

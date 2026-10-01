@@ -472,10 +472,6 @@ public final class CppNameBinder {
         }
 
         private Constructor declareConstructor(TypeEntity owner, ConstructorMember member, Access access, boolean implicit) {
-            if (member.explicitSpecifier()) {
-                report("CPP005", member.nameRange(), "explicit 构造声明已解析；显式构造选择语义尚未实现。");
-                return null;
-            }
             if (owner.union) {
                 report("CPP005", member.nameRange(), "Union construction is not supported yet.");
                 return null;
@@ -2339,11 +2335,15 @@ public final class CppNameBinder {
                 }
             }
             List<CppOverloadResolver.Candidate<Constructor>> candidates = owner.constructors.stream()
+                    .filter(c -> syntax.kind() != CppInitializer.Kind.COPY || !c.source.explicitSpecifier())
                     .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
             Constructor selected = selectOverload(candidates, new NameExpr(owner.name, range), arguments, prepared, null);
             if (selected == null) return typed(new ObjectInitExpr(coreType(target), freshName("construction"),
                     new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", range), range), range), target);
             if (list && arguments.isEmpty() && selected.implicit && owner.aggregateInitializer != null) selected = owner.aggregateInitializer;
+            if (syntax.kind() == CppInitializer.Kind.COPY_LIST && selected.source.explicitSpecifier()) {
+                report("CPP004", range, "Copy-list-initialization cannot select an explicit constructor: " + owner.canonicalName);
+            }
             if (selected.access != Access.PUBLIC && currentClass != owner) {
                 report("CPP004", range, "Constructor is not accessible: " + owner.canonicalName);
             }
