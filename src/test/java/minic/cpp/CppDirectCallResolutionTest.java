@@ -8,6 +8,7 @@ import minic.compiler.obj.ObjBuilder;
 import minic.cpp.support.BoundedProcess;
 import minic.cpp.support.CppDifferentialHarness;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -22,6 +23,25 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag("cpp-differential") @Timeout(120)
 final class CppDirectCallResolutionTest {
     @TempDir Path temporary;
+    @Test void configuredPipelineSimplifiesKnownStaticWrapperWithoutChangingSourceIr() {
+        var source=new SourceFile("known-wrapper.cpp","""
+            template<class T> struct Policy {
+                static unsigned long long block(){return 512/sizeof(T);}
+                unsigned long long slots(){return block();}
+            };
+            int main(){Policy<int> policy;return (int)policy.slots();}
+            """);
+        var original=new CompilerApi(source,LanguageMode.CPP17_ALGORITHM).runToIr();
+        var functions=original.functions();
+        var optimized=IrOptimizationPipeline.forLevel(OptimizationLevel.OPTIMIZED).apply(original).ir();
+        var main=optimized.functions().stream().filter(f->f.name().equals("main")).findFirst().orElseThrow();
+        var instructions=main.blocks().stream().flatMap(b->b.instructions().stream()).toList();
+        assertTrue(instructions.stream().noneMatch(i->i instanceof minic.compiler.ir.instruction.CallInstruction.IrCallInstruction
+                || i instanceof minic.compiler.ir.instruction.CallInstruction.IrIndirectCallInstruction),"constant wrapper chain must collapse");
+        assertTrue(instructions.stream().anyMatch(i->i instanceof minic.compiler.ir.instruction.ControlInstruction.IrReturnInstruction r
+                && r.value() instanceof minic.compiler.ir.value.IrValue.IrConstant c && c.value()==128));
+        assertSame(functions,original.functions());
+    }
     static Stream<Arguments> programs(){
         return Stream.of(
             Arguments.of("static-template", """

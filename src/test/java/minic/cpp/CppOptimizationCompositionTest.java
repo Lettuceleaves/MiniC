@@ -49,8 +49,9 @@ final class CppOptimizationCompositionTest {
         assertTrue(instructions.stream().noneMatch(i -> i instanceof IrDeclareLocalInstruction
                 || i instanceof IrLoadLocalInstruction || i instanceof IrStoreLocalInstruction),
                 "private locals from the caller and inlined helper must be promoted");
-        assertEquals(List.of("initialized-check-elimination","small-function-inlining","local-scalar-promotion",
-                        "constant-propagation","loop-invariant-code-motion","dead-code-elimination"), assembler.optimizationResult().passNames());
+        assertEquals(List.of("known-function-call-resolution","initialized-check-elimination","early-simplification",
+                        "small-function-inlining","local-scalar-promotion","constant-propagation",
+                        "nonzero-check-elimination","loop-invariant-code-motion","dead-code-elimination"), assembler.optimizationResult().passNames());
         var calls=instructions.stream().filter(IrCallInstruction.class::isInstance).map(IrCallInstruction.class::cast).toList();
         assertEquals(1,calls.size());
         assertEquals("printf",calls.getFirst().calleeName());
