@@ -534,6 +534,20 @@ public final class Parser extends Stage {
             return index >= tokens.size() ? tokens.getLast() : tokens.get(index);
         }
 
+        /** Whether an expression cursor is still outside every enclosing (), [] and {}. */
+        public boolean atExpressionNestingLevel(int startIndex) {
+            int parens=0, brackets=0, braces=0;
+            for(int index=startIndex;index<currentIndex;index++) {
+                switch(tokens.get(index).type()) {
+                    case LEFT_PAREN -> parens++; case RIGHT_PAREN -> parens--;
+                    case LEFT_BRACKET -> brackets++; case RIGHT_BRACKET -> brackets--;
+                    case LEFT_BRACE -> braces++; case RIGHT_BRACE -> braces--;
+                    default -> { }
+                }
+            }
+            return parens==0 && brackets==0 && braces==0;
+        }
+
         /** A balanced body is retained as token indices, preserving original source locations. */
         public record TokenWindow(int start, int end) { }
 
@@ -853,12 +867,24 @@ public final class Parser extends Stage {
             if(pendingFunctionTemplateParameters!=null && !pendingFunctionTemplateParameters.isEmpty() && templateDefinitionOwner==null){registerFunctionTemplate(name,pendingFunctionTemplateParameters);pendingFunctionTemplateParameters=null;}
         }
         public void registerFunctionTemplate(String name,List<ClassTemplateDecl.Parameter> parameters){functionTemplateNames.put(name,List.copyOf(parameters));}
+        private boolean beginsTypeTemplateParameter() {
+            if (!context.check(TokenType.CLASS) && !context.check(TokenType.TYPENAME)) return false;
+            int offset = context.peekAt(1).type() == TokenType.ELLIPSIS ? 2 : 1;
+            if (context.peekAt(offset).type() == TokenType.IDENTIFIER) offset++;
+            return switch (context.peekAt(offset).type()) {
+                case COMMA, GREATER, GREATER_GREATER, EQUAL -> true;
+                // A typename-specifier such as typename Trait<T>::type names
+                // the type of a non-type parameter; it does not declare T.
+                default -> false;
+            };
+        }
         public List<ClassTemplateDecl.Parameter> readTemplateParameters(Token anchor,String owner) {
             var parameters=new ArrayList<ClassTemplateDecl.Parameter>();
             if(context.check(TokenType.GREATER))return parameters;
             do {
                 Token key=context.peek();
-                if(context.match(TokenType.CLASS)||context.match(TokenType.TYPENAME)) {
+                if(beginsTypeTemplateParameter()) {
+                    context.advance();
                     boolean pack=context.match(TokenType.ELLIPSIS);
                     Token name=context.check(TokenType.IDENTIFIER)?context.advance():new Token(TokenType.IDENTIFIER,"__templateParameter"+parameters.size(),key.range());
                     var identity=declareTemplateParameter(anchor,name,owner,parameters.size());
@@ -945,29 +971,9 @@ public final class Parser extends Stage {
             return null;
         }
 
-        /** A top-level > ends an argument; comparisons/shifts may be parenthesized. */
+        /** Expression grammar consumes inner template-ids; only an unenclosed > ends this argument. */
         public Expression parseTemplateValue() {
-            int count=0, parens=0, brackets=0;
-            while(true) {
-                TokenType token=context.peekAt(count).type();
-                if(token==TokenType.EOF || token==TokenType.SEMICOLON) break;
-                if(parens==0 && brackets==0 && (token==TokenType.COMMA || token==TokenType.GREATER || token==TokenType.GREATER_GREATER || token==TokenType.ELLIPSIS && count>0 && context.peekAt(count-1).type()!=TokenType.SIZEOF)) break;
-                if(token==TokenType.LEFT_PAREN)parens++;
-                if(token==TokenType.RIGHT_PAREN)parens--;
-                if(token==TokenType.LEFT_BRACKET)brackets++;
-                if(token==TokenType.RIGHT_BRACKET)brackets--;
-                if(parens<0||brackets<0)break;
-                count++;
-            }
-            if(count==0){context.report(context.peek(),"期望模板常量实参");return null;}
-            int end=context.currentIndex()+count;
-            Expression result=context.inTokenWindow(new Context.TokenWindow(context.currentIndex(),end),()-> {
-                Expression value=expressionManager.parseAssignmentExpression();
-                if(!context.isAtEnd())context.report(context.peek(),"无效模板常量表达式");
-                return value;
-            });
-            for(int i=0;i<count;i++)context.advance();
-            return result;
+            return expressionManager.parseTemplateArgumentExpression();
         }
 
         public void registerClassTemplate(Token name, List<ClassTemplateDecl.Parameter> parameters) {

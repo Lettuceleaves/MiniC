@@ -43,6 +43,7 @@ public final class ExpressionManager {
     private final Parser.Context state;
     private final Parser.TypeReader typeReader;
     private final java.util.Map<String, Long> enumConstants;
+    private final java.util.Deque<Integer> templateArgumentStarts = new java.util.ArrayDeque<>();
 
     public ExpressionManager(Parser.Context state, Parser.TypeReader typeReader) {
         this(state, typeReader, java.util.Map.of());
@@ -80,6 +81,19 @@ public final class ExpressionManager {
     /** Parse an assignment-expression where comma is a surrounding-list separator. */
     public Expression parseAssignmentExpression() {
         return parseAssignment();
+    }
+
+    /** A surrounding template list owns unenclosed > and >> tokens, not the expression grammar. */
+    public Expression parseTemplateArgumentExpression() {
+        templateArgumentStarts.push(state.currentIndex());
+        try { return parseAssignment(); }
+        finally { templateArgumentStarts.pop(); }
+    }
+
+    private boolean atTemplateArgumentEnd() {
+        return !templateArgumentStarts.isEmpty()
+                && (state.check(TokenType.GREATER) || state.check(TokenType.GREATER_GREATER))
+                && state.atExpressionNestingLevel(templateArgumentStarts.peek());
     }
 
     /** initializer-clause: braces are allowed here, but are not general primary expressions. */
@@ -217,10 +231,10 @@ public final class ExpressionManager {
 
     private Expression parseRelational() {
         Expression expression = parseShift();
-        while (state.match(TokenType.LESS)
+        while (!atTemplateArgumentEnd() && (state.match(TokenType.LESS)
                 || state.match(TokenType.LESS_EQUAL)
                 || state.match(TokenType.GREATER)
-                || state.match(TokenType.GREATER_EQUAL)) {
+                || state.match(TokenType.GREATER_EQUAL))) {
             Token operator = state.previous();
             Expression right = parseShift();
             expression = combineBinary(expression, operator, right);
@@ -230,7 +244,7 @@ public final class ExpressionManager {
 
     private Expression parseShift() {
         Expression expression = parseAdditive();
-        while (state.match(TokenType.LESS_LESS) || state.match(TokenType.GREATER_GREATER)) {
+        while (!atTemplateArgumentEnd() && (state.match(TokenType.LESS_LESS) || state.match(TokenType.GREATER_GREATER))) {
             Token operator = state.previous();
             Expression right = parseAdditive();
             expression = combineBinary(expression, operator, right);
