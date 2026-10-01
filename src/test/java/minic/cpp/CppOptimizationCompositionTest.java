@@ -83,7 +83,7 @@ final class CppOptimizationCompositionTest {
                 "private locals from the caller and inlined helper must be promoted");
         assertEquals(List.of("known-function-call-resolution","private-address-normalization","initialized-check-elimination","early-simplification",
                         "small-function-inlining","post-inlining-scalar-preparation","local-scalar-promotion","read-only-parameter-promotion","constant-propagation",
-                        "nonzero-check-elimination","loop-invariant-code-motion","block-copy-propagation","dead-code-elimination","control-flow-simplification"), assembler.optimizationResult().passNames());
+                        "nonzero-check-elimination","loop-invariant-code-motion","block-copy-propagation","dead-code-elimination","control-flow-simplification","adjacent-result-forwarding"), assembler.optimizationResult().passNames());
         var calls=instructions.stream().filter(IrCallInstruction.class::isInstance).map(IrCallInstruction.class::cast).toList();
         assertEquals(1,calls.size());
         assertEquals("printf",calls.getFirst().calleeName());

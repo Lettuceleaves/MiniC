@@ -37,7 +37,7 @@ public final class IrOptimizationPipeline {
                           new EarlySimplificationPass(), new SmallFunctionInliningPass(), new PostInliningScalarPreparationPass(),
                           new LocalScalarPromotionPass(), new ReadOnlyParameterPromotionPass(), new ConstantPropagationPass(),
                           new NonZeroCheckEliminationPass(), new LoopInvariantCodeMotionPass(), new BlockCopyPropagationPass(),
-                          new DeadCodeEliminationPass(), new ControlFlowSimplificationPass()) : List.of());
+                          new DeadCodeEliminationPass(), new ControlFlowSimplificationPass(), new AdjacentResultForwardingPass()) : List.of());
     }
 
     public OptimizationLevel level() { return level; }
