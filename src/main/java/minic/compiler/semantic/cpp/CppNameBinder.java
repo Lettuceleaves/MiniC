@@ -222,6 +222,15 @@ public final class CppNameBinder {
         private Entity currentThis;
         private MiniType currentReturnType;
         private Expression fullExpressionOwner;
+        private final Map<Expression, PreparedArguments> bracedArguments = new IdentityHashMap<>();
+        private record ListStorage(MiniType type, MiniType element, List<Expression> values, SourceRange range) { }
+        private final Map<Expression, ListStorage> listStorage = new IdentityHashMap<>();
+        private final CppOverloadResolver.UserConversionProvider conversions = new CppOverloadResolver.UserConversionProvider() {
+            public CppOverloadResolver.UserConversion find(Object candidate, CppOverloadResolver.Argument source, MiniType target) {
+                return source.braced() ? listUserConversion(source, target) : implicitUserConversion(candidate, source, target);
+            }
+            public MiniType initializerListElement(MiniType target) { return Binding.this.initializerListElement(target); }
+        };
         private record NamespaceView(Map<String, Candidate> values, Map<String, Namespace> children,
                                      Map<String, TypeEntity> typedefs, Map<String, TypeEntity> tags,
                                      List<Namespace> directives) {}
@@ -1069,6 +1078,8 @@ public final class CppNameBinder {
         private Expression initializeField(TypeEntity owner, StructField field, CppInitializer initialization, Local scope, SourceRange range) {
             Expression value = variableInitializer(field.type(), initialization, null, owner.owner, scope, range);
             if (value == null) return null;
+            if (initializerListElement(field.type()) != null && hasListStorage(value))
+                report("CPP004", range, "An initializer_list member cannot retain a temporary backing array from its constructor initializer.");
             if (field.type().isReference() && refersToTemporaryStorage(value)) {
                 report("CPP004", range, "A reference data member cannot bind to a temporary in a constructor initializer.");
             }
@@ -1550,6 +1561,8 @@ public final class CppNameBinder {
                 Expression value = variableInitializer(type, syntax, legacy, namespace, scope, sourceNode.range(), name);
                 if (type.isReference() && value != null) value = extendTemporaryLifetime(value,
                         new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, sourceNode));
+                if (initializerListElement(type) != null && value != null) value = extendListLifetime(value,
+                        new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, sourceNode));
                 return value;
             } finally { staticInitialization = previous; }
         }
@@ -1866,6 +1879,8 @@ public final class CppNameBinder {
                         initialized = extendTemporaryLifetime(initialized,
                                 new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, n));
                     }
+                    if (initializerListElement(type) != null && initialized != null) initialized = extendListLifetime(initialized,
+                            new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, n));
                     var lifetime = lowerLifetime(initialized, type.isStruct() || type.isArray(), n);
                     VarDeclStmt variable = new VarDeclStmt(value.coreName, coreType(type), lifetime.expression(),
                             normalizeAlignments(n.alignmentSpecs(), namespace, scope), n.range());
@@ -1996,6 +2011,11 @@ public final class CppNameBinder {
 
         private Expression expressionWithinFullExpression(Expression node, Namespace namespace, Local local, boolean addressDemand) {
             Expression core = switch (node) {
+                case CppInitializer n -> {
+                    if (!isList(n)) report("CPP004", n.range(), "A naked initializer clause must use braces.");
+                    bracedArguments.computeIfAbsent(n, key -> prepareArguments(n.arguments(), namespace, local));
+                    yield n;
+                }
                 case CppConstructionExpr n -> constructionExpression(n, namespace, local);
                 case CppTypeMemberExpr n -> memberReference(typeMember(n, namespace, local), n.memberName(), n.range(), addressDemand);
                 case CppDestructorCallExpr n -> explicitDestruction(n, namespace, local);
@@ -2020,7 +2040,7 @@ public final class CppNameBinder {
                     if (n.operator() == TokenType.PLUS_EQUAL || n.operator() == TokenType.MINUS_EQUAL) {
                         requireComplete(elementType(declaredExpressionType(target)), n.range());
                     }
-                    Expression value = n.compoundBinaryOperator().isEmpty()
+                    Expression value = n.compoundBinaryOperator().isEmpty() && !(objectType(targetType) != null && isBraced(n.value()))
                             ? expressionForTarget(targetType, n.value(), namespace, local) : expression(n.value(), namespace, local);
                     if (objectType(targetType) != null) {
                         if (n.operator() == TokenType.EQUAL)
@@ -2530,14 +2550,12 @@ public final class CppNameBinder {
             List<CppOverloadResolver.Argument> arguments = new ArrayList<>();
             for (int index = 0; index < values.size(); index++) {
                 Expression value = values.get(index);
-                MiniType type = declaredExpressionType(value);
-                if (type == null) {
-                    report("CPP004", sources.get(index).range(), "无法确定运算符实参类型。");
-                    return new IntegerLiteralExpr(0, "0", original.range());
-                }
-                arguments.add(new CppOverloadResolver.Argument(type, valueCategory(value), isNullIntegerLiteral(sources.get(index))));
+                CppOverloadResolver.Argument shape = argumentShape(value, sources.get(index));
+                if (shape == null) { report("CPP004", sources.get(index).range(), "无法确定运算符实参类型。");
+                    return new IntegerLiteralExpr(0, "0", original.range()); }
+                arguments.add(shape);
             }
-            var resolution = CppOverloadResolver.resolveOperators(candidates, arguments, this::implicitUserConversion);
+            var resolution = CppOverloadResolver.resolveOperators(candidates, arguments, conversions);
             if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
                 // C++ unary & falls back to builtin address-of only when no candidate is viable.
                 if ((name.equals("operator&") && values.size() == 1 || name.equals("operator,"))
@@ -2828,6 +2846,7 @@ public final class CppNameBinder {
         }
 
         private Expression expressionForTarget(MiniType target, Expression source, Namespace namespace, Local local) {
+            if (source instanceof CppInitializer syntax && isList(syntax) && target != null) return bindListValue(target, source, namespace, local);
             Expression selected = contextualFunctionAddress(target, source, namespace, local);
             return selected != null ? selected : expression(source, namespace, local);
         }
@@ -2966,6 +2985,201 @@ public final class CppNameBinder {
                     lowerSelectedArguments(selected.parameterTypes, sourceArguments, values, namespace, local));
         }
 
+        private boolean isList(CppInitializer syntax) {
+            return syntax.kind() == CppInitializer.Kind.DIRECT_LIST || syntax.kind() == CppInitializer.Kind.COPY_LIST;
+        }
+        private boolean isBraced(Expression source) {
+            return source instanceof CppInitializer syntax && isList(syntax) || source instanceof AggregateInitExpr;
+        }
+        private List<Expression> listItems(Expression source) {
+            return source instanceof CppInitializer syntax ? syntax.arguments() : ((AggregateInitExpr) source).values();
+        }
+        private CppOverloadResolver.Argument argumentShape(Expression value, Expression source) {
+            if (isBraced(value)) {
+                PreparedArguments prepared = bracedArguments.get(value);
+                List<Expression> items = prepared == null ? listItems(value) : prepared.values;
+                List<CppOverloadResolver.Argument> shapes = new ArrayList<>();
+                for (int index = 0; index < items.size(); index++) {
+                    CppOverloadResolver.Argument shape = argumentShape(items.get(index), listItems(value).get(index));
+                    if (shape == null) return null;
+                    shapes.add(shape);
+                }
+                return CppOverloadResolver.Argument.braced(shapes);
+            }
+            MiniType type = declaredExpressionType(value);
+            return type == null ? null : new CppOverloadResolver.Argument(type, valueCategory(value), isNullIntegerLiteral(source));
+        }
+        /** Recognition uses the declared standard template identity, never a record's short name. */
+        private MiniType initializerListElement(MiniType type) {
+            if (type == null) return null;
+            if (type.isReference()) type = type.referent();
+            TypeEntity entity = objectType(type);
+            MiniType.TemplateIdType instance = instanceKeys.get(entity);
+            if (instance == null || !instance.templateName().equals("::std::initializer_list") || instance.arguments().size() != 1) return null;
+            return instance.arguments().getFirst() instanceof TemplateArgument.Type argument ? argument.type() : null;
+        }
+        private CppOverloadResolver.UserConversion listUserConversion(CppOverloadResolver.Argument source, MiniType target) {
+            MiniType object = objectTypeOfReference(target).unqualified();
+            TypeEntity owner = objectType(object);
+            if (owner == null) return null;
+            completeTemplate(owner, owner.sourceRecord == null ? Binding.this.source.range() : owner.sourceRecord.range());
+            List<CppOverloadResolver.Argument> elements = source.listElements();
+            var result = new CppOverloadResolver.Argument(object, CppValueCategory.PRVALUE, false);
+            if (!nonAggregate(owner)) {
+                if (elements.size() == 1 && !elements.getFirst().braced()
+                        && elements.getFirst().type().unqualified().equals(object))
+                    return new CppOverloadResolver.UserConversion(owner, result, false, true);
+                if (elements.size() > owner.fields.size()) return null;
+                List<MiniType> fields = owner.fields.subList(0, elements.size()).stream().map(StructField::type).toList();
+                var resolution = CppOverloadResolver.resolve(List.of(new CppOverloadResolver.Candidate<>(owner, fields, false)),
+                        elements, null, conversions);
+                return resolution.status() == CppOverloadResolver.Status.NO_VIABLE ? null
+                        : new CppOverloadResolver.UserConversion(owner, result, resolution.status() == CppOverloadResolver.Status.AMBIGUOUS);
+            }
+            List<Constructor> constructors = allConstructors(owner);
+            List<CppOverloadResolver.Candidate<Constructor>> candidates = constructors.stream()
+                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
+            if (!(elements.isEmpty() && constructors.stream().anyMatch(c -> c.parameterTypes.isEmpty()))) {
+                var listCandidates = candidates.stream().filter(c -> c.parameterTypes().size() == 1
+                        && initializerListElement(c.parameterTypes().getFirst()) != null).toList();
+                var phase = CppOverloadResolver.resolve(listCandidates, List.of(source), null, conversions);
+                if (phase.status() != CppOverloadResolver.Status.NO_VIABLE)
+                    return new CppOverloadResolver.UserConversion(phase.winner() == null ? owner : phase.winner().identity(), result,
+                            phase.status() == CppOverloadResolver.Status.AMBIGUOUS);
+            }
+            var phase = CppOverloadResolver.resolve(candidates, elements, null, conversions);
+            return phase.status() == CppOverloadResolver.Status.NO_VIABLE ? null
+                    : new CppOverloadResolver.UserConversion(phase.winner() == null ? owner : phase.winner().identity(), result,
+                            phase.status() == CppOverloadResolver.Status.AMBIGUOUS,
+                            elements.size() == 1 && !elements.getFirst().braced() && elements.getFirst().type().unqualified().equals(object));
+        }
+        private Expression bindListValue(MiniType target, Expression source, Namespace namespace, Local local) {
+            CppInitializer syntax = new CppInitializer(CppInitializer.Kind.COPY_LIST, listItems(source), source.range());
+            if (target.isVoid() || target.isFunction()) {
+                report("CPP004", source.range(), "A braced list requires an object or reference target.");
+                return new IntegerLiteralExpr(0, "0", source.range());
+            }
+            if (target.isReference()) return bindReference(target, source, namespace, local, source.range());
+            if (target.isArray()) return listArrayValue(target, syntax.arguments(), namespace, local, source.range());
+            return mapped(source, variableInitializer(target, syntax, null, namespace, local, source.range()));
+        }
+
+        private boolean referenceRelated(MiniType first, MiniType second) {
+            if (first.isArray() && second.isArray()) return first.arrayLength() == second.arrayLength()
+                    && referenceRelated(first.elementType(), second.elementType());
+            return first.unqualified().equals(second.unqualified());
+        }
+        private Expression convertListElement(MiniType target, Expression value, Expression source) {
+            if (objectType(declaredExpressionType(value)) != null && objectType(target) == null) {
+                Expression converted = userConversion(target, value, ConversionContext.IMPLICIT, source.range());
+                if (converted != null) value = converted;
+            }
+            requireNonNarrowing(target, value, source.range());
+            return convertCallValue(target, value, source);
+        }
+        private Expression listArrayValue(MiniType target, List<Expression> sources, Namespace namespace, Local local, SourceRange range) {
+            if (target.arrayLength() < 0 || sources.size() > target.arrayLength()) {
+                report("CPP004", range, "An array list requires a complete bound and no excess elements.");
+                return new AggregateInitExpr(List.of(), range);
+            }
+            MiniType element = MiniType.qualified(target.elementType(), target.qualifiers());
+            String destination = freshName("list_array");
+            Expression array = typed(new UnaryExpr(TokenType.STAR,
+                    typed(new NameExpr(destination, range), coreType(target).pointerTo()), range), target);
+            List<Expression> actions = new ArrayList<>();
+            for (int index = 0; index < target.arrayLength(); index++) {
+                Expression item = index < sources.size() ? sources.get(index) : new CppInitializer(CppInitializer.Kind.COPY_LIST, List.of(), range);
+                Expression value = isBraced(item) ? bindListValue(element, item, namespace, local)
+                        : expressionForTarget(element, item, namespace, local);
+                value = convertListElement(element, value, item);
+                Expression slot = typed(new IndexExpr(array, new IntegerLiteralExpr(index, Integer.toString(index), range), range), element);
+                actions.add(new InitializeExpr(slot, value, item.range()));
+            }
+            Expression body = actions.isEmpty() ? new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", range), range)
+                    : new CommaExpr(actions, range);
+            return typed(new ObjectInitExpr(coreType(target), destination, body, range), target);
+        }
+
+        private Expression initializeList(MiniType target, CppInitializer syntax, Namespace namespace, Local local, SourceRange range) {
+            List<Expression> sources = syntax.arguments();
+            MiniType element = initializerListElement(target);
+            TypeEntity owner = objectType(target);
+            requireComplete(target, range);
+            if (!sources.isEmpty()) { requireComplete(element, range); destructorForUse(element, range); }
+            MiniType constantElement = MiniType.qualified(element, Set.of(MiniType.TypeQualifier.CONST));
+            if (owner == null || owner.fields.size() != 2 || !owner.fields.getFirst().type().equals(constantElement.pointerTo())
+                    || !owner.fields.get(1).type().isIntegerScalar()) {
+                report("CPP004", range, "std::initializer_list must have its library pointer/size representation.");
+                return new IntegerLiteralExpr(0, "0", range);
+            }
+            List<Expression> values = new ArrayList<>();
+            for (Expression source : sources) {
+                Expression value = isBraced(source) ? bindListValue(element, source, namespace, local)
+                        : expressionForTarget(element, source, namespace, local);
+                value = convertListElement(element, value, source);
+                values.add(value);
+            }
+            Expression lifetimeOwner = fullExpressionOwner != null ? fullExpressionOwner : syntax;
+            return listObject(new ListStorage(target, constantElement, List.copyOf(values), range),
+                    new TemporaryLifetime(TemporaryLifetime.Kind.FULL_EXPRESSION, lifetimeOwner));
+        }
+        private Expression listObject(ListStorage storage, TemporaryLifetime lifetime) {
+            TypeEntity owner = objectType(storage.type);
+            String destination = freshName("initializer_list");
+            Expression pointer = typed(new NameExpr(destination, storage.range), owner.type.pointerTo());
+            Expression first;
+            if (storage.values.isEmpty()) first = typed(new CastExpr(coreType(storage.element.pointerTo()),
+                    new NullLiteralExpr("nullptr", storage.range), storage.range), storage.element.pointerTo());
+            else {
+                MiniType arrayType = storage.element.arrayOf(storage.values.size());
+                List<Expression> elements = storage.values.stream().map(value -> extendListLifetime(value, lifetime)).toList();
+                Expression initializer = new AggregateInitExpr(elements, storage.range);
+                Expression array = typed(new MaterializeExpr(coreType(arrayType), initializer, lifetime, storage.range), arrayType.pointerTo());
+                first = typed(new CastExpr(coreType(storage.element.pointerTo()), array, storage.range), storage.element.pointerTo());
+            }
+            StructField firstField = owner.fields.getFirst(), countField = owner.fields.get(1);
+            Expression firstStore = new InitializeExpr(typed(new FieldAccessExpr(pointer, firstField.name(), true, storage.range),
+                    firstField.type()), first, storage.range);
+            Expression count = typed(new CastExpr(coreType(countField.type()),
+                    new IntegerLiteralExpr(storage.values.size(), Integer.toString(storage.values.size()), storage.range), storage.range), countField.type());
+            Expression countStore = new InitializeExpr(typed(new FieldAccessExpr(pointer, countField.name(), true, storage.range),
+                    countField.type()), count, storage.range);
+            Expression result = typed(new ObjectInitExpr(coreType(storage.type), destination,
+                    new CommaExpr(List.of(firstStore, countStore), storage.range), storage.range), storage.type);
+            if (!storage.values.isEmpty()) listStorage.put(result, storage);
+            return result;
+        }
+        private boolean hasListStorage(Expression value) {
+            if (listStorage.containsKey(value)) return true;
+            return value instanceof GroupingExpr group && hasListStorage(group.expression())
+                    || value instanceof CommaExpr comma && hasListStorage(comma.expressions().getLast())
+                    || value instanceof ConditionalExpr conditional && (hasListStorage(conditional.thenExpression()) || hasListStorage(conditional.elseExpression()));
+        }
+        /** Extend only an array created for the directly initialized list; a returned/copied list does not own it. */
+        private Expression extendListLifetime(Expression value, TemporaryLifetime lifetime) {
+            if (value == null) return null;
+            Expression result;
+            if (listStorage.containsKey(value)) result = listObject(listStorage.get(value), lifetime);
+            else result = switch (value) {
+                case GroupingExpr group -> new GroupingExpr(extendListLifetime(group.expression(), lifetime), group.range());
+                case CommaExpr comma -> {
+                    var items = new ArrayList<>(comma.expressions());
+                    items.set(items.size() - 1, extendListLifetime(items.getLast(), lifetime));
+                    yield new CommaExpr(items, comma.range());
+                }
+                case ConditionalExpr conditional -> new ConditionalExpr(conditional.condition(),
+                        extendListLifetime(conditional.thenExpression(), lifetime), extendListLifetime(conditional.elseExpression(), lifetime), conditional.range());
+                case LetExpr let -> new LetExpr(let.name(), let.type(), let.initializer(), extendListLifetime(let.body(), lifetime), let.range());
+                default -> value;
+            };
+            if (result != value) {
+                if (declaredExpressionTypes.containsKey(value)) declaredExpressionTypes.put(result, declaredExpressionTypes.get(value));
+                if (valueCategories.containsKey(value)) valueCategories.put(result, valueCategories.get(value));
+                origins.replaceAll((source, core) -> core == value ? result : core);
+            }
+            return result;
+        }
+
         private record PreparedArguments(List<Expression> values, Map<Integer, OverloadDesignator> overloads) { }
 
         private PreparedArguments prepareArguments(List<Expression> source, Namespace namespace, Local local) {
@@ -2974,7 +3188,11 @@ public final class CppNameBinder {
             for (int index = 0; index < source.size(); index++) {
                 OverloadDesignator designator = overloadDesignator(source.get(index), namespace, local);
                 if (designator != null) overloads.put(index, designator);
-                values.add(designator == null ? expression(source.get(index), namespace, local) : null);
+                if (designator == null && isBraced(source.get(index))) {
+                    Expression item = source.get(index);
+                    if (!bracedArguments.containsKey(item)) bracedArguments.put(item, prepareArguments(listItems(item), namespace, local));
+                    values.add(item);
+                } else values.add(designator == null ? expression(source.get(index), namespace, local) : null);
             }
             return new PreparedArguments(Collections.unmodifiableList(values), Map.copyOf(overloads));
         }
@@ -2997,12 +3215,9 @@ public final class CppNameBinder {
                     continue;
                 }
                 Expression value = prepared.values.get(index);
-                MiniType type = declaredExpressionType(value);
-                if (type == null) {
-                    report("CPP004", sourceArguments.get(index).range(), "无法确定重载实参的类型。");
-                    return null;
-                }
-                arguments.add(new CppOverloadResolver.Argument(type, valueCategory(value), isNullIntegerLiteral(sourceArguments.get(index))));
+                CppOverloadResolver.Argument shape = argumentShape(value, sourceArguments.get(index));
+                if (shape == null) { report("CPP004", sourceArguments.get(index).range(), "无法确定重载实参的类型。"); return null; }
+                arguments.add(shape);
             }
             List<CppOverloadResolver.Candidate<T>> contextual = new ArrayList<>();
             for (var candidate : candidates) {
@@ -3027,7 +3242,7 @@ public final class CppNameBinder {
                 if (viable) contextual.add(new CppOverloadResolver.Candidate<>(candidate.identity(), parameters,
                         candidate.variadic(), candidate.implicitObjectType(), candidate.staticMember()));
             }
-            var resolution = CppOverloadResolver.resolve(contextual, arguments, receiver, this::implicitUserConversion);
+            var resolution = CppOverloadResolver.resolve(contextual, arguments, receiver, conversions);
             if (resolution.status() == CppOverloadResolver.Status.SELECTED) return resolution.winner().identity();
             report("CPP004", sourceCallee.range(), resolution.status() == CppOverloadResolver.Status.AMBIGUOUS
                     ? "重载函数调用具有二义性。" : "没有与实参匹配的重载函数。");
@@ -3036,15 +3251,24 @@ public final class CppNameBinder {
 
         private List<Expression> lowerSelectedArguments(List<MiniType> parameters, List<Expression> sourceArguments,
                                                         List<Expression> values, Namespace namespace, Local local) {
+            return lowerSelectedArguments(parameters, sourceArguments, values, namespace, local, false);
+        }
+        private List<Expression> lowerSelectedArguments(List<MiniType> parameters, List<Expression> sourceArguments,
+                                                        List<Expression> values, Namespace namespace, Local local, boolean listNarrowing) {
             List<Expression> lowered = new ArrayList<>(values);
             for (int index = 0; index < sourceArguments.size() && index < parameters.size(); index++) {
                 destructorForUse(parameters.get(index), sourceArguments.get(index).range());
-                if (parameters.get(index).isReference()) lowered.set(index, bindReference(parameters.get(index),
-                        sourceArguments.get(index), namespace, local, sourceArguments.get(index).range()));
+                if (parameters.get(index).isReference()) {
+                    Expression reference = bindReference(parameters.get(index), sourceArguments.get(index), namespace, local, sourceArguments.get(index).range());
+                    if (listNarrowing) checkReferenceListConversion(parameters.get(index).referent(), reference, sourceArguments.get(index).range());
+                    lowered.set(index, reference);
+                }
                 else {
-                    Expression value = values.get(index) == null
-                            ? expressionForTarget(parameters.get(index), sourceArguments.get(index), namespace, local) : values.get(index);
-                    lowered.set(index, convertCallValue(parameters.get(index), value, sourceArguments.get(index)));
+                    Expression value = isBraced(sourceArguments.get(index))
+                            ? bindListValue(parameters.get(index), sourceArguments.get(index), namespace, local)
+                            : values.get(index) == null ? expressionForTarget(parameters.get(index), sourceArguments.get(index), namespace, local) : values.get(index);
+                    lowered.set(index, listNarrowing ? convertListElement(parameters.get(index), value, sourceArguments.get(index))
+                            : convertCallValue(parameters.get(index), value, sourceArguments.get(index)));
                 }
             }
             return List.copyOf(lowered);
@@ -3363,12 +3587,12 @@ public final class CppNameBinder {
             while (index < type.arrayLength() && values.hasNext()) {
                 Expression source = values.next();
                 Expression initialized;
-                if (element.isArray() && !(source instanceof AggregateInitExpr)) {
+                if (element.isArray() && !isBraced(source)) {
                     values.previous();
                     initialized = arrayValue(element, values, false, namespace, local, source.range());
                 } else {
-                    CppInitializer syntax = source instanceof AggregateInitExpr aggregate
-                            ? new CppInitializer(CppInitializer.Kind.COPY_LIST, aggregate.values(), aggregate.range())
+                    CppInitializer syntax = isBraced(source)
+                            ? new CppInitializer(CppInitializer.Kind.COPY_LIST, listItems(source), source.range())
                             : new CppInitializer(CppInitializer.Kind.COPY, List.of(source), source.range());
                     initialized = element.isArray() ? arrayInitialization(element, syntax, namespace, local, source.range())
                             : variableInitializer(element, syntax, null, namespace, local, source.range());
@@ -3456,6 +3680,8 @@ public final class CppNameBinder {
         private Expression variableInitializer(MiniType target, CppInitializer syntax, Expression legacy,
                                                Namespace namespace, Local local, SourceRange range, String sourceName) {
             if (syntax == null) return initializer(target, legacy, namespace, local, range);
+            if (!target.isReference() && isList(syntax) && initializerListElement(target) != null)
+                return initializerMapping(syntax, initializeList(target, syntax, namespace, local, syntax.range()));
             if (target.isArray() && recordArray(target)) return arrayInitialization(target, syntax, namespace, local, range);
             List<Expression> arguments = syntax.arguments();
             boolean list = syntax.kind() == CppInitializer.Kind.DIRECT_LIST || syntax.kind() == CppInitializer.Kind.COPY_LIST;
@@ -3758,7 +3984,7 @@ public final class CppNameBinder {
                     .map(constructor -> new CppOverloadResolver.Candidate<>(constructor, constructor.parameterTypes, constructor.source.variadic())).toList();
             var resolution = CppOverloadResolver.resolve(candidates,
                     List.of(new CppOverloadResolver.Argument(declaredExpressionType(value), valueCategory(value), isNullIntegerLiteral(value))),
-                    null, this::implicitUserConversion);
+                    null, conversions);
             if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
                 report("CPP004", range, "直接初始化没有唯一的可行构造函数。"); return value;
             }
@@ -3852,7 +4078,7 @@ public final class CppNameBinder {
             addBuiltinOperators("operator?:", null, List.of(first, second), candidates);
             var resolution = CppOverloadResolver.resolveOperators(candidates,
                     List.of(new CppOverloadResolver.Argument(a, valueCategory(first), isNullIntegerLiteral(first)),
-                            new CppOverloadResolver.Argument(b, valueCategory(second), isNullIntegerLiteral(second))), this::implicitUserConversion);
+                            new CppOverloadResolver.Argument(b, valueCategory(second), isNullIntegerLiteral(second))), conversions);
             if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
                 report("CPP004", range, "条件运算符没有唯一的共同类型。"); return List.of(first, second);
             }
@@ -4229,7 +4455,9 @@ public final class CppNameBinder {
         private Expression constructObject(MiniType target, CppInitializer syntax, Namespace namespace, Local local, SourceRange range) {
             TypeEntity owner = objectType(target);
             List<Expression> arguments = syntax.arguments();
-            boolean list = syntax.kind() == CppInitializer.Kind.DIRECT_LIST || syntax.kind() == CppInitializer.Kind.COPY_LIST;
+            boolean list = isList(syntax);
+            if (list && initializerListElement(target) != null)
+                return initializeList(target, syntax, namespace, local, range);
             if (list && !arguments.isEmpty() && !nonAggregate(owner)) {
                 report("CPP005", range, "Nonempty aggregate lists with default member initialization require member-wise list binding.");
             }
@@ -4244,13 +4472,29 @@ public final class CppNameBinder {
                     return value;
                 }
             }
-            if (arguments.size() == 1 && prepared.values.getFirst() != null) {
+            boolean listPhase = false;
+            List<CppOverloadResolver.Candidate<Constructor>> listCandidates = allConstructors(owner).stream()
+                    .filter(c -> c.parameterTypes.size() == 1 && initializerListElement(c.parameterTypes.getFirst()) != null)
+                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
+            if (list && !(arguments.isEmpty() && allConstructors(owner).stream().anyMatch(c -> c.parameterTypes.isEmpty()))) {
+                bracedArguments.put(syntax, prepared);
+                CppOverloadResolver.Argument shape = argumentShape(syntax, syntax);
+                if (shape == null) { report("CPP004", syntax.range(), "Cannot determine initializer-list element types.");
+                    return new IntegerLiteralExpr(0, "0", syntax.range()); }
+                var probe = CppOverloadResolver.resolve(listCandidates, List.of(shape), null, conversions);
+                if (probe.status() != CppOverloadResolver.Status.NO_VIABLE) {
+                    arguments = List.of(syntax);
+                    prepared = new PreparedArguments(arguments, Map.of());
+                    listPhase = true;
+                }
+            }
+            if (!listPhase && arguments.size() == 1 && prepared.values.getFirst() != null) {
                 Expression value = prepared.values.getFirst();
                 MiniType sourceType = declaredExpressionType(value);
                 if (sourceType != null && target.unqualified().equals(sourceType.unqualified()))
                     return copyInitialize(target, value, range, syntax.kind());
             }
-            List<CppOverloadResolver.Candidate<Constructor>> candidates = allConstructors(owner).stream()
+            List<CppOverloadResolver.Candidate<Constructor>> candidates = listPhase ? listCandidates : allConstructors(owner).stream()
                     .filter(c -> syntax.kind() != CppInitializer.Kind.COPY || !c.source.explicitSpecifier())
                     .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
             Constructor selected = selectOverload(candidates, new NameExpr(owner.name, range), arguments, prepared, null);
@@ -4277,7 +4521,7 @@ public final class CppNameBinder {
             List<Expression> lowered = new ArrayList<>();
             String destination = freshName("construction");
             lowered.add(typed(new NameExpr(destination, range), owner.type.pointerTo()));
-            lowered.addAll(lowerSelectedArguments(selected.parameterTypes, arguments, prepared.values, namespace, local));
+            lowered.addAll(lowerSelectedArguments(selected.parameterTypes, arguments, prepared.values, namespace, local, list && !listPhase));
             Expression call = typed(new CallExpr(new NameExpr(selected.function.coreName, range), lowered, range), MiniType.VOID);
             if (arguments.isEmpty() && selected.implicit
                     && (syntax.kind() == CppInitializer.Kind.DIRECT_PAREN || list && nonAggregate(owner))) {
@@ -4307,14 +4551,25 @@ public final class CppNameBinder {
                 report("CPP004", range, "引用必须绑定到初始化表达式。");
                 return new NullLiteralExpr("nullptr", range);
             }
-            if (sourceNode instanceof AggregateInitExpr list) {
-                if (list.values().size() != 1) {
-                    report("CPP004", list.range(), "引用列表初始化要求一个元素。");
-                    return new NullLiteralExpr("nullptr", range);
+            if (isBraced(sourceNode)) {
+                List<Expression> items = listItems(sourceNode);
+                MiniType target = reference.referent();
+                if (items.size() == 1 && !isBraced(items.getFirst())) {
+                    Expression only = expression(items.getFirst(), namespace, local, true);
+                    MiniType actual = declaredExpressionType(only);
+                    if (actual != null && referenceRelated(target, actual)) {
+                        Expression address = bindReferenceValue(reference, only, items.getFirst(), range, mode);
+                        checkReferenceListConversion(target, address, sourceNode.range());
+                        return mapped(sourceNode, new GroupingExpr(address, sourceNode.range()));
+                    }
                 }
-                Expression address = bindReference(reference, list.values().getFirst(), namespace, local, range, mode);
-                checkReferenceListConversion(reference.referent(), address, list.range());
-                return mapped(list, new GroupingExpr(address, list.range()));
+                if (!target.isArray() && !target.isStruct() && items.size() == 1) {
+                    Expression address = bindReference(reference, items.getFirst(), namespace, local, range, mode);
+                    checkReferenceListConversion(target, address, sourceNode.range());
+                    return mapped(sourceNode, new GroupingExpr(address, sourceNode.range()));
+                }
+                Expression value = bindListValue(target, sourceNode, namespace, local);
+                return bindReferenceValue(reference, value, sourceNode, range, mode);
             }
             Expression savedOwner = fullExpressionOwner;
             if (fullExpressionOwner == null) fullExpressionOwner = sourceNode;
@@ -4469,7 +4724,8 @@ public final class CppNameBinder {
         /** Follow only the bound object's address, never calls, arithmetic, or a temporary's initializer. */
         private Expression extendTemporaryLifetime(Expression expression, TemporaryLifetime lifetime) {
             Expression extended = switch (expression) {
-                case MaterializeExpr temporary -> new MaterializeExpr(temporary.type(), temporary.initializer(), lifetime, temporary.range());
+                case MaterializeExpr temporary -> new MaterializeExpr(temporary.type(),
+                        extendListLifetime(temporary.initializer(), lifetime), lifetime, temporary.range());
                 case GroupingExpr group -> new GroupingExpr(extendTemporaryLifetime(group.expression(), lifetime), group.range());
                 case UnaryExpr unary when unary.operator() == TokenType.AMPERSAND || temporaryAddressPaths.contains(unary) ->
                         new UnaryExpr(unary.operator(), extendTemporaryLifetime(unary.operand(), lifetime), unary.range());
@@ -4543,11 +4799,13 @@ public final class CppNameBinder {
 
         /** Validates C++ list initialization before the C aggregate initializer can write fields. */
         private Expression checkInitializer(MiniType target, Expression sourceNode, Expression bound) {
+            return checkInitializer(target, sourceNode, bound, false);
+        }
+        private Expression checkInitializer(MiniType target, Expression sourceNode, Expression bound, boolean listElement) {
             if (target == null) return bound;
             TypeEntity object = objectType(target);
             if (!(bound instanceof AggregateInitExpr list)) {
-                MiniType value = declaredExpressionType(bound);
-                return convertCallValue(target, bound, sourceNode);
+                return listElement ? convertListElement(target, bound, sourceNode) : convertCallValue(target, bound, sourceNode);
             }
             AggregateInitExpr original = (AggregateInitExpr) sourceNode;
             if (object != null && list.values().size() == 1) {
@@ -4579,11 +4837,11 @@ public final class CppNameBinder {
                         for (int j = 0; j < object.fields.size(); j++) if (object.fields.get(j).name().equals(field.name())) position = j;
                     }
                     values.add(mapped(originalValue, new DesignatedInitExpr(designated.designators(),
-                            checkInitializer(element, sourceDesignated.value(), designated.value()), designated.range())));
+                            checkInitializer(element, sourceDesignated.value(), designated.value(), true), designated.range())));
                 } else {
                     element = target.unqualified() instanceof MiniType.ArrayType array ? array.elementType()
                             : object != null && position < object.fields.size() ? object.fields.get(position).type() : null;
-                    values.add(checkInitializer(element, originalValue, value));
+                    values.add(checkInitializer(element, originalValue, value, true));
                 }
                 initialized.add(position);
                 position++;

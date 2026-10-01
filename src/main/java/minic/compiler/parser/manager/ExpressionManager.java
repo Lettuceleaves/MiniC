@@ -82,11 +82,17 @@ public final class ExpressionManager {
         return parseAssignment();
     }
 
+    /** initializer-clause: braces are allowed here, but are not general primary expressions. */
+    public Expression parseInitializerClause() {
+        return state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.check(TokenType.LEFT_BRACE)
+                ? parseConstructionInitializer() : parseAssignment();
+    }
+
     private Expression parseAssignment() {
         Expression expression = parseConditional();
         if (matchAssignmentOperator()) {
             Token operatorToken = state.previous();
-            Expression value = parseAssignment();
+            Expression value = parseInitializerClause();
             if (isAssignmentTarget(expression) && value != null) {
                 return buildAssignment(expression, operatorToken.type(), value);
             }
@@ -404,7 +410,8 @@ public final class ExpressionManager {
         Expression expression = parsePrimary();
         while (expression != null) {
             if (state.match(TokenType.LEFT_BRACKET)) {
-                Expression index = parseExpression();
+                Expression index = state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.check(TokenType.LEFT_BRACE)
+                        ? parseInitializerClause() : parseExpression();
                 Token endToken = state.consume(TokenType.RIGHT_BRACKET, "期望 ']'");
                 if (index == null || endToken == null) {
                     return expression;
@@ -790,7 +797,7 @@ public final class ExpressionManager {
         ArrayList<Expression> arguments = new ArrayList<>();
         if (!state.check(TokenType.RIGHT_PAREN)) {
             do {
-                Expression argument = parseAssignment();
+                Expression argument = parseInitializerClause();
                 if (argument != null) {
                     arguments.add(argument);
                 }

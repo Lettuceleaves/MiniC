@@ -534,7 +534,8 @@ public final class StatementManager {
         Token startToken = state.consume(TokenType.RETURN, "期望 return");
         Expression expression = null;
         if (!state.check(TokenType.SEMICOLON)) {
-            expression = expressionManager.parseExpression();
+            expression = state.languageMode() == minic.compiler.LanguageMode.CPP17_ALGORITHM && state.check(TokenType.LEFT_BRACE)
+                    ? expressionManager.parseInitializerClause() : expressionManager.parseExpression();
         }
         Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");
 

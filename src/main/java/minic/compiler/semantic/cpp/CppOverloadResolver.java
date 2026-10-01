@@ -37,16 +37,29 @@ public final class CppOverloadResolver {
             this(identity, parameterTypes, variadic, null);
         }
     }
-    /** The caller marks only integer literal zero (not a runtime/constant-expression zero). */
-    public record Argument(MiniType type, CppValueCategory category, boolean nullPointerConstant) {
+    /** A braced-init-list has no type or value category; its element shapes participate in selection. */
+    public record Argument(MiniType type, CppValueCategory category, boolean nullPointerConstant,
+                           List<Argument> listElements) {
         public Argument {
-            Objects.requireNonNull(type, "type");
             Objects.requireNonNull(category, "category");
-            if (nullPointerConstant && !type.isNullPointer()
-                    && (!type.isIntegerScalar() || type.unqualified().equals(MiniType.BOOL)
-                        || category != CppValueCategory.PRVALUE))
-                throw new IllegalArgumentException("null pointer constant must be integer literal zero or nullptr");
+            if (listElements != null) {
+                listElements = List.copyOf(listElements);
+                if (type != null || nullPointerConstant) throw new IllegalArgumentException("A braced list is untyped");
+            } else {
+                Objects.requireNonNull(type, "type");
+                if (nullPointerConstant && !type.isNullPointer()
+                        && (!type.isIntegerScalar() || type.unqualified().equals(MiniType.BOOL)
+                            || category != CppValueCategory.PRVALUE))
+                    throw new IllegalArgumentException("null pointer constant must be integer literal zero or nullptr");
+            }
         }
+        public Argument(MiniType type, CppValueCategory category, boolean nullPointerConstant) {
+            this(type, category, nullPointerConstant, null);
+        }
+        public static Argument braced(List<Argument> elements) {
+            return new Argument(null, CppValueCategory.PRVALUE, false, elements);
+        }
+        public boolean braced() { return listElements != null; }
     }
     /** viable retains input order, including viable candidates dominated by the winner. */
     public record Resolution<T>(Status status, Candidate<T> winner, List<Candidate<T>> viable) {
@@ -61,11 +74,14 @@ public final class CppOverloadResolver {
     }
     /** The frontend selects one user step without evaluating expressions. An ambiguous step
      * remains viable at user-defined rank, so it cannot incorrectly fall back to ellipsis. */
-    public record UserConversion(Object identity, Argument result, boolean ambiguous) {
+    public record UserConversion(Object identity, Argument result, boolean ambiguous, boolean exactList) {
         public UserConversion { Objects.requireNonNull(identity); Objects.requireNonNull(result); }
+        public UserConversion(Object identity, Argument result, boolean ambiguous) { this(identity, result, ambiguous, false); }
     }
     @FunctionalInterface public interface UserConversionProvider {
         UserConversion find(Object candidateIdentity, Argument source, MiniType target);
+        /** Returns E only for the actual std::initializer_list<E> template identity. */
+        default MiniType initializerListElement(MiniType target) { return null; }
     }
     public static boolean standardViable(Argument source, MiniType target) {
         return convert(source, canonical(target)) != null;
@@ -138,7 +154,14 @@ public final class CppOverloadResolver {
     // Lvalue/array/function transformations are deliberately excluded from subsequence ranking.
     private enum Step { STATIC_OBJECT, NONE, NUMERIC, NULL_POINTER, POINTER_VOID, POINTER_BOOL, ELLIPSIS }
     private record Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference,
-                              Object userIdentity, Conversion trailing, boolean ambiguous) {
+                              Object userIdentity, Conversion trailing, boolean ambiguous, int listKind, int listBound) {
+        Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference,
+                   Object userIdentity, Conversion trailing, boolean ambiguous) {
+            this(rank, step, qualification, target, reference, userIdentity, trailing, ambiguous, 0, 0);
+        }
+        Conversion list(int kind, int bound) {
+            return new Conversion(rank, step, qualification, target, reference, userIdentity, trailing, ambiguous, kind, bound);
+        }
         Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference) {
             this(rank, step, qualification, target, reference, null, null, false);
         }
@@ -162,25 +185,82 @@ public final class CppOverloadResolver {
             result.add(new Conversion(Rank.EXACT, Step.NONE, false, target, true));
         }
         for (int i=0; i<args.size(); i++) {
-            if (expressionType(args.get(i).type).isVoid()) return null;
-            Conversion converted = i < fixed ? convert(args.get(i), canonical(candidate.parameterTypes.get(i)))
-                    : new Conversion(Rank.ELLIPSIS, Step.ELLIPSIS, false, null, false);
-            if (converted == null && i < fixed && provider != null) {
-                MiniType target = canonical(candidate.parameterTypes.get(i));
-                UserConversion user = provider.find(candidate.identity, args.get(i), target);
-                if (user != null) {
-                    Conversion trailing = convert(user.result, target); // no recursive user-defined step
-                    if (trailing != null) converted = new Conversion(Rank.USER_DEFINED, Step.NONE, false,
-                            target, target.isReference(), user.identity, trailing, user.ambiguous);
-                }
-            }
+            if (!args.get(i).braced() && expressionType(args.get(i).type).isVoid()) return null;
+            Conversion converted = i < fixed ? convertArgument(candidate.identity, args.get(i),
+                    canonical(candidate.parameterTypes.get(i)), provider)
+                    : args.get(i).braced() ? null : new Conversion(Rank.ELLIPSIS, Step.ELLIPSIS, false, null, false);
             if (converted == null) return null;
             result.add(converted);
         }
         return result;
     }
 
+    private static Conversion convertArgument(Object identity, Argument argument, MiniType parameter,
+                                                UserConversionProvider provider) {
+        if (argument.braced()) return listConversion(identity, argument, parameter, provider);
+        Conversion converted = convert(argument, parameter);
+        if (converted == null && provider != null) {
+            UserConversion user = provider.find(identity, argument, parameter);
+            if (user != null) {
+                Conversion trailing = convert(user.result, parameter);
+                if (trailing != null) converted = new Conversion(Rank.USER_DEFINED, Step.NONE, false,
+                        parameter, parameter.isReference(), user.identity, trailing, user.ambiguous);
+            }
+        }
+        return converted;
+    }
+
+    private static Conversion listConversion(Object identity, Argument list, MiniType parameter,
+                                              UserConversionProvider provider) {
+        MiniType target = parameter.isReference() ? parameter.referent() : parameter;
+        List<Argument> elements = list.listElements;
+        if (parameter.isReference() && elements.size() == 1 && !elements.getFirst().braced()
+                && sameUnqualified(elements.getFirst().type, target)) {
+            Conversion direct = convert(elements.getFirst(), parameter);
+            if (direct != null) return direct.list(1, 0);
+        }
+        MiniType element = provider == null ? null : provider.initializerListElement(target);
+        if (element != null || target.isArray()) {
+            if (parameter.isReference() && (!cv(target).contains(CONST) || cv(target).contains(VOLATILE))) return null;
+            if (element == null) element = target.elementType();
+            if (target.isArray() && (target.arrayLength() < elements.size() || target.arrayLength() < 0)) return null;
+            Conversion worst = new Conversion(Rank.EXACT, Step.NONE, false, target, parameter.isReference());
+            for (Argument item : elements) {
+                Conversion conversion = convertArgument(identity, item, element, provider);
+                if (conversion == null) return null;
+                if (conversion.rank.ordinal() > worst.rank.ordinal()) worst = conversion;
+            }
+            if (target.isArray() && target.arrayLength() > elements.size()) {
+                Conversion omitted = convertArgument(identity, Argument.braced(List.of()), element, provider);
+                if (omitted == null) return null;
+                if (omitted.rank.ordinal() > worst.rank.ordinal()) worst = omitted;
+            }
+            return worst.list(target.isArray() ? 3 : 2, target.isArray() ? target.arrayLength() : 0);
+        }
+        if (target.isStruct()) {
+            if (parameter.isReference() && (!cv(target).contains(CONST) || cv(target).contains(VOLATILE))) return null;
+            if (provider == null) return null;
+            UserConversion user = provider.find(identity, list, parameter);
+            if (user == null) return null;
+            if (user.exactList && elements.size() == 1) {
+                Conversion exact = convert(elements.getFirst(), parameter);
+                if (exact != null) return exact.list(1, 0);
+            }
+            Conversion trailing = convert(user.result, parameter);
+            return trailing == null ? null : new Conversion(Rank.USER_DEFINED, Step.NONE, false,
+                    parameter, parameter.isReference(), user.identity, trailing, user.ambiguous).list(1, 0);
+        }
+        if (elements.size() == 1 && !elements.getFirst().braced()) {
+            Conversion converted = convertArgument(identity, elements.getFirst(), parameter, provider);
+            return converted == null ? null : converted.list(1, 0);
+        }
+        if (!elements.isEmpty() || target.isVoid() || target.isFunction()) return null;
+        if (parameter.isReference() && (!cv(target).contains(CONST) || cv(target).contains(VOLATILE))) return null;
+        return new Conversion(Rank.EXACT, Step.NONE, false, target, parameter.isReference()).list(1, 0);
+    }
+
     private static Conversion convert(Argument argument, MiniType parameter) {
+        if (argument.braced()) return null;
         MiniType source = expressionType(argument.type);
         if (!parameter.isReference()) return valueConversion(argument, decay(parameter).unqualified());
         MiniType target = parameter.referent();
@@ -240,6 +320,11 @@ public final class CppOverloadResolver {
     private static int compare(Conversion first, Conversion second) {
         // [over.match.funcs]: a static member's notional object parameter has no conversion ranking.
         if (first.step == Step.STATIC_OBJECT || second.step == Step.STATIC_OBJECT) return 0;
+        if (first.listKind != 0 && second.listKind != 0) {
+            if ((first.listKind == 2) != (second.listKind == 2)) return first.listKind == 2 ? -1 : 1;
+            if (first.listKind == 3 && second.listKind == 3 && first.listBound != second.listBound)
+                return Integer.compare(first.listBound, second.listBound);
+        }
         if (first.rank != second.rank) return first.rank.compareTo(second.rank);
         if (first.rank == Rank.ELLIPSIS) return 0;
         if (first.rank == Rank.USER_DEFINED) {
