@@ -482,31 +482,7 @@ final class StatementLowerer {
     }
 
     private void zeroInitializeAt(IrValue address, MiniType type, minic.SourceRange range) {
-        MiniType raw = type.unqualified();
-        if (raw instanceof MiniType.ArrayType array) {
-            for (int index = 0; index < array.length(); index++) {
-                IrTemporary element = builder.newTemporary(IrType.POINTER);
-                builder.addInstruction(new IrElementAddressInstruction(element, address,
-                        new IrConstant(index), array.elementType(), builder.sizeOf(array.elementType()), range));
-                zeroInitializeAt(element, array.elementType(), range);
-            }
-            return;
-        }
-        if (raw instanceof MiniType.StructType struct) {
-            for (int index = 0; index < builder.fieldCount(struct.name()); index++) {
-                var field = builder.fieldLayout(struct.name(), index);
-                IrTemporary member = builder.newTemporary(IrType.POINTER);
-                builder.addInstruction(new IrFieldAddressInstruction(member, address, struct.name(),
-                        field.name(), field.offset(), field.type(), range));
-                zeroInitializeAt(member, field.type(), range);
-            }
-            return;
-        }
-        IrType irType = IrTypeLowerer.lower(type);
-        IrValue zero = irType.isFloatingScalar()
-                ? new minic.compiler.ir.value.IrValue.IrFloatConstant(0.0, irType)
-                : new IrConstant(0, irType);
-        builder.addInstruction(new IrStorePointerInstruction(address, zero, type.isVolatileQualified(), range));
+        ObjectZeroInitializer.emit(builder, address, type, range, false);
     }
 
     private void lowerDesignatedAt(IrValue address, MiniType targetType, Expression initializer,

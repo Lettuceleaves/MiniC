@@ -314,6 +314,29 @@ final class CppObjectInitializationTest {
         agree(ir,103);
     }
 
+    @ParameterizedTest @ValueSource(booleans={false,true})
+    void explicitRecordZeroInitializationIncludesNestedFieldsAndPadding(boolean volatileObject) throws Exception {
+        var padded = new StructDecl("Padded",List.of(new StructField("tag",MiniType.CHAR,R),
+                new StructField("items",MiniType.INT.arrayOf(2),R),new StructField("fraction",MiniType.DOUBLE,R)),R);
+        MiniType type = MiniType.struct("Padded");
+        if (volatileObject) type = MiniType.qualified(type,Set.of(MiniType.TypeQualifier.VOLATILE));
+        var bytes = new CastExpr(MiniType.UNSIGNED_CHAR.pointerTo(),address(name("object")),R);
+        var step = new ExprStmt(new AssignmentExpr(name("sum"),TokenType.EQUAL,
+                sum(name("sum"),new IndexExpr(bytes,name("index"),R)),R),R);
+        var base = program(List.of(new VarDeclStmt("object",type,null,R),
+                new ExprStmt(new InitializeExpr(name("object"),new AggregateInitExpr(List.of(),R),R),R),
+                new VarDeclStmt("sum",MiniType.INT,integer(0),R),
+                new ForStmt(new VarDeclStmt("index",MiniType.INT,integer(0),R),
+                        new BinaryExpr(name("index"),TokenType.LESS,new SizeofExpr(name("object"),null,R),R),
+                        new UnaryExpr(TokenType.PLUS_PLUS,name("index"),R),step,R),
+                new ReturnStmt(name("sum"),R)));
+        var ir = lower(new Program(List.of(padded),List.of(base.functions().getLast()),R));
+        var stores = ir.functions().getFirst().blocks().stream().flatMap(block->block.instructions().stream())
+                .filter(IrStorePointerInstruction.class::isInstance).map(IrStorePointerInstruction.class::cast).toList();
+        assertFalse(stores.isEmpty());assertTrue(stores.stream().allMatch(store->store.volatileAccess()==volatileObject));
+        agree(ir,0);
+    }
+
     private static ObjectInitExpr initialize(int value) { return initialize(integer(value)); }
     private static ObjectInitExpr initialize(Expression value) {
         return new ObjectInitExpr(BOX,"destination",new CallExpr(name("construct"),List.of(name("destination"),value),R),R);

@@ -95,7 +95,9 @@ final class ExpressionLowerer {
         if (expression instanceof Expression.InitializeExpr initialization) {
             MiniType type = expressionTypes.get(initialization.target());
             IrValue address = captureCallValue(lowerAddress(initialization.target()), initialization.target().range());
-            if (Expression.ObjectInitExpr.occursInResultOf(initialization.value())) {
+            if (initialization.value() instanceof Expression.AggregateInitExpr aggregate && aggregate.values().isEmpty()) {
+                ObjectZeroInitializer.emit(builder, address, type, initialization.range(), true);
+            } else if (Expression.ObjectInitExpr.occursInResultOf(initialization.value())) {
                 initializeObjectAt(initialization.value(), address);
             } else {
                 IrValue value = lowerExpression(initialization.value());

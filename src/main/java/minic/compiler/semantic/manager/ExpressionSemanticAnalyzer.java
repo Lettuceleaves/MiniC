@@ -197,6 +197,11 @@ final class ExpressionSemanticAnalyzer {
     private MiniType analyzeInitialization(Expression.InitializeExpr initialization, Scope scope) {
         MiniType target = analyzeAddressOperand(initialization.target(), scope, initialization.range());
         expressionTypes.put(initialization.target(), target);
+        if (target.isStruct() && hasStructLayout(target)
+                && initialization.value() instanceof AggregateInitExpr aggregate && aggregate.values().isEmpty()) {
+            expressionTypes.put(aggregate, target);
+            return MiniType.VOID;
+        }
         MiniType value = analyzeExpression(initialization.value(), scope);
         if ((!target.isScalar() && !target.isPointer() && !target.isStruct())
                 || (!TypeLayout.hasFixedLayout(target) && !hasStructLayout(target))) {
