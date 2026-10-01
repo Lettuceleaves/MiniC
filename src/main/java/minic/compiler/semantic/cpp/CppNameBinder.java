@@ -1259,7 +1259,7 @@ public final class CppNameBinder {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
                     requireComplete(type, n.range());
                     Entity value = declareLocal(n.name(), type, scope, n.range());
-                    Expression initialized = variableInitializer(type, n.cppInitializer(), n.initializer(), namespace, scope, n.range());
+                    Expression initialized = variableInitializer(type, n.cppInitializer(), n.initializer(), namespace, scope, n.range(), n.name());
                     if (type.isReference() && initialized != null) {
                         initialized = extendTemporaryLifetime(initialized,
                                 new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, n));
@@ -2183,13 +2183,19 @@ public final class CppNameBinder {
 
         /** Single candidates and indirect calls obey the same C++ conversions as overload sets. */
         private Expression convertCallValue(MiniType parameter, Expression value, Expression source) {
+            return convertCallValue(parameter, value, source, null);
+        }
+
+        private Expression convertCallValue(MiniType parameter, Expression value, Expression source, String initializedVariable) {
             if (parameter == null || value == null) return value; // ellipsis/arity remains a core check
             MiniType actual = declaredExpressionType(value);
             if (actual == null) return value; // unsupported initializer forms retain their existing diagnostics
             var argument = new CppOverloadResolver.Argument(actual, valueCategory(value), isNullIntegerLiteral(source));
             if (CppOverloadResolver.resolve(List.of(new CppOverloadResolver.Candidate<>("argument", List.of(parameter), false)),
                     List.of(argument)).status() != CppOverloadResolver.Status.SELECTED) {
-                report("CPP004", source.range(), "实参不能按 C++ 标准转换为参数类型。");
+                report("CPP004", source.range(), initializedVariable == null
+                        ? "实参不能按 C++ 标准转换为参数类型。"
+                        : "变量“" + initializedVariable + "”的初始化值不能按 C++ 标准转换为目标类型。");
                 return value;
             }
             MiniType target = TypeCompatibility.decay(parameter).unqualified();
@@ -2442,6 +2448,11 @@ public final class CppNameBinder {
 
         private Expression variableInitializer(MiniType target, CppInitializer syntax, Expression legacy,
                                                Namespace namespace, Local local, SourceRange range) {
+            return variableInitializer(target, syntax, legacy, namespace, local, range, null);
+        }
+
+        private Expression variableInitializer(MiniType target, CppInitializer syntax, Expression legacy,
+                                               Namespace namespace, Local local, SourceRange range, String sourceName) {
             if (syntax == null) return initializer(target, legacy, namespace, local, range);
             List<Expression> arguments = syntax.arguments();
             boolean list = syntax.kind() == CppInitializer.Kind.DIRECT_LIST || syntax.kind() == CppInitializer.Kind.COPY_LIST;
@@ -2490,7 +2501,7 @@ public final class CppNameBinder {
             }
             Expression value = expressionForTarget(target, arguments.getFirst(), namespace, local);
             if (list) requireNonNarrowing(target, value, arguments.getFirst().range());
-            return initializerMapping(syntax, convertCallValue(target.unqualified(), value, arguments.getFirst()));
+            return initializerMapping(syntax, convertCallValue(target.unqualified(), value, arguments.getFirst(), sourceName));
         }
 
         private Expression placementConstruction(CppNewExpr source, Namespace namespace, Local local) {

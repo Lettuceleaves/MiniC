@@ -9,6 +9,7 @@ import minic.compiler.parser.node.AstChildren;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.Declaration.*;
 import minic.compiler.parser.node.Expression.*;
+import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.Statement.*;
 import minic.compiler.semantic.cpp.CppNameBinder;
 import minic.compiler.lexer.token.TokenType;
@@ -57,8 +58,10 @@ class CppNameBinderTest {
     @Test void pointOfDeclarationBindsTheInitializerToTheNewLocal() {
         var result = success("int x=4; int main(){int x=sizeof(x); return x;}");
         var local = (VarDeclStmt) result.program().functions().getFirst().body().statements().getFirst();
-        var size = (SizeofExpr) local.initializer();
-        assertEquals(local.name(), ((NameExpr) ((GroupingExpr) size.expression()).expression()).name());
+        var size = assertInstanceOf(SizeofExpr.class, ungroup(local.initializer()));
+        var operand = assertInstanceOf(NameExpr.class, ungroup(size.expression()));
+        assertEquals(local.name(), operand.name());
+        assertNotEquals(result.program().globals().getFirst().name(), operand.name());
     }
 
     @Test void preservesRootAbiNamesAndAvoidsGeneratedNameCollisions() {
@@ -229,6 +232,10 @@ class CppNameBinderTest {
     }
 
     private static CppNameBinder.Result success(String source) { return success(parse(source)); }
+    private static Expression ungroup(Expression expression) {
+        while (expression instanceof GroupingExpr group) expression = group.expression();
+        return expression;
+    }
     private static CppNameBinder.Result success(Program source) {
         var result = CppNameBinder.bind(source);
         assertTrue(result.diagnostics().isEmpty(), () -> result.diagnostics().toString());

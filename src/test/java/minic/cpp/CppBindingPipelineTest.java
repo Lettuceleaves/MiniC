@@ -101,6 +101,17 @@ class CppBindingPipelineTest {
         assertTrue(observed);
     }
 
+    @Test void scalarInitializationConversionNamesTheDeclaredSourceVariable() {
+        for (String declaration : List.of("int local=\"bad\";", "int local(\"bad\");", "int local{\"bad\"};")) {
+            var semantic = new SemanticAnalyzer(parse("namespace A{int f(){"+declaration+"return 0;}}int main(){return A::f();}"));
+            semantic.analyze();
+            assertFalse(semantic.succeeded());
+            assertTrue(semantic.errors().stream().anyMatch(error -> error.code().equals("CPP004")
+                    && error.message().contains("local")), () -> declaration + ": " + semantic.errors());
+            assertTrue(semantic.errors().stream().noneMatch(error -> error.message().contains("minicCppSymbol")));
+        }
+    }
+
     private static Program parse(String text) {
         var lexer = new Lexer(new SourceFile("pipeline.cpp", text), LanguageMode.CPP17_ALGORITHM);
         var parser = new Parser(lexer.lex().tokens(), LanguageMode.CPP17_ALGORITHM, true);
