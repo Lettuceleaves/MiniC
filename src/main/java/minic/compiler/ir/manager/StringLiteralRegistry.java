@@ -19,7 +19,7 @@ public final class StringLiteralRegistry {
         return new IrStringLiteral(label);
     }
 
-    private static byte[] encode(String value, minic.compiler.parser.node.Expression.LiteralEncoding encoding) {
+    static byte[] encode(String value, minic.compiler.parser.node.Expression.LiteralEncoding encoding) {
         if (encoding == minic.compiler.parser.node.Expression.LiteralEncoding.ORDINARY
                 || encoding == minic.compiler.parser.node.Expression.LiteralEncoding.UTF8) {
             byte[] content = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);

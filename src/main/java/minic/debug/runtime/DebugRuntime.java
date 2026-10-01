@@ -108,6 +108,12 @@ public final class DebugRuntime {
             allocation.initialized.set(0, bytes.length);
             symbols.put(global.label(), address);
         }
+        // Every static object and function has an address before any initializer can observe it.
+        for(IrGlobalData global:code.ir().globalData()) {
+            Allocation allocation=memory.get(symbol(global.label()));
+            var image=ByteBuffer.wrap(allocation.bytes).order(ByteOrder.LITTLE_ENDIAN);
+            for(var address:global.addresses())image.putLong(address.offset(),symbol(address.symbol())+address.addend());
+        }
     }
 
     public DebugProgram code() { return code; }

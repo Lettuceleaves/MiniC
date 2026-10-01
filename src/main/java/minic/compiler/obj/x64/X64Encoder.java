@@ -40,7 +40,15 @@ public final class X64Encoder {
         for (MachineItem item : section.items()) {
             switch (item) {
                 case MachineLabel ignored -> { }
-                case MachineData data -> { writer.align(data.alignment()); writer.bytes(data.bytes()); }
+                case MachineData data -> {
+                    writer.align(data.alignment());int start=writer.size();byte[] bytes=data.bytes();
+                    var image=java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+                    for(var address:data.addresses()) {
+                        image.putLong(address.offset(),address.addend());
+                        relocations.add(new MachineRelocation(start+address.offset(),address.symbol(),MachineRelocationKind.ADDR64,address.addend()));
+                    }
+                    writer.bytes(bytes);
+                }
                 case MachineInstruction instruction -> encodeInstruction(writer, instruction, symbols, relocations);
             }
         }

@@ -80,6 +80,14 @@ public final class IrVerifier {
                 if (!symbols.add(item.label())) problem("DUPLICATE_SYMBOL", item.label());
                 strings.add(item.label());
             }
+            for(var global:program.globalData())for(var address:global.addresses()) {
+                boolean exists=switch(address.kind()) {
+                    case FUNCTION -> functions.containsKey(address.symbol())||program.externalFunctionNames().contains(address.symbol());
+                    case OBJECT -> globals.contains(address.symbol())||program.externalObjectNames().contains(address.symbol());
+                    case STRING -> strings.contains(address.symbol());
+                };
+                if(!exists)problem("GLOBAL_ADDRESS","Unknown "+address.kind()+" relocation in "+global.label()+": "+address.symbol());
+            }
             for (IrFunction item : program.functions()) checkFunction(item);
             return List.copyOf(problems);
         }

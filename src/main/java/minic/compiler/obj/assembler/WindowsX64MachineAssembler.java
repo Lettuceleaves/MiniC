@@ -97,35 +97,50 @@ public final class WindowsX64MachineAssembler {
             sections.add(new MachineSection(".text", MachineSectionKind.CODE, 16, text));
         }
         if (!readOnlyData.isEmpty()) {
-            sections.add(new MachineSection(".rdata", MachineSectionKind.READ_ONLY_DATA, 8, readOnlyData));
+            sections.add(new MachineSection(".rdata", MachineSectionKind.READ_ONLY_DATA, dataAlignment(readOnlyData), readOnlyData));
         }
         if (!writableData.isEmpty()) {
-            sections.add(new MachineSection(".data", MachineSectionKind.WRITABLE_DATA, 8, writableData));
+            sections.add(new MachineSection(".data", MachineSectionKind.WRITABLE_DATA, dataAlignment(writableData), writableData));
         }
         return new MachineModule(source.entrySymbol(), sections, externals);
     }
 
+    private static int dataAlignment(List<MachineItem> items) {
+        return Math.max(8,items.stream().filter(MachineData.class::isInstance).map(MachineData.class::cast).mapToInt(MachineData::alignment).max().orElse(8));
+    }
+
     private static void parseDataLine(String line, List<MachineItem> output) {
-        String values;
-        if (line.startsWith("BYTE ")) {
-            values = line.substring("BYTE ".length());
-        } else {
-            int marker = line.indexOf(" BYTE ");
-            if (marker < 1) {
-                throw new IllegalArgumentException("unsupported MASM data line: " + line);
-            }
-            output.add(new MachineLabel(line.substring(0, marker).trim(), false));
-            values = line.substring(marker + " BYTE ".length());
+        if(line.startsWith("ALIGN ")) {
+            output.add(new MachineData(new byte[0],Integer.parseInt(line.substring(6).strip())));return;
         }
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        for (String value : values.split(",")) {
-            int parsed = Integer.parseInt(value.trim());
-            if (parsed < -128 || parsed > 255) {
-                throw new IllegalArgumentException("BYTE value is outside range: " + parsed);
-            }
-            bytes.write(parsed);
+        boolean qword=line.startsWith("QWORD ")||line.contains(" QWORD ");
+        String directive=qword?"QWORD ":"BYTE ";String values;
+        if(line.startsWith(directive))values=line.substring(directive.length());
+        else {
+            int marker=line.indexOf(" "+directive);
+            if(marker<1)throw new IllegalArgumentException("unsupported MASM data line: "+line);
+            output.add(new MachineLabel(line.substring(0,marker).trim(),false));
+            values=line.substring(marker+directive.length()+1);
         }
-        output.add(new MachineData(bytes.toByteArray(), 1));
+        ByteArrayOutputStream bytes=new ByteArrayOutputStream();var addresses=new ArrayList<MachineData.Address>();
+        for(String token:values.split(",")) {
+            String value=token.strip();
+            if(qword) {
+                long number=0;
+                if(value.startsWith("OFFSET ")) {
+                    String expression=value.substring(7).strip();
+                    var match=java.util.regex.Pattern.compile("^([^\\s+-]+)(?:\\s*([+-])\\s*(\\d+))?$").matcher(expression);
+                    if(!match.matches())throw new IllegalArgumentException("Invalid symbolic data address: "+expression);
+                    long addend=match.group(2)==null?0:new java.math.BigInteger((match.group(2).equals("-")?"-":"")+match.group(3)).longValueExact();
+                    addresses.add(new MachineData.Address(bytes.size(),match.group(1),addend));
+                } else number=parseInteger(value);
+                for(int i=0;i<Long.BYTES;i++)bytes.write((int)(number>>>(i*8)));
+            } else {
+                int parsed=Integer.parseInt(value);if(parsed< -128||parsed>255)throw new IllegalArgumentException("BYTE value is outside range: "+parsed);
+                bytes.write(parsed);
+            }
+        }
+        output.add(new MachineData(bytes.toByteArray(),1,addresses));
     }
 
     private static MachineInstruction parseInstruction(String line) {

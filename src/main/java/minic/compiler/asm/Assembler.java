@@ -179,7 +179,7 @@ public final class Assembler extends Stage {
                     }
                     if (globalDataIndex < input.irResult.globalData().size()) {
                         IrGlobalData data = input.irResult.globalData().get(globalDataIndex++);
-                        pendingGlobalDataLines = formatByteDataLines(data.label(), data.bytes());
+                        pendingGlobalDataLines = formatGlobalDataLines(data);
                         pendingGlobalDataLineIndex = 0;
                         pendingGlobalDataLabel = data.label();
                         return emit("data", pendingGlobalDataLabel,
@@ -306,6 +306,28 @@ public final class Assembler extends Stage {
                     .collect(java.util.stream.Collectors.joining(", ")));
             index = end;
             firstLine = false;
+        }
+        return List.copyOf(lines);
+    }
+
+    private List<String> formatGlobalDataLines(IrGlobalData data) {
+        var lines=new ArrayList<String>();
+        if(data.alignment()>1)lines.add("ALIGN "+data.alignment());
+        byte[] bytes=data.bytes();int cursor=0,reference=0;boolean first=true;
+        while(cursor<bytes.length) {
+            var address=reference<data.addresses().size()?data.addresses().get(reference):null;
+            String prefix=first?data.label()+" ":"    ";
+            if(address!=null&&address.offset()==cursor) {
+                String symbol=address.kind()==IrGlobalData.AddressKind.FUNCTION
+                        ?CallingConvention.callSymbol(address.symbol(),input.irResult.externalFunctionNames().contains(address.symbol())):address.symbol();
+                String addend=address.addend()>0?" + "+address.addend():address.addend()<0?" - "+java.math.BigInteger.valueOf(address.addend()).negate():"";
+                lines.add(prefix+"QWORD OFFSET "+symbol+addend);cursor+=Long.BYTES;reference++;
+            } else {
+                int end=Math.min(cursor+16,address==null?bytes.length:address.offset());
+                var values=new ArrayList<String>();while(cursor<end)values.add(Integer.toString(Byte.toUnsignedInt(bytes[cursor++])));
+                lines.add(prefix+"BYTE "+String.join(", ",values));
+            }
+            first=false;
         }
         return List.copyOf(lines);
     }

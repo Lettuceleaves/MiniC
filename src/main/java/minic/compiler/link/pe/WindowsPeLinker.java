@@ -98,6 +98,8 @@ public final class WindowsPeLinker {
         int nextRaw = headersSize;
         for (int index = 0; index < object.sections().size(); index++) {
             CoffSection section = object.sections().get(index);
+            int coffAlignment=(section.characteristics()>>>20)&15;
+            if(coffAlignment>0)nextRva=align(nextRva,Math.max(SECTION_ALIGNMENT,1<<(coffAlignment-1)));
             byte[] data = section.data();
             if (importPlan != null && ".text".equals(section.name())) {
                 int thunkStart = align(data.length, 16);

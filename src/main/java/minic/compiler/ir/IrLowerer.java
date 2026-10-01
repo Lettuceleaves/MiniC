@@ -263,8 +263,15 @@ public final class IrLowerer extends Stage {
             throw new IllegalArgumentException("C++ AST requires name binding; provide its SemanticResult");
         }
         input = new Input(program, structLayouts, expressionTypes, displayNames, coreToSource);
+        var strings=new StringLiteralRegistry();
+        var symbols=new java.util.LinkedHashMap<String,MiniType>(collectGlobalTypes(program));
+        program.functions().forEach(function->symbols.put(function.name(),MiniType.function(function.returnType(),
+                function.parameters().stream().map(minic.compiler.parser.node.Declaration.Parameter::type).toList(),function.variadic())));
         work = new Work(collectFunctionSignatures(program),
-                new GlobalDataLowerer(structLayouts, expressionTypes).lower(program.globals()));
+                new GlobalDataLowerer(structLayouts, expressionTypes,strings,symbols).lower(program.globals()),strings);
+        var defined=program.functions().stream().filter(FunctionDecl::hasBody).map(FunctionDecl::name).collect(java.util.stream.Collectors.toSet());
+        for(var global:work.globalData)for(var address:global.addresses())
+            if(address.kind()==IrGlobalData.AddressKind.FUNCTION&&!defined.contains(address.symbol()))work.externalFunctionNames.add(address.symbol());
         work.externalObjectNames.addAll(collectExternalObjectNames(program));
         clearCurrentOperation();
         result = null;
@@ -427,12 +434,13 @@ public final class IrLowerer extends Stage {
         private final ArrayList<IrFunction> functions = new ArrayList<>();
         private final LinkedHashSet<String> externalFunctionNames = new LinkedHashSet<>();
         private final ArrayList<String> loweringLog = new ArrayList<>();
-        private final StringLiteralRegistry stringLiteralRegistry = new StringLiteralRegistry();
+        private final StringLiteralRegistry stringLiteralRegistry;
         private final Map<String, IrFunctionSignature> functionSignatures;
         private final List<IrGlobalData> globalData;
         private final Set<String> externalObjectNames = new LinkedHashSet<>();
 
-        private Work(Map<String, IrFunctionSignature> functionSignatures, List<IrGlobalData> globalData) {
+        private Work(Map<String, IrFunctionSignature> functionSignatures, List<IrGlobalData> globalData,StringLiteralRegistry strings) {
+            this.stringLiteralRegistry=strings;
             this.functionSignatures = Map.copyOf(functionSignatures);
             this.globalData = List.copyOf(globalData);
         }
