@@ -95,6 +95,7 @@ public interface Declaration extends AstNode {
             minic.compiler.parser.node.Expression initializer,
             boolean external,
             List<AlignmentSpec> alignmentSpecs,
+            CppInitializer cppInitializer,
             SourceRange range
     ) implements Declaration {
         public GlobalVarDecl {
@@ -104,6 +105,14 @@ public interface Declaration extends AstNode {
             Objects.requireNonNull(range, "range");
             if (name.isBlank()) throw new IllegalArgumentException("name must not be blank");
             alignmentSpecs = List.copyOf(alignmentSpecs);
+            if (cppInitializer != null && !cppInitializer.isCompatibilityProjection(initializer)) {
+                throw new IllegalArgumentException("C++ initialization operands must match the compatibility projection");
+            }
+        }
+
+        public GlobalVarDecl(String name, MiniType type, Expression initializer, boolean external,
+                             List<AlignmentSpec> alignmentSpecs, SourceRange range) {
+            this(name, type, initializer, external, alignmentSpecs, null, range);
         }
 
         public Optional<minic.compiler.parser.node.Expression> initializerOptional() {

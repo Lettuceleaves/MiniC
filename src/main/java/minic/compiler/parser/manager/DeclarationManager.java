@@ -169,12 +169,12 @@ public final class DeclarationManager {
                 return null;
             }
             if (noReturn) state.report(startToken, "noreturn 只能用于函数");
-            Expression initializer = statementManager.parseDeclarationInitializer(declaration.type());
+            var initialization = statementManager.parseVariableInitializer(declaration.type(), declaration.range());
             Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
             if (semicolon == null) return null;
             GlobalVarDecl global = new GlobalVarDecl(
-                    declaration.name(), declaration.type(), initializer, external,
-                    declaration.alignmentSpecs(), SourceRange.span(startToken.range(), semicolon.range()));
+                    declaration.name(), declaration.type(), initialization.expression(), external,
+                    declaration.alignmentSpecs(), initialization.cppInitializer(), SourceRange.span(startToken.range(), semicolon.range()));
             if (!typeReader.isCpp()) typeReader.declareOrdinaryName(global.name(), global.range());
             state.build(global, "GlobalVarDecl " + global.name(), global.range());
             state.exit("functionDecl", global.range());

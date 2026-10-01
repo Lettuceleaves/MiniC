@@ -226,7 +226,8 @@ class CppConstructorParserTest {
         assertInstanceOf(IntegerLiteralExpr.class, parser.result().program().globals().getFirst().initializer());
         var variables = parser.result().program().functions().getFirst().body().statements().stream().filter(VarDeclStmt.class::isInstance).map(VarDeclStmt.class::cast).toList();
         assertInstanceOf(GroupingExpr.class, variables.get(1).initializer());
-        assertTrue(nodes(parser.result().program()).stream().noneMatch(CppInitializer.class::isInstance));
+        assertEquals(CppInitializer.Kind.COPY, parser.result().program().globals().getFirst().cppInitializer().kind());
+        assertEquals(CppInitializer.Kind.DIRECT_PAREN, variables.get(1).cppInitializer().kind());
         var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
         assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
     }

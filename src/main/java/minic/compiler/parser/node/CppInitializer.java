@@ -19,4 +19,24 @@ public record CppInitializer(Kind kind, List<Expression> arguments, SourceRange 
             throw new IllegalArgumentException("Copy initialization requires one expression");
         }
     }
+
+    /** The old execution view must share the source operands rather than copying or rebinding them. */
+    public boolean isCompatibilityProjection(Expression expression) {
+        // Only newly introduced direct forms need the current binder's explicit execution guard.
+        if (expression == this) return kind == Kind.DIRECT_PAREN || kind == Kind.DIRECT_LIST;
+        return switch (kind) {
+            case DEFAULT -> expression == null;
+            case COPY -> expression == arguments.getFirst();
+            case DIRECT_PAREN -> arguments.size() == 1 && expression instanceof Expression.GroupingExpr group
+                    && group.expression() == arguments.getFirst();
+            case DIRECT_LIST, COPY_LIST -> expression instanceof Expression.AggregateInitExpr aggregate
+                    && sameObjects(arguments, aggregate.values());
+        };
+    }
+
+    private static boolean sameObjects(List<Expression> first, List<Expression> second) {
+        if (first.size() != second.size()) return false;
+        for (int index = 0; index < first.size(); index++) if (first.get(index) != second.get(index)) return false;
+        return true;
+    }
 }

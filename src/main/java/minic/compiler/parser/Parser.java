@@ -1062,11 +1062,9 @@ public final class Parser extends Stage {
 
         private Declarator parseDeclaratorSuffix(Declarator direct, List<PointerLayer> pointerLayers, boolean referenceBase) {
             while (context.check(TokenType.LEFT_BRACKET) || context.check(TokenType.LEFT_PAREN)) {
-                // A reference followed by an expression is direct initialization. A type (or
-                // empty list) still begins a function declarator, including reference returns.
+                // A named declarator followed by an expression is direct initialization. A
+                // type (or empty list) still begins a function declarator, including reference returns.
                 if (isCpp() && context.check(TokenType.LEFT_PAREN) && !direct.name().isEmpty()
-                        && (referenceBase || pointerLayers.stream().anyMatch(PointerLayer::reference)
-                            || direct.modifiers().stream().anyMatch(ReferenceModifier.class::isInstance))
                         && !canStartTypeAt(1) && context.peekAt(1).type() != TokenType.RIGHT_PAREN
                         && context.peekAt(1).type() != TokenType.ELLIPSIS) break;
                 if (context.match(TokenType.LEFT_BRACKET)) {

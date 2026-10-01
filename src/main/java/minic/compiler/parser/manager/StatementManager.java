@@ -348,8 +348,12 @@ public final class StatementManager {
         Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望变量类型", "期望变量名");
         if (typeReader.isCpp() && declaration != null) {
             typeReader.declareOrdinaryName(declaration.name(), declaration.range());
+            if (declaration.type().isFunction()) {
+                state.unsupportedCpp(declaration.range(), "块作用域函数声明尚未实现；空括号或参数类型列表声明函数，不会默认构造变量");
+            }
         }
-        Expression initializer = parseDeclarationInitializer(declaration == null ? null : declaration.type());
+        ParsedInitializer initialization = parseVariableInitializer(declaration == null ? null : declaration.type(),
+                declaration == null ? state.peek().range() : declaration.range());
         Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");
 
         if (declaration == null || semicolonToken == null) {
@@ -358,8 +362,9 @@ public final class StatementManager {
         VarDeclStmt varDeclStmt = new VarDeclStmt(
                 declaration.name(),
                 declaration.type(),
-                initializer,
+                initialization.expression(),
                 declaration.alignmentSpecs(),
+                initialization.cppInitializer(),
                 SourceRange.span(declaration.range(), semicolonToken.range())
         );
         if (!typeReader.isCpp()) typeReader.declareOrdinaryName(varDeclStmt.name(), varDeclStmt.range());
@@ -388,6 +393,39 @@ public final class StatementManager {
         return state.check(TokenType.LEFT_BRACE)
                 ? parseAggregateInitializer()
                 : expressionManager.parseAssignmentExpression();
+    }
+
+    public record ParsedInitializer(Expression expression, CppInitializer cppInitializer) { }
+
+    /** Retain C++ spelling while keeping existing executable operands and default-null behavior. */
+    public ParsedInitializer parseVariableInitializer(minic.compiler.type.MiniType type, SourceRange declaratorRange) {
+        if (!typeReader.isCpp() || type == null) return new ParsedInitializer(parseDeclarationInitializer(type), null);
+        Token start = state.peek();
+        if (state.match(TokenType.EQUAL)) {
+            Expression value = parseInitializer();
+            if (value == null) return new ParsedInitializer(null, null);
+            boolean list = value instanceof AggregateInitExpr;
+            var arguments = list ? ((AggregateInitExpr) value).values() : java.util.List.of(value);
+            var initializer = new CppInitializer(list ? CppInitializer.Kind.COPY_LIST : CppInitializer.Kind.COPY,
+                    arguments, SourceRange.span(start.range(), value.range()));
+            return new ParsedInitializer(value, initializer);
+        }
+        if (state.check(TokenType.LEFT_BRACE) && type.isReference()) {
+            var aggregate = parseAggregateInitializer();
+            if (!(aggregate instanceof AggregateInitExpr list)) return new ParsedInitializer(null, null);
+            return new ParsedInitializer(list, new CppInitializer(CppInitializer.Kind.DIRECT_LIST, list.values(), list.range()));
+        }
+        if (state.check(TokenType.LEFT_PAREN) || state.check(TokenType.LEFT_BRACE)) {
+            var initializer = parseCppInitializer();
+            if (initializer == null) return new ParsedInitializer(null, null);
+            Expression projection = type.isReference() && initializer.kind() == CppInitializer.Kind.DIRECT_PAREN
+                    && initializer.arguments().size() == 1
+                    ? new Expression.GroupingExpr(initializer.arguments().getFirst(), initializer.range()) : initializer;
+            return new ParsedInitializer(projection, initializer);
+        }
+        var insertion = new SourceRange(declaratorRange.endLine(), declaratorRange.endByte(),
+                declaratorRange.endLine(), declaratorRange.endByte());
+        return new ParsedInitializer(null, new CppInitializer(CppInitializer.Kind.DEFAULT, java.util.List.of(), insertion));
     }
 
     /** Source-only constructor/default-member syntax; ordinary declarations retain their core form. */

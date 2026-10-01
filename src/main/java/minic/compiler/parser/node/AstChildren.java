@@ -29,9 +29,9 @@ public final class AstChildren {
             case OutOfLineConstructorDecl n -> present(n.constructor());
             case OutOfLineMethodDecl n -> present(n.method());
             case FunctionDecl n -> present(n.body());
-            case GlobalVarDecl n -> present(n.initializer());
+            case GlobalVarDecl n -> present(n.cppInitializer() != null ? n.cppInitializer() : n.initializer());
             case BlockStmt n -> n.statements();
-            case VarDeclStmt n -> present(n.initializer());
+            case VarDeclStmt n -> present(n.cppInitializer() != null ? n.cppInitializer() : n.initializer());
             case ReturnStmt n -> present(n.expression());
             case ExprStmt n -> present(n.expression());
             case IfStmt n -> present(n.condition(), n.thenBranch(), n.elseBranch());
