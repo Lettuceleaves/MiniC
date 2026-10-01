@@ -22,6 +22,8 @@ final class CppNoexceptDeclaratorTest {
         Arguments.of("rvalue-reference", "int(&&p)()noexcept=f;", "p()"),
         Arguments.of("conditional", "int(*p)()noexcept((sizeof(int)>1)&&noexcept(f()))=f;", "p()"),
         Arguments.of("false", "int(*p)()noexcept(false)=f;", "p()"),
+        Arguments.of("lambda", "auto lambda=[]()noexcept{return 7;};int(*p)()noexcept=lambda;", "p()"),
+        Arguments.of("generic-lambda", "auto lambda=[](auto x)noexcept{return x;};int(*p)(int)noexcept=lambda;", "p(7)"),
         Arguments.of("cast", "", "((int(*)()noexcept)f)()"),
         Arguments.of("type-query", "", "sizeof(int(*)()noexcept)==sizeof(void*)?7:0")
     ); }

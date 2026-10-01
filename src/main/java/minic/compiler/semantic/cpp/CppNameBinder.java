@@ -6518,7 +6518,7 @@ public final class CppNameBinder {
                 }
                 destructorForUse(methodReturnType(method), range);
                 Expression call = typed(new CallExpr(new NameExpr(method.function.coreName, range), List.of(methodReceiver(method,address(receiver))), range),
-                        coreType(methodReturnType(method)));
+                        methodReturnType(method).isReference() ? coreType(methodReturnType(method)) : methodReturnType(method));
                 if (methodReturnType(method).isReference()) return referenceResult(methodReturnType(method),call,range);
                 return methodReturnType(method).isStruct() ? recordPrvalue(methodReturnType(method), call, range) : call;
             }

@@ -109,7 +109,7 @@ public final class TypeCompatibility {
         if (isLogical(operator)) {
             return isConditionCompatible(leftType) && isConditionCompatible(rightType);
         }
-        if (isBitwise(operator) || isShift(operator)) {
+        if (operator == TokenType.PERCENT || isBitwise(operator) || isShift(operator)) {
             return leftType.isIntegerScalar() && rightType.isIntegerScalar();
         }
         if (isPointerArithmetic(leftType, rightType, operator) || isPointerDifference(leftType, rightType, operator)) {
