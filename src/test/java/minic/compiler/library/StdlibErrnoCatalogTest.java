@@ -85,12 +85,12 @@ final class StdlibErrnoCatalogTest {
 
         for (String signature : Set.of(
                 "extern void *realloc(void *pointer, unsigned long long size);",
-                "extern long atol(char *string);",
-                "extern long long atoll(char *string);",
-                "extern long strtol(char *string, char **endPointer, int base);",
-                "extern long long strtoll(char *string, char **endPointer, int base);",
-                "extern unsigned long strtoul(char *string, char **endPointer, int base);",
-                "extern unsigned long long strtoull(char *string, char **endPointer, int base);",
+                "extern long atol(const char *string);",
+                "extern long long atoll(const char *string);",
+                "extern long strtol(const char *string, char **endPointer, int base);",
+                "extern long long strtoll(const char *string, char **endPointer, int base);",
+                "extern unsigned long strtoul(const char *string, char **endPointer, int base);",
+                "extern unsigned long long strtoull(const char *string, char **endPointer, int base);",
                 "extern long labs(long value);",
                 "extern long long llabs(long long value);"
         )) {

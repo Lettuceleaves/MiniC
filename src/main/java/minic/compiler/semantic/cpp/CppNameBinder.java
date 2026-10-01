@@ -1035,7 +1035,16 @@ public final class CppNameBinder {
                 case IntegerLiteralExpr n -> n;
                 case LongLiteralExpr n -> n;
                 case NullLiteralExpr n -> n;
-                case StringLiteralExpr n -> n;
+                case StringLiteralExpr n -> {
+                    MiniType array = stringLiteralType(n);
+                    // Core storage is still the ordinary static string address. Dereferencing a
+                    // pointer-to-array preserves the C++ lvalue type without loading its bytes.
+                    // Keep the core pointer literal distinct from its source array node so
+                    // typeOf(source) cannot observe the inner pointer's implementation type.
+                    Expression bytes = new StringLiteralExpr(n.value(), n.encoding(), n.lexeme(), n.range());
+                    Expression storage = new CastExpr(array.pointerTo(), bytes, n.range());
+                    yield typed(new UnaryExpr(TokenType.STAR, storage, n.range()), array);
+                }
                 default -> {
                     report("CPP005", node.range(), "尚未支持此 C++ 表达式：" + node.getClass().getSimpleName());
                     yield node;
@@ -1078,6 +1087,21 @@ public final class CppNameBinder {
                         AMPERSAND_AMPERSAND, PIPE_PIPE -> true;
                 default -> false;
             };
+        }
+
+        private MiniType stringLiteralType(StringLiteralExpr literal) {
+            MiniType element = switch (literal.encoding()) {
+                case ORDINARY, UTF8 -> MiniType.CHAR;
+                case UTF16 -> MiniType.UNSIGNED_SHORT;
+                case UTF32 -> MiniType.UNSIGNED_INT;
+            };
+            // Match StringLiteralRegistry's encoding, counting code units plus the terminator.
+            int units = switch (literal.encoding()) {
+                case ORDINARY, UTF8 -> literal.value().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+                case UTF16 -> literal.value().getBytes(java.nio.charset.StandardCharsets.UTF_16LE).length / 2;
+                case UTF32 -> literal.value().codePointCount(0, literal.value().length());
+            };
+            return MiniType.qualified(element, Set.of(MiniType.TypeQualifier.CONST)).arrayOf(units + 1);
         }
 
         /** Preserve the source bool type while retaining core operand validation and short-circuit IR. */
@@ -1267,11 +1291,7 @@ public final class CppNameBinder {
                 case FloatLiteralExpr ignored -> MiniType.FLOAT;
                 case DoubleLiteralExpr ignored -> MiniType.DOUBLE;
                 case NullLiteralExpr ignored -> MiniType.NULL;
-                case StringLiteralExpr string -> switch (string.encoding()) {
-                    case ORDINARY, UTF8 -> MiniType.CHAR.pointerTo();
-                    case UTF16 -> MiniType.UNSIGNED_SHORT.pointerTo();
-                    case UTF32 -> MiniType.UNSIGNED_INT.pointerTo();
-                };
+                case StringLiteralExpr string -> stringLiteralType(string);
                 case SizeofExpr ignored -> MiniType.UNSIGNED_LONG_LONG;
                 case AlignofExpr ignored -> MiniType.UNSIGNED_LONG_LONG;
                 case LetExpr capture -> declaredExpressionType(capture.body());

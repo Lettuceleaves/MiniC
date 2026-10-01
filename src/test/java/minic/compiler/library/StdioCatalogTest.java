@@ -46,11 +46,11 @@ final class StdioCatalogTest {
         assertTrue(header.contains("#define EOF (-1)"));
         assertTrue(header.contains("extern int getchar(void);"));
         assertTrue(header.contains("extern int putchar(int character);"));
-        assertTrue(header.contains("extern int puts(char *string);"));
-        assertTrue(header.contains("extern int sprintf(char *buffer, char *format, ...);"));
-        assertTrue(header.contains("extern int sscanf(char *buffer, char *format, ...);"));
-        assertTrue(header.contains("extern int remove(char *filename);"));
-        assertTrue(header.contains("extern int rename(char *oldName, char *newName);"));
+        assertTrue(header.contains("extern int puts(const char *string);"));
+        assertTrue(header.contains("extern int sprintf(char *buffer, const char *format, ...);"));
+        assertTrue(header.contains("extern int sscanf(const char *buffer, const char *format, ...);"));
+        assertTrue(header.contains("extern int remove(const char *filename);"));
+        assertTrue(header.contains("extern int rename(const char *oldName, const char *newName);"));
         assertFalse(header.contains("FILE"));
     }
 

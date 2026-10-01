@@ -3,15 +3,15 @@
 #define MINIC_STDIO_MH
 #define EOF (-1)
 
-extern int printf(char *format, ...);
-extern int scanf(char *format, ...);
+extern int printf(const char *format, ...);
+extern int scanf(const char *format, ...);
 extern int getchar(void);
 extern int putchar(int character);
-extern int puts(char *string);
-extern int sprintf(char *buffer, char *format, ...);
-extern int sscanf(char *buffer, char *format, ...);
-extern int remove(char *filename);
-extern int rename(char *oldName, char *newName);
+extern int puts(const char *string);
+extern int sprintf(char *buffer, const char *format, ...);
+extern int sscanf(const char *buffer, const char *format, ...);
+extern int remove(const char *filename);
+extern int rename(const char *oldName, const char *newName);
 
 /* snprintf is deferred: MSVCRT _snprintf has incompatible truncation semantics. */
 #endif

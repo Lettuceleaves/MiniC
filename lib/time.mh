@@ -29,7 +29,7 @@ extern struct tm *localtime(time_t *timeValue);
 extern unsigned long long strftime(
     char *buffer,
     unsigned long long size,
-    char *format,
+    const char *format,
     struct tm *timeValue
 );
 

@@ -1,7 +1,7 @@
 /* MiniC compatibility declarations for <assert.h>. */
 #ifndef MINIC_ASSERT_MH
 #define MINIC_ASSERT_MH
-extern void minic_assert_fail(char *expression, char *file, unsigned int line);
+extern void minic_assert_fail(const char *expression, const char *file, unsigned int line);
 #endif
 
 /* assert is deliberately redefined on every inclusion so NDEBUG is observed. */

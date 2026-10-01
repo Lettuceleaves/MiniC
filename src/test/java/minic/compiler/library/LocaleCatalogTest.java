@@ -45,7 +45,7 @@ final class LocaleCatalogTest {
         assertTrue(header.contains("#define LC_MONETARY 3"));
         assertTrue(header.contains("#define LC_NUMERIC 4"));
         assertTrue(header.contains("#define LC_TIME 5"));
-        assertTrue(header.contains("extern char *setlocale(int category, char *locale);"));
+        assertTrue(header.contains("extern char *setlocale(int category, const char *locale);"));
         assertTrue(header.contains("extern struct lconv *localeconv(void);"));
         assertEquals(FUNCTIONS, declaredFunctions(header));
     }

@@ -19,7 +19,7 @@ final class SystemHeaderPreprocessTest {
         PreprocessResult result = resultStage.preprocess(new SourceFile("angle-header.mc", source));
 
         assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
-        assertTrue(result.sourceFile().content().contains("extern int printf(char *format, ...);"));
+        assertTrue(result.sourceFile().content().contains("extern int printf(const char *format, ...);"));
         assertEquals(1, result.includes().size());
         PreprocessResult.IncludeSummary include = result.includes().getFirst();
         assertEquals("stdio.h", include.requestedPath());
@@ -45,7 +45,7 @@ final class SystemHeaderPreprocessTest {
 
         assertTrue(resultStage.errors().isEmpty(), () -> resultStage.errors().toString());
         assertTrue(result.sourceFile().content().contains("extern void *malloc(unsigned long long size);"));
-        assertTrue(result.sourceFile().content().contains("extern int printf(char *format, ...);"));
+        assertTrue(result.sourceFile().content().contains("extern int printf(const char *format, ...);"));
         assertTrue(result.sourceFile().content().contains("(((abs(-7)) < (4)) ? (abs(-7)) : (4))"));
         assertEquals(3, result.includes().size());
         assertTrue(result.includes().stream().allMatch(PreprocessResult.IncludeSummary::expanded));
