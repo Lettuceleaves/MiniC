@@ -4,6 +4,7 @@ import minic.compiler.asm.Assembler;
 import minic.compiler.execute.ExecutableRunner;
 import minic.compiler.ir.IrLowerer;
 import minic.compiler.ir.IrResult;
+import minic.compiler.ir.optimize.OptimizationLevel;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.link.Linker;
 import minic.compiler.obj.ObjBuilder;
@@ -39,7 +40,16 @@ public final class CompilerApi {
     }
 
     public CompilerApi(SourceFile sourceFile, LanguageMode languageMode) {
-        this(createPipeline(sourceFile, languageMode));
+        this(sourceFile, languageMode, OptimizationLevel.BASELINE);
+    }
+
+    public CompilerApi(SourceFile sourceFile, OptimizationLevel optimizationLevel) {
+        this(sourceFile, LanguageMode.C, optimizationLevel);
+    }
+
+    /** Optimization changes only the native assembler input; runToIr retains source IR. */
+    public CompilerApi(SourceFile sourceFile, LanguageMode languageMode, OptimizationLevel optimizationLevel) {
+        this(createPipeline(sourceFile, languageMode, optimizationLevel));
     }
 
     public CompilerApi(List<? extends Stage> stages) {
@@ -225,15 +235,17 @@ public final class CompilerApi {
         return stage;
     }
 
-    private static List<Stage> createPipeline(SourceFile sourceFile, LanguageMode languageMode) {
+    private static List<Stage> createPipeline(SourceFile sourceFile, LanguageMode languageMode,
+                                             OptimizationLevel optimizationLevel) {
         Objects.requireNonNull(sourceFile, "sourceFile");
         Objects.requireNonNull(languageMode, "languageMode");
+        Objects.requireNonNull(optimizationLevel, "optimizationLevel");
         Preprocessor preprocessor = new Preprocessor(sourceFile, Preprocessor.Options.defaults(languageMode));
         Lexer lexer = new Lexer(preprocessor, languageMode);
         Parser parser = new Parser(lexer, true);
         SemanticAnalyzer semantic = new SemanticAnalyzer(parser);
         IrLowerer ir = new IrLowerer(semantic);
-        Assembler assembler = new Assembler(ir);
+        Assembler assembler = new Assembler(ir, optimizationLevel);
         Path outputDirectory = Path.of("build", "minic-output");
         String artifactName = artifactName(sourceFile.path());
         ObjBuilder obj = new ObjBuilder(sourceFile, assembler, outputDirectory, artifactName);

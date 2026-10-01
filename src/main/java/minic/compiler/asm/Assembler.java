@@ -4,6 +4,8 @@ import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
 import minic.compiler.ir.IrResult;
 import minic.compiler.ir.IrLowerer;
+import minic.compiler.ir.optimize.IrOptimizationPipeline;
+import minic.compiler.ir.optimize.OptimizationLevel;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
@@ -22,6 +24,9 @@ import java.util.Optional;
  */
 public final class Assembler extends Stage {
     private final IrLowerer irStage;
+    private final IrResult providedIr;
+    private final IrOptimizationPipeline optimizationPipeline;
+    private IrOptimizationPipeline.Result optimizationResult;
     private Input input;
     private final Work work = new Work();
     private Section section = Section.HEADER_PUBLIC;
@@ -44,13 +49,40 @@ public final class Assembler extends Stage {
 
     /** 使用 IR 阶段最终结果创建 asm 阶段。 */
     public Assembler(IrResult irResult) {
-        irStage = null;
-        input = new Input(irResult);
+        this(irResult, OptimizationLevel.BASELINE);
+    }
+
+    public Assembler(IrResult irResult, OptimizationLevel level) {
+        this(irResult, IrOptimizationPipeline.forLevel(level));
+    }
+
+    public Assembler(IrResult irResult, IrOptimizationPipeline optimizationPipeline) {
+        this.irStage = null;
+        this.providedIr = Objects.requireNonNull(irResult, "irResult");
+        this.optimizationPipeline = Objects.requireNonNull(optimizationPipeline, "optimizationPipeline");
     }
 
     /** 创建由 IR 阶段提供输入的 asm 阶段。 */
     public Assembler(IrLowerer irStage) {
+        this(irStage, OptimizationLevel.BASELINE);
+    }
+
+    public Assembler(IrLowerer irStage, OptimizationLevel level) {
+        this(irStage, IrOptimizationPipeline.forLevel(level));
+    }
+
+    public Assembler(IrLowerer irStage, IrOptimizationPipeline optimizationPipeline) {
         this.irStage = Objects.requireNonNull(irStage, "irStage");
+        this.providedIr = null;
+        this.optimizationPipeline = Objects.requireNonNull(optimizationPipeline, "optimizationPipeline");
+    }
+
+    public OptimizationLevel optimizationLevel() { return optimizationPipeline.level(); }
+
+    /** The verified native input and passes actually applied; requires completed source IR. */
+    public IrOptimizationPipeline.Result optimizationResult() {
+        ensureInitialized();
+        return optimizationResult;
     }
 
     /** 执行当前输入的完整 Asm 阶段。 */
@@ -200,13 +232,14 @@ public final class Assembler extends Stage {
         if (input != null) {
             return;
         }
-        if (irStage.canNext()) {
+        if (irStage != null && irStage.canNext()) {
             throw new IllegalStateException("IR stage has not completed");
         }
-        if (!irStage.succeeded()) {
+        if (irStage != null && !irStage.succeeded()) {
             throw new IllegalStateException("IR stage did not succeed");
         }
-        input = new Input(irStage.result());
+        optimizationResult = optimizationPipeline.apply(irStage == null ? providedIr : irStage.result());
+        input = new Input(optimizationResult.ir());
     }
 
     private boolean nextFunctionLine() {
