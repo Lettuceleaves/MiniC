@@ -33,12 +33,12 @@ class string {
         std::__minic_deallocate(old);
     }
     void ensure(unsigned long long needed) { if(needed>capacity())allocate_capacity(growth(needed)); }
-    // Destination is empty and distinct from source. Direct member writes start
-    // the active trivial union member before data() exposes its character array.
+    // Destination is empty and distinct from source. A direct first-byte write
+    // activates the small array; copy only its remaining characters and terminator.
     void take_storage(string& other) noexcept {
         buffer_=other.buffer_;size_=other.size_;
         if(buffer_)storage_.capacity=other.storage_.capacity;
-        else for(unsigned long long i=0;i<=size_;++i)storage_.small[i]=other.storage_.small[i];
+        else {storage_.small[0]=other.storage_.small[0];if(size_!=0)::memcpy(storage_.small+1,other.storage_.small+1,size_);}
         other.buffer_=nullptr;other.size_=0;other.storage_.small[0]=0;
     }
     // Distinct string objects own disjoint storage. Whole-string copies need
@@ -140,7 +140,7 @@ public:
     void reserve() { shrink_to_fit(); }
     void shrink_to_fit() {
         if(!buffer_)return;
-        if(size_<=15){char* old=buffer_;for(size_type i=0;i<=size_;++i)storage_.small[i]=old[i];buffer_=nullptr;std::__minic_deallocate(old);}
+        if(size_<=15){char* old=buffer_;storage_.small[0]=old[0];if(size_!=0)::memcpy(storage_.small+1,old+1,size_);buffer_=nullptr;std::__minic_deallocate(old);}
         else if(size_<storage_.capacity)allocate_capacity(size_);
     }
     void resize(size_type n,char value) { if(n>size_)replace_fill(size_,0,n-size_,value);else {size_=n;data()[n]=0;} }
