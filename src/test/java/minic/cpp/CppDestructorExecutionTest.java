@@ -221,11 +221,7 @@ final class CppDestructorExecutionTest {
 
     @ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={
             "struct T{~T(){}}; T global; int main(){return 0;}",
-            "struct T{~T(){}}; int main(){T array[2];return 0;}",
-            "struct T{~T(){}}; void take(T value){} int main(){return 0;}",
-            "struct T{~T(){}}; T make(); int main(){return 0;}",
-            "struct T{~T(){}}; int main(){T{};return 0;}",
-            "struct T{~T(){}}; int main(){const T &value=T{};return 0;}"
+            "struct T{~T(){}}; int main(){T array[2];return 0;}"
     })
     void deferredLifetimeFormsCannotSilentlyOmitDestruction(String source) {
         var api=compiler(source);var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);

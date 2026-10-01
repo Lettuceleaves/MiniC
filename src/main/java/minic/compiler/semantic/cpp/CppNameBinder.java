@@ -170,6 +170,7 @@ public final class CppNameBinder {
         private final Map<Entity, List<Diagnostic>> deletedConstructors = new IdentityHashMap<>();
         private final Map<Entity, List<Diagnostic>> deletedDestructors = new IdentityHashMap<>();
         private final Map<Statement, Expression> localCleanups = new IdentityHashMap<>();
+        private final Map<Statement, List<VarDeclStmt>> localPreludes = new IdentityHashMap<>();
         private final List<Declaration> declarations = new ArrayList<>();
         private final List<StructDecl> structs = new ArrayList<>();
         private final List<EnumDecl> enums = new ArrayList<>();
@@ -425,6 +426,15 @@ public final class CppNameBinder {
         }
 
         private Expression destruction(MiniType type, Expression address, SourceRange range) {
+            Destructor destructor = destructorForUse(type, range);
+            if (destructor == null) return null;
+            TypeEntity owner = destructor.owner;
+            // cv-qualification ceases to apply while the object's destructor executes.
+            Expression receiver = typed(new CastExpr(owner.type.pointerTo(), address, range), owner.type.pointerTo());
+            return typed(new CallExpr(new NameExpr(destructor.function.coreName, range), List.of(receiver), range), MiniType.VOID);
+        }
+
+        private Destructor destructorForUse(MiniType type, SourceRange range) {
             if (!needsDestruction(type)) return null;
             if (type.isArray()) {
                 report("CPP005", range, "Array element destruction requires array lifetime support.");
@@ -440,14 +450,15 @@ public final class CppNameBinder {
                 report(reason.code().equals("CPP005") ? "CPP005" : "CPP004", range,
                         "The implicit destructor is unavailable: " + reason.message());
             }
-            // cv-qualification ceases to apply while the object's destructor executes.
-            Expression receiver = typed(new CastExpr(owner.type.pointerTo(), address, range), owner.type.pointerTo());
-            return typed(new CallExpr(new NameExpr(destructor.function.coreName, range), List.of(receiver), range), MiniType.VOID);
+            return destructor;
         }
 
-        private void requireTrivialCallLifetime(MiniType returnType, List<MiniType> parameters, SourceRange range) {
-            if (needsDestruction(returnType) || parameters.stream().anyMatch(this::needsDestruction)) {
-                report("CPP005", range, "Nontrivial return/parameter lifetimes are not supported in this slice.");
+        private void requireSupportedCallLifetime(MiniType returnType, List<MiniType> parameters, SourceRange range) {
+            // The caller owns each by-value parameter object through its full expression.
+            // Array-valued parameters/results are outside the supported object ABI.
+            if (returnType != null && returnType.isArray() && needsDestruction(returnType)
+                    || parameters.stream().anyMatch(type -> type.isArray() && needsDestruction(type))) {
+                report("CPP005", range, "Array parameter/result lifetimes require array object support.");
             }
         }
 
@@ -564,7 +575,7 @@ public final class CppNameBinder {
         private void bindConstructor(Constructor constructor, boolean aggregateList) {
             TypeEntity owner = constructor.owner;
             ConstructorMember original = constructor.source;
-            requireTrivialCallLifetime(MiniType.VOID, constructor.parameterTypes, original.range());
+            requireSupportedCallLifetime(MiniType.VOID, constructor.parameterTypes, original.range());
             Local scope = new Local(null, owner.owner);
             Entity self = constructorThis(owner, original.nameRange());
             List<Parameter> parameters = new ArrayList<>();
@@ -629,7 +640,7 @@ public final class CppNameBinder {
                 report("CPP004", range, "A reference data member cannot bind to a temporary in a constructor initializer.");
             }
             Expression slot = typed(new FieldAccessExpr(thisValue(range), field.name(), true, range), coreType(field.type()));
-            return typed(new InitializeExpr(slot, value, range), MiniType.VOID);
+            return fullExpression(typed(new InitializeExpr(slot, value, range), MiniType.VOID), false, initialization);
         }
 
         private boolean refersToTemporaryStorage(Expression value) {
@@ -685,7 +696,7 @@ public final class CppNameBinder {
 
         private void bindMethod(Method method, Namespace namespace) {
             FunctionDecl original = method.source.method();
-            requireTrivialCallLifetime(method.returnType, method.parameterTypes, original.range());
+            requireSupportedCallLifetime(method.returnType, method.parameterTypes, original.range());
             Local scope = new Local(null, namespace);
             Entity self = new Entity("this", freshName("this"), Kind.VARIABLE, null,
                     methodThisType(method.owner, method.source), null, true);
@@ -1007,7 +1018,7 @@ public final class CppNameBinder {
                 requireComplete(returnType, node.range());
                 for (int i = 0; i < parameterTypes.size(); i++) requireComplete(parameterTypes.get(i), node.parameters().get(i).range());
             }
-            requireTrivialCallLifetime(returnType, parameterTypes, node.range());
+            requireSupportedCallLifetime(returnType, parameterTypes, node.range());
             MiniType.FunctionType signature = (MiniType.FunctionType) MiniType.function(returnType, parameterTypes.stream()
                     .map(MiniType::unqualified).toList(), node.variadic());
             Entity entity = declareNamespaceFunction(node.name(), signature, node.hasBody(), namespace, node.range());
@@ -1159,7 +1170,11 @@ public final class CppNameBinder {
             List<Statement> result = new ArrayList<>();
             for (Statement node : nodes) {
                 if (node instanceof UsingDecl using) bindUsing(using, scope.namespace, scope);
-                else result.add(statement(node, scope));
+                else {
+                    Statement bound = statement(node, scope);
+                    result.addAll(localPreludes.getOrDefault(bound, List.of()));
+                    result.add(bound);
+                }
             }
             return withLocalCleanups(result);
         }
@@ -1200,11 +1215,15 @@ public final class CppNameBinder {
                         initialized = extendTemporaryLifetime(initialized,
                                 new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, n));
                     }
-                    VarDeclStmt variable = new VarDeclStmt(value.coreName, coreType(type), initialized,
+                    var lifetime = lowerLifetime(initialized, type.isStruct() || type.isArray(), n);
+                    VarDeclStmt variable = new VarDeclStmt(value.coreName, coreType(type), lifetime.expression(),
                             normalizeAlignments(n.alignmentSpecs(), namespace, scope), n.range());
+                    if (!lifetime.declarations().isEmpty()) localPreludes.put(variable, lifetime.declarations());
                     Expression address = typed(new UnaryExpr(TokenType.AMPERSAND,
                             typed(new NameExpr(value.coreName, n.range()), coreType(type)), n.range()), coreType(type).pointerTo());
                     Expression cleanup = destruction(type, address, n.range());
+                    if (lifetime.scopeCleanup() != null) cleanup = cleanup == null ? lifetime.scopeCleanup()
+                            : new CommaExpr(List.of(cleanup, lifetime.scopeCleanup()), n.range());
                     if (cleanup != null) localCleanups.put(variable, cleanup);
                     yield variable;
                 }
@@ -1217,30 +1236,38 @@ public final class CppNameBinder {
                     bindUsing(n, namespace, scope);
                     yield new BlockStmt(List.of(), n.range());
                 }
-                case ExprStmt n -> new ExprStmt(expression(n.expression(), namespace, scope), n.range());
-                case ReturnStmt n -> new ReturnStmt(currentReturnType != null && currentReturnType.isReference()
-                        ? bindReference(currentReturnType, n.expression(), namespace, scope, n.range())
-                        : expressionForTarget(currentReturnType, n.expression(), namespace, scope), n.range());
-                case IfStmt n -> new IfStmt(expression(n.condition(), namespace, scope),
+                case ExprStmt n -> new ExprStmt(fullExpression(expression(n.expression(), namespace, scope), false, n), n.range());
+                case ReturnStmt n -> {
+                    // Accessibility is required even when guaranteed copy elision leaves the
+                    // returned object's eventual destruction to the caller.
+                    if (currentReturnType != null && currentReturnType.isStruct()) destructorForUse(currentReturnType, n.range());
+                    yield new ReturnStmt(fullExpression(currentReturnType != null && currentReturnType.isReference()
+                            ? bindReference(currentReturnType, n.expression(), namespace, scope, n.range())
+                            : expressionForTarget(currentReturnType, n.expression(), namespace, scope),
+                            currentReturnType != null && currentReturnType.isStruct(), n), n.range());
+                }
+                case IfStmt n -> new IfStmt(fullExpression(expression(n.condition(), namespace, scope), false, n),
                         body(n.thenBranch(), scope), body(n.elseBranch(), scope), n.range());
-                case WhileStmt n -> new WhileStmt(expression(n.condition(), namespace, scope), body(n.body(), scope), n.range());
-                case DoWhileStmt n -> new DoWhileStmt(body(n.body(), scope), expression(n.condition(), namespace, scope), n.range());
+                case WhileStmt n -> new WhileStmt(fullExpression(expression(n.condition(), namespace, scope), false, n), body(n.body(), scope), n.range());
+                case DoWhileStmt n -> new DoWhileStmt(body(n.body(), scope), fullExpression(expression(n.condition(), namespace, scope), false, n), n.range());
                 case ForStmt n -> {
                     Local loop = new Local(scope, namespace);
                     Statement initializer = statement(n.initializer(), loop);
-                    Expression condition = expression(n.condition(), namespace, loop);
-                    Expression step = expression(n.step(), namespace, loop);
+                    Expression condition = fullExpression(expression(n.condition(), namespace, loop), false, n);
+                    Expression step = fullExpression(expression(n.step(), namespace, loop), false, n);
                     // C++ forbids redeclaring the for-init name in the body's outermost block.
                     Statement loopBody = n.body() instanceof BlockStmt b ? block(b, loop, false) : body(n.body(), loop);
                     if (localCleanups.containsKey(initializer)) {
                         ForStmt loopStatement = new ForStmt(null, condition, step, loopBody, n.range());
-                        yield new BlockStmt(List.of(initializer, new CleanupScopeStmt(loopStatement,
-                                localCleanups.get(initializer), n.range())), n.range());
+                        List<Statement> sequence = new ArrayList<>(localPreludes.getOrDefault(initializer, List.of()));
+                        sequence.add(initializer);
+                        sequence.add(new CleanupScopeStmt(loopStatement, localCleanups.get(initializer), n.range()));
+                        yield new BlockStmt(sequence, n.range());
                     }
                     yield new ForStmt(initializer, condition, step, loopBody, n.range());
                 }
                 case SwitchStmt n -> {
-                    Expression selector = expression(n.selector(), namespace, scope);
+                    Expression selector = fullExpression(expression(n.selector(), namespace, scope), false, n);
                     Local casesScope = new Local(scope, namespace);
                     List<SwitchCase> cases = new ArrayList<>();
                     boolean crossesInitialization = false;
@@ -1262,6 +1289,34 @@ public final class CppNameBinder {
                 }
             };
             return mapped(node, core);
+        }
+
+        private Expression fullExpression(Expression value, boolean resultOwned, AstNode owner) {
+            var result = lowerLifetime(value, resultOwned, owner);
+            if (!result.declarations().isEmpty()) report("CPP005", owner.range(),
+                    "This reference temporary cannot be extended outside a local declaration.");
+            return result.expression();
+        }
+
+        private CppLifetimeLowering.Result lowerLifetime(Expression value, boolean resultOwned, AstNode owner) {
+            return new CppLifetimeLowering(new CppLifetimeLowering.Context() {
+                public MiniType type(Expression expression) { return declaredExpressionType(expression); }
+                public boolean needsDestruction(MiniType type) { return Binding.this.needsDestruction(type); }
+                public Expression destroy(MiniType type, Expression address, SourceRange range) {
+                    return destruction(type, address, range);
+                }
+                public Expression copy(MiniType type, Expression expression, SourceRange range) {
+                    return recordPrvalue(type, expression, range);
+                }
+                public String freshName(String display) { return Binding.this.freshName(display); }
+                public Expression remap(Expression original, Expression result) {
+                    if (declaredExpressionTypes.containsKey(original)) declaredExpressionTypes.put(result, declaredExpressionTypes.get(original));
+                    if (valueCategories.containsKey(original)) valueCategories.put(result, valueCategories.get(original));
+                    if (temporaryAddressPaths.contains(original)) temporaryAddressPaths.add(result);
+                    origins.replaceAll((source, core) -> core == original ? result : core);
+                    return result;
+                }
+            }, owner).lower(value, resultOwned);
         }
 
         private Expression expression(Expression node, Namespace namespace, Local local) {
@@ -1367,7 +1422,9 @@ public final class CppNameBinder {
                     if (signature != null) {
                         requireComplete(signature.returnType(), n.range());
                         signature.parameterTypes().forEach(t -> requireComplete(t, n.range()));
-                        requireTrivialCallLifetime(signature.returnType(), signature.parameterTypes(), n.range());
+                        requireSupportedCallLifetime(signature.returnType(), signature.parameterTypes(), n.range());
+                        destructorForUse(signature.returnType(), n.range());
+                        signature.parameterTypes().forEach(type -> destructorForUse(type, n.range()));
                     }
                     List<Expression> arguments = new ArrayList<>();
                     if (binding.receiver() != null) arguments.add(binding.receiver());
@@ -1886,6 +1943,7 @@ public final class CppNameBinder {
                                                         List<Expression> values, Namespace namespace, Local local) {
             List<Expression> lowered = new ArrayList<>(values);
             for (int index = 0; index < sourceArguments.size() && index < parameters.size(); index++) {
+                destructorForUse(parameters.get(index), sourceArguments.get(index).range());
                 if (parameters.get(index).isReference()) lowered.set(index, bindReference(parameters.get(index),
                         sourceArguments.get(index), namespace, local, sourceArguments.get(index).range()));
                 else {
@@ -2204,8 +2262,9 @@ public final class CppNameBinder {
 
         private Expression constructionExpression(CppConstructionExpr source, Namespace namespace, Local local) {
             MiniType type = normalizeType(source.type(), namespace, local, source.typeRange());
-            if (needsDestruction(type)) report("CPP005", source.range(), "Nontrivial temporary lifetimes are not supported in this slice.");
             requireComplete(type, source.typeRange());
+            // Potential destruction is checked even in an unevaluated operand or elided result.
+            destructorForUse(type, source.range());
             CppInitializer syntax = source.initializer();
             List<Expression> arguments = syntax.arguments();
             if (type.isVoid() && syntax.kind() == CppInitializer.Kind.DIRECT_LIST) {
@@ -2511,7 +2570,6 @@ public final class CppNameBinder {
         }
 
         private Expression materialize(MiniType type, Expression value) {
-            if (needsDestruction(type)) report("CPP005", value.range(), "Nontrivial temporary lifetimes are not supported in this slice.");
             Expression owner = fullExpressionOwner != null ? fullExpressionOwner : value;
             return typed(new MaterializeExpr(coreType(type), value,
                     new TemporaryLifetime(TemporaryLifetime.Kind.FULL_EXPRESSION, owner), value.range()), type.pointerTo());
