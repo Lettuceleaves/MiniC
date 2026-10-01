@@ -1,0 +1,31 @@
+{
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 9,
+      "sha256": "8b9c3028d6467ff3be7c793141927841d70f47f52d0590677438f488ca154992"
+    },
+    {
+      "path": "raw-evidence.zip",
+      "bytes": 2414500,
+      "sha256": "e74e3c5dc980230cab377d58927a6ae4aafc0e47d8416be8704575b79b54b4b7"
+    },
+    {
+      "path": "raw-members.json",
+      "bytes": 648919,
+      "sha256": "883f8dc17918045a5f87719b9796fae23b6eda9796bca8cca5d113b85c091b0a"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3649,
+      "sha256": "5119ed641f40afa11f11ef3325896f8030a5837bd39301e9253c94b84136a937"
+    },
+    {
+      "path": "summary.json",
+      "bytes": 24012,
+      "sha256": "1b887d170d7867f55435becc00d26dcbf696da3ea49cc1e13f600ed93cb20ff0"
+    }
+  ],
+  "rawRecords": 3352,
+  "uniqueBlobs": 942
+}
