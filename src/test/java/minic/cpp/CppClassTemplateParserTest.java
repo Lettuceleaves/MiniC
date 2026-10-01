@@ -52,13 +52,13 @@ final class CppClassTemplateParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings={"int main(){return 0;}","Box<int>* pointer;int main(){return 0;}","int main(){Box<int> value={3};return value.value;}"})
-    void classTemplateCannotSilentlyReachCoreBeforeInstantiationIsImplemented(String suffix) {
+    void classTemplateSourceIsConsumedBeforeTheCoreStages(String suffix) {
         var api = new CompilerApi(new SourceFile("template.cpp", "template<class T>struct Box{T value;};"+suffix), LanguageMode.CPP17_ALGORITHM);
         var semantic = api.stages().stream().filter(SemanticAnalyzer.class::isInstance).map(SemanticAnalyzer.class::cast).findFirst().orElseThrow();
         api.runThrough(semantic);
         assertTrue(api.stages().stream().filter(Parser.class::isInstance).allMatch(s -> s.succeeded()));
-        assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005")), () -> semantic.errors().toString());
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        assertNull(AstChildren.firstCppSyntax(semantic.result().program()));
     }
 
     @ParameterizedTest @ValueSource(strings = {

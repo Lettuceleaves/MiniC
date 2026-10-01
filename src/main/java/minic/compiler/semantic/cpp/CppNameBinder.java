@@ -9,6 +9,7 @@ import minic.compiler.parser.node.CppInitializer;
 import minic.compiler.parser.node.CppConstructionExpr;
 import minic.compiler.parser.node.CppDestructorCallExpr;
 import minic.compiler.parser.node.CppNewExpr;
+import minic.compiler.parser.node.ClassTemplateDecl;
 import minic.compiler.parser.node.CleanupScopeStmt;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.Declaration.*;
@@ -199,6 +200,22 @@ public final class CppNameBinder {
         private Entity currentThis;
         private MiniType currentReturnType;
         private Expression fullExpressionOwner;
+        private record NamespaceView(Map<String, Candidate> values, Map<String, Namespace> children,
+                                     Map<String, TypeEntity> typedefs, Map<String, TypeEntity> tags,
+                                     List<Namespace> directives) {}
+        private record TemplateDefinition(ClassTemplateDecl source, Namespace owner,
+                                          Map<Namespace, NamespaceView> lookup) {}
+        private final Map<String, TemplateDefinition> templates = new LinkedHashMap<>();
+        private final Map<MiniType.TemplateIdType, TypeEntity> templateInstances = new LinkedHashMap<>();
+        private final Map<TypeEntity, MiniType.TemplateIdType> instanceKeys = new IdentityHashMap<>();
+        private final Map<TypeEntity, Map<Namespace, NamespaceView>> instanceLookup = new IdentityHashMap<>();
+        private final Set<TypeEntity> instantiating = Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Map<Entity, Method> pendingTemplateMethods = new IdentityHashMap<>();
+        private final Map<Entity, Constructor> pendingTemplateConstructors = new IdentityHashMap<>();
+        private final Map<Entity, Destructor> pendingTemplateDestructors = new IdentityHashMap<>();
+        private final Map<AstNode, AstNode> templateOrigins = new IdentityHashMap<>();
+        private final Map<String, String> templateDisplay = new LinkedHashMap<>();
+        private Map<Namespace, NamespaceView> currentTemplateLookup;
 
         Binding(Program source) { this.source = source; reserveNames(source); }
 
@@ -213,6 +230,7 @@ public final class CppNameBinder {
         private void bindDeclarations(List<Declaration> input, Namespace namespace) {
             for (Declaration declaration : input) {
                 switch (declaration) {
+                    case ClassTemplateDecl node -> declareTemplate(node, namespace);
                     case NamespaceDecl node -> {
                         Namespace target = namespace;
                         for (String name : node.name().segments()) {
@@ -265,6 +283,214 @@ public final class CppNameBinder {
             if (namespace == root) return false;
             report("CPP005", node.range(), "尚未支持命名空间内的类型声明；类型名称绑定将在后续实现。");
             return true;
+        }
+
+        private void declareTemplate(ClassTemplateDecl node, Namespace namespace) {
+            TemplateDefinition previous = templates.get(node.record().name());
+            if (previous != null && previous.source.record().definition() && node.record().definition()) {
+                report("CPP004", node.range(), "Duplicate class template definition: " + node.record().name());
+                return;
+            }
+            if (previous == null || node.record().definition())
+                templates.put(node.record().name(), new TemplateDefinition(node, namespace, snapshotLookup()));
+            if (node.record().definition()) validateTemplateNames(node.record(), namespace);
+        }
+
+        /** Nondependent names are checked even when no specialization is requested. */
+        private void validateTemplateNames(StructDecl record, Namespace namespace) {
+            if (record.cppInfo() == null) return;
+            Set<String> memberNames = new HashSet<>();
+            Set<String> dependent = new HashSet<>();
+            for (CppMember member : record.cppInfo().members()) {
+                if (member instanceof FieldMember field) {
+                    memberNames.add(field.field().name());
+                    if (field.field().type().containsTemplateType()) dependent.add(field.field().name());
+                } else if (member instanceof MethodMember method) memberNames.add(method.method().name());
+            }
+            for (CppMember member : record.cppInfo().members()) {
+                List<Parameter> parameters = member instanceof MethodMember method ? method.method().parameters()
+                        : member instanceof ConstructorMember constructor ? constructor.parameters() : List.of();
+                Local scope = new Local(null, namespace);
+                for (String name : memberNames) scope.values.put(name,
+                        new Entity(name, name, Kind.VARIABLE, null, MiniType.INT, null, true));
+                Set<String> dependentNames = new HashSet<>(dependent);
+                for (Parameter parameter : parameters) {
+                    if (parameter.name().isEmpty()) continue;
+                    scope.values.put(parameter.name(), new Entity(parameter.name(), parameter.name(), Kind.VARIABLE, null, parameter.type(), null, true));
+                    if (parameter.type().containsTemplateType()) dependentNames.add(parameter.name());
+                }
+                for (AstNode child : AstChildren.of(member)) validateTemplateNames(child, scope, dependentNames);
+            }
+        }
+
+        private boolean dependentTemplateExpression(AstNode node, Set<String> names) {
+            if (node instanceof ThisExpr) return true;
+            if (node instanceof NameExpr name && names.contains(name.name())) return true;
+            if (node instanceof CppConstructionExpr construction && construction.type().containsTemplateType()) return true;
+            for (AstNode child : AstChildren.of(node)) if (dependentTemplateExpression(child, names)) return true;
+            return false;
+        }
+
+        private void validateTemplateNames(AstNode node, Local scope, Set<String> dependent) {
+            if (node instanceof BlockStmt block) {
+                Local nested = new Local(scope, scope.namespace);
+                Set<String> names = new HashSet<>(dependent);
+                for (Statement statement : block.statements()) validateTemplateNames(statement, nested, names);
+                return;
+            }
+            if (node instanceof ForStmt loop) {
+                Local nested = new Local(scope, scope.namespace);
+                Set<String> names = new HashSet<>(dependent);
+                for (AstNode child : AstChildren.of(loop)) validateTemplateNames(child, nested, names);
+                return;
+            }
+            if (node instanceof VarDeclStmt variable) {
+                scope.values.put(variable.name(), new Entity(variable.name(), variable.name(), Kind.VARIABLE, null, variable.type(), null, true));
+                if (variable.type().containsTemplateType()) dependent.add(variable.name());
+            } else if (node instanceof TypedefStmt alias) {
+                scope.typedefs.put(alias.name(), new TypeEntity(alias.name(), alias.name(), alias.type(), alias.type().isStruct(), false, scope.namespace, true));
+            } else if (node instanceof UsingDecl using) {
+                bindUsing(using, scope.namespace, scope);
+            } else if (node instanceof NameExpr name) {
+                lookupName(name.name(), scope.namespace, scope, name.range());
+            } else if (node instanceof QualifiedNameExpr name) {
+                resolveQualifiedName(name.name(), scope.namespace, scope);
+            } else if (node instanceof CallExpr call && call.callee() instanceof NameExpr
+                    && call.arguments().stream().anyMatch(argument -> dependentTemplateExpression(argument, dependent))) {
+                // Dependent unqualified calls retain their syntax for instantiation/ADL.
+                for (Expression argument : call.arguments()) validateTemplateNames(argument, scope, dependent);
+                return;
+            }
+            for (AstNode child : AstChildren.of(node)) validateTemplateNames(child, scope, dependent);
+        }
+
+        private Map<Namespace, NamespaceView> snapshotLookup() {
+            Map<Namespace, NamespaceView> result = new IdentityHashMap<>();
+            var pending = new java.util.ArrayDeque<Namespace>(); pending.add(root);
+            while (!pending.isEmpty()) {
+                Namespace namespace = pending.removeFirst();
+                if (result.containsKey(namespace)) continue;
+                result.put(namespace, new NamespaceView(Map.copyOf(namespace.values), Map.copyOf(namespace.children),
+                        Map.copyOf(namespace.typedefs), Map.copyOf(namespace.tags), List.copyOf(namespace.directives)));
+                pending.addAll(namespace.children.values());
+            }
+            return result;
+        }
+
+        private NamespaceView visible(Namespace namespace) {
+            if (currentTemplateLookup == null)
+                return new NamespaceView(namespace.values, namespace.children, namespace.typedefs, namespace.tags, namespace.directives);
+            return currentTemplateLookup.getOrDefault(namespace, new NamespaceView(Map.of(), Map.of(), Map.of(), Map.of(), List.of()));
+        }
+
+        private MiniType templateType(MiniType.TemplateIdType source, Namespace namespace, Local local, SourceRange range) {
+            TemplateDefinition template = templates.get(source.templateName());
+            if (template == null) {
+                report("CPP003", range, "Class template is not declared: " + source.templateName());
+                return MiniType.INT;
+            }
+            var arguments = source.arguments().stream().map(type -> normalizeType(type, namespace, local, range)).toList();
+            if (arguments.stream().anyMatch(MiniType::containsTemplateType)
+                    || arguments.size() != template.source.parameters().size()) {
+                report("CPP004", range, "Class template arguments could not be substituted: " + source.templateName());
+                return MiniType.INT;
+            }
+            var key = new MiniType.TemplateIdType(source.templateName(), arguments);
+            TypeEntity existing = templateInstances.get(key);
+            if (existing != null) return existing.type;
+            String display = source.templateName().substring(2) + "<"
+                    + String.join(", ", arguments.stream().map(this::templateTypeDisplay).toList()) + ">";
+            String name = freshName(display);
+            TypeEntity entity = declareClass(name, false, template.owner, range);
+            templateInstances.put(key, entity);
+            instanceKeys.put(entity, key);
+            templateDisplay.put(entity.canonicalName.substring(2), display);
+            templateDisplay.put(name, display.substring(display.lastIndexOf("::") + 2));
+            displayNames.put(((MiniType.StructType) entity.type).name(), display);
+            var forward = new StructDecl(((MiniType.StructType) entity.type).name(), List.of(), false, false, range);
+            structs.add(forward); declarations.add(forward);
+            return entity.type;
+        }
+
+        private String templateTypeDisplay(MiniType type) {
+            if (type instanceof MiniType.StructType record) return displayNames.getOrDefault(record.name(), record.name());
+            if (type instanceof MiniType.PointerType pointer) return templateTypeDisplay(pointer.pointee()) + "*";
+            if (type instanceof MiniType.ReferenceType reference) return templateTypeDisplay(reference.referent()) + "&";
+            return type.toString();
+        }
+
+        private void completeTemplate(TypeEntity entity, SourceRange range) {
+            MiniType.TemplateIdType key = instanceKeys.get(entity);
+            if (key == null || entity.complete || instantiating.contains(entity)) return;
+            TemplateDefinition definition = templates.get(key.templateName());
+            if (definition == null || !definition.source.record().definition()) return;
+            Map<MiniType.TemplateParameterType, MiniType> arguments = new LinkedHashMap<>();
+            for (int index = 0; index < key.arguments().size(); index++)
+                arguments.put(definition.source.parameters().get(index).type(), key.arguments().get(index));
+            CppTemplateSubstitution substitution = new CppTemplateSubstitution(arguments, definition.source.record().name(), entity.canonicalName);
+            Map<Namespace, NamespaceView> saved = currentTemplateLookup;
+            instantiating.add(entity);
+            instanceLookup.put(entity, definition.lookup);
+            currentTemplateLookup = definition.lookup;
+            try {
+                StructDecl instantiated = substitution.instantiate(definition.source.record());
+                templateOrigins.putAll(substitution.origins());
+                bindStruct(instantiated, definition.owner);
+            } catch (IllegalArgumentException error) {
+                report("CPP004", range, "Cannot instantiate " + templateTypeDisplay(entity.type) + ": " + error.getMessage());
+            } finally {
+                currentTemplateLookup = saved;
+                instantiating.remove(entity);
+            }
+        }
+
+        private void instantiateMethod(Method method) {
+            if (unevaluatedDepth > 0) return;
+            if (pendingTemplateMethods.remove(method.function) == null) return;
+            Map<Namespace, NamespaceView> saved = currentTemplateLookup;
+            currentTemplateLookup = instanceLookup.get(method.owner);
+            try { bindMethod(method, method.owner.owner); }
+            finally { currentTemplateLookup = saved; }
+        }
+
+        private void declareTemplateMethodPrototype(Method method) {
+            FunctionDecl source = method.source.method();
+            var parameters = new ArrayList<Parameter>();
+            parameters.add(new Parameter(freshName("this"), methodThisType(method.owner, method.source), method.source.nameRange()));
+            for (int index = 0; index < source.parameters().size(); index++) {
+                Parameter parameter = source.parameters().get(index);
+                parameters.add(new Parameter(freshName(parameter.name()), coreType(method.parameterTypes.get(index)), parameter.range()));
+            }
+            var prototype = new FunctionDecl(method.function.coreName, coreType(method.returnType), parameters,
+                    source.variadic(), null, false, source.noReturn(), source.range());
+            functions.add(prototype); declarations.add(prototype);
+        }
+
+        private void declareTemplatePrototype(Entity function, SourceRange range) {
+            MiniType.FunctionType signature = (MiniType.FunctionType) function.type;
+            var parameters = new ArrayList<Parameter>();
+            for (int index = 0; index < signature.parameterTypes().size(); index++)
+                parameters.add(new Parameter(freshName(index == 0 ? "this" : "argument" + index),
+                        coreType(signature.parameterTypes().get(index)), range));
+            var prototype = new FunctionDecl(function.coreName, coreType(signature.returnType()), parameters,
+                    signature.variadic(), null, false, range);
+            functions.add(prototype); declarations.add(prototype);
+        }
+
+        private void instantiateConstructor(Constructor constructor) {
+            if (unevaluatedDepth > 0 || pendingTemplateConstructors.remove(constructor.function) == null) return;
+            Map<Namespace, NamespaceView> saved = currentTemplateLookup;
+            currentTemplateLookup = instanceLookup.get(constructor.owner);
+            try { bindConstructor(constructor); }
+            finally { currentTemplateLookup = saved; }
+        }
+
+        private void instantiateDestructor(Destructor destructor) {
+            if (unevaluatedDepth > 0 || pendingTemplateDestructors.remove(destructor.function) == null) return;
+            Map<Namespace, NamespaceView> saved = currentTemplateLookup;
+            currentTemplateLookup = instanceLookup.get(destructor.owner);
+            try { bindDestructor(destructor); }
+            finally { currentTemplateLookup = saved; }
         }
 
         private void bindStruct(StructDecl node, Namespace namespace) {
@@ -345,8 +571,18 @@ public final class CppNameBinder {
                     Constructor registered = declareConstructor(entity, synthetic, Access.PUBLIC, true);
                     if (registered != null) constructors.add(registered);
                 }
+                if (instanceKeys.containsKey(entity))
+                    for (Method method : methods) {
+                        pendingTemplateMethods.put(method.function, method);
+                        declareTemplateMethodPrototype(method);
+                    }
                 // Complete-class lookup applies to bodies, without exposing later namespace declarations.
-                for (Constructor constructor : constructors) bindConstructor(constructor);
+                for (Constructor constructor : constructors) {
+                    if (instanceKeys.containsKey(entity) && !constructor.implicit) {
+                        pendingTemplateConstructors.put(constructor.function, constructor);
+                        declareTemplatePrototype(constructor.function, constructor.source.range());
+                    } else bindConstructor(constructor);
+                }
                 if (entity.constructors.size() == 1 && entity.constructors.getFirst().implicit && !nonAggregate(entity)) {
                     Constructor original = entity.constructors.getFirst();
                     Entity function = new Entity(entity.name, freshName(entity.canonicalName.substring(2) + "::" + entity.name),
@@ -355,10 +591,15 @@ public final class CppNameBinder {
                     entity.aggregateInitializer = new Constructor(entity, original.source, Access.PUBLIC, function, List.of(), true);
                     bindConstructor(entity.aggregateInitializer, true);
                 }
-                if (destructor != null) bindDestructor(destructor);
+                if (destructor != null) {
+                    if (instanceKeys.containsKey(entity) && !destructor.implicit) {
+                        pendingTemplateDestructors.put(destructor.function, destructor);
+                        declareTemplatePrototype(destructor.function, destructor.source.range());
+                    } else bindDestructor(destructor);
+                }
                 ensureImplicitCopy(entity);
                 ensureImplicitAssignment(entity);
-                for (Method method : methods) bindMethod(method, namespace);
+                if (!instanceKeys.containsKey(entity)) for (Method method : methods) bindMethod(method, namespace);
             }
         }
 
@@ -448,6 +689,7 @@ public final class CppNameBinder {
             if (type != null && type.isArray() && needsDestruction(type)) return arrayDestruction(type, address, range);
             Destructor destructor = destructorForUse(type, range);
             if (destructor == null) return null;
+            instantiateDestructor(destructor);
             TypeEntity owner = destructor.owner;
             // cv-qualification ceases to apply while the object's destructor executes.
             Expression receiver = typed(new CastExpr(owner.type.pointerTo(), address, range), owner.type.pointerTo());
@@ -867,6 +1109,11 @@ public final class CppNameBinder {
         /** Frontend canonical names are source identities, never linker/layout identities. */
         private MiniType normalizeType(MiniType type, Namespace namespace, Local local, SourceRange range) {
             if (type == null) return null;
+            if (type instanceof MiniType.TemplateIdType id) return templateType(id, namespace, local, range);
+            if (type instanceof MiniType.TemplateParameterType parameter) {
+                report("CPP004", range, "Unsubstituted template parameter: " + parameter);
+                return MiniType.INT;
+            }
             if (type instanceof MiniType.ReferenceType reference) {
                 MiniType referent = normalizeType(reference.referent(), namespace, local, range);
                 if (referent.isVoid()) report("CPP004", range, "引用不能指向 void。");
@@ -887,6 +1134,7 @@ public final class CppNameBinder {
                     normalizeType(function.returnType(), namespace, local, range),
                     function.parameterTypes().stream().map(t -> normalizeType(t, namespace, local, range)).toList(), function.variadic());
             if (!(type instanceof MiniType.StructType struct)) return type;
+            if (coreTypes.containsKey(struct.name())) return type;
             if (coreTypes.containsKey(struct.name())) return type;
             boolean union = struct.name().startsWith("$union$");
             String name = union ? struct.name().substring("$union$".length()) : struct.name();
@@ -954,9 +1202,9 @@ public final class CppNameBinder {
         }
 
         private Set<Candidate> directTags(Namespace namespace, String name) {
-            TypeEntity tag = namespace.tags.get(name);
+            TypeEntity tag = visible(namespace).tags.get(name);
             if (tag != null) return Set.of(tag);
-            TypeEntity imported = namespace.typedefs.get(name);
+            TypeEntity imported = visible(namespace).typedefs.get(name);
             return imported != null && imported.classType ? Set.of(imported) : Set.of();
         }
 
@@ -975,6 +1223,7 @@ public final class CppNameBinder {
             if (type instanceof MiniType.ArrayType array) requireComplete(array.elementType(), range);
             else if (type instanceof MiniType.StructType struct) {
                 TypeEntity entity = coreTypes.get(struct.name());
+                if (entity != null) completeTemplate(entity, range);
                 if (entity != null && !entity.complete) report("CPP005", range, "此位置需要完整对象类型，但类型仍不完整：" + entity.canonicalName);
             }
         }
@@ -1912,6 +2161,7 @@ public final class CppNameBinder {
             List<Expression> lowered = new ArrayList<>();
             int offset = selected.method == null ? 0 : 1;
             if (selected.method != null) {
+                instantiateMethod(selected.method);
                 requireMethodAccess(selected.method, original.range());
                 Expression receiver = materializedReceiver(values.getFirst());
                 if (!addressableObject(receiver)) {
@@ -2102,6 +2352,7 @@ public final class CppNameBinder {
             if (methods == null) return new BoundCallee(expression(sourceCallee, namespace, local), null);
             if (methods.methods.size() > 1) return bindOverloadedMethod(methods, sourceCallee, receiver, sourceArguments, namespace, local);
             Method method = methods.methods.getFirst();
+            instantiateMethod(method);
             requireMethodAccess(method, sourceCallee.range());
             MiniType object = elementType(declaredExpressionType(receiver));
             if (object != null && (object.isVolatileQualified()
@@ -2150,6 +2401,7 @@ public final class CppNameBinder {
             // Access is checked only after selection. An inaccessible best match does not
             // allow falling back to a public candidate with worse conversions.
             requireMethodAccess(selected, sourceCallee.range());
+            instantiateMethod(selected);
             return new BoundCallee(mapped(sourceCallee, new NameExpr(selected.function.coreName, sourceCallee.range())), receiver,
                     lowerSelectedArguments(selected.parameterTypes, sourceArguments, values, namespace, local));
         }
@@ -2931,6 +3183,7 @@ public final class CppNameBinder {
             if (entry.method == null) return new ExprStmt(new AssignmentExpr(target, TokenType.EQUAL, source, range), range);
             Method selected = entry.method;
             if (selected == selected.owner.implicitAssignment) emitImplicitAssignment(selected.owner);
+            else instantiateMethod(selected);
             MiniType parameter = selected.parameterTypes.getFirst();
             Expression argument = parameter.isReference() ? address(source)
                     : copyInitialize(parameter, source, range, CppInitializer.Kind.COPY);
@@ -3008,6 +3261,7 @@ public final class CppNameBinder {
                 return value;
             }
             Constructor selected = resolution.winner().identity();
+            instantiateConstructor(selected);
             if (kind == CppInitializer.Kind.COPY_LIST && selected.source.explicitSpecifier())
                 report("CPP004", range, "Copy-list initialization cannot select an explicit copy constructor.");
             if (selected.access != Access.PUBLIC && currentClass != owner)
@@ -3118,6 +3372,7 @@ public final class CppNameBinder {
             Expression value = source;
             if (entry.action() == CppCopyConstructorPlan.Action.CONSTRUCTOR) {
                 Constructor selected = entry.constructor();
+                instantiateConstructor(selected);
                 if (selected == selected.owner.implicitCopy && selected.owner.copyPlan.trivial()
                         && !hasVolatileSubobject(selected.owner.type, new HashSet<>()))
                     return new ExprStmt(new InitializeExpr(destination, source, range), range);
@@ -3174,6 +3429,7 @@ public final class CppNameBinder {
                     .filter(c -> syntax.kind() != CppInitializer.Kind.COPY || !c.source.explicitSpecifier())
                     .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
             Constructor selected = selectOverload(candidates, new NameExpr(owner.name, range), arguments, prepared, null);
+            if (selected != null) instantiateConstructor(selected);
             if (selected == null) return typed(new ObjectInitExpr(coreType(target), freshName("construction"),
                     new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", range), range), range), target);
             if (list && arguments.isEmpty() && selected.implicit && owner.aggregateInitializer != null) selected = owner.aggregateInitializer;
@@ -3561,12 +3817,13 @@ public final class CppNameBinder {
         }
 
         private Set<Candidate> directCandidates(Namespace namespace, String name) {
-            Candidate value = namespace.values.get(name);
+            NamespaceView view = visible(namespace);
+            Candidate value = view.values.get(name);
             if (value != null) return Set.of(value); // An ordinary value can hide the injected class name.
             Set<Candidate> result = new LinkedHashSet<>();
-            if (namespace.children.containsKey(name)) result.add(namespace.children.get(name));
-            if (namespace.typedefs.containsKey(name)) result.add(namespace.typedefs.get(name));
-            else if (namespace.tags.containsKey(name)) result.add(namespace.tags.get(name));
+            if (view.children.containsKey(name)) result.add(view.children.get(name));
+            if (view.typedefs.containsKey(name)) result.add(view.typedefs.get(name));
+            else if (view.tags.containsKey(name)) result.add(view.tags.get(name));
             return result;
         }
 
@@ -3577,7 +3834,7 @@ public final class CppNameBinder {
                 for (Namespace target : scope.directives) nominate(scope.namespace, target, result, new HashSet<>());
             }
             for (Namespace scope = namespace; scope != null; scope = scope.parent) {
-                for (Namespace target : scope.directives) nominate(scope, target, result, new HashSet<>());
+                for (Namespace target : visible(scope).directives) nominate(scope, target, result, new HashSet<>());
             }
             return result;
         }
@@ -3585,7 +3842,7 @@ public final class CppNameBinder {
         private void nominate(Namespace origin, Namespace target, Map<Namespace, Set<Namespace>> result, Set<Namespace> visited) {
             if (!visited.add(target)) return;
             result.computeIfAbsent(commonAncestor(origin, target), ignored -> new LinkedHashSet<>()).add(target);
-            for (Namespace next : target.directives) nominate(origin, next, result, visited);
+            for (Namespace next : visible(target).directives) nominate(origin, next, result, visited);
         }
 
         private Namespace commonAncestor(Namespace first, Namespace second) {
@@ -3621,7 +3878,7 @@ public final class CppNameBinder {
             if (!visited.add(namespace)) return Set.of();
             Set<Candidate> result = new LinkedHashSet<>(directCandidates(namespace, name));
             if (!result.isEmpty()) return result;
-            for (Namespace target : namespace.directives) result.addAll(qualifiedValues(target, name, visited));
+            for (Namespace target : visible(namespace).directives) result.addAll(qualifiedValues(target, name, visited));
             return result;
         }
 
@@ -3647,9 +3904,9 @@ public final class CppNameBinder {
             for (Namespace scope = namespace; scope != null; scope = scope.parent) {
                 if (rejectsTypeQualifier(scope, name, sourceName.range())) return null;
                 Set<Namespace> candidates = new LinkedHashSet<>();
-                if (scope.children.containsKey(name)) candidates.add(scope.children.get(name));
+                if (visible(scope).children.containsKey(name)) candidates.add(visible(scope).children.get(name));
                 for (Namespace target : nominated.getOrDefault(scope, Set.of())) {
-                    if (target.children.containsKey(name)) candidates.add(target.children.get(name));
+                    if (visible(target).children.containsKey(name)) candidates.add(visible(target).children.get(name));
                 }
                 if (!candidates.isEmpty()) return selectNamespace(candidates, sourceName);
             }
@@ -3657,8 +3914,8 @@ public final class CppNameBinder {
         }
 
         private boolean rejectsTypeQualifier(Namespace namespace, String name, SourceRange range) {
-            TypeEntity type = namespace.typedefs.get(name);
-            if (type == null) type = namespace.tags.get(name);
+            TypeEntity type = visible(namespace).typedefs.get(name);
+            if (type == null) type = visible(namespace).tags.get(name);
             if (type == null || !type.type.unqualified().isStruct()) return false;
             report("CPP005", range, "尚未支持类型限定名称：" + name);
             return true;
@@ -3666,10 +3923,10 @@ public final class CppNameBinder {
 
         private Set<Namespace> qualifiedNamespaces(Namespace namespace, String name, Set<Namespace> visited) {
             if (!visited.add(namespace)) return Set.of();
-            Namespace direct = namespace.children.get(name);
+            Namespace direct = visible(namespace).children.get(name);
             if (direct != null) return Set.of(direct);
             Set<Namespace> result = new LinkedHashSet<>();
-            for (Namespace target : namespace.directives) result.addAll(qualifiedNamespaces(target, name, visited));
+            for (Namespace target : visible(namespace).directives) result.addAll(qualifiedNamespaces(target, name, visited));
             return result;
         }
 
@@ -3756,11 +4013,18 @@ public final class CppNameBinder {
         private String freshName(String displayName) {
             String candidate;
             do { candidate = "minicCppSymbol" + nextName++; } while (!reserved.add(candidate));
+            for (var entry : templateDisplay.entrySet()) displayName = displayName.replaceAll(
+                    "(?<![A-Za-z0-9_])" + java.util.regex.Pattern.quote(entry.getKey()) + "(?![A-Za-z0-9_])",
+                    java.util.regex.Matcher.quoteReplacement(entry.getValue()));
             displayNames.put(candidate, displayName);
             return candidate;
         }
 
-        private <T extends AstNode> T mapped(AstNode from, T to) { origins.put(from, to); return to; }
+        private <T extends AstNode> T mapped(AstNode from, T to) {
+            origins.put(from, to);
+            if (templateOrigins.containsKey(from)) origins.putIfAbsent(templateOrigins.get(from), to);
+            return to;
+        }
         private String spelling(QualifiedName name) { return (name.global() ? "::" : "") + String.join("::", name.segments()); }
         private void report(String code, SourceRange range, String message) {
             diagnostics.add(new Diagnostic(code, Diagnostic.Severity.ERROR, message, range));
