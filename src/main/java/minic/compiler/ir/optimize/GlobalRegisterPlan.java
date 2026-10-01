@@ -12,8 +12,9 @@ import java.util.*;
  * Fixed Windows x64 integer register homes using conservative whole-function convex intervals,
  * including CFG boundary liveness. There is no interval splitting or edge shuffle. Volatile
  * call survivors have explicit stack save/restore points; optional nonvolatile homes instead
- * require one function-level save/restore. The static access threshold is a conservative cost
- * heuristic, not a claim of profile-guided profitability.
+ * require one function-level save/restore. Executable accesses in cyclic blocks have weight two;
+ * other accesses have weight one. This bounded, static heuristic assumes some loop reuse,
+ * not measured frequencies or guaranteed profitability. Existing liveness remains authoritative.
  */
 public final class GlobalRegisterPlan {
     private static final List<String> POOL = List.of("r10", "r11");
@@ -32,25 +33,41 @@ public final class GlobalRegisterPlan {
         temporaryTypes.forEach((name, type) -> { if (type.isFloatingScalar()) excluded.add(name); });
         var spans = new LinkedHashMap<String, Span>();
         var transfers = new HashMap<String, Integer>();
+        var savedTransfers = new HashMap<String, Integer>();
+        var weightedTransfers = new HashMap<String, Integer>();
+        var cyclic = cyclicBlocks(analysis.controlFlow());
+        // This is only a cost discount for a native emission opportunity. All mentions still
+        // contribute to spans/interference, even when this planner is used without fusion.
+        var fusedTemporaries = new HashSet<String>();
+        if (allowCalleeSaved) {
+            var branches = ComparisonBranchPlan.analyze(function);
+            for (var block : function.blocks()) for (int i = 0; i < block.instructions().size(); i++) {
+                var fusion = branches.at(block.label(), i);
+                if (fusion != null) {
+                    fusedTemporaries.add(fusion.comparison().result().name());
+                    if (fusion.branch().condition() instanceof IrTemporary temporary) fusedTemporaries.add(temporary.name());
+                }
+            }
+        }
         var callCounts = new HashMap<String, Integer>();
         var survivors = new LinkedHashMap<Point, Set<String>>();
-        var cyclic = new HashMap<String, Boolean>();
         int position = 0;
         for (var block : function.blocks()) {
+            int weight = cyclic.contains(block.label()) ? 2 : 1;
             // Boundary positions matter even when the block does not directly read the value.
             for (String name : analysis.liveIn(block.label())) extend(spans, name, position);
             for (int index = 0; index < block.instructions().size(); index++) {
                 position = Math.incrementExact(position);
                 var instruction = block.instructions().get(index);
                 var point = analysis.instruction(block.label(), index);
-                mention(spans, transfers, excluded, IrValueUses.result(instruction), position, point.executable());
+                mention(spans, transfers, savedTransfers, weightedTransfers, fusedTemporaries, excluded, IrValueUses.result(instruction), position, point.executable(), weight);
                 for (var input : IrValueUses.inputs(instruction)) if (input instanceof IrTemporary temporary)
-                    mention(spans, transfers, excluded, temporary, position, point.executable());
+                    mention(spans, transfers, savedTransfers, weightedTransfers, fusedTemporaries, excluded, temporary, position, point.executable(), weight);
                 if (point.executable() && (instruction instanceof IrCallInstruction || instruction instanceof IrIndirectCallInstruction)) {
                     Set<String> across = point.liveAcrossCall();
                     survivors.put(new Point(block.label(), index), across);
                     for (String name : across) callCounts.merge(name, 1, Math::addExact);
-                    if (!across.isEmpty() && cyclic.computeIfAbsent(block.label(), name -> inCycle(analysis.controlFlow(), name)))
+                    if (!across.isEmpty() && cyclic.contains(block.label()))
                         volatileExcluded.addAll(across);
                 }
             }
@@ -68,20 +85,29 @@ public final class GlobalRegisterPlan {
                         .thenComparing(Map.Entry::getKey)).toList();
         var assigned = new LinkedHashMap<String, String>();
         var active = new ArrayList<Active>();
+        var paidRegisters = new HashSet<String>();
         for (var entry : intervals) {
             Span span = entry.getValue(); active.removeIf(value -> value.end() < span.start());
             String name = entry.getKey();
-            // Four removed stack transfers can repay two full-width prologue/epilogue transfers.
-            // Cheap values never open a nonvolatile home, even when another value already paid its save.
-            boolean useNonvolatile = allowCalleeSaved && transfers.getOrDefault(name, 0) >= 4;
+            // Opening a home still needs four weighted transfers. Once its function save is
+            // paid, a later definition/use pair may reuse it without another prologue cost.
+            boolean openNonvolatile = allowCalleeSaved && weightedTransfers.getOrDefault(name, 0) >= 4;
+            boolean reuseNonvolatile = allowCalleeSaved && savedTransfers.getOrDefault(name, 0) >= 2;
+            var nonvolatileCandidates = new ArrayList<String>();
+            if (reuseNonvolatile) for (String register : CALLEE_SAVED)
+                if (paidRegisters.contains(register)) nonvolatileCandidates.add(register);
+            if (openNonvolatile) for (String register : CALLEE_SAVED)
+                if (!paidRegisters.contains(register)) nonvolatileCandidates.add(register);
             var candidates = new ArrayList<String>();
             boolean crossesCall = callCounts.containsKey(name);
-            if (useNonvolatile && crossesCall) candidates.addAll(CALLEE_SAVED);
+            if (crossesCall) candidates.addAll(nonvolatileCandidates);
             if (!volatileExcluded.contains(name)) candidates.addAll(POOL);
-            if (useNonvolatile && !crossesCall) candidates.addAll(CALLEE_SAVED);
+            if (!crossesCall) candidates.addAll(nonvolatileCandidates);
             for (String register : candidates) {
                 if (active.stream().anyMatch(value -> value.register().equals(register))) continue;
-                assigned.put(entry.getKey(), register); active.add(new Active(register, span.end())); break;
+                assigned.put(entry.getKey(), register); active.add(new Active(register, span.end()));
+                if (CALLEE_SAVED.contains(register)) paidRegisters.add(register);
+                break;
             }
         }
         registers = Collections.unmodifiableMap(assigned);
@@ -100,27 +126,51 @@ public final class GlobalRegisterPlan {
         spills = Collections.unmodifiableMap(saved);
     }
 
-    private static void mention(Map<String, Span> spans, Map<String, Integer> transfers, Set<String> excluded,
-                                IrTemporary value, int position, boolean executable) {
+    private static void mention(Map<String, Span> spans, Map<String, Integer> transfers,
+                                Map<String, Integer> savedTransfers, Map<String, Integer> weightedTransfers,
+                                Set<String> fusedTemporaries, Set<String> excluded,
+                                IrTemporary value, int position, boolean executable, int weight) {
         if (value == null) return;
         if (!executable) excluded.add(value.name());
         extend(spans, value.name(), position);
         transfers.merge(value.name(), 1, Math::addExact);
+        if (executable && !fusedTemporaries.contains(value.name())) {
+            savedTransfers.merge(value.name(), 1, Math::addExact);
+            weightedTransfers.merge(value.name(), weight, Math::addExact);
+        }
     }
     private static void extend(Map<String, Span> spans, String name, int position) {
         Span previous = spans.get(name);
         spans.put(name, previous == null ? new Span(position, position)
                 : new Span(Math.min(previous.start(), position), Math.max(previous.end(), position)));
     }
-    /** A cached reachability query per call-containing block; includes irreducible loops and self edges. */
-    private static boolean inCycle(IrControlFlow flow, String block) {
-        var pending = new ArrayDeque<>(flow.successors(block)); var visited = new HashSet<String>();
-        while (!pending.isEmpty()) {
-            String next = pending.removeFirst();
-            if (next.equals(block)) return true;
-            if (visited.add(next)) pending.addAll(flow.successors(next));
+    /** Iterative SCC discovery: linear CFG cost, no recursive Java stack for large functions. */
+    private static Set<String> cyclicBlocks(IrControlFlow flow) {
+        var visited = new HashSet<String>(); var finish = new ArrayList<String>();
+        var pending = new ArrayDeque<Visit>();
+        for (String root : flow.reachable()) {
+            pending.addLast(new Visit(root, false));
+            while (!pending.isEmpty()) {
+                var visit = pending.removeLast();
+                if (visit.finished()) { finish.add(visit.block()); continue; }
+                if (!visited.add(visit.block())) continue;
+                pending.addLast(new Visit(visit.block(), true));
+                for (String next : flow.successors(visit.block()))
+                    if (flow.reachable().contains(next) && !visited.contains(next)) pending.addLast(new Visit(next, false));
+            }
         }
-        return false;
+        visited.clear(); var cyclic = new HashSet<String>(); var reverse = new ArrayDeque<String>();
+        for (int i = finish.size() - 1; i >= 0; i--) {
+            String root = finish.get(i); if (!visited.add(root)) continue;
+            var component = new ArrayList<String>(); reverse.addLast(root);
+            while (!reverse.isEmpty()) {
+                String block = reverse.removeLast(); component.add(block);
+                for (String previous : flow.predecessors(block))
+                    if (flow.reachable().contains(previous) && visited.add(previous)) reverse.addLast(previous);
+            }
+            if (component.size() > 1 || flow.successors(root).contains(root)) cyclic.addAll(component);
+        }
+        return cyclic;
     }
 
     public static GlobalRegisterPlan allocate(IrFunction function) {
@@ -138,6 +188,7 @@ public final class GlobalRegisterPlan {
     public List<IrTemporary> spillsAt(String block, int instructionIndex) {
         return spills.getOrDefault(new Point(block, instructionIndex), List.of());
     }
+    private record Visit(String block, boolean finished) { }
     private record Span(int start, int end) { }
     private record Active(String register, int end) { }
     private record Point(String block, int instructionIndex) { }
