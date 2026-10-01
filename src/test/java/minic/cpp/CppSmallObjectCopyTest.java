@@ -97,12 +97,13 @@ final class CppSmallObjectCopyTest {
     static Stream<Arguments> sourcePrograms() {
         return Stream.of(LanguageMode.C, LanguageMode.CPP17_ALGORITHM).flatMap(mode ->
                 Stream.of(OptimizationLevel.BASELINE, OptimizationLevel.OPTIMIZED).flatMap(level ->
-                        Stream.of("byte-objects", "aggregate-arguments-and-return").map(name -> Arguments.of(mode, level, name))));
+                        Stream.of("byte-objects", "union-byte-objects", "aggregate-arguments-and-return").map(name -> Arguments.of(mode, level, name))));
     }
 
     @ParameterizedTest(name = "{0}/{1}: {2}") @MethodSource("sourcePrograms")
     void definedAggregateCopiesAgreeWithSourceDebugAndGxx(LanguageMode mode, OptimizationLevel level, String name) throws Exception {
-        String text = name.equals("byte-objects") ? byteObjects() : """
+        boolean byteObjects = name.endsWith("byte-objects");
+        String text = byteObjects ? byteObjects(name.equals("union-byte-objects")) : """
                 #include <stdio.h>
                 struct Pair { double x; unsigned long long y; };
                 struct Pair relay(struct Pair p,int n){struct Pair out=p;out.y+=n;return out;}
@@ -112,18 +113,31 @@ final class CppSmallObjectCopyTest {
         var report = new CppDifferentialHarness(temporary, CppDifferentialHarness.referenceCompiler(System.getenv()),
                 CppDifferentialHarness.Limits.defaults(), mode, level).run(name, text, "");
         assertTrue(report.passed(), report::describe);
-        String expected = name.equals("byte-objects") ? "9435\n" : "1.25 1234567890123 1.25 1234567890130\n";
+        String expected = byteObjects ? "9435\n" : "1.25 1234567890123 1.25 1234567890130\n";
         report.outcomes().values().forEach(outcome -> assertEquals(expected, outcome.stdout().replace("\r\n", "\n")));
         var source = new SourceFile(name + ".cpp", text);
         var ir = new CompilerApi(source, mode).runToIr();
-        assertTrue(ir.functions().stream().flatMap(f -> f.blocks().stream()).flatMap(b -> b.instructions().stream())
-                .anyMatch(IrMemCopyInstruction.class::isInstance), "fixture must exercise aggregate copy IR");
+        // [class.copy.assign]/12 specifies memberwise assignment for non-union C++
+        // classes; it need not become a representation-copy IR instruction. Keep the
+        // original source and output check, while the union variant exercises the
+        // representation-copy contract in /13 through every 1..17-byte boundary.
+        // https://timsong-cpp.github.io/cppwp/n4659/class.copy.assign#12
+        // https://timsong-cpp.github.io/cppwp/n4659/class.copy.assign#13
+        if (mode == LanguageMode.C || !name.equals("byte-objects")) {
+            var copySizes = ir.functions().stream().flatMap(f -> f.blocks().stream()).flatMap(b -> b.instructions().stream())
+                    .filter(IrMemCopyInstruction.class::isInstance).map(IrMemCopyInstruction.class::cast)
+                    .map(IrMemCopyInstruction::sizeBytes).collect(Collectors.toSet());
+            assertFalse(copySizes.isEmpty(), "fixture must exercise aggregate copy IR");
+            if (byteObjects) assertTrue(copySizes.containsAll(IntStream.rangeClosed(1, 17).boxed().toList()),
+                    () -> "source representation copies must cover every size 1..17: " + copySizes);
+        }
     }
 
-    private static String byteObjects() {
+    private static String byteObjects(boolean union) {
         var source = new StringBuilder("#include <stdio.h>\n");
-        for (int size = 1; size <= 17; size++) source.append("struct Bytes").append(size).append("{unsigned char data[").append(size)
-                .append("];};struct Holder").append(size).append("{char prefix;struct Bytes").append(size).append(" value;};\n");
+        String recordKey = union ? "union" : "struct";
+        for (int size = 1; size <= 17; size++) source.append(recordKey).append(" Bytes").append(size).append("{unsigned char data[").append(size)
+                .append("];};struct Holder").append(size).append("{char prefix;").append(recordKey).append(" Bytes").append(size).append(" value;};\n");
         source.append("int main(){int total=0;\n");
         for (int size = 1; size <= 17; size++) {
             // Struct alignment is one. The actual struct objects are deliberately preceded by
