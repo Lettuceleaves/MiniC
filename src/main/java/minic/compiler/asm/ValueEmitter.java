@@ -28,8 +28,14 @@ final class ValueEmitter {
 
     void emitLoadValue(StringBuilder builder, IrValue value, String register) {
         if (value instanceof IrConstant constant) {
+            long literal = constant.value();
+            if (constant.type().sizeBytes() == 1) {
+                literal = constant.type().isSignedInteger() ? (byte) literal : literal & 0xffL;
+            } else if (constant.type().sizeBytes() == 2) {
+                literal = constant.type().isSignedInteger() ? (short) literal : literal & 0xffffL;
+            }
             builder.append("    mov ").append(constantRegister(register, constant.type()))
-                    .append(", ").append(constant.value()).append(System.lineSeparator());
+                    .append(", ").append(literal).append(System.lineSeparator());
             return;
         }
         if (value instanceof IrFloatConstant constant) {
@@ -138,7 +144,8 @@ final class ValueEmitter {
     }
 
     private String constantRegister(String register, IrType type) {
-        if ((type == IrType.BOOL || type == IrType.CHAR) && !isByteRegister(register)) {
+        if (type.isIntegerScalar() && type.sizeBytes() < Integer.BYTES
+                && !isNarrowRegister(register, type.sizeBytes())) {
             return intRegister(register);
         }
         return registerForType(register, type);

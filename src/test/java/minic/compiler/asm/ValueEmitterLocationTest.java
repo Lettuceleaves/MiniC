@@ -2,6 +2,7 @@ package minic.compiler.asm;
 
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrValue.IrTemporary;
+import minic.compiler.ir.value.IrValue.IrConstant;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -82,6 +83,26 @@ final class ValueEmitterLocationTest {
         var text = new StringBuilder();
         emitter.emitLoadValue(text, temporary, "r10");
         assertEquals(lines("mov r10d, r10d"), text.toString());
+    }
+
+    static Stream<Arguments> narrowConstants() {
+        return Stream.of(Arguments.of(IrType.SIGNED_CHAR, 255L, -1L),
+                Arguments.of(IrType.CHAR, 128L, -128L),
+                Arguments.of(IrType.UNSIGNED_CHAR, -1L, 255L),
+                Arguments.of(IrType.SHORT, 65535L, -1L),
+                Arguments.of(IrType.UNSIGNED_SHORT, -1L, 65535L),
+                Arguments.of(IrType.BOOL, 1L, 1L));
+    }
+
+    @ParameterizedTest @MethodSource("narrowConstants")
+    void narrowConstantsHaveTheSamePromotedValueAsNarrowLoads(IrType type, long bits, long expected) {
+        var emitter = new ValueEmitter(ValueLocationTest.frame(new IrTemporary("unused", type)), Set.of());
+        var text = new StringBuilder();
+        emitter.emitLoadValue(text, new IrConstant(bits, type), "rcx");
+        assertEquals(lines("mov ecx, " + expected), text.toString());
+        var narrow = new StringBuilder();
+        emitter.emitLoadValue(narrow, new IrConstant(bits, type), type.sizeBytes() == 1 ? "cl" : "cx");
+        assertEquals(lines("mov " + (type.sizeBytes() == 1 ? "cl" : "cx") + ", " + expected), narrow.toString());
     }
 
     private static String lines(String... instructions) {

@@ -149,8 +149,10 @@ final class InstructionEmitter {
             }
             case IrElementAddressInstruction elementAddress -> {
                 valueEmitter.emitLoadValue(builder, elementAddress.baseAddress(), "rax");
-                valueEmitter.emitLoadValue(builder, elementAddress.index(), "ecx");
-                builder.append("    movsxd rcx, ecx").append(System.lineSeparator());
+                IrType indexType = elementAddress.index().type();
+                valueEmitter.emitLoadValue(builder, elementAddress.index(), "rcx");
+                if (indexType.isSignedInteger() && indexType.sizeBytes() < Long.BYTES)
+                    builder.append("    movsxd rcx, ecx").append(System.lineSeparator());
                 emitElementAddressScale(builder, elementAddress.elementSizeBytes());
                 valueEmitter.emitStoreTemporary(builder, elementAddress.result(), "rax");
             }
