@@ -110,6 +110,7 @@ public final class SmallFunctionInliningPass implements IrPass {
         result = new ConstantPropagationPass().apply(result);
         result = new NonZeroCheckEliminationPass().apply(result);
         result = new DeadCodeEliminationPass().apply(result);
+        result = new ControlFlowSimplificationPass().apply(result);
         return result.functions().getFirst();
     }
 

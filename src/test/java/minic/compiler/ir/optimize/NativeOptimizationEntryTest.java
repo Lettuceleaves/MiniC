@@ -55,7 +55,7 @@ final class NativeOptimizationEntryTest {
         assertDoesNotThrow(() -> IrVerifier.verify(assembler.input().irResult()));
         assertEquals(List.of("known-function-call-resolution", "initialized-check-elimination", "early-simplification",
                         "small-function-inlining", "local-scalar-promotion", "constant-propagation",
-                        "nonzero-check-elimination", "loop-invariant-code-motion", "dead-code-elimination"),
+                        "nonzero-check-elimination", "loop-invariant-code-motion", "dead-code-elimination", "control-flow-simplification"),
                 assembler.optimizationResult().passNames());
         for (CompilerApi api : List.of(baseline, explicit)) {
             var other = stage(api, Assembler.class);
