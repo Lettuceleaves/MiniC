@@ -7,6 +7,7 @@ import minic.compiler.parser.node.AstChildren;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.CppInitializer;
 import minic.compiler.parser.node.CppConstructionExpr;
+import minic.compiler.parser.node.CleanupScopeStmt;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.Declaration.*;
 import minic.compiler.parser.node.Expression;
@@ -77,6 +78,7 @@ public final class CppNameBinder {
         final List<Constructor> constructors = new ArrayList<>();
         final Map<String, Entity> defaultInitializers = new LinkedHashMap<>();
         Constructor aggregateInitializer;
+        Destructor destructor;
 
         TypeEntity(String name, String canonicalName, MiniType type, boolean classType,
                    boolean union, Namespace owner, boolean complete) {
@@ -100,6 +102,9 @@ public final class CppNameBinder {
 
     private record Constructor(TypeEntity owner, ConstructorMember source, Access access, Entity function,
                                List<MiniType> parameterTypes, boolean implicit) { }
+
+    private record Destructor(TypeEntity owner, DestructorMember source, Access access, Entity function,
+                              boolean implicit) { }
 
     private record ImplicitField(TypeEntity owner, String name) implements Candidate { }
 
@@ -163,6 +168,8 @@ public final class CppNameBinder {
         private final IdentityHashMap<Expression, CppValueCategory> valueCategories = new IdentityHashMap<>();
         private final Set<Expression> temporaryAddressPaths = Collections.newSetFromMap(new IdentityHashMap<>());
         private final Map<Entity, List<Diagnostic>> deletedConstructors = new IdentityHashMap<>();
+        private final Map<Entity, List<Diagnostic>> deletedDestructors = new IdentityHashMap<>();
+        private final Map<Statement, Expression> localCleanups = new IdentityHashMap<>();
         private final List<Declaration> declarations = new ArrayList<>();
         private final List<StructDecl> structs = new ArrayList<>();
         private final List<EnumDecl> enums = new ArrayList<>();
@@ -204,6 +211,7 @@ public final class CppNameBinder {
                     case FunctionDecl node -> bindFunction(node, namespace);
                     case OutOfLineMethodDecl node -> bindOutOfLineMethod(node, namespace);
                     case OutOfLineConstructorDecl node -> bindOutOfLineConstructor(node, namespace);
+                    case OutOfLineDestructorDecl node -> bindOutOfLineDestructor(node, namespace);
                     case StructDecl node -> bindStruct(node, namespace);
                     case TypedefDecl node -> {
                         MiniType type = normalizeType(node.type(), namespace, null, node.range());
@@ -252,6 +260,7 @@ public final class CppNameBinder {
             Map<StructField, Access> access = new IdentityHashMap<>();
             Map<MethodMember, Access> methodAccess = new IdentityHashMap<>();
             Map<ConstructorMember, Access> constructorAccess = new IdentityHashMap<>();
+            Map<DestructorMember, Access> destructorAccess = new IdentityHashMap<>();
             if (node.cppInfo() != null) {
                 Access current = node.cppInfo().key() == RecordKey.CLASS ? Access.PRIVATE : Access.PUBLIC;
                 for (CppMember member : node.cppInfo().members()) {
@@ -261,8 +270,7 @@ public final class CppNameBinder {
                     }
                     else if (member instanceof MethodMember method) methodAccess.put(method, current);
                     else if (member instanceof ConstructorMember constructor) constructorAccess.put(constructor, current);
-                    else if (member instanceof DestructorMember destructor) report("CPP005", destructor.nameRange(),
-                            "析构函数执行和对象生命周期清理尚未实现。");
+                    else if (member instanceof DestructorMember destructor) destructorAccess.put(destructor, current);
                     else report("CPP005", member.range(), "This C++ record member is not supported yet: " + member.getClass().getSimpleName());
                 }
             }
@@ -289,19 +297,28 @@ public final class CppNameBinder {
                 entity.sourceRecord = node;
             }
             structs.add(core); declarations.add(core);
-            if (node.cppInfo() != null && node.definition()) {
+            if (node.definition()) {
+                List<CppMember> members = node.cppInfo() == null ? List.of() : node.cppInfo().members();
                 List<Method> methods = new ArrayList<>();
                 List<Constructor> constructors = new ArrayList<>();
-                for (CppMember member : node.cppInfo().members()) {
+                Destructor destructor = null;
+                for (CppMember member : members) {
                     if (member instanceof MethodMember method) {
                         Method registered = declareMethod(entity, method, methodAccess.get(method), namespace);
                         if (registered != null) methods.add(registered);
                     } else if (member instanceof ConstructorMember constructor) {
                         Constructor registered = declareConstructor(entity, constructor, constructorAccess.get(constructor), false);
                         if (registered != null) constructors.add(registered);
+                    } else if (member instanceof DestructorMember memberDestructor) {
+                        Destructor registered = declareDestructor(entity, memberDestructor, destructorAccess.get(memberDestructor), false);
+                        if (registered != null) destructor = registered;
                     }
                 }
-                for (CppMember member : node.cppInfo().members()) {
+                if (destructor == null && entity.fields.stream().anyMatch(field -> needsDestruction(field.type()))) {
+                    DestructorMember synthetic = new DestructorMember(entity.name, new BlockStmt(List.of(), node.range()), node.range(), node.range());
+                    destructor = declareDestructor(entity, synthetic, Access.PUBLIC, true);
+                }
+                for (CppMember member : members) {
                     if (member instanceof FieldMember field && field.defaultInitializer() != null) bindDefaultMember(entity, field);
                 }
                 if (constructors.isEmpty() && needsConstruction(entity)) {
@@ -320,7 +337,117 @@ public final class CppNameBinder {
                     entity.aggregateInitializer = new Constructor(entity, original.source, Access.PUBLIC, function, List.of(), true);
                     bindConstructor(entity.aggregateInitializer, true);
                 }
+                if (destructor != null) bindDestructor(destructor);
                 for (Method method : methods) bindMethod(method, namespace);
+            }
+        }
+
+        private boolean needsDestruction(MiniType type) {
+            if (type == null || type.isReference()) return false;
+            if (type.isArray()) return needsDestruction(type.elementType());
+            TypeEntity owner = objectType(type);
+            return owner != null && owner.destructor != null;
+        }
+
+        private Destructor declareDestructor(TypeEntity owner, DestructorMember member, Access access, boolean implicit) {
+            if (owner.destructor != null) {
+                report("CPP004", member.nameRange(), "Duplicate destructor declaration: " + owner.canonicalName);
+                return null;
+            }
+            Entity function = new Entity("~" + owner.name, freshName(owner.canonicalName.substring(2) + "::~" + owner.name),
+                    Kind.FUNCTION, owner.owner, MiniType.function(MiniType.VOID, List.of(owner.type.pointerTo()), false), null, member.body() != null);
+            coreValues.put(function.coreName, function);
+            Destructor destructor = new Destructor(owner, member, access, function, implicit);
+            owner.destructor = destructor;
+            return destructor;
+        }
+
+        private void bindOutOfLineDestructor(OutOfLineDestructorDecl node, Namespace namespace) {
+            QualifiedName path = node.qualifiedName();
+            TypeEntity owner = resolveMethodOwner(new QualifiedName(path.global(),
+                    path.segments().subList(0, path.segments().size() - 1), path.range()), namespace);
+            if (owner == null) return;
+            boolean enclosing = false;
+            for (Namespace at = owner.owner; at != null; at = at.parent) enclosing |= at == namespace;
+            Destructor previous = owner.destructor;
+            if (!enclosing || node.destructor().body() == null) {
+                report("CPP004", node.nameRange(), "A destructor definition must be in its enclosing namespace and have a body.");
+            } else if (previous == null || previous.implicit) {
+                report("CPP004", node.nameRange(), "No matching user-declared destructor: " + owner.canonicalName);
+            } else if (previous.function.defined) {
+                report("CPP004", node.nameRange(), "Duplicate destructor definition: " + owner.canonicalName);
+            } else {
+                previous.function.defined = true;
+                bindDestructor(new Destructor(owner, node.destructor(), previous.access, previous.function, false));
+            }
+        }
+
+        private void bindDestructor(Destructor destructor) {
+            TypeEntity owner = destructor.owner;
+            DestructorMember original = destructor.source;
+            Entity self = constructorThis(owner, original.nameRange());
+            TypeEntity savedClass = currentClass;
+            Entity savedThis = currentThis;
+            MiniType savedReturn = currentReturnType;
+            currentClass = owner; currentThis = self; currentReturnType = MiniType.VOID;
+            int diagnosticStart = diagnostics.size();
+            try {
+                BlockStmt body = null;
+                if (original.body() != null) {
+                    if (owner.union && destructor.implicit) report("CPP004", original.nameRange(),
+                            "A union with a nontrivial variant member has a deleted implicit destructor.");
+                    body = block(original.body(), new Local(null, owner.owner), false);
+                    List<Expression> memberCleanups = new ArrayList<>();
+                    for (int index = owner.fields.size() - 1; index >= 0; index--) {
+                        StructField field = owner.fields.get(index);
+                        if (!needsDestruction(field.type())) continue;
+                        Expression member = typed(new FieldAccessExpr(thisValue(field.range()), field.name(), true, field.range()), field.type());
+                        Expression address = typed(new UnaryExpr(TokenType.AMPERSAND, member, field.range()), coreType(field.type()).pointerTo());
+                        Expression cleanup = destruction(field.type(), address, field.range());
+                        if (cleanup != null) memberCleanups.add(cleanup);
+                    }
+                    if (!memberCleanups.isEmpty()) {
+                        Expression cleanup = memberCleanups.size() == 1 ? memberCleanups.getFirst()
+                                : typed(new CommaExpr(memberCleanups, original.range()), MiniType.VOID);
+                        body = new BlockStmt(List.of(new CleanupScopeStmt(body, cleanup, original.range())), original.body().range());
+                    }
+                }
+                if (destructor.implicit && diagnostics.size() > diagnosticStart) {
+                    deletedDestructors.put(destructor.function, List.copyOf(diagnostics.subList(diagnosticStart, diagnostics.size())));
+                    diagnostics.subList(diagnosticStart, diagnostics.size()).clear();
+                    destructor.function.defined = false;
+                    body = null;
+                }
+                FunctionDecl core = mapped(original, new FunctionDecl(destructor.function.coreName, MiniType.VOID,
+                        List.of(new Parameter(self.coreName, self.type, original.nameRange())), false, body, false, original.range()));
+                functions.add(core); declarations.add(core);
+            } finally { currentClass = savedClass; currentThis = savedThis; currentReturnType = savedReturn; }
+        }
+
+        private Expression destruction(MiniType type, Expression address, SourceRange range) {
+            if (!needsDestruction(type)) return null;
+            if (type.isArray()) {
+                report("CPP005", range, "Array element destruction requires array lifetime support.");
+                return null;
+            }
+            TypeEntity owner = objectType(type);
+            Destructor destructor = owner.destructor;
+            if (destructor.access != Access.PUBLIC && currentClass != owner) {
+                report("CPP004", range, "Destructor is not accessible: " + owner.canonicalName);
+            }
+            if (deletedDestructors.containsKey(destructor.function)) {
+                Diagnostic reason = deletedDestructors.get(destructor.function).getFirst();
+                report(reason.code().equals("CPP005") ? "CPP005" : "CPP004", range,
+                        "The implicit destructor is unavailable: " + reason.message());
+            }
+            // cv-qualification ceases to apply while the object's destructor executes.
+            Expression receiver = typed(new CastExpr(owner.type.pointerTo(), address, range), owner.type.pointerTo());
+            return typed(new CallExpr(new NameExpr(destructor.function.coreName, range), List.of(receiver), range), MiniType.VOID);
+        }
+
+        private void requireTrivialCallLifetime(MiniType returnType, List<MiniType> parameters, SourceRange range) {
+            if (needsDestruction(returnType) || parameters.stream().anyMatch(this::needsDestruction)) {
+                report("CPP005", range, "Nontrivial return/parameter lifetimes are not supported in this slice.");
             }
         }
 
@@ -437,6 +564,7 @@ public final class CppNameBinder {
         private void bindConstructor(Constructor constructor, boolean aggregateList) {
             TypeEntity owner = constructor.owner;
             ConstructorMember original = constructor.source;
+            requireTrivialCallLifetime(MiniType.VOID, constructor.parameterTypes, original.range());
             Local scope = new Local(null, owner.owner);
             Entity self = constructorThis(owner, original.nameRange());
             List<Parameter> parameters = new ArrayList<>();
@@ -557,6 +685,7 @@ public final class CppNameBinder {
 
         private void bindMethod(Method method, Namespace namespace) {
             FunctionDecl original = method.source.method();
+            requireTrivialCallLifetime(method.returnType, method.parameterTypes, original.range());
             Local scope = new Local(null, namespace);
             Entity self = new Entity("this", freshName("this"), Kind.VARIABLE, null,
                     methodThisType(method.owner, method.source), null, true);
@@ -838,6 +967,9 @@ public final class CppNameBinder {
                     "尚未支持命名空间中的外部对象链接：" + namespace.qualify(node.name()));
             MiniType type = normalizeType(node.type(), namespace, null, node.range());
             if (type.isReference()) report("CPP005", node.range(), "全局引用的静态地址初始化尚未实现。");
+            if ((!node.external() || node.initializer() != null) && needsDestruction(type)) {
+                report("CPP005", node.range(), "Global object destruction requires static lifetime support.");
+            }
             if ((!node.external() || node.initializer() != null) && needsConstructedType(type)) {
                 report("CPP005", node.range(), "Global object construction requires dynamic initialization support.");
             }
@@ -871,6 +1003,7 @@ public final class CppNameBinder {
                 requireComplete(returnType, node.range());
                 for (int i = 0; i < parameterTypes.size(); i++) requireComplete(parameterTypes.get(i), node.parameters().get(i).range());
             }
+            requireTrivialCallLifetime(returnType, parameterTypes, node.range());
             MiniType.FunctionType signature = (MiniType.FunctionType) MiniType.function(returnType, parameterTypes.stream()
                     .map(MiniType::unqualified).toList(), node.variadic());
             Entity entity = declareNamespaceFunction(node.name(), signature, node.hasBody(), namespace, node.range());
@@ -1024,11 +1157,29 @@ public final class CppNameBinder {
                 if (node instanceof UsingDecl using) bindUsing(using, scope.namespace, scope);
                 else result.add(statement(node, scope));
             }
+            return withLocalCleanups(result);
+        }
+
+        private List<Statement> withLocalCleanups(List<Statement> nodes) {
+            List<Statement> result = new ArrayList<>();
+            for (int index = 0; index < nodes.size(); index++) {
+                Statement node = nodes.get(index);
+                result.add(node);
+                Expression cleanup = localCleanups.get(node);
+                if (cleanup != null) {
+                    Statement rest = new BlockStmt(withLocalCleanups(nodes.subList(index + 1, nodes.size())), node.range());
+                    result.add(new CleanupScopeStmt(rest, cleanup, node.range()));
+                    break;
+                }
+            }
             return List.copyOf(result);
         }
 
         private Statement body(Statement node, Local scope) {
-            return node == null ? null : statement(node, new Local(scope, scope.namespace));
+            if (node == null) return null;
+            Local child = new Local(scope, scope.namespace);
+            if (node instanceof BlockStmt) return statement(node, child);
+            return new BlockStmt(statements(List.of(node), child), node.range());
         }
 
         private Statement statement(Statement node, Local scope) {
@@ -1045,8 +1196,13 @@ public final class CppNameBinder {
                         initialized = extendTemporaryLifetime(initialized,
                                 new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, n));
                     }
-                    yield new VarDeclStmt(value.coreName, coreType(type), initialized,
+                    VarDeclStmt variable = new VarDeclStmt(value.coreName, coreType(type), initialized,
                             normalizeAlignments(n.alignmentSpecs(), namespace, scope), n.range());
+                    Expression address = typed(new UnaryExpr(TokenType.AMPERSAND,
+                            typed(new NameExpr(value.coreName, n.range()), coreType(type)), n.range()), coreType(type).pointerTo());
+                    Expression cleanup = destruction(type, address, n.range());
+                    if (cleanup != null) localCleanups.put(variable, cleanup);
+                    yield variable;
                 }
                 case TypedefStmt n -> {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
@@ -1071,7 +1227,12 @@ public final class CppNameBinder {
                     Expression condition = expression(n.condition(), namespace, loop);
                     Expression step = expression(n.step(), namespace, loop);
                     // C++ forbids redeclaring the for-init name in the body's outermost block.
-                    Statement loopBody = n.body() instanceof BlockStmt b ? block(b, loop, false) : statement(n.body(), loop);
+                    Statement loopBody = n.body() instanceof BlockStmt b ? block(b, loop, false) : body(n.body(), loop);
+                    if (localCleanups.containsKey(initializer)) {
+                        ForStmt loopStatement = new ForStmt(null, condition, step, loopBody, n.range());
+                        yield new BlockStmt(List.of(initializer, new CleanupScopeStmt(loopStatement,
+                                localCleanups.get(initializer), n.range())), n.range());
+                    }
                     yield new ForStmt(initializer, condition, step, loopBody, n.range());
                 }
                 case SwitchStmt n -> {
@@ -1085,7 +1246,7 @@ public final class CppNameBinder {
                         Expression value = expression(item.value(), namespace, casesScope);
                         cases.add(mapped(item, new SwitchCase(value, statements(item.statements(), casesScope), item.range())));
                         crossesInitialization |= item.statements().stream()
-                                .anyMatch(s -> s instanceof VarDeclStmt v && v.initializer() != null);
+                                .anyMatch(s -> s instanceof VarDeclStmt v && (v.initializer() != null || localCleanups.containsKey(origins.get(v))));
                     }
                     yield new SwitchStmt(selector, cases, n.range());
                 }
@@ -1202,6 +1363,7 @@ public final class CppNameBinder {
                     if (signature != null) {
                         requireComplete(signature.returnType(), n.range());
                         signature.parameterTypes().forEach(t -> requireComplete(t, n.range()));
+                        requireTrivialCallLifetime(signature.returnType(), signature.parameterTypes(), n.range());
                     }
                     List<Expression> arguments = new ArrayList<>();
                     if (binding.receiver() != null) arguments.add(binding.receiver());
@@ -2038,6 +2200,7 @@ public final class CppNameBinder {
 
         private Expression constructionExpression(CppConstructionExpr source, Namespace namespace, Local local) {
             MiniType type = normalizeType(source.type(), namespace, local, source.typeRange());
+            if (needsDestruction(type)) report("CPP005", source.range(), "Nontrivial temporary lifetimes are not supported in this slice.");
             requireComplete(type, source.typeRange());
             CppInitializer syntax = source.initializer();
             List<Expression> arguments = syntax.arguments();
@@ -2340,6 +2503,7 @@ public final class CppNameBinder {
         }
 
         private Expression materialize(MiniType type, Expression value) {
+            if (needsDestruction(type)) report("CPP005", value.range(), "Nontrivial temporary lifetimes are not supported in this slice.");
             Expression owner = fullExpressionOwner != null ? fullExpressionOwner : value;
             return typed(new MaterializeExpr(coreType(type), value,
                     new TemporaryLifetime(TemporaryLifetime.Kind.FULL_EXPRESSION, owner), value.range()), type.pointerTo());

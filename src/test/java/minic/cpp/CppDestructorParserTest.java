@@ -130,11 +130,14 @@ class CppDestructorParserTest {
         assertThrows(IllegalArgumentException.class, () -> new IrLowerer().lower(parsed));
     }
 
-    @Test void unusedDestructorGuardPointsAtItsNameAndPreservesItsBody() {
+    @Test void unusedDestructorBindsItsBodyAndPreservesSourceIdentity() {
         var program = successful("struct Box { ~Box(){ int value = 1; } }; int main(){ return 0; }").result().program();
         var destructor = (DestructorMember) program.structs().getFirst().cppInfo().members().getFirst();
         var semantic = new SemanticAnalyzer(program); semantic.analyze();
-        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005") && d.range().equals(destructor.nameRange())), () -> semantic.errors().toString());
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        var bound = assertInstanceOf(FunctionDecl.class, semantic.semanticResult().sourceToCore().get(destructor));
+        assertEquals(destructor.range(), bound.range());
+        assertNotNull(bound.body());
         assertEquals(1, destructor.body().statements().size());
         assertSame(destructor, program.structs().getFirst().cppInfo().members().getFirst());
     }
@@ -160,12 +163,18 @@ class CppDestructorParserTest {
             "struct Box { ~Box(); }; typedef Box Alias; Alias::~Box() {}",
             "typedef int Later; struct Box { ~Box(){ value = sizeof(Later); } int value; char Later; };"
     })
-    void validDestructorSyntaxIsPreservedAndCannotSilentlyReachExecution(String declaration) {
-        var parser = successful(declaration + " int after(){return 0;}");
+    void validDestructorSyntaxBindsToOrdinaryCoreFunctions(String declaration) {
+        var parser = successful(declaration + " int after(){return 0;} int main(){return after();}");
         assertAfter(parser);
         var semantic = new SemanticAnalyzer(parser.result().program()); semantic.analyze();
-        assertFalse(semantic.succeeded(), "Destructor declarations require the lifetime implementation guard");
-        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005")), () -> semantic.errors().toString());
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        for (var source : nodes(parser.result().program())) {
+            if (source instanceof DestructorMember destructor) {
+                var core = assertInstanceOf(FunctionDecl.class, semantic.semanticResult().sourceToCore().get(destructor));
+                assertEquals(destructor.range(), core.range());
+                assertEquals(destructor.body() != null, core.body() != null);
+            }
+        }
     }
 
     @ParameterizedTest @ValueSource(strings = {
