@@ -266,7 +266,7 @@ public final class Parser extends Stage {
         String owner = typeReader.beginClassTemplate(name);
         try {
             var parameters = new ArrayList<ClassTemplateDecl.Parameter>();
-            do {
+            if(!context.check(TokenType.GREATER)) do {
                 Token key = context.peek();
                 if (!context.match(TokenType.TYPENAME) && !context.match(TokenType.CLASS)) {
                     ParsedNamedType value = typeReader.parseNamedType("期望模板参数类型", "期望非类型模板参数名称");
@@ -293,14 +293,17 @@ public final class Parser extends Stage {
                 parameters.add(new ClassTemplateDecl.TypeParameter(parameter.lexeme(), identity, defaultType, parameter.range()));
             } while (context.match(TokenType.COMMA));
             if (context.consumeTemplateGreater("模板参数后期望 '>'") == null) return null;
-            if (context.peekAt(2).type() == TokenType.LESS) {
-                context.unsupportedCpp(context.peekAt(2).range(), "类模板特化尚未实现");
-                return null;
+            boolean specialization=context.peekAt(2).type()==TokenType.LESS;
+            if(!specialization) {
+                if(parameters.isEmpty()){context.report(name.range(),"显式特化需要模板实参");return null;}
+                typeReader.registerClassTemplate(name, parameters);
+            } else {
+                for(var parameter:parameters)if(parameter.defaultType()!=null || parameter instanceof ClassTemplateDecl.ValueParameter value&&value.defaultValue()!=null)
+                    context.report(parameter.range(),"类模板特化不能声明默认模板实参");
             }
-            typeReader.registerClassTemplate(name, parameters);
             StructDecl record = declarationManager.parseStructDecl();
             if (record == null) return null;
-            var result = new ClassTemplateDecl(parameters, record, SourceRange.span(start.range(), record.range()));
+            var result = new ClassTemplateDecl(parameters, record, typeReader.currentSpecializationArguments(), SourceRange.span(start.range(), record.range()));
             context.build(result, "ClassTemplateDecl " + record.name(), result.range());
             return result;
         } finally {
@@ -787,6 +790,7 @@ public final class Parser extends Stage {
         private final java.util.Map<String, List<Optional<TemplateArgument>>> classTemplateDefaults = new java.util.LinkedHashMap<>();
         private ExpressionManager expressionManager;
         private final java.util.Deque<java.util.Map<String,CppTemplateValueExpr>> templateValues = new java.util.ArrayDeque<>();
+        private final java.util.Deque<List<TemplateArgument>> specializationArguments = new java.util.ArrayDeque<>();
         private final java.util.Deque<String> activeClassTemplates = new java.util.ArrayDeque<>();
 
         public TypeReader(Context context) {
@@ -806,6 +810,7 @@ public final class Parser extends Stage {
         public String beginClassTemplate(Token name) {
             String owner = cppTypes.namespaceIdentity(name.lexeme());
             activeClassTemplates.push(owner);
+            specializationArguments.push(List.of());
             templateValues.push(new java.util.LinkedHashMap<>());
             cppTypes.enterTemplateScope();
             return owner;
@@ -893,9 +898,20 @@ public final class Parser extends Stage {
             classTemplateDefaults.put(owner.name(), List.copyOf(defaults));
         }
 
+        public List<TemplateArgument> currentSpecializationArguments(){return specializationArguments.isEmpty()?List.of():specializationArguments.peek();}
+
+        public MiniType parseSpecializedRecordName(Token name) {
+            if(activeClassTemplates.isEmpty()||!context.check(TokenType.LESS))return null;
+            MiniType result=parseTemplateId(MiniType.struct(activeClassTemplates.peek()),name.range());
+            if(!(result instanceof MiniType.TemplateIdType id)){context.report(name.range(),"特化需要已经声明的主模板");return null;}
+            specializationArguments.pop();specializationArguments.push(id.arguments());
+            return MiniType.struct(activeClassTemplates.peek());
+        }
+
         public void exitClassTemplate() {
             cppTypes.exitTemplateScope();
             activeClassTemplates.pop();
+            specializationArguments.pop();
             templateValues.pop();
         }
 
@@ -988,6 +1004,8 @@ public final class Parser extends Stage {
 
         public MiniType declareAggregate(String name, boolean union, boolean definition, SourceRange range) {
             if (!isCpp()) return MiniType.struct(union ? "$union$" + name : name);
+            if(!currentSpecializationArguments().isEmpty() && activeClassTemplates.peek().equals(cppTypes.namespaceIdentity(name)))
+                return MiniType.struct(activeClassTemplates.peek());
             if (!activeClassTemplates.isEmpty() && name.startsWith("$anonymous$"))
                 context.unsupportedCpp(range, "类模板内部的匿名聚合声明尚未实现");
             if ((cppLocalDepth > 0 || cppMemberDepth > 0) && !name.startsWith("$anonymous$")) {
@@ -1769,10 +1787,12 @@ public final class Parser extends Stage {
                 }
                 return new MiniType.TemplateIdType(record.name(), arguments);
             }
-            if (!activeClassTemplates.isEmpty() && activeClassTemplates.peek().equals(record.name()))
+            if (!activeClassTemplates.isEmpty() && activeClassTemplates.peek().equals(record.name())) {
+                if(!currentSpecializationArguments().isEmpty())return new MiniType.TemplateIdType(record.name(),currentSpecializationArguments());
                 return new MiniType.TemplateIdType(record.name(), parameters.stream().map(p -> p instanceof ClassTemplateDecl.ValueParameter v
                         ? (TemplateArgument)new TemplateArgument.Value(new CppTemplateValueExpr(v.type(),v.valueType(),nameRange))
                         : new TemplateArgument.Type(p.type())).toList());
+            }
             context.report(nameRange, "类模板名称需要实参");
             return null;
         }

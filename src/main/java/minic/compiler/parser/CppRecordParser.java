@@ -31,6 +31,7 @@ public final class CppRecordParser {
         boolean union = key.type() == TokenType.UNION;
         Token name = state.consume(TokenType.IDENTIFIER, "期望类或结构体名称");
         if (name == null) return null;
+        if(state.check(TokenType.LESS) && types.parseSpecializedRecordName(name)==null)return null;
         if (state.match(TokenType.COLON)) {
             state.unsupportedCpp(state.previous().range(), "类继承尚未实现");
             while (!state.check(TokenType.LEFT_BRACE) && !state.check(TokenType.SEMICOLON) && !state.isAtEnd()) state.advance();
