@@ -580,9 +580,10 @@ public final class StatementManager {
 
     private Expression parseInitializerElement() {
         if (!state.check(TokenType.DOT) && !state.check(TokenType.LEFT_BRACKET)) {
-            return state.check(TokenType.LEFT_BRACE)
+            Expression value = state.check(TokenType.LEFT_BRACE)
                     ? parseAggregateInitializer()
                     : expressionManager.parseAssignmentExpression();
+            return expressionManager.finishPackExpansion(value);
         }
         ArrayList<Designator> designators = new ArrayList<>();
         SourceRange start = state.peek().range();
