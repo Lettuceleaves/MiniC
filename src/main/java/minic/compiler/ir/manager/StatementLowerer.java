@@ -1,6 +1,8 @@
 package minic.compiler.ir.manager;
 
 import minic.compiler.parser.node.Expression;
+import minic.compiler.parser.node.CleanupScopeStmt;
+import minic.compiler.ir.instruction.ComputeInstruction.IrMoveInstruction;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.parser.node.Statement.BreakStmt;
 import minic.compiler.parser.node.Statement.ContinueStmt;
@@ -50,8 +52,9 @@ final class StatementLowerer {
     private final IrFunctionBuilder builder;
     private final ExpressionLowerer expressionLowerer;
     private final IrType returnType;
-    private final Deque<String> continueTargets = new ArrayDeque<>();
-    private final Deque<String> breakTargets = new ArrayDeque<>();
+    private final Deque<JumpTarget> continueTargets = new ArrayDeque<>();
+    private final Deque<JumpTarget> breakTargets = new ArrayDeque<>();
+    private final Deque<CleanupAction> cleanups = new ArrayDeque<>();
     private String structReturnName;
 
     StatementLowerer(
@@ -94,8 +97,22 @@ final class StatementLowerer {
     }
 
     void lowerStatement(Statement statement) {
+        // Dead tails must not register or emit additional cleanup actions after a transfer.
+        if (builder.currentBlockIsTerminated()) return;
+        if (statement instanceof CleanupScopeStmt cleanup) {
+            var action = new CleanupAction(cleanup.cleanup(), builder.snapshotLocalScopes());
+            cleanups.push(action);
+            try {
+                lowerBranch(cleanup.body());
+                if (!builder.currentBlockIsTerminated()) emitCleanup(action);
+            } finally {
+                cleanups.pop();
+            }
+            return;
+        }
         if (statement instanceof ReturnStmt returnStmt) {
             if (returnStmt.expressionOptional().isEmpty()) {
+                emitCleanupsToDepth(0);
                 builder.addInstruction(new IrReturnInstruction(null, returnStmt.range()));
                 return;
             }
@@ -103,6 +120,8 @@ final class StatementLowerer {
             if (structReturnName != null && Expression.ObjectInitExpr.occursInResultOf(expression)) {
                 IrValue destination = builder.resolveParameter("__retptr");
                 expressionLowerer.initializeObjectAt(expression, destination);
+                destination = snapshotReturnValue(destination, returnStmt.range());
+                emitCleanupsToDepth(0);
                 builder.addInstruction(new IrReturnInstruction(destination, returnStmt.range()));
                 return;
             }
@@ -111,12 +130,14 @@ final class StatementLowerer {
                 IrValue retPtr = builder.resolveParameter("__retptr");
                 int size = builder.structSize(structReturnName);
                 builder.addInstruction(new IrMemCopyInstruction(retPtr, value, size, returnStmt.range()));
+                retPtr = snapshotReturnValue(retPtr, returnStmt.range());
+                emitCleanupsToDepth(0);
                 builder.addInstruction(new IrReturnInstruction(retPtr, returnStmt.range()));
             } else {
-                builder.addInstruction(new IrReturnInstruction(
-                        expressionLowerer.castForTarget(value, returnType, returnStmt.range()),
-                        returnStmt.range()
-                ));
+                value = expressionLowerer.castForTarget(value, returnType, returnStmt.range());
+                value = snapshotReturnValue(value, returnStmt.range());
+                emitCleanupsToDepth(0);
+                builder.addInstruction(new IrReturnInstruction(value, returnStmt.range()));
             }
             return;
         }
@@ -172,11 +193,15 @@ final class StatementLowerer {
             return;
         }
         if (statement instanceof BreakStmt breakStmt) {
-            builder.addInstruction(new IrJumpInstruction(breakTargets.peek(), breakStmt.range()));
+            JumpTarget target = breakTargets.peek();
+            emitCleanupsToDepth(target.cleanupDepth());
+            builder.addInstruction(new IrJumpInstruction(target.label(), breakStmt.range()));
             return;
         }
         if (statement instanceof ContinueStmt continueStmt) {
-            builder.addInstruction(new IrJumpInstruction(continueTargets.peek(), continueStmt.range()));
+            JumpTarget target = continueTargets.peek();
+            emitCleanupsToDepth(target.cleanupDepth());
+            builder.addInstruction(new IrJumpInstruction(target.label(), continueStmt.range()));
             return;
         }
         if (statement instanceof IfStmt ifStmt) {
@@ -332,7 +357,7 @@ final class StatementLowerer {
 
         // All case labels share the switch body scope, which ends after the switch.
         builder.pushLocalScope();
-        breakTargets.push(exitLabel);
+        breakTargets.push(new JumpTarget(exitLabel, cleanups.size()));
         try {
             for (int index = 0; index < switchStmt.cases().size(); index++) {
                 SwitchCase switchCase = switchStmt.cases().get(index);
@@ -380,8 +405,8 @@ final class StatementLowerer {
     }
 
     private void lowerLoopBranch(Statement statement, String breakLabel, String continueLabel) {
-        breakTargets.push(breakLabel);
-        continueTargets.push(continueLabel);
+        breakTargets.push(new JumpTarget(breakLabel, cleanups.size()));
+        continueTargets.push(new JumpTarget(continueLabel, cleanups.size()));
         try {
             lowerBranch(statement);
         } finally {
@@ -389,6 +414,30 @@ final class StatementLowerer {
             breakTargets.pop();
         }
     }
+
+    private IrValue snapshotReturnValue(IrValue value, minic.SourceRange range) {
+        if (!cleanups.isEmpty() && value instanceof IrValue.IrParameterRef) {
+            IrTemporary snapshot = builder.newTemporary(value.type());
+            builder.addInstruction(new IrMoveInstruction(snapshot, value, range));
+            return snapshot;
+        }
+        return value;
+    }
+
+    private void emitCleanupsToDepth(int targetDepth) {
+        int remaining = cleanups.size() - targetDepth;
+        for (CleanupAction action : cleanups) {
+            if (remaining-- <= 0) break;
+            emitCleanup(action);
+        }
+    }
+
+    private void emitCleanup(CleanupAction action) {
+        builder.withLocalScopes(action.scope(), () -> expressionLowerer.lowerExpression(action.expression()));
+    }
+
+    private record JumpTarget(String label, int cleanupDepth) { }
+    private record CleanupAction(Expression expression, IrFunctionBuilder.LocalScopeSnapshot scope) { }
 
     private void lowerBranch(Statement statement) {
         if (statement instanceof BlockStmt blockStmt) {

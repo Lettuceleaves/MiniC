@@ -33,6 +33,7 @@ public final class AstChildren {
             case FunctionDecl n -> present(n.body());
             case GlobalVarDecl n -> present(n.cppInitializer() != null ? n.cppInitializer() : n.initializer());
             case BlockStmt n -> n.statements();
+            case CleanupScopeStmt n -> present(n.body(), n.cleanup());
             case VarDeclStmt n -> present(n.cppInitializer() != null ? n.cppInitializer() : n.initializer());
             case ReturnStmt n -> present(n.expression());
             case ExprStmt n -> present(n.expression());

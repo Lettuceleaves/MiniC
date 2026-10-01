@@ -4,6 +4,7 @@ import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.parser.node.Declaration.Parameter;
 import minic.compiler.parser.node.Declaration.GlobalVarDecl;
 import minic.compiler.parser.node.Expression;
+import minic.compiler.parser.node.CleanupScopeStmt;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.parser.node.Statement.BreakStmt;
@@ -163,6 +164,12 @@ public final class StatementSemanticAnalyzer {
     private void analyzeStatement(Statement statement, Scope scope) {
         switch (statement) {
             case BlockStmt blockStmt -> analyzeBlock(blockStmt, scope, true);
+            case CleanupScopeStmt cleanup -> {
+                // Bind the action before entering the body; later local shadows must not change it.
+                MiniType actionType = expressionAnalyzer.analyzeExpression(cleanup.cleanup(), scope);
+                if (!actionType.isVoid()) report(cleanup.cleanup().range(), "作用域清理必须是 void 表达式");
+                analyzeBranch(cleanup.body(), scope);
+            }
             case VarDeclStmt varDeclStmt -> {
                 structRegistry.validateDeclaredType(varDeclStmt.type(), varDeclStmt.range());
                 structRegistry.resolveAlignment(
@@ -346,6 +353,7 @@ public final class StatementSemanticAnalyzer {
     }
 
     private boolean alwaysReturns(Statement statement) {
+        if (statement instanceof CleanupScopeStmt cleanup) return alwaysReturns(cleanup.body());
         if (statement instanceof ReturnStmt) {
             return true;
         }
@@ -361,6 +369,8 @@ public final class StatementSemanticAnalyzer {
     }
 
     private boolean neverReturns(Statement statement) {
+        if (statement instanceof CleanupScopeStmt cleanup)
+            return neverReturns(cleanup.body()) || isNoReturnExpression(cleanup.cleanup());
         if (statement instanceof ReturnStmt) {
             // A return still terminates control flow, but is diagnosed separately for noreturn.
             return true;
@@ -417,6 +427,8 @@ public final class StatementSemanticAnalyzer {
     }
 
     private boolean canBreakCurrentLoop(Statement statement, int nestedLoopDepth) {
+        if (statement instanceof CleanupScopeStmt cleanup)
+            return canBreakCurrentLoop(cleanup.body(), nestedLoopDepth);
         if (statement instanceof BreakStmt) {
             return nestedLoopDepth == 0;
         }

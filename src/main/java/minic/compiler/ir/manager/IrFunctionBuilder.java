@@ -58,6 +58,10 @@ final class IrFunctionBuilder {
         currentBlock.addInstruction(instruction);
     }
 
+    boolean currentBlockIsTerminated() {
+        return currentBlock.isTerminated();
+    }
+
     void addJumpIfOpen(String targetLabel, minic.SourceRange range) {
         if (!currentBlock.isTerminated()) {
             addInstruction(new IrJumpInstruction(targetLabel, range));
@@ -80,6 +84,25 @@ final class IrFunctionBuilder {
 
     void popLocalScope() {
         localScopes.pop();
+    }
+
+    record LocalScopeSnapshot(List<Map<String, IrLocal>> scopes) { }
+
+    LocalScopeSnapshot snapshotLocalScopes() {
+        return new LocalScopeSnapshot(localScopes.stream().map(Map::copyOf).toList());
+    }
+
+    /** Replace, rather than overlay, every local scope so absent names still resolve to globals/parameters. */
+    void withLocalScopes(LocalScopeSnapshot snapshot, Runnable action) {
+        var previous = new ArrayList<>(localScopes);
+        localScopes.clear();
+        snapshot.scopes().forEach(scope -> localScopes.addLast(new HashMap<>(scope)));
+        try {
+            action.run();
+        } finally {
+            localScopes.clear();
+            localScopes.addAll(previous);
+        }
     }
 
     IrLocal declareLocal(VarDeclStmt varDeclStmt) {
