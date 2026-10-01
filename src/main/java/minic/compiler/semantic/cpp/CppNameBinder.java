@@ -6523,7 +6523,10 @@ public final class CppNameBinder {
             if (owner != null) {
                 if (syntax.kind()==CppInitializer.Kind.DIRECT_LIST || arguments.isEmpty()) {
                     if(nonAggregate(owner)) report("CPP004",source.range(),"A non-aggregate class requires a viable constructor.");
-                    return aggregateObject(type,syntax,namespace,local,source.range());
+                    Expression value=aggregateObject(type,syntax,namespace,local,source.range());
+                    // Trivial same-type copying may return the source lvalue as an
+                    // initializer, but a construction expression has its own result object.
+                    return ObjectInitExpr.occursInResultOf(value)?value:recordPrvalue(type,value,source.range());
                 }
                 if(arguments.size()==1) {
                     Expression value=expression(arguments.getFirst(),namespace,local);
