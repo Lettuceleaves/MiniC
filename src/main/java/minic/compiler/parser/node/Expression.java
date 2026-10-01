@@ -13,6 +13,19 @@ import java.util.Optional;
  */
 public interface Expression extends AstNode {
 
+    /** Compiler-only, expression-scoped value capture; it does not create an addressable object. */
+    record LetExpr(String name, MiniType type, Expression initializer, Expression body, SourceRange range)
+            implements Expression {
+        public LetExpr {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(type, "type");
+            Objects.requireNonNull(initializer, "initializer");
+            Objects.requireNonNull(body, "body");
+            Objects.requireNonNull(range, "range");
+            if (name.isBlank()) throw new IllegalArgumentException("capture name must not be blank");
+        }
+    }
+
     record AssignmentExpr(
             Expression target,
             TokenType operator,

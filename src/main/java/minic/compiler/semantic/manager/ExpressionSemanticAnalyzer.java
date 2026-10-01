@@ -55,6 +55,7 @@ final class ExpressionSemanticAnalyzer {
     private FunctionDecl currentFunction;
     private MiniType aggregateInitTargetType;
     private int unevaluatedDepth;
+    private final Set<minic.compiler.semantic.model.Symbol> valueCaptures = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
 
     ExpressionSemanticAnalyzer(
             FunctionRegistry functionRegistry,
@@ -103,6 +104,7 @@ final class ExpressionSemanticAnalyzer {
                 case UTF32 -> MiniType.UNSIGNED_INT.pointerTo();
             };
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
+            case Expression.LetExpr capture -> analyzeCapture(capture, scope);
             case AssignmentExpr assignmentExpr -> analyzeAssignment(assignmentExpr, scope);
             case BinaryExpr binaryExpr -> {
                 MiniType leftType = analyzeExpression(binaryExpr.left(), scope);
@@ -161,6 +163,20 @@ final class ExpressionSemanticAnalyzer {
             report(castExpr.range(), "类型转换要求标量、指针或 void 目标类型");
         }
         return target;
+    }
+
+    private MiniType analyzeCapture(Expression.LetExpr capture, Scope scope) {
+        MiniType value = analyzeExpression(capture.initializer(), scope);
+        if ((!capture.type().isScalar() && !capture.type().isPointer())
+                || !TypeCompatibility.isAssignmentCompatible(capture.type(), value, capture.initializer())) {
+            report(capture.range(), "表达式的值与目标类型不兼容");
+        }
+        Scope bodyScope = Scope.detachedChild(scope, capture.range());
+        var symbol = new minic.compiler.semantic.model.Symbol(capture.name(), SymbolKind.VARIABLE, capture.range(),
+                MiniType.qualified(capture.type(), Set.of(MiniType.TypeQualifier.CONST)), null);
+        bodyScope.define(symbol);
+        valueCaptures.add(symbol);
+        return analyzeExpression(capture.body(), bodyScope);
     }
 
     private MiniType analyzeComma(CommaExpr commaExpr, Scope scope) {
@@ -228,6 +244,9 @@ final class ExpressionSemanticAnalyzer {
             return analyzeAddressOperand(groupingExpr.expression(), scope, range);
         }
         if (operand instanceof NameExpr nameExpr) {
+            if (scope.resolve(nameExpr.name()).filter(valueCaptures::contains).isPresent()) {
+                report(range, "内部值捕获不是可取址对象");
+            }
             if (scope.resolve(nameExpr.name()).filter(s -> s.kind() == SymbolKind.FUNCTION).isPresent()) {
                 // Ordinary expression lookup already decays functions to pointers. Address-of
                 // suppresses that decay so &f has the same type as the expression f.

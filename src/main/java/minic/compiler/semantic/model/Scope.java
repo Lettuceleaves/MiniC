@@ -41,11 +41,20 @@ public final class Scope {
      * @param range 作用域覆盖源码范围；未知时为 {@code null}
      */
     public Scope(Scope parent, SourceRange range) {
+        this(parent, range, true);
+    }
+
+    private Scope(Scope parent, SourceRange range, boolean visibleChild) {
         this.parent = parent;
         this.range = range;
-        if (parent != null) {
+        if (parent != null && visibleChild) {
             parent.children.add(this);
         }
+    }
+
+    /** Compiler-only expression bindings resolve parent symbols without appearing in source scope snapshots. */
+    public static Scope detachedChild(Scope parent, SourceRange range) {
+        return new Scope(Objects.requireNonNull(parent, "parent"), range, false);
     }
 
     /**

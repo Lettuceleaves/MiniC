@@ -13,6 +13,7 @@ import minic.compiler.parser.node.QualifiedName;
 import minic.compiler.parser.node.Statement;
 import minic.compiler.parser.node.Statement.*;
 import minic.compiler.type.MiniType;
+import minic.compiler.semantic.manager.TypeCompatibility;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -141,6 +142,7 @@ public final class CppNameBinder {
         private final Map<String, TypeEntity> coreTypes = new LinkedHashMap<>();
         private final Map<String, Entity> coreValues = new LinkedHashMap<>();
         private final IdentityHashMap<Expression, MiniType> declaredExpressionTypes = new IdentityHashMap<>();
+        private final IdentityHashMap<Expression, CppValueCategory> valueCategories = new IdentityHashMap<>();
         private final List<Declaration> declarations = new ArrayList<>();
         private final List<StructDecl> structs = new ArrayList<>();
         private final List<EnumDecl> enums = new ArrayList<>();
@@ -788,6 +790,11 @@ public final class CppNameBinder {
         }
 
         private Expression expression(Expression node, Namespace namespace, Local local) {
+            return expression(node, namespace, local, false);
+        }
+
+        /** Address-demand contexts preserve C++ object identity without an extra value read. */
+        private Expression expression(Expression node, Namespace namespace, Local local, boolean addressDemand) {
             if (node == null) return null;
             Expression core = switch (node) {
                 case ThisExpr n -> {
@@ -801,7 +808,7 @@ public final class CppNameBinder {
                 case QualifiedNameExpr n -> reference(n.name().segments().getLast(), n.range(),
                         resolveQualified(n.name(), namespace, local));
                 case AssignmentExpr n -> {
-                    Expression target = expression(n.target(), namespace, local);
+                    Expression target = expression(n.target(), namespace, local, true);
                     MiniType targetType = declaredExpressionType(target);
                     requireComplete(targetType, n.range());
                     if (objectType(targetType) != null && hasConstSubobject(targetType, new HashSet<>())) {
@@ -810,7 +817,9 @@ public final class CppNameBinder {
                     if (n.operator() == TokenType.PLUS_EQUAL || n.operator() == TokenType.MINUS_EQUAL) {
                         requireComplete(elementType(declaredExpressionType(target)), n.range());
                     }
-                    yield new AssignmentExpr(target, n.operator(), expression(n.value(), namespace, local), n.range());
+                    Expression value = expression(n.value(), namespace, local);
+                    AssignmentExpr assignment = new AssignmentExpr(target, n.operator(), value, n.range());
+                    yield normalizedAssignment(assignment, addressDemand);
                 }
                 case BinaryExpr n -> {
                     Expression left = expression(n.left(), namespace, local);
@@ -821,7 +830,34 @@ public final class CppNameBinder {
                     }
                     yield new BinaryExpr(left, n.operator(), right, n.range());
                 }
-                case ConditionalExpr n -> new ConditionalExpr(expression(n.condition(), namespace, local), expression(n.thenExpression(), namespace, local), expression(n.elseExpression(), namespace, local), n.range());
+                case ConditionalExpr n -> {
+                    Expression condition = expression(n.condition(), namespace, local);
+                    Expression first = expression(n.thenExpression(), namespace, local, addressDemand);
+                    Expression second = expression(n.elseExpression(), namespace, local, addressDemand);
+                    MiniType firstType = declaredExpressionType(first), secondType = declaredExpressionType(second);
+                    MiniType common = conditionalLvalueType(firstType, secondType);
+                    if (common != null && valueCategory(first) == CppValueCategory.LVALUE && valueCategory(second) == CppValueCategory.LVALUE) {
+                        if (addressDemand || common.isArray() || common.isFunction() || common.isStruct()) {
+                            // Aggregate values are represented by addresses. In this uncommon
+                            // path rebind compound lvalue arms for addresses, never evaluating them.
+                            if (!addressableObject(first)) first = expression(n.thenExpression(), namespace, local, true);
+                            if (!addressableObject(second)) second = expression(n.elseExpression(), namespace, local, true);
+                            if (addressableObject(first) && addressableObject(second)) {
+                                Expression selected = new ConditionalExpr(condition, qualifiedAddress(first, common),
+                                        qualifiedAddress(second, common), n.range());
+                                yield typed(new UnaryExpr(TokenType.STAR, selected, n.range()), common);
+                            }
+                        } else {
+                            // Value use of assignment/update must reuse its result, especially
+                            // for volatile objects. Keep the narrow glvalue type for sizeof too.
+                            Expression selected = new ConditionalExpr(condition, first, second, n.range());
+                            Expression value = typed(new CastExpr(coreType(common), selected, n.range()), common);
+                            valueCategories.put(value, CppValueCategory.LVALUE);
+                            yield value;
+                        }
+                    }
+                    yield new ConditionalExpr(condition, first, second, n.range());
+                }
                 case CallExpr n -> {
                     BoundCallee binding = bindCallee(n.callee(), namespace, local);
                     Expression callee = binding.expression();
@@ -858,9 +894,23 @@ public final class CppNameBinder {
                     declaredExpressionTypes.put(cast, type);
                     yield cast;
                 }
-                case CommaExpr n -> new CommaExpr(expressions(n.expressions(), namespace, local), n.range());
+                case CommaExpr n -> {
+                    List<Expression> values = new ArrayList<>();
+                    for (int index = 0; index < n.expressions().size(); index++) {
+                        values.add(expression(n.expressions().get(index), namespace, local,
+                                index == n.expressions().size() - 1 && addressDemand));
+                    }
+                    Expression last = values.getLast();
+                    MiniType lastType = declaredExpressionType(last);
+                    if (addressableObject(last) && (addressDemand || lastType != null && lastType.isFunction())) {
+                        values.set(values.size() - 1, address(last));
+                        yield typed(new UnaryExpr(TokenType.STAR, new CommaExpr(values, n.range()), n.range()),
+                                declaredExpressionType(last));
+                    }
+                    yield new CommaExpr(values, n.range());
+                }
                 case FieldAccessExpr n -> {
-                    Expression target = expression(n.target(), namespace, local);
+                    Expression target = expression(n.target(), namespace, local, !n.viaPointer());
                     MiniType owner = declaredExpressionType(target);
                     owner = n.viaPointer() ? elementType(owner) : owner;
                     requireComplete(owner, n.range());
@@ -871,21 +921,29 @@ public final class CppNameBinder {
                     } else requireAccessible(owner, n.fieldName(), n.range(), "数据成员访问");
                     yield new FieldAccessExpr(target, n.fieldName(), n.viaPointer(), n.range());
                 }
-                case GroupingExpr n -> new GroupingExpr(expression(n.expression(), namespace, local), n.range());
+                case GroupingExpr n -> new GroupingExpr(expression(n.expression(), namespace, local, addressDemand), n.range());
                 case IndexExpr n -> {
-                    Expression target = expression(n.target(), namespace, local);
+                    Expression target = expression(n.target(), namespace, local, true);
                     requireComplete(elementType(declaredExpressionType(target)), n.range());
                     yield new IndexExpr(target, expression(n.index(), namespace, local), n.range());
                 }
                 case UnaryExpr n -> {
-                    Expression operand = expression(n.operand(), namespace, local);
+                    boolean update = n.operator() == TokenType.PLUS_PLUS || n.operator() == TokenType.MINUS_MINUS;
+                    Expression operand = expression(n.operand(), namespace, local, update || n.operator() == TokenType.AMPERSAND);
                     if (n.operator() == TokenType.PLUS_PLUS || n.operator() == TokenType.MINUS_MINUS) {
                         requireUpdateOperand(operand, n.range());
+                    }
+                    if (update && addressDemand && addressableObject(operand) && declaredExpressionType(operand) != null) {
+                        MiniType type = declaredExpressionType(operand);
+                        Capture pointer = capture(type.pointerTo(), address(operand), n.range());
+                        Expression target = typed(new UnaryExpr(TokenType.STAR, pointer.name(), operand.range()), type);
+                        Expression body = new CommaExpr(List.of(new UnaryExpr(n.operator(), target, n.range()), pointer.name()), n.range());
+                        yield typed(new UnaryExpr(TokenType.STAR, pointer.wrap(body), n.range()), type);
                     }
                     yield new UnaryExpr(n.operator(), operand, n.range());
                 }
                 case PostfixUpdateExpr n -> {
-                    Expression target = expression(n.target(), namespace, local);
+                    Expression target = expression(n.target(), namespace, local, true);
                     requireUpdateOperand(target, n.range());
                     yield new PostfixUpdateExpr(target, n.operator(), n.range());
                 }
@@ -932,12 +990,78 @@ public final class CppNameBinder {
                     yield node;
                 }
             };
+            CppValueCategory category = node instanceof AssignmentExpr
+                    || node instanceof UnaryExpr unary && (unary.operator() == TokenType.PLUS_PLUS || unary.operator() == TokenType.MINUS_MINUS)
+                    ? CppValueCategory.LVALUE : valueCategory(core);
+            valueCategories.put(node, category);
+            valueCategories.put(core, category);
             return mapped(node, core);
         }
 
         /** The cast preserves this's prvalue nature while using the ordinary pointer ABI. */
         private Expression thisValue(SourceRange range) {
             return new CastExpr(currentThis.type, new NameExpr(currentThis.coreName, range), range);
+        }
+
+        private record Capture(NameExpr name, MiniType type, Expression initializer, SourceRange range) {
+            Expression wrap(Expression body) { return new LetExpr(name.name(), type, initializer, body, range); }
+            Expression wrap(Expression body, SourceRange sourceRange) {
+                return new LetExpr(name.name(), type, initializer, body, sourceRange);
+            }
+        }
+
+        private Capture capture(MiniType type, Expression initializer, SourceRange range) {
+            MiniType valueType = type.unqualified();
+            NameExpr name = typed(new NameExpr(freshName("<expression value>"), range), valueType);
+            return new Capture(name, coreType(valueType), initializer, range);
+        }
+
+        private <T extends Expression> T typed(T expression, MiniType type) {
+            declaredExpressionTypes.put(expression, type);
+            return expression;
+        }
+
+        private Expression address(Expression value) {
+            MiniType type = declaredExpressionType(value);
+            return typed(new UnaryExpr(TokenType.AMPERSAND, value, value.range()), type == null ? null : type.pointerTo());
+        }
+
+        private Expression qualifiedAddress(Expression value, MiniType commonType) {
+            Expression address = address(value);
+            return commonType.equals(declaredExpressionType(value)) ? address
+                    : typed(new CastExpr(coreType(commonType).pointerTo(), address, value.range()), commonType.pointerTo());
+        }
+
+        /** Capture the RHS before the LHS address; the original assignment still checks conversions/operators. */
+        private Expression normalizedAssignment(AssignmentExpr assignment, boolean addressDemand) {
+            MiniType targetType = declaredExpressionType(assignment.target());
+            MiniType valueType = declaredExpressionType(assignment.value());
+            if (targetType == null || valueType == null || !addressableObject(assignment.target())) return assignment;
+            boolean aggregate = valueType.isStruct();
+            if (aggregate && !addressDemand && assignment.compoundBinaryOperator().isEmpty()) return assignment;
+            if (aggregate && !addressableObject(assignment.value())) {
+                report("CPP005", assignment.range(), "此赋值结果的引用绑定需要临时聚合对象物化。");
+                return assignment;
+            }
+            Expression value = aggregate ? address(assignment.value()) : assignment.value();
+            MiniType capturedType = aggregate ? valueType.pointerTo()
+                    : assignment.compoundBinaryOperator().isEmpty() && !targetType.isArray()
+                    ? targetType.unqualified() : TypeCompatibility.decay(valueType);
+            Capture rhs = capture(capturedType, value, assignment.value().range());
+            if (!addressDemand && assignment.compoundBinaryOperator().isEmpty()) {
+                return typed(rhs.wrap(new AssignmentExpr(assignment.target(), assignment.operator(), rhs.name(), assignment.range()),
+                        assignment.range()), targetType);
+            }
+            Capture lhs = capture(targetType.pointerTo(), address(assignment.target()), assignment.target().range());
+            Expression target = typed(new UnaryExpr(TokenType.STAR, lhs.name(), assignment.target().range()), targetType);
+            Expression rhsValue = aggregate ? typed(new UnaryExpr(TokenType.STAR, rhs.name(), value.range()), valueType) : rhs.name();
+            // Keep the compound operator for core validation; a cast must not turn
+            // an invalid implicit write-back (for example int += pointer) into a legal one.
+            Expression store = new AssignmentExpr(target, assignment.operator(), rhsValue, assignment.range());
+            Expression body = addressDemand ? new CommaExpr(List.of(store, lhs.name()), assignment.range()) : store;
+            Expression result = rhs.wrap(lhs.wrap(body), assignment.range());
+            return addressDemand ? typed(new UnaryExpr(TokenType.STAR, result, assignment.range()), targetType)
+                    : typed(result, targetType);
         }
 
         private Expression simpleReference(String name, SourceRange range, Namespace namespace, Local local) {
@@ -978,7 +1102,7 @@ public final class CppNameBinder {
                     return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
                 }
             } else if (designator instanceof FieldAccessExpr field) {
-                Expression target = expression(field.target(), namespace, local);
+                Expression target = expression(field.target(), namespace, local, !field.viaPointer());
                 MiniType owner = declaredExpressionType(target);
                 owner = field.viaPointer() ? elementType(owner) : owner;
                 requireComplete(owner, field.range());
@@ -1026,6 +1150,16 @@ public final class CppNameBinder {
             return false;
         }
 
+        /** Logical source category is independent of whether core C requires an address rewrite. */
+        private CppValueCategory valueCategory(Expression node) {
+            CppValueCategory known = valueCategories.get(node);
+            if (known != null) return known;
+            if (node instanceof GroupingExpr group) return valueCategory(group.expression());
+            if (node instanceof CommaExpr comma) return valueCategory(comma.expressions().getLast());
+            if (addressableObject(node)) return CppValueCategory.LVALUE;
+            return CppValueCategory.PRVALUE;
+        }
+
         private Method memberMethod(MiniType owner, String name) {
             TypeEntity type = objectType(owner);
             return type == null ? null : type.methods.get(name);
@@ -1047,15 +1181,35 @@ public final class CppNameBinder {
         }
 
         /**
-         * Follows declared aggregate/pointer identity at this source position. This is not the
-         * scalar expression typer: promotions, conversions and invalid operators remain core
-         * semantic checks. In particular an incomplete pointee is harmless until an operation
+         * Tracks source types at this declaration position and builtin expression result types
+         * needed by value captures. Operator/conversion validity remains a core semantic check.
+         * In particular an incomplete pointee is harmless until an operation
          * requires its object layout, and later definitions cannot change an earlier check.
          */
         private MiniType declaredExpressionType(Expression expression) {
             if (expression == null) return null;
             if (declaredExpressionTypes.containsKey(expression)) return declaredExpressionTypes.get(expression);
             MiniType type = switch (expression) {
+                case BoolLiteralExpr ignored -> MiniType.BOOL;
+                case CharLiteralExpr character -> switch (character.encoding()) {
+                    case ORDINARY, UTF8 -> MiniType.CHAR;
+                    case UTF16 -> MiniType.UNSIGNED_SHORT;
+                    case UTF32 -> MiniType.UNSIGNED_INT;
+                };
+                case IntegerLiteralExpr ignored -> MiniType.INT;
+                case IntegerConstantExpr integer -> integer.type();
+                case LongLiteralExpr ignored -> MiniType.LONG;
+                case FloatLiteralExpr ignored -> MiniType.FLOAT;
+                case DoubleLiteralExpr ignored -> MiniType.DOUBLE;
+                case NullLiteralExpr ignored -> MiniType.NULL;
+                case StringLiteralExpr string -> switch (string.encoding()) {
+                    case ORDINARY, UTF8 -> MiniType.CHAR.pointerTo();
+                    case UTF16 -> MiniType.UNSIGNED_SHORT.pointerTo();
+                    case UTF32 -> MiniType.UNSIGNED_INT.pointerTo();
+                };
+                case SizeofExpr ignored -> MiniType.UNSIGNED_LONG_LONG;
+                case AlignofExpr ignored -> MiniType.UNSIGNED_LONG_LONG;
+                case LetExpr capture -> declaredExpressionType(capture.body());
                 case NameExpr name -> coreValues.containsKey(name.name()) ? coreValues.get(name.name()).type : null;
                 case GroupingExpr group -> declaredExpressionType(group.expression());
                 case CastExpr cast -> cast.targetType();
@@ -1071,7 +1225,8 @@ public final class CppNameBinder {
                     if (binary.operator() == TokenType.PLUS && leftPointer != rightPointer) {
                         yield elementType(leftPointer ? left : right).pointerTo();
                     }
-                    yield binary.operator() == TokenType.MINUS && leftPointer && !rightPointer ? elementType(left).pointerTo() : null;
+                    if (binary.operator() == TokenType.MINUS && leftPointer && !rightPointer) yield elementType(left).pointerTo();
+                    yield left == null || right == null ? null : TypeCompatibility.binaryResultType(left, right, binary.operator());
                 }
                 case UnaryExpr unary -> {
                     MiniType operand = declaredExpressionType(unary.operand());
@@ -1079,6 +1234,9 @@ public final class CppNameBinder {
                         case STAR -> operand != null && operand.isFunction() ? operand : elementType(operand);
                         case AMPERSAND -> operand == null ? null : operand.pointerTo();
                         case PLUS_PLUS, MINUS_MINUS -> operand;
+                        case BANG -> MiniType.INT;
+                        case TILDE, PLUS, MINUS -> operand == null ? null
+                                : operand.isIntegerScalar() ? TypeCompatibility.integerPromotion(operand) : operand;
                         default -> null;
                     };
                 }
@@ -1103,6 +1261,7 @@ public final class CppNameBinder {
             if (first == null) return second;
             if (second == null) return first;
             if (first.unqualified().equals(second.unqualified())) return inheritObjectQualifiers(second, first);
+            if (first.isScalar() && second.isScalar()) return TypeCompatibility.conditionalResultType(first, second);
             if (first.isPointer() && second.isPointer()) {
                 MiniType a = elementType(first), b = elementType(second);
                 if (a.isVoid() || b.isVoid()) return MiniType.VOID.pointerTo();
@@ -1110,6 +1269,15 @@ public final class CppNameBinder {
                 if (common != null) return common.pointerTo();
             }
             return null;
+        }
+
+        private MiniType conditionalLvalueType(MiniType first, MiniType second) {
+            if (first == null || second == null) return null;
+            if (first.isArray() && second.isArray() && first.arrayLength() == second.arrayLength()) {
+                MiniType element = conditionalLvalueType(elementType(first), elementType(second));
+                return element == null ? null : element.arrayOf(first.arrayLength());
+            }
+            return first.unqualified().equals(second.unqualified()) ? inheritObjectQualifiers(first, second) : null;
         }
 
         private MiniType elementType(MiniType type) {
@@ -1215,7 +1383,7 @@ public final class CppNameBinder {
                 Expression address = bindReference(reference, list.values().getFirst(), namespace, local, range);
                 return mapped(list, new GroupingExpr(address, list.range()));
             }
-            Expression value = expression(sourceNode, namespace, local);
+            Expression value = expression(sourceNode, namespace, local, true);
             MiniType target = reference.referent();
             MiniType actual = declaredExpressionType(value);
             if (!addressableObject(value)) {

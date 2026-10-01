@@ -4,7 +4,7 @@ import minic.compiler.lexer.token.TokenType;
 import minic.compiler.parser.node.Expression;
 import minic.compiler.type.MiniType;
 
-final class TypeCompatibility {
+public final class TypeCompatibility {
     private TypeCompatibility() {
     }
 
@@ -76,7 +76,7 @@ final class TypeCompatibility {
         return type.isIntegerScalar();
     }
 
-    static MiniType binaryResultType(MiniType leftType, MiniType rightType, TokenType operator) {
+    public static MiniType binaryResultType(MiniType leftType, MiniType rightType, TokenType operator) {
         leftType = decay(leftType);
         rightType = decay(rightType);
         if (isLogical(operator)) {
@@ -132,7 +132,7 @@ final class TypeCompatibility {
         return isAssignmentCompatible(thenType, elseType) || isAssignmentCompatible(elseType, thenType);
     }
 
-    static MiniType conditionalResultType(MiniType thenType, MiniType elseType) {
+    public static MiniType conditionalResultType(MiniType thenType, MiniType elseType) {
         thenType = decay(thenType);
         elseType = decay(elseType);
         if (thenType.isScalar() && elseType.isScalar()) {
@@ -201,7 +201,7 @@ final class TypeCompatibility {
         return unsignedCounterpart(signedType);
     }
 
-    static MiniType integerPromotion(MiniType type) {
+    public static MiniType integerPromotion(MiniType type) {
         type = type.unqualified();
         if (!type.isIntegerScalar()) {
             return type;
@@ -229,7 +229,7 @@ final class TypeCompatibility {
     }
 
     /** Arrays and function designators decay only in value contexts; queries and address-of keep their types. */
-    static MiniType decay(MiniType type) {
+    public static MiniType decay(MiniType type) {
         MiniType unqualified = type.unqualified();
         return unqualified instanceof MiniType.ArrayType arrayType
                 ? qualifiedElementType(type, arrayType.elementType()).pointerTo()

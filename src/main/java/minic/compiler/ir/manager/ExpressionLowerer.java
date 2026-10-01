@@ -69,6 +69,7 @@ final class ExpressionLowerer {
     private final Map<String, MiniType> globalTypes;
     private final boolean variadicFunction;
     private final int firstVariadicArgumentIndex;
+    private final Map<String, IrValue> capturedValues = new java.util.HashMap<>();
 
     ExpressionLowerer(
             IrFunctionBuilder builder,
@@ -91,6 +92,17 @@ final class ExpressionLowerer {
     }
 
     IrValue lowerExpression(Expression expression) {
+        if (expression instanceof Expression.LetExpr capture) {
+            IrValue value = captureCallValue(castIfNeeded(lowerExpression(capture.initializer()),
+                    IrTypeLowerer.lower(capture.type()), capture.initializer().range()), capture.range());
+            IrValue previous = capturedValues.put(capture.name(), value);
+            try {
+                return lowerExpression(capture.body());
+            } finally {
+                if (previous == null) capturedValues.remove(capture.name());
+                else capturedValues.put(capture.name(), previous);
+            }
+        }
         if (expression instanceof VaStartExpr vaStartExpr) {
             return lowerVaStart(vaStartExpr);
         }
@@ -141,6 +153,7 @@ final class ExpressionLowerer {
             return result;
         }
         if (expression instanceof NameExpr nameExpr) {
+            if (capturedValues.containsKey(nameExpr.name())) return capturedValues.get(nameExpr.name());
             MiniType nameType = expressionTypes.get(nameExpr);
             if (nameType != null && nameType.isPointer() && nameType.pointee().isFunction()) {
                 IrLocal local = builder.resolveLocal(nameExpr.name());
@@ -435,8 +448,9 @@ final class ExpressionLowerer {
         if (pointerResult != null) {
             return pointerResult;
         }
-        IrTemporary result = builder.newTemporary(irTypeOf(assignmentExpr));
-        IrType operandType = arithmeticOperandType(currentValue.type(), value.type(), result.type(), binaryOperator);
+        IrType targetType = irTypeOf(assignmentExpr);
+        IrType operandType = arithmeticOperandType(currentValue.type(), value.type(), targetType, binaryOperator);
+        IrTemporary result = builder.newTemporary(operandType);
         currentValue = castIfNeeded(currentValue, operandType, assignmentExpr.target().range());
         value = castIfNeeded(value, operandType, assignmentExpr.value().range());
         if (binaryOperator == TokenType.SLASH || binaryOperator == TokenType.PERCENT) {
@@ -449,7 +463,7 @@ final class ExpressionLowerer {
                 value,
                 assignmentExpr.range()
         ));
-        return result;
+        return castIfNeeded(result, targetType, assignmentExpr.range());
     }
 
     private IrValue lowerLogicalBinary(BinaryExpr binaryExpr) {
@@ -903,6 +917,9 @@ final class ExpressionLowerer {
             return lowerAddress(groupingExpr.expression());
         }
         if (expression instanceof NameExpr nameExpr) {
+            if (capturedValues.containsKey(nameExpr.name())) {
+                throw new IllegalArgumentException("value capture has no object address: " + nameExpr.name());
+            }
             IrLocal local = builder.resolveLocal(nameExpr.name());
             if (local == null) {
                 var parameter = builder.findParameter(nameExpr.name());

@@ -422,6 +422,10 @@ public final class SemanticAnalyzer extends Stage {
                 appendVisitNode(assignmentExpr.target(), nodes);
                 appendVisitNode(assignmentExpr.value(), nodes);
             }
+            case Expression.LetExpr capture -> {
+                appendVisitNode(capture.initializer(), nodes);
+                appendVisitNode(capture.body(), nodes);
+            }
             case BinaryExpr binaryExpr -> {
                 appendVisitNode(binaryExpr.left(), nodes);
                 appendVisitNode(binaryExpr.right(), nodes);
@@ -455,7 +459,11 @@ public final class SemanticAnalyzer extends Stage {
     }
 
     private void appendVisitNode(Object node, ArrayList<Object> nodes) {
-        nodes.add(node);
+        // Normalization may insert value captures and address operations. Visit their
+        // children, but expose only original source nodes in C++ stepping actions.
+        if (sourceProgram.languageMode() != LanguageMode.CPP17_ALGORITHM || coreToSource.containsKey(node)) {
+            nodes.add(node);
+        }
         appendChildNodes(node, nodes);
     }
 

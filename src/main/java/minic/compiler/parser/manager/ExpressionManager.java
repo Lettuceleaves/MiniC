@@ -112,6 +112,9 @@ public final class ExpressionManager {
     }
 
     private boolean isAssignmentTarget(Expression expression) {
+        // C++ lvalue results (calls returning references, comma, conditional and
+        // assignment expressions) are classified after name/type binding.
+        if (state.languageMode() == LanguageMode.CPP17_ALGORITHM) return expression != null;
         if (expression instanceof GroupingExpr grouping) {
             return isAssignmentTarget(grouping.expression());
         }
@@ -131,7 +134,8 @@ public final class ExpressionManager {
         }
         Expression thenExpression = parseExpression();
         state.consume(TokenType.COLON, "期望 ':'");
-        Expression elseExpression = parseConditional();
+        Expression elseExpression = state.languageMode() == LanguageMode.CPP17_ALGORITHM
+                ? parseAssignment() : parseConditional();
         if (condition == null || thenExpression == null || elseExpression == null) {
             return condition;
         }

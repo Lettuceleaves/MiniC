@@ -33,6 +33,7 @@ public final class AstChildren {
             case SwitchStmt n -> prepend(n.selector(), n.cases());
             case SwitchCase n -> prepend(n.value(), n.statements());
             case AssignmentExpr n -> present(n.target(), n.value());
+            case LetExpr n -> present(n.initializer(), n.body());
             case BinaryExpr n -> present(n.left(), n.right());
             case ConditionalExpr n -> present(n.condition(), n.thenExpression(), n.elseExpression());
             case CastExpr n -> present(n.operand());
@@ -103,6 +104,7 @@ public final class AstChildren {
             case VarDeclStmt n -> n.type();
             case TypedefStmt n -> n.type();
             case CastExpr n -> n.targetType();
+            case LetExpr n -> n.type();
             case SizeofExpr n -> n.queriedType();
             case AlignofExpr n -> n.queriedType();
             case VaArgExpr n -> n.requestedType();
