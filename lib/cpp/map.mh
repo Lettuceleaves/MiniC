@@ -101,6 +101,15 @@ public:
     iterator upper_bound(const Key& key){return tree_.upper_bound(key);} const_iterator upper_bound(const Key& key) const{return tree_.upper_bound(key);}
     pair<iterator,iterator> equal_range(const Key& key){return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
     pair<const_iterator,const_iterator> equal_range(const Key& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
+    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> size_type count(const K& key) const{return tree_.count(key);}
+    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator find(const K& key){return tree_.find(key);}
+    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator find(const K& key) const{return tree_.find(key);}
+    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator lower_bound(const K& key){return tree_.lower_bound(key);}
+    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator lower_bound(const K& key) const{return tree_.lower_bound(key);}
+    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator upper_bound(const K& key){return tree_.upper_bound(key);}
+    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator upper_bound(const K& key) const{return tree_.upper_bound(key);}
+    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> pair<iterator,iterator> equal_range(const K& key){return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
+    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> pair<const_iterator,const_iterator> equal_range(const K& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
     Compare key_comp() const{return tree_.key_comp();} value_compare value_comp() const{return value_compare(tree_.key_comp());}
 };
 template<class K,class T,class C> void swap(map<K,T,C>& a,map<K,T,C>& b) noexcept(noexcept(a.swap(b))) {a.swap(b);}

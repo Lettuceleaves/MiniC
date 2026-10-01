@@ -5,6 +5,12 @@
 #include "functional.mh"
 #include "initializer_list.mh"
 namespace std {
+// Defer Compare::is_transparent until the lookup member template is substituted.
+// Any valid nested type qualifies, not only a typedef of void.
+template<class T> struct __minic_lookup_void { typedef void type; };
+template<class Compare,class K,class=void> struct __minic_transparent_lookup {};
+template<class Compare,class K> struct __minic_transparent_lookup<Compare,K,
+    typename __minic_lookup_void<typename Compare::is_transparent>::type> { typedef void type; };
 // Leaves are null. The red header owns the root and caches both extrema.
 struct __minic_rb_node {
     __minic_rb_node* parent;

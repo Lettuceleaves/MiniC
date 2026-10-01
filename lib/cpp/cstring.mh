@@ -2,6 +2,7 @@
 #define MINIC_CPP_CSTRING_MH
 #include <string.h>
 namespace std {
+using ::size_t;
 using ::memcpy;
 using ::memmove;
 using ::memcmp;
@@ -10,15 +11,25 @@ using ::strncpy;
 using ::strcat;
 using ::strncat;
 using ::strcmp;
+using ::strcoll;
+using ::strxfrm;
+using ::strerror;
 using ::strncmp;
 using ::strlen;
-using ::strchr;
-using ::strrchr;
-using ::strstr;
 using ::strspn;
 using ::strcspn;
-using ::strpbrk;
 using ::strtok;
 using ::memset;
+// Preserve the cv-qualification of the searched object in the C++ API.
+const void* memchr(const void* text,int value,size_t count){return ::memchr(text,value,count);}
+void* memchr(void* text,int value,size_t count){return ::memchr(text,value,count);}
+const char* strchr(const char* text,int value){return ::strchr(text,value);}
+char* strchr(char* text,int value){return ::strchr(text,value);}
+const char* strrchr(const char* text,int value){return ::strrchr(text,value);}
+char* strrchr(char* text,int value){return ::strrchr(text,value);}
+const char* strpbrk(const char* text,const char* accept){return ::strpbrk(text,accept);}
+char* strpbrk(char* text,const char* accept){return ::strpbrk(text,accept);}
+const char* strstr(const char* text,const char* needle){return ::strstr(text,needle);}
+char* strstr(char* text,const char* needle){return ::strstr(text,needle);}
 }
 #endif

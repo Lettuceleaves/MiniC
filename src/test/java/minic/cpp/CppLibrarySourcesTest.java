@@ -55,7 +55,13 @@ final class CppLibrarySourcesTest {
         Arguments.of("library-math/float-overloads.cpp",""),
         Arguments.of("library-math/promoted-overloads.cpp",""),
         Arguments.of("library-math/float-exponent.cpp",""),
-        Arguments.of("library-math/cstdlib-abs.cpp","")
+        Arguments.of("library-math/cstdlib-abs.cpp",""),
+        Arguments.of("library-lookup/cstring-contract.cpp",""),
+        Arguments.of("library-lookup/model-types.cpp",""),
+        Arguments.of("library-lookup/map-transparent.cpp",""),
+        Arguments.of("library-lookup/set-transparent.cpp",""),
+        Arguments.of("library-lookup/lookup-participation.cpp",""),
+        Arguments.of("library-lookup/nullptr-stream.cpp","")
     );}
     @ParameterizedTest(name="{0}") @MethodSource("programs")
     void libraryProgramsAgree(String name,String input)throws Exception{
@@ -78,7 +84,10 @@ final class CppLibrarySourcesTest {
         "library-contract/negative/pair-const-swap.cpp",
         "library-contract/negative/pair-explicit-copy-list.cpp",
         "library-contract/negative/pair-explicit-default-list.cpp",
-        "library-contract/negative/addressof-temporary.cpp"
+        "library-contract/negative/addressof-temporary.cpp",
+        "library-lookup/negative/cstring-const-write.cpp",
+        "library-lookup/negative/opaque-map-lookup.cpp",
+        "library-lookup/negative/opaque-set-lookup.cpp"
     );}
     @ParameterizedTest(name="reject {0}") @MethodSource("rejectedPrograms")
     void invalidLibraryProgramsAreRejected(String name)throws Exception{

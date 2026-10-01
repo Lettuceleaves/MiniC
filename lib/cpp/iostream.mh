@@ -6,6 +6,7 @@
 #include <float.h>
 #include <string.h>
 #include "string.mh"
+#include "cstddef.mh"
 namespace std {
 typedef long long streamsize;
 class ios {
@@ -120,6 +121,7 @@ public:
     ostream& write(const char* text,streamsize n){if(tied_)tied_->flush();if(!fail() && n>0)raw(text,n);if(flags()&ios::unitbuf)flush();return *this;}
     ostream& operator<<(ostream& (*manip)(ostream&)){return manip(*this);}
     ostream& operator<<(ios& (*manip)(ios&)){manip(state_);return *this;}
+    ostream& operator<<(nullptr_t){return *this<<"nullptr";}
     ostream& operator<<(const char* text){if(!text){state_.setstate(ios::badbit);return *this;}return formatted(text,::strlen(text),false);}
     ostream& operator<<(const signed char* text){return *this<<(const char*)text;}
     ostream& operator<<(const unsigned char* text){return *this<<(const char*)text;}
