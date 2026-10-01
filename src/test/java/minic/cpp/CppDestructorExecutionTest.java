@@ -219,13 +219,13 @@ final class CppDestructorExecutionTest {
         assertTrue(semantic.succeeded(),()->semantic.errors().toString());
     }
 
-    @ParameterizedTest @org.junit.jupiter.params.provider.ValueSource(strings={
-            "struct T{~T(){}}; T global; int main(){return 0;}",
-            "struct T{~T(){}}; int main(){T array[2];return 0;}"
-    })
-    void deferredLifetimeFormsCannotSilentlyOmitDestruction(String source) {
-        var api=compiler(source);var semantic=stage(api,SemanticAnalyzer.class);api.runThrough(semantic);
-        assertTrue(semantic.errors().stream().anyMatch(d->d.code().equals("CPP005")),()->semantic.errors().toString());
+    @Test void globalAndArrayLifetimesRunTheirDestructorsInReverseOrder() throws Exception {
+        agree(temporary,"global-and-array-destruction","""
+                #include <stdio.h>
+                struct T {int id;T(int value):id(value){} ~T(){printf("D%d ",id);}};
+                T first(1);T second(2);
+                int main(){T array[2]={T(3),T(4)};printf("body ");return 0;}
+                ""","body D4 D3 D2 D1 ");
     }
 
     @Test void destructorSourceIdentityMapsToOneMutableReceiverAndVoidCoreFunction() {
