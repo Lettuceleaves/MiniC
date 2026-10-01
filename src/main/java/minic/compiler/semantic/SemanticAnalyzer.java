@@ -428,6 +428,10 @@ public final class SemanticAnalyzer extends Stage {
             }
             case Expression.MaterializeExpr temporary -> appendVisitNode(temporary.initializer(), nodes);
             case Expression.ObjectInitExpr construction -> appendVisitNode(construction.body(), nodes);
+            case Expression.InitializeExpr initialization -> {
+                appendVisitNode(initialization.target(), nodes);
+                appendVisitNode(initialization.value(), nodes);
+            }
             case BinaryExpr binaryExpr -> {
                 appendVisitNode(binaryExpr.left(), nodes);
                 appendVisitNode(binaryExpr.right(), nodes);

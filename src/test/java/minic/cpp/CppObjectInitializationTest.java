@@ -234,6 +234,86 @@ final class CppObjectInitializationTest {
         agree(ir,7);
     }
 
+    @Test void firstInitializationWritesConstMembersWithoutRelaxingOrdinaryAssignment() throws Exception {
+        MiniType constant = MiniType.qualified(MiniType.INT,Set.of(MiniType.TypeQualifier.CONST));
+        var record = new StructDecl("Box",List.of(new StructField("value",constant,R),new StructField("self",BOX.pointerTo(),R)),R);
+        var initial = new ObjectInitExpr(BOX,"destination",new CommaExpr(List.of(
+                new InitializeExpr(field("destination","value",true),integer(7),R),
+                new InitializeExpr(field("destination","self",true),name("destination"),R)),R),R);
+        var statements = List.<Statement>of(new VarDeclStmt("object",BOX,initial,R),
+                new ReturnStmt(sum(field("object","value",false),product(integer(100),
+                        equals(field("object","self",false),address(name("object"))))),R));
+        var original = program(statements);
+        var ir = lower(new Program(List.of(record),List.of(original.functions().getLast()),R));
+        assertNoCopies(ir);agree(ir,107);
+        var bad = new ArrayList<>(statements);
+        bad.add(1,new ExprStmt(new AssignmentExpr(field("object","value",false),TokenType.EQUAL,integer(9),R),R));
+        assertFalse(analyze(new Program(List.of(record),List.of(program(bad).functions().getLast()),R)).succeeded());
+    }
+
+    @Test void initializationFormsTheDestinationAddressBeforeEvaluatingItsValueExactlyOnce() throws Exception {
+        var destination = new UnaryExpr(TokenType.STAR,new CommaExpr(List.of(
+                new UnaryExpr(TokenType.PLUS_PLUS,name("count"),R),address(name("value"))),R),R);
+        var initial = new InitializeExpr(destination,new UnaryExpr(TokenType.PLUS_PLUS,name("count"),R),R);
+        assertEquals(List.of(destination,initial.value()),AstChildren.of(initial));
+        var ir = lower(program(List.of(new VarDeclStmt("count",MiniType.INT,integer(0),R),
+                new VarDeclStmt("value",MiniType.INT,null,R),new ExprStmt(initial,R),
+                new ReturnStmt(sum(product(name("count"),integer(10)),name("value")),R))));
+        agree(ir,22);
+    }
+
+    @Test void initializingARecordSubobjectSuppliesItsFinalAddressToItsConstructor() throws Exception {
+        var initial = new InitializeExpr(new GroupingExpr(name("object"),R),initialize(7),R);
+        var ir = lower(program(List.of(new VarDeclStmt("object",BOX,null,R),new ExprStmt(initial,R),
+                new ReturnStmt(sum(field("object","value",false),product(integer(100),
+                        equals(field("object","self",false),address(name("object"))))),R))));
+        assertNoCopies(ir);assertEquals(1,declarations(ir));agree(ir,107);
+    }
+
+    @Test void pointerSlotInitializationPreservesTheReferredObjectAddress() throws Exception {
+        var ir = lower(program(List.of(new VarDeclStmt("value",MiniType.INT,integer(3),R),
+                new VarDeclStmt("slot",MiniType.INT.pointerTo(),null,R),
+                new ExprStmt(new InitializeExpr(name("slot"),address(name("value")),R),R),
+                new ExprStmt(new AssignmentExpr(new UnaryExpr(TokenType.STAR,name("slot"),R),TokenType.EQUAL,integer(8),R),R),
+                new ReturnStmt(name("value"),R))));
+        agree(ir,8);
+    }
+
+    @Test void initializationRejectsNonobjectsArraysAndIncompatibleValues() {
+        for (InitializeExpr initial : List.of(new InitializeExpr(integer(3),integer(7),R),
+                new InitializeExpr(name("array"),integer(7),R),
+                new InitializeExpr(name("object"),integer(7),R))) {
+            var result = analyze(program(List.of(new VarDeclStmt("array",MiniType.INT.arrayOf(2),null,R),
+                    new VarDeclStmt("object",BOX,null,R),new ExprStmt(initial,R),new ReturnStmt(integer(0),R))));
+            assertFalse(result.succeeded());
+        }
+    }
+
+    @Test void initializationSnapshotsAParameterDestinationBeforeItsValueChangesThatParameter() throws Exception {
+        var initial = new InitializeExpr(new UnaryExpr(TokenType.STAR,name("target"),R),
+                new CommaExpr(List.of(new AssignmentExpr(name("target"),TokenType.EQUAL,name("replacement"),R),integer(7)),R),R);
+        var rewrite = new FunctionDecl("rewrite",MiniType.VOID,List.of(new Parameter("target",MiniType.INT.pointerTo(),R),
+                new Parameter("replacement",MiniType.INT.pointerTo(),R)),false,
+                new BlockStmt(List.of(new ExprStmt(initial,R),new ReturnStmt(null,R)),R),false,R);
+        var base = program(List.of(new VarDeclStmt("value",MiniType.INT,integer(3),R),
+                new VarDeclStmt("other",MiniType.INT,integer(5),R),
+                new ExprStmt(new CallExpr(name("rewrite"),List.of(address(name("value")),address(name("other"))),R),R),
+                new ReturnStmt(sum(product(name("value"),integer(10)),name("other")),R)));
+        var functions = new ArrayList<>(base.functions());functions.add(1,rewrite);
+        agree(lower(new Program(base.structs(),functions,R)),75);
+    }
+
+    @Test void initializingFromAnExistingRecordCopiesItsValueWithoutReconstructingItsPointers() throws Exception {
+        var constant = MiniType.qualified(BOX,Set.of(MiniType.TypeQualifier.CONST));
+        var ir = lower(program(List.of(new VarDeclStmt("original",BOX,initialize(3),R),
+                new VarDeclStmt("copy",constant,null,R),
+                new ExprStmt(new InitializeExpr(name("copy"),name("original"),R),R),
+                new ExprStmt(new AssignmentExpr(field("original","value",false),TokenType.EQUAL,integer(9),R),R),
+                new ReturnStmt(sum(field("copy","value",false),product(integer(100),
+                        equals(field("copy","self",false),address(name("original"))))),R))));
+        agree(ir,103);
+    }
+
     private static ObjectInitExpr initialize(int value) { return initialize(integer(value)); }
     private static ObjectInitExpr initialize(Expression value) {
         return new ObjectInitExpr(BOX,"destination",new CallExpr(name("construct"),List.of(name("destination"),value),R),R);

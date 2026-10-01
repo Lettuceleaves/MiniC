@@ -44,6 +44,7 @@ public final class AstChildren {
             case LetExpr n -> present(n.initializer(), n.body());
             case MaterializeExpr n -> present(n.initializer());
             case ObjectInitExpr n -> present(n.body());
+            case InitializeExpr n -> present(n.target(), n.value());
             case BinaryExpr n -> present(n.left(), n.right());
             case ConditionalExpr n -> present(n.condition(), n.thenExpression(), n.elseExpression());
             case CastExpr n -> present(n.operand());

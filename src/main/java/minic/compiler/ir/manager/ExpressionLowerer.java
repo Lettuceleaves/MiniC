@@ -92,6 +92,24 @@ final class ExpressionLowerer {
     }
 
     IrValue lowerExpression(Expression expression) {
+        if (expression instanceof Expression.InitializeExpr initialization) {
+            MiniType type = expressionTypes.get(initialization.target());
+            IrValue address = captureCallValue(lowerAddress(initialization.target()), initialization.target().range());
+            if (Expression.ObjectInitExpr.occursInResultOf(initialization.value())) {
+                initializeObjectAt(initialization.value(), address);
+            } else {
+                IrValue value = lowerExpression(initialization.value());
+                if (type.isStruct()) {
+                    builder.addInstruction(new IrMemCopyInstruction(address, value, builder.sizeOf(type),
+                            type.isVolatileQualified(), initialization.range()));
+                } else {
+                    builder.addInstruction(new IrStorePointerInstruction(address,
+                            castIfNeeded(value, IrTypeLowerer.lower(type), initialization.range()),
+                            type.isVolatileQualified(), initialization.range()));
+                }
+            }
+            return new IrConstant(0);
+        }
         if (expression instanceof Expression.ObjectInitExpr construction) {
             IrLocal object = builder.declareAnonymousLocal(construction.type(), construction.range());
             builder.addInstruction(new IrDeclareLocalInstruction(object, construction.range()));

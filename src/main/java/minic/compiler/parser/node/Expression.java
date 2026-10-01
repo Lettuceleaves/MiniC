@@ -13,6 +13,15 @@ import java.util.Optional;
  */
 public interface Expression extends AstNode {
 
+    /** Compiler-only first initialization of existing storage; ordinary assignment stays cv-checked. */
+    record InitializeExpr(Expression target, Expression value, SourceRange range) implements Expression {
+        public InitializeExpr {
+            Objects.requireNonNull(target, "target");
+            Objects.requireNonNull(value, "value");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
     /** Compiler-only construction in a supplied destination; the capture is an immutable pointer value. */
     record ObjectInitExpr(MiniType type, String destinationName, Expression body, SourceRange range) implements Expression {
         public ObjectInitExpr {

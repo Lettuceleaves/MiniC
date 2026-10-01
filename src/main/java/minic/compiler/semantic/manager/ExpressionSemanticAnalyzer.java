@@ -107,6 +107,7 @@ final class ExpressionSemanticAnalyzer {
             case Expression.LetExpr capture -> analyzeCapture(capture, scope);
             case Expression.MaterializeExpr temporary -> analyzeMaterialization(temporary, scope);
             case Expression.ObjectInitExpr construction -> analyzeObjectInitialization(construction, scope);
+            case Expression.InitializeExpr initialization -> analyzeInitialization(initialization, scope);
             case AssignmentExpr assignmentExpr -> analyzeAssignment(assignmentExpr, scope);
             case BinaryExpr binaryExpr -> {
                 MiniType leftType = analyzeExpression(binaryExpr.left(), scope);
@@ -191,6 +192,19 @@ final class ExpressionSemanticAnalyzer {
             report(temporary.range(), "临时对象初始化类型不兼容");
         }
         return type.pointerTo();
+    }
+
+    private MiniType analyzeInitialization(Expression.InitializeExpr initialization, Scope scope) {
+        MiniType target = analyzeAddressOperand(initialization.target(), scope, initialization.range());
+        expressionTypes.put(initialization.target(), target);
+        MiniType value = analyzeExpression(initialization.value(), scope);
+        if ((!target.isScalar() && !target.isPointer() && !target.isStruct())
+                || (!TypeLayout.hasFixedLayout(target) && !hasStructLayout(target))) {
+            report(initialization.target().range(), "初始化目标需要完整的标量、指针或记录对象");
+        } else if (!TypeCompatibility.isAssignmentCompatible(target, value, initialization.value())) {
+            report(initialization.value().range(), "对象初始化类型不兼容");
+        }
+        return MiniType.VOID;
     }
 
     private MiniType analyzeObjectInitialization(Expression.ObjectInitExpr construction, Scope scope) {
