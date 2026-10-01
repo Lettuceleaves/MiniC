@@ -698,9 +698,14 @@ final class InstructionEmitter {
     }
 
     private void emitMemCopy(StringBuilder builder, IrMemCopyInstruction memCopy) {
+        // REP MOVSB changes both Windows x64 nonvolatile index registers.
+        builder.append("    push rsi").append(System.lineSeparator());
+        builder.append("    push rdi").append(System.lineSeparator());
         valueEmitter.emitLoadValue(builder, memCopy.destination(), "rdi");
         valueEmitter.emitLoadValue(builder, memCopy.source(), "rsi");
         builder.append("    mov ecx, ").append(memCopy.sizeBytes()).append(System.lineSeparator());
         builder.append("    rep movsb").append(System.lineSeparator());
+        builder.append("    pop rdi").append(System.lineSeparator());
+        builder.append("    pop rsi").append(System.lineSeparator());
     }
 }
