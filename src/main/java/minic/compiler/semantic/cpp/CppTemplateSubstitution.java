@@ -135,6 +135,16 @@ public final class CppTemplateSubstitution {
                 RecordComponent component = components[index];
                 signature[index] = component.getType();
                 values[index] = copy(component.getAccessor().invoke(source));
+                if(component.getName().equals("qualifiedName")) {
+                    String memberName=source instanceof OutOfLineConstructorDecl declaration?((ConstructorMember)copy(declaration.constructor())).name()
+                            :source instanceof OutOfLineDestructorDecl declaration?"~"+((DestructorMember)copy(declaration.destructor())).name()
+                            :source instanceof OutOfLineMethodDecl declaration&&declaration.method().conversionName()!=null?((FunctionDecl)copy(declaration.method())).name():null;
+                    if(memberName!=null) {
+                        QualifiedName name=(QualifiedName)values[index];var segments=new ArrayList<>(name.segments());
+                        segments.set(segments.size()-1,memberName);
+                        values[index]=new QualifiedName(name.global(),segments,name.range());
+                    }
+                }
                 if (component.getName().equals("name")) {
                     if (source instanceof StructDecl record && record.name().equals(primaryName)) values[index] = instanceName;
                     else if (source instanceof ConstructorMember || source instanceof DestructorMember)

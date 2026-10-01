@@ -44,6 +44,8 @@ final class CppStatelessInheritanceTest {
         ,Arguments.of("constexpr-marker-static-assert","struct B{static constexpr int value=7;static_assert(value==7,\"base\");};struct D:B{static_assert(value==7,\"derived\");constexpr int get()const{return value;}};int main(){D d;printf(\"%d\\n\",d.get());return 0;}","7\n")
         ,Arguments.of("constexpr-template-marker","template<class T>struct B{static constexpr int value=sizeof(T);static_assert(sizeof(T)>0,\"base\");};template<class T>constexpr int B<T>::value;struct D:B<int>{static_assert(value==sizeof(int),\"derived\");};int main(){printf(\"%d\\n\",D::value==(int)sizeof(int));return 0;}","1\n")
         ,Arguments.of("protected-outside-return-type","struct B{protected:typedef int P;};struct D:B{P get()const;};D::P D::get()const{return 31;}int main(){D d;printf(\"%d\\n\",d.get());return 0;}","31\n")
+        ,Arguments.of("member-type-pointer-versus-static-multiply","struct B{typedef int type;static const int value=2;};struct D:B{};int calls;int tick(){++calls;return 3;}int main(){D::type*p=0;D::value*tick();printf(\"%d %d\\n\",p==0,calls);return 0;}","1 1\n")
+        ,Arguments.of("specialized-member-type-versus-value","template<class T>struct B{typedef T type;};template<>struct B<double>{static const int type=3;};int calls;int tick(){++calls;return 2;}int main(){B<int>::type*p=0;B<double>::type*tick();printf(\"%d %d\\n\",p==0,calls);return 0;}","1 1\n")
     );}
     @ParameterizedTest(name="{0}") @MethodSource("programs")
     void inheritedMembersMatchCpp(String name,String source,String expected)throws Exception{
@@ -67,7 +69,9 @@ final class CppStatelessInheritanceTest {
         "struct B{};struct D:B{static_assert(false,\"derived assertion\");};int main(){return 0;}"
     })
     void inheritedLookupKeepsAccessHidingAndCv(String source)throws Exception{
-        CppReferenceTest.reject(temporary,"invalid-stateless-inheritance",source);
+        var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),CppDifferentialHarness.Limits.defaults(),LanguageMode.CPP17_ALGORITHM)
+                .compile("invalid-stateless-inheritance",source);
+        for(var outcome:report.outcomes().values())assertEquals(CppDifferentialHarness.Status.COMPILE_ERROR,outcome.status(),report::describe);
     }
     @ParameterizedTest @ValueSource(strings={
         "struct B{B(){}};struct D:B{};int main(){return 0;}",

@@ -1055,6 +1055,24 @@ public final class Parser extends Stage {
 
         private void inheritMemberNames(MiniType base,java.util.Set<MiniType> visited) {
             if(base.isDependentTemplate() || visited.size()>64 || !visited.add(base.unqualified()))return;
+            CppRecordView view=knownRecord(base);if(view==null)return;
+            StructDecl declaration=view.declaration();var substitution=view.substitution();
+            if(declaration==null||declaration.cppInfo()==null)return;
+            for(var ancestor:declaration.cppInfo().bases())inheritMemberNames(substitution==null?ancestor.type():substitution.type(ancestor.type()),visited);
+            String identity=base.unqualified() instanceof MiniType.TemplateIdType id?id.templateName():((MiniType.StructType)base.unqualified()).name();
+            cppTypes.inheritMember(identity.substring(identity.lastIndexOf("::")+2),base);
+            for(var member:declaration.cppInfo().members()) {
+                if(member instanceof Declaration.MemberTypedef alias)
+                    cppTypes.inheritMember(alias.declaration().name(),new MiniType.MemberType(base,alias.declaration().name()));
+                else if(member instanceof Declaration.StaticFieldMember field)cppTypes.inheritMember(field.declaration().name(),null);
+                else if(member instanceof Declaration.MethodMember method&&method.method().conversionName()==null)
+                    cppTypes.inheritMember(method.method().name(),null);
+                else if(member instanceof Declaration.TemplateMethodMember method)cppTypes.inheritMember(method.method().method().name(),null);
+            }
+        }
+
+        private record CppRecordView(StructDecl declaration,minic.compiler.semantic.cpp.CppTemplateSubstitution substitution) {}
+        private CppRecordView knownRecord(MiniType base) {
             StructDecl declaration=null;
             minic.compiler.semantic.cpp.CppTemplateSubstitution substitution=null;
             if(base.unqualified() instanceof MiniType.StructType record)declaration=aggregateDeclarations.get(record.name());
@@ -1081,17 +1099,40 @@ public final class Parser extends Stage {
                     substitution=new minic.compiler.semantic.cpp.CppTemplateSubstitution(bindings.types(),values,bindings.packs(),chosen.parameters(),id.templateName(),id.templateName());
                 }
             }
-            if(declaration==null||declaration.cppInfo()==null)return;
-            for(var ancestor:declaration.cppInfo().bases())inheritMemberNames(substitution==null?ancestor.type():substitution.type(ancestor.type()),visited);
-            String identity=base.unqualified() instanceof MiniType.TemplateIdType id?id.templateName():((MiniType.StructType)base.unqualified()).name();
-            cppTypes.inheritMember(identity.substring(identity.lastIndexOf("::")+2),base);
-            for(var member:declaration.cppInfo().members()) {
-                if(member instanceof Declaration.MemberTypedef alias)
-                    cppTypes.inheritMember(alias.declaration().name(),new MiniType.MemberType(base,alias.declaration().name()));
-                else if(member instanceof Declaration.StaticFieldMember field)cppTypes.inheritMember(field.declaration().name(),null);
-                else if(member instanceof Declaration.MethodMember method&&method.method().conversionName()==null)
-                    cppTypes.inheritMember(method.method().name(),null);
-                else if(member instanceof Declaration.TemplateMethodMember method)cppTypes.inheritMember(method.method().method().name(),null);
+            return declaration==null?null:new CppRecordView(declaration,substitution);
+        }
+
+        /** Source lookup distinguishes a member type from a static value before statement disambiguation. */
+        private MiniType knownMemberType(MiniType type,java.util.Set<MiniType> visited) {
+            if(!(type instanceof MiniType.MemberType member))return type;
+            if(visited.size()>64||!visited.add(type))return null;
+            MiniType owner=knownMemberType(member.owner(),visited);if(owner==null)return null;
+            CppRecordView view=knownRecord(owner);if(view==null||view.declaration().cppInfo()==null)return null;
+            StructDecl declaration=view.declaration();var substitution=view.substitution();
+            for(var item:declaration.cppInfo().members()) {
+                if(item instanceof Declaration.MemberTypedef alias&&alias.declaration().name().equals(member.name()))
+                    return knownMemberType(substitution==null?alias.declaration().type():substitution.type(alias.declaration().type()),visited);
+                if(item instanceof Declaration.StaticFieldMember field&&field.declaration().name().equals(member.name())
+                        ||item instanceof Declaration.MethodMember method&&method.method().name().equals(member.name())
+                        ||item instanceof Declaration.TemplateMethodMember method&&method.method().method().name().equals(member.name()))return null;
+            }
+            if(declaration.fields().stream().anyMatch(field->field.name().equals(member.name())))return null;
+            String name=declaration.name();if(name.substring(name.lastIndexOf("::")+2).equals(member.name()))return owner;
+            for(var base:declaration.cppInfo().bases()) {
+                MiniType found=knownMemberType(new MiniType.MemberType(substitution==null?base.type():substitution.type(base.type()),member.name()),visited);
+                if(found!=null)return found;
+            }
+            return null;
+        }
+        private boolean qualifiedMemberIsType(int end) {
+            int errors=context.reportedErrors.size(),traces=context.traceEvents==null?0:context.traceEvents.size();
+            int start=context.currentIndex();
+            try {
+                MiniType type=context.inTokenWindow(new Context.TokenWindow(start,start+end),()->parseCppNamedType(false));
+                return type!=null&&knownMemberType(type,new java.util.HashSet<>())!=null;
+            } finally {
+                context.reportedErrors.subList(errors,context.reportedErrors.size()).clear();
+                if(context.traceEvents!=null)context.traceEvents.subList(traces,context.traceEvents.size()).clear();
             }
         }
 
@@ -1616,7 +1657,18 @@ public final class Parser extends Stage {
 
         /** In a statement, a syntactically complete declaration wins T(name) ambiguity. */
         public boolean startsCppConstructionStatement() {
-            if (cppTypeMemberDelimiterAt(0) >= 0) return true;
+            int memberDelimiter=cppTypeMemberDelimiterAt(0);
+            if(memberDelimiter>=0) {
+                int afterMember=memberDelimiter+2;
+                if(!qualifiedMemberIsType(afterMember))return true;
+                TokenType next=context.peekAt(afterMember).type();
+                if(next!=TokenType.LEFT_PAREN&&next!=TokenType.LEFT_BRACE)return false;
+                if(next==TokenType.LEFT_BRACE)return true;
+                int after=skipCppGroupedDeclarator(afterMember);
+                if(after<0)return true;
+                next=context.peekAt(after).type();
+                return next!=TokenType.SEMICOLON&&next!=TokenType.EQUAL&&next!=TokenType.COMMA&&next!=TokenType.LEFT_BRACE;
+            }
             int delimiter = cppConstructionDelimiterAt(0);
             if (delimiter < 0) return false;
             if (context.peekAt(delimiter).type() == TokenType.LEFT_BRACE) return true;

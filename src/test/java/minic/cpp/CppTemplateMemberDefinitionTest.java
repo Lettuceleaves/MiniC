@@ -40,7 +40,7 @@ final class CppTemplateMemberDefinitionTest {
             template<class T>struct Box{typedef T value_type;T value;Box* next;Box& link(Box*);value_type read()const;};
             template<class U>Box<U>& Box<U>::link(Box* other){next=other;return *this;}
             template<class U>typename Box<U>::value_type Box<U>::read()const{return value;}
-            int main(){Box<int>a={2,0};Box<int>b={9,0};printf("%d %d\\n",a.link(&b).read(),a.next->read());return 0;}
+            int main(){Box<int>a={2,0};Box<int>b={9,0};int first=a.link(&b).read();int second=a.next->read();printf("%d %d\\n",first,second);return 0;}
             ""","2 9\n"),
         Arguments.of("static-storage-per-specialization", """
             template<class T>struct Counter{static int value;static int next();};
