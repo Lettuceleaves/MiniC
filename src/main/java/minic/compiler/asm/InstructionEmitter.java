@@ -112,13 +112,8 @@ final class InstructionEmitter {
             case IrCheckNonZeroInstruction checkNonZero -> {
                 if (checkNonZero.value().type().isFloatingScalar()) {
                     valueEmitter.emitLoadValue(builder, checkNonZero.value(), "xmm0");
-                    if (checkNonZero.value().type() == IrType.FLOAT) {
-                        builder.append("    xorps xmm1, xmm1").append(System.lineSeparator());
-                        builder.append("    ucomiss xmm0, xmm1").append(System.lineSeparator());
-                    } else {
-                        builder.append("    xorpd xmm1, xmm1").append(System.lineSeparator());
-                        builder.append("    ucomisd xmm0, xmm1").append(System.lineSeparator());
-                    }
+                    emitFloatingTruthFromXmm0(builder, checkNonZero.value().type());
+                    builder.append("    cmp eax, 0").append(System.lineSeparator());
                 } else {
                     valueEmitter.emitLoadValue(builder, checkNonZero.value(), "rax");
                     builder.append("    cmp ")
@@ -309,10 +304,15 @@ final class InstructionEmitter {
         valueEmitter.emitLoadValue(builder, unary.operand(), "rax");
         switch (unary.operator()) {
             case LOGICAL_NOT -> {
-                builder.append("    cmp ").append(valueEmitter.storeRegister("rax", unary.operand().type()))
-                        .append(", 0").append(System.lineSeparator());
-                builder.append("    sete al").append(System.lineSeparator());
-                builder.append("    movzx eax, al").append(System.lineSeparator());
+                if (unary.operand().type().isFloatingScalar()) {
+                    emitFloatingTruthFromXmm0(builder, unary.operand().type());
+                    builder.append("    xor eax, 1").append(System.lineSeparator());
+                } else {
+                    builder.append("    cmp ").append(valueEmitter.storeRegister("rax", unary.operand().type()))
+                            .append(", 0").append(System.lineSeparator());
+                    builder.append("    sete al").append(System.lineSeparator());
+                    builder.append("    movzx eax, al").append(System.lineSeparator());
+                }
             }
             case BITWISE_NOT -> builder.append("    not ")
                     .append(valueEmitter.storeRegister("rax", unary.result().type()))
@@ -373,6 +373,12 @@ final class InstructionEmitter {
             emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, valueEmitter.storeRegister("rax", targetType));
             return;
         }
+        if (sourceType.isFloatingScalar() && targetType == IrType.BOOL) {
+            valueEmitter.emitLoadValue(builder, cast.value(), "xmm0");
+            emitFloatingTruthFromXmm0(builder, sourceType);
+            emitStoreRegisterToMemory(builder, frame.temporarySlot(cast.result()), targetType, "rax");
+            return;
+        }
         if (targetType.isFloatingScalar()) {
             if (sourceType == IrType.FLOAT && targetType == IrType.DOUBLE) {
                 valueEmitter.emitLoadValue(builder, cast.value(), "xmm0");
@@ -429,9 +435,24 @@ final class InstructionEmitter {
             String rightRegister
     ) {
         if (operationType.isFloatingScalar()) {
+            // UCOMIS{S,D}: unordered sets ZF=PF=CF=1. Reverse < and <=
+            // to use conditions which exclude unordered without new encoder opcodes.
+            if (setInstruction.equals("setb") || setInstruction.equals("setbe")) {
+                String previousLeft = leftRegister;
+                leftRegister = rightRegister;
+                rightRegister = previousLeft;
+                setInstruction = setInstruction.equals("setb") ? "seta" : "setae";
+            }
             builder.append(operationType == IrType.FLOAT ? "    ucomiss " : "    ucomisd ")
                     .append(leftRegister).append(", ").append(rightRegister).append(System.lineSeparator());
             builder.append("    ").append(setInstruction).append(" al").append(System.lineSeparator());
+            if (setInstruction.equals("sete")) {
+                builder.append("    setae dl").append(System.lineSeparator());
+                builder.append("    and al, dl").append(System.lineSeparator());
+            } else if (setInstruction.equals("setne")) {
+                builder.append("    setb dl").append(System.lineSeparator());
+                builder.append("    or al, dl").append(System.lineSeparator());
+            }
             builder.append("    movzx eax, al").append(System.lineSeparator());
             return;
         }
@@ -632,13 +653,8 @@ final class InstructionEmitter {
     private void emitBranch(StringBuilder builder, String functionName, IrBranchInstruction branch) {
         if (branch.condition().type().isFloatingScalar()) {
             valueEmitter.emitLoadValue(builder, branch.condition(), "xmm0");
-            if (branch.condition().type() == IrType.FLOAT) {
-                builder.append("    xorps xmm1, xmm1").append(System.lineSeparator());
-                builder.append("    ucomiss xmm0, xmm1").append(System.lineSeparator());
-            } else {
-                builder.append("    xorpd xmm1, xmm1").append(System.lineSeparator());
-                builder.append("    ucomisd xmm0, xmm1").append(System.lineSeparator());
-            }
+            emitFloatingTruthFromXmm0(builder, branch.condition().type());
+            builder.append("    cmp eax, 0").append(System.lineSeparator());
         } else {
             valueEmitter.emitLoadValue(builder, branch.condition(), "rax");
             builder.append("    cmp ").append(valueEmitter.storeRegister("rax", branch.condition().type()))
@@ -646,6 +662,13 @@ final class InstructionEmitter {
         }
         builder.append("    jne ").append(blockSymbol(functionName, branch.thenLabel())).append(System.lineSeparator());
         emitJump(builder, functionName, branch.elseLabel());
+    }
+
+    /** Canonical integer truth in eax: only positive and negative zero are false. */
+    private void emitFloatingTruthFromXmm0(StringBuilder builder, IrType type) {
+        builder.append(type == IrType.FLOAT ? "    xorps xmm1, xmm1" : "    xorpd xmm1, xmm1")
+                .append(System.lineSeparator());
+        emitComparison(builder, type, "setne", "xmm0", "xmm1");
     }
 
     private void emitElementAddressScale(StringBuilder builder, int elementSizeBytes) {
