@@ -19,8 +19,16 @@ static_assert(!HasValue<IncompleteIterator>::value,"iterator_traits invalid prim
 static_assert(HasValue<int*>::value,"raw pointer specialization");
 static_assert(std::is_same<std::back_insert_iterator<std::vector<int>>::container_type,std::vector<int>>::value,"back inserter container_type");
 static_assert(std::is_constructible<std::reverse_iterator<const int*>,std::reverse_iterator<int*>>::value,"reverse cv conversion");
+#if !defined(__MINIC__) && !defined(__MINIC_SELF_STL__) && defined(__MINGW32__) && defined(__GLIBCXX__) && __GLIBCXX__ == 20180502
+// N4659 did not constrain these overloads. LWG3435 later added participation
+// constraints; this host predates that correction. The own library keeps it.
+// https://cplusplus.github.io/LWG/issue3435
+static_assert(std::is_constructible<std::reverse_iterator<int*>,std::reverse_iterator<const int*>>::value,"libstdc++ 8.1 unconstrained reverse constructor");
+static_assert(std::is_assignable<std::reverse_iterator<int*>&,std::reverse_iterator<const int*>>::value,"libstdc++ 8.1 unconstrained reverse assignment");
+#else
 static_assert(!std::is_constructible<std::reverse_iterator<int*>,std::reverse_iterator<const int*>>::value,"no reverse cv removal");
 static_assert(!std::is_assignable<std::reverse_iterator<int*>&,std::reverse_iterator<const int*>>::value,"no reverse assignment cv removal");
+#endif
 int main(){
     int values[]={1,2,3};
     BareRange range={{4,5,6}};

@@ -72,11 +72,13 @@ class ostream {
     }
     ostream& signed_number(long long value){char text[96];int n=::sprintf(text,(flags()&ios::showpos)?"%+lld":"%lld",value);return formatted(text,n,true);}
     ostream& floating_number(double value){
+        // C++17 num_put uses %f for fixed, even when uppercase is set.
+        bool uppercase=(flags()&ios::uppercase) && (flags()&ios::floatfield)!=ios::fixed;
         if(value!=value || value>DBL_MAX || value<-DBL_MAX){
             unsigned long long representation=0;::memcpy(&representation,&value,sizeof(value));
             char text[8];int n=0;
             if(representation>>63)text[n++]='-';else if(flags()&ios::showpos)text[n++]='+';
-            const char* word=value!=value?((flags()&ios::uppercase)?"NAN":"nan"):((flags()&ios::uppercase)?"INF":"inf");
+            const char* word=value!=value?(uppercase?"NAN":"nan"):(uppercase?"INF":"inf");
             for(int i=0;word[i];++i)text[n++]=word[i];
             return formatted(text,n,true);
         }
@@ -86,7 +88,7 @@ class ostream {
         if(flags()&ios::showpos)format[at++]='+';if(flags()&ios::showpoint)format[at++]='#';
         format[at++]='.';format[at++]='*';
         char spec=(flags()&ios::fixed)?'f':(flags()&ios::scientific)?'e':'g';
-        if(flags()&ios::uppercase)spec=(char)(spec-'a'+'A');format[at++]=spec;format[at]=0;
+        if(uppercase)spec=(char)(spec-'a'+'A');format[at++]=spec;format[at]=0;
         int n=::sprintf(text,format,(int)p,value);
         if(n<0)state_.setstate(ios::badbit);
         else{

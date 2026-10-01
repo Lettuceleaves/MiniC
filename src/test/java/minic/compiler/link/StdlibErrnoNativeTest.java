@@ -1,9 +1,12 @@
 package minic.compiler.link;
 
 import minic.compiler.SourceFile;
+import minic.compiler.CompilerApi;
+import minic.compiler.LanguageMode;
 import minic.compiler.execute.ExecutableRunner;
 import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -17,6 +20,42 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("stdlib-native")
 final class StdlibErrnoNativeTest {
+    @Test
+    void cppStrtodImportsUcrtAndPreservesBothCrtErrnoSlots() {
+        SourceFile source = new SourceFile("cpp-ucrt-strtod.cpp", """
+                #include <stdlib.h>
+                #include <errno.h>
+                int main() {
+                    int *foreign = minic_ucrt_errno_location();
+                    *foreign = 91;
+                    errno = 73;
+                    char *end = nullptr;
+                    double number = strtod("0x1.8p+1tail", &end);
+                    if (number != 3.0 || end[0] != 't' || errno != 73 || *foreign != 91) return 1;
+                    double infinity = strtod("inf!", &end);
+                    if (!(infinity > 1e300) || end[0] != '!' || errno != 73 || *foreign != 91) return 2;
+                    double nan = strtod("nan!", &end);
+                    if (nan == nan || end[0] != '!' || errno != 73 || *foreign != 91) return 3;
+                    errno = 0;
+                    double overflow = strtod("1e9999", &end);
+                    return overflow > 0.0 && errno == ERANGE && end[0] == 0 && *foreign == 91 ? 0 : 4;
+                }
+                """);
+        var compiler = new CompilerApi(source, LanguageMode.CPP17_ALGORITHM);
+        var linker = compiler.stages().stream().filter(Linker.class::isInstance).map(Linker.class::cast).findFirst().orElseThrow();
+        compiler.runThrough(linker);
+        assertTrue(linker.succeeded(), () -> compiler.stages().stream().flatMap(stage -> stage.errors().stream()).toList().toString());
+        Map<String, Set<String>> imports = PeImportIntegrationTest.readImports(linker.peImage().orElseThrow().bytes());
+        assertEquals(Map.of("ucrtbase.dll", Set.of("strtod", "_errno"),
+                "msvcrt.dll", Set.of("_errno"), "KERNEL32.dll", Set.of("ExitProcess")), imports);
+        var runner = new ExecutableRunner();
+        var execution = runner.run(source, linker.result().executableArtifactOptional().orElseThrow());
+        assertTrue(runner.errors().isEmpty(), runner.errors()::toString);
+        assertEquals("", execution.stdout());
+        assertEquals("", execution.stderr());
+        assertEquals(0, execution.exitCode());
+    }
+
     @ParameterizedTest(name = "{0}")
     @MethodSource("behaviorCases")
     void linksOnlyTheExpectedExportsAndRunsTheNativeBehavior(NativeCase testCase) {

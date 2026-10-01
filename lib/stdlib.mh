@@ -16,12 +16,30 @@ extern double atof(const char *string);
 extern int atoi(const char *string);
 extern long atol(const char *string);
 extern long long atoll(const char *string);
-extern double strtod(const char *string, char **endPointer);
+extern double minic_ucrt_strtod(const char *string, char **endPointer);
 extern float minic_ucrt_strtof(const char *string, char **endPointer);
 extern int *minic_ucrt_errno_location(void);
 /* MSVCRT lacks strtof. UCRT performs one correctly rounded float conversion;
  * transport its errno into this profile's MSVCRT errno without changing errno
  * on success or leaving the other CRT's thread-local error slot modified. */
+/* UCRT also supplies the C99 hexadecimal, infinity and NaN forms missing
+ * from the legacy MSVCRT double conversion. The C++ algorithm profile uses
+ * UCRT's independent locale (initially C); it is not synchronized with
+ * MSVCRT setlocale. C mode retains its original MSVCRT strtod behavior. */
+#if defined(__cplusplus)
+double strtod(const char *string, char **endPointer) {
+    int *foreign_errno = minic_ucrt_errno_location();
+    int saved_errno = *foreign_errno;
+    *foreign_errno = 0;
+    double result = minic_ucrt_strtod(string, endPointer);
+    int conversion_errno = *foreign_errno;
+    *foreign_errno = saved_errno;
+    if (conversion_errno != 0) errno = conversion_errno;
+    return result;
+}
+#else
+extern double strtod(const char *string, char **endPointer);
+#endif
 float strtof(const char *string, char **endPointer) {
     int *foreign_errno = minic_ucrt_errno_location();
     int saved_errno = *foreign_errno;

@@ -64,7 +64,10 @@ public final class CppOwnLibraryReference {
     public static List<String> compileCommand(String compiler,Path directory,Path headers,Path source,Path executable)throws IOException {
         var command=new ArrayList<>(List.of(compiler));
         command.addAll(CppDifferentialHarness.referenceFlags(directory));
-        command.addAll(List.of("-nostdinc++","-D__MINIC_SELF_STL__=1","-I",headers.toAbsolutePath().toString(),
+        // libstdc++ enables MinGW's C99 conversion entry points through its
+        // prelude. -nostdinc++ omits that prelude; request the same CRT behavior
+        // explicitly so strtof does not fall back to double then float rounding.
+        command.addAll(List.of("-nostdinc++","-D__MINIC_SELF_STL__=1","-D__USE_MINGW_STRTOX=1","-I",headers.toAbsolutePath().toString(),
                 source.toAbsolutePath().toString(),"-o",executable.toAbsolutePath().toString()));
         return List.copyOf(command);
     }

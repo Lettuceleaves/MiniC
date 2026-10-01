@@ -23,6 +23,7 @@ final class DebugStdlibConversionProvider implements DebugLibraryProvider {
         registered.put("atol", this::atol);
         registered.put("atoll", this::atoll);
         registered.put("strtod", this::strtod);
+        registered.put("minic_ucrt_strtod", this::strtod);
         registered.put("strtof", this::strtof);
         registered.put("minic_ucrt_strtof", this::strtof);
         registered.put("strtol", this::strtol);

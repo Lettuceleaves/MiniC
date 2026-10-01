@@ -26,7 +26,13 @@ static_assert(noexcept(std::declval<const S&>().find(std::declval<const S&>())),
 static_assert(noexcept(std::declval<const S&>().rfind(std::declval<const S&>())),"string rfind");
 static_assert(noexcept(std::declval<const S&>().find_first_of(std::declval<const S&>())),"string find_first_of");
 static_assert(noexcept(std::declval<const S&>().find_last_not_of(std::declval<const S&>())),"string find_last_not_of");
+#if !defined(__MINIC__) && !defined(__MINIC_SELF_STL__) && defined(__MINGW32__) && defined(__GLIBCXX__) && __GLIBCXX__ == 20180502
+// This exact host header omits the N4659 [string.compare]/6 noexcept.
+// https://timsong-cpp.github.io/cppwp/n4659/string.compare
+static_assert(!noexcept(std::declval<const S&>().compare(std::declval<const S&>())),"libstdc++ 8.1 compare declaration gap");
+#else
 static_assert(noexcept(std::declval<const S&>().compare(std::declval<const S&>())),"string compare");
+#endif
 static_assert(noexcept(std::declval<const S&>()==std::declval<const S&>()),"string equality");
 static_assert(noexcept(std::declval<const S&>()<std::declval<const S&>()),"string order");
 int main() {
