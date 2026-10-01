@@ -365,7 +365,7 @@ public final class Assembler extends Stage {
             frame = FrameLayout.create(function);
             functionSymbol = CallingConvention.functionDefinitionSymbol(function.name());
             epilogueLabel = functionSymbol + "$epilogue";
-            instructionEmitter = new InstructionEmitter(frame, externalFunctionNames);
+            instructionEmitter = new InstructionEmitter(frame, externalFunctionNames, function);
         }
 
         private String nextLine() {

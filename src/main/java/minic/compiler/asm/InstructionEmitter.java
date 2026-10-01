@@ -27,15 +27,20 @@ import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
 
 import java.util.Set;
+import java.util.stream.Collectors;
 
 final class InstructionEmitter {
     private final FrameLayout frame;
     private final ValueEmitter valueEmitter;
     private final Set<String> externalFunctionNames;
+    private final Set<String> addressedLocals;
 
-    InstructionEmitter(FrameLayout frame, Set<String> externalFunctionNames) {
+    InstructionEmitter(FrameLayout frame, Set<String> externalFunctionNames, IrFunction function) {
         this.frame = frame;
         this.externalFunctionNames = Set.copyOf(externalFunctionNames);
+        addressedLocals = function.blocks().stream().flatMap(block -> block.instructions().stream())
+                .filter(IrAddressOfLocalInstruction.class::isInstance).map(IrAddressOfLocalInstruction.class::cast)
+                .map(address -> address.local().name()).collect(Collectors.toUnmodifiableSet());
         valueEmitter = new ValueEmitter(frame, externalFunctionNames);
     }
 
@@ -86,6 +91,10 @@ final class InstructionEmitter {
                         .append(", 1").append(System.lineSeparator());
             }
             case IrCheckInitializedInstruction checkInitialized -> {
+                // Direct-store flags cannot observe pointer stores or writes by callees.
+                // Native checks cover unexposed locals; debug retains byte-level alias checks.
+                // Classify the emitted function: unused address calculations remain pure and removable.
+                if (addressedLocals.contains(checkInitialized.local().name())) break;
                 builder.append("    cmp ").append(frame.localInitializedSlot(checkInitialized.local()))
                         .append(", 0").append(System.lineSeparator());
                 builder.append("    je ").append(functionName).append("$trap_uninitialized")
