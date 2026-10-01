@@ -193,18 +193,27 @@ public interface Declaration extends AstNode {
             SourceRange range,
             OperatorName operatorName,
             ConversionName conversionName,
-            DefinitionKind definitionKind
+            DefinitionKind definitionKind,
+            MiniType.ExceptionSpecification exceptionSpecification
     ) implements Declaration {
+        public FunctionDecl(String name,MiniType returnType,List<Parameter> parameters,boolean variadic,BlockStmt body,
+                            boolean external,boolean noReturn,SourceRange range,OperatorName operatorName,ConversionName conversionName,DefinitionKind definitionKind) {
+            this(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,definitionKind,MiniType.ExceptionSpecification.UNSPECIFIED);
+        }
+        public FunctionDecl withExceptionSpecification(MiniType.ExceptionSpecification specification) {
+            return new FunctionDecl(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,definitionKind,specification);
+        }
         public FunctionDecl(String name,MiniType returnType,List<Parameter> parameters,boolean variadic,BlockStmt body,
                             boolean external,boolean noReturn,SourceRange range,OperatorName operatorName,ConversionName conversionName) {
             this(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,DefinitionKind.ORDINARY);
         }
         public FunctionDecl withDefinitionKind(DefinitionKind kind) {
-            return new FunctionDecl(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,kind);
+            return new FunctionDecl(name,returnType,parameters,variadic,body,external,noReturn,range,operatorName,conversionName,kind,exceptionSpecification);
         }
         public boolean hasDefinition(){return body!=null||definitionKind!=DefinitionKind.ORDINARY;}
         public FunctionDecl {
             Objects.requireNonNull(definitionKind,"definitionKind");
+            Objects.requireNonNull(exceptionSpecification,"exceptionSpecification");
             if(body!=null&&definitionKind!=DefinitionKind.ORDINARY)throw new IllegalArgumentException("Special definition cannot have a function body");
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(returnType, "returnType");
@@ -342,7 +351,15 @@ public interface Declaration extends AstNode {
     /** Constructor spelling and signature are source syntax, not an ordinary named method. */
     record ConstructorMember(String name, List<Parameter> parameters, boolean variadic,
                              List<MemberInitializer> initializers, BlockStmt body,
-                             SourceRange nameRange, SourceRange range, boolean explicitSpecifier,DefinitionKind definitionKind) implements CppMember {
+                             SourceRange nameRange, SourceRange range, boolean explicitSpecifier,DefinitionKind definitionKind,
+                             MiniType.ExceptionSpecification exceptionSpecification) implements CppMember {
+        public ConstructorMember(String name,List<Parameter> parameters,boolean variadic,List<MemberInitializer> initializers,
+                                 BlockStmt body,SourceRange nameRange,SourceRange range,boolean explicitSpecifier,DefinitionKind definitionKind) {
+            this(name,parameters,variadic,initializers,body,nameRange,range,explicitSpecifier,definitionKind,MiniType.ExceptionSpecification.UNSPECIFIED);
+        }
+        public ConstructorMember withExceptionSpecification(MiniType.ExceptionSpecification specification) {
+            return new ConstructorMember(name,parameters,variadic,initializers,body,nameRange,range,explicitSpecifier,definitionKind,specification);
+        }
         public ConstructorMember(String name,List<Parameter> parameters,boolean variadic,List<MemberInitializer> initializers,
                                  BlockStmt body,SourceRange nameRange,SourceRange range,boolean explicitSpecifier){
             this(name,parameters,variadic,initializers,body,nameRange,range,explicitSpecifier,DefinitionKind.ORDINARY);
@@ -355,6 +372,7 @@ public interface Declaration extends AstNode {
         }
         public ConstructorMember {
             Objects.requireNonNull(definitionKind,"definitionKind");
+            Objects.requireNonNull(exceptionSpecification,"exceptionSpecification");
             if(body!=null&&definitionKind!=DefinitionKind.ORDINARY)throw new IllegalArgumentException("Special definition cannot have a body");
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(nameRange, "nameRange");
@@ -366,11 +384,19 @@ public interface Declaration extends AstNode {
     }
 
     /** A destructor has neither a return type nor parameters; nameRange includes the '~'. */
-    record DestructorMember(String name, BlockStmt body, SourceRange nameRange, SourceRange range,DefinitionKind definitionKind) implements CppMember {
+    record DestructorMember(String name, BlockStmt body, SourceRange nameRange, SourceRange range,DefinitionKind definitionKind,
+                            MiniType.ExceptionSpecification exceptionSpecification) implements CppMember {
+        public DestructorMember(String name,BlockStmt body,SourceRange nameRange,SourceRange range,DefinitionKind definitionKind) {
+            this(name,body,nameRange,range,definitionKind,MiniType.ExceptionSpecification.UNSPECIFIED);
+        }
+        public DestructorMember withExceptionSpecification(MiniType.ExceptionSpecification specification) {
+            return new DestructorMember(name,body,nameRange,range,definitionKind,specification);
+        }
         public DestructorMember(String name,BlockStmt body,SourceRange nameRange,SourceRange range){this(name,body,nameRange,range,DefinitionKind.ORDINARY);}
         public boolean hasDefinition(){return body!=null||definitionKind!=DefinitionKind.ORDINARY;}
         public DestructorMember {
             Objects.requireNonNull(definitionKind,"definitionKind");
+            Objects.requireNonNull(exceptionSpecification,"exceptionSpecification");
             if(body!=null&&definitionKind!=DefinitionKind.ORDINARY)throw new IllegalArgumentException("Special definition cannot have a body");
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(nameRange, "nameRange");

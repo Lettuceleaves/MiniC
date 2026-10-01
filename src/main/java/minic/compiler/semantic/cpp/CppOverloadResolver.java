@@ -171,7 +171,7 @@ public final class CppOverloadResolver {
 
     private enum Rank { EXACT, PROMOTION, CONVERSION, USER_DEFINED, ELLIPSIS }
     // Lvalue/array/function transformations are deliberately excluded from subsequence ranking.
-    private enum Step { STATIC_OBJECT, NONE, NUMERIC, NULL_POINTER, POINTER_VOID, POINTER_BOOL, BASE, ELLIPSIS }
+    private enum Step { STATIC_OBJECT, NONE, NUMERIC, NULL_POINTER, POINTER_VOID, POINTER_BOOL, BASE, FUNCTION_POINTER, ELLIPSIS }
     private record Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference,
                               Object userIdentity, Conversion trailing, boolean ambiguous, int listKind, int listBound,
                               MiniType.ReferenceKind referenceKind,int baseDistance) {
@@ -313,10 +313,11 @@ public final class CppOverloadResolver {
         if (!parameter.isReference()) return valueConversion(argument, decay(parameter).unqualified());
         MiniType target = parameter.referent();
         boolean related = sameUnqualified(source, target);
-        boolean compatible = related && cv(target).containsAll(cv(source));
+        boolean functionConversion=functionConvertible(source,target);
+        boolean compatible = (related||functionConversion) && cv(target).containsAll(cv(source));
         boolean rvalue=parameter.isRvalueReference();
         boolean directCategory=rvalue?argument.category!=CppValueCategory.LVALUE||target.isFunction():argument.category==CppValueCategory.LVALUE;
-        if(directCategory&&compatible)return new Conversion(Rank.EXACT,Step.NONE,false,target,true).withReference(parameter);
+        if(directCategory&&compatible)return new Conversion(Rank.EXACT,functionConversion?Step.FUNCTION_POINTER:Step.NONE,false,target,true).withReference(parameter);
         if(rvalue&&related&&argument.category==CppValueCategory.LVALUE)return null;
         if(!rvalue&&(!cv(target).contains(CONST)||cv(target).contains(VOLATILE)))return null;
         if (related && !compatible) return null;
@@ -342,6 +343,8 @@ public final class CppOverloadResolver {
         if (target.equals(MiniType.BOOL))
             return new Conversion(Rank.CONVERSION, Step.POINTER_BOOL, false, target, false);
         if (!target.isPointer()) return null;
+        if(functionConvertible(source.pointee(),target.pointee()) && cv(target.pointee()).containsAll(cv(source.pointee())))
+            return new Conversion(Rank.EXACT,Step.FUNCTION_POINTER,false,target,false);
         if (qualificationConvertible(source, target))
             return new Conversion(Rank.EXACT, Step.NONE, true, target, false);
         if (target.pointee().isVoid() && !source.pointee().isFunction()
@@ -379,6 +382,8 @@ public final class CppOverloadResolver {
         }
         if (first.rank != second.rank) return first.rank.compareTo(second.rank);
         if (first.rank == Rank.ELLIPSIS) return 0;
+        if(first.step==Step.NONE&&second.step==Step.FUNCTION_POINTER)return -1;
+        if(second.step==Step.NONE&&first.step==Step.FUNCTION_POINTER)return 1;
         if(first.step==Step.BASE&&second.step==Step.BASE&&first.baseDistance!=second.baseDistance)
             return Integer.compare(first.baseDistance,second.baseDistance);
         if(first.step==Step.BASE&&second.step==Step.POINTER_VOID)return -1;
@@ -450,6 +455,13 @@ public final class CppOverloadResolver {
         }
     }
 
+    /** A noexcept function is reference-compatible with the corresponding throwing function. */
+    public static boolean functionConvertible(MiniType source,MiniType target) {
+        if(!(source.unqualified() instanceof MiniType.FunctionType from)||!(target.unqualified() instanceof MiniType.FunctionType to))return false;
+        return from.exceptionSpecification().nonThrowing()&&!to.exceptionSpecification().nonThrowing()
+                &&from.returnType().equals(to.returnType())&&from.parameterTypes().equals(to.parameterTypes())&&from.variadic()==to.variadic();
+    }
+
     private static boolean similar(MiniType first, MiniType second) {
         if (first.isPointer() && second.isPointer()) return similar(first.pointee(), second.pointee());
         if (first.isArray() && second.isArray())
@@ -485,7 +497,7 @@ public final class CppOverloadResolver {
             case MiniType.ReferenceType reference -> canonical(reference.referent()).referenceTo(reference.kind());
             case MiniType.FunctionType function -> MiniType.function(canonical(function.returnType()),
                     function.parameterTypes().stream().map(CppOverloadResolver::canonical)
-                            .map(t -> t.isReference() ? t : decay(t).unqualified()).toList(), function.variadic());
+                            .map(t -> t.isReference() ? t : decay(t).unqualified()).toList(), function.variadic(), function.exceptionSpecification());
             default -> base;
         };
         return MiniType.qualified(result, type.qualifiers());

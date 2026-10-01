@@ -50,6 +50,10 @@ public final class CppTemplateSubstitution {
     public StructDecl instantiate(StructDecl source) { return (StructDecl) copy(source); }
     public Map<AstNode, AstNode> origins() { return Collections.unmodifiableMap(origins); }
 
+    private MiniType.ExceptionSpecification exceptionSpecification(MiniType.ExceptionSpecification source) {
+        return source.condition()==null?source:new MiniType.ExceptionSpecification(true,false,(Expression)copy(source.condition()));
+    }
+
     public MiniType type(MiniType source) {
         return switch (source) {
             case MiniType.DecltypeType query -> new MiniType.DecltypeType((Expression)copy(query.expression()));
@@ -63,7 +67,7 @@ public final class CppTemplateSubstitution {
             case MiniType.TemplateIdType id -> new MiniType.TemplateIdType(id.templateName(),copyList(id.arguments()));
             case MiniType.PackExpansionType pack -> new MiniType.PackExpansionType(type(pack.pattern()));
             case MiniType.MemberType member -> new MiniType.MemberType(type(member.owner()),member.name());
-            case MiniType.FunctionType function -> MiniType.function(type(function.returnType()),copyList(function.parameterTypes()),function.variadic());
+            case MiniType.FunctionType function -> MiniType.function(type(function.returnType()),copyList(function.parameterTypes()),function.variadic(),exceptionSpecification(function.exceptionSpecification()));
             default -> source.substituteTemplateParameters(arguments,values);
         };
     }
@@ -71,6 +75,7 @@ public final class CppTemplateSubstitution {
     private Object copy(Object source) {
         if (source == null || source instanceof String || source instanceof Number || source instanceof Boolean
                 || source instanceof Character || source instanceof Enum<?> || source instanceof SourceRange) return source;
+        if (source instanceof MiniType.ExceptionSpecification specification) return exceptionSpecification(specification);
         if (source instanceof MiniType type) return type(type);
         if(source instanceof CppSizeofPackExpr size) {
             Integer count=parameterPacks.containsKey(size.name())?parameterPacks.get(size.name()).size():null;

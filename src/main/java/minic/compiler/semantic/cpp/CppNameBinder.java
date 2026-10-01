@@ -361,6 +361,10 @@ public final class CppNameBinder {
 
         Result run() {
             bindDeclarations(source.declarations(), root);
+            for(Entity function:List.copyOf(exceptionSources.keySet()))
+                if(!functionTemplates.containsKey(function)&&!functionTemplateInstances.containsKey(function)
+                        &&exceptionSources.get(function).stream().noneMatch(context->context.owner!=null&&instanceKeys.containsKey(context.owner)))
+                    functionNonThrowing(function);
             while(true) {
                 List<Entity> pending=requestedFunctionTemplates.stream().filter(e->!emittedFunctionTemplates.contains(e)).toList();
                 if(pending.isEmpty())break;
@@ -507,7 +511,8 @@ public final class CppNameBinder {
         }
         private void declareMemberTemplate(TypeEntity owner,List<ClassTemplateDecl.Parameter> parameters,
                                            MethodMember method,ConstructorMember constructor,Access access) {
-            FunctionDecl source=method!=null?method.method():new FunctionDecl(owner.name,MiniType.VOID,constructor.parameters(),constructor.variadic(),constructor.body(),false,constructor.range()).withDefinitionKind(constructor.definitionKind());
+            FunctionDecl source=method!=null?method.method():new FunctionDecl(owner.name,MiniType.VOID,constructor.parameters(),constructor.variadic(),constructor.body(),false,constructor.range())
+                    .withDefinitionKind(constructor.definitionKind()).withExceptionSpecification(constructor.exceptionSpecification());
             if(source.definitionKind()==DefinitionKind.DEFAULTED){report("CPP004",source.range(),"A function template cannot be a defaulted special member");return;}
             List<MiniType> argumentTypes=source.parameters().stream().map(Parameter::type).toList();
             var abi=new ArrayList<MiniType>();
@@ -536,7 +541,7 @@ public final class CppNameBinder {
             if(type instanceof MiniType.QualifiedType qualified)return MiniType.qualified(functionTemplatePattern(qualified.baseType(),namespace,range),qualified.qualifiers());
             if(type instanceof MiniType.ArrayType array)return functionTemplatePattern(array.elementType(),namespace,range).arrayOf(array.length());
             if(type instanceof MiniType.DependentArrayType array)return new MiniType.DependentArrayType(functionTemplatePattern(array.elementType(),namespace,range),array.bound());
-            if(type instanceof MiniType.FunctionType function)return MiniType.function(functionTemplatePattern(function.returnType(),namespace,range),function.parameterTypes().stream().map(p->functionTemplatePattern(p,namespace,range)).toList(),function.variadic());
+            if(type instanceof MiniType.FunctionType function)return MiniType.function(functionTemplatePattern(function.returnType(),namespace,range),function.parameterTypes().stream().map(p->functionTemplatePattern(p,namespace,range)).toList(),function.variadic(),function.exceptionSpecification());
             return type;
         }
         private Entity deduceFunctionTemplate(Entity declaration,List<MiniType> actual,List<TemplateArgument> explicit,SourceRange range) {
@@ -568,7 +573,7 @@ public final class CppNameBinder {
                 CppTemplateSubstitution substitution=functionSubstitution(definition,bindings);
                 FunctionDecl original=definition.source;
                 FunctionDecl header=new FunctionDecl(original.name(),original.returnType(),original.parameters(),original.variadic(),null,
-                        original.external(),original.noReturn(),original.range(),original.operatorName(),original.conversionName(),original.definitionKind());
+                        original.external(),original.noReturn(),original.range(),original.operatorName(),original.conversionName(),original.definitionKind(),original.exceptionSpecification());
                 FunctionDecl instance=substitution.instantiate(header);
                 List<MiniType> parameters=instance.parameters().stream().map(p->normalizeType(p.type(),definition.owner,null,p.range())).toList();
                 MiniType result=normalizeReturnType(instance.returnType(),instance.parameters(),parameters,definition.owner,definition.record,definition.method,instance.range());
@@ -587,10 +592,13 @@ public final class CppNameBinder {
                 if(definition.constructor!=null) {
                     var originalConstructor=definition.constructor;
                     var member=new ConstructorMember(originalConstructor.name(),instance.parameters(),originalConstructor.variadic(),List.of(),null,
-                            originalConstructor.nameRange(),originalConstructor.range(),originalConstructor.explicitSpecifier(),originalConstructor.definitionKind());
+                            originalConstructor.nameRange(),originalConstructor.range(),originalConstructor.explicitSpecifier(),originalConstructor.definitionKind(),instance.exceptionSpecification());
                     constructor=new Constructor(definition.record,member,definition.access,entity,parameters,false);
                 }
                 registerSpecialDefinition(entity,instance.definitionKind(),instance.range());
+                exceptionSource(entity,instance.exceptionSpecification(),instance.parameters(),parameters,definition.owner,definition.record,
+                        definition.method!=null&&!definition.method.staticMember()?methodThisType(definition.record,definition.method)
+                                :definition.constructor!=null?definition.record.type.pointerTo():null,false,instance.range());
                 functionTemplateCache.put(key,entity);functionTemplateDeclarations.put(entity,declaration);coreValues.put(entity.coreName,entity);
                 functionTemplateInstances.put(entity,new FunctionTemplateInstance(definition,bindings,instance,method,constructor));
                 recordDefaultArguments(entity,instance.parameters(),definition.owner,definition.record);
@@ -1271,6 +1279,7 @@ public final class CppNameBinder {
             coreValues.put(function.coreName, function);
             Destructor destructor = new Destructor(owner, member, access, function, implicit);
             owner.destructor = destructor;
+            exceptionSource(function,member.exceptionSpecification(),List.of(),List.of(),owner.owner,owner,owner.type.pointerTo(),true,member.range());
             registerSpecialDefinition(function,member.definitionKind(),member.range());
             if(member.definitionKind()==DefinitionKind.DELETED)deletedDestructors.put(function,deletedReason(member.range()));
             return destructor;
@@ -1300,10 +1309,12 @@ public final class CppNameBinder {
         }
 
         private void bindDestructor(Destructor destructor) {
+            exceptionSource(destructor.function,destructor.source.exceptionSpecification(),List.of(),List.of(),destructor.owner.owner,destructor.owner,
+                    destructor.owner.type.pointerTo(),true,destructor.source.range());
             if(destructor.source.definitionKind()==DefinitionKind.DELETED)return;
             if(destructor.source.definitionKind()==DefinitionKind.DEFAULTED){
                 DestructorMember source=destructor.source;
-                bindDestructor(new Destructor(destructor.owner,new DestructorMember(source.name(),new BlockStmt(List.of(),source.range()),source.nameRange(),source.range()),
+                bindDestructor(new Destructor(destructor.owner,new DestructorMember(source.name(),new BlockStmt(List.of(),source.range()),source.nameRange(),source.range()).withExceptionSpecification(source.exceptionSpecification()),
                         destructor.access,destructor.function,!userProvidedDefaulted.contains(destructor.function)));return;
             }
             TypeEntity owner = destructor.owner;
@@ -1414,6 +1425,196 @@ public final class CppNameBinder {
             specialDefinitionRanges.put(function,range);
             if(kind==DefinitionKind.DELETED)deletedFunctions.add(function);
         }
+        private record ExceptionSource(MiniType.ExceptionSpecification specification,List<Parameter> parameters,
+                                       List<MiniType> parameterTypes,Namespace namespace,TypeEntity owner,
+                                       MiniType thisType,boolean infer,SourceRange range,Map<Namespace,NamespaceView> lookup) {}
+        private final Map<Entity,List<ExceptionSource>> exceptionSources=new IdentityHashMap<>();
+        private final Set<Entity> resolvingExceptions=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Set<Entity> resolvedExceptions=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Map<Entity,AstNode> inferredExceptionBodies=new IdentityHashMap<>();
+
+        private void exceptionSource(Entity entity,MiniType.ExceptionSpecification specification,List<Parameter> parameters,
+                                     List<MiniType> parameterTypes,Namespace namespace,TypeEntity owner,
+                                     MiniType thisType,boolean infer,SourceRange range) {
+            var contexts=exceptionSources.computeIfAbsent(entity,key->new ArrayList<>());
+            if(contexts.stream().anyMatch(context->context.range.equals(range)&&context.specification.equals(specification)))return;
+            contexts.add(new ExceptionSource(specification,parameters,parameterTypes,namespace,owner,thisType,infer,range,
+                    currentTemplateLookup==null?snapshotLookup():currentTemplateLookup));
+            resolvedExceptions.remove(entity);
+            if(contexts.size()==1&&specification.condition()==null)
+                entity.type=((MiniType.FunctionType)entity.type).withExceptionSpecification(specification.nonThrowing()
+                        ?MiniType.ExceptionSpecification.NON_THROWING:MiniType.ExceptionSpecification.UNSPECIFIED);
+        }
+
+        private MiniType.ExceptionSpecification normalizeException(MiniType.ExceptionSpecification specification,
+                                                                   Namespace namespace,Local local,SourceRange range) {
+            if(specification.condition()==null)return specification.nonThrowing()
+                    ?MiniType.ExceptionSpecification.NON_THROWING:MiniType.ExceptionSpecification.UNSPECIFIED;
+            int checkpoint=diagnostics.size();
+            unevaluatedDepth++;
+            try {
+                Expression operand=contextualBool(expression(specification.condition(),namespace,local));
+                return evaluateTemplateConstant(operand).value()!=0?MiniType.ExceptionSpecification.NON_THROWING
+                        :MiniType.ExceptionSpecification.UNSPECIFIED;
+            } catch(IllegalArgumentException failure) {
+                report("CPP004",specification.condition().range(),"noexcept requires a constant expression convertible to bool: "+failure.getMessage());
+                return MiniType.ExceptionSpecification.UNSPECIFIED;
+            } finally {unevaluatedDepth--;preserveInstantiationDiagnostics(checkpoint);}
+        }
+
+        private boolean exceptionValue(Entity entity,ExceptionSource context) {
+            if(!context.specification.specified())return context.infer&&implicitException(entity);
+            TypeEntity savedClass=currentClass;Entity savedThis=currentThis;var savedLookup=currentTemplateLookup;
+            currentTemplateLookup=context.lookup;
+            currentClass=context.owner;currentThis=null;
+            Local scope=new Local(null,context.namespace);
+            try {
+                if(context.thisType!=null)currentThis=declareLocal("this",context.thisType,scope,context.range);
+                for(int i=0;i<context.parameters.size();i++) {
+                    Parameter parameter=context.parameters.get(i);
+                    if(!parameter.name().isEmpty())declareLocal(parameter.name(),context.parameterTypes.get(i),scope,parameter.range());
+                }
+                return normalizeException(context.specification,context.namespace,scope,context.range).nonThrowing();
+            } finally {currentClass=savedClass;currentThis=savedThis;currentTemplateLookup=savedLookup;}
+        }
+
+        private boolean functionNonThrowing(Entity entity) {
+            if(!(entity.type instanceof MiniType.FunctionType signature))return false;
+            if(resolvedExceptions.contains(entity))return signature.exceptionSpecification().nonThrowing();
+            if(!resolvingExceptions.add(entity)) {
+                var sources=exceptionSources.get(entity);
+                report("CPP004",sources==null?source.range():sources.getFirst().range,"Recursive exception specification is not yet defined: "+entity.name);
+                return false;
+            }
+            try {
+                var contexts=exceptionSources.get(entity);
+                boolean value=contexts==null?implicitException(entity):exceptionValue(entity,contexts.getFirst());
+                if(contexts!=null)for(int i=1;i<contexts.size();i++)
+                    if(value!=exceptionValue(entity,contexts.get(i)))report("CPP004",contexts.get(i).range,"Function redeclarations have different exception specifications: "+entity.name);
+                entity.type=((MiniType.FunctionType)entity.type).withExceptionSpecification(value
+                        ?MiniType.ExceptionSpecification.NON_THROWING:MiniType.ExceptionSpecification.UNSPECIFIED);
+                resolvedExceptions.add(entity);return value;
+            } finally {resolvingExceptions.remove(entity);}
+        }
+
+        /** Infer only implicit/defaulted special members and explicitly registered compiler helpers. */
+        private boolean implicitException(Entity entity) {
+            AstNode helper=inferredExceptionBodies.get(entity);
+            if(helper!=null)return !potentiallyThrowing(helper);
+            var instance=functionTemplateInstances.get(entity);
+            if(instance!=null) {
+                if(instance.constructor!=null)return constructorException(instance.constructor);
+                if(instance.method!=null)return assignmentException(instance.method);
+                return ((MiniType.FunctionType)entity.type).exceptionSpecification().nonThrowing();
+            }
+            for(TypeEntity owner:coreTypes.values()) {
+                if(owner.destructor!=null&&owner.destructor.function==entity) {
+                    for(StructField field:owner.fields)if(!destructorNonThrowing(field.type()))return false;
+                    return true;
+                }
+                if(owner.implicitCopy!=null&&owner.implicitCopy.function==entity)return constructorException(owner.implicitCopy);
+                if(owner.implicitMove!=null&&owner.implicitMove.function==entity)return constructorException(owner.implicitMove);
+                if(owner.aggregateInitializer!=null&&owner.aggregateInitializer.function==entity)return constructorException(owner.aggregateInitializer);
+                for(Constructor constructor:owner.constructors)if(constructor.function==entity)return constructorException(constructor);
+                if(owner.implicitAssignment!=null&&owner.implicitAssignment.function==entity)return assignmentException(owner.implicitAssignment);
+                if(owner.implicitMoveAssignment!=null&&owner.implicitMoveAssignment.function==entity)return assignmentException(owner.implicitMoveAssignment);
+                for(MethodSet methods:owner.methods.values())for(Method method:methods.methods)
+                    if(method.function==entity)return assignmentException(method);
+            }
+            return ((MiniType.FunctionType)entity.type).exceptionSpecification().nonThrowing();
+        }
+
+        private boolean constructorException(Constructor constructor) {
+            if(!constructor.implicit&&(!defaulted(constructor)||userProvidedDefaulted.contains(constructor.function)))return false;
+            TypeEntity owner=constructor.owner;
+            if(isCopyConstructor(constructor)||isMoveConstructor(constructor)) {
+                CppCopyConstructorPlan.Result<Constructor> plan=defaultedCopyPlans.get(constructor);
+                if(plan==null)plan=constructor==owner.implicitMove?owner.movePlan:owner.copyPlan;
+                if(plan==null||plan.status()!=CppCopyConstructorPlan.Status.AVAILABLE)return false;
+                for(var entry:plan.entries())if(entry.constructor()!=null&&!functionNonThrowing(entry.constructor().function))return false;
+                return true;
+            }
+            for(StructField field:owner.fields) {
+                Entity initializer=owner.defaultInitializers.get(field.name());
+                if(initializer!=null){if(!functionNonThrowing(initializer))return false;continue;}
+                MiniType leaf=field.type();while(leaf.isArray())leaf=leaf.elementType();
+                if(leaf.isReference())continue;
+                if(!defaultConstructionNonThrowing(leaf,field.range()))return false;
+            }
+            return true;
+        }
+
+        private boolean defaultConstructionNonThrowing(MiniType type,SourceRange range) {
+            while(type.isArray())type=type.elementType();if(type.isReference())return true;
+            TypeEntity owner=objectType(type);if(owner==null)return true;
+            if(owner.constructors.isEmpty()) {
+                for(StructField field:owner.fields) {
+                    Entity initializer=owner.defaultInitializers.get(field.name());
+                    if(initializer!=null){if(!functionNonThrowing(initializer))return false;}
+                    else if(!defaultConstructionNonThrowing(field.type(),field.range()))return false;
+                }
+                return true;
+            }
+            var resolution=CppOverloadResolver.resolve(expandConstructorTemplateShapes(allConstructors(owner),List.of(),range).stream()
+                    .map(this::constructorCandidate).toList(),List.of(),null,conversions,this::betterTemplateCandidate);
+            if(resolution.status()!=CppOverloadResolver.Status.SELECTED)return false;
+            Entity chosen=resolution.winner().identity().function;
+            if(!functionNonThrowing(chosen))return false;
+            for(DefaultArgument argument:functionDefaults.getOrDefault(chosen,List.of()))if(argument!=null) {
+                TypeEntity saved=currentClass;Entity savedThis=currentThis;var lookup=currentTemplateLookup;
+                currentClass=argument.record;currentThis=null;currentTemplateLookup=argument.lookup;unevaluatedDepth++;
+                try{if(potentiallyThrowing(expression(argument.source,argument.owner,null)))return false;}
+                finally{unevaluatedDepth--;currentClass=saved;currentThis=savedThis;currentTemplateLookup=lookup;}
+            }
+            return true;
+        }
+
+        private boolean assignmentException(Method method) {
+            TypeEntity owner=method.owner;
+            if(method!=owner.implicitAssignment&&method!=owner.implicitMoveAssignment
+                    &&(!defaulted(method)||userProvidedDefaulted.contains(method.function)))return false;
+            AssignmentPlan plan=defaultedAssignmentPlans.get(method);
+            if(plan==null)plan=method==owner.implicitMoveAssignment?owner.moveAssignmentPlan:owner.assignmentPlan;
+            if(plan==null||!plan.problems.isEmpty())return false;
+            for(AssignmentEntry entry:plan.entries)if(entry.method!=null&&!functionNonThrowing(entry.method.function))return false;
+            return true;
+        }
+
+        private boolean destructorNonThrowing(MiniType type) {
+            if(type==null||type.isReference())return true;
+            while(type.isArray())type=type.elementType();TypeEntity owner=objectType(type);
+            return owner==null||owner.destructor==null||functionNonThrowing(owner.destructor.function);
+        }
+
+        private boolean potentiallyThrowing(AstNode node) {
+            if(node==null||node instanceof SizeofExpr||node instanceof AlignofExpr||node instanceof minic.compiler.parser.node.CppNoexceptExpr)return false;
+            if(node instanceof CallExpr call) {
+                Expression callee=call.callee();while(callee instanceof GroupingExpr group)callee=group.expression();
+                Entity entity=callee instanceof NameExpr name?coreValues.get(name.name()):null;
+                if(entity!=null&&entity.kind==Kind.FUNCTION) {if(!functionNonThrowing(entity))return true;}
+                else {
+                    MiniType.FunctionType signature=functionSignature(declaredExpressionType(callee));
+                    if(signature==null||!signature.exceptionSpecification().nonThrowing())return true;
+                }
+            }
+            if(node instanceof Expression value) {
+                MiniType type=declaredExpressionType(value);
+                if(type!=null&&!type.isReference()&&valueCategory(value)==CppValueCategory.PRVALUE&&!destructorNonThrowing(type))return true;
+            }
+            for(AstNode child:AstChildren.of(node))if(potentiallyThrowing(child))return true;
+            return false;
+        }
+
+        private Expression noexceptExpression(minic.compiler.parser.node.CppNoexceptExpr query,Namespace namespace,Local local) {
+            unevaluatedDepth++;
+            try {
+                Expression operand=expression(query.operand(),namespace,local);
+                validateUnevaluatedCore(operand);
+                boolean value=!potentiallyThrowing(operand);
+                return typed(new BoolLiteralExpr(value,Boolean.toString(value),query.range()),MiniType.BOOL);
+            } finally {unevaluatedDepth--;}
+        }
+
         private boolean isDeleted(Entity function) {
             if(deletedFunctions.contains(function)||deletedConstructors.containsKey(function)||deletedDestructors.containsKey(function))return true;
             for(var entry:defaultedAssignmentPlans.entrySet())if(entry.getKey().function==function&&!entry.getValue().problems.isEmpty())return true;
@@ -1462,7 +1663,8 @@ public final class CppNameBinder {
             parameters.stream().map(MiniType::unqualified).forEach(signatureParameters::add);
             MiniType signature = MiniType.function(MiniType.VOID, signatureParameters, member.variadic());
             for (Constructor previous : owner.constructors) {
-                if (previous.function.type.equals(signature)) {
+                if (previous.function.type instanceof MiniType.FunctionType prior
+                        && prior.parameterTypes().equals(((MiniType.FunctionType)signature).parameterTypes()) && prior.variadic()==member.variadic()) {
                     report("CPP004", member.nameRange(), "Duplicate constructor declaration: " + owner.canonicalName);
                     return null;
                 }
@@ -1473,6 +1675,8 @@ public final class CppNameBinder {
             Constructor constructor = new Constructor(owner, member, access, function, parameters, implicit);
             if(defaulted(constructor)&&!validDefaultedConstructor(constructor))return null;
             owner.constructors.add(constructor);
+            exceptionSource(function,member.exceptionSpecification(),member.parameters(),parameters,owner.owner,owner,owner.type.pointerTo(),
+                    implicit||member.definitionKind()==DefinitionKind.DEFAULTED,member.range());
             registerSpecialDefinition(function,member.definitionKind(),member.range());
             if(member.definitionKind()==DefinitionKind.DELETED)deletedConstructors.put(function,deletedReason(member.range()));
             recordDefaultArguments(function,member.parameters(),owner.owner,owner);
@@ -1543,6 +1747,7 @@ public final class CppNameBinder {
                 FunctionDecl core = new FunctionDecl(function.coreName, MiniType.VOID,
                         List.of(new Parameter(self.coreName, self.type, member.range())), false, body, false, member.range());
                 functions.add(core); declarations.add(core);
+                inferredExceptionBodies.put(function,body);
             } finally { currentClass = savedClass; currentThis = savedThis; currentReturnType = savedReturn; currentAutoReturn=savedAutoReturn; }
         }
 
@@ -1551,13 +1756,16 @@ public final class CppNameBinder {
         }
 
         private void bindConstructor(Constructor constructor, boolean aggregateList) {
+            exceptionSource(constructor.function,constructor.source.exceptionSpecification(),
+                    constructor.source.parameters(),constructor.parameterTypes,constructor.owner.owner,constructor.owner,constructor.owner.type.pointerTo(),
+                    constructor.implicit||defaulted(constructor)&&!userProvidedDefaulted.contains(constructor.function),constructor.source.range());
             if(constructor.source.definitionKind()==DefinitionKind.DELETED)return;
             if(constructor.source.definitionKind()==DefinitionKind.DEFAULTED){
                 if(!validDefaultedConstructor(constructor))return;
                 if(!constructor.parameterTypes.isEmpty())return;
                 ConstructorMember source=constructor.source;
                 var bodySource=new ConstructorMember(source.name(),source.parameters(),false,List.of(),new BlockStmt(List.of(),source.range()),
-                        source.nameRange(),source.range(),source.explicitSpecifier());
+                        source.nameRange(),source.range(),source.explicitSpecifier()).withExceptionSpecification(source.exceptionSpecification());
                 bindConstructor(new Constructor(constructor.owner,bodySource,constructor.access,constructor.function,List.of(),
                         !userProvidedDefaulted.contains(constructor.function)),aggregateList);return;
             }
@@ -1775,6 +1983,8 @@ public final class CppNameBinder {
                     Kind.FUNCTION, namespace, signature, null, sourceMethod.hasDefinition());
             coreValues.put(function.coreName, function);
             Method method = new Method(owner, member, access, function, returnType, parameterTypes);
+            exceptionSource(function,sourceMethod.exceptionSpecification(),sourceMethod.parameters(),parameterTypes,namespace,owner,
+                    member.staticMember()?null:methodThisType(owner,member),sourceMethod.definitionKind()==DefinitionKind.DEFAULTED,sourceMethod.range());
             registerSpecialDefinition(function,sourceMethod.definitionKind(),sourceMethod.range());
             if(defaulted(method)&&!validDefaultedAssignment(method))return null;
             if (member.staticMember()) staticMethods.put(function, method);
@@ -1788,7 +1998,7 @@ public final class CppNameBinder {
         private MiniType methodReturnType(Method method) { return ((MiniType.FunctionType) method.function.type).returnType(); }
         private void publishAutoReturn(AutoReturnContext context, MiniType result) {
             MiniType.FunctionType signature = (MiniType.FunctionType) context.function.type;
-            context.function.type = MiniType.function(result, signature.parameterTypes(), signature.variadic());
+            context.function.type = MiniType.function(result, signature.parameterTypes(), signature.variadic(),signature.exceptionSpecification());
             context.deduced = result;
             currentReturnType = result;
         }
@@ -1837,6 +2047,9 @@ public final class CppNameBinder {
         }
 
         private void bindMethod(Method method, Namespace namespace) {
+            exceptionSource(method.function,method.source.method().exceptionSpecification(),method.source.method().parameters(),method.parameterTypes,
+                    namespace,method.owner,method.source.staticMember()?null:methodThisType(method.owner,method.source),
+                    defaulted(method)&&!userProvidedDefaulted.contains(method.function),method.source.method().range());
             if(method.source.method().definitionKind()==DefinitionKind.DELETED)return;
             if(method.source.method().definitionKind()==DefinitionKind.DEFAULTED){
                 if(!isCopyAssignment(method)&&!isMoveAssignment(method))report("CPP004",method.source.range(),"Only a special member function can be defaulted");
@@ -1935,6 +2148,8 @@ public final class CppNameBinder {
             previous.function.defined = true;
             MethodMember member = new MethodMember(definition, node.constQualified(), previous.source.staticMember(), node.nameRange());
             Method replacement=new Method(owner,member,previous.access,previous.function,returnType,parameterTypes);
+            exceptionSource(replacement.function,definition.exceptionSpecification(),definition.parameters(),parameterTypes,
+                    owner.owner,owner,member.staticMember()?null:methodThisType(owner,member),false,definition.range());
             if(defaulted(replacement)&&!validDefaultedAssignment(replacement))return;
             var updated=new ArrayList<>(overloads.methods);updated.set(updated.indexOf(previous),replacement);owner.methods.put(definition.name(),new MethodSet(updated));
             if(defaulted(replacement)){
@@ -2161,7 +2376,7 @@ public final class CppNameBinder {
             if (pattern instanceof MiniType.FunctionType function && actual.unqualified() instanceof MiniType.FunctionType sourceFunction
                     && function.parameterTypes().equals(sourceFunction.parameterTypes()) && function.variadic() == sourceFunction.variadic()) {
                 MiniType result = deducePattern(function.returnType(), sourceFunction.returnType());
-                return result == null ? null : MiniType.function(result, function.parameterTypes(), function.variadic());
+                return result == null ? null : MiniType.function(result, function.parameterTypes(), function.variadic(),function.exceptionSpecification());
             }
             return pattern.equals(actual) ? pattern : null;
         }
@@ -2240,7 +2455,7 @@ public final class CppNameBinder {
             }
             if (type instanceof MiniType.FunctionType function) return MiniType.function(
                     normalizeType(function.returnType(), namespace, local, range),
-                    function.parameterTypes().stream().map(t -> normalizeType(t, namespace, local, range)).toList(), function.variadic());
+                    function.parameterTypes().stream().map(t -> normalizeType(t, namespace, local, range)).toList(), function.variadic(),normalizeException(function.exceptionSpecification(),namespace,local,range));
             if (!(type instanceof MiniType.StructType struct)) return type;
             if (coreTypes.containsKey(struct.name())) return type;
             if (coreTypes.containsKey(struct.name())) return type;
@@ -2596,6 +2811,8 @@ public final class CppNameBinder {
                             &&type.parameterTypes().equals(signature.parameterTypes())&&type.variadic()==signature.variadic()))
                 report("CPP004",node.range(),"A deleted definition must be the first declaration");
             Entity entity = instantiated!=null?instantiated:declareNamespaceFunction(node.name(), signature, node.hasDefinition(), namespace, node.range(), node.operatorName() != null);
+            exceptionSource(entity,node.exceptionSpecification(),node.parameters(),parameterTypes,namespace,null,null,false,node.range());
+            functionNonThrowing(entity);
             if(instantiated==null)recordDefaultArguments(entity,node.parameters(),namespace,null);
             recordLinkage(entity, node.range());
             if(node.definitionKind()==DefinitionKind.DELETED){
@@ -3049,7 +3266,7 @@ public final class CppNameBinder {
                 }
                 MiniType resultType=source.returnType()==MiniType.AUTO?MiniType.AUTO:new MiniType.TrailingReturnType(source.returnType());
                 var function=new FunctionDecl("operator()",resultType,callParameters,source.variadic(),source.body(),false,false,
-                        source.range(),new OperatorName(OperatorName.Kind.CALL,source.range()));
+                        source.range(),new OperatorName(OperatorName.Kind.CALL,source.range())).withExceptionSpecification(source.exceptionSpecification());
                 var methodSource=new MethodMember(function,!source.mutable(),source.range());
                 Method method=null;
                 if(generic) {
@@ -3208,8 +3425,9 @@ public final class CppNameBinder {
                 Method method=entity==declaration.function?declaration:functionTemplateInstances.get(entity).method;
                 int savedDepth=unevaluatedDepth;unevaluatedDepth=0;
                 try{instantiateMethod(method);}finally{unevaluatedDepth=savedDepth;}
-                MiniType actual=MiniType.function(methodReturnType(method),method.parameterTypes,method.source.method().variadic());
-                if(actual.equals(signature))lambdaFunctionPointer(lambda,method);
+                functionNonThrowing(method.function);
+                MiniType actual=MiniType.function(methodReturnType(method),method.parameterTypes,method.source.method().variadic(),((MiniType.FunctionType)method.function.type).exceptionSpecification());
+                if(actual.equals(signature)||CppOverloadResolver.functionConvertible(actual,signature))lambdaFunctionPointer(lambda,method);
             }
         }
 
@@ -3234,12 +3452,13 @@ public final class CppNameBinder {
 
         /** A captureless lambda's conversion points at an ordinary ABI function, never a this-bearing method. */
         private void lambdaFunctionPointer(LambdaInfo lambda,Method method) {
-            MiniType pointerType=MiniType.function(methodReturnType(method),method.parameterTypes,method.source.method().variadic()).pointerTo();
+            functionNonThrowing(method.function);
+            MiniType pointerType=MiniType.function(methodReturnType(method),method.parameterTypes,method.source.method().variadic(),((MiniType.FunctionType)method.function.type).exceptionSpecification()).pointerTo();
             if(lambda.pointerConversions.contains(pointerType))return;
             FunctionDecl call=functions.stream().filter(function->function.name().equals(method.function.coreName)&&function.hasBody()).findFirst().orElse(null);
             if(call==null)return;
             lambda.pointerConversions.add(pointerType);
-            MiniType signature=MiniType.function(methodReturnType(method),method.parameterTypes,method.source.method().variadic());
+            MiniType signature=MiniType.function(methodReturnType(method),method.parameterTypes,method.source.method().variadic(),((MiniType.FunctionType)method.function.type).exceptionSpecification());
             String name=freshName("lambda_function");
             Entity thunk=new Entity(name,name,Kind.FUNCTION,lambda.namespace,signature,null,true);
             coreValues.put(name,thunk);lambda.namespace.values.put(name,new OverloadSet(List.of(thunk)));
@@ -3248,7 +3467,8 @@ public final class CppNameBinder {
             MiniType target=signature.pointerTo();SourceRange range=lambda.source.range();
             ConversionName conversion=new ConversionName(target,false,range);
             var body=new BlockStmt(List.of(new ReturnStmt(new NameExpr(name,range),range)),range);
-            var declaration=new FunctionDecl(conversion.spelling(),target,List.of(),false,body,false,false,range,null,conversion);
+            var declaration=new FunctionDecl(conversion.spelling(),target,List.of(),false,body,false,false,range,null,conversion)
+                    .withExceptionSpecification(MiniType.ExceptionSpecification.NON_THROWING);
             Method converted=declareMethod(lambda.type,new MethodMember(declaration,true,range),Access.PUBLIC,lambda.namespace);
             if(converted!=null)bindMethod(converted,lambda.namespace);
         }
@@ -3613,6 +3833,7 @@ public final class CppNameBinder {
                     yield n;
                 }
                 case CppConstructionExpr n -> constructionExpression(n, namespace, local);
+                case minic.compiler.parser.node.CppNoexceptExpr n -> noexceptExpression(n,namespace,local);
                 case CppTypeQueryExpr n -> typeQuery(n, namespace, local);
                 case CppTypeMemberExpr n -> memberReference(typeMember(n, namespace, local), n.memberName(), n.range(), addressDemand);
                 case CppDestructorCallExpr n -> explicitDestruction(n, namespace, local);
@@ -4461,7 +4682,7 @@ public final class CppNameBinder {
             if (target == null) return null;
             MiniType.FunctionType function = functionSignature(objectTypeOfReference(target));
             return function == null ? null : (MiniType.FunctionType) MiniType.function(function.returnType(),
-                    function.parameterTypes().stream().map(MiniType::unqualified).toList(), function.variadic());
+                    function.parameterTypes().stream().map(MiniType::unqualified).toList(), function.variadic(),function.exceptionSpecification());
         }
 
         private Entity functionForTarget(OverloadDesignator designator, MiniType target) {
@@ -4470,7 +4691,9 @@ public final class CppNameBinder {
             Entity selected = null;
             for (Entity declaration : designator.set.functions) {
                 Entity candidate=deduceFunctionTemplateForTarget(declaration,signature,designator.explicit,designator.name.range());
-                if(candidate==null||!candidate.type.equals(signature))continue;
+                if(candidate==null)continue;
+                functionNonThrowing(candidate);
+                if(!candidate.type.equals(signature)&&!CppOverloadResolver.functionConvertible(candidate.type,signature))continue;
                 if(selected!=null) {
                     if(betterTemplateCandidate(candidate,selected))selected=candidate;
                     else if(!betterTemplateCandidate(selected,candidate))return null;
@@ -5349,6 +5572,7 @@ public final class CppNameBinder {
             FunctionDecl function = new FunctionDecl(name, MiniType.VOID, List.of(new Parameter(parameter, pointer, range)),
                     false, new BlockStmt(List.of(body), range), false, range);
             functions.add(function); declarations.add(function);
+            inferredExceptionBodies.put(coreValues.get(function.name()),function.body());
             return name;
         }
 
@@ -6809,7 +7033,7 @@ public final class CppNameBinder {
                         && referenceCompatible(elementType(target), elementType(actual));
             }
             if (!target.qualifiers().containsAll(actual.qualifiers())) return false;
-            return target.unqualified().equals(actual.unqualified())||baseDistance(actual,target)>0;
+            return target.unqualified().equals(actual.unqualified())||CppOverloadResolver.functionConvertible(actual,target)||baseDistance(actual,target)>0;
         }
 
         private void requireImplicitInitialization(MiniType target, boolean valueInitialization, SourceRange range) {
@@ -6947,6 +7171,7 @@ public final class CppNameBinder {
         }
 
         private String functionReferenceName(Entity entity) {
+            if(entity.kind==Kind.FUNCTION&&!functionTemplates.containsKey(entity))functionNonThrowing(entity);
             instantiateFunctionTemplate(entity);
             if(isDeleted(entity))report("CPP004",specialDefinitionRanges.getOrDefault(entity,source.range()),"Use of deleted function: "+entity.name);
             if (libraryExitFunctions.contains(entity)) {

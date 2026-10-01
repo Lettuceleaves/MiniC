@@ -176,7 +176,8 @@ public sealed interface MiniType permits
             case ReferenceType reference -> reference.referent().containsTemplateType();
             case ArrayType array -> array.elementType().containsTemplateType();
             case FunctionType function -> function.returnType().containsTemplateType()
-                    || function.parameterTypes().stream().anyMatch(MiniType::containsTemplateType);
+                    || function.parameterTypes().stream().anyMatch(MiniType::containsTemplateType)
+                    || function.exceptionSpecification().condition()!=null&&TemplateValues.dependent(function.exceptionSpecification().condition());
             default -> false;
         };
     }
@@ -207,7 +208,7 @@ public sealed interface MiniType permits
                 yield element.arrayOf((int)length);
             }
             case FunctionType function -> MiniType.function(function.returnType().substituteTemplateParameters(arguments,values),
-                    function.parameterTypes().stream().map(t -> t.substituteTemplateParameters(arguments,values)).toList(), function.variadic());
+                    function.parameterTypes().stream().map(t -> t.substituteTemplateParameters(arguments,values)).toList(), function.variadic(),function.exceptionSpecification().substitute(arguments,values));
             default -> this;
         };
     }
@@ -256,7 +257,8 @@ public sealed interface MiniType permits
             case PointerType pointer -> pointer.pointee().isDependentTemplate();
             case ReferenceType reference -> reference.referent().isDependentTemplate();
             case ArrayType array -> array.elementType().isDependentTemplate();
-            case FunctionType function -> function.returnType().isDependentTemplate()||function.parameterTypes().stream().anyMatch(MiniType::isDependentTemplate);
+            case FunctionType function -> function.returnType().isDependentTemplate()||function.parameterTypes().stream().anyMatch(MiniType::isDependentTemplate)
+                    || function.exceptionSpecification().condition()!=null&&TemplateValues.dependent(function.exceptionSpecification().condition());
             default -> false;
         };
     }
@@ -768,11 +770,50 @@ public sealed interface MiniType permits
      * @param parameterTypes 固定参数类型列表
      * @param variadic 是否接受可变参数
      */
+    /** Source conditional specs are normalized before overload resolution; core ABI drops them. */
+    record ExceptionSpecification(boolean specified, boolean nonThrowing,
+                                  minic.compiler.parser.node.Expression condition) {
+        public static final ExceptionSpecification UNSPECIFIED = new ExceptionSpecification(false,false,null);
+        public static final ExceptionSpecification NON_THROWING = new ExceptionSpecification(true,true,null);
+        public static final ExceptionSpecification POTENTIALLY_THROWING = new ExceptionSpecification(true,false,null);
+        public ExceptionSpecification {
+            if (!specified && (nonThrowing || condition != null)) throw new IllegalArgumentException("Unspecified exception specification has no operand");
+            if (nonThrowing && condition != null) throw new IllegalArgumentException("Conditional specification must first be resolved");
+        }
+        public ExceptionSpecification substitute(java.util.Map<TemplateParameterType,MiniType> types,
+                                                 java.util.Map<TemplateParameterType,minic.compiler.parser.node.Expression> values) {
+            return condition == null ? this : new ExceptionSpecification(true,false,TemplateValues.substitute(condition,types,values));
+        }
+    }
+
+    static MiniType function(MiniType result, List<MiniType> parameters, boolean variadic, ExceptionSpecification specification) {
+        return new FunctionType(result,parameters,variadic,specification);
+    }
+
+    default boolean containsExceptionSpecification() {
+        return switch(unqualified()) {
+            case FunctionType function -> function.exceptionSpecification().specified()
+                    || function.returnType().containsExceptionSpecification()
+                    || function.parameterTypes().stream().anyMatch(MiniType::containsExceptionSpecification);
+            case PointerType pointer -> pointer.pointee().containsExceptionSpecification();
+            case ReferenceType reference -> reference.referent().containsExceptionSpecification();
+            case ArrayType array -> array.elementType().containsExceptionSpecification();
+            default -> false;
+        };
+    }
+
     record FunctionType(
             MiniType returnType,
             List<MiniType> parameterTypes,
-            boolean variadic
+            boolean variadic,
+            ExceptionSpecification exceptionSpecification
     ) implements CombinationType {
+        public FunctionType(MiniType returnType,List<MiniType> parameterTypes,boolean variadic) {
+            this(returnType,parameterTypes,variadic,ExceptionSpecification.UNSPECIFIED);
+        }
+        public FunctionType withExceptionSpecification(ExceptionSpecification specification) {
+            return new FunctionType(returnType,parameterTypes,variadic,specification);
+        }
         /**
          * 创建函数签名类型。
          *
@@ -780,6 +821,7 @@ public sealed interface MiniType permits
          * @param parameterTypes 参数类型列表
          */
         public FunctionType {
+            Objects.requireNonNull(exceptionSpecification,"exceptionSpecification");
             Objects.requireNonNull(returnType, "returnType");
             Objects.requireNonNull(parameterTypes, "parameterTypes");
             parameterTypes = List.copyOf(parameterTypes);
@@ -793,7 +835,7 @@ public sealed interface MiniType permits
             if (variadic) {
                 parameters = parameters.isEmpty() ? "..." : parameters + ", ...";
             }
-            return returnType + " (" + parameters + ")";
+            return returnType + " (" + parameters + ")" + (exceptionSpecification.nonThrowing() ? " noexcept" : "");
         }
     }
 }

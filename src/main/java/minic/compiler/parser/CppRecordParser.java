@@ -199,7 +199,7 @@ public final class CppRecordParser {
                     else if (declaration.type().unqualified() instanceof MiniType.FunctionType function) {
                         types.declareOrdinaryName(declaration.name(), declaration.nameRange());
                         boolean constQualified = state.match(TokenType.CONST);
-                        function = types.parseTrailingReturn(function);
+                        function = types.parseTrailingReturn(types.parseFunctionException(function));
                         if (staticMember && constQualified) state.report(declaration.nameRange(), "static 成员函数不能带 const 限定符");
                         if (union) {
                             state.unsupportedCpp(declaration.nameRange(), "union 成员方法尚未实现");
@@ -262,7 +262,7 @@ public final class CppRecordParser {
                 BlockStmt body = state.inTokenWindow(item.body(), () -> statements.parseFunctionBlock(
                         signature.parameters().stream().map(Parameter::name).toList()));
                 var method = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
-                        signature.variadic(), body, false, false, signature.range(), signature.operatorName(), signature.conversionName(),signature.definitionKind());
+                        signature.variadic(), body, false, false, signature.range(), signature.operatorName(), signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification());
                 MethodMember old = (MethodMember) members.get(item.memberIndex());
                 var member = new MethodMember(method, old.constQualified(), old.staticMember(), old.nameRange());
                 members.set(item.memberIndex(), member);
@@ -275,7 +275,7 @@ public final class CppRecordParser {
                     else {
                         FunctionDecl signature=item.method();
                         BlockStmt body=item.body()==null?null:state.inTokenWindow(item.body(),()->statements.parseFunctionBlock(signature.parameters().stream().map(Parameter::name).toList()));
-                        FunctionDecl method=new FunctionDecl(signature.name(),signature.returnType(),signature.parameters(),signature.variadic(),body,false,false,signature.range(),signature.operatorName(),signature.conversionName(),signature.definitionKind());
+                        FunctionDecl method=new FunctionDecl(signature.name(),signature.returnType(),signature.parameters(),signature.variadic(),body,false,false,signature.range(),signature.operatorName(),signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification());
                         members.set(item.index(),new TemplateMethodMember(item.parameters(),new MethodMember(method,item.constant(),item.statik(),item.nameRange())));
                     }
                 } finally {types.exitFunctionTemplate();}
@@ -313,6 +313,7 @@ public final class CppRecordParser {
             if(declaration==null)return null;
             if(!(declaration.type().unqualified() instanceof MiniType.FunctionType function)){state.report(start,"成员模板需要函数或构造函数");return null;}
             boolean constant=state.match(TokenType.CONST);
+            function=types.parseTrailingReturn(types.parseFunctionException(function));
             if(statik&&constant)state.report(start,"static 成员模板不能 cv 限定");
             Parser.Context.TokenWindow body=state.check(TokenType.LEFT_BRACE)?state.deferBlock():null;
             DefinitionKind kind=DefinitionKind.ORDINARY;
@@ -337,7 +338,7 @@ public final class CppRecordParser {
             parameters.add(new Parameter(parsed.name().isEmpty() ? "__unnamed" + index : parsed.name(), parsed.type(), parsed.defaultValue(), parsed.range()));
         }
         return new FunctionDecl(declaration.name(), function.returnType(), parameters, function.variadic(), body,
-                false, false, SourceRange.span(declaration.range(), end), declaration.operatorName());
+                false, false, SourceRange.span(declaration.range(), end), declaration.operatorName()).withExceptionSpecification(function.exceptionSpecification());
     }
 
     /** Lookup distinguishes injected constructor names from namespace-qualified ordinary types. */
@@ -409,7 +410,7 @@ public final class CppRecordParser {
                     () -> statements.parseFunctionBlock(List.of()));
             FunctionDecl signature = member.method();
             FunctionDecl function = new FunctionDecl(signature.name(), signature.returnType(), signature.parameters(),
-                    signature.variadic(), body, false, false, signature.range(), null, signature.conversionName(),signature.definitionKind());
+                    signature.variadic(), body, false, false, signature.range(), null, signature.conversionName(),signature.definitionKind(),signature.exceptionSpecification());
             segments.set(segments.size() - 1, function.name());
             QualifiedName name = new QualifiedName(global, segments, SourceRange.span(start.range(), member.nameRange()));
             var result = new OutOfLineMethodDecl(name, function, member.constQualified(), member.nameRange());
@@ -436,6 +437,7 @@ public final class CppRecordParser {
         if (!parameters.parameters().isEmpty() || parameters.variadic())
             state.report(SourceRange.span(open.range(), close.range()), "转换函数不能声明参数");
         boolean constQualified = state.match(TokenType.CONST);
+        var exceptionSpecification=types.parseExceptionSpecification();
         if (state.check(TokenType.CONST)) {
             state.report(state.peek().range(), "转换函数 const 限定符重复");
             return null;
@@ -450,7 +452,7 @@ public final class CppRecordParser {
         }
         ConversionName name = new ConversionName(target.type(), explicitSpecifier, nameRange);
         FunctionDecl method = new FunctionDecl(name.spelling(), target.type(), List.of(), false, null,
-                false, false, SourceRange.span(start, state.previous().range()), null, name,kind);
+                false, false, SourceRange.span(start, state.previous().range()), null, name,kind,exceptionSpecification);
         return new ParsedConversion(new MethodMember(method, constQualified, nameRange), body);
     }
 
@@ -512,6 +514,7 @@ public final class CppRecordParser {
         if (close == null) return null;
         if (!parameters.parameters().isEmpty() || parameters.variadic())
             state.report(SourceRange.span(open.range(), close.range()), "析构函数不能声明参数");
+        var exceptionSpecification=types.parseExceptionSpecification();
         Parser.Context.TokenWindow body = null;
         DefinitionKind kind=DefinitionKind.ORDINARY;
         if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
@@ -520,14 +523,14 @@ public final class CppRecordParser {
             state.unsupportedCpp(state.peek().range(), "析构函数限定符、说明符或成员初始化列表尚未支持或不合法");
             return null;
         }
-        var signature = new DestructorMember(name, null, nameRange, SourceRange.span(start, state.previous().range()),kind);
+        var signature = new DestructorMember(name, null, nameRange, SourceRange.span(start, state.previous().range()),kind,exceptionSpecification);
         return new DeferredDestructor(index, signature, body);
     }
 
     private DestructorMember completeDestructor(DeferredDestructor item) {
         DestructorMember signature = item.signature();
         BlockStmt body = item.body() == null ? null : state.inTokenWindow(item.body(), () -> statements.parseFunctionBlock(List.of()));
-        var destructor = new DestructorMember(signature.name(), body, signature.nameRange(), signature.range(),signature.definitionKind());
+        var destructor = new DestructorMember(signature.name(), body, signature.nameRange(), signature.range(),signature.definitionKind(),signature.exceptionSpecification());
         state.build(destructor, "DestructorDecl " + destructor.name(), destructor.range());
         return destructor;
     }
@@ -537,6 +540,7 @@ public final class CppRecordParser {
         if (state.consume(TokenType.LEFT_PAREN, "构造参数期望 '('") == null) return null;
         var parameters = types.parseParameterList();
         if (state.consume(TokenType.RIGHT_PAREN, "构造参数期望 ')'") == null) return null;
+        var exceptionSpecification=types.parseExceptionSpecification();
         List<DeferredInitializer> initializers = new ArrayList<>();
         if (state.match(TokenType.COLON)) {
             do {
@@ -577,7 +581,7 @@ public final class CppRecordParser {
             resolved.add(new Parameter(parameter.name().isEmpty() ? "__unnamed" + i : parameter.name(), parameter.type(), parameter.defaultValue(), parameter.range()));
         }
         var signature = new ConstructorMember(name, resolved, parameters.variadic(), List.of(), null,
-                nameRange, SourceRange.span(start, state.previous().range()), explicitSpecifier,kind);
+                nameRange, SourceRange.span(start, state.previous().range()), explicitSpecifier,kind,exceptionSpecification);
         return new DeferredConstructor(index, signature, initializers, body, unnamed);
     }
 
@@ -599,7 +603,7 @@ public final class CppRecordParser {
             types.exitScope();
         }
         var constructor = new ConstructorMember(signature.name(), signature.parameters(), signature.variadic(),
-                initializers, body, signature.nameRange(), signature.range(), signature.explicitSpecifier(),signature.definitionKind());
+                initializers, body, signature.nameRange(), signature.range(), signature.explicitSpecifier(),signature.definitionKind(),signature.exceptionSpecification());
         state.build(constructor, "ConstructorDecl " + signature.name(), constructor.range());
         return constructor;
     }

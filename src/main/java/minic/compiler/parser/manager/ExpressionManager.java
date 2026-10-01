@@ -303,6 +303,15 @@ public final class ExpressionManager {
             state.build(unaryExpr, "UnaryExpr " + unaryExpr.operator(), unaryExpr.range());
             return unaryExpr;
         }
+        if (typeReader.isCpp() && state.match(TokenType.NOEXCEPT)) {
+            Token start=state.previous();
+            if (state.consume(TokenType.LEFT_PAREN,"noexcept 运算符后期望 '(' ")==null) return null;
+            Expression operand=parseExpression();
+            Token end=state.consume(TokenType.RIGHT_PAREN,"noexcept 运算符后期望 ')' ");
+            if (operand==null || end==null) return null;
+            var result=new minic.compiler.parser.node.CppNoexceptExpr(operand,SourceRange.span(start.range(),end.range()));
+            state.build(result,"CppNoexceptExpr",result.range());return result;
+        }
         if (state.match(TokenType.SIZEOF)) {
             return parseSizeof(state.previous());
         }
@@ -577,10 +586,12 @@ public final class ExpressionManager {
             }
             boolean mutable=state.match(TokenType.MUTABLE);
             if(mutable&&!parameterClause)state.report(state.previous(),"C++17 mutable lambda 需要形参括号");
-            if(state.check(TokenType.CONSTEXPR)||state.check(TokenType.NOEXCEPT)) {
-                state.unsupportedCpp(state.peek().range(),"lambda constexpr/noexcept 说明符尚未接入");return null;
+            if(state.check(TokenType.CONSTEXPR)) {
+                state.unsupportedCpp(state.peek().range(),"lambda constexpr 说明符尚未接入");return null;
             }
             for(var parameter:parameters)if(!parameter.name().isEmpty())typeReader.declareOrdinaryName(parameter.name(),parameter.range());
+            var exceptionSpecification=typeReader.parseExceptionSpecification();
+            if(exceptionSpecification.specified()&&!parameterClause)state.report(start,"C++17 noexcept lambda 需要形参括号");
             MiniType returnType=MiniType.AUTO;
             if(state.match(TokenType.ARROW)) {
                 if(!parameterClause)state.report(state.previous(),"C++17 lambda 尾置返回类型需要形参括号");
@@ -588,7 +599,7 @@ public final class ExpressionManager {
             }
             var body=statements.parseFunctionBlock(parameters.stream().map(minic.compiler.parser.node.Declaration.Parameter::name).toList());
             if(body==null)return null;
-            var lambda=new minic.compiler.parser.node.CppLambdaExpr(defaultCapture,captures,parameters,variadic,mutable,returnType,body,SourceRange.span(start.range(),body.range()));
+            var lambda=new minic.compiler.parser.node.CppLambdaExpr(defaultCapture,captures,parameters,variadic,mutable,returnType,body,SourceRange.span(start.range(),body.range()),exceptionSpecification);
             state.build(lambda,"CppLambdaExpr",lambda.range());return lambda;
         } finally {typeReader.exitScope();}
     }

@@ -210,7 +210,7 @@ public final class DeclarationManager {
         }
         if(typeReader.isCpp())typeReader.registerPendingFunctionTemplate(declaration.name());
         boolean constQualified = qualified && state.match(TokenType.CONST);
-        functionType = typeReader.parseTrailingReturn(functionType);
+        functionType = typeReader.parseTrailingReturn(typeReader.parseFunctionException(functionType));
         if (qualified && external) state.unsupportedCpp(startToken.range(), "类外成员定义不能使用 extern");
         Token semicolonToken = null;
         Declaration.DefinitionKind definitionKind=Declaration.DefinitionKind.ORDINARY;
@@ -260,7 +260,7 @@ public final class DeclarationManager {
                 noReturn,
                 SourceRange.span(startToken.range(), endRange),
                 declaration.operatorName()
-        ).withDefinitionKind(definitionKind);
+        ).withDefinitionKind(definitionKind).withExceptionSpecification(functionType.exceptionSpecification());
         if (!typeReader.isCpp()) typeReader.declareOrdinaryName(functionDecl.name(), functionDecl.range());
         state.build(functionDecl, "FunctionDecl " + functionDecl.name(), functionDecl.range());
         state.exit("functionDecl", functionDecl.range());

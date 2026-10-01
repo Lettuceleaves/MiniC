@@ -14,6 +14,7 @@ public final class TemplateValues {
         return switch (expression) {
             case CppTemplateValueExpr value -> values.getOrDefault(value.parameter(),
                     new CppTemplateValueExpr(value.parameter(), value.valueType().substituteTemplateParameters(types), value.range()));
+            case CppNoexceptExpr query -> new CppNoexceptExpr(substitute(query.operand(),types,values),query.range());
             case CppTypeQueryExpr query -> new CppTypeQueryExpr(query.kind(), query.arguments().stream()
                     .map(argument -> new CppTypeQueryExpr.TypeArgument(argument.type().substituteTemplateParameters(types, values), argument.packExpansion(), argument.range())).toList(),
                     query.nameRange(), query.range());
@@ -39,7 +40,7 @@ public final class TemplateValues {
     }
     /** Record layout and member constants are resolved by the owning semantic context. */
     public static boolean requiresSemanticContext(Expression expression) {
-        if(expression instanceof CppTypeQueryExpr||expression instanceof SizeofExpr||expression instanceof AlignofExpr||expression instanceof CppTypeMemberExpr)return true;
+        if(expression instanceof CppNoexceptExpr||expression instanceof CppTypeQueryExpr||expression instanceof SizeofExpr||expression instanceof AlignofExpr||expression instanceof CppTypeMemberExpr)return true;
         for(AstNode child:AstChildren.of(expression))if(child instanceof Expression e&&requiresSemanticContext(e))return true;
         return false;
     }

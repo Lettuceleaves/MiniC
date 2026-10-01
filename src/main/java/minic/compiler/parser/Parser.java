@@ -1305,12 +1305,27 @@ public final class Parser extends Stage {
             );
         }
 
+        public MiniType.ExceptionSpecification parseExceptionSpecification() {
+            if (!isCpp() || !context.match(TokenType.NOEXCEPT)) return MiniType.ExceptionSpecification.UNSPECIFIED;
+            if (!context.match(TokenType.LEFT_PAREN)) return MiniType.ExceptionSpecification.NON_THROWING;
+            var expression = new minic.compiler.parser.manager.ExpressionManager(context,this).parseExpression();
+            context.consume(TokenType.RIGHT_PAREN,"noexcept 条件后期望 ')' ");
+            return expression == null ? MiniType.ExceptionSpecification.POTENTIALLY_THROWING
+                    : new MiniType.ExceptionSpecification(true,false,expression);
+        }
+
+        public MiniType.FunctionType parseFunctionException(MiniType.FunctionType function) {
+            if (!isCpp() || !context.check(TokenType.NOEXCEPT)) return function;
+            if (function.exceptionSpecification().specified()) context.report(context.peek(),"noexcept 说明符重复");
+            return function.withExceptionSpecification(parseExceptionSpecification());
+        }
+
         public MiniType.FunctionType parseTrailingReturn(MiniType.FunctionType function) {
             if (!isCpp() || !context.match(TokenType.ARROW)) return function;
             if (!function.returnType().equals(MiniType.AUTO)) context.report(context.previous(), "尾置返回类型要求前置 auto");
             ParsedType result = parseType("期望尾置返回类型");
             return result == null ? function : (MiniType.FunctionType) MiniType.function(
-                    new MiniType.TrailingReturnType(result.type()), function.parameterTypes(), function.variadic());
+                    new MiniType.TrailingReturnType(result.type()), function.parameterTypes(), function.variadic(), function.exceptionSpecification());
         }
 
         public boolean canStartType() {
@@ -1697,7 +1712,7 @@ public final class Parser extends Stage {
                 direct.modifiers().add(new FunctionModifier(
                         parameterList.parameters(),
                         parameterList.variadic(),
-                        isCpp()
+                        isCpp(), parseExceptionSpecification()
                 ));
                 direct = direct.withEnd(endToken);
             }
@@ -2256,7 +2271,8 @@ public final class Parser extends Stage {
         private record FunctionModifier(
                 List<ParsedParameter> parameters,
                 boolean variadic,
-                boolean preserveReturnQualifiers
+                boolean preserveReturnQualifiers,
+                MiniType.ExceptionSpecification exceptionSpecification
         ) implements DeclaratorModifier {
             private FunctionModifier {
                 parameters = List.copyOf(parameters);
@@ -2267,7 +2283,7 @@ public final class Parser extends Stage {
                 return MiniType.function(
                         preserveReturnQualifiers ? inner : inner.unqualified(),
                         parameters.stream().map(ParsedParameter::type).map(MiniType::unqualified).toList(),
-                        variadic
+                        variadic, exceptionSpecification
                 );
             }
         }

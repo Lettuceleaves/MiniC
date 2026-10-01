@@ -23,7 +23,8 @@ final class CppTemplatePacks {
         if(value instanceof Expression.NameExpr name){names.add(name.name());return;}
         if(value instanceof List<?> list){list.forEach(item->visit(item,types,names));return;}
         Class<?> kind=value.getClass();
-        if(!kind.isRecord() || !(kind.getPackageName().equals("minic.compiler.parser.node") || value instanceof MiniType || value instanceof TemplateArgument))return;
+        if(!kind.isRecord() || !(kind.getPackageName().equals("minic.compiler.parser.node") || value instanceof MiniType
+                || value instanceof MiniType.ExceptionSpecification || value instanceof TemplateArgument))return;
         try {for(var component:kind.getRecordComponents())visit(component.getAccessor().invoke(value),types,names);}
         catch(ReflectiveOperationException error){throw new IllegalArgumentException("Cannot inspect template pattern",error);}
     }

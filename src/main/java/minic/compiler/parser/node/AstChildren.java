@@ -34,16 +34,17 @@ public final class AstChildren {
             case MemberTypedef n -> present(n.declaration());
             case ConstructorMember n -> {
                 var children = new ArrayList<AstNode>(n.parameters());
+                if(n.exceptionSpecification().condition()!=null)children.add(n.exceptionSpecification().condition());
                 children.addAll(n.initializers());
                 if (n.body() != null) children.add(n.body());
                 yield List.copyOf(children);
             }
-            case DestructorMember n -> present(n.body());
+            case DestructorMember n -> present(n.exceptionSpecification().condition(),n.body());
             case MemberInitializer n -> present(n.initializer());
             case OutOfLineConstructorDecl n -> present(n.constructor());
             case OutOfLineDestructorDecl n -> present(n.destructor());
             case OutOfLineMethodDecl n -> present(n.method());
-            case FunctionDecl n -> present(n.body());
+            case FunctionDecl n -> present(n.exceptionSpecification().condition(),n.body());
             case GlobalVarDecl n -> present(n.cppInitializer() != null ? n.cppInitializer() : n.initializer());
             case BlockStmt n -> n.statements();
             case CleanupScopeStmt n -> present(n.body(), n.cleanup());
@@ -56,7 +57,7 @@ public final class AstChildren {
             case ForStmt n -> present(n.initializer(), n.condition(), n.step(), n.body());
             case CppRangeForStmt n -> present(n.declaration(), n.initializer(), n.body());
             case CppStructuredBindingDecl n -> prepend(n.initializer(),n.names());
-            case CppLambdaExpr n -> {var children=new ArrayList<AstNode>(n.captures());children.addAll(n.parameters());children.add(n.body());yield List.copyOf(children);}
+            case CppLambdaExpr n -> {var children=new ArrayList<AstNode>(n.captures());children.addAll(n.parameters());if(n.exceptionSpecification().condition()!=null)children.add(n.exceptionSpecification().condition());children.add(n.body());yield List.copyOf(children);}
             case CppLambdaExpr.Capture n -> present(n.initializer());
             case SwitchStmt n -> prepend(n.selector(), n.cases());
             case SwitchCase n -> prepend(n.value(), n.statements());
@@ -86,6 +87,7 @@ public final class AstChildren {
             case CppInitializer n -> n.arguments();
             case CppConstructionExpr n -> present(n.initializer());
             case CppTypeQueryExpr n -> n.arguments();
+            case CppNoexceptExpr n -> present(n.operand());
             case CppDestructorCallExpr n -> present(n.receiver());
             case CppNewExpr n -> {
                 var children = new ArrayList<AstNode>(n.placementArguments());
@@ -127,6 +129,7 @@ public final class AstChildren {
             case minic.compiler.type.MiniType.ReferenceType reference -> placeholderExpressions(reference.referent(), result);
             case minic.compiler.type.MiniType.ArrayType array -> placeholderExpressions(array.elementType(), result);
             case minic.compiler.type.MiniType.FunctionType function -> {
+                if(function.exceptionSpecification().condition()!=null)result.add(function.exceptionSpecification().condition());
                 placeholderExpressions(function.returnType(), result);
                 function.parameterTypes().forEach(parameter -> placeholderExpressions(parameter, result));
             }
@@ -157,10 +160,10 @@ public final class AstChildren {
             if (!visited.add(node)) continue;
             if (!onlyReferences && (node instanceof CppPackExpansionExpr || node instanceof CppSizeofPackExpr || node instanceof CppStructuredBindingDecl || node instanceof CppLambdaExpr || node instanceof CppRangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
-                    || node instanceof CppTypeQueryExpr || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
+                    || node instanceof CppNoexceptExpr || node instanceof CppTypeQueryExpr || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
-                    || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null || function.definitionKind()!=DefinitionKind.ORDINARY)
+                    || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null || function.definitionKind()!=DefinitionKind.ORDINARY || function.exceptionSpecification().specified())
                     || node instanceof FunctionTemplateDecl || node instanceof CppTemplateIdExpr
                     || node instanceof CppTemplateValueExpr
                     || node instanceof VarDeclStmt variable && variable.staticStorage()
@@ -221,7 +224,7 @@ public final class AstChildren {
     }
 
     private static boolean sourceType(minic.compiler.type.MiniType type, boolean onlyReferences) {
-        return type != null && (type.containsReference() || !onlyReferences && (type.containsTemplateType() || type.containsPlaceholder()));
+        return type != null && (type.containsReference() || !onlyReferences && (type.containsTemplateType() || type.containsPlaceholder() || type.containsExceptionSpecification()));
     }
 
     private static List<AstNode> present(AstNode... nodes) {
