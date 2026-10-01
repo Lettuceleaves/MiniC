@@ -6,6 +6,7 @@ import minic.compiler.ir.IrResult;
 import minic.compiler.ir.IrLowerer;
 import minic.compiler.ir.optimize.IrOptimizationPipeline;
 import minic.compiler.ir.optimize.OptimizationLevel;
+import minic.compiler.ir.optimize.LocalRegisterPlan;
 import minic.compiler.ir.instruction.IrInstruction;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
@@ -361,12 +362,20 @@ public final class Assembler extends Stage {
         private int trapIndex;
         private SourceRange currentRange;
 
-        private FunctionState(IrFunction function, java.util.Set<String> externalFunctionNames, boolean reuseTemporarySlots) {
+        private FunctionState(IrFunction function, java.util.Set<String> externalFunctionNames, boolean optimizeValueLocations) {
             this.function = function;
-            frame = FrameLayout.create(function, reuseTemporarySlots);
+            frame = FrameLayout.create(function, optimizeValueLocations);
             functionSymbol = CallingConvention.functionDefinitionSymbol(function.name());
             epilogueLabel = functionSymbol + "$epilogue";
-            instructionEmitter = new InstructionEmitter(frame, externalFunctionNames, function);
+            TemporaryLocations locations = TemporaryLocations.allStack(frame);
+            if (optimizeValueLocations) {
+                var plan = LocalRegisterPlan.allocate(function);
+                var assignments = new java.util.LinkedHashMap<String, ValueLocation>();
+                plan.registers().forEach((name, register) -> assignments.put(name,
+                        new ValueLocation.Register(plan.temporaryTypes().get(name), register)));
+                locations = TemporaryLocations.withOverrides(frame, assignments);
+            }
+            instructionEmitter = new InstructionEmitter(frame, externalFunctionNames, function, locations);
         }
 
         private String nextLine() {

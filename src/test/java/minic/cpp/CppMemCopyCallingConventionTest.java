@@ -41,7 +41,7 @@ final class CppMemCopyCallingConventionTest {
         var source = new SourceFile("copy.c", "struct Pair{int x;int y;};void copy(struct Pair *to,struct Pair *from){"
                 + body + "}int main(){struct Pair from={7,9};struct Pair to;copy(&to,&from);return to.x;}");
         var ir = new CompilerApi(source).runToIr();
-        // OPTIMIZED selects slot reuse. The empty pass list retains this callee for the ABI probe.
+        // OPTIMIZED selects native allocation. The empty pass list retains this callee for the ABI probe.
         var assembler = new Assembler(ir, new IrOptimizationPipeline(level, List.of()));
         String assembly = assembler.assemble().text();
         assertTrue(assembler.succeeded(), () -> assembler.errors().toString());

@@ -96,7 +96,7 @@ final class CppTemporarySlotReuseTest {
     }
 
     @ParameterizedTest(name="{0}") @MethodSource("programs")
-    void baselineReuseOnlyFullOptimizationSourceDebugAndGxxAgree(String name,String text,String stdin,String expected)throws Exception{
+    void baselineNativeAllocationFullOptimizationSourceDebugAndGxxAgree(String name,String text,String stdin,String expected)throws Exception{
         var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),
                 CppDifferentialHarness.Limits.defaults(),LanguageMode.CPP17_ALGORITHM).run(name,text,stdin);
         assertTrue(report.passed(),report::describe);
@@ -104,9 +104,10 @@ final class CppTemporarySlotReuseTest {
         var source=new SourceFile(name+".cpp",text);
         IrResult original=new CompilerApi(source,LanguageMode.CPP17_ALGORITHM).runToIr();
         var originalFunctions=original.functions();
-        var reuseOnly=new IrOptimizationPipeline(OptimizationLevel.OPTIMIZED,List.of());
-        for(var pipeline:List.of(reuseOnly,IrOptimizationPipeline.forLevel(OptimizationLevel.OPTIMIZED))){
-            var result=runNative(source,original,pipeline,pipeline==reuseOnly?"reuse-only":"full-opt",stdin);
+        // Empty IR passes still select native stack-slot reuse and local register allocation.
+        var allocationOnly=new IrOptimizationPipeline(OptimizationLevel.OPTIMIZED,List.of());
+        for(var pipeline:List.of(allocationOnly,IrOptimizationPipeline.forLevel(OptimizationLevel.OPTIMIZED))){
+            var result=runNative(source,original,pipeline,pipeline==allocationOnly?"native-allocation":"full-opt",stdin);
             assertEquals(0,result.exitCode(),result::stderr);assertEquals(expected,normalize(result.stdout()));assertEquals("",result.stderr());
         }
         assertSame(originalFunctions,original.functions(),"backend placement must not rewrite the source/debug IR");
