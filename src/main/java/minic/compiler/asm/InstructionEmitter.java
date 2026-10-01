@@ -776,6 +776,10 @@ final class InstructionEmitter {
     }
 
     private void emitMemCopy(StringBuilder builder, IrMemCopyInstruction memCopy) {
+        if (optimizeInstructions && !memCopy.volatileAccess() && memCopy.sizeBytes() <= 16) {
+            emitSmallCopy(builder, memCopy);
+            return;
+        }
         // REP MOVSB changes both Windows x64 nonvolatile index registers.
         builder.append("    push rsi").append(System.lineSeparator());
         builder.append("    push rdi").append(System.lineSeparator());
@@ -785,5 +789,33 @@ final class InstructionEmitter {
         builder.append("    rep movsb").append(System.lineSeparator());
         builder.append("    pop rdi").append(System.lineSeparator());
         builder.append("    pop rsi").append(System.lineSeparator());
+    }
+
+    private void emitSmallCopy(StringBuilder builder, IrMemCopyInstruction memCopy) {
+        valueEmitter.emitLoadValue(builder, memCopy.destination(), "rax");
+        valueEmitter.emitLoadValue(builder, memCopy.source(), "rcx");
+        // These volatile scratch registers are disjoint from temporary homes. Read the
+        // complete object before any store, preserving self/overlapping IR copy snapshots.
+        // MOVSD is a raw bit move: it also preserves signed zero and NaN payloads.
+        var stores = new StringBuilder();
+        int offset = 0;
+        for (int size : new int[]{8, 8, 4, 2, 1}) {
+            if (offset + size > memCopy.sizeBytes()) continue;
+            String register = switch (size) {
+                case 8 -> offset == 0 ? "xmm0" : "xmm1";
+                case 4 -> "edx";
+                case 2 -> "r8w";
+                default -> "r9b";
+            };
+            String operation = size == 8 ? "movsd " : "mov ";
+            String width = switch (size) { case 8 -> "QWORD"; case 4 -> "DWORD"; case 2 -> "WORD"; default -> "BYTE"; };
+            String displacement = offset == 0 ? "" : "+" + offset;
+            builder.append("    ").append(operation).append(register).append(", ").append(width)
+                    .append(" PTR [rcx").append(displacement).append(']').append(System.lineSeparator());
+            stores.append("    ").append(operation).append(width).append(" PTR [rax").append(displacement)
+                    .append("], ").append(register).append(System.lineSeparator());
+            offset += size;
+        }
+        builder.append(stores);
     }
 }

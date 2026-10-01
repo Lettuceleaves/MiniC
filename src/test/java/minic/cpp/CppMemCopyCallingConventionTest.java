@@ -45,7 +45,7 @@ final class CppMemCopyCallingConventionTest {
         var assembler = new Assembler(ir, new IrOptimizationPipeline(level, List.of()));
         String assembly = assembler.assemble().text();
         assertTrue(assembler.succeeded(), () -> assembler.errors().toString());
-        assertEquals(aggregate, assembly.contains("rep movsb"));
+        assertEquals(aggregate && level == OptimizationLevel.BASELINE, assembly.contains("rep movsb"));
 
         // A source-only test cannot keep a live value in a specific physical register. Replace
         // only main with an ABI caller; copy remains exactly the production compiler's output.
