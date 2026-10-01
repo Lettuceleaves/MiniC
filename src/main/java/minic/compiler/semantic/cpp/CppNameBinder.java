@@ -250,6 +250,7 @@ public final class CppNameBinder {
                                 "默认成员初始化的构造语义尚未实现。");
                     }
                     else if (member instanceof MethodMember method) methodAccess.put(method, current);
+                    else if (member instanceof DestructorMember destructor) report("CPP005", destructor.nameRange(), "析构函数执行和对象生命周期清理尚未实现。");
                     else if (member instanceof ConstructorMember constructor) report("CPP005", constructor.nameRange(),
                             "构造函数执行和成员初始化尚未实现。");
                 }

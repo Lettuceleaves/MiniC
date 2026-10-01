@@ -132,6 +132,8 @@ public final class DeclarationManager {
     }
 
     public Declaration parseFunctionOrGlobalDecl() {
+        if (cppRecordParser != null && cppRecordParser.startsOutOfLineDestructor())
+            return cppRecordParser.parseOutOfLineDestructor();
         if (cppRecordParser != null && cppRecordParser.startsOutOfLineConstructor())
             return cppRecordParser.parseOutOfLineConstructor();
         state.enter("functionDecl");

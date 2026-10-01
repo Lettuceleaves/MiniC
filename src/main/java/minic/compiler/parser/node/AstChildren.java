@@ -25,8 +25,10 @@ public final class AstChildren {
                 if (n.body() != null) children.add(n.body());
                 yield List.copyOf(children);
             }
+            case DestructorMember n -> present(n.body());
             case MemberInitializer n -> present(n.initializer());
             case OutOfLineConstructorDecl n -> present(n.constructor());
+            case OutOfLineDestructorDecl n -> present(n.destructor());
             case OutOfLineMethodDecl n -> present(n.method());
             case FunctionDecl n -> present(n.body());
             case GlobalVarDecl n -> present(n.cppInitializer() != null ? n.cppInitializer() : n.initializer());
@@ -93,6 +95,7 @@ public final class AstChildren {
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
                     || node instanceof CppInitializer || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
+                    || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
                     || node instanceof StructDecl record && record.cppInfo() != null)) return node;
             AstNode reference = referenceTypeOwner(node);
             if (reference != null) return reference;

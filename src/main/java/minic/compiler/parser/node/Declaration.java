@@ -243,7 +243,7 @@ public interface Declaration extends AstNode {
         }
     }
 
-    sealed interface CppMember extends AstNode permits FieldMember, MethodMember, ConstructorMember, AccessLabel {}
+    sealed interface CppMember extends AstNode permits FieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel {}
 
     /** Transparent source wrapper: layout and member views retain the same field node. */
     record FieldMember(StructField field, CppInitializer defaultInitializer) implements CppMember {
@@ -264,6 +264,31 @@ public interface Declaration extends AstNode {
             parameters = List.copyOf(parameters);
             initializers = List.copyOf(initializers);
         }
+    }
+
+    /** A destructor has neither a return type nor parameters; nameRange includes the '~'. */
+    record DestructorMember(String name, BlockStmt body, SourceRange nameRange, SourceRange range) implements CppMember {
+        public DestructorMember {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(nameRange, "nameRange");
+            Objects.requireNonNull(range, "range");
+            if (name.isBlank()) throw new IllegalArgumentException("Destructor spelling must not be blank");
+        }
+    }
+
+    /** The final qualified segment retains '~T', rather than masquerading as an ordinary method. */
+    record OutOfLineDestructorDecl(QualifiedName qualifiedName, DestructorMember destructor,
+                                   SourceRange nameRange) implements Declaration {
+        public OutOfLineDestructorDecl {
+            Objects.requireNonNull(qualifiedName, "qualifiedName");
+            Objects.requireNonNull(destructor, "destructor");
+            Objects.requireNonNull(nameRange, "nameRange");
+            if (qualifiedName.segments().size() < 2
+                    || !qualifiedName.segments().getLast().equals("~" + destructor.name())) {
+                throw new IllegalArgumentException("Qualified destructor requires its owner and matching destructor spelling");
+            }
+        }
+        @Override public SourceRange range() { return destructor.range(); }
     }
 
     /** Written order is retained separately from the declaration order used for execution. */

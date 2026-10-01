@@ -140,7 +140,7 @@ final class CppRecordParserTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "~Box() {}", "template<class T> int method(T item) { return 0; }",
+            "template<class T> int method(T item) { return 0; }",
             "static int method();", "int method() const volatile;", "int method() volatile;",
             "int method() &;", "int method() = 0;"
     })

@@ -193,7 +193,7 @@ class CppConstructorParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = { "Box() const {}", "Box() = default;", "Box() = delete;",
-            "explicit Box() {}", "constexpr Box() {}", "Box() noexcept {}", "Box():Box(1) {}", "~Box() {}" })
+            "explicit Box() {}", "constexpr Box() {}", "Box() noexcept {}", "Box():Box(1) {}" })
     void unsupportedConstructorExtensionsAreExplicitAndRecoveryIsBounded(String member) {
         var parser = parse("struct Box { " + member + " int retained; }; int after(){return 0;}");
         assertFalse(parser.succeeded());

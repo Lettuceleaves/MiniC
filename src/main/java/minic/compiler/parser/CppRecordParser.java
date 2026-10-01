@@ -61,6 +61,7 @@ public final class CppRecordParser {
         List<CppMember> members = new ArrayList<>();
         List<DeferredMethod> deferred = new ArrayList<>();
         List<DeferredConstructor> constructors = new ArrayList<>();
+        List<DeferredDestructor> destructors = new ArrayList<>();
         List<DeferredField> defaults = new ArrayList<>();
         types.enterMemberScope(type);
         try {
@@ -83,6 +84,20 @@ public final class CppRecordParser {
                         DeferredConstructor constructor = readConstructor(start.lexeme(), start.range(), start.range(), members.size());
                         if (constructor == null) recoverMember();
                         else { members.add(constructor.signature()); constructors.add(constructor); }
+                    }
+                } else if (start.type() == TokenType.TILDE) {
+                    state.advance();
+                    Token name = state.consume(TokenType.IDENTIFIER, "析构函数期望类名称");
+                    if (union) {
+                        state.unsupportedCpp(start.range(), "union 析构函数尚未实现");
+                        recoverMember();
+                    } else if (name == null) recoverMember();
+                    else {
+                        SourceRange nameRange = SourceRange.span(start.range(), name.range());
+                        if (!name.lexeme().equals(simpleName)) state.report(nameRange, "析构名称必须是所属类的名称");
+                        var destructor = readDestructor(name.lexeme(), nameRange, start.range(), members.size());
+                        if (destructor == null) recoverMember();
+                        else { members.add(destructor.signature()); destructors.add(destructor); }
                     }
                 } else if (unsupportedPrefix(start)) {
                     state.unsupportedCpp(start.range(), "此类成员语法尚未实现：" + start.lexeme());
@@ -164,6 +179,7 @@ public final class CppRecordParser {
                 state.build(method, "MethodDecl " + method.name(), method.range());
             }
             for (DeferredConstructor item : constructors) members.set(item.memberIndex(), completeConstructor(item));
+            for (DeferredDestructor item : destructors) members.set(item.memberIndex(), completeDestructor(item));
             for (DeferredField item : defaults) {
                 FieldMember field = (FieldMember) members.get(item.memberIndex());
                 members.set(item.memberIndex(), new FieldMember(field.field(), parseDeferredInitializer(item.initializer())));
@@ -221,6 +237,82 @@ public final class CppRecordParser {
         } finally {
             types.exitMemberDefinitionScope();
         }
+    }
+
+    /** This spelling cannot be a variable declarator, so classification needs no speculative type mutation. */
+    public boolean startsOutOfLineDestructor() {
+        int offset = state.peekAt(0).type() == TokenType.SCOPE ? 1 : 0;
+        boolean owner = false;
+        while (state.peekAt(offset).type() == TokenType.IDENTIFIER
+                && state.peekAt(offset + 1).type() == TokenType.SCOPE) {
+            owner = true;
+            offset += 2;
+        }
+        return owner && state.peekAt(offset).type() == TokenType.TILDE;
+    }
+
+    public OutOfLineDestructorDecl parseOutOfLineDestructor() {
+        Token start = state.peek();
+        boolean global = state.match(TokenType.SCOPE);
+        List<String> segments = new ArrayList<>();
+        while (state.check(TokenType.IDENTIFIER) && state.peekAt(1).type() == TokenType.SCOPE) {
+            segments.add(state.advance().lexeme());
+            state.advance();
+        }
+        Token tilde = state.consume(TokenType.TILDE, "析构函数期望 '~'");
+        Token name = state.consume(TokenType.IDENTIFIER, "析构函数期望类名称");
+        if (tilde == null || name == null) {
+            recoverMember();
+            state.markDeclarationBoundaryRecovered();
+            return null;
+        }
+        SourceRange nameRange = SourceRange.span(tilde.range(), name.range());
+        segments.add(name.lexeme());
+        QualifiedName injectedName = new QualifiedName(global, segments, SourceRange.span(start.range(), name.range()));
+        if (!types.namesConstructor(injectedName)) state.report(nameRange, "析构名称必须是所属类的名称");
+        segments.set(segments.size() - 1, "~" + name.lexeme());
+        QualifiedName qualifiedName = new QualifiedName(global, segments, injectedName.range());
+        types.enterMemberDefinitionScope(qualifiedName);
+        try {
+            var deferred = readDestructor(name.lexeme(), nameRange, start.range(), -1);
+            if (deferred == null) {
+                recoverMember();
+                state.markDeclarationBoundaryRecovered();
+                return null;
+            }
+            if (deferred.body() == null) state.unsupportedCpp(qualifiedName.range(), "类外析构声明必须提供定义");
+            var definition = new OutOfLineDestructorDecl(qualifiedName, completeDestructor(deferred), nameRange);
+            state.build(definition, "OutOfLineDestructor " + name.lexeme(), definition.range());
+            return definition;
+        } finally {
+            types.exitMemberDefinitionScope();
+        }
+    }
+
+    private DeferredDestructor readDestructor(String name, SourceRange nameRange, SourceRange start, int index) {
+        Token open = state.consume(TokenType.LEFT_PAREN, "析构函数期望 '('");
+        if (open == null) return null;
+        var parameters = types.parseParameterList();
+        Token close = state.consume(TokenType.RIGHT_PAREN, "析构函数期望 ')'");
+        if (close == null) return null;
+        if (!parameters.parameters().isEmpty() || parameters.variadic())
+            state.report(SourceRange.span(open.range(), close.range()), "析构函数不能声明参数");
+        Parser.Context.TokenWindow body = null;
+        if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
+        else if (!state.match(TokenType.SEMICOLON)) {
+            state.unsupportedCpp(state.peek().range(), "析构函数限定符、说明符或成员初始化列表尚未支持或不合法");
+            return null;
+        }
+        var signature = new DestructorMember(name, null, nameRange, SourceRange.span(start, state.previous().range()));
+        return new DeferredDestructor(index, signature, body);
+    }
+
+    private DestructorMember completeDestructor(DeferredDestructor item) {
+        DestructorMember signature = item.signature();
+        BlockStmt body = item.body() == null ? null : state.inTokenWindow(item.body(), () -> statements.parseFunctionBlock(List.of()));
+        var destructor = new DestructorMember(signature.name(), body, signature.nameRange(), signature.range());
+        state.build(destructor, "DestructorDecl " + destructor.name(), destructor.range());
+        return destructor;
     }
 
     private DeferredConstructor readConstructor(String name, SourceRange nameRange, SourceRange start, int index) {
@@ -350,5 +442,6 @@ public final class CppRecordParser {
     private record DeferredInitializer(QualifiedName target, Parser.Context.TokenWindow arguments, SourceRange range) { }
     private record DeferredConstructor(int memberIndex, ConstructorMember signature, List<DeferredInitializer> initializers,
                                        Parser.Context.TokenWindow body, List<SourceRange> unnamedParameters) { }
+    private record DeferredDestructor(int memberIndex, DestructorMember signature, Parser.Context.TokenWindow body) { }
     private record DeferredField(int memberIndex, Parser.Context.TokenWindow initializer) { }
 }
