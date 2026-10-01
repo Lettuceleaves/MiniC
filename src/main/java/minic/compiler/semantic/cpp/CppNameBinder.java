@@ -61,6 +61,7 @@ public final class CppNameBinder {
         final boolean union;
         final Namespace owner;
         boolean complete;
+        List<StructField> fields = List.of();
 
         TypeEntity(String name, String canonicalName, MiniType type, boolean classType,
                    boolean union, Namespace owner, boolean complete) {
@@ -130,6 +131,7 @@ public final class CppNameBinder {
         private final Map<String, TypeEntity> canonicalTypes = new LinkedHashMap<>();
         private final Map<String, TypeEntity> coreTypes = new LinkedHashMap<>();
         private final Map<String, Entity> coreValues = new LinkedHashMap<>();
+        private final IdentityHashMap<Expression, MiniType> declaredExpressionTypes = new IdentityHashMap<>();
         private final List<Declaration> declarations = new ArrayList<>();
         private final List<StructDecl> structs = new ArrayList<>();
         private final List<EnumDecl> enums = new ArrayList<>();
@@ -220,6 +222,7 @@ public final class CppNameBinder {
             StructDecl core = mapped(node, new StructDecl(((MiniType.StructType) entity.type).name(),
                     fields, node.definition(), node.union(), node.range()));
             entity.complete |= node.definition();
+            if (node.definition()) entity.fields = List.copyOf(fields);
             structs.add(core); declarations.add(core);
         }
 
@@ -327,6 +330,7 @@ public final class CppNameBinder {
         }
 
         private void requireComplete(MiniType type, SourceRange range) {
+            if (type == null) return; // Unknown scalar expression types are checked by the core semantic pass.
             type = type.unqualified();
             if (type instanceof MiniType.ArrayType array) requireComplete(array.elementType(), range);
             else if (type instanceof MiniType.StructType struct) {
@@ -554,37 +558,70 @@ public final class CppNameBinder {
                 case NameExpr n -> reference(n.name(), n.range(), lookupValue(n.name(), namespace, local, n.range()));
                 case QualifiedNameExpr n -> reference(n.name().segments().getLast(), n.range(),
                         resolveQualified(n.name(), namespace, local));
-                case AssignmentExpr n -> new AssignmentExpr(expression(n.target(), namespace, local), n.operator(), expression(n.value(), namespace, local), n.range());
-                case BinaryExpr n -> new BinaryExpr(expression(n.left(), namespace, local), n.operator(), expression(n.right(), namespace, local), n.range());
+                case AssignmentExpr n -> {
+                    Expression target = expression(n.target(), namespace, local);
+                    requireComplete(declaredExpressionType(target), n.range());
+                    if (n.operator() == TokenType.PLUS_EQUAL || n.operator() == TokenType.MINUS_EQUAL) {
+                        requireComplete(elementType(declaredExpressionType(target)), n.range());
+                    }
+                    yield new AssignmentExpr(target, n.operator(), expression(n.value(), namespace, local), n.range());
+                }
+                case BinaryExpr n -> {
+                    Expression left = expression(n.left(), namespace, local);
+                    Expression right = expression(n.right(), namespace, local);
+                    if (n.operator() == TokenType.PLUS || n.operator() == TokenType.MINUS) {
+                        requireComplete(elementType(declaredExpressionType(left)), n.range());
+                        requireComplete(elementType(declaredExpressionType(right)), n.range());
+                    }
+                    yield new BinaryExpr(left, n.operator(), right, n.range());
+                }
                 case ConditionalExpr n -> new ConditionalExpr(expression(n.condition(), namespace, local), expression(n.thenExpression(), namespace, local), expression(n.elseExpression(), namespace, local), n.range());
                 case CallExpr n -> {
                     Expression callee = expression(n.callee(), namespace, local);
-                    if (callee instanceof NameExpr name && coreValues.containsKey(name.name())) {
-                        MiniType function = coreValues.get(name.name()).type.unqualified();
-                        if (function instanceof MiniType.PointerType pointer) function = pointer.pointee().unqualified();
-                        if (function instanceof MiniType.FunctionType signature) {
-                            requireComplete(signature.returnType(), n.range());
-                            signature.parameterTypes().forEach(t -> requireComplete(t, n.range()));
-                        }
+                    MiniType.FunctionType signature = functionSignature(declaredExpressionType(callee));
+                    if (signature != null) {
+                        requireComplete(signature.returnType(), n.range());
+                        signature.parameterTypes().forEach(t -> requireComplete(t, n.range()));
                     }
                     yield new CallExpr(callee, expressions(n.arguments(), namespace, local), n.range());
                 }
                 case CastExpr n -> new CastExpr(normalizeType(n.targetType(), namespace, local, n.range()), expression(n.operand(), namespace, local), n.range());
                 case CommaExpr n -> new CommaExpr(expressions(n.expressions(), namespace, local), n.range());
-                case FieldAccessExpr n -> new FieldAccessExpr(expression(n.target(), namespace, local), n.fieldName(), n.viaPointer(), n.range());
+                case FieldAccessExpr n -> {
+                    Expression target = expression(n.target(), namespace, local);
+                    MiniType owner = declaredExpressionType(target);
+                    requireComplete(n.viaPointer() ? elementType(owner) : owner, n.range());
+                    yield new FieldAccessExpr(target, n.fieldName(), n.viaPointer(), n.range());
+                }
                 case GroupingExpr n -> new GroupingExpr(expression(n.expression(), namespace, local), n.range());
-                case IndexExpr n -> new IndexExpr(expression(n.target(), namespace, local), expression(n.index(), namespace, local), n.range());
-                case UnaryExpr n -> new UnaryExpr(n.operator(), expression(n.operand(), namespace, local), n.range());
-                case PostfixUpdateExpr n -> new PostfixUpdateExpr(expression(n.target(), namespace, local), n.operator(), n.range());
+                case IndexExpr n -> {
+                    Expression target = expression(n.target(), namespace, local);
+                    requireComplete(elementType(declaredExpressionType(target)), n.range());
+                    yield new IndexExpr(target, expression(n.index(), namespace, local), n.range());
+                }
+                case UnaryExpr n -> {
+                    Expression operand = expression(n.operand(), namespace, local);
+                    if (n.operator() == TokenType.PLUS_PLUS || n.operator() == TokenType.MINUS_MINUS) {
+                        requireComplete(elementType(declaredExpressionType(operand)), n.range());
+                    }
+                    yield new UnaryExpr(n.operator(), operand, n.range());
+                }
+                case PostfixUpdateExpr n -> {
+                    Expression target = expression(n.target(), namespace, local);
+                    requireComplete(elementType(declaredExpressionType(target)), n.range());
+                    yield new PostfixUpdateExpr(target, n.operator(), n.range());
+                }
                 case SizeofExpr n -> {
                     MiniType type = normalizeType(n.queriedType(), namespace, local, n.range());
-                    if (type != null) requireComplete(type, n.range());
-                    yield new SizeofExpr(expression(n.expression(), namespace, local), type, n.range());
+                    Expression operand = expression(n.expression(), namespace, local);
+                    requireComplete(type != null ? type : declaredExpressionType(operand), n.range());
+                    yield new SizeofExpr(operand, type, n.range());
                 }
                 case AlignofExpr n -> {
                     MiniType type = normalizeType(n.queriedType(), namespace, local, n.range());
-                    if (type != null) requireComplete(type, n.range());
-                    yield new AlignofExpr(expression(n.expression(), namespace, local), type, n.range());
+                    Expression operand = expression(n.expression(), namespace, local);
+                    requireComplete(type != null ? type : declaredExpressionType(operand), n.range());
+                    yield new AlignofExpr(operand, type, n.range());
                 }
                 case VaStartExpr n -> new VaStartExpr(expression(n.list(), namespace, local), expression(n.lastParameter(), namespace, local), n.range());
                 case VaArgExpr n -> {
@@ -617,6 +654,100 @@ public final class CppNameBinder {
                 }
             };
             return mapped(node, core);
+        }
+
+        /**
+         * Follows declared aggregate/pointer identity at this source position. This is not the
+         * scalar expression typer: promotions, conversions and invalid operators remain core
+         * semantic checks. In particular an incomplete pointee is harmless until an operation
+         * requires its object layout, and later definitions cannot change an earlier check.
+         */
+        private MiniType declaredExpressionType(Expression expression) {
+            if (expression == null) return null;
+            if (declaredExpressionTypes.containsKey(expression)) return declaredExpressionTypes.get(expression);
+            MiniType type = switch (expression) {
+                case NameExpr name -> coreValues.containsKey(name.name()) ? coreValues.get(name.name()).type : null;
+                case GroupingExpr group -> declaredExpressionType(group.expression());
+                case CastExpr cast -> cast.targetType();
+                case AssignmentExpr assignment -> declaredExpressionType(assignment.target());
+                case CommaExpr comma -> declaredExpressionType(comma.expressions().getLast());
+                case ConditionalExpr conditional -> conditionalDeclaredType(
+                        declaredExpressionType(conditional.thenExpression()), declaredExpressionType(conditional.elseExpression()));
+                case BinaryExpr binary -> {
+                    MiniType left = declaredExpressionType(binary.left());
+                    MiniType right = declaredExpressionType(binary.right());
+                    boolean leftPointer = elementType(left) != null;
+                    boolean rightPointer = elementType(right) != null;
+                    if (binary.operator() == TokenType.PLUS && leftPointer != rightPointer) {
+                        yield elementType(leftPointer ? left : right).pointerTo();
+                    }
+                    yield binary.operator() == TokenType.MINUS && leftPointer && !rightPointer ? elementType(left).pointerTo() : null;
+                }
+                case UnaryExpr unary -> {
+                    MiniType operand = declaredExpressionType(unary.operand());
+                    yield switch (unary.operator()) {
+                        case STAR -> elementType(operand);
+                        case AMPERSAND -> operand == null ? null : operand.pointerTo();
+                        case PLUS_PLUS, MINUS_MINUS -> operand;
+                        default -> null;
+                    };
+                }
+                case PostfixUpdateExpr update -> declaredExpressionType(update.target());
+                case IndexExpr index -> elementType(declaredExpressionType(index.target()));
+                case FieldAccessExpr field -> {
+                    MiniType owner = declaredExpressionType(field.target());
+                    yield declaredFieldType(field.viaPointer() ? elementType(owner) : owner, field.fieldName(), new HashSet<>());
+                }
+                case CallExpr call -> {
+                    MiniType.FunctionType signature = functionSignature(declaredExpressionType(call.callee()));
+                    yield signature == null ? null : signature.returnType();
+                }
+                case VaArgExpr argument -> argument.requestedType();
+                default -> null;
+            };
+            declaredExpressionTypes.put(expression, type);
+            return type;
+        }
+
+        private MiniType conditionalDeclaredType(MiniType first, MiniType second) {
+            if (first == null) return second;
+            if (second == null || first.unqualified().equals(second.unqualified())) return first;
+            if (first.isPointer() && second.isPointer()) {
+                MiniType a = elementType(first), b = elementType(second);
+                if (a.isVoid() || b.isVoid()) return MiniType.VOID.pointerTo();
+                MiniType common = conditionalDeclaredType(a, b);
+                if (common != null) return common.pointerTo();
+            }
+            return null;
+        }
+
+        private MiniType elementType(MiniType type) {
+            if (type == null) return null;
+            return switch (type.unqualified()) {
+                case MiniType.PointerType pointer -> pointer.pointee();
+                case MiniType.ArrayType array -> array.elementType();
+                default -> null;
+            };
+        }
+
+        private MiniType.FunctionType functionSignature(MiniType type) {
+            if (type == null) return null;
+            type = type.unqualified();
+            if (type instanceof MiniType.PointerType pointer) type = pointer.pointee().unqualified();
+            return type instanceof MiniType.FunctionType signature ? signature : null;
+        }
+
+        private MiniType declaredFieldType(MiniType owner, String name, Set<String> visited) {
+            if (owner == null || !(owner.unqualified() instanceof MiniType.StructType struct) || !visited.add(struct.name())) return null;
+            TypeEntity entity = coreTypes.get(struct.name());
+            if (entity == null || !entity.complete) return null;
+            for (StructField field : entity.fields) if (!field.anonymous() && field.name().equals(name)) return field.type();
+            for (StructField field : entity.fields) {
+                if (!field.anonymous()) continue;
+                MiniType promoted = declaredFieldType(field.type(), name, visited);
+                if (promoted != null) return promoted;
+            }
+            return null;
         }
 
         private List<Expression> expressions(List<Expression> nodes, Namespace namespace, Local local) {
