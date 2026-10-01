@@ -26,7 +26,9 @@ final class LocalRegisterEmissionTest {
         String before = baseline.assemble().text(), after = optimized.assemble().text();
         assertTrue(baseline.succeeded()); assertTrue(optimized.succeeded());
         assertFalse(before.contains("r10")); assertFalse(before.contains("r11"));
-        assertTrue(after.contains("r10d") && after.contains("r11d"), after);
+        assertTrue(after.contains("r10d"), after);
+        assertFalse(after.contains("r11d"), "dying inputs and their results now share one home");
+        assertEquals(11, after.lines().filter(line -> line.strip().equals("add r10d, 1")).count());
         assertEquals(0, stackReferences(after), "this chain has no remaining parameter/local/temporary memory reads or writes");
         assertTrue(stackReferences(before) >= 24);
         assertTrue(after.contains("sub rsp, " + FrameLayout.create(function, true).frameSize()),

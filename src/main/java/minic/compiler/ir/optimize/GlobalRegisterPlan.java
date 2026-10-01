@@ -62,9 +62,13 @@ public final class GlobalRegisterPlan {
                 position = Math.incrementExact(position);
                 var instruction = block.instructions().get(index);
                 var point = analysis.instruction(block.label(), index);
-                mention(spans, transfers, savedTransfers, weightedTransfers, fusedTemporaries, excluded, IrValueUses.result(instruction), position, point.executable(), weight);
+                // All inputs must coexist while this instruction reads them. Current emission
+                // consumes those inputs before storing its result (including calls and select
+                // arms), so a last-use input can release its home at the following def point.
                 for (var input : IrValueUses.inputs(instruction)) if (input instanceof IrTemporary temporary)
                     mention(spans, transfers, savedTransfers, weightedTransfers, fusedTemporaries, excluded, temporary, position, point.executable(), weight);
+                position = Math.incrementExact(position);
+                mention(spans, transfers, savedTransfers, weightedTransfers, fusedTemporaries, excluded, IrValueUses.result(instruction), position, point.executable(), weight);
                 if (point.executable() && (instruction instanceof IrCallInstruction || instruction instanceof IrIndirectCallInstruction)) {
                     Set<String> across = point.liveAcrossCall();
                     survivors.put(new Point(block.label(), index), across);

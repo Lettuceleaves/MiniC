@@ -156,9 +156,14 @@ final class CppGlobalRegisterAllocationTest {
             var exit = temp("exit"); instructions.add(new IrCastInstruction(exit, total, R)); instructions.add(new IrReturnInstruction(exit, R));
         } else instructions.add(new IrReturnInstruction(total, R));
         var parameter = new IrParameter("value", sourceType, type, R); var argument = new IrTemporary("argument", type); var answer = new IrTemporary("answer", type);
+        // Keep two independent callee values live: last-use/result coalescing otherwise makes
+        // this fixture clobber only r10, silently removing its r11 preservation coverage.
+        var clobber = new IrTemporary("clobber", type); var unused = new IrTemporary("unused", type);
         return new IrResult(List.of(function("main", List.of(), List.of(new IrBlock("entry", instructions))),
-                new IrFunction("effect", sourceType, List.of(parameter), false, List.of(block("entry", new IrMoveInstruction(argument, parameter.ref(), R),
-                        new IrBinaryInstruction(answer, IrBinaryOperator.ADD, argument, new IrConstant(5, type), R), new IrReturnInstruction(answer, R))), R)), List.of(), Set.of());
+                new IrFunction("effect", sourceType, List.of(parameter), false, List.of(block("entry", new IrMoveInstruction(clobber, new IrConstant(3, type), R),
+                        new IrMoveInstruction(argument, parameter.ref(), R),
+                        new IrBinaryInstruction(answer, IrBinaryOperator.ADD, argument, new IrConstant(5, type), R),
+                        new IrBinaryInstruction(unused, IrBinaryOperator.ADD, clobber, answer, R), new IrReturnInstruction(answer, R))), R)), List.of(), Set.of());
     }
     private static IrResult registerCalleeProgram() {
         var callee = new IrTemporary("callee", IrType.POINTER); var argument = temp("argument"); var answer = temp("answer");
