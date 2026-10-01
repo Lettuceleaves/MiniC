@@ -1,0 +1,23 @@
+#ifndef MINIC_CPP_INITIALIZER_LIST_MH
+#define MINIC_CPP_INITIALIZER_LIST_MH
+namespace std {
+template<class T> class initializer_list {
+    const T* first_;
+    unsigned long long count_;
+    initializer_list(const T* first,unsigned long long count):first_(first),count_(count) {}
+public:
+    typedef T value_type;
+    typedef const T& reference;
+    typedef const T& const_reference;
+    typedef unsigned long long size_type;
+    typedef const T* iterator;
+    typedef const T* const_iterator;
+    initializer_list():first_(nullptr),count_(0) {}
+    size_type size() const { return count_; }
+    const T* begin() const { return first_; }
+    const T* end() const { return count_?first_+count_:first_; }
+};
+template<class T> const T* begin(initializer_list<T> values) { return values.begin(); }
+template<class T> const T* end(initializer_list<T> values) { return values.end(); }
+}
+#endif

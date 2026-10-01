@@ -1,0 +1,44 @@
+#ifndef MINIC_CPP_TYPE_TRAITS_MH
+#define MINIC_CPP_TYPE_TRAITS_MH
+namespace std {
+template<class T, T V> struct integral_constant {
+    static const T value = V;
+    typedef T value_type;
+    typedef integral_constant type;
+    operator value_type() const { return value; }
+    value_type operator()() const { return value; }
+};
+typedef integral_constant<bool, true> true_type;
+typedef integral_constant<bool, false> false_type;
+template<bool B, class T = void> struct enable_if {};
+template<class T> struct enable_if<true, T> { typedef T type; };
+template<bool B, class T, class F> struct conditional { typedef T type; };
+template<class T, class F> struct conditional<false, T, F> { typedef F type; };
+template<class T> struct remove_const { typedef T type; };
+template<class T> struct remove_const<const T> { typedef T type; };
+template<class T> struct remove_volatile { typedef T type; };
+template<class T> struct remove_volatile<volatile T> { typedef T type; };
+template<class T> struct remove_cv { typedef typename remove_const<typename remove_volatile<T>::type>::type type; };
+template<class T> struct remove_reference { typedef T type; };
+template<class T> struct remove_reference<T&> { typedef T type; };
+template<class T> struct remove_reference<T&&> { typedef T type; };
+template<class T, class U> struct is_same { static const bool value = false; };
+template<class T> struct is_same<T, T> { static const bool value = true; };
+template<class T> struct is_lvalue_reference { static const bool value = false; };
+template<class T> struct is_lvalue_reference<T&> { static const bool value = true; };
+template<class T> struct __minic_integral { static const bool value = false; };
+template<> struct __minic_integral<bool> { static const bool value = true; };
+template<> struct __minic_integral<char> { static const bool value = true; };
+template<> struct __minic_integral<signed char> { static const bool value = true; };
+template<> struct __minic_integral<unsigned char> { static const bool value = true; };
+template<> struct __minic_integral<short> { static const bool value = true; };
+template<> struct __minic_integral<unsigned short> { static const bool value = true; };
+template<> struct __minic_integral<int> { static const bool value = true; };
+template<> struct __minic_integral<unsigned int> { static const bool value = true; };
+template<> struct __minic_integral<long> { static const bool value = true; };
+template<> struct __minic_integral<unsigned long> { static const bool value = true; };
+template<> struct __minic_integral<long long> { static const bool value = true; };
+template<> struct __minic_integral<unsigned long long> { static const bool value = true; };
+template<class T> struct is_integral { static const bool value = __minic_integral<typename remove_cv<T>::type>::value; };
+}
+#endif

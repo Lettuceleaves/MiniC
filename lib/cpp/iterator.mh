@@ -1,0 +1,106 @@
+#ifndef MINIC_CPP_ITERATOR_MH
+#define MINIC_CPP_ITERATOR_MH
+#include "utility.mh"
+namespace std {
+typedef long long ptrdiff_t;
+typedef unsigned long long size_t;
+struct input_iterator_tag {};
+struct output_iterator_tag {};
+struct forward_iterator_tag {};
+struct bidirectional_iterator_tag {};
+struct random_access_iterator_tag {};
+template<class I> struct iterator_traits {
+    typedef typename I::difference_type difference_type;
+    typedef typename I::value_type value_type;
+    typedef typename I::pointer pointer;
+    typedef typename I::reference reference;
+    typedef typename I::iterator_category iterator_category;
+};
+template<class T> struct iterator_traits<T*> {
+    typedef ptrdiff_t difference_type;
+    typedef T value_type;
+    typedef T* pointer;
+    typedef T& reference;
+    typedef random_access_iterator_tag iterator_category;
+};
+template<class T> struct iterator_traits<const T*> {
+    typedef ptrdiff_t difference_type;
+    typedef T value_type;
+    typedef const T* pointer;
+    typedef const T& reference;
+    typedef random_access_iterator_tag iterator_category;
+};
+template<class I> typename iterator_traits<I>::difference_type __minic_distance(I first,I last,input_iterator_tag) {
+    typename iterator_traits<I>::difference_type n=0;
+    while(first!=last){++first;++n;} return n;
+}
+template<class I> typename iterator_traits<I>::difference_type __minic_distance(I first,I last,forward_iterator_tag) { return __minic_distance(first,last,input_iterator_tag()); }
+template<class I> typename iterator_traits<I>::difference_type __minic_distance(I first,I last,bidirectional_iterator_tag) { return __minic_distance(first,last,input_iterator_tag()); }
+template<class I> typename iterator_traits<I>::difference_type __minic_distance(I first,I last,random_access_iterator_tag) { return first==last ? 0 : last-first; }
+template<class I> typename iterator_traits<I>::difference_type distance(I first,I last) { return __minic_distance(first,last,typename iterator_traits<I>::iterator_category()); }
+template<class I,class D> void __minic_advance(I& it,D n,input_iterator_tag) { while(n>0){++it;--n;} }
+template<class I,class D> void __minic_advance(I& it,D n,forward_iterator_tag) { __minic_advance(it,n,input_iterator_tag()); }
+template<class I,class D> void __minic_advance(I& it,D n,bidirectional_iterator_tag) { if(n>=0){while(n>0){++it;--n;}}else{while(n<0){--it;++n;}} }
+template<class I,class D> void __minic_advance(I& it,D n,random_access_iterator_tag) { if(n!=0) it+=n; }
+template<class I,class D> void advance(I& it,D n) { __minic_advance(it,n,typename iterator_traits<I>::iterator_category()); }
+template<class I> I next(I it,typename iterator_traits<I>::difference_type n) { std::advance(it,n);return it; }
+template<class I> I next(I it) { ++it;return it; }
+template<class I> I prev(I it,typename iterator_traits<I>::difference_type n) { std::advance(it,-n);return it; }
+template<class I> I prev(I it) { --it;return it; }
+template<class I> class reverse_iterator {
+    I current;
+public:
+    typedef I iterator_type;
+    typedef typename iterator_traits<I>::iterator_category iterator_category;
+    typedef typename iterator_traits<I>::value_type value_type;
+    typedef typename iterator_traits<I>::difference_type difference_type;
+    typedef typename iterator_traits<I>::pointer pointer;
+    typedef typename iterator_traits<I>::reference reference;
+    reverse_iterator():current() {}
+    explicit reverse_iterator(I it):current(it) {}
+    template<class J> reverse_iterator(const reverse_iterator<J>& other):current(other.base()) {}
+    I base() const { return current; }
+    reference operator*() const { I it=current;--it;return *it; }
+    pointer operator->() const { return std::addressof(**this); }
+    reverse_iterator& operator++() { --current;return *this; }
+    reverse_iterator operator++(int) { reverse_iterator saved=*this;--current;return saved; }
+    reverse_iterator& operator--() { ++current;return *this; }
+    reverse_iterator operator--(int) { reverse_iterator saved=*this;++current;return saved; }
+    reverse_iterator operator+(difference_type n) const { return reverse_iterator(current-n); }
+    reverse_iterator operator-(difference_type n) const { return reverse_iterator(current+n); }
+    reverse_iterator& operator+=(difference_type n) { current-=n;return *this; }
+    reverse_iterator& operator-=(difference_type n) { current+=n;return *this; }
+    reference operator[](difference_type n) const { return *(*this+n); }
+};
+template<class I,class J> bool operator==(const reverse_iterator<I>& a,const reverse_iterator<J>& b) { return a.base()==b.base(); }
+template<class I,class J> bool operator!=(const reverse_iterator<I>& a,const reverse_iterator<J>& b) { return !(a==b); }
+template<class I,class J> bool operator<(const reverse_iterator<I>& a,const reverse_iterator<J>& b) { return b.base()<a.base(); }
+template<class I,class J> bool operator>(const reverse_iterator<I>& a,const reverse_iterator<J>& b) { return b<a; }
+template<class I,class J> bool operator<=(const reverse_iterator<I>& a,const reverse_iterator<J>& b) { return !(b<a); }
+template<class I,class J> bool operator>=(const reverse_iterator<I>& a,const reverse_iterator<J>& b) { return !(a<b); }
+template<class I,class J> typename iterator_traits<I>::difference_type operator-(const reverse_iterator<I>& a,const reverse_iterator<J>& b) { return b.base()-a.base(); }
+template<class I> reverse_iterator<I> operator+(typename reverse_iterator<I>::difference_type n,const reverse_iterator<I>& it) { return it+n; }
+template<class C> class back_insert_iterator {
+    C* container;
+public:
+    typedef output_iterator_tag iterator_category;
+    typedef void value_type;
+    typedef void difference_type;
+    typedef void pointer;
+    typedef void reference;
+    explicit back_insert_iterator(C& target):container(std::addressof(target)) {}
+    back_insert_iterator& operator=(const typename C::value_type& value) { container->push_back(value);return *this; }
+    back_insert_iterator& operator=(typename C::value_type&& value) { container->push_back(std::move(value));return *this; }
+    back_insert_iterator& operator*() { return *this; }
+    back_insert_iterator& operator++() { return *this; }
+    back_insert_iterator operator++(int) { return *this; }
+};
+template<class C> back_insert_iterator<C> back_inserter(C& container) { return back_insert_iterator<C>(container); }
+template<class C> typename C::iterator begin(C& container) { return container.begin(); }
+template<class C> typename C::const_iterator begin(const C& container) { return container.begin(); }
+template<class C> typename C::iterator end(C& container) { return container.end(); }
+template<class C> typename C::const_iterator end(const C& container) { return container.end(); }
+template<class T,size_t N> T* begin(T (&array)[N]) { return array; }
+template<class T,size_t N> T* end(T (&array)[N]) { return array+N; }
+}
+#endif

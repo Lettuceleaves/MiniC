@@ -1,0 +1,36 @@
+#ifndef MINIC_CPP_UTILITY_MH
+#define MINIC_CPP_UTILITY_MH
+#include "type_traits.mh"
+namespace std {
+template<class T> typename remove_reference<T>::type&& move(T&& value) {
+    return (typename remove_reference<T>::type&&)value;
+}
+template<class T> T&& forward(typename remove_reference<T>::type& value) { return (T&&)value; }
+template<class T> typename enable_if<!is_lvalue_reference<T>::value,T&&>::type forward(typename remove_reference<T>::type&& value) { return (T&&)value; }
+template<class T> T* addressof(T& value) { return (T*)&(char&)(const volatile char&)value; }
+template<class T> void swap(T& a, T& b) { T saved=std::move(a); a=std::move(b); b=std::move(saved); }
+template<class T, unsigned long long N> void swap(T (&a)[N], T (&b)[N]) {
+    for (unsigned long long i=0;i<N;++i) { using std::swap; swap(a[i],b[i]); }
+}
+template<class T, class U> struct pair {
+    typedef T first_type;
+    typedef U second_type;
+    T first;
+    U second;
+    pair():first(),second() {}
+    pair(const T& a,const U& b):first(a),second(b) {}
+    template<class A,class B> pair(A&& a,B&& b):first(std::forward<A>(a)),second(std::forward<B>(b)) {}
+    template<class A,class B> pair(const pair<A,B>& other):first(other.first),second(other.second) {}
+    template<class A,class B> pair(pair<A,B>&& other):first(std::forward<A>(other.first)),second(std::forward<B>(other.second)) {}
+    void swap(pair& other) { using std::swap; swap(first,other.first); swap(second,other.second); }
+};
+template<class T,class U> bool operator==(const pair<T,U>& a,const pair<T,U>& b) { return a.first==b.first && a.second==b.second; }
+template<class T,class U> bool operator!=(const pair<T,U>& a,const pair<T,U>& b) { return !(a==b); }
+template<class T,class U> bool operator<(const pair<T,U>& a,const pair<T,U>& b) { return a.first<b.first || (!(b.first<a.first) && a.second<b.second); }
+template<class T,class U> bool operator>(const pair<T,U>& a,const pair<T,U>& b) { return b<a; }
+template<class T,class U> bool operator<=(const pair<T,U>& a,const pair<T,U>& b) { return !(b<a); }
+template<class T,class U> bool operator>=(const pair<T,U>& a,const pair<T,U>& b) { return !(a<b); }
+template<class T,class U> void swap(pair<T,U>& a,pair<T,U>& b) { a.swap(b); }
+template<class T,class U> pair<T,U> make_pair(T a,U b) { return pair<T,U>(std::move(a),std::move(b)); }
+}
+#endif

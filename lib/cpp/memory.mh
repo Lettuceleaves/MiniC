@@ -1,0 +1,19 @@
+#ifndef MINIC_CPP_MEMORY_MH
+#define MINIC_CPP_MEMORY_MH
+#include <stdlib.h>
+#include "new.mh"
+#include "utility.mh"
+namespace std {
+template<class T> T* __minic_allocate(unsigned long long count) {
+    if(count==0)return nullptr;
+    if(count>0x7fffffffffffffffULL/sizeof(T))::abort();
+    void* storage=::malloc(count*sizeof(T));
+    if(storage==nullptr)::abort();
+    return (T*)storage;
+}
+template<class T> void __minic_deallocate(T* storage) { ::free((void*)storage); }
+template<class T,class... A> void __minic_construct(T* target,A&&... args) { ::new((void*)target) T(std::forward<A>(args)...); }
+template<class T> void __minic_destroy(T* value) { value->~T(); }
+template<class T> void __minic_destroy_range(T* data,unsigned long long n) { while(n>0){--n;std::__minic_destroy(data+n);} }
+}
+#endif
