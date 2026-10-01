@@ -8,6 +8,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.Base64;
+import java.nio.charset.StandardCharsets;
+import minic.compiler.ir.optimize.OptimizationLevel;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -25,9 +28,20 @@ final class NativeBenchmarkSupportTest {
     }
 
     @Test
-    void alternatesBuildOrderAndComputesMedianWithoutMutatingSamples() {
-        assertEquals(List.of("minic", "g++"), NativeBenchmarkSupport.order(0));
-        assertEquals(List.of("g++", "minic"), NativeBenchmarkSupport.order(1));
+    void rotatesThreeBuildsAndComputesMedianWithoutMutatingSamples() {
+        List<String> builds = List.of("minic-baseline", "minic-optimized", "g++");
+        assertEquals(builds, NativeBenchmarkSupport.order(0));
+        assertEquals(List.of("minic-optimized", "g++", "minic-baseline"), NativeBenchmarkSupport.order(1));
+        for (String build : builds) {
+            for (int position = 0; position < builds.size(); position++) {
+                int count = 0;
+                for (int repetition = 0; repetition < 6; repetition++) {
+                    assertEquals(java.util.Set.copyOf(builds), java.util.Set.copyOf(NativeBenchmarkSupport.order(repetition)));
+                    if (NativeBenchmarkSupport.order(repetition).get(position).equals(build)) count++;
+                }
+                assertEquals(2, count, "Every build must occur twice at every position across six rotations");
+            }
+        }
         List<Long> samples = List.of(40L, 10L, 30L, 20L);
         assertEquals(25.0, NativeBenchmarkSupport.median(samples));
         assertEquals(List.of(40L, 10L, 30L, 20L), samples);
@@ -38,6 +52,48 @@ final class NativeBenchmarkSupportTest {
     void escapesReportsWithoutLosingMetadata() {
         assertEquals("\"C:\\\\a\\\"b\\n\\t\\u0001\"", NativeBenchmarkSupport.json("C:\\a\"b\n\t\u0001"));
         assertEquals("\"x,\"\"y\"\"\n\"", NativeBenchmarkSupport.csv("x,\"y\"\n"));
+    }
+
+    @Test
+    void compilerReportPreservesTheActualModeAndArbitraryPassNames() {
+        String name = "fold,\"constants\"\nsecond line";
+        String encoded = Base64.getEncoder().encodeToString(name.getBytes(StandardCharsets.UTF_8));
+        String output = "artifact=C:/program.exe\ncompile_ns=42\noptimization_level=OPTIMIZED\npass_count=1\npass_0=" + encoded + "\n";
+        var compiled = NativeBenchmarkSupport.compilation(output);
+        assertEquals(OptimizationLevel.OPTIMIZED, compiled.level());
+        assertEquals(List.of(name), compiled.passNames());
+        assertEquals(42, compiled.compilerPipelineNanos());
+        assertEquals(Path.of("C:/program.exe"), compiled.artifact());
+        assertThrows(UnsupportedOperationException.class, () -> compiled.passNames().clear());
+        assertThrows(IllegalArgumentException.class, () -> NativeBenchmarkSupport.compilation(output.replace("pass_count=1", "pass_count=-1")));
+        assertThrows(IllegalArgumentException.class, () -> NativeBenchmarkSupport.compilation(output + "optimization_level=BASELINE\n"));
+        assertThrows(IllegalArgumentException.class, () -> NativeBenchmarkSupport.compilation(output.replace("OPTIMIZED", "BASELINE")));
+        assertThrows(IllegalArgumentException.class, () -> NativeBenchmarkSupport.compilation(output.replace("compile_ns=42", "compile_ns=-1")));
+    }
+
+    @Test
+    void reportsBuildIdentitySeparateFromCompileAndExecutionSamples() throws Exception {
+        var report = new NativeBenchmarkReport();
+        report.builds.add(new NativeBenchmarkReport.Build("array-scan", "minic-baseline", "BASELINE", List.of(),
+                "source-hash", "baseline.exe", "baseline-hash"));
+        report.builds.add(new NativeBenchmarkReport.Build("array-scan", "minic-optimized", "OPTIMIZED", List.of("test-pass"),
+                "source-hash", "optimized.exe", "optimized-hash"));
+        report.builds.add(new NativeBenchmarkReport.Build("array-scan", "g++", null, List.of(),
+                "source-hash", "gxx.exe", "gxx-hash"));
+        for (String build : NativeBenchmarkSupport.order(0)) {
+            report.samples.add(new NativeBenchmarkReport.Sample("array-scan", build, "compile", 0, 3, 2, 1,
+                    999, build.equals("g++") ? null : 555L, "", "source-hash"));
+            report.samples.add(new NativeBenchmarkReport.Sample("array-scan", build, "measurement", 0, 3, 2, 1,
+                    10, null, "30662", "source-hash"));
+        }
+        report.write(temporary, 15);
+        String json = Files.readString(temporary.resolve("report.json"));
+        assertTrue(json.contains("\"schemaVersion\":2"));
+        assertTrue(json.contains("\"optimizationLevel\":\"BASELINE\",\"passNames\":[]"));
+        assertTrue(json.contains("\"optimizationLevel\":\"OPTIMIZED\",\"passNames\":[\"test-pass\"]"));
+        assertTrue(json.contains("\"artifactSha256\":\"optimized-hash\""));
+        assertEquals(3, report.summaries(15).size());
+        assertEquals(7, Files.readAllLines(temporary.resolve("samples.csv")).size());
     }
 
     @Test

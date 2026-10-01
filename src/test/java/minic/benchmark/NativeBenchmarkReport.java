@@ -13,7 +13,24 @@ import java.util.stream.Collectors;
 final class NativeBenchmarkReport {
     final Map<String, Object> metadata = new LinkedHashMap<>();
     final List<Sample> samples = new ArrayList<>();
+    final List<Build> builds = new ArrayList<>();
     final List<String> errors = new ArrayList<>();
+
+    record Build(String workload, String compiler, String optimizationLevel, List<String> passNames,
+                 String sourceSha256, String artifactPath, String artifactSha256) {
+        Build { passNames = List.copyOf(passNames); }
+        Map<String, Object> fields() {
+            Map<String, Object> fields = new LinkedHashMap<>();
+            fields.put("workload", workload);
+            fields.put("compiler", compiler);
+            fields.put("optimizationLevel", optimizationLevel);
+            fields.put("passNames", passNames);
+            fields.put("sourceSha256", sourceSha256);
+            fields.put("artifactPath", artifactPath);
+            fields.put("artifactSha256", artifactSha256);
+            return fields;
+        }
+    }
 
     record Sample(String workload, String compiler, String phase, int repetition, int size, int rounds,
                   int seed, long processWallNanos, Long compilerPipelineNanos, String checksum, String sourceSha256) {
@@ -37,10 +54,11 @@ final class NativeBenchmarkReport {
     void write(Path output, long minSampleNanos) throws IOException {
         Files.createDirectories(output);
         Map<String, Object> report = new LinkedHashMap<>();
-        report.put("schemaVersion", 1);
+        report.put("schemaVersion", 2);
         report.put("status", errors.isEmpty() ? "passed-correctness" : "failed");
         report.put("metadata", metadata);
         report.put("errors", errors);
+        report.put("builds", builds.stream().map(Build::fields).toList());
         report.put("samples", samples.stream().map(Sample::fields).toList());
         report.put("summaries", summaries(minSampleNanos));
         Files.writeString(output.resolve("report.json"), encode(report) + "\n");

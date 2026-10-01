@@ -1,15 +1,20 @@
 package minic.benchmark;
 
 import minic.compiler.CompilerApi;
+import minic.compiler.LanguageMode;
 import minic.compiler.SourceFile;
+import minic.compiler.asm.Assembler;
+import minic.compiler.ir.optimize.OptimizationLevel;
 import minic.compiler.link.Linker;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -17,7 +22,8 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * B04 baseline for the currently supported C subset, not a claim of C++ STL support.
+ * Compares baseline/optimized native MiniC and G++ on C-subset workloads.
+ * An optimization mode name does not imply that passes are registered or that it is faster.
  * Runs from the repository root. Use --help for configuration. Child compilation is isolated
  * so even a stuck MiniC compiler can be timed out by the parent process.
  */
@@ -29,8 +35,8 @@ public final class NativeBenchmarkMain {
     private NativeBenchmarkMain() {}
 
     public static void main(String[] args) throws Exception {
-        if (args.length == 2 && args[0].equals("--compile-minic")) {
-            compileMiniC(Path.of(args[1]));
+        if ((args.length == 2 || args.length == 3) && args[0].equals("--compile-minic")) {
+            compileMiniC(Path.of(args[1]), args.length == 3 ? OptimizationLevel.valueOf(args[2]) : OptimizationLevel.BASELINE);
             return;
         }
         if (List.of(args).contains("--help")) { help(); return; }
@@ -60,7 +66,8 @@ public final class NativeBenchmarkMain {
                 config.compileTimeout(), OUTPUT_LIMIT);
         target.requireSuccess();
         report.metadata.put("startedAt", Instant.now().toString());
-        report.metadata.put("scope", "C subset native baseline; no STL or C++ frontend support claimed");
+        report.metadata.put("scope", "C subset native comparison; these workloads do not measure STL implementations");
+        report.metadata.put("optimizationInterpretation", "Mode names are configurations, not performance claims; per-build passNames records passes actually applied and can be empty");
         report.metadata.put("hostControl", "uncontrolled shared workstation; concurrent development may affect timing; not a release performance gate");
         report.metadata.put("timing", "process-wall including start, stdin, execution, and output drain; not CPU/kernel time");
         report.metadata.put("compileTiming", "MiniC process-wall includes JVM startup; compilerPipelineNanos excludes JVM startup; g++ compilation is process-wall");
@@ -68,7 +75,8 @@ public final class NativeBenchmarkMain {
         report.metadata.put("gxxVersion", version.stdout().strip());
         report.metadata.put("gxxTarget", target.stdout().strip());
         report.metadata.put("gxxFlags", GXX_FLAGS);
-        report.metadata.put("minicFlags", List.of("current default pipeline", "native executable without debug runtime instrumentation"));
+        report.metadata.put("minicFlags", List.of("LanguageMode.C", "native executable without debug runtime instrumentation"));
+        report.metadata.put("executionOrder", "six permutations rotate baseline, optimized and G++; same input and Java checksum oracle for every executable");
         report.metadata.put("commit", config.commit().isBlank() ? git("rev-parse", "HEAD") : config.commit());
         report.metadata.put("workingTreeStatus", git("status", "--porcelain"));
         report.metadata.put("cpu", config.cpu().equals("unknown") ? cpuDescription() : config.cpu());
@@ -92,29 +100,43 @@ public final class NativeBenchmarkMain {
 
     private static void benchmark(Config config, NativeBenchmarkReport report, String workload) throws Exception {
         byte[] source = Files.readAllBytes(Path.of("benchmarks", "native", workload + ".cpp"));
-        String sourceHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(source));
+        String sourceHash = sha256(source);
         Path sources = config.output().resolve("sources");
         Files.createDirectories(sources);
+        Path binaries = config.output().resolve("binaries");
+        Files.createDirectories(binaries);
         // Unique basenames prevent CompilerApi's default artifact directory from colliding with other tests.
         Path sourcePath = sources.resolve("bench_" + workload + "_" + UUID.randomUUID().toString().replace("-", "") + ".cpp");
         Files.write(sourcePath, source);
         Map<String, Path> executables = new LinkedHashMap<>();
-        var minic = NativeBenchmarkSupport.run(javaCommand("--compile-minic", sourcePath.toString()), Path.of("."),
-                "", config.compileTimeout(), OUTPUT_LIMIT);
-        minic.requireSuccess();
-        Path minicExecutable = Path.of(field(minic.stdout(), "artifact="));
-        if (!Files.isRegularFile(minicExecutable)) throw new IllegalStateException("MiniC artifact is missing");
-        executables.put("minic", minicExecutable);
-        recordCompile(report, config, workload, "minic", minic.wallNanos(),
-                Long.parseLong(field(minic.stdout(), "compile_ns=")), sourceHash);
+        for (OptimizationLevel level : List.of(OptimizationLevel.BASELINE, OptimizationLevel.OPTIMIZED)) {
+            String compiler = "minic-" + level.name().toLowerCase(java.util.Locale.ROOT);
+            var minic = NativeBenchmarkSupport.run(javaCommand("--compile-minic", sourcePath.toString(), level.name()), Path.of("."),
+                    "", config.compileTimeout(), OUTPUT_LIMIT);
+            minic.requireSuccess();
+            var compiled = NativeBenchmarkSupport.compilation(minic.stdout());
+            if (compiled.level() != level) throw new IllegalStateException("Compiler reported the wrong optimization mode");
+            if (!Files.isRegularFile(compiled.artifact())) throw new IllegalStateException("MiniC artifact is missing");
+            // CompilerApi derives the working artifact name from the source. Save
+            // this build before the next mode compiles that same source basename.
+            Path saved = binaries.resolve(workload + "-" + compiler + ".exe");
+            Files.copy(compiled.artifact(), saved);
+            executables.put(compiler, saved);
+            report.builds.add(new NativeBenchmarkReport.Build(workload, compiler, compiled.level().name(), compiled.passNames(),
+                    sourceHash, saved.toString(), sha256(Files.readAllBytes(saved))));
+            recordCompile(report, config, workload, compiler, minic.wallNanos(), compiled.compilerPipelineNanos(), sourceHash);
+        }
 
-        Path referenceExecutable = config.output().resolve(workload + "-gxx.exe");
+        Path referenceExecutable = binaries.resolve(workload + "-gxx.exe");
+        if (Files.exists(referenceExecutable)) throw new IllegalArgumentException("output executable already exists: " + referenceExecutable);
         List<String> command = new ArrayList<>(List.of(config.gxx()));
         command.addAll(GXX_FLAGS);
         command.addAll(List.of(sourcePath.toString(), "-o", referenceExecutable.toString()));
         var reference = NativeBenchmarkSupport.run(command, Path.of("."), "", config.compileTimeout(), OUTPUT_LIMIT);
         reference.requireSuccess();
         executables.put("g++", referenceExecutable);
+        report.builds.add(new NativeBenchmarkReport.Build(workload, "g++", null, List.of(), sourceHash,
+                referenceExecutable.toString(), sha256(Files.readAllBytes(referenceExecutable))));
         recordCompile(report, config, workload, "g++", reference.wallNanos(), null, sourceHash);
 
         int rounds = config.rounds();
@@ -173,10 +195,10 @@ public final class NativeBenchmarkMain {
                 config.rounds(), config.seed(), wall, internal, "", hash));
     }
 
-    private static void compileMiniC(Path source) throws Exception {
+    private static void compileMiniC(Path source, OptimizationLevel level) throws Exception {
         var sourceFile = new SourceFile(source.toAbsolutePath().toString(), Files.readString(source));
         long started = System.nanoTime();
-        CompilerApi api = new CompilerApi(sourceFile);
+        CompilerApi api = new CompilerApi(sourceFile, LanguageMode.C, level);
         Linker linker = api.stages().stream().filter(Linker.class::isInstance).map(Linker.class::cast)
                 .findFirst().orElseThrow();
         api.runThrough(linker);
@@ -186,6 +208,12 @@ public final class NativeBenchmarkMain {
         }
         System.out.println("compile_ns=" + (System.nanoTime() - started));
         System.out.println("artifact=" + linker.result().executableArtifactOptional().orElseThrow().path().toAbsolutePath());
+        Assembler assembler = api.stages().stream().filter(Assembler.class::isInstance).map(Assembler.class::cast).findFirst().orElseThrow();
+        System.out.println("optimization_level=" + assembler.optimizationLevel().name());
+        List<String> passes = assembler.optimizationResult().passNames();
+        System.out.println("pass_count=" + passes.size());
+        for (int index = 0; index < passes.size(); index++)
+            System.out.println("pass_" + index + "=" + Base64.getEncoder().encodeToString(passes.get(index).getBytes(StandardCharsets.UTF_8)));
     }
 
     private static List<String> javaCommand(String... args) {
@@ -196,10 +224,8 @@ public final class NativeBenchmarkMain {
         return command;
     }
 
-    private static String field(String output, String prefix) {
-        var matches = output.lines().filter(line -> line.startsWith(prefix)).toList();
-        if (matches.size() != 1) throw new IllegalArgumentException("missing/ambiguous compiler field " + prefix);
-        return matches.getFirst().substring(prefix.length());
+    private static String sha256(byte[] bytes) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(bytes));
     }
 
     private static String git(String... arguments) {
@@ -229,13 +255,16 @@ public final class NativeBenchmarkMain {
                 Run NativeBenchmarkMain from the repository root (Windows x64, JDK 21).
                 Options use --name=value (no shell is invoked):
                   --gxx=C:/mingw64/bin/g++.exe   Reference compiler; fixed -std=c++17 -O2
-                  --output=build/native-benchmark/<timestamp>   JSON, CSV, exact sources and reference binaries
+                  --output=build/native-benchmark/<timestamp>   JSON, CSV, exact sources and all three binaries
                   --size=65536 --rounds=512 --seed=1729
                   --repetitions=5 --warmups=1
                   --min-sample-ms=100 --calibration-steps=6
                   --run-timeout-seconds=30 --compile-timeout-seconds=120
                   --commit=<revision> --cpu=<machine description>   Optional metadata overrides
-                After a separately recorded preflight launch, calibration doubles rounds for BOTH compilers until both process-wall samples meet
+                Every workload builds MiniC BASELINE, MiniC OPTIMIZED, and G++ separately. Actual
+                optimization levels and applied pass names are retained; an empty pass list is
+                valid and OPTIMIZED does not itself claim acceleration. Measurement order rotates.
+                After a separately recorded preflight launch, calibration doubles rounds for ALL three builds until all process-wall samples meet
                 the minimum or the doubling limit is reached. All actual inputs and raw samples are
                 retained; short measurement samples are flagged. Increase the budget on a fixed,
                 idle machine before drawing performance conclusions. Time includes startup and I/O;

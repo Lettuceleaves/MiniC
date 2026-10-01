@@ -1,9 +1,13 @@
 package minic.benchmark;
 
 import minic.cpp.support.BoundedProcess;
+import minic.compiler.ir.optimize.OptimizationLevel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 
@@ -24,7 +28,42 @@ final class NativeBenchmarkSupport {
     }
 
     static List<String> order(int repetition) {
-        return repetition % 2 == 0 ? List.of("minic", "g++") : List.of("g++", "minic");
+        if (repetition < 0) throw new IllegalArgumentException("repetition must be non-negative");
+        List<String> order = new ArrayList<>(List.of("minic-baseline", "minic-optimized", "g++"));
+        // Rotate both directions over six runs: every build occupies each
+        // position twice and all six permutations occur once.
+        int cycle = repetition % 6;
+        if (cycle >= 3) Collections.reverse(order);
+        Collections.rotate(order, -(cycle % 3));
+        return List.copyOf(order);
+    }
+
+    record Compilation(Path artifact, long compilerPipelineNanos, OptimizationLevel level, List<String> passNames) {
+        Compilation { passNames = List.copyOf(passNames); }
+    }
+
+    static Compilation compilation(String output) {
+        String artifact = field(output, "artifact=");
+        if (artifact.isBlank()) throw new IllegalArgumentException("missing compiler artifact");
+        long nanos = Long.parseLong(field(output, "compile_ns="));
+        if (nanos < 0) throw new IllegalArgumentException("negative compiler time");
+        OptimizationLevel level = OptimizationLevel.valueOf(field(output, "optimization_level="));
+        int count = Integer.parseInt(field(output, "pass_count="));
+        if (count < 0 || count > 10_000) throw new IllegalArgumentException("invalid pass count");
+        List<String> names = new ArrayList<>();
+        for (int index = 0; index < count; index++) {
+            String name = new String(Base64.getDecoder().decode(field(output, "pass_" + index + "=")), StandardCharsets.UTF_8);
+            if (name.isBlank() || names.contains(name)) throw new IllegalArgumentException("invalid pass name");
+            names.add(name);
+        }
+        if (level == OptimizationLevel.BASELINE && !names.isEmpty()) throw new IllegalArgumentException("baseline reported optimization passes");
+        return new Compilation(Path.of(artifact), nanos, level, names);
+    }
+
+    private static String field(String output, String prefix) {
+        var matches = output.lines().filter(line -> line.startsWith(prefix)).toList();
+        if (matches.size() != 1) throw new IllegalArgumentException("missing/ambiguous compiler field " + prefix);
+        return matches.getFirst().substring(prefix.length());
     }
 
     static double median(List<Long> values) {
