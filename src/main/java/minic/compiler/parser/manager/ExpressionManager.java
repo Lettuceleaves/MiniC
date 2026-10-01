@@ -420,6 +420,11 @@ public final class ExpressionManager {
     }
 
     private Expression parsePrimary() {
+        if (state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.match(TokenType.THIS)) {
+            var expression = new Expression.ThisExpr(state.previous().range());
+            state.build(expression, "ThisExpr", expression.range());
+            return expression;
+        }
         if (state.languageMode() == minic.compiler.LanguageMode.CPP17_ALGORITHM
                 && (state.check(TokenType.SCOPE) || state.check(TokenType.IDENTIFIER)
                 && state.peekAt(1).type() == TokenType.SCOPE)) {

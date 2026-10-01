@@ -26,6 +26,7 @@ public final class DeclarationManager {
     private final ExpressionManager expressionManager;
     private final Parser.TypeReader typeReader;
     private final java.util.Map<String, Long> enumConstants;
+    private final minic.compiler.parser.CppRecordParser cppRecordParser;
 
     public DeclarationManager(Parser.Context state, StatementManager statementManager,
                               ExpressionManager expressionManager, Parser.TypeReader typeReader) {
@@ -40,6 +41,9 @@ public final class DeclarationManager {
         this.expressionManager = expressionManager;
         this.typeReader = typeReader;
         this.enumConstants = enumConstants;
+        cppRecordParser = typeReader.isCpp()
+                ? new minic.compiler.parser.CppRecordParser(state, typeReader, statementManager) : null;
+        if (cppRecordParser != null) typeReader.setCppRecordParser(cppRecordParser);
     }
 
     public EnumDecl parseEnumDecl() {
@@ -221,6 +225,7 @@ public final class DeclarationManager {
     }
 
     public StructDecl parseStructDecl() {
+        if (cppRecordParser != null) return cppRecordParser.parseDeclaration();
         state.enter("structDecl");
         boolean union = state.check(TokenType.UNION);
         Token startToken = state.advance();

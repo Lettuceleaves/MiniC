@@ -209,9 +209,21 @@ public final class Parser extends Stage {
     }
 
     private boolean isStructDeclaration() {
-        return context.peekAt(1).type() == TokenType.IDENTIFIER
-                && (context.peekAt(2).type() == TokenType.LEFT_BRACE
-                || context.peekAt(2).type() == TokenType.SEMICOLON);
+        if (context.peekAt(1).type() != TokenType.IDENTIFIER) return false;
+        TokenType following = context.peekAt(2).type();
+        if (following == TokenType.SEMICOLON) return true;
+        if (languageMode() == LanguageMode.CPP17_ALGORITHM && following == TokenType.COLON) return true;
+        if (following != TokenType.LEFT_BRACE) return false;
+        if (languageMode() != LanguageMode.CPP17_ALGORITHM) return true;
+        int depth = 0;
+        for (int offset = 2; context.peekAt(offset).type() != TokenType.EOF; offset++) {
+            TokenType token = context.peekAt(offset).type();
+            if (token == TokenType.LEFT_BRACE) depth++;
+            if (token == TokenType.RIGHT_BRACE && --depth == 0) {
+                return context.peekAt(offset + 1).type() == TokenType.SEMICOLON;
+            }
+        }
+        return true;
     }
 
     private Declaration parseDeclaration() {
@@ -226,7 +238,8 @@ public final class Parser extends Stage {
         if (context.check(TokenType.TYPEDEF)) return declarationManager.parseTypedefDecl();
         if (context.check(TokenType.ENUM) && context.peekAt(1).type() == TokenType.IDENTIFIER
                 && context.peekAt(2).type() == TokenType.LEFT_BRACE) return declarationManager.parseEnumDecl();
-        if ((context.check(TokenType.STRUCT) || context.check(TokenType.UNION)) && isStructDeclaration()) {
+        if ((context.check(TokenType.STRUCT) || context.check(TokenType.UNION)
+                || languageMode() == LanguageMode.CPP17_ALGORITHM && context.check(TokenType.CLASS)) && isStructDeclaration()) {
             return declarationManager.parseStructDecl();
         }
         return declarationManager.parseFunctionOrGlobalDecl();
@@ -318,6 +331,8 @@ public final class Parser extends Stage {
         private final ArrayList<Diagnostic> reportedErrors = new ArrayList<>();
         private final ArrayList<TraceEvent> traceEvents;
         private int currentIndex;
+        private int tokenLimit;
+        private Token windowEnd;
         private boolean functionBoundaryRecovered;
 
         private Context(List<Token> tokens, LanguageMode languageMode, boolean traceEnabled) {
@@ -326,6 +341,7 @@ public final class Parser extends Stage {
             }
             this.tokens = tokens;
             this.languageMode = languageMode;
+            tokenLimit = tokens.size();
             traceEvents = traceEnabled ? new ArrayList<>() : null;
         }
 
@@ -395,12 +411,51 @@ public final class Parser extends Stage {
         }
 
         public Token peek() {
-            return tokens.get(currentIndex);
+            return currentIndex >= tokenLimit ? windowEnd : tokens.get(currentIndex);
         }
 
         public Token peekAt(int offset) {
             int index = currentIndex + offset;
+            if (index >= tokenLimit && windowEnd != null) return windowEnd;
             return index >= tokens.size() ? tokens.getLast() : tokens.get(index);
+        }
+
+        /** A balanced body is retained as token indices, preserving original source locations. */
+        public record TokenWindow(int start, int end) { }
+
+        public TokenWindow deferBlock() {
+            if (!check(TokenType.LEFT_BRACE)) throw new IllegalStateException("Expected deferred block");
+            int start = currentIndex;
+            int depth = 0;
+            while (!isAtEnd()) {
+                TokenType type = peek().type();
+                currentIndex++;
+                if (type == TokenType.LEFT_BRACE) depth++;
+                if (type == TokenType.RIGHT_BRACE && --depth == 0) return new TokenWindow(start, currentIndex);
+            }
+            report(tokens.get(start), "未闭合的方法体");
+            return new TokenWindow(start, currentIndex);
+        }
+
+        public <T> T inTokenWindow(TokenWindow window, java.util.function.Supplier<T> parse) {
+            if (window.start() < 0 || window.end() <= window.start() || window.end() > tokenLimit) {
+                throw new IllegalArgumentException("Invalid token window");
+            }
+            int savedIndex = currentIndex, savedLimit = tokenLimit;
+            Token savedEnd = windowEnd;
+            boolean savedRecovery = functionBoundaryRecovered;
+            currentIndex = window.start();
+            tokenLimit = window.end();
+            SourceRange end = tokens.get(window.end() - 1).range();
+            windowEnd = new Token(TokenType.EOF, "", new SourceRange(end.endLine(), end.endByte(), end.endLine(), end.endByte()));
+            functionBoundaryRecovered = false;
+            try { return parse.get(); }
+            finally {
+                currentIndex = savedIndex;
+                tokenLimit = savedLimit;
+                windowEnd = savedEnd;
+                functionBoundaryRecovered = savedRecovery;
+            }
         }
 
         public Token previous() {
@@ -585,6 +640,7 @@ public final class Parser extends Stage {
         private int cppLocalDepth;
         private int cppMemberDepth;
         private int anonymousAggregateIndex;
+        private CppRecordParser cppRecordParser;
 
         public TypeReader(Context context) {
             this(context, ignored -> { });
@@ -599,6 +655,8 @@ public final class Parser extends Stage {
         }
 
         public boolean isCpp() { return context.languageMode() == LanguageMode.CPP17_ALGORITHM; }
+
+        public void setCppRecordParser(CppRecordParser parser) { cppRecordParser = Objects.requireNonNull(parser); }
 
         public void enterNamespace(minic.compiler.parser.node.QualifiedName name) {
             cppTypes.enterNamespace(name.segments(), name.range());
@@ -797,7 +855,8 @@ public final class Parser extends Stage {
                     declarationRange,
                     resolvedParameters,
                     resolvedVariadic,
-                    alignmentSpecs
+                    alignmentSpecs,
+                    declarator.nameToken().range()
             );
         }
 
@@ -825,6 +884,7 @@ public final class Parser extends Stage {
                     || type == TokenType.DOUBLE
                     || type == TokenType.VOID
                     || type == TokenType.STRUCT
+                    || isCpp() && type == TokenType.CLASS
                     || type == TokenType.UNION
                     || type == TokenType.ENUM
                     || type == TokenType.BUILTIN_VA_LIST
@@ -882,7 +942,7 @@ public final class Parser extends Stage {
             Declarator direct;
             if (context.match(TokenType.IDENTIFIER)) {
                 Token nameToken = context.previous();
-                direct = new Declarator(nameToken.lexeme(), new ArrayList<>(), nameToken, nameToken);
+                direct = new Declarator(nameToken.lexeme(), new ArrayList<>(), nameToken, nameToken, nameToken);
             } else if (context.match(TokenType.LEFT_PAREN)) {
                 Token startToken = context.previous();
                 direct = parseDeclarator(expectedNameMessage, nameRequired);
@@ -893,7 +953,7 @@ public final class Parser extends Stage {
                 direct = direct.withRange(startToken, endToken);
             } else if (!nameRequired) {
                 Token anchor = pointerLayers.isEmpty() ? context.peek() : pointerLayers.getFirst().token();
-                direct = new Declarator("", new ArrayList<>(), anchor, anchor);
+                direct = new Declarator("", new ArrayList<>(), anchor, anchor, anchor);
             } else {
                 context.report(context.peek(), expectedNameMessage);
                 return null;
@@ -989,7 +1049,7 @@ public final class Parser extends Stage {
                         break;
                     }
                 } else {
-                    declarator = new Declarator("", new ArrayList<>(), baseType.endToken(), baseType.endToken());
+                    declarator = new Declarator("", new ArrayList<>(), baseType.endToken(), baseType.endToken(), baseType.endToken());
                 }
                 MiniType parameterType = adjustParameterType(declarator.resolve(baseType.type()));
                 SourceRange range = SourceRange.span(baseType.startToken().range(), declarator.endToken().range());
@@ -1049,7 +1109,7 @@ public final class Parser extends Stage {
             } else if (context.check(TokenType.BUILTIN_VA_LIST)) {
                 end = context.advance();
                 type = MiniType.VA_LIST;
-            } else if (context.check(TokenType.STRUCT)) {
+            } else if (context.check(TokenType.STRUCT) || isCpp() && context.check(TokenType.CLASS)) {
                 BaseType struct = parseStructType();
                 if (struct == null) return null;
                 type = struct.type();
@@ -1231,7 +1291,10 @@ public final class Parser extends Stage {
             if (lookup.kind() == CppTypeEnvironment.Kind.MISSING && !name.global() && name.segments().size() == 1) {
                 type = declareAggregate(name.segments().getFirst(), union, false, name.range());
                 String identity = ((MiniType.StructType) type.unqualified()).name();
-                aggregateSink.accept(new StructDecl(identity, List.of(), false, union,
+                var info = union ? null : new Declaration.CppRecordInfo(
+                        startToken.type() == TokenType.CLASS ? Declaration.RecordKey.CLASS : Declaration.RecordKey.STRUCT,
+                        List.of(), startToken.range());
+                aggregateSink.accept(new StructDecl(identity, List.of(), false, union, info,
                         SourceRange.span(startToken.range(), end.range())));
             } else if (lookup.kind() == CppTypeEnvironment.Kind.TYPE && lookup.type().unqualified() instanceof MiniType.StructType tag) {
                 type = lookup.type();
@@ -1247,6 +1310,14 @@ public final class Parser extends Stage {
         }
 
         private BaseType parseAggregateDefinition(MiniType type, boolean union, Token startToken) {
+            if (isCpp() && cppRecordParser != null) {
+                StructDecl declaration = cppRecordParser.parseDefinition(type, union, startToken);
+                if (declaration == null) return null;
+                recordAggregateFields(declaration);
+                aggregateSink.accept(declaration);
+                context.build(declaration, "CppRecord " + declaration.name(), declaration.range());
+                return new BaseType(type, startToken, context.previous());
+            }
             enterMemberScope(type);
             try { return parseAggregateDefinitionContents(type, union, startToken); }
             finally { exitMemberScope(); }
@@ -1336,7 +1407,8 @@ public final class Parser extends Stage {
                 String name,
                 ArrayList<DeclaratorModifier> modifiers,
                 Token startToken,
-                Token endToken
+                Token endToken,
+                Token nameToken
         ) {
             private MiniType resolve(MiniType baseType) {
                 MiniType resolved = baseType;
@@ -1353,15 +1425,15 @@ public final class Parser extends Stage {
             }
 
             private Declarator withRange(Token start, Token end) {
-                return new Declarator(name, modifiers, start, end);
+                return new Declarator(name, modifiers, start, end, nameToken);
             }
 
             private Declarator withStart(Token start) {
-                return new Declarator(name, modifiers, start, endToken);
+                return new Declarator(name, modifiers, start, endToken, nameToken);
             }
 
             private Declarator withEnd(Token end) {
-                return new Declarator(name, modifiers, startToken, end);
+                return new Declarator(name, modifiers, startToken, end, nameToken);
             }
         }
 
@@ -1381,8 +1453,13 @@ public final class Parser extends Stage {
             SourceRange range,
             List<ParsedParameter> parameters,
             boolean variadic,
-            List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs
+            List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs,
+            SourceRange nameRange
     ) {
+        public ParsedNamedType(String name, MiniType type, SourceRange range, List<ParsedParameter> parameters,
+                               boolean variadic, List<Declaration.AlignmentSpec> alignmentSpecs) {
+            this(name, type, range, parameters, variadic, alignmentSpecs, range);
+        }
         public ParsedNamedType {
             parameters = List.copyOf(parameters);
             alignmentSpecs = List.copyOf(alignmentSpecs);
