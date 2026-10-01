@@ -1,0 +1,315 @@
+#ifndef MINIC_CPP_STRING_MH
+#define MINIC_CPP_STRING_MH
+#include "memory.mh"
+#include "iterator.mh"
+#include "initializer_list.mh"
+#include <stdio.h>
+#include <errno.h>
+#include <limits.h>
+namespace std {
+
+// This profile provides the char specialization as std::string. empty_ owns
+// the terminator of an empty/moved-from value; data() never returns null.
+class string {
+    char* buffer_;
+    unsigned long long size_;
+    unsigned long long capacity_;
+    char empty_;
+    static unsigned long long text_length(const char* text) { unsigned long long n=0;while(text[n]!=0)++n;return n; }
+    unsigned long long clipped(unsigned long long position,unsigned long long count) const {
+        if(position>size_)::abort();unsigned long long available=size_-position;return count<available?count:available;
+    }
+    unsigned long long growth(unsigned long long needed) const {
+        if(needed>max_size())::abort();unsigned long long next=capacity_>max_size()/2?max_size():capacity_*2;
+        return next<needed?needed:next;
+    }
+    void allocate_capacity(unsigned long long capacity) {
+        if(capacity>max_size())::abort();
+        char* next=std::__minic_allocate<char>(capacity+1);
+        for(unsigned long long i=0;i<size_;++i)next[i]=data()[i];next[size_]=0;
+        std::__minic_deallocate(buffer_);buffer_=next;capacity_=capacity;
+    }
+    void ensure(unsigned long long needed) { if(needed>capacity_)allocate_capacity(growth(needed)); }
+    // Snapshot input before reserve or shifting. The source may be any slice
+    // of this string, including its terminator, or an overlapping iterator range.
+    string& replace_text(unsigned long long position,unsigned long long count,const char* text,unsigned long long n) {
+        count=clipped(position,count);if(n>max_size()-(size_-count))::abort();
+        char* saved=std::__minic_allocate<char>(n);
+        for(unsigned long long i=0;i<n;++i)saved[i]=text[i];
+        unsigned long long next_size=size_-count+n;ensure(next_size);
+        if(n>count){for(unsigned long long i=size_;i>position+count;){--i;data()[i+n-count]=data()[i];}}
+        else if(n<count){for(unsigned long long i=position+count;i<size_;++i)data()[i-count+n]=data()[i];}
+        for(unsigned long long i=0;i<n;++i)data()[position+i]=saved[i];
+        size_=next_size;data()[size_]=0;std::__minic_deallocate(saved);return *this;
+    }
+    string& replace_fill(unsigned long long position,unsigned long long count,unsigned long long n,char value) {
+        count=clipped(position,count);if(n>max_size()-(size_-count))::abort();
+        unsigned long long next_size=size_-count+n;ensure(next_size);
+        if(n>count){for(unsigned long long i=size_;i>position+count;){--i;data()[i+n-count]=data()[i];}}
+        else if(n<count){for(unsigned long long i=position+count;i<size_;++i)data()[i-count+n]=data()[i];}
+        for(unsigned long long i=0;i<n;++i)data()[position+i]=value;
+        size_=next_size;data()[size_]=0;return *this;
+    }
+    static int compare_text(const char* a,unsigned long long an,const char* b,unsigned long long bn) {
+        unsigned long long n=an<bn?an:bn;
+        for(unsigned long long i=0;i<n;++i){unsigned char x=(unsigned char)a[i],y=(unsigned char)b[i];if(x<y)return -1;if(x>y)return 1;}
+        return an<bn?-1:an>bn?1:0;
+    }
+    static bool in_set(char value,const char* set,unsigned long long n) { for(unsigned long long i=0;i<n;++i)if(value==set[i])return true;return false; }
+public:
+    typedef char value_type;
+    typedef unsigned long long size_type;
+    typedef long long difference_type;
+    typedef char& reference;
+    typedef const char& const_reference;
+    typedef char* pointer;
+    typedef const char* const_pointer;
+    typedef char* iterator;
+    typedef const char* const_iterator;
+    typedef std::reverse_iterator<iterator> reverse_iterator;
+    typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+    static const size_type npos=0xffffffffffffffffULL;
+    string():buffer_(nullptr),size_(0),capacity_(0),empty_(0) {}
+    string(const char* text):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(text,text_length(text)); }
+    string(const char* text,size_type n):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(text,n); }
+    string(size_type n,char value):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(n,value); }
+    string(const string& other):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(other.data(),other.size_); }
+    string(const string& other,size_type position):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(other,position,npos); }
+    string(const string& other,size_type position,size_type count):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(other,position,count); }
+    template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
+    string(I first,I last):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { while(first!=last){push_back(*first);++first;} }
+    string(initializer_list<char> values):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(values.begin(),values.size()); }
+    string(string&& other):buffer_(other.buffer_),size_(other.size_),capacity_(other.capacity_),empty_(0) { other.buffer_=nullptr;other.size_=0;other.capacity_=0;other.empty_=0; }
+    ~string() { std::__minic_deallocate(buffer_); }
+    string& operator=(const string& other) { if(this!=&other)assign(other);return *this; }
+    string& operator=(string&& other) {
+        if(this!=&other){std::__minic_deallocate(buffer_);buffer_=other.buffer_;size_=other.size_;capacity_=other.capacity_;empty_=0;other.buffer_=nullptr;other.size_=0;other.capacity_=0;other.empty_=0;}return *this;
+    }
+    string& operator=(const char* text) { return assign(text); }
+    string& operator=(char value) { return assign(1,value); }
+    string& operator=(initializer_list<char> values) { return assign(values); }
+    char* data() { return buffer_?buffer_:&empty_; }
+    const char* data() const { return buffer_?buffer_:&empty_; }
+    const char* c_str() const { return data(); }
+    size_type size() const { return size_; }
+    size_type length() const { return size_; }
+    size_type capacity() const { return capacity_; }
+    size_type max_size() const { return 0x7ffffffffffffffeULL; }
+    bool empty() const { return size_==0; }
+    char& operator[](size_type index) { return data()[index]; }
+    const char& operator[](size_type index) const { return data()[index]; }
+    char& at(size_type index) { if(index>=size_)::abort();return data()[index]; }
+    const char& at(size_type index) const { if(index>=size_)::abort();return data()[index]; }
+    char& front() { return data()[0]; }
+    const char& front() const { return data()[0]; }
+    char& back() { return data()[size_-1]; }
+    const char& back() const { return data()[size_-1]; }
+    iterator begin() { return data(); }
+    const_iterator begin() const { return data(); }
+    const_iterator cbegin() const { return data(); }
+    iterator end() { return data()+size_; }
+    const_iterator end() const { return data()+size_; }
+    const_iterator cend() const { return data()+size_; }
+    reverse_iterator rbegin() { return reverse_iterator(end()); }
+    const_reverse_iterator rbegin() const { return const_reverse_iterator(end()); }
+    const_reverse_iterator crbegin() const { return const_reverse_iterator(cend()); }
+    reverse_iterator rend() { return reverse_iterator(begin()); }
+    const_reverse_iterator rend() const { return const_reverse_iterator(begin()); }
+    const_reverse_iterator crend() const { return const_reverse_iterator(cbegin()); }
+    void clear() { size_=0;data()[0]=0; }
+    void reserve(size_type n) { if(n>capacity_)allocate_capacity(n); }
+    void reserve() { shrink_to_fit(); }
+    void shrink_to_fit() { if(size_==capacity_)return;if(size_==0){std::__minic_deallocate(buffer_);buffer_=nullptr;capacity_=0;empty_=0;}else allocate_capacity(size_); }
+    void resize(size_type n,char value) { if(n>size_)replace_fill(size_,0,n-size_,value);else {size_=n;data()[n]=0;} }
+    void resize(size_type n) { resize(n,0); }
+    void push_back(char value) { if(size_==max_size())::abort();ensure(size_+1);data()[size_++]=value;data()[size_]=0; }
+    void pop_back() { --size_;data()[size_]=0; }
+    void swap(string& other) { std::swap(buffer_,other.buffer_);std::swap(size_,other.size_);std::swap(capacity_,other.capacity_); }
+    string& assign(const string& other) { return replace_text(0,size_,other.data(),other.size_); }
+    string& assign(string&& other) { return *this=std::move(other); }
+    string& assign(const string& other,size_type position) { return assign(other,position,npos); }
+    string& assign(const string& other,size_type position,size_type count) { count=other.clipped(position,count);return replace_text(0,size_,other.data()+position,count); }
+    string& assign(const char* text) { return assign(text,text_length(text)); }
+    string& assign(const char* text,size_type count) { return replace_text(0,size_,text,count); }
+    string& assign(size_type count,char value) { return replace_fill(0,size_,count,value); }
+    template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
+    string& assign(I first,I last) { string saved(first,last);swap(saved);return *this; }
+    string& assign(initializer_list<char> values) { return assign(values.begin(),values.size()); }
+    string& append(const string& other) { return replace_text(size_,0,other.data(),other.size_); }
+    string& append(const string& other,size_type position) { return append(other,position,npos); }
+    string& append(const string& other,size_type position,size_type count) { count=other.clipped(position,count);return replace_text(size_,0,other.data()+position,count); }
+    string& append(const char* text) { return append(text,text_length(text)); }
+    string& append(const char* text,size_type count) { return replace_text(size_,0,text,count); }
+    string& append(size_type count,char value) { return replace_fill(size_,0,count,value); }
+    template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
+    string& append(I first,I last) { string saved(first,last);return append(saved); }
+    string& append(initializer_list<char> values) { return append(values.begin(),values.size()); }
+    string& operator+=(const string& other) { return append(other); }
+    string& operator+=(const char* text) { return append(text); }
+    string& operator+=(char value) { push_back(value);return *this; }
+    string& operator+=(initializer_list<char> values) { return append(values); }
+    string& insert(size_type position,const string& other) { return replace_text(position,0,other.data(),other.size_); }
+    string& insert(size_type position,const string& other,size_type source_position) { return insert(position,other,source_position,npos); }
+    string& insert(size_type position,const string& other,size_type source_position,size_type count) { count=other.clipped(source_position,count);return replace_text(position,0,other.data()+source_position,count); }
+    string& insert(size_type position,const char* text) { return replace_text(position,0,text,text_length(text)); }
+    string& insert(size_type position,const char* text,size_type count) { return replace_text(position,0,text,count); }
+    string& insert(size_type position,size_type count,char value) { return replace_fill(position,0,count,value); }
+    iterator insert(const_iterator position,char value) { size_type index=(size_type)(position-data());replace_fill(index,0,1,value);return data()+index; }
+    iterator insert(const_iterator position,size_type count,char value) { size_type index=(size_type)(position-data());replace_fill(index,0,count,value);return data()+index; }
+    template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
+    iterator insert(const_iterator position,I first,I last) { size_type index=(size_type)(position-data());string saved(first,last);replace_text(index,0,saved.data(),saved.size());return data()+index; }
+    iterator insert(const_iterator position,initializer_list<char> values) { return insert(position,values.begin(),values.end()); }
+    string& erase(size_type position,size_type count) { return replace_fill(position,count,0,0); }
+    string& erase(size_type position) { return erase(position,npos); }
+    string& erase() { clear();return *this; }
+    iterator erase(const_iterator position) { size_type index=(size_type)(position-data());erase(index,1);return data()+index; }
+    iterator erase(const_iterator first,const_iterator last) { size_type index=(size_type)(first-data());erase(index,(size_type)(last-first));return data()+index; }
+    string& replace(size_type position,size_type count,const string& other) { return replace_text(position,count,other.data(),other.size_); }
+    string& replace(size_type position,size_type count,const string& other,size_type source_position) { return replace(position,count,other,source_position,npos); }
+    string& replace(size_type position,size_type count,const string& other,size_type source_position,size_type source_count) { source_count=other.clipped(source_position,source_count);return replace_text(position,count,other.data()+source_position,source_count); }
+    string& replace(size_type position,size_type count,const char* text) { return replace_text(position,count,text,text_length(text)); }
+    string& replace(size_type position,size_type count,const char* text,size_type n) { return replace_text(position,count,text,n); }
+    string& replace(size_type position,size_type count,size_type n,char value) { return replace_fill(position,count,n,value); }
+    string& replace(const_iterator first,const_iterator last,const string& other) { return replace_text((size_type)(first-data()),(size_type)(last-first),other.data(),other.size_); }
+    string& replace(const_iterator first,const_iterator last,const char* text) { return replace_text((size_type)(first-data()),(size_type)(last-first),text,text_length(text)); }
+    string& replace(const_iterator first,const_iterator last,const char* text,size_type count) { return replace_text((size_type)(first-data()),(size_type)(last-first),text,count); }
+    string& replace(const_iterator first,const_iterator last,size_type count,char value) { return replace_fill((size_type)(first-data()),(size_type)(last-first),count,value); }
+    template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
+    string& replace(const_iterator first,const_iterator last,I source_first,I source_last) { size_type index=(size_type)(first-data()),count=(size_type)(last-first);string saved(source_first,source_last);return replace_text(index,count,saved.data(),saved.size()); }
+    string& replace(const_iterator first,const_iterator last,initializer_list<char> values) { return replace(first,last,values.begin(),values.end()); }
+    string substr(size_type position,size_type count) const { count=clipped(position,count);return string(data()+position,count); }
+    string substr(size_type position) const { return substr(position,npos); }
+    string substr() const { return *this; }
+    size_type copy(char* destination,size_type count,size_type position) const { count=clipped(position,count);for(size_type i=0;i<count;++i)destination[i]=data()[position+i];return count; }
+    size_type copy(char* destination,size_type count) const { return copy(destination,count,0); }
+    int compare(const string& other) const { return compare_text(data(),size_,other.data(),other.size_); }
+    int compare(size_type position,size_type count,const string& other) const { count=clipped(position,count);return compare_text(data()+position,count,other.data(),other.size_); }
+    int compare(size_type position,size_type count,const string& other,size_type source_position,size_type source_count) const { count=clipped(position,count);source_count=other.clipped(source_position,source_count);return compare_text(data()+position,count,other.data()+source_position,source_count); }
+    int compare(size_type position,size_type count,const string& other,size_type source_position) const { return compare(position,count,other,source_position,npos); }
+    int compare(const char* text) const { return compare_text(data(),size_,text,text_length(text)); }
+    int compare(size_type position,size_type count,const char* text) const { count=clipped(position,count);return compare_text(data()+position,count,text,text_length(text)); }
+    int compare(size_type position,size_type count,const char* text,size_type n) const { count=clipped(position,count);return compare_text(data()+position,count,text,n); }
+    size_type find(const char* text,size_type position,size_type count) const {
+        if(position>size_ || count>size_-position)return npos;
+        if(count==0)return position;
+        for(size_type i=position;i<=size_-count;++i){size_type j=0;while(j<count && data()[i+j]==text[j])++j;if(j==count)return i;}return npos;
+    }
+    size_type find(const string& other,size_type position) const { return find(other.data(),position,other.size_); }
+    size_type find(const string& other) const { return find(other,0); }
+    size_type find(const char* text,size_type position) const { return find(text,position,text_length(text)); }
+    size_type find(const char* text) const { return find(text,0); }
+    size_type find(char value,size_type position) const { for(size_type i=position;i<size_;++i)if(data()[i]==value)return i;return npos; }
+    size_type find(char value) const { return find(value,0); }
+    size_type rfind(const char* text,size_type position,size_type count) const {
+        if(count>size_)return npos;size_type start=size_-count;size_type i=position<start?position:start;
+        if(count==0)return i;
+        while(true){size_type j=0;while(j<count && data()[i+j]==text[j])++j;if(j==count)return i;if(i==0)break;--i;}return npos;
+    }
+    size_type rfind(const string& other,size_type position) const { return rfind(other.data(),position,other.size_); }
+    size_type rfind(const string& other) const { return rfind(other,npos); }
+    size_type rfind(const char* text,size_type position) const { return rfind(text,position,text_length(text)); }
+    size_type rfind(const char* text) const { return rfind(text,npos); }
+    size_type rfind(char value,size_type position) const { if(size_==0)return npos;size_type i=position<size_?position:size_-1;while(true){if(data()[i]==value)return i;if(i==0)break;--i;}return npos; }
+    size_type rfind(char value) const { return rfind(value,npos); }
+    size_type find_first_of(const char* set,size_type position,size_type count) const { for(size_type i=position;i<size_;++i)if(in_set(data()[i],set,count))return i;return npos; }
+    size_type find_first_of(const string& set,size_type position) const { return find_first_of(set.data(),position,set.size_); }
+    size_type find_first_of(const string& set) const { return find_first_of(set,0); }
+    size_type find_first_of(const char* set,size_type position) const { return find_first_of(set,position,text_length(set)); }
+    size_type find_first_of(const char* set) const { return find_first_of(set,0); }
+    size_type find_first_of(char value,size_type position) const { return find(value,position); }
+    size_type find_first_of(char value) const { return find(value); }
+    size_type find_last_of(const char* set,size_type position,size_type count) const { if(size_==0)return npos;size_type i=position<size_?position:size_-1;while(true){if(in_set(data()[i],set,count))return i;if(i==0)break;--i;}return npos; }
+    size_type find_last_of(const string& set,size_type position) const { return find_last_of(set.data(),position,set.size_); }
+    size_type find_last_of(const string& set) const { return find_last_of(set,npos); }
+    size_type find_last_of(const char* set,size_type position) const { return find_last_of(set,position,text_length(set)); }
+    size_type find_last_of(const char* set) const { return find_last_of(set,npos); }
+    size_type find_last_of(char value,size_type position) const { return rfind(value,position); }
+    size_type find_last_of(char value) const { return rfind(value); }
+    size_type find_first_not_of(const char* set,size_type position,size_type count) const { for(size_type i=position;i<size_;++i)if(!in_set(data()[i],set,count))return i;return npos; }
+    size_type find_first_not_of(const string& set,size_type position) const { return find_first_not_of(set.data(),position,set.size_); }
+    size_type find_first_not_of(const string& set) const { return find_first_not_of(set,0); }
+    size_type find_first_not_of(const char* set,size_type position) const { return find_first_not_of(set,position,text_length(set)); }
+    size_type find_first_not_of(const char* set) const { return find_first_not_of(set,0); }
+    size_type find_first_not_of(char value,size_type position) const { for(size_type i=position;i<size_;++i)if(data()[i]!=value)return i;return npos; }
+    size_type find_first_not_of(char value) const { return find_first_not_of(value,0); }
+    size_type find_last_not_of(const char* set,size_type position,size_type count) const { if(size_==0)return npos;size_type i=position<size_?position:size_-1;while(true){if(!in_set(data()[i],set,count))return i;if(i==0)break;--i;}return npos; }
+    size_type find_last_not_of(const string& set,size_type position) const { return find_last_not_of(set.data(),position,set.size_); }
+    size_type find_last_not_of(const string& set) const { return find_last_not_of(set,npos); }
+    size_type find_last_not_of(const char* set,size_type position) const { return find_last_not_of(set,position,text_length(set)); }
+    size_type find_last_not_of(const char* set) const { return find_last_not_of(set,npos); }
+    size_type find_last_not_of(char value,size_type position) const { if(size_==0)return npos;size_type i=position<size_?position:size_-1;while(true){if(data()[i]!=value)return i;if(i==0)break;--i;}return npos; }
+    size_type find_last_not_of(char value) const { return find_last_not_of(value,npos); }
+};
+const string::size_type string::npos;
+class istream;
+istream& getline(istream& input,string& output,char delimiter);
+istream& getline(istream& input,string& output);
+void swap(string& a,string& b) { a.swap(b); }
+bool operator==(const string& a,const string& b) { return a.compare(b)==0; }
+bool operator!=(const string& a,const string& b) { return a.compare(b)!=0; }
+bool operator<(const string& a,const string& b) { return a.compare(b)<0; }
+bool operator>(const string& a,const string& b) { return a.compare(b)>0; }
+bool operator<=(const string& a,const string& b) { return a.compare(b)<=0; }
+bool operator>=(const string& a,const string& b) { return a.compare(b)>=0; }
+bool operator==(const string& a,const char* b) { return a.compare(b)==0; }
+bool operator!=(const string& a,const char* b) { return a.compare(b)!=0; }
+bool operator<(const string& a,const char* b) { return a.compare(b)<0; }
+bool operator>(const string& a,const char* b) { return a.compare(b)>0; }
+bool operator<=(const string& a,const char* b) { return a.compare(b)<=0; }
+bool operator>=(const string& a,const char* b) { return a.compare(b)>=0; }
+bool operator==(const char* a,const string& b) { return b.compare(a)==0; }
+bool operator!=(const char* a,const string& b) { return b.compare(a)!=0; }
+bool operator<(const char* a,const string& b) { return b.compare(a)>0; }
+bool operator>(const char* a,const string& b) { return b.compare(a)<0; }
+bool operator<=(const char* a,const string& b) { return b.compare(a)>=0; }
+bool operator>=(const char* a,const string& b) { return b.compare(a)<=0; }
+string operator+(const string& a,const string& b) { string result=a;result+=b;return result; }
+string operator+(const string& a,const char* b) { string result=a;result+=b;return result; }
+string operator+(const char* a,const string& b) { string result=a;result+=b;return result; }
+string operator+(const string& a,char b) { string result=a;result+=b;return result; }
+string operator+(char a,const string& b) { string result(1,a);result+=b;return result; }
+string operator+(string&& a,const string& b) { a+=b;return std::move(a); }
+string operator+(const string& a,string&& b) { b.insert(0,a);return std::move(b); }
+string operator+(string&& a,string&& b) { a+=b;return std::move(a); }
+string operator+(string&& a,const char* b) { a+=b;return std::move(a); }
+string operator+(const char* a,string&& b) { b.insert(0,a);return std::move(b); }
+string operator+(string&& a,char b) { a+=b;return std::move(a); }
+string operator+(char a,string&& b) { b.insert((string::size_type)0,(string::size_type)1,a);return std::move(b); }
+
+// Exceptions are outside this algorithm profile: invalid/range errors use
+// its common abort policy. Parsing itself uses the shared native/debug CRT.
+void __minic_string_conversion(const char* begin,char* end,int error,string::size_type* index) {
+    if(end==begin || error==ERANGE)::abort();if(index!=nullptr)*index=(string::size_type)(end-begin);
+}
+long long stoll(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;long long value=::strtoll(text.c_str(),&end,base);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+long long stoll(const string& text,string::size_type* index) { return stoll(text,index,10); }
+long long stoll(const string& text) { return stoll(text,nullptr,10); }
+int stoi(const string& text,string::size_type* index,int base) { string::size_type used=0;long long value=stoll(text,&used,base);if(value<INT_MIN || value>INT_MAX)::abort();if(index!=nullptr)*index=used;return (int)value; }
+int stoi(const string& text,string::size_type* index) { return stoi(text,index,10); }
+int stoi(const string& text) { return stoi(text,nullptr,10); }
+long stol(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;long value=::strtol(text.c_str(),&end,base);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+long stol(const string& text,string::size_type* index) { return stol(text,index,10); }
+long stol(const string& text) { return stol(text,nullptr,10); }
+unsigned long stoul(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;unsigned long value=::strtoul(text.c_str(),&end,base);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+unsigned long stoul(const string& text,string::size_type* index) { return stoul(text,index,10); }
+unsigned long stoul(const string& text) { return stoul(text,nullptr,10); }
+unsigned long long stoull(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;unsigned long long value=::strtoull(text.c_str(),&end,base);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+unsigned long long stoull(const string& text,string::size_type* index) { return stoull(text,index,10); }
+unsigned long long stoull(const string& text) { return stoull(text,nullptr,10); }
+double stod(const string& text,string::size_type* index) { char* end=nullptr;errno=0;double value=::strtod(text.c_str(),&end);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+double stod(const string& text) { return stod(text,nullptr); }
+string __minic_string_unsigned(unsigned long long value,bool negative) {
+    char digits[32];unsigned long long count=0;
+    do {digits[count++]=(char)('0'+value%10);value/=10;}while(value!=0);
+    string result;if(negative)result.push_back('-');while(count>0)result.push_back(digits[--count]);return result;
+}
+string to_string(long long value) { bool negative=value<0;unsigned long long magnitude=(unsigned long long)value;if(negative)magnitude=0-magnitude;return __minic_string_unsigned(magnitude,negative); }
+string to_string(unsigned long long value) { return __minic_string_unsigned(value,false); }
+string to_string(int value) { return to_string((long long)value); }
+string to_string(unsigned int value) { return to_string((unsigned long long)value); }
+string to_string(long value) { return to_string((long long)value); }
+string to_string(unsigned long value) { return to_string((unsigned long long)value); }
+string to_string(double value) { char buffer[512];int length=::sprintf(buffer,"%f",value);if(length<0 || length>=512)::abort();return string(buffer,(string::size_type)length); }
+string to_string(float value) { return to_string((double)value); }
+}
+#endif
