@@ -25,7 +25,9 @@ using ::sinh;
 using ::sqrt;
 using ::tan;
 using ::tanh;
+#if defined(__MINIC__) || defined(__MINIC_SELF_STL__)
 double abs(double value){return ::fabs(value);}
 float abs(float value){return (float)::fabs((double)value);}
+#endif
 }
 #endif

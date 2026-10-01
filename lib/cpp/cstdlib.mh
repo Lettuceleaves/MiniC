@@ -23,7 +23,9 @@ using ::rand;
 using ::srand;
 using ::abort;
 using ::exit;
+#if defined(__MINIC__) || defined(__MINIC_SELF_STL__)
 long abs(long value){return ::labs(value);}
 long long abs(long long value){return ::llabs(value);}
+#endif
 }
 #endif

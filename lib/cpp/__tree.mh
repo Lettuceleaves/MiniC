@@ -137,6 +137,13 @@ template<class Key,class Value,class KeyOfValue,class Compare,bool Multi> class 
         // A red-black tree has logarithmic height, so recursion is bounded by its height.
         while(n){destroy_subtree(n->right);__minic_rb_node* left=n->left;destroy(n);n=left;}
     }
+    __minic_rb_node* clone_subtree(__minic_rb_node* source,__minic_rb_node* parent){
+        if(!source)return nullptr;
+        __minic_rb_node* n=create((const Value&)*std::__minic_rb_value<Value>(source));
+        n->parent=parent;n->red=source->red;
+        n->left=clone_subtree(source->left,n);n->right=clone_subtree(source->right,n);
+        return n;
+    }
     void take(__minic_tree& other){
         if(other.size_){header_.parent=other.header_.parent;header_.left=other.header_.left;header_.right=other.header_.right;size_=other.size_;header_.parent->parent=&header_;other.reset();}
     }
@@ -145,7 +152,10 @@ public:
     typedef __minic_rb_iterator<Value,true> const_iterator;
     __minic_tree():header_(),size_(0),compare_(){reset();}
     explicit __minic_tree(const Compare& c):header_(),size_(0),compare_(c){reset();}
-    __minic_tree(const __minic_tree& other):header_(),size_(0),compare_(other.compare_){reset();for(const_iterator i=other.begin();i!=other.end();++i)emplace(*i);}
+    __minic_tree(const __minic_tree& other):header_(),size_(0),compare_(other.compare_){
+        reset();header_.parent=clone_subtree(other.header_.parent,&header_);size_=other.size_;
+        if(size_){header_.left=std::__minic_rb_min(header_.parent);header_.right=std::__minic_rb_max(header_.parent);}
+    }
     __minic_tree(__minic_tree&& other):header_(),size_(0),compare_(std::move(other.compare_)){reset();take(other);}
     ~__minic_tree(){clear();}
     __minic_tree& operator=(const __minic_tree& other){if(this!=&other){__minic_tree tmp(other);swap(tmp);}return *this;}

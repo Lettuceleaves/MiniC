@@ -107,7 +107,7 @@ public:
     ostream& operator<<(const string& text){return formatted(text.data(),text.size(),false);}
     ostream& operator<<(char value){return formatted(&value,1,false);}
     ostream& operator<<(signed char value){return *this<<(char)value;} ostream& operator<<(unsigned char value){return *this<<(char)value;}
-    ostream& operator<<(bool value){if(flags()&ios::boolalpha)return *this<<(value?"true":"false");return unsigned_number(value?1:0);}
+    ostream& operator<<(bool value){if(flags()&ios::boolalpha)return *this<<(value?"true":"false");return base()==10?signed_number(value?1:0):unsigned_number(value?1:0);}
     ostream& operator<<(short value){return base()==10?signed_number(value):unsigned_number((unsigned short)value);}
     ostream& operator<<(unsigned short value){return unsigned_number(value);}
     ostream& operator<<(int value){return base()==10?signed_number(value):unsigned_number((unsigned int)value);}
@@ -135,7 +135,7 @@ class istream {
     }
     int digit(int c){if(c>='0' && c<='9')return c-'0';if(c>='a' && c<='f')return c-'a'+10;if(c>='A' && c<='F')return c-'A'+10;return -1;}
     unsigned long long integer(unsigned long long limit,bool is_signed,bool& negative){
-        negative=false;if(!sentry(true))return 0;
+        negative=false;
         int c=peek_raw();if(c=='+' || c=='-'){negative=c=='-';take();c=peek_raw();}
         int base=(flags()&ios::hex)?16:(flags()&ios::oct)?8:(flags()&ios::dec)?10:0;
         bool any=false,overflow=false;unsigned long long value=0;
@@ -155,7 +155,7 @@ class istream {
     long long signed_integer(unsigned long long maximum){bool negative;unsigned long long magnitude=integer(maximum,true,negative);return negative?(long long)(0ULL-magnitude):(long long)magnitude;}
     unsigned long long unsigned_integer(unsigned long long maximum){bool negative;unsigned long long magnitude=integer(maximum,false,negative);return negative && !fail()?0ULL-magnitude:magnitude;}
     string floating_token(){
-        string token;if(!sentry(true))return token;
+        string token;
         int c=peek_raw();if(c=='+' || c=='-'){token.push_back((char)take());c=peek_raw();}
         bool digit_seen=false;
         while(c>='0' && c<='9'){digit_seen=true;token.push_back((char)take());c=peek_raw();}
@@ -181,8 +181,8 @@ public:
     int get(){count_=0;if(!sentry(false))return EOF;int c=take();if(c==EOF)state_.setstate(ios::eofbit|ios::failbit);else count_=1;return c;}
     istream& get(char& c){int value=get();if(value!=EOF)c=(char)value;return *this;}
     int peek(){count_=0;if(!sentry(false))return EOF;int c=peek_raw();if(c==EOF)state_.setstate(ios::eofbit);return c;}
-    istream& unget(){state_.clear(state_.rdstate()&~ios::eofbit);count_=0;if(!sentry(false) || last_==EOF || ::ungetc(last_,file_)==EOF)state_.setstate(ios::badbit);last_=EOF;return *this;}
-    istream& putback(char c){state_.clear(state_.rdstate()&~ios::eofbit);count_=0;if(!sentry(false) || ::ungetc((unsigned char)c,file_)==EOF)state_.setstate(ios::badbit);return *this;}
+    istream& unget(){state_.clear(state_.rdstate()&~ios::eofbit);count_=0;if(!sentry(false))return *this;if(last_==EOF || ::ungetc(last_,file_)==EOF)state_.setstate(ios::badbit);last_=EOF;return *this;}
+    istream& putback(char c){state_.clear(state_.rdstate()&~ios::eofbit);count_=0;if(!sentry(false))return *this;if(::ungetc((unsigned char)c,file_)==EOF)state_.setstate(ios::badbit);return *this;}
     istream& ignore(streamsize n,int delimiter){count_=0;if(!sentry(false))return *this;while(n>0){int c=take();if(c==EOF){state_.setstate(ios::eofbit);break;}++count_;if(c==delimiter)break;if(n!=0x7fffffffffffffffLL)--n;}return *this;}
     istream& ignore(streamsize n){return ignore(n,EOF);} istream& ignore(){return ignore(1,EOF);}
     istream& read(char* buffer,streamsize n){count_=0;if(!sentry(false))return *this;while(count_<n){int c=take();if(c==EOF){state_.setstate(ios::eofbit|ios::failbit);break;}buffer[count_++]=(char)c;}return *this;}
@@ -216,8 +216,9 @@ public:
     istream& operator>>(long long& value){if(!sentry(true))return *this;value=signed_integer(0x7fffffffffffffffULL);return *this;}
     istream& operator>>(unsigned long long& value){if(!sentry(true))return *this;value=unsigned_integer(0xffffffffffffffffULL);return *this;}
     istream& operator>>(bool& value){
+        if(!sentry(true))return *this;
         if(flags()&ios::boolalpha){
-            if(!sentry(true))return *this;int c=peek_raw();const char* expected=c=='t'?"true":c=='f'?"false":"";int i=0;
+            int c=peek_raw();const char* expected=c=='t'?"true":c=='f'?"false":"";int i=0;
             while(expected[i] && peek_raw()==expected[i]){take();++i;}
             value=c=='t';if(i==0 || expected[i]){value=false;state_.setstate(ios::failbit);if(peek_raw()==EOF)state_.setstate(ios::eofbit);}
         }else{bool negative;unsigned long long n=integer(0xffffffffffffffffULL,false,negative);value=n!=0;if(n>1 || (negative && n!=0))state_.setstate(ios::failbit);}return *this;
@@ -229,6 +230,11 @@ public:
         while(true){int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit);break;}take();extracted=true;if(c==(unsigned char)delimiter)break;text.push_back((char)c);}
         if(!extracted)state_.setstate(ios::failbit);return *this;
     }
+    istream& __ws(){
+        if(!sentry(false))return *this;
+        while(true){int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit);break;}if(!::isspace(c))break;take();}
+        return *this;
+    }
 };
 ostream cout(stdout);
 ostream cerr(stderr,&cout,true);
@@ -237,7 +243,7 @@ istream cin(stdin,&cout);
 ostream& endl(ostream& stream){stream.put('\n');return stream.flush();}
 ostream& ends(ostream& stream){return stream.put(0);}
 ostream& flush(ostream& stream){return stream.flush();}
-istream& ws(istream& stream){while(stream.good()){int c=stream.peek();if(c==EOF || !::isspace(c))break;stream.get();}return stream;}
+istream& ws(istream& stream){return stream.__ws();}
 istream& getline(istream& stream,string& text,char delimiter){return stream.__getline(text,delimiter);}
 istream& getline(istream& stream,string& text){return std::getline(stream,text,'\n');}
 ios& dec(ios& stream){stream.setf(ios::dec,ios::basefield);return stream;}
