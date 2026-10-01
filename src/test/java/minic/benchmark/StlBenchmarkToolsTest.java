@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
         var samples=List.of(1L,2L);assertEquals(1.5,StlBenchmarkSupport.median(samples));assertEquals(0.5,StlBenchmarkSupport.mad(samples));
         assertEquals(List.of(1L,2L),samples);assertThrows(IllegalArgumentException.class,()->StlBenchmarkSupport.median(List.of()));
     }
-    private StlBenchmarkReport.Sample sample(String phase,long wall,boolean match){return new StlBenchmarkReport.Sample("work","gxx-own",phase,0,0,4,1,1729,4,"input","expected","actual","COMPLETED",match,wall,1,2,4096,wall+100,0,"raw/path");}
+    private StlBenchmarkReport.Sample sample(String phase,long wall,boolean match){return new StlBenchmarkReport.Sample("work","gxx-own",phase,0,0,4,1,1729,4,"input","expected","actual","COMPLETED",match,wall,1,2,4096,wall+100,0,"raw/path","raw-stdout","raw-stderr");}
     @Test void rawFailuresAndSetupStayVisibleButDoNotEnterMeasurementStatistics()throws Exception{
         var report=new StlBenchmarkReport();report.samples.add(sample("warmup",999,true));report.samples.add(sample("measurement",1,true));report.samples.add(sample("measurement",2,true));report.samples.add(sample("measurement",88,false));
         var summary=report.summaries(5).getFirst();assertEquals(2,summary.get("sampleCount"));assertEquals(1.5,summary.get("medianProcessWallNanos"));assertEquals(0.5,summary.get("madProcessWallNanos"));assertEquals(true,summary.get("shortSampleWarning"));
@@ -38,6 +38,23 @@ import static org.junit.jupiter.api.Assertions.*;
     }
     @Test void emptyReportsCannotClaimCompletedAcceptance()throws Exception{
         var report=new StlBenchmarkReport();report.write(temporary,0);assertTrue(Files.readString(temporary.resolve("report.json")).contains("\"status\":\"in-progress\""));
+    }
+    @Test void reportDistinguishesNormalizedOracleHashFromExactCapturedBytes()throws Exception{
+        Path stdout=temporary.resolve("stdout.txt"),stderr=temporary.resolve("stderr.txt");
+        Files.write(stdout,new byte[]{(byte)0xff,'\r','\n'});Files.writeString(stderr,"diagnostic\r\n");
+        String normalized=StlBenchmarkSupport.hash("\ufffd\n"),raw=StlBenchmarkSupport.hash(stdout),rawError=StlBenchmarkSupport.hash(stderr);
+        assertNotEquals(normalized,raw);
+        var observed=new StlBenchmarkReport.Sample("work","gxx-own","measurement",0,0,4,1,1729,4,
+                "input","expected",normalized,"COMPLETED",false,1,1,2,4096,101,0,temporary.toString(),raw,rawError);
+        var report=new StlBenchmarkReport();report.samples.add(observed);report.write(temporary,0);
+        var fields=observed.fields();assertEquals(normalized,fields.get("actualOutputSha256"));
+        assertEquals(raw,fields.get("rawStdoutSha256"));assertEquals(rawError,fields.get("rawStderrSha256"));
+        String json=Files.readString(temporary.resolve("report.json"));
+        assertTrue(json.contains("\"hashSemantics\""));assertTrue(json.contains("CRLF-to-LF"));
+        assertTrue(json.contains("\"rawStdoutSha256\":\""+raw+"\""));
+        String csv=Files.readString(temporary.resolve("samples.csv"));
+        assertTrue(csv.lines().findFirst().orElseThrow().contains("rawStdoutSha256,rawStderrSha256"));
+        assertTrue(csv.contains("\""+raw+"\",\""+rawError+"\""));
     }
     @Test void archiveExtractionRejectsEscapingEntries()throws Exception{
         Path zip=temporary.resolve("bad.zip");try(var output=new ZipOutputStream(Files.newOutputStream(zip))){output.putNextEntry(new ZipEntry("../escape"));output.write(1);output.closeEntry();}

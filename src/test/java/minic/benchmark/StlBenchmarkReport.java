@@ -15,12 +15,14 @@ final class StlBenchmarkReport {
     record Sample(String workload,String build,String phase,int repetition,int orderIndex,int size,int rounds,int seed,
                   long inputElements,String inputSha256,String expectedOutputSha256,String actualOutputSha256,
                   String status,boolean oracleMatched,long wallNanos,long userCpuNanos,long kernelCpuNanos,
-                  long peakCommitBytes,long observerWallNanos,long exitCode,String directory) {
+                  long peakCommitBytes,long observerWallNanos,long exitCode,String directory,
+                  String rawStdoutSha256,String rawStderrSha256) {
         Map<String,Object> fields(){
             var m=new LinkedHashMap<String,Object>();
             m.put("workload",workload);m.put("build",build);m.put("phase",phase);m.put("repetition",repetition);m.put("orderIndex",orderIndex);
             m.put("size",size);m.put("rounds",rounds);m.put("seed",seed);m.put("inputElements",inputElements);
             m.put("inputSha256",inputSha256);m.put("expectedOutputSha256",expectedOutputSha256);m.put("actualOutputSha256",actualOutputSha256);
+            m.put("rawStdoutSha256",rawStdoutSha256);m.put("rawStderrSha256",rawStderrSha256);
             m.put("status",status);m.put("oracleMatched",oracleMatched);m.put("processWallNanos",wallNanos);
             m.put("userCpuNanos",userCpuNanos);m.put("kernelCpuNanos",kernelCpuNanos);m.put("peakCommitBytes",peakCommitBytes);
             m.put("observerWallNanos",observerWallNanos);m.put("exitCode",exitCode);m.put("directory",directory);return m;
@@ -47,9 +49,15 @@ final class StlBenchmarkReport {
     void write(Path directory,long minimumNanos)throws IOException {
         Files.createDirectories(directory);var report=new LinkedHashMap<String,Object>();
         report.put("schemaVersion",1);report.put("status",errors.isEmpty()?(complete?"passed-correctness":"in-progress"):"failed");
+        report.put("hashSemantics",Map.of(
+                "inputSha256","Exact UTF-8 bytes in stdin.txt",
+                "expectedOutputSha256","Expected UTF-8 text after CRLF-to-LF normalization",
+                "actualOutputSha256","Captured stdout decoded as UTF-8, then CRLF-to-LF normalized and UTF-8 encoded",
+                "rawStdoutSha256","Exact bytes in stdout.txt, including original line endings and invalid UTF-8",
+                "rawStderrSha256","Exact bytes in stderr.txt, including original line endings and invalid UTF-8"));
         report.put("metadata",metadata);report.put("errors",errors);report.put("builds",builds);report.put("samples",samples.stream().map(Sample::fields).toList());report.put("summaries",summaries(minimumNanos));
         atomic(directory.resolve("report.json"),NativeBenchmarkReport.encode(report)+"\n");
-        List<String> columns=List.of("workload","build","phase","repetition","orderIndex","size","rounds","seed","inputElements","inputSha256","expectedOutputSha256","actualOutputSha256","status","oracleMatched","processWallNanos","userCpuNanos","kernelCpuNanos","peakCommitBytes","observerWallNanos","exitCode","directory");
+        List<String> columns=List.of("workload","build","phase","repetition","orderIndex","size","rounds","seed","inputElements","inputSha256","expectedOutputSha256","actualOutputSha256","rawStdoutSha256","rawStderrSha256","status","oracleMatched","processWallNanos","userCpuNanos","kernelCpuNanos","peakCommitBytes","observerWallNanos","exitCode","directory");
         StringBuilder csv=new StringBuilder(String.join(",",columns)).append('\n');
         for(var sample:samples){var fields=sample.fields();csv.append(columns.stream().map(c->NativeBenchmarkSupport.csv(String.valueOf(fields.get(c)))).collect(Collectors.joining(","))).append('\n');}
         atomic(directory.resolve("samples.csv"),csv.toString());

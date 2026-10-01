@@ -156,7 +156,8 @@ public final class StlBenchmarkMain {
             boolean match=actual.equals(expected)&&result.stderr().isEmpty();
             report.samples.add(new StlBenchmarkReport.Sample(workload.id(),build,phase,repetition,index++,size,rounds,config.seed,input.operationCount(),
                     StlBenchmarkSupport.hash(input.stdin()),StlBenchmarkSupport.hash(expected),StlBenchmarkSupport.hash(actual),result.status().name(),match,
-                    result.wallNanos(),result.userCpuNanos(),result.kernelCpuNanos(),result.peakCommitBytes(),result.observerWallNanos(),result.exitCode(),directory.toString()));
+                    result.wallNanos(),result.userCpuNanos(),result.kernelCpuNanos(),result.peakCommitBytes(),result.observerWallNanos(),result.exitCode(),directory.toString(),
+                    StlBenchmarkSupport.hash(result.stdoutPath()),StlBenchmarkSupport.hash(result.stderrPath())));
             report.write(config.output,config.minimumMillis*1_000_000L);result.requireSuccess();
             if(!match)throw new IllegalStateException("Independent oracle mismatch: "+directory);
             shortest=Math.min(shortest,result.wallNanos());
