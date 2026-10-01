@@ -1,0 +1,8 @@
+{
+  "revisionTested": "e56d6d149c02432bc51f01bc06ef4f2de786f6c4",
+  "gateSha256": "b83c544a480b49f4e3c3d68eeee9deb1f7d28936514dfb949606ca1e90a67748",
+  "eligibleSha256": "995df8151097793b4ef54732245ff49aeca3d616c0e6b7e0a0bb507bc3228e5e",
+  "installedPath": "src\\main\\resources\\minic\\cpp\\cpp17-algorithm.properties",
+  "installedSha256": "cefda3400709e672f85f4e45341427165cffdfc92bc00cdd39d09b98098594b7",
+  "differenceFromEligible": "first comment only; all data lines identical"
+}
