@@ -7612,6 +7612,14 @@ public final class CppNameBinder {
                 return listElement ? convertListElement(target, bound, sourceNode) : convertCallValue(target, bound, sourceNode);
             }
             AggregateInitExpr original = (AggregateInitExpr) sourceNode;
+            if (target.isArray() && elementType(target).isArray()
+                    && list.values().stream().noneMatch(DesignatedInitExpr.class::isInstance)) {
+                int[] cursor = {0};
+                Expression initialized = checkElidedArray(target, original.values(), list.values(), cursor, list.range());
+                if (cursor[0] < list.values().size())
+                    report("CPP004", original.values().get(cursor[0]).range(), "Too many array initializer elements.");
+                return mapped(sourceNode, initialized);
+            }
             if (object != null && list.values().size() == 1) {
                 Expression value = list.values().getFirst();
                 MiniType valueType = declaredExpressionType(value);
@@ -7662,6 +7670,25 @@ public final class CppNameBinder {
                 }
             }
             return mapped(sourceNode, new AggregateInitExpr(values, list.range()));
+        }
+
+        /** Group brace-elided dimensions without rebinding or duplicating any source operand. */
+        private Expression checkElidedArray(MiniType target, List<Expression> originals,
+                                            List<Expression> bound, int[] cursor, SourceRange range) {
+            MiniType element = elementType(target);
+            List<Expression> values = new ArrayList<>();
+            while (values.size() < target.arrayLength() && cursor[0] < bound.size()) {
+                Expression source = originals.get(cursor[0]);
+                if (element.isArray() && !isBraced(source) && !(source instanceof StringLiteralExpr)) {
+                    values.add(checkElidedArray(element, originals, bound, cursor, source.range()));
+                } else {
+                    int index = cursor[0]++;
+                    values.add(checkInitializer(element, source, bound.get(index), true));
+                }
+            }
+            if (values.size() < target.arrayLength()) requireImplicitInitialization(element, true, range);
+            // Keep constant/global initializers in the existing aggregate representation.
+            return new AggregateInitExpr(values, range);
         }
 
         /** String array initialization copies code units into new storage; it is not pointer conversion. */
