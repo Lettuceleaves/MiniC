@@ -121,3 +121,12 @@ tasks.register('runUi', JavaExec) {
             '-Duser.country=US'
     ]
 }
+
+// Four-build STL performance tooling. Run explicitly after functional acceptance.
+tasks.register('stlPerf', JavaExec) {
+    group = 'verification'
+    description = '四构建 STL 原生基准；固定提交，保存样本和内存指标；--args="--help" 查看配置'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'minic.benchmark.StlBenchmarkMain'
+}

@@ -1,0 +1,29 @@
+#ifndef STLBENCH_PROBE_HOOKS
+#define STLBENCH_PROBE_HOOKS
+#include <stdlib.h>
+#include <stddef.h>
+#include <stdio.h>
+// Counter builds only: allocations are intentionally slower and never timed.
+unsigned long long comparisons=0,value_ctor=0,copy_ctor=0,move_ctor=0,copy_assign=0,move_assign=0,destroyed=0,live=0,peak_live=0;
+unsigned long long allocations=0,frees=0,allocated_bytes=0,freed_bytes=0,live_bytes=0,peak_bytes=0;
+bool bench_active=false;
+void* bench_addresses[16384];unsigned long long bench_sizes[16384];
+void* bench_allocate(unsigned long long bytes){void* result=::malloc(bytes?bytes:1);if(!result)::abort();if(bench_active){int slot=0;while(slot<16384&&bench_addresses[slot])++slot;if(slot==16384)::abort();bench_addresses[slot]=result;bench_sizes[slot]=bytes;++allocations;allocated_bytes+=bytes;live_bytes+=bytes;if(live_bytes>peak_bytes)peak_bytes=live_bytes;}return result;}
+void bench_release(void* address){if(!address)return;if(bench_active){int slot=0;while(slot<16384&&bench_addresses[slot]!=address)++slot;if(slot<16384){++frees;freed_bytes+=bench_sizes[slot];live_bytes-=bench_sizes[slot];bench_addresses[slot]=nullptr;bench_sizes[slot]=0;}}::free(address);}
+// Host STL allocation domain: global new/delete. Own headers hook their actual
+// __minic_allocate_bytes backing malloc/free instead; the report labels both.
+#ifndef __MINIC__
+#ifndef __MINIC_SELF_STL__
+void* operator new(size_t bytes){return bench_allocate((unsigned long long)bytes);}
+void* operator new[](size_t bytes){return bench_allocate((unsigned long long)bytes);}
+void operator delete(void* p) noexcept{bench_release(p);}
+void operator delete[](void* p) noexcept{bench_release(p);}
+void operator delete(void* p,size_t) noexcept{bench_release(p);}
+void operator delete[](void* p,size_t) noexcept{bench_release(p);}
+#endif
+#endif
+void bench_begin(){comparisons=0;value_ctor=0;copy_ctor=0;move_ctor=0;copy_assign=0;move_assign=0;destroyed=0;live=0;peak_live=0;allocations=0;frees=0;allocated_bytes=0;freed_bytes=0;live_bytes=0;peak_bytes=0;bench_active=true;}
+void born(){++live;if(live>peak_live)peak_live=live;}
+struct Tracked{int value;Tracked():value(0){++value_ctor;born();}Tracked(int v):value(v){++value_ctor;born();}Tracked(const Tracked& x):value(x.value){++copy_ctor;born();}Tracked(Tracked&& x) noexcept:value(x.value){++move_ctor;born();}Tracked& operator=(const Tracked& x){value=x.value;++copy_assign;return *this;}Tracked& operator=(Tracked&& x) noexcept{value=x.value;++move_assign;return *this;}~Tracked(){++destroyed;--live;}bool operator<(const Tracked& x)const{++comparisons;return value<x.value;}};
+struct CountLess{bool operator()(int a,int b)const{++comparisons;return a<b;}};
+#endif

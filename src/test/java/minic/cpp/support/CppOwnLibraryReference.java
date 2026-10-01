@@ -30,23 +30,10 @@ public final class CppOwnLibraryReference {
             throws IOException,InterruptedException {
         Files.createDirectories(temporary);
         Path directory=Files.createTempDirectory(temporary,"own-library-");
-        Path headers=directory.resolve("headers");Files.createDirectories(headers);
-        var names=new LinkedHashSet<String>();
-        for(var entry:CppLibraryProfile.defaults().entries().values())
-            names.add(entry.header().substring("lib/cpp/".length(),entry.header().length()-3));
-        Path library=SystemLibraryCatalog.defaults().includeRoot().resolve("cpp").toAbsolutePath();
-        for(String name:names){
-            Path implementation=library.resolve(name+".mh");
-            if(!Files.isRegularFile(implementation))throw new IOException("Missing own-library implementation: "+implementation);
-            writeShim(headers.resolve(name),implementation);
-        }
-        if(names.contains("__all"))writeShim(headers.resolve("bits/stdc++.h"),library.resolve("__all.mh"));
+        Path headers=prepareHeaders(directory.resolve("headers"),SystemLibraryCatalog.defaults().includeRoot().resolve("cpp"));
         Path program=directory.resolve("program.cpp"),executable=directory.resolve("program.exe");
         Files.writeString(program,source);
-        var command=new ArrayList<>(List.of(CppDifferentialHarness.referenceCompiler(System.getenv())));
-        command.addAll(CppDifferentialHarness.referenceFlags(directory));
-        command.addAll(List.of("-nostdinc++","-D__MINIC_SELF_STL__=1","-I",headers.toString(),
-                program.toString(),"-o",executable.toString()));
+        var command=compileCommand(CppDifferentialHarness.referenceCompiler(System.getenv()),directory,headers,program,executable);
         var compile=BoundedProcess.run(command,directory,"",limits.compileTimeout(),limits.maxOutputBytes());
         if(compile.timedOut())return new Result(Status.COMPILE_TIMEOUT,-1,"","",compile.stderr());
         if(compile.outputExceeded())return new Result(Status.OUTPUT_LIMIT,-1,"","",compile.stderr());
@@ -57,6 +44,31 @@ public final class CppOwnLibraryReference {
                 execute.exitCode()==0?Status.OK:Status.NONZERO_EXIT;
         return new Result(status,execute.exitCode(),execute.stdout(),execute.stderr(),"");
     }
+    /** Creates only catalogued extensionless shims over the supplied, frozen .mh tree. */
+    public static Path prepareHeaders(Path headers,Path library)throws IOException {
+        headers=headers.toAbsolutePath().normalize();library=library.toAbsolutePath().normalize();
+        Files.createDirectories(headers);
+        var names=new LinkedHashSet<String>();
+        for(var entry:CppLibraryProfile.defaults().entries().values())
+            names.add(entry.header().substring("lib/cpp/".length(),entry.header().length()-3));
+        for(String name:names){
+            Path implementation=library.resolve(name+".mh");
+            if(!Files.isRegularFile(implementation))throw new IOException("Missing own-library implementation: "+implementation);
+            writeShim(headers.resolve(name),implementation);
+        }
+        if(names.contains("__all"))writeShim(headers.resolve("bits/stdc++.h"),library.resolve("__all.mh"));
+        return headers;
+    }
+
+    /** The caller owns execution, time limits, logs and the persistent output artifact. */
+    public static List<String> compileCommand(String compiler,Path directory,Path headers,Path source,Path executable)throws IOException {
+        var command=new ArrayList<>(List.of(compiler));
+        command.addAll(CppDifferentialHarness.referenceFlags(directory));
+        command.addAll(List.of("-nostdinc++","-D__MINIC_SELF_STL__=1","-I",headers.toAbsolutePath().toString(),
+                source.toAbsolutePath().toString(),"-o",executable.toAbsolutePath().toString()));
+        return List.copyOf(command);
+    }
+
     private static void writeShim(Path file,Path implementation)throws IOException{
         Files.createDirectories(file.getParent());
         Files.writeString(file,"#include \""+implementation.toString().replace('\\','/')+"\"\n");
