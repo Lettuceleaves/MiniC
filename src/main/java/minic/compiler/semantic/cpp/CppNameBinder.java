@@ -1229,7 +1229,9 @@ public final class CppNameBinder {
                 case CastExpr n -> {
                     MiniType type = normalizeType(n.targetType(), namespace, local, n.range());
                     if (type.isReference()) report("CPP005", n.range(), "引用类型显式转换的值类别规则尚未实现。");
-                    CastExpr cast = new CastExpr(coreType(type), expressionForTarget(type, n.operand(), namespace, local), n.range());
+                    Expression operand = expressionForTarget(type, n.operand(), namespace, local);
+                    requireExplicitConversion(type, operand, n.range());
+                    CastExpr cast = new CastExpr(coreType(type), operand, n.range());
                     declaredExpressionTypes.put(cast, type);
                     yield cast;
                 }
@@ -2101,7 +2103,18 @@ public final class CppNameBinder {
             if (arguments.size() > 1) report("CPP004", syntax.range(), "A scalar functional conversion requires at most one argument.");
             Expression value = arguments.isEmpty() ? new IntegerLiteralExpr(0, "0", source.range())
                     : expression(arguments.getFirst(), namespace, local);
+            requireExplicitConversion(type, value, source.range());
             return typed(new CastExpr(coreType(type.unqualified()), value, source.range()), type.unqualified());
+        }
+
+        private void requireExplicitConversion(MiniType target, Expression value, SourceRange range) {
+            MiniType source = declaredExpressionType(value);
+            if (source == null) return;
+            switch (CppExplicitConversion.check(source, target)) {
+                case INVALID -> report("CPP004", range, "This explicit conversion is not permitted by the C++17 scalar and pointer rules.");
+                case OUTSIDE_SUBSET -> report("CPP005", range, "This explicit conversion requires class or reference conversion rules not supported yet.");
+                case ALLOWED -> { }
+            }
         }
 
         /** A record call's sret destination is supplied by its enclosing initialization context. */
