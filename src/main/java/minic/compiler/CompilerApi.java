@@ -5,6 +5,9 @@ import minic.compiler.execute.ExecutableRunner;
 import minic.compiler.ir.IrLowerer;
 import minic.compiler.ir.IrResult;
 import minic.compiler.lexer.Lexer;
+import minic.compiler.library.LibraryBinding;
+import minic.compiler.library.LibrarySymbol;
+import minic.compiler.library.SystemLibraryCatalog;
 import minic.compiler.link.Linker;
 import minic.compiler.obj.ObjBuilder;
 import minic.compiler.parser.Parser;
@@ -13,9 +16,11 @@ import minic.compiler.semantic.SemanticAnalyzer;
 import minic.SourceRange;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.BooleanSupplier;
 
 /**
  * 编译流水线的唯一循环控制器。
@@ -35,7 +40,20 @@ public final class CompilerApi {
 
     /** 使用标准阶段顺序创建一条完整编译流水线。 */
     public CompilerApi(SourceFile sourceFile) {
-        this(createPipeline(sourceFile));
+        this(sourceFile, Path.of("build", "minic-output"));
+    }
+
+    /** 使用标准阶段顺序创建流水线，并将原生产物写入指定目录。 */
+    public CompilerApi(SourceFile sourceFile, Path outputDirectory) {
+        this(sourceFile, outputDirectory, false);
+    }
+
+    /**
+     * 可为独立输入输出会话启用 UTF-8 控制台入口初始化。
+     * 默认构造不改变程序所附控制台的代码页；此选项只应在独占控制台中使用。
+     */
+    public CompilerApi(SourceFile sourceFile, Path outputDirectory, boolean utf8Console) {
+        this(createPipeline(sourceFile, outputDirectory, utf8Console));
     }
 
     public CompilerApi(List<? extends Stage> stages) {
@@ -86,6 +104,26 @@ public final class CompilerApi {
         }
     }
 
+    /**
+     * 可取消的阶段边界执行。每一步开始前检查取消条件，取消时保留已经完成的工作。
+     *
+     * @throws InterruptedException 取消条件成立，尚未执行下一步
+     */
+    public void runThrough(Stage target, BooleanSupplier cancelled) throws InterruptedException {
+        Objects.requireNonNull(target, "target");
+        Objects.requireNonNull(cancelled, "cancelled");
+        int targetIndex = stages.indexOf(target);
+        if (targetIndex < 0) {
+            throw new IllegalArgumentException("target stage does not belong to this pipeline");
+        }
+        while (canNext() && currentStageIndex <= targetIndex) {
+            if (cancelled.getAsBoolean()) {
+                throw new InterruptedException("compilation cancelled");
+            }
+            step();
+        }
+    }
+
     /** 执行到当前 Stage 结束；成功时停在下一 Stage 的入口。 */
     public void runCurrentStage() {
         if (!canNext()) {
@@ -94,6 +132,23 @@ public final class CompilerApi {
         Stage stage = currentStage;
         while (canNext() && currentStage == stage) {
             step();
+        }
+    }
+
+    /** 完成当前阶段并推进到下一阶段入口；流水线已结束时不执行任何工作。 */
+    public void nextStage() {
+        runCurrentStage();
+    }
+
+    /**
+     * 可取消地完成当前阶段；每个 step 开始前检查取消，不执行下一阶段的任何步骤。
+     *
+     * @throws InterruptedException 取消条件成立，当前阶段保留已完成的步骤
+     */
+    public void nextStage(BooleanSupplier cancelled) throws InterruptedException {
+        Objects.requireNonNull(cancelled, "cancelled");
+        if (canNext()) {
+            runThrough(currentStage, cancelled);
         }
     }
 
@@ -221,20 +276,34 @@ public final class CompilerApi {
         return stage;
     }
 
-    private static List<Stage> createPipeline(SourceFile sourceFile) {
+    private static List<Stage> createPipeline(SourceFile sourceFile, Path outputDirectory, boolean utf8Console) {
         Objects.requireNonNull(sourceFile, "sourceFile");
+        Objects.requireNonNull(outputDirectory, "outputDirectory");
         Preprocessor preprocessor = new Preprocessor(sourceFile, Preprocessor.Options.defaults());
         Lexer lexer = new Lexer(preprocessor);
         Parser parser = new Parser(lexer, true);
         SemanticAnalyzer semantic = new SemanticAnalyzer(parser);
         IrLowerer ir = new IrLowerer(semantic);
-        Assembler assembler = new Assembler(ir);
-        Path outputDirectory = Path.of("build", "minic-output");
+        Assembler assembler = new Assembler(ir, utf8Console);
         String artifactName = artifactName(sourceFile.path());
         ObjBuilder obj = new ObjBuilder(sourceFile, assembler, outputDirectory, artifactName);
-        Linker linker = new Linker(sourceFile, obj, outputDirectory, artifactName);
+        Linker linker = new Linker(sourceFile, obj, outputDirectory, artifactName,
+                utf8Console ? utf8ConsoleLibraries() : SystemLibraryCatalog.defaults());
         ExecutableRunner execution = new ExecutableRunner(sourceFile, linker);
         return List.of(preprocessor, lexer, parser, semantic, ir, assembler, obj, linker, execution);
+    }
+
+    private static SystemLibraryCatalog utf8ConsoleLibraries() {
+        SystemLibraryCatalog defaults = SystemLibraryCatalog.defaults();
+        var bindings = new ArrayList<>(defaults.bindings().values());
+        for (String name : List.of("SetConsoleCP", "SetConsoleOutputCP")) {
+            if (defaults.binding(name).isEmpty()) {
+                bindings.add(new LibraryBinding(name, "KERNEL32.dll", name,
+                        LibrarySymbol.SymbolKind.FUNCTION, LibraryBinding.RuntimeFamily.WINDOWS,
+                        LibraryBinding.NativeCallingConvention.WINDOWS_X64, LibraryBinding.NativeKind.DLL_IMPORT));
+            }
+        }
+        return SystemLibraryCatalog.ofBindings(bindings);
     }
 
     private static String artifactName(String sourceName) {

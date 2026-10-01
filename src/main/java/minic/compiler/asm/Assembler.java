@@ -13,6 +13,7 @@ import minic.SourceRange;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -22,6 +23,7 @@ import java.util.Optional;
  */
 public final class Assembler extends Stage {
     private final IrLowerer irStage;
+    private final boolean utf8Console;
     private Input input;
     private final Work work = new Work();
     private Section section = Section.HEADER_PUBLIC;
@@ -44,13 +46,25 @@ public final class Assembler extends Stage {
 
     /** 使用 IR 阶段最终结果创建 asm 阶段。 */
     public Assembler(IrResult irResult) {
+        this(irResult, false);
+    }
+
+    /** 可为独占控制台的程序入口添加 UTF-8 输入输出初始化。 */
+    public Assembler(IrResult irResult, boolean utf8Console) {
         irStage = null;
-        input = new Input(irResult);
+        this.utf8Console = utf8Console;
+        input = new Input(irResult, utf8Console);
     }
 
     /** 创建由 IR 阶段提供输入的 asm 阶段。 */
     public Assembler(IrLowerer irStage) {
+        this(irStage, false);
+    }
+
+    /** 可为独占控制台的程序入口添加 UTF-8 输入输出初始化。 */
+    public Assembler(IrLowerer irStage, boolean utf8Console) {
         this.irStage = Objects.requireNonNull(irStage, "irStage");
+        this.utf8Console = utf8Console;
     }
 
     /** 执行当前输入的完整 Asm 阶段。 */
@@ -94,7 +108,7 @@ public final class Assembler extends Stage {
                     return emit("header", "ExitProcess", "EXTERN ExitProcess:PROC", null);
                 }
                 case EXTERNS -> {
-                    if (externalIndex < input.irResult.externalFunctionNames().size()) {
+                    if (externalIndex < input.externalFunctionNames.size()) {
                         String externalName = input.externalFunctionNames.get(externalIndex++);
                         return emit("header", externalName, "EXTERN " + externalName + ":PROC", null);
                     }
@@ -206,7 +220,7 @@ public final class Assembler extends Stage {
         if (!irStage.succeeded()) {
             throw new IllegalStateException("IR stage did not succeed");
         }
-        input = new Input(irStage.result());
+        input = new Input(irStage.result(), utf8Console);
     }
 
     private boolean nextFunctionLine() {
@@ -245,15 +259,24 @@ public final class Assembler extends Stage {
         );
     }
 
-    private static List<String> entryPointLines() {
-        return List.of(
+    private List<String> entryPointLines() {
+        var lines = new ArrayList<>(List.of(
                 CallingConvention.ENTRY_SYMBOL + " PROC",
-                "    sub rsp, 40",
+                "    sub rsp, 40"));
+        if (utf8Console) {
+            lines.addAll(List.of(
+                    "    mov ecx, 65001",
+                    "    call SetConsoleCP",
+                    "    mov ecx, 65001",
+                    "    call SetConsoleOutputCP"));
+        }
+        lines.addAll(List.of(
                 "    call " + CallingConvention.USER_MAIN_SYMBOL,
                 "    mov ecx, eax",
                 "    call ExitProcess",
                 CallingConvention.ENTRY_SYMBOL + " ENDP"
-        );
+        ));
+        return lines;
     }
 
     private static List<String> formatStringDataLines(IrStringData stringData) {
@@ -507,9 +530,18 @@ public final class Assembler extends Stage {
             externalObjectNames = List.copyOf(externalObjectNames);
         }
 
-        private Input(IrResult irResult) {
-            this(irResult, irResult.externalFunctionNames().stream().toList(),
+        private Input(IrResult irResult, boolean utf8Console) {
+            this(irResult, functionsWithRuntime(irResult, utf8Console),
                     irResult.externalObjectNames().stream().toList());
+        }
+
+        private static List<String> functionsWithRuntime(IrResult irResult, boolean utf8Console) {
+            var functions = new LinkedHashSet<>(irResult.externalFunctionNames());
+            if (utf8Console) {
+                functions.add("SetConsoleCP");
+                functions.add("SetConsoleOutputCP");
+            }
+            return List.copyOf(functions);
         }
     }
 

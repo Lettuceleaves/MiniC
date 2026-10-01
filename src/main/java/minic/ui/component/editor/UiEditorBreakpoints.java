@@ -22,11 +22,12 @@ import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.font.GlyphVector;
+import java.awt.font.FontRenderContext;
 import java.awt.geom.Rectangle2D;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -44,6 +45,7 @@ final class UiEditorBreakpoints {
     private final BreakpointLineNumbers lineNumbers = new BreakpointLineNumbers();
     private final List<Position> breakpoints = new ArrayList<>();
     private final Consumer<Boolean> clickableCursorChanged;
+    private DocumentListener documentListener;
 
     private int hoveredLine = NO_LINE;
     private int pressedLine = NO_LINE;
@@ -84,6 +86,7 @@ final class UiEditorBreakpoints {
 
     void setFont(Font font) {
         lineNumberFont = font;
+        lineNumbers.numberMetrics.clear();
         lineNumbers.setFont(font);
         lineNumbers.revalidate();
         lineNumbers.repaint();
@@ -190,7 +193,7 @@ final class UiEditorBreakpoints {
 
     private void installRepaintListeners() {
         textArea.addCaretListener(event -> lineNumbers.repaint());
-        textArea.getDocument().addDocumentListener(new DocumentListener() {
+        documentListener = new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent event) {
                 documentChanged();
@@ -211,7 +214,14 @@ final class UiEditorBreakpoints {
                 lineNumbers.revalidate();
                 lineNumbers.repaint();
             }
-        });
+        };
+        textArea.getDocument().addDocumentListener(documentListener);
+    }
+
+    void dispose() {
+        textArea.getDocument().removeDocumentListener(documentListener);
+        breakpoints.clear();
+        lineNumbers.numberMetrics.clear();
     }
 
     private void updateHoveredLine(int y) {
@@ -294,6 +304,8 @@ final class UiEditorBreakpoints {
     }
 
     private final class BreakpointLineNumbers extends JComponent {
+        private final LineNumberMetricsCache numberMetrics = new LineNumberMetricsCache();
+
         private BreakpointLineNumbers() {
             setOpaque(true);
             setFocusable(false);
@@ -328,11 +340,13 @@ final class UiEditorBreakpoints {
                         RenderingHints.VALUE_TEXT_ANTIALIAS_ON
                 );
                 graphics2D.setFont(lineNumberFont);
+                numberMetrics.prepare(lineNumberFont, graphics2D.getFontRenderContext());
+                FontMetrics metrics = graphics2D.getFontMetrics();
 
                 int firstLine = visibleLineAt(clip.y);
                 int lastLine = visibleLineAt(clip.y + clip.height);
                 for (int line = firstLine; line <= lastLine; line++) {
-                    paintLine(graphics2D, line);
+                    paintLine(graphics2D, line, metrics);
                 }
 
                 graphics2D.setColor(borderColor);
@@ -347,7 +361,7 @@ final class UiEditorBreakpoints {
             }
         }
 
-        private void paintLine(Graphics2D graphics, int line) {
+        private void paintLine(Graphics2D graphics, int line, FontMetrics metrics) {
             try {
                 Rectangle2D bounds = lineBounds(line);
                 if (bounds == null) {
@@ -355,14 +369,9 @@ final class UiEditorBreakpoints {
                 }
                 boolean marked = find(line) != null;
                 boolean previewed = !marked && hoveredLine == line;
-                String number = Integer.toString(line + 1);
-                GlyphVector glyph = lineNumberFont.createGlyphVector(
-                        graphics.getFontRenderContext(),
-                        number
-                );
-                Rectangle2D glyphBounds = glyph.getVisualBounds();
+                LineNumberMetrics number = numberMetrics.get(line + 1, metrics);
                 double rowCenterY = bounds.getY() + textArea.getLineHeight() / 2.0;
-                float baseline = (float) (rowCenterY - glyphBounds.getCenterY());
+                float baseline = (float) (rowCenterY - number.centerY());
 
                 if (marked) {
                     paintDot(graphics, rowCenterY, 255);
@@ -374,16 +383,15 @@ final class UiEditorBreakpoints {
                     );
                 }
 
-                FontMetrics metrics = graphics.getFontMetrics();
                 if (marked || previewed) {
-                    float centeredX = (float) (getWidth() / 2.0 - glyphBounds.getCenterX());
-                    paintMarkedNumber(graphics, number, centeredX, baseline);
+                    float centeredX = (float) (getWidth() / 2.0 - number.centerX());
+                    paintMarkedNumber(graphics, number.text(), centeredX, baseline);
                 } else {
-                    int x = getWidth() - HORIZONTAL_PADDING - metrics.stringWidth(number);
+                    int x = getWidth() - HORIZONTAL_PADDING - number.width();
                     graphics.setColor(line == textArea.getCaretLineNumber()
                             ? currentLineNumberColor
                             : lineNumberColor);
-                    graphics.drawString(number, x, baseline);
+                    graphics.drawString(number.text(), x, baseline);
                 }
             } catch (BadLocationException ignored) {
                 // 文档变更与绘制重叠时，下一帧会使用新的行结构重绘。
@@ -425,5 +433,49 @@ final class UiEditorBreakpoints {
                 return Math.max(0, textArea.getLineCount() - 1);
             }
         }
+    }
+
+    /** 仅缓存字体度量，不缓存画面；字体、缩放或文字渲染提示变化时整批失效。 */
+    static final class LineNumberMetricsCache {
+        static final int MAX_ENTRIES = 512;
+
+        private final LinkedHashMap<Integer, LineNumberMetrics> entries =
+                new LinkedHashMap<>(64, 0.75f, true);
+        private Font font;
+        private FontRenderContext context;
+
+        void prepare(Font font, FontRenderContext context) {
+            if (!font.equals(this.font) || !context.equals(this.context)) {
+                entries.clear();
+                this.font = font;
+                this.context = context;
+            }
+        }
+
+        LineNumberMetrics get(int oneBasedLine, FontMetrics metrics) {
+            LineNumberMetrics cached = entries.get(oneBasedLine);
+            if (cached != null) {
+                return cached;
+            }
+            String number = Integer.toString(oneBasedLine);
+            Rectangle2D bounds = font.createGlyphVector(context, number).getVisualBounds();
+            LineNumberMetrics measured = new LineNumberMetrics(
+                    number, bounds.getCenterX(), bounds.getCenterY(), metrics.stringWidth(number)
+            );
+            entries.put(oneBasedLine, measured);
+            if (entries.size() > MAX_ENTRIES) {
+                entries.pollFirstEntry();
+            }
+            return measured;
+        }
+
+        void clear() {
+            entries.clear();
+            font = null;
+            context = null;
+        }
+    }
+
+    record LineNumberMetrics(String text, double centerX, double centerY, int width) {
     }
 }

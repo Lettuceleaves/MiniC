@@ -43,6 +43,8 @@ final class UiEditorCaretListBridge {
     };
     private long displayedVersion;
     private KeyCode acceptedKey;
+    private volatile boolean disposed;
+    private DocumentListener documentListener;
 
     UiEditorCaretListBridge(
             UiCodeEditor editor,
@@ -102,6 +104,15 @@ final class UiEditorCaretListBridge {
         onFxThread(popup::hide);
     }
 
+    void dispose() {
+        disposed = true;
+        hide();
+        observeScene(editor.getScene(), false);
+        SwingUtilities.invokeLater(() -> {
+            if (documentListener != null) textArea.getDocument().removeDocumentListener(documentListener);
+        });
+    }
+
     void setWidth(double width) {
         onFxThread(() -> popup.setPopupWidth(width));
     }
@@ -148,9 +159,10 @@ final class UiEditorCaretListBridge {
     }
 
     private void installSwingListeners() {
+        if (disposed) return;
         textArea.addCaretListener(event -> queueReposition());
         scrollPane.getViewport().addChangeListener(event -> queueReposition());
-        textArea.getDocument().addDocumentListener(new DocumentListener() {
+        documentListener = new DocumentListener() {
             @Override
             public void insertUpdate(DocumentEvent event) {
                 documentChanged();
@@ -175,16 +187,17 @@ final class UiEditorCaretListBridge {
                     }
                 });
             }
-        });
+        };
+        textArea.getDocument().addDocumentListener(documentListener);
     }
 
     private void queueReposition() {
-        if (!repositionQueued.compareAndSet(false, true)) {
+        if (disposed || !repositionQueued.compareAndSet(false, true)) {
             return;
         }
         Platform.runLater(() -> {
             repositionQueued.set(false);
-            if (popup.isShowing()) {
+            if (!disposed && popup.isShowing()) {
                 Anchor anchor = anchor();
                 if (anchor == null) {
                     popup.hide();

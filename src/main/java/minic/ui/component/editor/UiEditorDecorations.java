@@ -16,7 +16,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 
-/** 管理不会改变文档内容的错误波浪线与源码区域高亮。 */
+/** 管理不会改变文档内容的错误波浪线，以及由外部传入的 SourceRange 区域高亮。 */
 final class UiEditorDecorations {
     private static final BasicStroke ERROR_STROKE = new BasicStroke(
             1.25f,

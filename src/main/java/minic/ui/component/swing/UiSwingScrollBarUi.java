@@ -1,4 +1,4 @@
-package minic.ui.component.editor;
+package minic.ui.component.swing;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -10,23 +10,26 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Rectangle;
+import java.util.function.BiConsumer;
 
-/** VS Code 风格的编辑器滚动条外观，不替换 JScrollBar 的模型与交互行为。 */
-final class UiCodeEditorScrollBarUi extends BasicScrollBarUI {
+/** 编辑器与终端共用的滚动条外观，不替换 JScrollBar 的模型与交互行为。 */
+public final class UiSwingScrollBarUi extends BasicScrollBarUI {
     private final Color backgroundColor;
     private final Color normalThumbColor;
     private final Color hoverColor;
     private final Color activeColor;
     private final Color arrowColor;
     private final int thickness;
+    private final BiConsumer<Graphics, Rectangle> trackDecoration;
 
-    private UiCodeEditorScrollBarUi(
+    private UiSwingScrollBarUi(
             Color backgroundColor,
             Color normalThumbColor,
             Color hoverColor,
             Color activeColor,
             Color arrowColor,
-            int thickness
+            int thickness,
+            BiConsumer<Graphics, Rectangle> trackDecoration
     ) {
         this.backgroundColor = backgroundColor;
         this.normalThumbColor = normalThumbColor;
@@ -34,9 +37,16 @@ final class UiCodeEditorScrollBarUi extends BasicScrollBarUI {
         this.activeColor = activeColor;
         this.arrowColor = arrowColor;
         this.thickness = thickness;
+        this.trackDecoration = trackDecoration;
     }
 
-    static void install(JScrollBar scrollBar, Color background, Color muted, Color foreground) {
+    public static void install(JScrollBar scrollBar, Color background, Color muted, Color foreground) {
+        install(scrollBar, background, muted, foreground, null);
+    }
+
+    /** 附加标记绘制于轨道之上、滑块之下，例如终端的搜索结果位置。 */
+    public static void install(JScrollBar scrollBar, Color background, Color muted, Color foreground,
+                               BiConsumer<Graphics, Rectangle> trackDecoration) {
         Dimension preferredSize = scrollBar.getPreferredSize();
         int thickness = scrollBar.getOrientation() == JScrollBar.VERTICAL
                 ? preferredSize.width
@@ -45,15 +55,16 @@ final class UiCodeEditorScrollBarUi extends BasicScrollBarUI {
             thickness = 17;
         }
 
-        scrollBar.setUI(new UiCodeEditorScrollBarUi(
+        scrollBar.setUI(new UiSwingScrollBarUi(
                 background,
                 blend(background, muted, 0.42),
                 blend(background, muted, 0.64),
                 blend(background, foreground, 0.58),
                 muted,
-                thickness
+                thickness,
+                trackDecoration
         ));
-        // 更换 UI delegate 后恢复原有外部尺寸；编辑器的 viewport 布局保持不变。
+        // 更换 UI delegate 后恢复原有外部尺寸，保留调用者的布局。
         scrollBar.setPreferredSize(preferredSize);
         scrollBar.setBackground(background);
         scrollBar.setForeground(muted);
@@ -88,7 +99,17 @@ final class UiCodeEditorScrollBarUi extends BasicScrollBarUI {
                 backgroundColor,
                 arrowColor,
                 backgroundColor
-        );
+        ) {
+            @Override
+            public void paint(Graphics graphics) {
+                // BasicArrowButton 只填充内部，EmptyBorder 留下的外圈也必须覆盖。
+                Color previous = graphics.getColor();
+                graphics.setColor(getBackground());
+                graphics.fillRect(0, 0, getWidth(), getHeight());
+                graphics.setColor(previous);
+                super.paint(graphics);
+            }
+        };
         button.setBorder(BorderFactory.createEmptyBorder());
         button.setFocusable(false);
         button.setOpaque(true);
@@ -100,6 +121,15 @@ final class UiCodeEditorScrollBarUi extends BasicScrollBarUI {
     protected void paintTrack(Graphics graphics, JComponent component, Rectangle bounds) {
         graphics.setColor(backgroundColor);
         graphics.fillRect(bounds.x, bounds.y, bounds.width, bounds.height);
+        if (trackDecoration != null && !bounds.isEmpty()) {
+            Graphics overlay = graphics.create();
+            try {
+                overlay.clipRect(bounds.x, bounds.y, bounds.width, bounds.height);
+                trackDecoration.accept(overlay, bounds);
+            } finally {
+                overlay.dispose();
+            }
+        }
     }
 
     @Override
