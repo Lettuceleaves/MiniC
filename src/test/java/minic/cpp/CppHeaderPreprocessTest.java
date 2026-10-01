@@ -42,7 +42,8 @@ final class CppHeaderPreprocessTest {
     }
 
     @Test
-    void mapsKnownCppHeadersToTheirExactInternalLocationWithoutAdvertisingApiSupport() throws Exception {
+    void mapsKnownCppHeadersToTheirExactInternalLocationWithoutChangingCapabilityProfile() throws Exception {
+        var profileBefore = CppLibraryProfile.defaults();
         Path installed = write("lib/cpp/utility.mh", "int installed_utility;\n");
         var preprocessor = preprocess("#include <utility>\n", LanguageMode.CPP17_ALGORITHM);
         assertTrue(preprocessor.succeeded(), () -> preprocessor.errors().toString());
@@ -51,7 +52,7 @@ final class CppHeaderPreprocessTest {
         assertEquals("utility", include.requestedPath());
         assertEquals(installed, include.resolvedPath());
         assertTrue(include.expanded());
-        assertFalse(CppLibraryProfile.defaults().supports("pair"));
+        assertEquals(profileBefore, CppLibraryProfile.defaults(), "Header resolution cannot promote API capabilities");
     }
 
     @Test

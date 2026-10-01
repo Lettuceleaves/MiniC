@@ -13,7 +13,7 @@ import java.util.Properties;
 
 /** Explicit C++ algorithm-library inventory, separate from the existing C23 contract. */
 public record CppLibraryProfile(String standard, String target, Map<String, Entry> entries) {
-    public enum Status { PLANNED, SUPPORTED, LEGACY_PLANNED }
+    public enum Status { PLANNED, SUPPORTED, LEGACY_PLANNED, LEGACY_SUPPORTED }
 
     public record Entry(String spelling, String header, Status status, String milestone, List<String> evidence) {
         public Entry {
@@ -25,7 +25,7 @@ public record CppLibraryProfile(String standard, String target, Map<String, Entr
                 throw new IllegalArgumentException("C++ headers must be under lib/cpp: " + header);
             }
             evidence = List.copyOf(evidence);
-            if (status == Status.SUPPORTED) {
+            if (status == Status.SUPPORTED || status == Status.LEGACY_SUPPORTED) {
                 for (String backend : List.of("native", "debug", "reference")) {
                     if (evidence.stream().noneMatch(item -> item.matches(backend + ":[A-Za-z_$][A-Za-z0-9_.$]*#[A-Za-z_$][A-Za-z0-9_$]*"))) {
                         throw new IllegalArgumentException("Supported API needs " + backend + " test evidence: " + spelling);
@@ -45,7 +45,7 @@ public record CppLibraryProfile(String standard, String target, Map<String, Entr
 
     public boolean supports(String api) {
         Entry entry = entries.get(api);
-        return entry != null && entry.status() == Status.SUPPORTED;
+        return entry != null && (entry.status() == Status.SUPPORTED || entry.status() == Status.LEGACY_SUPPORTED);
     }
 
     public static CppLibraryProfile defaults() {
@@ -82,6 +82,7 @@ public record CppLibraryProfile(String standard, String target, Map<String, Entr
                 case "planned" -> Status.PLANNED;
                 case "supported" -> Status.SUPPORTED;
                 case "legacy-planned" -> Status.LEGACY_PLANNED;
+                case "legacy-supported" -> Status.LEGACY_SUPPORTED;
                 default -> throw new IllegalArgumentException("Unknown API status: " + fields[2]);
             };
             entries.put(key.substring(4), new Entry(fields[0], fields[1], status, fields[3],
