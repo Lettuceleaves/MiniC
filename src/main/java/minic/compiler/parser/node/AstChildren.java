@@ -19,6 +19,7 @@ public final class AstChildren {
             case StructDecl n -> n.cppInfo() == null ? n.fields() : n.cppInfo().members();
             case FieldMember n -> present(n.field());
             case MethodMember n -> present(n.method());
+            case OutOfLineMethodDecl n -> present(n.method());
             case FunctionDecl n -> present(n.body());
             case GlobalVarDecl n -> present(n.initializer());
             case BlockStmt n -> n.statements();
@@ -66,7 +67,7 @@ public final class AstChildren {
         while (!pending.isEmpty()) {
             AstNode node = pending.removeFirst();
             if (!visited.add(node)) continue;
-            if (node instanceof NamespaceDecl || node instanceof UsingDecl
+            if (node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
                     || node instanceof StructDecl record && record.cppInfo() != null) return node;
             pending.addAll(of(node));

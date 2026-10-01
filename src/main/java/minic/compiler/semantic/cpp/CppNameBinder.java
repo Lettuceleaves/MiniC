@@ -177,6 +177,7 @@ public final class CppNameBinder {
                     case UsingDecl node -> bindUsing(node, namespace, null);
                     case GlobalVarDecl node -> bindGlobal(node, namespace);
                     case FunctionDecl node -> bindFunction(node, namespace);
+                    case OutOfLineMethodDecl node -> bindOutOfLineMethod(node, namespace);
                     case StructDecl node -> bindStruct(node, namespace);
                     case TypedefDecl node -> {
                         MiniType type = normalizeType(node.type(), namespace, null, node.range());
@@ -318,6 +319,91 @@ public final class CppNameBinder {
                 currentClass = savedClass;
                 currentThis = savedThis;
             }
+        }
+
+        private void bindOutOfLineMethod(OutOfLineMethodDecl node, Namespace namespace) {
+            QualifiedName path = node.qualifiedName();
+            QualifiedName ownerName = new QualifiedName(path.global(),
+                    path.segments().subList(0, path.segments().size() - 1), path.range());
+            TypeEntity owner = resolveMethodOwner(ownerName, namespace);
+            if (owner == null) return;
+            boolean enclosing = false;
+            for (Namespace at = owner.owner; at != null; at = at.parent) enclosing |= at == namespace;
+            if (!enclosing) {
+                report("CPP004", node.nameRange(), "成员定义必须位于所属类的外围命名空间：" + spelling(path));
+                return;
+            }
+            FunctionDecl definition = node.method();
+            Method previous = owner.methods.get(definition.name());
+            if (!owner.complete || previous == null) {
+                report("CPP004", node.nameRange(), "类中尚未声明此成员函数：" + spelling(path));
+                return;
+            }
+            if (!definition.hasBody()) {
+                report("CPP004", node.nameRange(), "类外成员声明必须提供函数定义：" + spelling(path));
+                return;
+            }
+            MethodMember member = new MethodMember(definition, node.constQualified(), node.nameRange());
+            MiniType returnType = normalizeType(definition.returnType(), namespace, null, definition.range());
+            List<MiniType> parameterTypes = definition.parameters().stream()
+                    .map(p -> normalizeType(p.type(), owner.owner, null, p.range())).toList();
+            List<MiniType> coreParameters = new ArrayList<>();
+            coreParameters.add(methodThisType(owner, member));
+            parameterTypes.stream().map(MiniType::unqualified).forEach(coreParameters::add);
+            MiniType signature = MiniType.function(returnType.unqualified(), coreParameters, definition.variadic());
+            if (!previous.returnType.equals(returnType) || !previous.function.type.equals(signature)) {
+                report("CPP004", node.nameRange(), "类外定义与成员函数声明的签名不匹配：" + spelling(path));
+                return;
+            }
+            if (previous.function.defined) {
+                report("CPP004", node.nameRange(), "成员函数重复定义：" + spelling(path));
+                return;
+            }
+            previous.function.defined = true;
+            bindMethod(new Method(owner, member, previous.access, previous.function, returnType, parameterTypes), owner.owner);
+        }
+
+        private TypeEntity resolveMethodOwner(QualifiedName name, Namespace namespace) {
+            Set<Candidate> candidates = new LinkedHashSet<>();
+            String last = name.segments().getLast();
+            if (name.global() || name.segments().size() > 1) {
+                Namespace at = name.segments().size() == 1 ? root : resolveNamespace(new QualifiedName(name.global(),
+                        name.segments().subList(0, name.segments().size() - 1), name.range()), namespace, null);
+                if (at == null) return null;
+                candidates.addAll(qualifiedOwnerCandidates(at, last, new HashSet<>()));
+            } else {
+                Map<Namespace, Set<Namespace>> nominated = nominations(namespace, null);
+                for (Namespace at = namespace; at != null; at = at.parent) {
+                    candidates.addAll(directOwnerCandidates(at, last));
+                    for (Namespace target : nominated.getOrDefault(at, Set.of())) candidates.addAll(directOwnerCandidates(target, last));
+                    if (!candidates.isEmpty()) break;
+                }
+            }
+            Candidate candidate = candidates.isEmpty() ? null : selectCandidate(candidates, spelling(name), name.range());
+            if (candidate instanceof Namespace) {
+                report("CPP005", name.range(), "尚未支持命名空间自由函数的类外限定定义：" + spelling(name));
+                return null;
+            }
+            TypeEntity owner = candidate instanceof TypeEntity type ? objectType(type.type) : null;
+            if (owner == null) report("CPP003", name.range(), "成员定义需要已声明的类类型：" + spelling(name));
+            return owner;
+        }
+
+        private Set<Candidate> directOwnerCandidates(Namespace namespace, String name) {
+            Set<Candidate> result = new LinkedHashSet<>();
+            if (namespace.children.containsKey(name)) result.add(namespace.children.get(name));
+            TypeEntity alias = namespace.typedefs.get(name);
+            if (alias != null && alias.type.unqualified().isStruct()) result.add(alias);
+            else if (namespace.tags.containsKey(name)) result.add(namespace.tags.get(name));
+            return result;
+        }
+
+        private Set<Candidate> qualifiedOwnerCandidates(Namespace namespace, String name, Set<Namespace> visited) {
+            if (!visited.add(namespace)) return Set.of();
+            Set<Candidate> result = directOwnerCandidates(namespace, name);
+            if (!result.isEmpty()) return result;
+            for (Namespace target : namespace.directives) result.addAll(qualifiedOwnerCandidates(target, name, visited));
+            return result;
         }
 
         private MiniType methodThisType(TypeEntity owner, MethodMember sourceMethod) {

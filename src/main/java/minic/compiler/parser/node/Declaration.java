@@ -206,6 +206,21 @@ public interface Declaration extends AstNode {
         }
     }
 
+    /** A qualified member definition retains its source owner until semantic binding. */
+    record OutOfLineMethodDecl(QualifiedName qualifiedName, FunctionDecl method,
+                               boolean constQualified, SourceRange nameRange) implements Declaration {
+        public OutOfLineMethodDecl {
+            Objects.requireNonNull(qualifiedName, "qualifiedName");
+            Objects.requireNonNull(method, "method");
+            Objects.requireNonNull(nameRange, "nameRange");
+            if (qualifiedName.segments().size() < 2
+                    || !qualifiedName.segments().getLast().equals(method.name())) {
+                throw new IllegalArgumentException("qualified member definition requires its owner and simple method name");
+            }
+        }
+        @Override public SourceRange range() { return method.range(); }
+    }
+
     enum RecordKey { STRUCT, CLASS }
 
     enum Access { PUBLIC, PROTECTED, PRIVATE }

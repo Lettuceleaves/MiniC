@@ -17,6 +17,7 @@ import minic.compiler.parser.node.Declaration.EnumDecl;
 import minic.compiler.parser.node.Declaration.TypedefDecl;
 import minic.compiler.parser.node.Declaration.GlobalVarDecl;
 import minic.compiler.parser.node.Declaration;
+import minic.compiler.parser.node.QualifiedName;
 import minic.compiler.type.MiniType;
 import minic.compiler.Diagnostic;
 import minic.SourceRange;
@@ -637,6 +638,7 @@ public final class Parser extends Stage {
         private final java.util.function.Consumer<StructDecl> aggregateSink;
         private final CppTypeEnvironment cppTypes;
         private final java.util.Map<String, List<Declaration.StructField>> aggregateFields = new java.util.LinkedHashMap<>();
+        private final java.util.Map<String, StructDecl> aggregateDeclarations = new java.util.LinkedHashMap<>();
         private int cppLocalDepth;
         private int cppMemberDepth;
         private int anonymousAggregateIndex;
@@ -678,7 +680,33 @@ public final class Parser extends Stage {
 
         /** Retain anonymous aggregate members so a containing class can promote their names. */
         public void recordAggregateFields(StructDecl declaration) {
-            if (isCpp()) aggregateFields.put(declaration.name(), declaration.fields());
+            if (isCpp()) {
+                aggregateFields.put(declaration.name(), declaration.fields());
+                if (declaration.definition()) aggregateDeclarations.put(declaration.name(), declaration);
+            }
+        }
+
+        public void enterMemberDefinitionScope(QualifiedName qualifiedName) {
+            QualifiedName owner = new QualifiedName(qualifiedName.global(),
+                    qualifiedName.segments().subList(0, qualifiedName.segments().size() - 1), qualifiedName.range());
+            MiniType type = cppTypes.enterMemberDefinitionScope(owner);
+            cppMemberDepth++;
+            if (!(type instanceof MiniType.StructType record)) return;
+            StructDecl declaration = aggregateDeclarations.get(record.name());
+            if (declaration == null) return;
+            declaration.fields().forEach(this::declareMemberField);
+            if (declaration.cppInfo() != null) {
+                for (var member : declaration.cppInfo().members()) {
+                    if (member instanceof Declaration.MethodMember method) {
+                        declareOrdinaryName(method.method().name(), method.nameRange());
+                    }
+                }
+            }
+        }
+
+        public void exitMemberDefinitionScope() {
+            cppTypes.exitMemberDefinitionScope();
+            cppMemberDepth--;
         }
 
         public void declareMemberField(Declaration.StructField field) {
@@ -821,12 +849,17 @@ public final class Parser extends Stage {
          * 绑定到命名叶子类型，因此可统一表达多级指针、多维数组、数组指针和函数指针。
          */
         public ParsedNamedType parseNamedType(String expectedTypeMessage, String expectedNameMessage) {
+            return parseNamedType(expectedTypeMessage, expectedNameMessage, false);
+        }
+
+        public ParsedNamedType parseNamedType(String expectedTypeMessage, String expectedNameMessage,
+                                             boolean allowQualifiedName) {
             List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs = parseAlignmentSpecs();
             BaseType baseType = parseBaseType(expectedTypeMessage);
             if (baseType == null) {
                 return null;
             }
-            Declarator declarator = parseDeclarator(expectedNameMessage, true);
+            Declarator declarator = parseDeclarator(expectedNameMessage, true, allowQualifiedName);
             if (declarator == null || declarator.name().isEmpty()) {
                 return null;
             }
@@ -856,7 +889,8 @@ public final class Parser extends Stage {
                     resolvedParameters,
                     resolvedVariadic,
                     alignmentSpecs,
-                    declarator.nameToken().range()
+                    declarator.nameToken().range(),
+                    declarator.qualifiedName()
             );
         }
 
@@ -933,6 +967,10 @@ public final class Parser extends Stage {
         }
 
         private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired) {
+            return parseDeclarator(expectedNameMessage, nameRequired, false);
+        }
+
+        private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired, boolean allowQualifiedName) {
             ArrayList<PointerLayer> pointerLayers = new ArrayList<>();
             while (context.match(TokenType.STAR)) {
                 Token star = context.previous();
@@ -940,12 +978,19 @@ public final class Parser extends Stage {
             }
 
             Declarator direct;
-            if (context.match(TokenType.IDENTIFIER)) {
+            if (isCpp() && allowQualifiedName && (context.check(TokenType.SCOPE)
+                    || context.check(TokenType.IDENTIFIER) && context.peekAt(1).type() == TokenType.SCOPE)) {
+                Token first = context.peek();
+                QualifiedName qualified = CppNameParser.parseName(context);
+                if (qualified == null) return null;
+                Token last = context.previous();
+                direct = new Declarator(qualified.segments().getLast(), new ArrayList<>(), first, last, last, qualified);
+            } else if (context.match(TokenType.IDENTIFIER)) {
                 Token nameToken = context.previous();
                 direct = new Declarator(nameToken.lexeme(), new ArrayList<>(), nameToken, nameToken, nameToken);
             } else if (context.match(TokenType.LEFT_PAREN)) {
                 Token startToken = context.previous();
-                direct = parseDeclarator(expectedNameMessage, nameRequired);
+                direct = parseDeclarator(expectedNameMessage, nameRequired, allowQualifiedName);
                 Token endToken = context.consume(TokenType.RIGHT_PAREN, "期望 ')'");
                 if (direct == null || endToken == null) {
                     return null;
@@ -959,6 +1004,16 @@ public final class Parser extends Stage {
                 return null;
             }
 
+            boolean memberScope = direct.qualifiedName() != null && direct.qualifiedName().segments().size() > 1;
+            if (memberScope) enterMemberDefinitionScope(direct.qualifiedName());
+            try {
+                return parseDeclaratorSuffix(direct, pointerLayers);
+            } finally {
+                if (memberScope) exitMemberDefinitionScope();
+            }
+        }
+
+        private Declarator parseDeclaratorSuffix(Declarator direct, List<PointerLayer> pointerLayers) {
             while (context.check(TokenType.LEFT_BRACKET) || context.check(TokenType.LEFT_PAREN)) {
                 if (context.match(TokenType.LEFT_BRACKET)) {
                     Token lengthToken;
@@ -995,7 +1050,8 @@ public final class Parser extends Stage {
                 }
                 direct.modifiers().add(new FunctionModifier(
                         parameterList.parameters(),
-                        parameterList.variadic()
+                        parameterList.variadic(),
+                        isCpp()
                 ));
                 direct = direct.withEnd(endToken);
             }
@@ -1387,7 +1443,8 @@ public final class Parser extends Stage {
 
         private record FunctionModifier(
                 List<ParsedParameter> parameters,
-                boolean variadic
+                boolean variadic,
+                boolean preserveReturnQualifiers
         ) implements DeclaratorModifier {
             private FunctionModifier {
                 parameters = List.copyOf(parameters);
@@ -1396,7 +1453,7 @@ public final class Parser extends Stage {
             @Override
             public MiniType apply(MiniType inner) {
                 return MiniType.function(
-                        inner.unqualified(),
+                        preserveReturnQualifiers ? inner : inner.unqualified(),
                         parameters.stream().map(ParsedParameter::type).map(MiniType::unqualified).toList(),
                         variadic
                 );
@@ -1408,8 +1465,13 @@ public final class Parser extends Stage {
                 ArrayList<DeclaratorModifier> modifiers,
                 Token startToken,
                 Token endToken,
-                Token nameToken
+                Token nameToken,
+                QualifiedName qualifiedName
         ) {
+            private Declarator(String name, ArrayList<DeclaratorModifier> modifiers, Token startToken,
+                               Token endToken, Token nameToken) {
+                this(name, modifiers, startToken, endToken, nameToken, null);
+            }
             private MiniType resolve(MiniType baseType) {
                 MiniType resolved = baseType;
                 for (int index = modifiers.size() - 1; index >= 0; index--) {
@@ -1425,15 +1487,15 @@ public final class Parser extends Stage {
             }
 
             private Declarator withRange(Token start, Token end) {
-                return new Declarator(name, modifiers, start, end, nameToken);
+                return new Declarator(name, modifiers, start, end, nameToken, qualifiedName);
             }
 
             private Declarator withStart(Token start) {
-                return new Declarator(name, modifiers, start, endToken, nameToken);
+                return new Declarator(name, modifiers, start, endToken, nameToken, qualifiedName);
             }
 
             private Declarator withEnd(Token end) {
-                return new Declarator(name, modifiers, startToken, end, nameToken);
+                return new Declarator(name, modifiers, startToken, end, nameToken, qualifiedName);
             }
         }
 
@@ -1454,8 +1516,13 @@ public final class Parser extends Stage {
             List<ParsedParameter> parameters,
             boolean variadic,
             List<minic.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs,
-            SourceRange nameRange
+            SourceRange nameRange,
+            QualifiedName qualifiedName
     ) {
+        public ParsedNamedType(String name, MiniType type, SourceRange range, List<ParsedParameter> parameters,
+                               boolean variadic, List<Declaration.AlignmentSpec> alignmentSpecs, SourceRange nameRange) {
+            this(name, type, range, parameters, variadic, alignmentSpecs, nameRange, null);
+        }
         public ParsedNamedType(String name, MiniType type, SourceRange range, List<ParsedParameter> parameters,
                                boolean variadic, List<Declaration.AlignmentSpec> alignmentSpecs) {
             this(name, type, range, parameters, variadic, alignmentSpecs, range);

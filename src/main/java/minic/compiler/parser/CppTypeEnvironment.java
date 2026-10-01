@@ -88,6 +88,9 @@ public final class CppTypeEnvironment {
 
     private final Namespace root = new Namespace(null, "");
     private final Deque<Namespace> namespaceStack = new ArrayDeque<>();
+    private record DefinitionContext(Namespace namespace, Local local) {}
+    private final Deque<DefinitionContext> definitionScopes = new ArrayDeque<>();
+    private final Map<String, Namespace> classOwners = new LinkedHashMap<>();
     private final List<Diagnostic> diagnostics = new ArrayList<>();
     private Namespace namespace = root;
     private Local local;
@@ -148,6 +151,27 @@ public final class CppTypeEnvironment {
         local = local.parent;
     }
 
+    /** Reenters an existing owner's namespace; no namespace or class is created during lookup. */
+    public MiniType enterMemberDefinitionScope(QualifiedName owner) {
+        Lookup found = classify(resolve(owner, Search.QUALIFIER));
+        MiniType type = found.kind == Kind.TYPE && found.type.unqualified() instanceof MiniType.StructType
+                ? found.type.unqualified() : null;
+        Namespace target = type instanceof MiniType.StructType record ? classOwners.get(record.name()) : null;
+        definitionScopes.push(new DefinitionContext(namespace, local));
+        if (target != null) namespace = target;
+        local = null;
+        enterMemberScope(type);
+        return type;
+    }
+
+    public void exitMemberDefinitionScope() {
+        if (definitionScopes.isEmpty()) throw new IllegalStateException("no member definition scope to exit");
+        exitMemberScope();
+        DefinitionContext saved = definitionScopes.pop();
+        namespace = saved.namespace;
+        local = saved.local;
+    }
+
     public void exitLocalScope() {
         if (local == null || local.member) throw new IllegalStateException("no local scope to exit");
         local = local.parent;
@@ -180,6 +204,7 @@ public final class CppTypeEnvironment {
             conflict(range, "聚合类型与已有名称冲突：" + name);
         }
         slot.tag = new Entry(Kind.TYPE, canonicalName, type, scope, null, true, union, definition);
+        if (scope instanceof Namespace owner) classOwners.put(((MiniType.StructType) type).name(), owner);
         return type;
     }
 

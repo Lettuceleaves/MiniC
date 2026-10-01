@@ -148,14 +148,24 @@ public final class DeclarationManager {
         }
         Parser.ParsedNamedType declaration = typeReader.parseNamedType(
                 "期望函数返回类型",
-                "期望函数名"
+                "期望函数名",
+                typeReader.isCpp()
         );
         if (declaration == null) {
             return null;
         }
         // In C++, a declarator hides an outer type name in its own initializer/body.
-        if (typeReader.isCpp()) typeReader.declareOrdinaryName(declaration.name(), declaration.range());
+        boolean qualified = declaration.qualifiedName() != null;
+        if (qualified && declaration.qualifiedName().segments().size() < 2) {
+            state.unsupportedCpp(declaration.nameRange(), "此限定声明需要所属类名称");
+            return null;
+        }
+        if (typeReader.isCpp() && !qualified) typeReader.declareOrdinaryName(declaration.name(), declaration.range());
         if (!(declaration.type() instanceof MiniType.FunctionType functionType)) {
+            if (qualified) {
+                state.unsupportedCpp(declaration.nameRange(), "类外限定数据成员声明尚未实现");
+                return null;
+            }
             if (noReturn) state.report(startToken, "noreturn 只能用于函数");
             Expression initializer = null;
             if (state.match(TokenType.EQUAL)) initializer = statementManager.parseInitializer();
@@ -172,6 +182,8 @@ public final class DeclarationManager {
         if (!declaration.alignmentSpecs().isEmpty()) {
             state.report(declaration.range(), "函数声明不能使用 alignas");
         }
+        boolean constQualified = qualified && state.match(TokenType.CONST);
+        if (qualified && external) state.unsupportedCpp(startToken.range(), "类外成员定义不能使用 extern");
         Token semicolonToken = null;
         BlockStmt body = null;
         if (state.match(TokenType.SEMICOLON)) {
@@ -182,10 +194,15 @@ public final class DeclarationManager {
                 state.synchronizeMissingFunctionBody();
                 return null;
             }
-            body = statementManager.parseFunctionBlock(declaration.parameters().stream()
-                    .map(Parser.ParsedParameter::name)
-                    .filter(name -> !name.isEmpty())
-                    .toList());
+            if (qualified) typeReader.enterMemberDefinitionScope(declaration.qualifiedName());
+            try {
+                body = statementManager.parseFunctionBlock(declaration.parameters().stream()
+                        .map(Parser.ParsedParameter::name)
+                        .filter(name -> !name.isEmpty())
+                        .toList());
+            } finally {
+                if (qualified) typeReader.exitMemberDefinitionScope();
+            }
         }
 
         if (body == null && semicolonToken == null) {
@@ -215,6 +232,10 @@ public final class DeclarationManager {
         if (!typeReader.isCpp()) typeReader.declareOrdinaryName(functionDecl.name(), functionDecl.range());
         state.build(functionDecl, "FunctionDecl " + functionDecl.name(), functionDecl.range());
         state.exit("functionDecl", functionDecl.range());
+        if (qualified) {
+            return new Declaration.OutOfLineMethodDecl(declaration.qualifiedName(), functionDecl,
+                    constQualified, declaration.nameRange());
+        }
         return functionDecl;
     }
 
