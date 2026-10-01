@@ -113,16 +113,7 @@ final class ExpressionLowerer {
         if (expression instanceof Expression.InitializeExpr initialization) {
             MiniType type = expressionTypes.get(initialization.target());
             IrValue address = captureCallValue(lowerAddress(initialization.target()), initialization.target().range());
-            if (initialization.value() instanceof Expression.AggregateInitExpr aggregate && aggregate.values().isEmpty()) {
-                ObjectZeroInitializer.emit(builder, address, type, initialization.range(), true);
-            } else if (type.isStruct()) {
-                initializeObjectAt(initialization.value(), address, type.isVolatileQualified());
-            } else {
-                IrValue value = lowerExpression(initialization.value());
-                builder.addInstruction(new IrStorePointerInstruction(address,
-                        castIfNeeded(value, IrTypeLowerer.lower(type), initialization.range()),
-                        type.isVolatileQualified(), initialization.range()));
-            }
+            initializeAt(address, type, initialization.value(), initialization.range());
             return new IrConstant(0);
         }
         if (expression instanceof Expression.ObjectInitExpr construction) {
@@ -657,6 +648,19 @@ final class ExpressionLowerer {
     }
 
     /** Initialize existing storage, keeping the destination capture private to this expression. */
+    void initializeAt(IrValue address, MiniType type, Expression value, minic.SourceRange range) {
+        if (value instanceof Expression.AggregateInitExpr aggregate) {
+            if (aggregate.values().isEmpty()) ObjectZeroInitializer.emit(builder, address, type, range, true);
+            else ObjectAggregateInitializer.emit(builder, this, address, type, aggregate, range);
+        } else if (type.isStruct()) {
+            initializeObjectAt(value, address, type.isVolatileQualified());
+        } else {
+            builder.addInstruction(new IrStorePointerInstruction(address,
+                    castIfNeeded(lowerExpression(value), IrTypeLowerer.lower(type), range), type.isVolatileQualified(), range));
+        }
+    }
+
+    /** Initialize a record result directly in its final storage. */
     void initializeObjectAt(Expression expression, IrValue address) {
         initializeObjectAt(expression, address, false);
     }

@@ -203,19 +203,50 @@ final class ExpressionSemanticAnalyzer {
     private MiniType analyzeInitialization(Expression.InitializeExpr initialization, Scope scope) {
         MiniType target = analyzeAddressOperand(initialization.target(), scope, initialization.range());
         expressionTypes.put(initialization.target(), target);
-        if (target.isStruct() && hasStructLayout(target)
-                && initialization.value() instanceof AggregateInitExpr aggregate && aggregate.values().isEmpty()) {
-            expressionTypes.put(aggregate, target);
-            return MiniType.VOID;
-        }
-        MiniType value = analyzeExpression(initialization.value(), scope);
-        if ((!target.isScalar() && !target.isPointer() && !target.isStruct())
+        if ((!target.isScalar() && !target.isPointer() && !target.isStruct() && !target.isArray())
                 || (!TypeLayout.hasFixedLayout(target) && !hasStructLayout(target))) {
-            report(initialization.target().range(), "初始化目标需要完整的标量、指针或记录对象");
-        } else if (!TypeCompatibility.isAssignmentCompatible(target, value, initialization.value())) {
-            report(initialization.value().range(), "对象初始化类型不兼容");
+            report(initialization.target().range(), "初始化目标需要完整的标量、指针、记录或数组对象");
         }
+        analyzeFirstInitialization(initialization.value(), target, scope);
         return MiniType.VOID;
+    }
+
+    private void analyzeFirstInitialization(Expression value, MiniType target, Scope scope) {
+        if (!(value instanceof AggregateInitExpr aggregate)) {
+            MiniType actual = analyzeExpression(value, scope);
+            if (target.isArray() || !TypeCompatibility.isAssignmentCompatible(target, actual, value))
+                report(value.range(), "对象初始化类型不兼容");
+            return;
+        }
+        expressionTypes.put(aggregate, target);
+        MiniType raw = target.unqualified();
+        List<MiniType> members;
+        if (raw instanceof MiniType.ArrayType array) {
+            if (array.length() < 0) { report(value.range(), "数组初始化目标必须具有完整长度"); return; }
+            members = java.util.Collections.nCopies(array.length(), array.elementType());
+        } else if (raw instanceof MiniType.StructType record) {
+            var fields = structRegistry.fields(record.name());
+            if (fields == null) { report(value.range(), "记录初始化目标必须具有完整布局"); return; }
+            if (!aggregate.values().isEmpty() && structRegistry.isUnion(record.name())) {
+                report(value.range(), "union 的显式子对象初始化尚需活跃成员规则");
+                return;
+            }
+            members = fields.stream().map(StructFieldLayout::type).toList();
+        } else if (target.isScalar() || target.isPointer()) {
+            members = List.of(target);
+        } else {
+            report(value.range(), "初始化列表目标必须是对象类型");
+            return;
+        }
+        if (aggregate.values().size() > members.size()) report(value.range(), "对象初始化列表中的值过多");
+        for (int index = 0; index < aggregate.values().size() && index < members.size(); index++) {
+            Expression member = aggregate.values().get(index);
+            if (member instanceof DesignatedInitExpr) {
+                report(member.range(), "显式首次初始化只接受按声明顺序排列的初始化列表");
+            } else {
+                analyzeFirstInitialization(member, members.get(index), scope);
+            }
+        }
     }
 
     private MiniType analyzeObjectInitialization(Expression.ObjectInitExpr construction, Scope scope) {

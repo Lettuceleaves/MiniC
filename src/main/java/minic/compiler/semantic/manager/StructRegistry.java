@@ -148,6 +148,11 @@ public final class StructRegistry {
         return Map.copyOf(structLayouts);
     }
 
+    boolean isUnion(String structName) {
+        StructDecl declaration = structDecls.get(structName);
+        return declaration != null && declaration.union();
+    }
+
     boolean hasLayout(String structName) {
         return structLayouts.containsKey(structName) || structDecls.containsKey(structName);
     }
