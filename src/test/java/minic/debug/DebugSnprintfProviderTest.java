@@ -52,11 +52,11 @@ final class DebugSnprintfProviderTest {
     void unsupportedFormattingIsAStableFailureInsteadOfAnApproximation() {
         long destination = zeroed(32);
 
-        IllegalStateException width = assertThrows(
+        IllegalStateException wide = assertThrows(
                 IllegalStateException.class,
-                () -> call("sprintf", pointer(destination), pointer(cString("%08d")), integer(7))
+                () -> call("sprintf", pointer(destination), pointer(cString("%ls")), pointer(0))
         );
-        assertTrue(width.getMessage().contains("Unsupported printf flags"), width::getMessage);
+        assertTrue(wide.getMessage().contains("Unsupported printf length"), wide::getMessage);
 
         IllegalStateException conversion = assertThrows(
                 IllegalStateException.class,

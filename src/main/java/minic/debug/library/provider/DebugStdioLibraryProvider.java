@@ -6,7 +6,6 @@ import minic.debug.DebugRuntime.Value;
 
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /** stdio 中由调试器虚拟标准流实现的函数。 */
@@ -46,7 +45,7 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
             throw new IllegalStateException("printf requires a format argument");
         }
         String rendered = render(runtime, arguments, 0);
-        runtime.appendOutput(rendered);
+        appendNarrowOutput(runtime, rendered);
         return integerResult(rendered.length());
     }
 
@@ -97,7 +96,7 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
 
     private DebugLibraryCallResult puts(DebugRuntime runtime, List<Value> arguments) {
         DebugLibrarySupport.requireCount("puts", arguments, 1);
-        runtime.appendOutput(runtime.readCString(arguments.getFirst().integer()) + "\n");
+        appendNarrowOutput(runtime, runtime.readCString(arguments.getFirst().integer()) + "\n");
         return integerResult(0);
     }
 
@@ -119,30 +118,11 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
     }
 
     private String render(DebugRuntime runtime, List<Value> arguments, int formatIndex) {
-        String format = runtime.readCString(arguments.get(formatIndex).integer());
-        StringBuilder rendered = new StringBuilder();
-        int argumentIndex = formatIndex + 1;
-        for (int index = 0; index < format.length(); index++) {
-            char current = format.charAt(index);
-            if (current != '%') {
-                rendered.append(current);
-                continue;
-            }
-            if (index + 1 < format.length() && format.charAt(index + 1) == '%') {
-                rendered.append('%');
-                index++;
-                continue;
-            }
-            FormatDirective directive = parseDirective(format, index + 1);
-            validatePrintfDirective(directive);
-            index = directive.endOffset();
-            if (argumentIndex >= arguments.size()) {
-                throw new IllegalStateException("printf argument count does not match format");
-            }
-            Value argument = arguments.get(argumentIndex++);
-            rendered.append(formatValue(runtime, directive, argument));
-        }
-        return rendered.toString();
+        return DebugPrintfFormatter.render(runtime, arguments, formatIndex);
+    }
+
+    private void appendNarrowOutput(DebugRuntime runtime, String bytes) {
+        for (int i = 0; i < bytes.length(); i++) runtime.appendOutputByte(bytes.charAt(i), false);
     }
 
     private DebugLibraryCallResult scanf(DebugRuntime runtime, List<Value> arguments) {
@@ -272,58 +252,6 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         }
     }
 
-    private String formatValue(DebugRuntime runtime, FormatDirective directive, Value value) {
-        return switch (directive.conversion()) {
-            case 'd', 'i' -> Long.toString(directive.longValue()
-                    ? value.integer()
-                    : (int) value.integer());
-            case 'u' -> directive.longValue()
-                    ? Long.toUnsignedString(value.integer())
-                    : Integer.toUnsignedString((int) value.integer());
-            case 'x', 'X' -> {
-                String digits = directive.longValue()
-                        ? Long.toUnsignedString(value.integer(), 16)
-                        : Integer.toUnsignedString((int) value.integer(), 16);
-                yield directive.conversion() == 'X' ? digits.toUpperCase(Locale.ROOT) : digits;
-            }
-            case 'f' -> String.format(Locale.ROOT, "%." + directive.precision() + "f", value.real());
-            case 's' -> runtime.readCString(value.integer());
-            case 'c' -> Character.toString((char) value.integer());
-            case 'p' -> "0x" + Long.toUnsignedString(value.integer(), 16);
-            default -> throw new IllegalStateException(
-                    "Unsupported printf conversion: %" + directive.conversion()
-            );
-        };
-    }
-
-    private void validatePrintfDirective(FormatDirective directive) {
-        if (!directive.flags().isEmpty()) {
-            throw new IllegalStateException("Unsupported printf flags: " + directive.flags());
-        }
-        if (directive.width() != 0) {
-            throw new IllegalStateException("Unsupported printf width: " + directive.width());
-        }
-        if (directive.precisionSpecified() && directive.conversion() != 'f') {
-            throw new IllegalStateException(
-                    "Unsupported printf precision for %" + directive.conversion()
-            );
-        }
-        boolean validLength = switch (directive.conversion()) {
-            case 'd', 'i', 'u', 'x', 'X' -> directive.length().isEmpty()
-                    || directive.length().equals("l")
-                    || directive.length().equals("ll")
-                    || directive.length().equals("I64");
-            case 'f' -> directive.length().isEmpty() || directive.length().equals("l");
-            case 's', 'c', 'p' -> directive.length().isEmpty();
-            default -> true;
-        };
-        if (!validLength) {
-            throw new IllegalStateException(
-                    "Unsupported printf length: %" + directive.length() + directive.conversion()
-            );
-        }
-    }
-
     private void validateScanfDirective(FormatDirective directive) {
         if (!directive.flags().isEmpty() || directive.precisionSpecified()) {
             throw new IllegalStateException(
@@ -441,8 +369,8 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         private int offset;
 
         private StringScanInput(String input) {
-            this.input = new String(input.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                    java.nio.charset.StandardCharsets.ISO_8859_1);
+            // readCString already returns a one-character-per-byte narrow string.
+            this.input = input;
         }
 
         @Override
