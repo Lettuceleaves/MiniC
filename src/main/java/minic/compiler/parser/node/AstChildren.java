@@ -16,6 +16,7 @@ public final class AstChildren {
         return switch (node) {
             case Program n -> n.declarations();
             case NamespaceDecl n -> n.declarations();
+            case ClassTemplateDecl n -> prepend(n.record(), n.parameters());
             case StructDecl n -> n.cppInfo() == null ? n.fields() : n.cppInfo().members();
             case FieldMember n -> present(n.field(), n.defaultInitializer());
             case MethodMember n -> present(n.method());
@@ -100,14 +101,14 @@ public final class AstChildren {
         while (!pending.isEmpty()) {
             AstNode node = pending.removeFirst();
             if (!visited.add(node)) continue;
-            if (!onlyReferences && (node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
+            if (!onlyReferences && (node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
                     || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
                     || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null)
                     || node instanceof StructDecl record && record.cppInfo() != null)) return node;
-            AstNode reference = referenceTypeOwner(node);
+            AstNode reference = sourceTypeOwner(node, onlyReferences);
             if (reference != null) return reference;
             pending.addAll(of(node));
             if (node instanceof Program program) {
@@ -121,7 +122,7 @@ public final class AstChildren {
         return null;
     }
 
-    private static AstNode referenceTypeOwner(AstNode node) {
+    private static AstNode sourceTypeOwner(AstNode node, boolean onlyReferences) {
         minic.compiler.type.MiniType type = switch (node) {
             case FunctionDecl n -> n.returnType();
             case Parameter n -> n.type();
@@ -142,10 +143,10 @@ public final class AstChildren {
             case AlignmentSpec n -> n.type();
             default -> null;
         };
-        if (type != null && type.containsReference()) return node;
+        if (sourceType(type, onlyReferences)) return node;
         // Parameters and alignment operands are intentionally not executable AST children.
         if (node instanceof FunctionDecl function) {
-            for (Parameter parameter : function.parameters()) if (parameter.type().containsReference()) return parameter;
+            for (Parameter parameter : function.parameters()) if (sourceType(parameter.type(), onlyReferences)) return parameter;
         }
         List<AlignmentSpec> alignments = switch (node) {
             case GlobalVarDecl n -> n.alignmentSpecs();
@@ -154,9 +155,13 @@ public final class AstChildren {
             default -> List.of();
         };
         for (AlignmentSpec alignment : alignments) {
-            if (alignment.type() != null && alignment.type().containsReference()) return alignment;
+            if (sourceType(alignment.type(), onlyReferences)) return alignment;
         }
         return null;
+    }
+
+    private static boolean sourceType(minic.compiler.type.MiniType type, boolean onlyReferences) {
+        return type != null && (type.containsReference() || !onlyReferences && type.containsTemplateType());
     }
 
     private static List<AstNode> present(AstNode... nodes) {

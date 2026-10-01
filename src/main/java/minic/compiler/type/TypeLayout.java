@@ -83,7 +83,7 @@ public final class TypeLayout {
      */
     public static boolean hasFixedLayout(MiniType type) {
         Objects.requireNonNull(type, "type");
-        if (type.containsReference()) return false;
+        if (type.containsReference() || type.containsTemplateType()) return false;
         type = type.unqualified();
         if (type.isStruct() || type.isFunction() || type.isVoid()) {
             return false;
@@ -96,5 +96,6 @@ public final class TypeLayout {
 
     private static void requireCoreType(MiniType type) {
         if (type.containsReference()) throw new IllegalArgumentException("source reference type requires binding before layout: " + type);
+        if (type.containsTemplateType()) throw new IllegalArgumentException("source template type requires instantiation before layout: " + type);
     }
 }

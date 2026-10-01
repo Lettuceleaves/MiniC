@@ -17,7 +17,7 @@ public sealed interface MiniType permits
     /**
      * 具有源码名称的叶子节点。标量名和 {@code struct Name} 都在这里终止递归。
      */
-    sealed interface NamedType extends MiniType permits ScalarType, StructType, VaListType {
+    sealed interface NamedType extends MiniType permits ScalarType, StructType, VaListType, TemplateParameterType, TemplateIdType {
     }
 
     /**
@@ -117,6 +117,41 @@ public sealed interface MiniType permits
                     || function.parameterTypes().stream().anyMatch(MiniType::containsReference);
             default -> false;
         };
+    }
+
+    /** Source template types must be instantiated before core semantics or layout. */
+    default boolean containsTemplateType() {
+        return switch (unqualified()) {
+            case TemplateParameterType ignored -> true;
+            case TemplateIdType ignored -> true;
+            case PointerType pointer -> pointer.pointee().containsTemplateType();
+            case ReferenceType reference -> reference.referent().containsTemplateType();
+            case ArrayType array -> array.elementType().containsTemplateType();
+            case FunctionType function -> function.returnType().containsTemplateType()
+                    || function.parameterTypes().stream().anyMatch(MiniType::containsTemplateType);
+            default -> false;
+        };
+    }
+
+    /** Parameter identity is independent of its spelling in a redeclaration. */
+    record TemplateParameterType(String owner, int index) implements NamedType {
+        public TemplateParameterType {
+            Objects.requireNonNull(owner, "owner");
+            if (owner.isBlank() || index < 0) throw new IllegalArgumentException("invalid template parameter identity");
+        }
+        @Override public String toString() { return owner + "::$T" + index; }
+    }
+
+    /** Canonical primary identity and structural argument types, never a manufactured core tag. */
+    record TemplateIdType(String templateName, List<MiniType> arguments) implements NamedType {
+        public TemplateIdType {
+            Objects.requireNonNull(templateName, "templateName");
+            arguments = List.copyOf(arguments);
+            if (templateName.isBlank() || arguments.isEmpty()) throw new IllegalArgumentException("invalid template-id");
+        }
+        @Override public String toString() {
+            return templateName + "<" + String.join(", ", arguments.stream().map(Object::toString).toList()) + ">";
+        }
     }
 
     /**

@@ -78,6 +78,7 @@ public final class CppTypeEnvironment {
         final Local parent;
         final Namespace namespace;
         final boolean member;
+        boolean template;
         Local(Local parent, Namespace namespace, int id, boolean member) {
             super(namespace.qualify((member ? "<member" : "<block") + id + ">"));
             this.parent = parent;
@@ -124,6 +125,24 @@ public final class CppTypeEnvironment {
     }
 
     public void enterLocalScope() { local = new Local(local, namespace, ++nextLocalId, false); }
+
+    /** Template parameters participate in lookup without giving the declared class a block identity. */
+    public void enterTemplateScope() {
+        local = new Local(local, namespace, ++nextLocalId, false);
+        local.template = true;
+    }
+
+    public void exitTemplateScope() {
+        if (local == null || !local.template) throw new IllegalStateException("no template scope to exit");
+        local = local.parent;
+    }
+
+    public boolean isTemplateParameter(String name) {
+        for (Local scope = local; scope != null; scope = scope.parent) {
+            if (scope.template && scope.names.containsKey(name)) return true;
+        }
+        return false;
+    }
 
     /** Member names have lexical scope; this slice still hoists anonymous aggregate ASTs. */
     public void enterMemberScope() { enterMemberScope(null); }
@@ -184,7 +203,7 @@ public final class CppTypeEnvironment {
     /** Registers the tag before parsing fields, so self pointers refer to this identity. */
     public MiniType declareStruct(String name, boolean union, boolean definition, SourceRange range) {
         requireName(name);
-        Scope scope = scope();
+        Scope scope = local != null && local.template ? namespace : scope();
         Slot slot = scope.names.computeIfAbsent(name, ignored -> new Slot());
         Entry previous = slot.tag;
         if (previous != null) {
@@ -212,6 +231,7 @@ public final class CppTypeEnvironment {
     public void declareTypedef(String name, MiniType type, SourceRange range) {
         requireName(name);
         Objects.requireNonNull(type, "type");
+        if (isTemplateParameter(name)) conflict(range, "声明不能遮蔽模板参数：" + name);
         Scope scope = scope();
         Slot slot = scope.names.computeIfAbsent(name, ignored -> new Slot());
         Entry previous = slot.ordinary != null ? slot.ordinary : slot.tag;
@@ -227,6 +247,7 @@ public final class CppTypeEnvironment {
     /** Signatures and repeated value declarations are validated by the semantic binder. */
     public void declareValue(String name, SourceRange range) {
         requireName(name);
+        if (isTemplateParameter(name)) conflict(range, "声明不能遮蔽模板参数：" + name);
         Scope scope = scope();
         Slot slot = scope.names.computeIfAbsent(name, ignored -> new Slot());
         if (slot.ordinary != null) {
