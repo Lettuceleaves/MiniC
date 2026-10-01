@@ -5729,7 +5729,10 @@ public final class CppNameBinder {
         }
 
         private Expression returnValue(Expression source,Namespace namespace,Local scope) {
-            Expression value=expressionForTarget(currentReturnType,source,namespace,scope);
+            Expression value=isBraced(source) ? bindListValue(currentReturnType,source,namespace,scope)
+                    : expressionForTarget(currentReturnType,source,namespace,scope);
+            if (isBraced(source) && currentReturnType.isStruct() && !ObjectInitExpr.occursInResultOf(value))
+                value=recordPrvalue(currentReturnType,value,source.range());
             Expression plain=value;while(plain instanceof GroupingExpr group)plain=group.expression();
             if(currentReturnType!=null&&currentReturnType.isStruct()&&plain instanceof NameExpr name) {
                 Entity entity=coreValues.get(name.name());
@@ -6092,7 +6095,7 @@ public final class CppNameBinder {
             List<Expression> actions = new ArrayList<>();
             int index = 0;
             while (index < type.arrayLength() && values.hasNext()) {
-                Expression source = values.next();
+                Expression source = element.isArray() ? values.next() : aggregateElementSource(element,values,namespace,local);
                 Expression initialized;
                 if (element.isArray() && !isBraced(source)) {
                     values.previous();
@@ -6518,56 +6521,21 @@ public final class CppNameBinder {
                 return ObjectInitExpr.occursInResultOf(value) ? value : recordPrvalue(type, value, source.range());
             }
             if (owner != null) {
-                if (arguments.size() == 1 && !(arguments.getFirst() instanceof CppInitializer)) {
-                    Expression value = expression(arguments.getFirst(), namespace, local);
-                    MiniType actual = declaredExpressionType(value);
-                    if (actual != null && type.unqualified().equals(actual.unqualified())) {
-                        Expression copied = copyInitialize(type, value, source.range(), syntax.kind());
-                        return ObjectInitExpr.occursInResultOf(copied) ? copied : recordPrvalue(type, copied, source.range());
-                    }
-                    if (syntax.kind() == CppInitializer.Kind.DIRECT_PAREN) {
-                        return directClassConversion(type, value, source.range());
-                    }
+                if (syntax.kind()==CppInitializer.Kind.DIRECT_LIST || arguments.isEmpty()) {
+                    if(nonAggregate(owner)) report("CPP004",source.range(),"A non-aggregate class requires a viable constructor.");
+                    return aggregateObject(type,syntax,namespace,local,source.range());
                 }
-                if (hasReferenceSubobject(type, new HashSet<>())) {
-                    if (syntax.kind() != CppInitializer.Kind.DIRECT_LIST && !arguments.isEmpty())
-                        report("CPP004", source.range(), "A C++17 aggregate has no matching parenthesized constructor.");
-                    Expression initialized = initializer(type, aggregateReferenceList(new AggregateInitExpr(arguments, syntax.range())),
-                            namespace, local, source.range());
-                    return recordPrvalue(type, initialized, source.range());
+                if(arguments.size()==1) {
+                    Expression value=expression(arguments.getFirst(),namespace,local);
+                    MiniType actual=declaredExpressionType(value);
+                    if(actual!=null && type.unqualified().equals(actual.unqualified())) {
+                        Expression copied=copyInitialize(type,value,source.range(),syntax.kind());
+                        return ObjectInitExpr.occursInResultOf(copied)?copied:recordPrvalue(type,copied,source.range());
+                    }
+                    return directClassConversion(type,value,source.range());
                 }
-                String destination = freshName("construction");
-                Expression slot = typed(new UnaryExpr(TokenType.STAR,
-                        typed(new NameExpr(destination, source.range()), type.unqualified().pointerTo()), source.range()), type.unqualified());
-                List<Expression> actions = new ArrayList<>();
-                if (arguments.isEmpty()) {
-                    actions.add(new InitializeExpr(slot, new AggregateInitExpr(List.of(), syntax.range()), syntax.range()));
-                } else {
-                    if (syntax.kind() != CppInitializer.Kind.DIRECT_LIST) {
-                        report("CPP004", source.range(), "A C++17 aggregate has no matching parenthesized constructor.");
-                    }
-                    if (nonAggregate(owner) || owner.union) {
-                        report("CPP005", source.range(), "This record requires constructor or union initialization rules not supported yet.");
-                    }
-                    if (arguments.size() > owner.fields.size()) report("CPP004", syntax.range(), "Too many aggregate initializer elements.");
-                    for (int index = 0; index < owner.fields.size(); index++) {
-                        StructField field = owner.fields.get(index);
-                        if (field.type().isArray() || field.type().isStruct() || field.type().isReference()) {
-                            report("CPP005", source.range(), "Nested aggregate, array and reference element lists require member-wise initialization support.");
-                            continue;
-                        }
-                        Expression value = index < arguments.size() ? arguments.get(index) : null;
-                        CppInitializer fieldSyntax = value instanceof CppInitializer nested ? nested
-                                : new CppInitializer(CppInitializer.Kind.DIRECT_LIST, value == null ? List.of() : List.of(value),
-                                        value == null ? syntax.range() : value.range());
-                        Expression initialized = variableInitializer(field.type(), fieldSyntax, null, namespace, local, fieldSyntax.range());
-                        if (initialized != null) actions.add(new InitializeExpr(
-                                typed(new FieldAccessExpr(slot, field.name(), false, fieldSyntax.range()), field.type()), initialized, fieldSyntax.range()));
-                    }
-                }
-                Expression body = actions.isEmpty() ? new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", source.range()), source.range())
-                        : actions.size() == 1 ? actions.getFirst() : new CommaExpr(actions, source.range());
-                return typed(new ObjectInitExpr(coreType(type), destination, body, source.range()), type);
+                report("CPP004",source.range(),"A C++17 aggregate has no matching parenthesized constructor.");
+                return recordPrvalue(type,new AggregateInitExpr(List.of(),source.range()),source.range());
             }
             if (syntax.kind() == CppInitializer.Kind.DIRECT_LIST) {
                 return variableInitializer(type, syntax, null, namespace, local, source.range());
@@ -7362,15 +7330,89 @@ public final class CppNameBinder {
             }
         }
 
+        /** Each aggregate clause initializes its actual subobject, in declaration order. */
+        private Expression aggregateObject(MiniType target, CppInitializer syntax, Namespace namespace,
+                                           Local local, SourceRange range) {
+            TypeEntity owner=objectType(target);
+            List<Expression> arguments=syntax.arguments();
+            if (arguments.size()==1 && !isBraced(arguments.getFirst())) {
+                Expression only=expression(arguments.getFirst(),namespace,local);
+                MiniType actual=declaredExpressionType(only);
+                if (actual!=null && actual.unqualified().equals(target.unqualified()))
+                    return copyInitialize(target,only,range,syntax.kind());
+            }
+            int count=owner.union ? Math.min(1,owner.fields.size()) : owner.fields.size();
+            var clauses=arguments.listIterator();
+            String destination=freshName("aggregate_construction");
+            Expression pointer=typed(new NameExpr(destination,range),coreType(target).pointerTo());
+            List<Expression> actions=new ArrayList<>();
+            List<StructField> fields=owner.fields;
+            if (owner.union && arguments.isEmpty()) {
+                List<StructField> defaults=owner.fields.stream().filter(field->owner.defaultInitializers.containsKey(field.name())).toList();
+                if(!defaults.isEmpty()) fields=defaults;
+                count=Math.min(1,fields.size());
+            }
+            for(int index=0;index<count;index++) {
+                StructField field=fields.get(index);
+                Expression source=clauses.hasNext()?aggregateElementSource(field.type(),clauses,namespace,local):null;
+                if(source==null && owner.defaultInitializers.containsKey(field.name())) {
+                    Entity helper=owner.defaultInitializers.get(field.name());
+                    Expression self=typed(new CastExpr(owner.type.pointerTo(),pointer,range),owner.type.pointerTo());
+                    actions.add(typed(new CallExpr(new NameExpr(helper.coreName,range),List.of(self),range),MiniType.VOID));
+                    continue;
+                }
+                SourceRange at=source==null?range:source.range();
+                CppInitializer fieldSyntax;
+                if(source==null || isBraced(source)) fieldSyntax=new CppInitializer(CppInitializer.Kind.COPY_LIST,
+                        source==null?List.of():listItems(source),at);
+                else fieldSyntax=new CppInitializer(objectType(field.type())!=null
+                        ?CppInitializer.Kind.COPY:CppInitializer.Kind.COPY_LIST,List.of(source),at);
+                Expression value=variableInitializer(field.type(),fieldSyntax,null,namespace,local,at);
+                if(value!=null) {
+                    Expression object=typed(new UnaryExpr(TokenType.STAR,pointer,at),target);
+                    Expression slot=typed(new FieldAccessExpr(object,field.name(),false,at),coreType(field.type()));
+                    actions.add(typed(new InitializeExpr(slot,value,at),MiniType.VOID));
+                }
+            }
+            if(clauses.hasNext()) report("CPP004",clauses.next().range(),"Too many aggregate initializer elements.");
+            Expression body=actions.isEmpty()?new CastExpr(MiniType.VOID,new IntegerLiteralExpr(0,"0",range),range)
+                    :actions.size()==1?actions.getFirst():new CommaExpr(actions,range);
+            return typed(new ObjectInitExpr(coreType(target),destination,body,range),target);
+        }
+
+        /** Consume only the clauses belonging to this subaggregate ([dcl.init.aggr]/12-13). */
+        private Expression aggregateElementSource(MiniType target, java.util.ListIterator<Expression> clauses,
+                                                   Namespace namespace, Local local) {
+            Expression source=clauses.next();
+            if(isBraced(source) || target.isReference()) return source;
+            TypeEntity owner=objectType(target);
+            if(!target.isArray() && (owner==null || nonAggregate(owner) || owner.fields.isEmpty())) return source;
+            if(target.isArray() && source instanceof StringLiteralExpr literal && characterArrayElement(target,literal)) return source;
+            if(owner!=null) {
+                Expression bound=expression(source,namespace,local);
+                MiniType actual=declaredExpressionType(bound);
+                if(actual!=null) {
+                    var argument=new CppOverloadResolver.Argument(actual,valueCategory(bound),isNullIntegerLiteral(bound));
+                    if(standardViable(argument,target) || implicitUserConversion(null,argument,target)!=null) return source;
+                }
+            }
+            clauses.previous();
+            List<Expression> elements=new ArrayList<>();
+            int count=target.isArray()?target.arrayLength():owner.union?1:owner.fields.size();
+            for(int index=0;index<count && clauses.hasNext();index++) {
+                MiniType element=target.isArray()?elementType(target):owner.fields.get(index).type();
+                elements.add(aggregateElementSource(element,clauses,namespace,local));
+            }
+            return new CppInitializer(CppInitializer.Kind.COPY_LIST,elements,source.range());
+        }
+
         private Expression constructObject(MiniType target, CppInitializer syntax, Namespace namespace, Local local, SourceRange range) {
             TypeEntity owner = objectType(target);
             List<Expression> arguments = syntax.arguments();
             boolean list = isList(syntax);
             if (list && initializerListElement(target) != null)
                 return initializeList(target, syntax, namespace, local, range);
-            if (list && !arguments.isEmpty() && !nonAggregate(owner)) {
-                report("CPP005", range, "Nonempty aggregate lists with default member initialization require member-wise list binding.");
-            }
+            if (list && !nonAggregate(owner)) return aggregateObject(target, syntax, namespace, local, range);
             PreparedArguments prepared = prepareArguments(arguments, namespace, local);
             if (syntax.kind() == CppInitializer.Kind.COPY && arguments.size() == 1 && prepared.values.getFirst() != null) {
                 Expression value = prepared.values.getFirst();
@@ -7787,6 +7829,9 @@ public final class CppNameBinder {
             }
             TypeEntity object = objectType(type);
             if (object == null || !visited.add(object.canonicalName)) return false;
+            // An empty class is const-default-constructible: there is no scalar subobject
+            // that an implicit default constructor would leave uninitialized.
+            if (object.fields.isEmpty()) return false;
             if ((!valueInitialization || nonAggregate(object)) && hasConstSubobject(type, new HashSet<>())) return true;
             List<StructField> fields = object.union && !object.fields.isEmpty() ? List.of(object.fields.getFirst()) : object.fields;
             return fields.stream().anyMatch(field -> needsConstConstructionRules(field.type(), valueInitialization, visited));
