@@ -20,7 +20,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Construction syntax remains source-only until executable constructor binding is implemented. */
+/** Construction grammar keeps source identity before normalization into executable initialization. */
 @Timeout(10)
 class CppConstructorParserTest {
     @Test void constructorPrototypesAndDefinitionsKeepAccessOrderAndNoReturnType() {
@@ -212,12 +212,11 @@ class CppConstructorParserTest {
 
     @ParameterizedTest @ValueSource(strings = {"struct Box { Box(); };", "struct Box { Box() {} };",
             "struct Box { int value = 1; };", "struct Box { Box(); }; Box::Box(){}"})
-    void parsedConstructionStillHasAnExplicitSemanticExecutionGuard(String declaration) {
+    void parsedConstructionBindsWhileRetainingItsSourceSyntax(String declaration) {
         var parser = successful(declaration + " int main(){return 0;}");
         var semantic = new SemanticAnalyzer(parser.result().program());
         semantic.analyze();
-        assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("CPP005")), () -> semantic.errors().toString());
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
         assertTrue(nodes(parser.result().program()).stream().anyMatch(n -> n instanceof ConstructorMember || n instanceof CppInitializer));
     }
 

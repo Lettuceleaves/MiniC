@@ -21,7 +21,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Source contracts for construction. Execution is deliberately rejected until F06b. */
+/** Source contracts for construction and normalization into ordinary core functions. */
 class CppConstructorAstTest {
     private static final SourceRange RANGE = new SourceRange(2, 0, 2, 50);
     private static final SourceRange NAME = new SourceRange(2, 4, 2, 10);
@@ -102,14 +102,17 @@ class CppConstructorAstTest {
     @Test void unusedConstructorsAndDefaultMemberInitializersCannotSilentlyDisappear() {
         var constructor = constructor(List.of(), List.of(), new BlockStmt(List.of(), RANGE));
         var field = new FieldMember(new StructField("first", MiniType.INT, RANGE), member("first", 1).initializer());
-        for (Declaration declaration : List.of(record(List.of(constructor)), record(List.of(field)),
-                new OutOfLineConstructorDecl(name("Box", "Box"), constructor, NAME))) {
+        for (Declaration declaration : List.of(record(List.of(constructor)), record(List.of(field)))) {
             var source = program(LanguageMode.CPP17_ALGORITHM, declaration);
             var binding = CppNameBinder.bind(source);
-            assertTrue(binding.diagnostics().stream().anyMatch(d -> d.code().equals("CPP005")),
-                    () -> "Unimplemented construction accepted: " + declaration);
-            assertFalse(analyze(source).succeeded());
+            assertTrue(binding.diagnostics().isEmpty(), () -> binding.diagnostics().toString());
+            assertTrue(binding.program().functions().size() > 1, "Construction must retain executable initialization functions");
+            assertNull(AstChildren.firstCppSyntax(binding.program()));
+            assertTrue(analyze(source).succeeded());
         }
+        var missingOwner = CppNameBinder.bind(program(LanguageMode.CPP17_ALGORITHM,
+                new OutOfLineConstructorDecl(name("Box", "Box"), constructor, NAME)));
+        assertTrue(missingOwner.diagnostics().stream().anyMatch(d -> d.code().equals("CPP003")));
     }
 
     @ParameterizedTest @EnumSource(Kind.class)

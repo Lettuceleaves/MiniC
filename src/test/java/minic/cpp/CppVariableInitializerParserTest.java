@@ -109,12 +109,14 @@ class CppVariableInitializerParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {"(1)", "{1}", "(1,2)", "{}"})
-    void newlyParsedObjectConstructionCannotSilentlyUseCAggregateSemantics(String initializer) {
+    void scalarDirectInitializationBindsButRejectsMultipleArguments(String initializer) {
         var parser = successful("int main(){int value" + initializer + ";return 0;}");
         var semantic = new SemanticAnalyzer(parser.result().program());
         semantic.analyze();
-        assertFalse(semantic.succeeded());
-        assertTrue(semantic.errors().stream().anyMatch(error -> error.code().equals("CPP005")), () -> semantic.errors().toString());
+        if (initializer.equals("(1,2)")) {
+            assertFalse(semantic.succeeded());
+            assertTrue(semantic.errors().stream().anyMatch(error -> error.code().equals("CPP004")), () -> semantic.errors().toString());
+        } else assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
     }
 
     @Test void existingCopyFormsAndReferenceFormsStillExecuteAcrossThreeBackends() throws Exception {

@@ -5,6 +5,7 @@ import minic.compiler.Diagnostic;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.parser.node.AstChildren;
 import minic.compiler.parser.node.AstNode;
+import minic.compiler.parser.node.CppInitializer;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.Declaration.*;
 import minic.compiler.parser.node.Expression;
@@ -71,6 +72,10 @@ public final class CppNameBinder {
         List<StructField> fields = List.of();
         final Map<StructField, Access> fieldAccess = new IdentityHashMap<>();
         final Map<String, MethodSet> methods = new LinkedHashMap<>();
+        StructDecl sourceRecord;
+        final List<Constructor> constructors = new ArrayList<>();
+        final Map<String, Entity> defaultInitializers = new LinkedHashMap<>();
+        Constructor aggregateInitializer;
 
         TypeEntity(String name, String canonicalName, MiniType type, boolean classType,
                    boolean union, Namespace owner, boolean complete) {
@@ -91,6 +96,9 @@ public final class CppNameBinder {
     private record MethodSet(List<Method> methods) implements Candidate {
         MethodSet { methods = List.copyOf(methods); }
     }
+
+    private record Constructor(TypeEntity owner, ConstructorMember source, Access access, Entity function,
+                               List<MiniType> parameterTypes, boolean implicit) { }
 
     private record ImplicitField(TypeEntity owner, String name) implements Candidate { }
 
@@ -153,6 +161,7 @@ public final class CppNameBinder {
         private final IdentityHashMap<Expression, MiniType> declaredExpressionTypes = new IdentityHashMap<>();
         private final IdentityHashMap<Expression, CppValueCategory> valueCategories = new IdentityHashMap<>();
         private final Set<Expression> temporaryAddressPaths = Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Map<Entity, List<Diagnostic>> deletedConstructors = new IdentityHashMap<>();
         private final List<Declaration> declarations = new ArrayList<>();
         private final List<StructDecl> structs = new ArrayList<>();
         private final List<EnumDecl> enums = new ArrayList<>();
@@ -193,6 +202,7 @@ public final class CppNameBinder {
                     case GlobalVarDecl node -> bindGlobal(node, namespace);
                     case FunctionDecl node -> bindFunction(node, namespace);
                     case OutOfLineMethodDecl node -> bindOutOfLineMethod(node, namespace);
+                    case OutOfLineConstructorDecl node -> bindOutOfLineConstructor(node, namespace);
                     case StructDecl node -> bindStruct(node, namespace);
                     case TypedefDecl node -> {
                         MiniType type = normalizeType(node.type(), namespace, null, node.range());
@@ -240,26 +250,25 @@ public final class CppNameBinder {
             if (node.definition() && entity.complete) report("CPP004", node.range(), "重复类型定义：" + entity.canonicalName);
             Map<StructField, Access> access = new IdentityHashMap<>();
             Map<MethodMember, Access> methodAccess = new IdentityHashMap<>();
+            Map<ConstructorMember, Access> constructorAccess = new IdentityHashMap<>();
             if (node.cppInfo() != null) {
                 Access current = node.cppInfo().key() == RecordKey.CLASS ? Access.PRIVATE : Access.PUBLIC;
                 for (CppMember member : node.cppInfo().members()) {
                     if (member instanceof AccessLabel label) current = label.access();
                     else if (member instanceof FieldMember field) {
                         access.put(field.field(), current);
-                        if (field.defaultInitializer() != null) report("CPP005", field.defaultInitializer().range(),
-                                "默认成员初始化的构造语义尚未实现。");
                     }
                     else if (member instanceof MethodMember method) methodAccess.put(method, current);
-                    else if (member instanceof DestructorMember destructor) report("CPP005", destructor.nameRange(), "析构函数执行和对象生命周期清理尚未实现。");
-                    else if (member instanceof ConstructorMember constructor) report("CPP005", constructor.nameRange(),
-                            "构造函数执行和成员初始化尚未实现。");
+                    else if (member instanceof ConstructorMember constructor) constructorAccess.put(constructor, current);
+                    else if (member instanceof DestructorMember destructor) report("CPP005", destructor.nameRange(),
+                            "析构函数执行和对象生命周期清理尚未实现。");
+                    else report("CPP005", member.range(), "This C++ record member is not supported yet: " + member.getClass().getSimpleName());
                 }
             }
             List<StructField> fields = new ArrayList<>();
             List<StructField> sourceFields = new ArrayList<>();
             for (StructField field : node.fields()) {
                 MiniType type = normalizeType(field.type(), namespace, null, field.range());
-                if (type.isReference()) report("CPP005", field.range(), "引用数据成员的初始化和特殊成员语义尚未实现。");
                 requireComplete(type, field.range());
                 StructField coreField = mapped(field, new StructField(field.name(), coreType(type), field.anonymous(),
                         normalizeAlignments(field.alignmentSpecs(), namespace, null), field.range()));
@@ -274,19 +283,241 @@ public final class CppNameBinder {
             StructDecl core = mapped(node, new StructDecl(((MiniType.StructType) entity.type).name(),
                     fields, node.definition(), node.union(), node.range()));
             entity.complete |= node.definition();
-            if (node.definition()) entity.fields = List.copyOf(sourceFields);
+            if (node.definition()) {
+                entity.fields = List.copyOf(sourceFields);
+                entity.sourceRecord = node;
+            }
             structs.add(core); declarations.add(core);
             if (node.cppInfo() != null && node.definition()) {
                 List<Method> methods = new ArrayList<>();
+                List<Constructor> constructors = new ArrayList<>();
                 for (CppMember member : node.cppInfo().members()) {
                     if (member instanceof MethodMember method) {
                         Method registered = declareMethod(entity, method, methodAccess.get(method), namespace);
                         if (registered != null) methods.add(registered);
+                    } else if (member instanceof ConstructorMember constructor) {
+                        Constructor registered = declareConstructor(entity, constructor, constructorAccess.get(constructor), false);
+                        if (registered != null) constructors.add(registered);
                     }
                 }
+                for (CppMember member : node.cppInfo().members()) {
+                    if (member instanceof FieldMember field && field.defaultInitializer() != null) bindDefaultMember(entity, field);
+                }
+                if (constructors.isEmpty() && needsConstruction(entity)) {
+                    ConstructorMember synthetic = new ConstructorMember(entity.name, List.of(), false, List.of(),
+                            new BlockStmt(List.of(), node.range()), node.range(), node.range());
+                    Constructor registered = declareConstructor(entity, synthetic, Access.PUBLIC, true);
+                    if (registered != null) constructors.add(registered);
+                }
                 // Complete-class lookup applies to bodies, without exposing later namespace declarations.
+                for (Constructor constructor : constructors) bindConstructor(constructor);
+                if (entity.constructors.size() == 1 && entity.constructors.getFirst().implicit && !nonAggregate(entity)) {
+                    Constructor original = entity.constructors.getFirst();
+                    Entity function = new Entity(entity.name, freshName(entity.canonicalName.substring(2) + "::" + entity.name),
+                            Kind.FUNCTION, namespace, original.function.type, null, true);
+                    coreValues.put(function.coreName, function);
+                    entity.aggregateInitializer = new Constructor(entity, original.source, Access.PUBLIC, function, List.of(), true);
+                    bindConstructor(entity.aggregateInitializer, true);
+                }
                 for (Method method : methods) bindMethod(method, namespace);
             }
+        }
+
+        private boolean needsConstruction(TypeEntity owner) {
+            return needsConstruction(owner, new HashSet<>());
+        }
+
+        private boolean needsConstruction(TypeEntity owner, Set<TypeEntity> visited) {
+            if (!visited.add(owner)) return false;
+            return !owner.constructors.isEmpty() || !owner.defaultInitializers.isEmpty()
+                    || owner.fields.stream().anyMatch(field -> needsConstructedType(field.type(), visited));
+        }
+
+        private boolean needsConstructedType(MiniType type) {
+            return needsConstructedType(type, new HashSet<>());
+        }
+
+        private boolean needsConstructedType(MiniType type, Set<TypeEntity> visited) {
+            if (type.isArray()) return needsConstructedType(type.elementType(), visited);
+            TypeEntity nested = objectType(type);
+            return nested != null && needsConstruction(nested, visited);
+        }
+
+        private Constructor declareConstructor(TypeEntity owner, ConstructorMember member, Access access, boolean implicit) {
+            if (owner.union) {
+                report("CPP005", member.nameRange(), "Union construction is not supported yet.");
+                return null;
+            }
+            List<MiniType> parameters = member.parameters().stream()
+                    .map(p -> normalizeType(p.type(), owner.owner, null, p.range())).toList();
+            if (parameters.size() == 1 && parameters.getFirst().unqualified().equals(owner.type)) {
+                report("CPP004", member.nameRange(), "A constructor cannot take its own class as its only by-value parameter.");
+                return null;
+            }
+            if (parameters.size() == 1 && parameters.getFirst().isReference()
+                    && parameters.getFirst().referent().unqualified().equals(owner.type)) {
+                report("CPP005", member.nameRange(), "User-declared copy constructors require special member semantics.");
+            }
+            List<MiniType> signatureParameters = new ArrayList<>();
+            signatureParameters.add(owner.type.pointerTo());
+            parameters.stream().map(MiniType::unqualified).forEach(signatureParameters::add);
+            MiniType signature = MiniType.function(MiniType.VOID, signatureParameters, member.variadic());
+            for (Constructor previous : owner.constructors) {
+                if (previous.function.type.equals(signature)) {
+                    report("CPP004", member.nameRange(), "Duplicate constructor declaration: " + owner.canonicalName);
+                    return null;
+                }
+            }
+            Entity function = new Entity(owner.name, freshName(owner.canonicalName.substring(2) + "::" + owner.name),
+                    Kind.FUNCTION, owner.owner, signature, null, member.body() != null);
+            coreValues.put(function.coreName, function);
+            Constructor constructor = new Constructor(owner, member, access, function, parameters, implicit);
+            owner.constructors.add(constructor);
+            return constructor;
+        }
+
+        private void bindOutOfLineConstructor(OutOfLineConstructorDecl node, Namespace namespace) {
+            QualifiedName path = node.qualifiedName();
+            TypeEntity owner = resolveMethodOwner(new QualifiedName(path.global(),
+                    path.segments().subList(0, path.segments().size() - 1), path.range()), namespace);
+            if (owner == null) return;
+            boolean enclosing = false;
+            for (Namespace at = owner.owner; at != null; at = at.parent) enclosing |= at == namespace;
+            if (!enclosing || node.constructor().body() == null) {
+                report("CPP004", node.nameRange(), "A constructor definition must be in its enclosing namespace and have a body.");
+                return;
+            }
+            List<MiniType> parameters = node.constructor().parameters().stream()
+                    .map(p -> normalizeType(p.type(), owner.owner, null, p.range())).toList();
+            Constructor previous = owner.constructors.stream().filter(c -> c.source.variadic() == node.constructor().variadic()
+                    && c.parameterTypes.stream().map(MiniType::unqualified).toList()
+                    .equals(parameters.stream().map(MiniType::unqualified).toList())).findFirst().orElse(null);
+            if (previous == null || previous.function.defined) {
+                report("CPP004", node.nameRange(), previous == null ? "No matching constructor declaration." : "Duplicate constructor definition.");
+                return;
+            }
+            previous.function.defined = true;
+            bindConstructor(new Constructor(owner, node.constructor(), previous.access, previous.function, parameters, false));
+        }
+
+        private Entity constructorThis(TypeEntity owner, SourceRange range) {
+            Entity self = new Entity("this", freshName("this"), Kind.VARIABLE, null, owner.type.pointerTo(), null, true);
+            coreValues.put(self.coreName, self);
+            return self;
+        }
+
+        /** DMI lookup belongs to the complete class, never to constructor parameter/definition scope. */
+        private void bindDefaultMember(TypeEntity owner, FieldMember member) {
+            Entity self = constructorThis(owner, member.range());
+            Entity function = new Entity(member.field().name(), freshName(owner.canonicalName.substring(2) + "::" + member.field().name() + "$init"),
+                    Kind.FUNCTION, owner.owner, MiniType.function(MiniType.VOID, List.of(owner.type.pointerTo()), false), null, true);
+            coreValues.put(function.coreName, function);
+            owner.defaultInitializers.put(member.field().name(), function);
+            TypeEntity savedClass = currentClass;
+            Entity savedThis = currentThis;
+            MiniType savedReturn = currentReturnType;
+            currentClass = owner; currentThis = self; currentReturnType = MiniType.VOID;
+            try {
+                int index = owner.sourceRecord.fields().indexOf(member.field());
+                StructField field = owner.fields.get(index);
+                Local scope = new Local(null, owner.owner);
+                Expression action = initializeField(owner, field, member.defaultInitializer(), scope, member.range());
+                BlockStmt body = new BlockStmt(action == null ? List.of() : List.of(new ExprStmt(action, member.range())), member.range());
+                FunctionDecl core = new FunctionDecl(function.coreName, MiniType.VOID,
+                        List.of(new Parameter(self.coreName, self.type, member.range())), false, body, false, member.range());
+                functions.add(core); declarations.add(core);
+            } finally { currentClass = savedClass; currentThis = savedThis; currentReturnType = savedReturn; }
+        }
+
+        private void bindConstructor(Constructor constructor) {
+            bindConstructor(constructor, false);
+        }
+
+        private void bindConstructor(Constructor constructor, boolean aggregateList) {
+            TypeEntity owner = constructor.owner;
+            ConstructorMember original = constructor.source;
+            Local scope = new Local(null, owner.owner);
+            Entity self = constructorThis(owner, original.nameRange());
+            List<Parameter> parameters = new ArrayList<>();
+            parameters.add(new Parameter(self.coreName, self.type, original.nameRange()));
+            for (int index = 0; index < original.parameters().size(); index++) {
+                Parameter sourceParameter = original.parameters().get(index);
+                MiniType type = constructor.parameterTypes.get(index);
+                Entity value = declareLocal(sourceParameter.name(), type, scope, sourceParameter.range());
+                parameters.add(mapped(sourceParameter, new Parameter(value.coreName, coreType(type), sourceParameter.range())));
+            }
+            TypeEntity savedClass = currentClass;
+            Entity savedThis = currentThis;
+            MiniType savedReturn = currentReturnType;
+            currentClass = owner; currentThis = self; currentReturnType = MiniType.VOID;
+            int diagnosticStart = diagnostics.size();
+            try {
+                BlockStmt body = null;
+                if (original.body() != null) {
+                    var plan = CppMemberInitializationPlan.plan(owner.sourceRecord, original);
+                    diagnostics.addAll(plan.diagnostics());
+                    List<Statement> statements = new ArrayList<>();
+                    for (var entry : plan.entries()) {
+                        StructField field = owner.fields.get(owner.sourceRecord.fields().indexOf(entry.field()));
+                        Expression action;
+                        if (entry.origin() == CppMemberInitializationPlan.Origin.DEFAULT_MEMBER) {
+                            Entity helper = owner.defaultInitializers.get(field.name());
+                            action = typed(new CallExpr(new NameExpr(helper.coreName, entry.source().range()),
+                                    List.of(thisValue(entry.source().range())), entry.source().range()), MiniType.VOID);
+                        } else {
+                            SourceRange range = entry.origin() == CppMemberInitializationPlan.Origin.DEFAULT
+                                    ? original.nameRange() : entry.source().range();
+                            CppInitializer syntax = aggregateList && entry.origin() == CppMemberInitializationPlan.Origin.DEFAULT
+                                    ? new CppInitializer(CppInitializer.Kind.DIRECT_LIST, List.of(), range) : entry.initializer();
+                            action = initializeField(owner, field, syntax, scope, range);
+                            if (action != null && entry.origin() == CppMemberInitializationPlan.Origin.EXPLICIT) mapped(entry.source(), action);
+                        }
+                        if (action != null) statements.add(new ExprStmt(action, action.range()));
+                    }
+                    statements.addAll(block(original.body(), scope, false).statements());
+                    body = new BlockStmt(statements, original.body().range());
+                }
+                if (constructor.implicit && diagnostics.size() > diagnosticStart) {
+                    deletedConstructors.put(constructor.function, List.copyOf(diagnostics.subList(diagnosticStart, diagnostics.size())));
+                    diagnostics.subList(diagnosticStart, diagnostics.size()).clear();
+                    constructor.function.defined = false;
+                    body = null;
+                }
+                FunctionDecl core = mapped(original, new FunctionDecl(constructor.function.coreName, MiniType.VOID,
+                        parameters, original.variadic(), body, false, original.range()));
+                functions.add(core); declarations.add(core);
+            } finally { currentClass = savedClass; currentThis = savedThis; currentReturnType = savedReturn; }
+        }
+
+        private Expression initializeField(TypeEntity owner, StructField field, CppInitializer initialization, Local scope, SourceRange range) {
+            Expression value = variableInitializer(field.type(), initialization, null, owner.owner, scope, range);
+            if (value == null) return null;
+            if (field.type().isArray() || value instanceof AggregateInitExpr aggregate && !aggregate.values().isEmpty()) {
+                report("CPP005", range, "Array or nonempty aggregate member initialization requires subobject initialization support.");
+                return null;
+            }
+            if (field.type().isReference() && refersToTemporaryStorage(value)) {
+                report("CPP004", range, "A reference data member cannot bind to a temporary in a constructor initializer.");
+            }
+            Expression slot = typed(new FieldAccessExpr(thisValue(range), field.name(), true, range), coreType(field.type()));
+            return typed(new InitializeExpr(slot, value, range), MiniType.VOID);
+        }
+
+        private boolean refersToTemporaryStorage(Expression value) {
+            return switch (value) {
+                case MaterializeExpr ignored -> true;
+                case GroupingExpr group -> refersToTemporaryStorage(group.expression());
+                case UnaryExpr unary when unary.operator() == TokenType.AMPERSAND || temporaryAddressPaths.contains(unary) ->
+                        refersToTemporaryStorage(unary.operand());
+                case FieldAccessExpr field when !field.viaPointer() -> refersToTemporaryStorage(field.target());
+                case IndexExpr index when declaredExpressionType(index.target()) != null && declaredExpressionType(index.target()).isArray() ->
+                        refersToTemporaryStorage(index.target());
+                case CommaExpr comma -> refersToTemporaryStorage(comma.expressions().getLast());
+                case ConditionalExpr conditional -> refersToTemporaryStorage(conditional.thenExpression()) || refersToTemporaryStorage(conditional.elseExpression());
+                case CastExpr cast when cast.operand() instanceof UnaryExpr unary && unary.operator() == TokenType.AMPERSAND ->
+                        refersToTemporaryStorage(cast.operand());
+                default -> false;
+            };
         }
 
         private Method declareMethod(TypeEntity owner, MethodMember member, Access access, Namespace namespace) {
@@ -604,6 +835,9 @@ public final class CppNameBinder {
                     "尚未支持命名空间中的外部对象链接：" + namespace.qualify(node.name()));
             MiniType type = normalizeType(node.type(), namespace, null, node.range());
             if (type.isReference()) report("CPP005", node.range(), "全局引用的静态地址初始化尚未实现。");
+            if ((!node.external() || node.initializer() != null) && needsConstructedType(type)) {
+                report("CPP005", node.range(), "Global object construction requires dynamic initialization support.");
+            }
             if (!node.external() || node.initializer() != null) requireComplete(type, node.range());
             Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, type,
                     !node.external() || node.initializer() != null, namespace, node.range());
@@ -796,7 +1030,7 @@ public final class CppNameBinder {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
                     requireComplete(type, n.range());
                     Entity value = declareLocal(n.name(), type, scope, n.range());
-                    Expression initialized = initializer(type, n.initializer(), namespace, scope, n.range());
+                    Expression initialized = variableInitializer(type, n.cppInitializer(), n.initializer(), namespace, scope, n.range());
                     if (type.isReference() && initialized != null) {
                         initialized = extendTemporaryLifetime(initialized,
                                 new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, n));
@@ -887,7 +1121,8 @@ public final class CppNameBinder {
                         report("CPP004", n.target().range(), "内置赋值要求可修改的左值，临时对象的标量子对象不是左值。");
                     }
                     requireComplete(targetType, n.range());
-                    if (objectType(targetType) != null && hasConstSubobject(targetType, new HashSet<>())) {
+                    if (objectType(targetType) != null && (hasConstSubobject(targetType, new HashSet<>())
+                            || hasReferenceSubobject(targetType, new HashSet<>()))) {
                         report("CPP005", n.range(), "尚未支持含 const 子对象的整体赋值所需的特殊成员函数规则。");
                     }
                     if (n.operator() == TokenType.PLUS_EQUAL || n.operator() == TokenType.MINUS_EQUAL) {
@@ -1014,8 +1249,10 @@ public final class CppNameBinder {
                     if (methods != null) {
                         report("CPP005", n.range(), "成员函数只能作为调用目标使用；尚未支持成员函数指针：" + n.fieldName());
                     } else requireAccessible(owner, n.fieldName(), n.range(), "数据成员访问");
-                    Expression field = new FieldAccessExpr(target, n.fieldName(), n.viaPointer(), n.range());
-                    valueCategories.put(field, n.viaPointer() ? CppValueCategory.LVALUE : valueCategory(target));
+                    Expression field = fieldReference(target, n.fieldName(), n.viaPointer(), owner, n.range());
+                    MiniType memberType = declaredFieldType(owner, n.fieldName(), new HashSet<>());
+                    valueCategories.put(field, n.viaPointer() || memberType != null && memberType.isReference()
+                            ? CppValueCategory.LVALUE : valueCategory(target));
                     yield field;
                 }
                 case GroupingExpr n -> new GroupingExpr(expression(n.expression(), namespace, local, addressDemand), n.range());
@@ -1207,7 +1444,7 @@ public final class CppNameBinder {
             Candidate candidate = lookupName(name, namespace, local, range);
             if (candidate instanceof ImplicitField field) {
                 requireAccessible(currentThis.type.pointee(), name, range, "数据成员访问");
-                return new FieldAccessExpr(thisValue(range), name, true, range);
+                return fieldReference(thisValue(range), name, true, currentThis.type.pointee(), range);
             }
             if (candidate instanceof MethodSet methods) {
                 report("CPP005", range, "成员函数只能作为调用目标使用；尚未支持成员函数指针：" + name);
@@ -1306,6 +1543,10 @@ public final class CppNameBinder {
                 Candidate candidate = designator instanceof QualifiedNameExpr qualified
                         ? resolveQualifiedName(qualified.name(), namespace, local)
                         : lookupName(sourceName, namespace, local, designator.range());
+                if (candidate instanceof TypeEntity type && type.classType) {
+                    report("CPP005", designator.range(), "Functional construction expressions are not supported in this slice.");
+                    return new BoundCallee(new NameExpr(fallbackName, designator.range()), null);
+                }
                 if (candidate instanceof OverloadSet set && set.functions.size() > 1) {
                     return bindOverloadedCall(set, sourceCallee, designator, sourceArguments, namespace, local);
                 }
@@ -1316,7 +1557,7 @@ public final class CppNameBinder {
                     Expression core;
                     if (candidate instanceof ImplicitField field) {
                         requireAccessible(currentThis.type.pointee(), field.name, designator.range(), "数据成员访问");
-                        core = new FieldAccessExpr(thisValue(designator.range()), field.name, true, designator.range());
+                        core = fieldReference(thisValue(designator.range()), field.name, true, currentThis.type.pointee(), designator.range());
                     } else core = reference(fallbackName, designator.range(), requireValue(candidate, fallbackName, designator.range()));
                     return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
                 }
@@ -1329,7 +1570,7 @@ public final class CppNameBinder {
                 methods = memberMethods(owner, field.fieldName());
                 if (methods == null) {
                     requireAccessible(owner, field.fieldName(), field.range(), "数据成员访问");
-                    Expression core = new FieldAccessExpr(target, field.fieldName(), field.viaPointer(), field.range());
+                    Expression core = fieldReference(target, field.fieldName(), field.viaPointer(), owner, field.range());
                     return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
                 }
                 if (field.viaPointer()) receiver = target;
@@ -1722,7 +1963,133 @@ public final class CppNameBinder {
         }
 
         private boolean nonAggregate(TypeEntity type) {
-            return type != null && type.fields.stream().anyMatch(f -> type.fieldAccess.getOrDefault(f, Access.PUBLIC) != Access.PUBLIC);
+            return type != null && (type.constructors.stream().anyMatch(c -> !c.implicit)
+                    || type.fields.stream().anyMatch(f -> type.fieldAccess.getOrDefault(f, Access.PUBLIC) != Access.PUBLIC));
+        }
+
+        private Expression fieldReference(Expression receiver, String name, boolean arrow, MiniType owner, SourceRange range) {
+            Expression field = new FieldAccessExpr(receiver, name, arrow, range);
+            MiniType type = declaredFieldType(owner, name, new HashSet<>());
+            if (type == null || !type.isReference()) return field;
+            typed(field, coreType(type));
+            return typed(new UnaryExpr(TokenType.STAR, field, range), type.referent());
+        }
+
+        private Expression variableInitializer(MiniType target, CppInitializer syntax, Expression legacy,
+                                               Namespace namespace, Local local, SourceRange range) {
+            if (syntax == null) return initializer(target, legacy, namespace, local, range);
+            List<Expression> arguments = syntax.arguments();
+            boolean list = syntax.kind() == CppInitializer.Kind.DIRECT_LIST || syntax.kind() == CppInitializer.Kind.COPY_LIST;
+            if (target.isReference()) {
+                Expression argument = legacy != null && !(legacy instanceof CppInitializer) ? legacy
+                        : arguments.size() == 1 ? arguments.getFirst() : null;
+                if (list && !(argument instanceof AggregateInitExpr)) argument = new AggregateInitExpr(arguments, syntax.range());
+                return bindReference(target, argument, namespace, local, range);
+            }
+            TypeEntity object = objectType(target);
+            if (object != null && needsConstruction(object)) {
+                Expression value = constructObject(target, syntax, namespace, local, range);
+                return initializerMapping(syntax, value);
+            }
+            if (object != null || target.isArray()) {
+                if (target.isArray() && needsConstructedType(target)) {
+                    report("CPP005", range, "Array element construction is not supported in this slice.");
+                    return null;
+                }
+                if (syntax.kind() == CppInitializer.Kind.DIRECT_PAREN) {
+                    report("CPP005", syntax.range(), "Parenthesized aggregate initialization requires a constructor in C++17.");
+                    return arguments.isEmpty() ? null : expression(arguments.getFirst(), namespace, local);
+                }
+                if (object != null && object.fields.stream().anyMatch(field -> field.type().isReference())) {
+                    report("CPP005", range, "Aggregate initialization of reference data members is not supported yet.");
+                }
+                Expression source = syntax.kind() == CppInitializer.Kind.DEFAULT ? null
+                        : list ? legacy instanceof AggregateInitExpr ? legacy : new AggregateInitExpr(arguments, syntax.range()) : arguments.getFirst();
+                return initializer(target, source, namespace, local, range);
+            }
+            if (syntax.kind() == CppInitializer.Kind.DEFAULT) {
+                if (target.isConstQualified()) report("CPP004", range, "A const scalar data member requires initialization.");
+                return null;
+            }
+            if (arguments.isEmpty()) return typed(new CastExpr(coreType(target.unqualified()),
+                    new IntegerLiteralExpr(0, "0", syntax.range()), syntax.range()), target.unqualified());
+            if (arguments.size() != 1) {
+                report("CPP004", syntax.range(), "Scalar initialization requires exactly one value.");
+                return expression(arguments.getFirst(), namespace, local);
+            }
+            Expression value = expressionForTarget(target, arguments.getFirst(), namespace, local);
+            if (list) requireNonNarrowing(target, value, arguments.getFirst().range());
+            return initializerMapping(syntax, convertCallValue(target.unqualified(), value, arguments.getFirst()));
+        }
+
+        private Expression initializerMapping(CppInitializer syntax, Expression value) {
+            return mapped(syntax, typed(new GroupingExpr(value, syntax.range()), declaredExpressionType(value)));
+        }
+
+        private void requireNonNarrowing(MiniType target, Expression value, SourceRange range) {
+            MiniType actual = declaredExpressionType(value);
+            if (actual == null) return;
+            if (target.isReference()) target = target.referent();
+            if (target.unqualified().equals(MiniType.BOOL) && (actual.isPointer() || actual.isArray())) {
+                report("CPP004", range, "List initialization cannot narrow a pointer to bool.");
+                return;
+            }
+            if (!target.isScalar() || !actual.isScalar()) return;
+            switch (CppListNarrowing.check(actual, target, literalNumericValue(value))) {
+                case NARROWING -> report("CPP004", range, "List initialization requires a non-narrowing conversion.");
+                case NEEDS_CONSTANT -> report("CPP005", range, "This list conversion requires constant-expression evaluation not supported yet.");
+                default -> { }
+            }
+        }
+
+        private Expression constructObject(MiniType target, CppInitializer syntax, Namespace namespace, Local local, SourceRange range) {
+            TypeEntity owner = objectType(target);
+            List<Expression> arguments = syntax.arguments();
+            boolean list = syntax.kind() == CppInitializer.Kind.DIRECT_LIST || syntax.kind() == CppInitializer.Kind.COPY_LIST;
+            if (list && !arguments.isEmpty() && !nonAggregate(owner)) {
+                report("CPP005", range, "Nonempty aggregate lists with default member initialization require member-wise list binding.");
+            }
+            PreparedArguments prepared = prepareArguments(arguments, namespace, local);
+            // The implicit trivial copy constructor is available alongside ordinary constructors.
+            if (arguments.size() == 1 && prepared.values.getFirst() != null) {
+                Expression value = prepared.values.getFirst();
+                MiniType sourceType = declaredExpressionType(value);
+                if (sourceType != null && target.unqualified().equals(sourceType.unqualified())) {
+                    boolean userCopy = owner.constructors.stream().anyMatch(c -> c.parameterTypes.size() == 1
+                            && c.parameterTypes.getFirst().isReference()
+                            && c.parameterTypes.getFirst().referent().unqualified().equals(target.unqualified()));
+                    if (!userCopy) {
+                        if (sourceType.isVolatileQualified()) report("CPP004", range, "The implicit copy constructor cannot bind a volatile source object.");
+                        return value;
+                    }
+                }
+            }
+            List<CppOverloadResolver.Candidate<Constructor>> candidates = owner.constructors.stream()
+                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
+            Constructor selected = selectOverload(candidates, new NameExpr(owner.name, range), arguments, prepared, null);
+            if (selected == null) return typed(new ObjectInitExpr(coreType(target), freshName("construction"),
+                    new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", range), range), range), target);
+            if (list && arguments.isEmpty() && selected.implicit && owner.aggregateInitializer != null) selected = owner.aggregateInitializer;
+            if (selected.access != Access.PUBLIC && currentClass != owner) {
+                report("CPP004", range, "Constructor is not accessible: " + owner.canonicalName);
+            }
+            if (deletedConstructors.containsKey(selected.function)) {
+                Diagnostic reason = deletedConstructors.get(selected.function).getFirst();
+                report(reason.code().equals("CPP005") ? "CPP005" : "CPP004", range, "The implicit default constructor is unavailable: " + reason.message());
+            }
+            if (list) for (int index = 0; index < arguments.size() && index < selected.parameterTypes.size(); index++) {
+                if (prepared.values.get(index) != null) requireNonNarrowing(selected.parameterTypes.get(index), prepared.values.get(index), arguments.get(index).range());
+            }
+            List<Expression> lowered = new ArrayList<>();
+            String destination = freshName("construction");
+            lowered.add(typed(new NameExpr(destination, range), owner.type.pointerTo()));
+            lowered.addAll(lowerSelectedArguments(selected.parameterTypes, arguments, prepared.values, namespace, local));
+            Expression call = typed(new CallExpr(new NameExpr(selected.function.coreName, range), lowered, range), MiniType.VOID);
+            if (list && arguments.isEmpty() && selected.implicit && nonAggregate(owner)) {
+                Expression slot = typed(new UnaryExpr(TokenType.STAR, typed(new NameExpr(destination, range), owner.type.pointerTo()), range), owner.type);
+                call = new CommaExpr(List.of(new InitializeExpr(slot, new AggregateInitExpr(List.of(), range), range), call), range);
+            }
+            return typed(new ObjectInitExpr(coreType(target), destination, call, range), target);
         }
 
         private Expression initializer(MiniType target, Expression sourceNode, Namespace namespace, Local local, SourceRange range) {
@@ -1950,6 +2317,14 @@ public final class CppNameBinder {
             TypeEntity object = objectType(type); // Do not follow pointer pointees.
             return object != null && visited.add(object.canonicalName)
                     && object.fields.stream().anyMatch(field -> hasConstSubobject(field.type(), visited));
+        }
+
+        private boolean hasReferenceSubobject(MiniType type, Set<String> visited) {
+            if (type.isReference()) return true;
+            if (type.unqualified() instanceof MiniType.ArrayType array) return hasReferenceSubobject(array.elementType(), visited);
+            TypeEntity object = objectType(type);
+            return object != null && visited.add(object.canonicalName)
+                    && object.fields.stream().anyMatch(field -> hasReferenceSubobject(field.type(), visited));
         }
 
         /** Validates C++ list initialization before the C aggregate initializer can write fields. */
