@@ -5,7 +5,9 @@
 /* Windows x64 LLP64 core types. */
 typedef unsigned long long size_t;
 typedef long long ptrdiff_t;
+#ifndef __cplusplus
 typedef unsigned short wchar_t;
+#endif
 
 /* Eight bytes is MiniC's greatest supported fundamental alignment. */
 typedef double max_align_t;
