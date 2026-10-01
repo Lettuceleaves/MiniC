@@ -15,6 +15,7 @@ public final class CppTemplateSubstitution {
     private final Map<MiniType.TemplateParameterType,List<minic.compiler.type.TemplateArgument>> packs;
     private final Map<String,MiniType.TemplateParameterType> templateNames;
     private final Map<String,List<String>> parameterPacks=new LinkedHashMap<>();
+    private final Set<String> deferredParameterPacks=new LinkedHashSet<>();
     private final Map<String,String> selectedNames=new LinkedHashMap<>();
     private final String primaryName;
     private final String instanceName;
@@ -117,8 +118,10 @@ public final class CppTemplateSubstitution {
         List<Parameter> parameters=source instanceof FunctionDecl function?function.parameters():source instanceof ConstructorMember constructor?constructor.parameters():null;
         if(parameters!=null) {
             var saved=new LinkedHashMap<>(parameterPacks);
+            var savedDeferred=new LinkedHashSet<>(deferredParameterPacks);
             try {prepareParameters(parameters);return copyRecord(source);}
-            finally {parameterPacks.clear();parameterPacks.putAll(saved);}
+            finally {parameterPacks.clear();parameterPacks.putAll(saved);
+                deferredParameterPacks.clear();deferredParameterPacks.addAll(savedDeferred);}
         }
         return copyRecord(source);
     }
@@ -166,7 +169,8 @@ public final class CppTemplateSubstitution {
     private void prepareParameters(List<Parameter> parameters) {
         for(Parameter parameter:parameters)if(parameter.type() instanceof MiniType.PackExpansionType expansion) {
             int count=expansionCount(expansion.pattern());
-            if(count<0)continue;
+            if(count<0){deferredParameterPacks.add(parameter.name());continue;}
+            deferredParameterPacks.remove(parameter.name());
             var names=new ArrayList<String>();for(int i=0;i<count;i++)names.add(parameter.name()+"$pack"+i);
             parameterPacks.put(parameter.name(),List.copyOf(names));
         }
@@ -211,10 +215,13 @@ public final class CppTemplateSubstitution {
             if(count!=null && count!=arguments.size())throw new IllegalArgumentException("Simultaneous parameter packs have different lengths");
             count=arguments.size();
         }
-        for(String name:CppTemplatePacks.names(pattern))if(parameterPacks.containsKey(name)) {
-            int size=parameterPacks.get(name).size();
-            if(count!=null && count!=size)throw new IllegalArgumentException("Simultaneous parameter packs have different lengths");
-            count=size;
+        for(String name:CppTemplatePacks.names(pattern)) {
+            if(deferredParameterPacks.contains(name))unknown=true;
+            if(parameterPacks.containsKey(name)) {
+                int size=parameterPacks.get(name).size();
+                if(count!=null && count!=size)throw new IllegalArgumentException("Simultaneous parameter packs have different lengths");
+                count=size;
+            }
         }
         if(count==null && !unknown)throw new IllegalArgumentException("Pack expansion pattern contains no unexpanded parameter pack");
         return unknown?-1:count;
@@ -231,6 +238,7 @@ public final class CppTemplateSubstitution {
         }
         var child=new CppTemplateSubstitution(types,replacements,packs,List.of(),primaryName,instanceName);
         child.templateNames.putAll(templateNames);child.parameterPacks.putAll(parameterPacks);child.selectedNames.putAll(selectedNames);
+        child.deferredParameterPacks.addAll(deferredParameterPacks);
         for(String name:CppTemplatePacks.names(pattern))if(parameterPacks.containsKey(name))child.selectedNames.put(name,parameterPacks.get(name).get(index));
         return child;
     }
