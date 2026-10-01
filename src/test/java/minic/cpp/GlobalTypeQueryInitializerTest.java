@@ -132,7 +132,8 @@ class GlobalTypeQueryInitializerTest {
         compiler.runThrough(semantic);
         assertFalse(semantic.succeeded());
         assertTrue(semantic.errors().stream().anyMatch(d -> d.code().equals("SEM001")
-                        && (d.message().contains("实参数量") || d.message().contains("实参类型") || d.message().contains("未定义函数"))),
+                        && (d.message().contains("实参数量") || d.message().contains("实参类型") || d.message().contains("未定义函数"))
+                        || d.code().equals("CPP004") && d.message().contains("实参不能按 C++ 标准转换")),
                 () -> semantic.errors().toString());
     }
 

@@ -54,6 +54,11 @@ public final class CppNameBinder {
 
     private interface Candidate {}
 
+    /** A snapshot of visible functions; later namespace declarations cannot change a using import. */
+    private record OverloadSet(List<Entity> functions) implements Candidate {
+        OverloadSet { functions = List.copyOf(functions); }
+    }
+
     /** Class identity is independent from value identity; aliases carry the resolved core type. */
     private static final class TypeEntity implements Candidate {
         final String name;
@@ -65,7 +70,7 @@ public final class CppNameBinder {
         boolean complete;
         List<StructField> fields = List.of();
         final Map<StructField, Access> fieldAccess = new IdentityHashMap<>();
-        final Map<String, Method> methods = new LinkedHashMap<>();
+        final Map<String, MethodSet> methods = new LinkedHashMap<>();
 
         TypeEntity(String name, String canonicalName, MiniType type, boolean classType,
                    boolean union, Namespace owner, boolean complete) {
@@ -82,6 +87,10 @@ public final class CppNameBinder {
     /** A method belongs to a class identity, never to the enclosing namespace's value table. */
     private record Method(TypeEntity owner, MethodMember source, Access access, Entity function,
                           MiniType returnType, List<MiniType> parameterTypes) implements Candidate { }
+
+    private record MethodSet(List<Method> methods) implements Candidate {
+        MethodSet { methods = List.copyOf(methods); }
+    }
 
     private record ImplicitField(TypeEntity owner, String name) implements Candidate { }
 
@@ -111,7 +120,7 @@ public final class CppNameBinder {
         final Namespace parent;
         final String name;
         final Map<String, Namespace> children = new LinkedHashMap<>();
-        final Map<String, Entity> values = new LinkedHashMap<>();
+        final Map<String, Candidate> values = new LinkedHashMap<>();
         final Map<String, TypeEntity> typedefs = new LinkedHashMap<>();
         final Map<String, TypeEntity> tags = new LinkedHashMap<>();
         final List<Namespace> directives = new ArrayList<>();
@@ -125,7 +134,7 @@ public final class CppNameBinder {
     private static final class Local {
         final Local parent;
         final Namespace namespace;
-        final Map<String, Entity> values = new LinkedHashMap<>();
+        final Map<String, Candidate> values = new LinkedHashMap<>();
         final Map<String, TypeEntity> typedefs = new LinkedHashMap<>();
         final List<Namespace> directives = new ArrayList<>();
         Local(Local parent, Namespace namespace) { this.parent = parent; this.namespace = namespace; }
@@ -293,17 +302,22 @@ public final class CppNameBinder {
             coreParameters.add(methodThisType(owner, member));
             parameterTypes.stream().map(MiniType::unqualified).forEach(coreParameters::add);
             MiniType signature = MiniType.function(returnType.unqualified(), coreParameters, sourceMethod.variadic());
-            Method previous = owner.methods.get(name);
-            if (previous != null) {
-                report(previous.function.type.equals(signature) ? "CPP004" : "CPP005", member.nameRange(),
-                        previous.function.type.equals(signature) ? "类内成员函数重复声明：" + name : "尚未支持成员函数重载：" + name);
-                return null;
+            List<Method> previous = owner.methods.containsKey(name) ? owner.methods.get(name).methods : List.of();
+            for (Method method : previous) {
+                MiniType.FunctionType earlier = (MiniType.FunctionType) method.function.type;
+                MiniType.FunctionType declared = (MiniType.FunctionType) signature;
+                if (earlier.parameterTypes().equals(declared.parameterTypes()) && earlier.variadic() == declared.variadic()) {
+                    report("CPP004", member.nameRange(), "类内成员函数重复声明或返回类型冲突：" + name);
+                    return null;
+                }
             }
             Entity function = new Entity(name, freshName(owner.canonicalName.substring(2) + "::" + name),
                     Kind.FUNCTION, namespace, signature, null, sourceMethod.hasBody());
             coreValues.put(function.coreName, function);
             Method method = new Method(owner, member, access, function, returnType, parameterTypes);
-            owner.methods.put(name, method);
+            List<Method> methods = new ArrayList<>(previous);
+            methods.add(method);
+            owner.methods.put(name, new MethodSet(methods));
             return method;
         }
 
@@ -356,8 +370,8 @@ public final class CppNameBinder {
                 return;
             }
             FunctionDecl definition = node.method();
-            Method previous = owner.methods.get(definition.name());
-            if (!owner.complete || previous == null) {
+            MethodSet overloads = owner.methods.get(definition.name());
+            if (!owner.complete || overloads == null) {
                 report("CPP004", node.nameRange(), "类中尚未声明此成员函数：" + spelling(path));
                 return;
             }
@@ -373,7 +387,9 @@ public final class CppNameBinder {
             coreParameters.add(methodThisType(owner, member));
             parameterTypes.stream().map(MiniType::unqualified).forEach(coreParameters::add);
             MiniType signature = MiniType.function(returnType.unqualified(), coreParameters, definition.variadic());
-            if (!previous.returnType.equals(returnType) || !previous.function.type.equals(signature)) {
+            Method previous = overloads.methods.stream().filter(method -> method.function.type.equals(signature)
+                    && method.returnType.equals(returnType)).findFirst().orElse(null);
+            if (previous == null) {
                 report("CPP004", node.nameRange(), "类外定义与成员函数声明的签名不匹配：" + spelling(path));
                 return;
             }
@@ -610,9 +626,9 @@ public final class CppNameBinder {
                 requireComplete(returnType, node.range());
                 for (int i = 0; i < parameterTypes.size(); i++) requireComplete(parameterTypes.get(i), node.parameters().get(i).range());
             }
-            MiniType signature = MiniType.function(returnType.unqualified(), parameterTypes.stream()
+            MiniType.FunctionType signature = (MiniType.FunctionType) MiniType.function(returnType, parameterTypes.stream()
                     .map(MiniType::unqualified).toList(), node.variadic());
-            Entity entity = declareNamespaceValue(node.name(), Kind.FUNCTION, signature, node.hasBody(), namespace, node.range());
+            Entity entity = declareNamespaceFunction(node.name(), signature, node.hasBody(), namespace, node.range());
             Local scope = new Local(null, namespace);
             List<Parameter> parameters = new ArrayList<>();
             for (int i = 0; i < node.parameters().size(); i++) {
@@ -636,7 +652,9 @@ public final class CppNameBinder {
             if (namespace.children.containsKey(name) || namespace.typedefs.containsKey(name) && !namespace.typedefs.get(name).classType) {
                 report("CPP004", range, "名称与命名空间或类型别名冲突：" + name);
             }
-            Entity existing = namespace.values.get(name);
+            Candidate previous = namespace.values.get(name);
+            Entity existing = previous instanceof Entity entity ? entity : null;
+            if (previous != null && existing == null) report("CPP004", range, "名称与已有函数声明冲突：" + name);
             if (existing != null) {
                 if (existing.owner != namespace || existing.kind != kind) {
                     report("CPP004", range, "名称与已有声明或 using 声明冲突：" + name);
@@ -659,6 +677,34 @@ public final class CppNameBinder {
             return entity;
         }
 
+        private Entity declareNamespaceFunction(String name, MiniType.FunctionType type, boolean definition,
+                                                Namespace namespace, SourceRange range) {
+            Candidate previous = namespace.values.get(name);
+            if (namespace.children.containsKey(name) || namespace.typedefs.containsKey(name)
+                    && !namespace.typedefs.get(name).classType || previous != null && !(previous instanceof OverloadSet)) {
+                report("CPP004", range, "函数名称与已有声明冲突：" + name);
+            }
+            List<Entity> visible = previous instanceof OverloadSet set ? set.functions : List.of();
+            for (Entity function : visible) {
+                MiniType.FunctionType signature = (MiniType.FunctionType) function.type;
+                if (!signature.parameterTypes().equals(type.parameterTypes()) || signature.variadic() != type.variadic()) continue;
+                if (function.owner != namespace) report("CPP004", range, "函数声明与 using 引入的函数冲突：" + name);
+                if (!signature.returnType().equals(type.returnType())) report("CPP004", range, "函数重声明的返回类型不一致：" + name);
+                if (definition && function.defined) report("CPP004", range, "重复函数定义：" + name);
+                function.defined |= definition;
+                return function;
+            }
+            if (namespace == root && name.equals("main") && !visible.isEmpty()) report("CPP004", range, "main 不能重载。");
+            String coreName = namespace == root && visible.isEmpty() ? name : freshName(namespace.qualify(name));
+            displayNames.put(coreName, namespace.qualify(name));
+            Entity entity = new Entity(name, coreName, Kind.FUNCTION, namespace, type, null, definition);
+            List<Entity> functions = new ArrayList<>(visible);
+            functions.add(entity);
+            namespace.values.put(name, new OverloadSet(functions));
+            coreValues.put(coreName, entity);
+            return entity;
+        }
+
         private Entity declareLocal(String name, MiniType type, Local scope, SourceRange range) {
             if (scope.values.containsKey(name) || scope.typedefs.containsKey(name) && !scope.typedefs.get(name).classType) {
                 report("CPP004", range, "局部名称重复或与 using 声明冲突：" + name);
@@ -670,7 +716,7 @@ public final class CppNameBinder {
         }
 
         private void declareTypedef(String name, MiniType type, Namespace namespace, Local local, SourceRange range) {
-            Map<String, Entity> values = local == null ? namespace.values : local.values;
+            Map<String, Candidate> values = local == null ? namespace.values : local.values;
             if (values.containsKey(name) || (local == null && namespace.children.containsKey(name))) {
                 report("CPP004", range, "类型别名与已有名称冲突：" + name);
             }
@@ -702,11 +748,17 @@ public final class CppNameBinder {
                     }
                     return;
                 }
-                Entity target = requireValue(candidate, spelling(node.target()), node.range());
+                Candidate target = candidate instanceof OverloadSet ? candidate : requireValue(candidate, spelling(node.target()), node.range());
                 if (target == null) return;
                 String name = node.target().segments().getLast();
-                Map<String, Entity> values = local == null ? namespace.values : local.values;
-                Entity previous = values.putIfAbsent(name, target);
+                Map<String, Candidate> values = local == null ? namespace.values : local.values;
+                Candidate previous = values.putIfAbsent(name, target);
+                if (previous instanceof OverloadSet first && target instanceof OverloadSet second) {
+                    Set<Entity> merged = new LinkedHashSet<>(first.functions);
+                    merged.addAll(second.functions);
+                    values.put(name, new OverloadSet(new ArrayList<>(merged)));
+                    previous = target;
+                }
                 TypeEntity type = (local == null ? namespace.typedefs : local.typedefs).get(name);
                 if (previous != null && previous != target
                         || type != null && !type.classType
@@ -763,7 +815,7 @@ public final class CppNameBinder {
                 case ExprStmt n -> new ExprStmt(expression(n.expression(), namespace, scope), n.range());
                 case ReturnStmt n -> new ReturnStmt(currentReturnType != null && currentReturnType.isReference()
                         ? bindReference(currentReturnType, n.expression(), namespace, scope, n.range())
-                        : expression(n.expression(), namespace, scope), n.range());
+                        : expressionForTarget(currentReturnType, n.expression(), namespace, scope), n.range());
                 case IfStmt n -> new IfStmt(expression(n.condition(), namespace, scope),
                         body(n.thenBranch(), scope), body(n.elseBranch(), scope), n.range());
                 case WhileStmt n -> new WhileStmt(expression(n.condition(), namespace, scope), body(n.body(), scope), n.range());
@@ -840,7 +892,8 @@ public final class CppNameBinder {
                     if (n.operator() == TokenType.PLUS_EQUAL || n.operator() == TokenType.MINUS_EQUAL) {
                         requireComplete(elementType(declaredExpressionType(target)), n.range());
                     }
-                    Expression value = expression(n.value(), namespace, local);
+                    Expression value = n.compoundBinaryOperator().isEmpty()
+                            ? expressionForTarget(targetType, n.value(), namespace, local) : expression(n.value(), namespace, local);
                     AssignmentExpr assignment = new AssignmentExpr(target, n.operator(), value, n.range());
                     yield normalizedAssignment(assignment, addressDemand);
                 }
@@ -896,7 +949,7 @@ public final class CppNameBinder {
                             : selected;
                 }
                 case CallExpr n -> {
-                    BoundCallee binding = bindCallee(n.callee(), namespace, local);
+                    BoundCallee binding = bindCallee(n.callee(), n.arguments(), namespace, local);
                     Expression callee = binding.expression();
                     MiniType.FunctionType signature = functionSignature(declaredExpressionType(callee));
                     if (signature != null) {
@@ -906,13 +959,14 @@ public final class CppNameBinder {
                     List<Expression> arguments = new ArrayList<>();
                     if (binding.receiver() != null) arguments.add(binding.receiver());
                     int offset = arguments.size();
-                    for (int index = 0; index < n.arguments().size(); index++) {
+                    if (binding.arguments() != null) arguments.addAll(binding.arguments());
+                    else for (int index = 0; index < n.arguments().size(); index++) {
                         Expression argument = n.arguments().get(index);
                         MiniType parameter = signature != null && index + offset < signature.parameterTypes().size()
                                 ? signature.parameterTypes().get(index + offset) : null;
                         arguments.add(parameter != null && parameter.isReference()
                                 ? bindReference(parameter, argument, namespace, local, argument.range())
-                                : expression(argument, namespace, local));
+                                : convertCallValue(parameter, expressionForTarget(parameter, argument, namespace, local), argument));
                     }
                     CallExpr call = new CallExpr(callee, arguments, n.range());
                     if (signature != null) declaredExpressionTypes.put(call, signature.returnType().isReference()
@@ -927,7 +981,7 @@ public final class CppNameBinder {
                 case CastExpr n -> {
                     MiniType type = normalizeType(n.targetType(), namespace, local, n.range());
                     if (type.isReference()) report("CPP005", n.range(), "引用类型显式转换的值类别规则尚未实现。");
-                    CastExpr cast = new CastExpr(coreType(type), expression(n.operand(), namespace, local), n.range());
+                    CastExpr cast = new CastExpr(coreType(type), expressionForTarget(type, n.operand(), namespace, local), n.range());
                     declaredExpressionTypes.put(cast, type);
                     yield cast;
                 }
@@ -955,9 +1009,8 @@ public final class CppNameBinder {
                     MiniType owner = declaredExpressionType(target);
                     owner = n.viaPointer() ? elementType(owner) : owner;
                     requireComplete(owner, n.range());
-                    Method method = memberMethod(owner, n.fieldName());
-                    if (method != null) {
-                        requireMethodAccess(method, n.range());
+                    MethodSet methods = memberMethods(owner, n.fieldName());
+                    if (methods != null) {
                         report("CPP005", n.range(), "成员函数只能作为调用目标使用；尚未支持成员函数指针：" + n.fieldName());
                     } else requireAccessible(owner, n.fieldName(), n.range(), "数据成员访问");
                     Expression field = new FieldAccessExpr(target, n.fieldName(), n.viaPointer(), n.range());
@@ -1155,35 +1208,115 @@ public final class CppNameBinder {
                 requireAccessible(currentThis.type.pointee(), name, range, "数据成员访问");
                 return new FieldAccessExpr(thisValue(range), name, true, range);
             }
-            if (candidate instanceof Method method) {
-                requireMethodAccess(method, range);
+            if (candidate instanceof MethodSet methods) {
                 report("CPP005", range, "成员函数只能作为调用目标使用；尚未支持成员函数指针：" + name);
-                return new NameExpr(method.function.coreName, range);
+                return new NameExpr(methods.methods.getFirst().function.coreName, range);
             }
             return reference(name, range, requireValue(candidate, name, range));
         }
 
-        private record BoundCallee(Expression expression, Expression receiver) { }
+        private record BoundCallee(Expression expression, Expression receiver, List<Expression> arguments) {
+            BoundCallee(Expression expression, Expression receiver) { this(expression, receiver, null); }
+        }
 
-        private BoundCallee bindCallee(Expression sourceCallee, Namespace namespace, Local local) {
+        private record OverloadDesignator(Expression source, Expression name, OverloadSet set, boolean addressOf) { }
+
+        private OverloadDesignator overloadDesignator(Expression source, Namespace namespace, Local local) {
+            Expression name = source;
+            while (name instanceof GroupingExpr group) name = group.expression();
+            boolean addressOf = name instanceof UnaryExpr unary && unary.operator() == TokenType.AMPERSAND;
+            if (addressOf) name = ((UnaryExpr) name).operand();
+            while (name instanceof GroupingExpr group) name = group.expression();
+            int beforeLookup = diagnostics.size();
+            Candidate candidate = name instanceof NameExpr simple ? lookupName(simple.name(), namespace, local, name.range())
+                    : name instanceof QualifiedNameExpr qualified ? resolveQualifiedName(qualified.name(), namespace, local) : null;
+            // This is a contextual probe. Ordinary expression binding owns diagnostics when the
+            // expression does not denote an overloaded free function.
+            if (!(candidate instanceof OverloadSet set) || set.functions.size() < 2) {
+                diagnostics.subList(beforeLookup, diagnostics.size()).clear();
+                return null;
+            }
+            return new OverloadDesignator(source, name, set, addressOf);
+        }
+
+        private MiniType.FunctionType targetFunction(MiniType target) {
+            if (target == null) return null;
+            MiniType.FunctionType function = functionSignature(objectTypeOfReference(target));
+            return function == null ? null : (MiniType.FunctionType) MiniType.function(function.returnType(),
+                    function.parameterTypes().stream().map(MiniType::unqualified).toList(), function.variadic());
+        }
+
+        private Entity functionForTarget(OverloadDesignator designator, MiniType target) {
+            MiniType.FunctionType signature = targetFunction(target);
+            if (signature == null) return null;
+            Entity selected = null;
+            for (Entity candidate : designator.set.functions) {
+                if (!candidate.type.equals(signature)) continue;
+                if (selected != null) return null;
+                selected = candidate;
+            }
+            return selected;
+        }
+
+        private Expression expressionForTarget(MiniType target, Expression source, Namespace namespace, Local local) {
+            Expression selected = contextualFunctionAddress(target, source, namespace, local);
+            return selected != null ? selected : expression(source, namespace, local);
+        }
+
+        private Expression contextualFunctionAddress(MiniType target, Expression source, Namespace namespace, Local local) {
+            if (source == null || targetFunction(target) == null) return null;
+            OverloadDesignator designator = overloadDesignator(source, namespace, local);
+            if (designator == null) return null;
+            Entity selected = functionForTarget(designator, target);
+            if (selected == null) {
+                report("CPP004", source.range(), "重载函数名称没有唯一匹配的目标函数类型。");
+                return mapped(source, new NameExpr(designator.set.functions.getFirst().coreName, source.range()));
+            }
+            return rebuildFunctionDesignator(source, designator.name, selected,
+                    target.isReference() && target.referent().isFunction());
+        }
+
+        private Expression rebuildFunctionDesignator(Expression original, Expression name, Entity selected, boolean functionReference) {
+            Expression core;
+            if (original == name) core = new NameExpr(selected.coreName, original.range());
+            else if (original instanceof GroupingExpr group) core = new GroupingExpr(
+                    rebuildFunctionDesignator(group.expression(), name, selected, functionReference), original.range());
+            else if (original instanceof UnaryExpr unary && unary.operator() == TokenType.AMPERSAND) {
+                Expression operand = rebuildFunctionDesignator(unary.operand(), name, selected, functionReference);
+                // [over.over] permits an optional & on an unresolved overload designator,
+                // including a target of reference-to-function type.
+                core = functionReference ? new GroupingExpr(operand, original.range())
+                        : new UnaryExpr(TokenType.AMPERSAND, operand, original.range());
+            }
+            else throw new IllegalArgumentException("invalid function designator");
+            return mapped(original, core);
+        }
+
+        private BoundCallee bindCallee(Expression sourceCallee, List<Expression> sourceArguments, Namespace namespace, Local local) {
             Expression designator = sourceCallee;
             while (designator instanceof GroupingExpr group) designator = group.expression();
-            Method method = null;
+            MethodSet methods = null;
             Expression receiver = null;
             String sourceName = designator instanceof NameExpr name ? name.name()
                     : designator instanceof IntegerConstantExpr constant
                     && constant.lexeme().matches("[A-Za-z_][A-Za-z0-9_]*") ? constant.lexeme() : null;
-            if (sourceName != null) {
-                Candidate candidate = lookupName(sourceName, namespace, local, designator.range());
-                if (candidate instanceof Method member) {
-                    method = member;
+            String fallbackName = designator instanceof QualifiedNameExpr qualified ? spelling(qualified.name()) : sourceName;
+            if (sourceName != null || designator instanceof QualifiedNameExpr) {
+                Candidate candidate = designator instanceof QualifiedNameExpr qualified
+                        ? resolveQualifiedName(qualified.name(), namespace, local)
+                        : lookupName(sourceName, namespace, local, designator.range());
+                if (candidate instanceof OverloadSet set && set.functions.size() > 1) {
+                    return bindOverloadedCall(set, sourceCallee, designator, sourceArguments, namespace, local);
+                }
+                if (candidate instanceof MethodSet members) {
+                    methods = members;
                     receiver = thisValue(designator.range());
                 } else {
                     Expression core;
                     if (candidate instanceof ImplicitField field) {
                         requireAccessible(currentThis.type.pointee(), field.name, designator.range(), "数据成员访问");
                         core = new FieldAccessExpr(thisValue(designator.range()), field.name, true, designator.range());
-                    } else core = reference(sourceName, designator.range(), requireValue(candidate, sourceName, designator.range()));
+                    } else core = reference(fallbackName, designator.range(), requireValue(candidate, fallbackName, designator.range()));
                     return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
                 }
             } else if (designator instanceof FieldAccessExpr field) {
@@ -1192,8 +1325,8 @@ public final class CppNameBinder {
                 MiniType owner = declaredExpressionType(target);
                 owner = field.viaPointer() ? elementType(owner) : owner;
                 requireComplete(owner, field.range());
-                method = memberMethod(owner, field.fieldName());
-                if (method == null) {
+                methods = memberMethods(owner, field.fieldName());
+                if (methods == null) {
                     requireAccessible(owner, field.fieldName(), field.range(), "数据成员访问");
                     Expression core = new FieldAccessExpr(target, field.fieldName(), field.viaPointer(), field.range());
                     return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
@@ -1204,7 +1337,9 @@ public final class CppNameBinder {
                     receiver = new UnaryExpr(TokenType.AMPERSAND, target, field.target().range());
                 }
             }
-            if (method == null) return new BoundCallee(expression(sourceCallee, namespace, local), null);
+            if (methods == null) return new BoundCallee(expression(sourceCallee, namespace, local), null);
+            if (methods.methods.size() > 1) return bindOverloadedMethod(methods, sourceCallee, receiver, sourceArguments, namespace, local);
+            Method method = methods.methods.getFirst();
             requireMethodAccess(method, sourceCallee.range());
             MiniType object = elementType(declaredExpressionType(receiver));
             if (object != null && (object.isVolatileQualified()
@@ -1216,6 +1351,149 @@ public final class CppNameBinder {
             // the outer callee has an executable counterpart, keeping reverse origins unique.
             Expression core = mapped(sourceCallee, new NameExpr(method.function.coreName, sourceCallee.range()));
             return new BoundCallee(core, receiver);
+        }
+
+        private BoundCallee bindOverloadedCall(OverloadSet set, Expression sourceCallee, Expression designator,
+                                              List<Expression> sourceArguments, Namespace namespace, Local local) {
+            // Provisional expressions only provide types/categories. Exactly one selected ABI
+            // argument list is emitted; reference arguments are rebound with address demand.
+            PreparedArguments prepared = prepareArguments(sourceArguments, namespace, local);
+            List<Expression> values = prepared.values;
+            List<CppOverloadResolver.Candidate<Entity>> candidates = set.functions.stream().map(function -> {
+                MiniType.FunctionType type = (MiniType.FunctionType) function.type;
+                return new CppOverloadResolver.Candidate<>(function, type.parameterTypes(), type.variadic());
+            }).toList();
+            Entity selected = selectOverload(candidates, sourceCallee, sourceArguments, prepared, null);
+            if (selected == null) return new BoundCallee(new NameExpr(set.functions.getFirst().coreName, sourceCallee.range()), null, recoveryArguments(sourceArguments, values));
+            return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator,
+                    new NameExpr(selected.coreName, designator.range())), null,
+                    lowerSelectedArguments(((MiniType.FunctionType) selected.type).parameterTypes(), sourceArguments, values, namespace, local));
+        }
+
+        private BoundCallee bindOverloadedMethod(MethodSet set, Expression sourceCallee, Expression receiver,
+                                                List<Expression> sourceArguments, Namespace namespace, Local local) {
+            PreparedArguments prepared = prepareArguments(sourceArguments, namespace, local);
+            List<Expression> values = prepared.values;
+            List<CppOverloadResolver.Candidate<Method>> candidates = set.methods.stream().map(method ->
+                    new CppOverloadResolver.Candidate<>(method, method.parameterTypes, method.source.method().variadic(),
+                            methodThisType(method.owner, method.source).pointee())).toList();
+            MiniType object = elementType(declaredExpressionType(receiver));
+            if (object == null) {
+                report("CPP004", sourceCallee.range(), "无法确定成员函数接收者的类型。");
+                return new BoundCallee(new NameExpr(set.methods.getFirst().function.coreName, sourceCallee.range()), receiver, recoveryArguments(sourceArguments, values));
+            }
+            Method selected = selectOverload(candidates, sourceCallee, sourceArguments, prepared,
+                    new CppOverloadResolver.Argument(object, CppValueCategory.LVALUE, false));
+            if (selected == null) return new BoundCallee(new NameExpr(set.methods.getFirst().function.coreName, sourceCallee.range()), receiver, recoveryArguments(sourceArguments, values));
+            // Access is checked only after selection. An inaccessible best match does not
+            // allow falling back to a public candidate with worse conversions.
+            requireMethodAccess(selected, sourceCallee.range());
+            return new BoundCallee(mapped(sourceCallee, new NameExpr(selected.function.coreName, sourceCallee.range())), receiver,
+                    lowerSelectedArguments(selected.parameterTypes, sourceArguments, values, namespace, local));
+        }
+
+        private record PreparedArguments(List<Expression> values, Map<Integer, OverloadDesignator> overloads) { }
+
+        private PreparedArguments prepareArguments(List<Expression> source, Namespace namespace, Local local) {
+            List<Expression> values = new ArrayList<>();
+            Map<Integer, OverloadDesignator> overloads = new LinkedHashMap<>();
+            for (int index = 0; index < source.size(); index++) {
+                OverloadDesignator designator = overloadDesignator(source.get(index), namespace, local);
+                if (designator != null) overloads.put(index, designator);
+                values.add(designator == null ? expression(source.get(index), namespace, local) : null);
+            }
+            return new PreparedArguments(Collections.unmodifiableList(values), Map.copyOf(overloads));
+        }
+
+        private List<Expression> recoveryArguments(List<Expression> source, List<Expression> values) {
+            List<Expression> result = new ArrayList<>(values);
+            for (int index = 0; index < result.size(); index++) {
+                if (result.get(index) == null) result.set(index, new IntegerLiteralExpr(0, "0", source.get(index).range()));
+            }
+            return result;
+        }
+
+        private <T> T selectOverload(List<CppOverloadResolver.Candidate<T>> candidates, Expression sourceCallee,
+                                     List<Expression> sourceArguments, PreparedArguments prepared,
+                                     CppOverloadResolver.Argument receiver) {
+            List<CppOverloadResolver.Argument> arguments = new ArrayList<>();
+            for (int index = 0; index < prepared.values.size(); index++) {
+                if (prepared.overloads.containsKey(index)) {
+                    arguments.add(new CppOverloadResolver.Argument(MiniType.INT, CppValueCategory.PRVALUE, false));
+                    continue;
+                }
+                Expression value = prepared.values.get(index);
+                MiniType type = declaredExpressionType(value);
+                if (type == null) {
+                    report("CPP004", sourceArguments.get(index).range(), "无法确定重载实参的类型。");
+                    return null;
+                }
+                arguments.add(new CppOverloadResolver.Argument(type, valueCategory(value), isNullIntegerLiteral(sourceArguments.get(index))));
+            }
+            List<CppOverloadResolver.Candidate<T>> contextual = new ArrayList<>();
+            for (var candidate : candidates) {
+                List<MiniType> parameters = new ArrayList<>(candidate.parameterTypes());
+                boolean viable = true;
+                for (var entry : prepared.overloads.entrySet()) {
+                    int index = entry.getKey();
+                    MiniType parameter = index < parameters.size() ? parameters.get(index) : null;
+                    OverloadDesignator designator = entry.getValue();
+                    Entity selected = functionForTarget(designator, parameter);
+                    if (selected == null) { viable = false; break; }
+                    boolean pointer = designator.addressOf && !(parameter.isReference() && parameter.referent().isFunction());
+                    var argument = new CppOverloadResolver.Argument(pointer ? selected.type.pointerTo() : selected.type,
+                            pointer ? CppValueCategory.PRVALUE : CppValueCategory.LVALUE, false);
+                    if (CppOverloadResolver.resolve(List.of(new CppOverloadResolver.Candidate<>(selected, List.of(parameter), false)),
+                            List.of(argument)).status() != CppOverloadResolver.Status.SELECTED) { viable = false; break; }
+                    // Resolving an overloaded designator against its target contributes an exact
+                    // match. Use the same neutral conversion across viable outer candidates;
+                    // their remaining arguments still compete independently, never by rank sum.
+                    parameters.set(index, MiniType.INT);
+                }
+                if (viable) contextual.add(new CppOverloadResolver.Candidate<>(candidate.identity(), parameters,
+                        candidate.variadic(), candidate.implicitObjectType()));
+            }
+            var resolution = CppOverloadResolver.resolve(contextual, arguments, receiver);
+            if (resolution.status() == CppOverloadResolver.Status.SELECTED) return resolution.winner().identity();
+            report("CPP004", sourceCallee.range(), resolution.status() == CppOverloadResolver.Status.AMBIGUOUS
+                    ? "重载函数调用具有二义性。" : "没有与实参匹配的重载函数。");
+            return null;
+        }
+
+        private List<Expression> lowerSelectedArguments(List<MiniType> parameters, List<Expression> sourceArguments,
+                                                        List<Expression> values, Namespace namespace, Local local) {
+            List<Expression> lowered = new ArrayList<>(values);
+            for (int index = 0; index < sourceArguments.size() && index < parameters.size(); index++) {
+                if (parameters.get(index).isReference()) lowered.set(index, bindReference(parameters.get(index),
+                        sourceArguments.get(index), namespace, local, sourceArguments.get(index).range()));
+                else {
+                    Expression value = values.get(index) == null
+                            ? expressionForTarget(parameters.get(index), sourceArguments.get(index), namespace, local) : values.get(index);
+                    lowered.set(index, convertCallValue(parameters.get(index), value, sourceArguments.get(index)));
+                }
+            }
+            return List.copyOf(lowered);
+        }
+
+        /** Single candidates and indirect calls obey the same C++ conversions as overload sets. */
+        private Expression convertCallValue(MiniType parameter, Expression value, Expression source) {
+            if (parameter == null || value == null) return value; // ellipsis/arity remains a core check
+            MiniType actual = declaredExpressionType(value);
+            if (actual == null) return value; // unsupported initializer forms retain their existing diagnostics
+            var argument = new CppOverloadResolver.Argument(actual, valueCategory(value), isNullIntegerLiteral(source));
+            if (CppOverloadResolver.resolve(List.of(new CppOverloadResolver.Candidate<>("argument", List.of(parameter), false)),
+                    List.of(argument)).status() != CppOverloadResolver.Status.SELECTED) {
+                report("CPP004", source.range(), "实参不能按 C++ 标准转换为参数类型。");
+                return value;
+            }
+            MiniType target = TypeCompatibility.decay(parameter).unqualified();
+            MiniType from = TypeCompatibility.decay(actual).unqualified();
+            if (!target.equals(from) && (target.isPointer() || target.equals(MiniType.BOOL) && from.isPointer())) {
+                // Core C is narrower for pointer-to-bool and deep qualification conversions.
+                // This cast spells only a conversion already approved above.
+                return typed(new CastExpr(coreType(target), value, source.range()), target);
+            }
+            return value;
         }
 
         private Expression rebuildCalleeGroups(Expression original, Expression designator, Expression core) {
@@ -1246,7 +1524,7 @@ public final class CppNameBinder {
             return CppValueCategory.PRVALUE;
         }
 
-        private Method memberMethod(MiniType owner, String name) {
+        private MethodSet memberMethods(MiniType owner, String name) {
             TypeEntity type = objectType(owner);
             return type == null ? null : type.methods.get(name);
         }
@@ -1452,7 +1730,7 @@ public final class CppNameBinder {
                 requireImplicitInitialization(target, false, range);
                 return null;
             }
-            return checkInitializer(target, sourceNode, expression(sourceNode, namespace, local));
+            return checkInitializer(target, sourceNode, expressionForTarget(target, sourceNode, namespace, local));
         }
 
         /** Forms an address without reading the referred-to object or changing source expression identity. */
@@ -1473,7 +1751,8 @@ public final class CppNameBinder {
             Expression savedOwner = fullExpressionOwner;
             if (fullExpressionOwner == null) fullExpressionOwner = sourceNode;
             try {
-                Expression value = expression(sourceNode, namespace, local, true);
+                Expression value = contextualFunctionAddress(reference, sourceNode, namespace, local);
+                if (value == null) value = expression(sourceNode, namespace, local, true);
                 MiniType target = reference.referent();
                 MiniType actual = declaredExpressionType(value);
                 CppValueCategory category = valueCategory(value);
@@ -1773,13 +2052,13 @@ public final class CppNameBinder {
 
         private Candidate lookupName(String name, Namespace namespace, Local local, SourceRange range) {
             for (Local scope = local; scope != null; scope = scope.parent) {
-                Entity value = scope.values.get(name);
+                Candidate value = scope.values.get(name);
                 if (value != null) return value;
                 if (scope.typedefs.containsKey(name)) return scope.typedefs.get(name);
             }
             if (currentClass != null) {
-                Method method = currentClass.methods.get(name);
-                if (method != null) return method;
+                MethodSet methods = currentClass.methods.get(name);
+                if (methods != null) return methods;
                 if (fieldPath(currentThis.type.pointee(), name, new HashSet<>()) != null) return new ImplicitField(currentClass, name);
             }
             Map<Namespace, Set<Namespace>> nominated = nominations(namespace, local);
@@ -1795,7 +2074,7 @@ public final class CppNameBinder {
         }
 
         private Set<Candidate> directCandidates(Namespace namespace, String name) {
-            Entity value = namespace.values.get(name);
+            Candidate value = namespace.values.get(name);
             if (value != null) return Set.of(value); // An ordinary value can hide the injected class name.
             Set<Candidate> result = new LinkedHashSet<>();
             if (namespace.children.containsKey(name)) result.add(namespace.children.get(name));
@@ -1916,6 +2195,11 @@ public final class CppNameBinder {
 
         private Candidate selectCandidate(Set<Candidate> candidates, String name, SourceRange range) {
             if (candidates.size() == 1) return candidates.iterator().next();
+            if (!candidates.isEmpty() && candidates.stream().allMatch(OverloadSet.class::isInstance)) {
+                Set<Entity> merged = new LinkedHashSet<>();
+                candidates.stream().map(OverloadSet.class::cast).forEach(set -> merged.addAll(set.functions));
+                return new OverloadSet(new ArrayList<>(merged));
+            }
             if (!candidates.isEmpty() && candidates.stream().allMatch(TypeEntity.class::isInstance)) {
                 TypeEntity first = (TypeEntity) candidates.iterator().next();
                 if (candidates.stream().map(TypeEntity.class::cast).allMatch(t -> t.type.equals(first.type))) return first;
@@ -1927,6 +2211,11 @@ public final class CppNameBinder {
         private Entity requireValue(Candidate candidate, String name, SourceRange range) {
             if (candidate == null) return null;
             if (candidate instanceof Entity entity) return entity;
+            if (candidate instanceof OverloadSet set) {
+                if (set.functions.size() == 1) return set.functions.getFirst();
+                report("CPP003", range, "重载函数名称需要调用实参或目标函数类型：" + name);
+                return null;
+            }
             report("CPP003", range, (candidate instanceof TypeEntity ? "类型" : "命名空间") + "不能作为值使用：" + name);
             return null;
         }

@@ -350,9 +350,15 @@ final class CppMemberMethodTest {
         return Stream.of(
                 Arguments.of("int conflict;\nint conflict() { return 0; } // bad", false),
                 Arguments.of("union { int conflict; };\nint conflict() { return 0; } // bad", false),
-                Arguments.of("int conflict() { return 0; }\nint conflict() { return 1; } // bad", false),
-                // Overloading is legal C++17, but this slice must explicitly reject it.
-                Arguments.of("int conflict() { return 0; }\nint conflict(int n) { return n; } // bad", true));
+                Arguments.of("int conflict() { return 0; }\nint conflict() { return 1; } // bad", false));
+    }
+
+    @Test void distinctMemberParameterListsSelectTheirOwnDefinitions() throws Exception {
+        CppReferenceTest.agree(temporary, "member-parameter-overloads", """
+                #include <stdio.h>
+                struct Box {int conflict(){return 0;}int conflict(int n){return n;}};
+                int main(){Box value={};printf("%d %d\\n",value.conflict(),value.conflict(7));return 0;}
+                """, "0 7\n");
     }
 
     @Test void evaluatedPrototypeMethodNeedsADefinitionAtTheCallSite() throws Exception {

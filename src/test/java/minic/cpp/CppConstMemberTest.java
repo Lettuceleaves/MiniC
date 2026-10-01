@@ -191,14 +191,15 @@ final class CppConstMemberTest {
         assertRejected("volatile-receiver", source, false);
     }
 
-    @Test void constAndNonConstOverloadsRemainAnExplicitFutureBoundary() throws Exception {
-        assertRejected("const-overload", """
+    @Test void constAndNonConstOverloadsSelectFromTheReceiverType() throws Exception {
+        CppReferenceTest.agree(temporary, "const-overload", """
+                #include <stdio.h>
                 struct Box {
                     int read() { return 1; }
-                    int read() const { return 2; } // bad
+                    int read() const { return 2; }
                 };
-                int main() { return 0; }
-                """, true);
+                int main() { Box first={};const Box second={};printf("%d %d\\n",first.read(),second.read());return 0; }
+                """, "1 2\n");
     }
 
     @Test void sourceThisTypesAndCoreHiddenParametersRetainConstWithoutRuntimeDispatch() {

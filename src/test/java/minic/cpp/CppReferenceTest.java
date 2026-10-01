@@ -342,9 +342,11 @@ final class CppReferenceTest {
         var api = compiler(source);
         var semantic = stage(api, SemanticAnalyzer.class);
         api.runThrough(semantic);
-        assertFalse(semantic.succeeded(), "The pointer ABI must not merge distinct C++ overload signatures");
-        assertTrue(semantic.errors().stream().anyMatch(error -> error.code().equals("CPP005")),
-                () -> semantic.errors().toString());
+        assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
+        var functions = semantic.program().functions();
+        assertNotEquals(functions.get(0).name(), functions.get(1).name(),
+                "Distinct source overloads require distinct linker identities despite identical pointer ABI");
+        assertEquals(functions.get(0).parameters().getFirst().type(), functions.get(1).parameters().getFirst().type());
     }
 
     static void assertDebugHistory(String source, String expected, String function, String parameter) {

@@ -62,7 +62,7 @@ class CppNameBinderTest {
     }
 
     @Test void preservesRootAbiNamesAndAvoidsGeneratedNameCollisions() {
-        var result = success("extern int printf(char *format, ...); int minicCppSymbol1=1; "
+        var result = success("extern int printf(const char *format, ...); int minicCppSymbol1=1; "
                 + "namespace A { int f(int x){return x;} } int main(){int printf=2; return ::printf(\"%d\", A::f(printf));}");
         assertEquals("printf", result.program().functions().getFirst().name());
         assertEquals("main", result.program().functions().getLast().name());
@@ -138,11 +138,12 @@ class CppNameBinderTest {
         }
     }
 
-    @Test void rejectsUnsupportedEnumsOverloadsDuplicateDefinitionsAndDynamicInitializersExplicitly() {
+    @Test void supportsOverloadsAndRejectsUnsupportedEnumsDuplicateDefinitionsAndDynamicInitializersExplicitly() {
         success("namespace A {struct S {int x;};} int main(){return 0;}");
         success("namespace A {typedef int T;} int main(){return 0;}");
         failure("namespace A {enum E {X};} int main(){return 0;}", "类型");
-        failure("namespace A {int f(int x); int f(double x);} int main(){return 0;}", "重载");
+        var overloads = success("namespace A {int f(int x); int f(double x);} int main(){return 0;}");
+        assertNotEquals(overloads.program().functions().get(0).name(), overloads.program().functions().get(1).name());
         failure("namespace A {int x; int x;} int main(){return 0;}", "重复");
         failure("namespace A {int x=2;} int y=A::x; int main(){return y;}", "初始化");
         failure("namespace A {int f(){return 1;}} int y=A::f(); int main(){return y;}", "初始化");
