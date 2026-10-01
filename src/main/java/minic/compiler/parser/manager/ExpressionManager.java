@@ -268,6 +268,10 @@ public final class ExpressionManager {
     }
 
     private Expression parseUnary() {
+        if (state.languageMode() == LanguageMode.CPP17_ALGORITHM
+                && (state.check(TokenType.NEW) || state.check(TokenType.SCOPE) && state.peekAt(1).type() == TokenType.NEW)) {
+            return parsePlacementNew();
+        }
         if (state.match(TokenType.AMPERSAND)
                 || state.match(TokenType.STAR)
                 || state.match(TokenType.BANG)
@@ -300,6 +304,38 @@ public final class ExpressionManager {
             return parseAlignof(state.previous());
         }
         return parsePostfix();
+    }
+
+    private Expression parsePlacementNew() {
+        Token start = state.advance();
+        boolean global = start.type() == TokenType.SCOPE;
+        if (global) state.consume(TokenType.NEW, "期望 new");
+        if (!state.match(TokenType.LEFT_PAREN)) {
+            state.report(state.peek(), "当前 new 语法需要显式 placement 参数；分配式 new 尚未实现");
+            return null;
+        }
+        var placement = new ArrayList<Expression>();
+        do {
+            Expression argument = parseAssignment();
+            if (argument == null) return null;
+            placement.add(argument);
+        } while (state.match(TokenType.COMMA));
+        if (state.consume(TokenType.RIGHT_PAREN, "placement 参数后期望 ')' ") == null) return null;
+        Parser.ParsedType type = typeReader.parseCppTypeWithoutFunctionSuffix("placement new 后期望对象类型");
+        if (type == null) return null;
+        if (state.check(TokenType.LEFT_BRACKET)) {
+            state.report(state.peek(), "数组 new 的语法及生命周期尚未实现");
+            return null;
+        }
+        var initializer = state.check(TokenType.LEFT_PAREN) || state.check(TokenType.LEFT_BRACE)
+                ? parseConstructionInitializer()
+                : new minic.compiler.parser.node.CppInitializer(minic.compiler.parser.node.CppInitializer.Kind.DEFAULT,
+                        java.util.List.of(), type.range());
+        if (initializer == null) return null;
+        var expression = new minic.compiler.parser.node.CppNewExpr(type.type(), placement, initializer, global,
+                type.range(), SourceRange.span(start.range(), initializer.range()));
+        state.build(expression, "CppNewExpr", expression.range());
+        return expression;
     }
 
     private Expression parseAlignof(Token alignofToken) {

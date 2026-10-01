@@ -69,6 +69,11 @@ public final class AstChildren {
             case CppInitializer n -> n.arguments();
             case CppConstructionExpr n -> present(n.initializer());
             case CppDestructorCallExpr n -> present(n.receiver());
+            case CppNewExpr n -> {
+                var children = new ArrayList<AstNode>(n.placementArguments());
+                children.add(n.initializer());
+                yield List.copyOf(children);
+            }
             case DesignatedInitExpr n -> present(n.value());
             default -> List.of();
         };
@@ -97,7 +102,7 @@ public final class AstChildren {
             if (!visited.add(node)) continue;
             if (!onlyReferences && (node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
-                    || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof ConstructorMember
+                    || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
                     || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null)
