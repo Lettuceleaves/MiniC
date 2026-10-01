@@ -678,11 +678,11 @@ public final class ExpressionManager {
             return expression;
         }
         if (state.languageMode() == minic.compiler.LanguageMode.CPP17_ALGORITHM
-                && (state.check(TokenType.SCOPE) || state.check(TokenType.IDENTIFIER)
+                && (state.check(TokenType.OPERATOR) || state.check(TokenType.SCOPE) || state.check(TokenType.IDENTIFIER)
                 && state.peekAt(1).type() == TokenType.SCOPE)) {
-            var name = minic.compiler.parser.CppNameParser.parseName(state);
+            var name = minic.compiler.parser.CppOperatorNameParser.parseQualified(state);
             if (name == null) return null;
-            var expression = new Expression.QualifiedNameExpr(name);
+            var expression = new Expression.QualifiedNameExpr(name.qualifiedName());
             state.build(expression, "QualifiedNameExpr", expression.range());
             return expression;
         }
