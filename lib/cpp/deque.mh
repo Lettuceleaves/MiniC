@@ -95,11 +95,14 @@ template<class T> class deque {
     }
     void reserve_front_slots(unsigned long long n) {
         if(n==0)return;check_growth(n);
+        unsigned long long active=active_blocks();
         unsigned long long blocks=n>offset_?(n-offset_-1)/block_size()+1:0;
         ensure_map(blocks,0);
         first_-=blocks;offset_=blocks*block_size()+offset_-n;
         unsigned long long used=(offset_+size_+n-1)/block_size()+1;
-        for(unsigned long long i=0;i<used;++i)if(map_[first_+i]==nullptr)map_[first_+i]=std::__minic_allocate<T>(block_size());
+        // The existing active blocks follow this new prefix and remain allocated.
+        // In an empty deque, used-active also includes its first partial block.
+        for(unsigned long long i=0;i<used-active;++i)if(map_[first_+i]==nullptr)map_[first_+i]=std::__minic_allocate<T>(block_size());
     }
     void release_last_block() {
         std::__minic_deallocate(map_[first_]);map_[first_]=nullptr;
@@ -167,24 +170,33 @@ public:
     const_reference operator[](size_type index) const { return *slot(index); }
     reference at(size_type index) { if(index>=size_)::abort();return *slot(index); }
     const_reference at(size_type index) const { if(index>=size_)::abort();return *slot(index); }
-    reference front() { return *slot(0); }
-    const_reference front() const { return *slot(0); }
+    reference front() { return map_[first_][offset_]; }
+    const_reference front() const { return map_[first_][offset_]; }
     reference back() { return *slot(size_-1); }
     const_reference back() const { return *slot(size_-1); }
-    template<class... A> reference emplace_back(A&&... args) { reserve_back_slots(1);std::__minic_construct(slot(size_),std::forward<A>(args)...);++size_;return back(); }
-    template<class... A> reference emplace_front(A&&... args) { reserve_front_slots(1);std::__minic_construct(slot(0),std::forward<A>(args)...);++size_;return front(); }
+    template<class... A> reference emplace_back(A&&... args) {
+        size_type absolute=offset_+size_,within=absolute%block_size();
+        if(size_!=0 && within!=0)check_growth(1);else reserve_back_slots(1);
+        T* target=map_[first_+absolute/block_size()]+within;
+        std::__minic_construct(target,std::forward<A>(args)...);++size_;return *target;
+    }
+    template<class... A> reference emplace_front(A&&... args) {
+        if(size_!=0 && offset_!=0){check_growth(1);--offset_;}else reserve_front_slots(1);
+        T* target=map_[first_]+offset_;
+        std::__minic_construct(target,std::forward<A>(args)...);++size_;return *target;
+    }
     void push_back(const T& value) { emplace_back(value); }
     void push_back(T&& value) { emplace_back(std::move(value)); }
     void push_front(const T& value) { emplace_front(value); }
     void push_front(T&& value) { emplace_front(std::move(value)); }
     void pop_back() {
-        --size_;std::__minic_destroy(slot(size_));
+        --size_;size_type end=offset_+size_,within=end%block_size(),block=first_+end/block_size();
+        std::__minic_destroy(map_[block]+within);
         if(size_==0){release_last_block();return;}
-        size_type end=offset_+size_;
-        if(end%block_size()==0){size_type block=first_+end/block_size();std::__minic_deallocate(map_[block]);map_[block]=nullptr;}
+        if(within==0){std::__minic_deallocate(map_[block]);map_[block]=nullptr;}
     }
     void pop_front() {
-        std::__minic_destroy(slot(0));--size_;++offset_;
+        std::__minic_destroy(map_[first_]+offset_);--size_;++offset_;
         if(size_==0){release_last_block();return;}
         if(offset_==block_size()){std::__minic_deallocate(map_[first_]);map_[first_]=nullptr;++first_;offset_=0;}
     }
