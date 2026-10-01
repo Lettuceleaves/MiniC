@@ -1583,7 +1583,8 @@ public final class Parser extends Stage {
 
         private int skipCppAbstractDeclarator(int offset) {
             int start = offset;
-            while (context.peekAt(offset).type() == TokenType.STAR || context.peekAt(offset).type() == TokenType.AMPERSAND) {
+            while (context.peekAt(offset).type() == TokenType.STAR || context.peekAt(offset).type() == TokenType.AMPERSAND
+                    || context.peekAt(offset).type() == TokenType.AMPERSAND_AMPERSAND) {
                 offset++;
                 while (isTypeQualifier(context.peekAt(offset).type())) offset++;
             }
@@ -1605,6 +1606,10 @@ public final class Parser extends Stage {
                     if (token == close) depth--;
                 }
                 offset++;
+                if (open == TokenType.LEFT_PAREN) {
+                    offset = skipCppExceptionSpecification(offset);
+                    if (offset < 0) return -1;
+                }
             }
             return offset == start || context.peekAt(offset).type() == TokenType.IDENTIFIER ? -1 : offset;
         }
@@ -1623,7 +1628,8 @@ public final class Parser extends Stage {
         }
 
         private int skipCppGroupedDeclarator(int offset) {
-            while (context.peekAt(offset).type() == TokenType.STAR || context.peekAt(offset).type() == TokenType.AMPERSAND) {
+            while (context.peekAt(offset).type() == TokenType.STAR || context.peekAt(offset).type() == TokenType.AMPERSAND
+                    || context.peekAt(offset).type() == TokenType.AMPERSAND_AMPERSAND) {
                 offset++;
                 while (isTypeQualifier(context.peekAt(offset).type())) offset++;
             }
@@ -1646,8 +1652,27 @@ public final class Parser extends Stage {
                     if (token == close) depth--;
                 }
                 offset++;
+                if (open == TokenType.LEFT_PAREN) {
+                    offset = skipCppExceptionSpecification(offset);
+                    if (offset < 0) return -1;
+                }
             }
             return offset;
+        }
+
+        /** Lookahead must consume the same function suffix as the declarator parser. */
+        private int skipCppExceptionSpecification(int offset) {
+            if (context.peekAt(offset).type() != TokenType.NOEXCEPT) return offset;
+            offset++;
+            if (context.peekAt(offset).type() != TokenType.LEFT_PAREN) return offset;
+            int depth = 1;
+            while (depth > 0) {
+                TokenType token = context.peekAt(++offset).type();
+                if (token == TokenType.EOF || token == TokenType.SEMICOLON) return -1;
+                if (token == TokenType.LEFT_PAREN) depth++;
+                if (token == TokenType.RIGHT_PAREN) depth--;
+            }
+            return offset + 1;
         }
 
         public boolean canStartTypeAt(int offset) {

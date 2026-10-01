@@ -533,6 +533,9 @@ public final class CppNameBinder {
                 }
             }
             finishTemplateMemberRequests();
+            // Instantiating a used member also requires agreement between its
+            // declaration and definition. Unused dependent members stay lazy.
+            for (Entity function : List.copyOf(requestedTemplateMembers)) functionNonThrowing(function);
             for (StaticField field : staticFields.values()) if (!field.entity.defined)
                 for (SourceRange use : field.uses) report("CPP004", use,
                         "ODR-used static data member has no definition: " + field.owner.canonicalName + "::" + field.entity.name);
