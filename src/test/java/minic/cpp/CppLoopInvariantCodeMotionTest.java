@@ -99,12 +99,17 @@ final class CppLoopInvariantCodeMotionTest {
         assertTrue(report.passed(),report::describe);
         String expected=report.outcomes().values().iterator().next().stdout().replace("\r\n","\n");
         var source=new SourceFile(name+".cpp",text);var original=new CompilerApi(source,mode).runToIr();
-        var prepared=IrOptimizationPipeline.forLevel(OptimizationLevel.OPTIMIZED).apply(original).ir();
+        // Retain a fixed pre-LICM control as well as independent and default-pipeline motion.
+        var prepared=withoutLicm().apply(original).ir();
         var transformed=onlyLicm().apply(prepared).ir();
+        var defaultResult=IrOptimizationPipeline.forLevel(OptimizationLevel.OPTIMIZED).apply(original).ir();
         if(motion){assertNotSame(prepared,transformed);assertTrue(movedComputations(prepared,transformed)>0,"fixture must move a computation from the loop to a preheader");}
         else assertSame(prepared,transformed);
-        for(var variant:List.of(prepared,transformed)) {
-            Path directory=temporary.resolve(variant==prepared?"current":"licm");
+        if(motion)assertTrue(movedComputations(prepared,defaultResult)>0,"default pipeline must also move the loop computation");
+        else assertEquals(prepared.functions(),defaultResult.functions());
+        int index=0;
+        for(var variant:List.of(prepared,transformed,defaultResult)) {
+            Path directory=temporary.resolve("variant-"+index++);
             var result=runNative(source,variant,directory);
             assertEquals(0,result.exitCode(),result::stderr);assertEquals(expected,result.stdout().replace("\r\n","\n"));
         }
@@ -140,6 +145,9 @@ final class CppLoopInvariantCodeMotionTest {
         assertFalse(result.timedOut());assertFalse(result.outputExceeded());return result;
     }
     private static IrOptimizationPipeline onlyLicm(){return new IrOptimizationPipeline(OptimizationLevel.OPTIMIZED,List.of(new LoopInvariantCodeMotionPass()));}
+    private static IrOptimizationPipeline withoutLicm(){return new IrOptimizationPipeline(OptimizationLevel.OPTIMIZED,List.of(
+            new InitializedCheckEliminationPass(),new SmallFunctionInliningPass(),new LocalScalarPromotionPass(),
+            new ConstantPropagationPass(),new DeadCodeEliminationPass()));}
     private static long movedComputations(IrResult before,IrResult after){
         var locations=new HashMap<String,String>();
         for(var function:before.functions())for(var block:function.blocks())for(var instruction:block.instructions())

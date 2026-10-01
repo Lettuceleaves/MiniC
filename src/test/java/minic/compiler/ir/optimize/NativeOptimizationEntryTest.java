@@ -9,6 +9,8 @@ import minic.compiler.execute.ExecutableRunner;
 import minic.compiler.ir.IrLowerer;
 import minic.compiler.ir.IrResult;
 import minic.compiler.ir.instruction.ControlInstruction.*;
+import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryInstruction;
+import minic.compiler.ir.instruction.ComputeInstruction.IrBinaryOperator;
 import minic.compiler.ir.model.IrBlock;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.value.IrValue.IrConstant;
@@ -52,7 +54,7 @@ final class NativeOptimizationEntryTest {
         assertSame(original, irStage.result());
         assertDoesNotThrow(() -> IrVerifier.verify(assembler.input().irResult()));
         assertEquals(List.of("initialized-check-elimination", "small-function-inlining", "local-scalar-promotion",
-                        "constant-propagation", "dead-code-elimination"),
+                        "constant-propagation", "loop-invariant-code-motion", "dead-code-elimination"),
                 assembler.optimizationResult().passNames());
         for (CompilerApi api : List.of(baseline, explicit)) {
             var other = stage(api, Assembler.class);
@@ -60,6 +62,37 @@ final class NativeOptimizationEntryTest {
             assertEquals(OptimizationLevel.BASELINE, other.optimizationLevel());
         }
         assertEquals(stage(baseline, Assembler.class).result().text(), stage(explicit, Assembler.class).result().text());
+    }
+
+    @Test void defaultOptimizationMovesLoopWorkWithoutChangingSourceIrOrDebugHistory() {
+        var source = new SourceFile("default-loop-motion.cpp", """
+                int work(int a,int b,int n){int x=a;int y=b;int total=0;
+                    for(int i=0;i<n;i++){total=total+x*y;}return total;}
+                int main(){volatile int a=3;volatile int b=7;return work(a,b,5);}
+                """);
+        var api = new CompilerApi(source, LanguageMode.CPP17_ALGORITHM, OptimizationLevel.OPTIMIZED);
+        var original = api.runToIr(); var sourceFunctions = original.functions();
+        var originalWork = original.functions().stream().filter(f -> original.displayName(f.name()).equals("work")).findFirst().orElseThrow();
+        var sourceMultiply = originalWork.blocks().stream().filter(b -> !b.label().equals("entry"))
+                .flatMap(b -> b.instructions().stream()).filter(i -> i instanceof IrBinaryInstruction binary
+                        && binary.operator() == IrBinaryOperator.MULTIPLY).findFirst().orElseThrow();
+        var assembler = stage(api, Assembler.class); api.runThrough(assembler);
+        assertTrue(assembler.succeeded(), () -> assembler.errors().toString());
+        var optimized = assembler.optimizationResult().ir();
+        var work = optimized.functions().stream().filter(f -> optimized.displayName(f.name()).equals("work")).findFirst().orElseThrow();
+        var moved = work.blocks().getFirst().instructions().stream().filter(i -> i instanceof IrBinaryInstruction binary
+                && binary.operator() == IrBinaryOperator.MULTIPLY).findFirst().orElseThrow();
+        assertEquals(sourceMultiply.range(), moved.range());
+        assertTrue(work.blocks().stream().filter(b -> !b.label().equals("entry")).flatMap(b -> b.instructions().stream())
+                .noneMatch(i -> i instanceof IrBinaryInstruction binary && binary.operator() == IrBinaryOperator.MULTIPLY));
+        assertSame(sourceFunctions, original.functions());
+        assertSame(original, stage(api, IrLowerer.class).result());
+        var debug = DebugApi.fromIr(source, original, ""); var history = new ArrayList<Debugger.Context>(); history.add(debug.current());
+        for (int steps = 0; debug.canNext() && steps < 10_000; steps++) history.add(debug.next());
+        assertEquals(Debugger.Status.COMPLETED, debug.current().stop().status());
+        assertEquals(105, debug.current().runtime().returnValue().integer());
+        for (int i = history.size() - 2; i >= 0; i--) assertSame(history.get(i), debug.previous());
+        for (int i = 1; i < history.size(); i++) assertSame(history.get(i), debug.next());
     }
 
     @Test void aTransformationChangesOnlyNativeInputAndRunsExactlyOnce() {

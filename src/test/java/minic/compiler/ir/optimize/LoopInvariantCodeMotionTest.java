@@ -162,7 +162,9 @@ final class LoopInvariantCodeMotionTest {
     @Test void ordinarySourceHasAnActualMultiplicationToMoveAfterLocalPromotionAndPropagation() {
         var source=new SourceFile("loop.cpp","int work(int a,int b,int n){int x=a;int y=b;int total=0;for(int i=0;i<n;i++){total=total+x*y;}return total;}int main(){return work(3,7,5);}");
         var original=new CompilerApi(source,LanguageMode.CPP17_ALGORITHM).runToIr();
-        var prepared=IrOptimizationPipeline.forLevel(OptimizationLevel.OPTIMIZED).apply(original).ir();
+        // Keep the isolated pass test independent of its registration in the default pipeline.
+        var prepared=new IrOptimizationPipeline(OptimizationLevel.OPTIMIZED,List.of(new InitializedCheckEliminationPass(),
+                new SmallFunctionInliningPass(),new LocalScalarPromotionPass(),new ConstantPropagationPass(),new DeadCodeEliminationPass())).apply(original).ir();
         var result=apply(prepared);
         var work=result.functions().stream().filter(f->result.displayName(f.name()).equals("work")).findFirst().orElseThrow();
         assertTrue(work.blocks().getFirst().instructions().stream().anyMatch(i->i instanceof IrBinaryInstruction b&&b.operator()==IrBinaryOperator.MULTIPLY));
