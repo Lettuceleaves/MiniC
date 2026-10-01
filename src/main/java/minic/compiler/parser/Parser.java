@@ -1322,7 +1322,16 @@ public final class Parser extends Stage {
             if (!isCpp()) return -1;
             TokenType token = context.peekAt(offset).type();
             int end;
-            if (token == TokenType.IDENTIFIER || token == TokenType.SCOPE) {
+            if(token==TokenType.DECLTYPE) {
+                end=decltypeEndAt(offset);if(end<0)return -1;
+            } else if(token==TokenType.TYPENAME) {
+                end=offset+1;
+                if(context.peekAt(end).type()==TokenType.SCOPE)end++;
+                while(context.peekAt(end).type()==TokenType.IDENTIFIER) {
+                    end=templateArgumentsEndAt(end+1);if(end<0)return -1;
+                    if(context.peekAt(end).type()!=TokenType.SCOPE)break;end++;
+                }
+            } else if (token == TokenType.IDENTIFIER || token == TokenType.SCOPE) {
                 var name = CppNameParser.peekName(context, offset);
                 if (name == null || cppTypes.lookup(name).kind() != CppTypeEnvironment.Kind.TYPE) return -1;
                 end = offset + name.segments().size() * 2 - 1 + (name.global() ? 1 : 0);
@@ -1349,22 +1358,53 @@ public final class Parser extends Stage {
             return following == TokenType.LEFT_PAREN || following == TokenType.LEFT_BRACE ? end : -1;
         }
 
-        /** Only the prefix ending at a template-id is consumed here; the member remains a value name. */
-        public int cppTypeMemberDelimiterAt(int offset) {
-            if (!isCpp()) return -1;
-            var name = CppNameParser.peekName(context, offset);
-            if (name == null || cppTypes.lookup(name).kind() != CppTypeEnvironment.Kind.TYPE) return -1;
-            int end = offset + name.segments().size() * 2 - 1 + (name.global() ? 1 : 0);
-            if (context.peekAt(end).type() != TokenType.LESS) return -1;
-            int depth = 1;
-            while (depth > 0) {
-                TokenType next = context.peekAt(++end).type();
-                if (next == TokenType.EOF || next == TokenType.SEMICOLON || next == TokenType.LEFT_BRACE) return -1;
-                if (next == TokenType.LESS) depth++;
-                if (next == TokenType.GREATER) depth--;
-                if (next == TokenType.GREATER_GREATER) depth -= 2;
+        private int typeOwnerDepth;
+        private int decltypeEndAt(int offset) {
+            if(context.peekAt(offset).type()!=TokenType.DECLTYPE || context.peekAt(offset+1).type()!=TokenType.LEFT_PAREN)return -1;
+            int depth=1,end=offset+2;
+            for(;depth>0;end++) {
+                TokenType token=context.peekAt(end).type();if(token==TokenType.EOF||token==TokenType.SEMICOLON)return -1;
+                if(token==TokenType.LEFT_PAREN)depth++;else if(token==TokenType.RIGHT_PAREN)depth--;
             }
-            return depth == 0 && context.peekAt(end + 1).type() == TokenType.SCOPE ? end + 1 : -1;
+            return end;
+        }
+        private int templateArgumentsEndAt(int end) {
+            if(context.peekAt(end).type()!=TokenType.LESS)return end;
+            int depth=1,parens=0;
+            while(depth>0) {
+                TokenType next=context.peekAt(++end).type();
+                if(next==TokenType.EOF || next==TokenType.SEMICOLON)return -1;
+                if(next==TokenType.LEFT_PAREN)parens++;else if(next==TokenType.RIGHT_PAREN)parens--;
+                if(parens==0){if(next==TokenType.LESS)depth++;if(next==TokenType.GREATER)depth--;if(next==TokenType.GREATER_GREATER)depth-=2;}
+            }
+            return depth==0?end+1:-1;
+        }
+        /** The type prefix has a token boundary; it must not consume the following value member. */
+        public int cppTypeMemberDelimiterAt(int offset) {
+            if(!isCpp())return -1;
+            int end=decltypeEndAt(offset);
+            if(end<0) {
+                boolean global=context.peekAt(offset).type()==TokenType.SCOPE;
+                int cursor=offset+(global?1:0);var segments=new ArrayList<String>();
+                while(context.peekAt(cursor).type()==TokenType.IDENTIFIER) {
+                    Token name=context.peekAt(cursor);segments.add(name.lexeme());cursor++;
+                    var lookup=cppTypes.lookup(new QualifiedName(global,segments,name.range()));
+                    if(lookup.kind()==CppTypeEnvironment.Kind.TYPE){end=templateArgumentsEndAt(cursor);break;}
+                    if(context.peekAt(cursor).type()!=TokenType.SCOPE)return -1;cursor++;
+                }
+            }
+            if(end<0)return -1;
+            while(context.peekAt(end).type()==TokenType.SCOPE && context.peekAt(end+1).type()==TokenType.IDENTIFIER
+                    && context.peekAt(end+2).type()==TokenType.SCOPE)end+=2;
+            return context.peekAt(end).type()==TokenType.SCOPE?end:-1;
+        }
+        public ParsedType parseCppTypeMemberOwner() {
+            int length=cppTypeMemberDelimiterAt(0);if(length<0)return null;
+            int start=context.currentIndex();typeOwnerDepth++;
+            ParsedType result;
+            try {result=context.inTokenWindow(new Context.TokenWindow(start,start+length),()->parseType("期望成员限定类型"));}
+            finally {typeOwnerDepth--;}
+            for(int i=0;i<length;i++)context.advance();return result;
         }
 
         public ParsedType parseCppConstructionType() {
@@ -1799,6 +1839,10 @@ public final class Parser extends Stage {
                 }
                 end = context.consume(TokenType.RIGHT_PAREN, "decltype 需要 ')'");
                 if (end == null) return null;
+                while(context.match(TokenType.SCOPE)) {
+                    Token member=context.consume(TokenType.IDENTIFIER,"decltype 限定类型后需要成员类型名");if(member==null)return null;
+                    type=new MiniType.MemberType(type,member.lexeme());end=member;
+                }
             } else if (context.check(TokenType.BOOL)) {
                 end = context.advance();
                 type = MiniType.BOOL;
@@ -1871,7 +1915,7 @@ public final class Parser extends Stage {
             while(context.match(TokenType.SCOPE)) {
                 Token member=context.consume(TokenType.IDENTIFIER,"期望成员类型名称");
                 if(member==null)return null;
-                if(type.isDependentTemplate()&&!typename)context.report(member.range(),"依赖成员类型需要 typename");
+                if(type.isDependentTemplate()&&!typename&&typeOwnerDepth==0)context.report(member.range(),"依赖成员类型需要 typename");
                 type=new MiniType.MemberType(type,member.lexeme());
                 if(context.check(TokenType.LESS)) {context.unsupportedCpp(context.peek().range(),"成员类模板尚未实现");return null;}
             }

@@ -18,8 +18,12 @@ public final class CppTemplateDeduction {
     }
     public static Bindings match(List<TemplateArgument> pattern,List<TemplateArgument> actual,
                                  List<ClassTemplateDecl.Parameter> parameters, UnaryOperator<MiniType> expand) {
-        var matcher=new Matcher(parameters,expand);
-        if(!matcher.argumentList(pattern,actual))return null;
+        return match(pattern,actual,parameters,expand,UnaryOperator.identity());
+    }
+    public static Bindings match(List<TemplateArgument> pattern,List<TemplateArgument> actual,
+                                 List<ClassTemplateDecl.Parameter> parameters,UnaryOperator<MiniType> expand,UnaryOperator<MiniType> normalize) {
+        var matcher=new Matcher(parameters,expand,normalize);
+        if(!matcher.argumentList(pattern,actual)||!matcher.finish())return null;
         for(var parameter:parameters) {
             if(parameter.pack()){matcher.packs.putIfAbsent(parameter.type(),List.of());continue;}
             if(parameter instanceof ClassTemplateDecl.TypeParameter && !matcher.types.containsKey(parameter.type()))return null;
@@ -32,7 +36,7 @@ public final class CppTemplateDeduction {
                                   Map<MiniType.TemplateParameterType,MiniType> initialTypes,
                                   Map<MiniType.TemplateParameterType,TemplateArgument> initialValues,UnaryOperator<MiniType> expand) {
         var matcher=new Matcher(parameters,expand);matcher.types.putAll(initialTypes);matcher.values.putAll(initialValues);
-        if(!matcher.typeList(pattern,actual))return null;
+        if(!matcher.typeList(pattern,actual)||!matcher.finish())return null;
         return new Bindings(matcher.types,matcher.values,matcher.packs);
     }
     private static final class Matcher {
@@ -43,7 +47,11 @@ public final class CppTemplateDeduction {
         final List<ClassTemplateDecl.Parameter> declarations;
         final Set<MiniType.TemplateParameterType> packParameters=new LinkedHashSet<>();
         final UnaryOperator<MiniType> expand;
-        Matcher(List<ClassTemplateDecl.Parameter> parameters,UnaryOperator<MiniType> expand){this.declarations=parameters;parameters.forEach(p->{this.parameters.add(p.type());if(p.pack())packParameters.add(p.type());});this.expand=expand;}
+        final UnaryOperator<MiniType> normalize;
+        private record Deferred(MiniType pattern,MiniType actual) {}
+        final List<Deferred> deferred=new ArrayList<>();
+        Matcher(List<ClassTemplateDecl.Parameter> parameters,UnaryOperator<MiniType> expand){this(parameters,expand,UnaryOperator.identity());}
+        Matcher(List<ClassTemplateDecl.Parameter> parameters,UnaryOperator<MiniType> expand,UnaryOperator<MiniType> normalize){this.normalize=normalize;this.declarations=parameters;parameters.forEach(p->{this.parameters.add(p.type());if(p.pack())packParameters.add(p.type());});this.expand=expand;}
         boolean typeList(List<MiniType> pattern,List<MiniType> actual) {
             return argumentList(pattern.stream().map(type->type instanceof MiniType.PackExpansionType pack
                     ?(TemplateArgument)new TemplateArgument.Expansion(new TemplateArgument.Type(pack.pattern())):new TemplateArgument.Type(type)).toList(),
@@ -60,9 +68,9 @@ public final class CppTemplateDeduction {
                     if(identities.isEmpty())return false;
                     var sequences=new LinkedHashMap<MiniType.TemplateParameterType,List<TemplateArgument>>();identities.forEach(id->sequences.put(id,new ArrayList<>()));
                     while(index<actual.size()) {
-                        var child=new Matcher(declarations,expand);child.types.putAll(types);child.values.putAll(values);
+                        var child=new Matcher(declarations,expand,normalize);child.types.putAll(types);child.values.putAll(values);
                         TemplateArgument argument=actual.get(index++);if(argument instanceof TemplateArgument.Expansion a)argument=a.pattern();
-                        if(!child.argument(expansion.pattern(),argument))return false;
+                        if(!child.argument(expansion.pattern(),argument)||!child.finish())return false;
                         for(var identity:identities) {
                             TemplateArgument found=child.types.containsKey(identity)?new TemplateArgument.Type(child.types.get(identity)):child.values.get(identity);
                             if(found==null)return false;sequences.get(identity).add(found);
@@ -97,8 +105,23 @@ public final class CppTemplateDeduction {
                 return TemplateValues.convert(a,b.type(),true).equals(b);
             } catch(IllegalArgumentException error){return false;}
         }
+        boolean finish() {
+            try {
+                var substitution=new CppTemplateSubstitution(types,CppFunctionTemplateDeduction.expressions(values,declarations),packs,declarations,"<deduction>","<deduction>");
+                for(Deferred constraint:deferred) {
+                    MiniType resolved=substitution.type(constraint.pattern());
+                    if(resolved.equals(constraint.actual()))continue;
+                    if(resolved instanceof MiniType.MemberType&&resolved.isDependentTemplate())return false;
+                    if(!expand.apply(normalize.apply(resolved)).equals(expand.apply(constraint.actual())))return false;
+                }
+                return true;
+            } catch(IllegalArgumentException error){return false;}
+        }
         boolean type(MiniType pattern,MiniType actual) {
             actual=expand.apply(actual);
+            if(pattern instanceof MiniType.MemberType || pattern instanceof MiniType.DecltypeType) {
+                deferred.add(new Deferred(pattern,actual));return true;
+            }
             if(pattern instanceof MiniType.TemplateParameterType parameter && parameters.contains(parameter)) {
                 MiniType old=types.putIfAbsent(parameter,actual);
                 return old==null||old.equals(actual);

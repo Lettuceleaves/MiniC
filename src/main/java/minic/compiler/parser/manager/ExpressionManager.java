@@ -627,7 +627,7 @@ public final class ExpressionManager {
             if (query != null) return parseTypeQuery(query);
         }
         if (typeReader.cppTypeMemberDelimiterAt(0) >= 0) {
-            Parser.ParsedType type = typeReader.parseCppConstructionType();
+            Parser.ParsedType type = typeReader.parseCppTypeMemberOwner();
             state.consume(TokenType.SCOPE, "期望 '::'");
             Token name = state.consume(TokenType.IDENTIFIER, "期望类成员名称");
             if (type == null || name == null) return null;

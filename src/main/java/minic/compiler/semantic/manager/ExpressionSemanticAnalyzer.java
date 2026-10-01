@@ -84,6 +84,12 @@ final class ExpressionSemanticAnalyzer {
         this.aggregateInitTargetType = type;
     }
 
+    MiniType analyzeUnevaluated(Expression expression, Scope scope) {
+        unevaluatedDepth++;
+        try { return analyzeExpression(expression,scope); }
+        finally { unevaluatedDepth--; }
+    }
+
     MiniType analyzeExpression(Expression expression, Scope scope) {
         MiniType type = switch (expression) {
             case BoolLiteralExpr ignored -> MiniType.BOOL;

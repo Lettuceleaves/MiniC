@@ -166,6 +166,8 @@ public sealed interface MiniType permits
     default boolean containsTemplateType() {
         return switch (unqualified()) {
             case PackExpansionType ignored -> true;
+            case DecltypeType ignored -> true;
+            case TrailingReturnType trailing -> trailing.type().isDependentTemplate();
             case TemplateParameterType ignored -> true;
             case TemplateIdType ignored -> true;
             case MemberType ignored -> true;
@@ -243,6 +245,8 @@ public sealed interface MiniType permits
     default boolean isDependentTemplate() {
         return switch(this) {
             case PackExpansionType ignored -> true;
+            case DecltypeType ignored -> true;
+            case TrailingReturnType trailing -> trailing.type().isDependentTemplate();
             case TemplateParameterType ignored -> true;
             case TemplateIdType id -> id.arguments().stream().anyMatch(a -> a instanceof TemplateArgument.Expansion || a instanceof TemplateArgument.Type t && t.type().isDependentTemplate()
                     || a instanceof TemplateArgument.Value v && TemplateValues.dependent(v.expression()));

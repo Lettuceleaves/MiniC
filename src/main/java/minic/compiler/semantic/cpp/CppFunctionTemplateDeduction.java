@@ -167,7 +167,7 @@ public final class CppFunctionTemplateDeduction {
         return actual;
     }
     private static boolean nonDeduced(MiniType type) {
-        if(type instanceof MiniType.MemberType)return true;
+        if(type instanceof MiniType.MemberType || type instanceof MiniType.DecltypeType)return true;
         if(type instanceof MiniType.PointerType pointer)return nonDeduced(pointer.pointee());
         if(type instanceof MiniType.ReferenceType reference)return nonDeduced(reference.referent());
         if(type instanceof MiniType.QualifiedType qualified)return nonDeduced(qualified.baseType());

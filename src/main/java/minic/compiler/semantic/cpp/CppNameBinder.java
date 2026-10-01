@@ -229,6 +229,14 @@ public final class CppNameBinder {
         private final Program source;
         private final Namespace root = new Namespace(null, "");
         private final List<Diagnostic> diagnostics = new ArrayList<>();
+        private int substitutionDepth;
+        private final Set<Diagnostic> nonImmediateDiagnostics=java.util.Collections.newSetFromMap(new IdentityHashMap<>());
+        private void finishSubstitution(int checkpoint) {
+            diagnostics.subList(checkpoint,diagnostics.size()).removeIf(diagnostic->!nonImmediateDiagnostics.contains(diagnostic));
+        }
+        private void preserveInstantiationDiagnostics(int checkpoint) {
+            if(substitutionDepth>0)nonImmediateDiagnostics.addAll(diagnostics.subList(checkpoint,diagnostics.size()));
+        }
         private final IdentityHashMap<AstNode, AstNode> origins = new IdentityHashMap<>();
         private final Map<String, String> displayNames = new LinkedHashMap<>();
         private final Set<String> reserved = new HashSet<>();
@@ -482,6 +490,9 @@ public final class CppNameBinder {
                 if(from instanceof ClassTemplateDecl.TypeParameter)types.put(from.type(),to.type());
                 else values.put(from.type(),new CppTemplateValueExpr(to.type(),((ClassTemplateDecl.ValueParameter)to).valueType(),to.range()));
             }
+            for(int index=0;index<parameters.size();index++)if(old.parameters.get(index) instanceof ClassTemplateDecl.ValueParameter from
+                    && parameters.get(index) instanceof ClassTemplateDecl.ValueParameter to
+                    && !from.valueType().substituteTemplateParameters(types,values).equals(to.valueType()))return false;
             return old.source.parameters().stream().map(p->p.type().substituteTemplateParameters(types,values)).toList()
                     .equals(source.parameters().stream().map(Parameter::type).toList());
         }
@@ -540,7 +551,7 @@ public final class CppNameBinder {
             if(actual.size()<required||!packParameters&&!definition.source.variadic()&&actual.size()>definition.source.parameters().size())return null;
             var savedLookup=currentTemplateLookup;TypeEntity savedClass=currentClass;Entity savedThis=currentThis;
             currentTemplateLookup=definition.lookup;currentClass=definition.record;currentThis=null;
-            int errors=diagnostics.size();
+            int errors=diagnostics.size();substitutionDepth++;
             try {
                 List<MiniType> pattern=definition.source.parameters().stream().map(p->functionTemplatePattern(p.type(),definition.owner,p.range())).toList();
                 var bindings=CppFunctionTemplateDeduction.deduceShapes(definition.parameters,pattern,actual,explicit==null?List.of():explicit,this::expandTemplateType,
@@ -589,7 +600,7 @@ public final class CppNameBinder {
             } catch(IllegalArgumentException error) {return null;}
             finally {
                 // Only signature substitution is an immediate context. Body errors are never caught here.
-                diagnostics.subList(errors,diagnostics.size()).clear();
+                finishSubstitution(errors);substitutionDepth--;
                 currentTemplateLookup=savedLookup;currentClass=savedClass;currentThis=savedThis;
             }
         }
@@ -635,6 +646,7 @@ public final class CppNameBinder {
             int savedUnevaluatedDepth=unevaluatedDepth;unevaluatedDepth=0;
             var savedLookup=currentTemplateLookup;TypeEntity savedClass=currentClass;Entity savedThis=currentThis;
             currentTemplateLookup=definition.lookup;currentClass=definition.record;currentThis=null;
+            int bodyDiagnostics=diagnostics.size();
             try {
                 var substitution=functionSubstitution(definition,bindings);
                 if(instance.constructor!=null) {
@@ -650,7 +662,7 @@ public final class CppNameBinder {
                     else bindFunction(source,definition.owner,entity);
                 }
             } catch(IllegalArgumentException error){report("CPP004",definition.source.range(),"Cannot instantiate selected function template: "+error.getMessage());}
-            finally {currentTemplateLookup=savedLookup;currentClass=savedClass;currentThis=savedThis;functionTemplateDepth--;unevaluatedDepth=savedUnevaluatedDepth;}
+            finally {preserveInstantiationDiagnostics(bodyDiagnostics);currentTemplateLookup=savedLookup;currentClass=savedClass;currentThis=savedThis;functionTemplateDepth--;unevaluatedDepth=savedUnevaluatedDepth;}
         }
         private Entity deduceFunctionTemplateForTarget(Entity declaration,MiniType.FunctionType target,List<TemplateArgument> explicit,SourceRange range) {
             FunctionTemplateDefinition definition=functionTemplates.get(declaration);
@@ -948,7 +960,14 @@ public final class CppNameBinder {
         private TemplateSelection selectTemplate(MiniType.TemplateIdType key,SourceRange range) {
             var matches=new ArrayList<TemplateSelection>();
             for(var candidate:templateSpecializations.getOrDefault(key.templateName(),List.of())) {
-                var bindings=CppTemplateDeduction.match(templatePattern(candidate),key.arguments(),candidate.source.parameters(),this::expandTemplateType);
+                int checkpoint=diagnostics.size();substitutionDepth++;
+                CppTemplateDeduction.Bindings bindings=null;
+                var savedLookup=currentTemplateLookup;currentTemplateLookup=candidate.lookup;
+                try {
+                    bindings=CppTemplateDeduction.match(templatePattern(candidate),key.arguments(),candidate.source.parameters(),this::expandTemplateType,
+                            type->normalizeType(type,candidate.owner,null,range));
+                    if(diagnostics.size()!=checkpoint)bindings=null;
+                } finally {finishSubstitution(checkpoint);substitutionDepth--;currentTemplateLookup=savedLookup;}
                 if(bindings!=null)matches.add(new TemplateSelection(candidate,bindings));
             }
             if(matches.isEmpty()) {
@@ -993,6 +1012,7 @@ public final class CppNameBinder {
             instantiating.add(entity);
             instanceLookup.put(entity, definition.lookup);
             currentTemplateLookup = definition.lookup;
+            int bodyDiagnostics=diagnostics.size();
             try {
                 StructDecl instantiated = substitution.instantiate(definition.source.record());
                 templateOrigins.putAll(substitution.origins());
@@ -1000,6 +1020,7 @@ public final class CppNameBinder {
             } catch (IllegalArgumentException error) {
                 report("CPP004", range, "Cannot instantiate " + templateTypeDisplay(entity.type) + ": " + error.getMessage());
             } finally {
+                preserveInstantiationDiagnostics(bodyDiagnostics);
                 currentTemplateLookup = saved;
                 instantiating.remove(entity);
             }
@@ -2016,8 +2037,22 @@ public final class CppNameBinder {
             Expression saved=decltypeOperand;Expression ungrouped=operand;
             while(ungrouped instanceof GroupingExpr group)ungrouped=group.expression();
             decltypeOperand=ungrouped;
-            try{return unevaluatedExpression(operand,namespace,local);}finally{decltypeOperand=saved;}
+            try {
+                Expression value=unevaluatedExpression(operand,namespace,local);
+                validateUnevaluatedCore(value);
+                return value;
+            } finally {decltypeOperand=saved;}
         }
+        /** Reuses builtin rules after C++ overload/access binding without executing or requiring bodies. */
+        private void validateUnevaluatedCore(Expression value) {
+            var symbols=new LinkedHashMap<String,MiniType>();
+            for(var entry:coreValues.entrySet()) {
+                MiniType type=entry.getValue().type;
+                if(type!=null&&!type.containsTemplateType()&&!type.containsPlaceholder())symbols.put(entry.getKey(),coreType(type));
+            }
+            diagnostics.addAll(minic.compiler.semantic.manager.ExpressionTypeProbe.analyze(value,symbols,structs).diagnostics());
+        }
+
         private MiniType decltypeType(Expression operand, Namespace namespace, Local local) {
             rejectUnevaluatedLambdas(operand);
             Candidate named;
