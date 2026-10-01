@@ -356,7 +356,9 @@ final class ExpressionLowerer {
             arguments.add(returnSlotAddress);
         }
 
-        for (int i = 0; i < callExpr.arguments().size(); i++) {
+        int argumentOffset = arguments.size();
+        arguments.addAll(java.util.Collections.nCopies(callExpr.arguments().size(), null));
+        for (int i : callExpr.argumentEvaluationOrder()) {
             Expression argument = callExpr.arguments().get(i);
             MiniType argType = expressionTypes.get(argument);
             if (argType != null && argType.isStruct() && Expression.ObjectInitExpr.occursInResultOf(argument)) {
@@ -365,7 +367,7 @@ final class ExpressionLowerer {
                 IrTemporary address = builder.newTemporary(IrType.POINTER);
                 builder.addInstruction(new IrAddressOfLocalInstruction(address, slot, argument.range()));
                 initializeObjectAt(argument, address);
-                arguments.add(address);
+                arguments.set(argumentOffset + i, address);
                 continue;
             }
             IrValue argValue = lowerExpression(argument);
@@ -378,7 +380,7 @@ final class ExpressionLowerer {
             } else {
                 argValue = captureCallValue(argValue, argument.range());
             }
-            arguments.add(argValue);
+            arguments.set(argumentOffset + i, argValue);
         }
         boolean returnsVoid = callResultType != null && callResultType.isVoid();
         IrTemporary result = returnsVoid

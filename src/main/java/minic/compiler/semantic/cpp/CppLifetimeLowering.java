@@ -89,16 +89,17 @@ final class CppLifetimeLowering {
             }
             case CallExpr call -> {
                 Expression callee = rewrite(call.callee(), false);
-                List<Expression> arguments = new ArrayList<>();
-                for (Expression argument : call.arguments()) {
+                List<Expression> arguments = new ArrayList<>(java.util.Collections.nCopies(call.arguments().size(), null));
+                for (int index : call.argumentEvaluationOrder()) {
+                    Expression argument = call.arguments().get(index);
                     MiniType type = context.type(argument);
                     if (type != null && type.isStruct() && context.needsDestruction(type)
                             && !ObjectInitExpr.occursInResultOf(argument)) {
                         argument = context.copy(type, argument, argument.range());
                     }
-                    arguments.add(rewrite(argument, false));
+                    arguments.set(index, rewrite(argument, false));
                 }
-                yield new CallExpr(callee, arguments, call.range());
+                yield new CallExpr(callee, arguments, call.argumentEvaluationOrder(), call.range());
             }
             case InitializeExpr initialization -> new InitializeExpr(rewrite(initialization.target(), false),
                     rewrite(initialization.value(), true), initialization.range());

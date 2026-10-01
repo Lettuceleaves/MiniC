@@ -448,6 +448,14 @@ public final class ExpressionManager {
     private Expression finishFieldAccess(Expression target, boolean viaPointer) {
         if (state.languageMode() == LanguageMode.CPP17_ALGORITHM) {
             if (state.match(TokenType.TILDE)) return finishDestructorCall(target, viaPointer, state.previous());
+            if (state.check(TokenType.OPERATOR)) {
+                var operator = minic.compiler.parser.CppOperatorNameParser.parse(state);
+                if (operator == null) return null;
+                var member = new FieldAccessExpr(target, operator.spelling(), viaPointer,
+                        SourceRange.span(target.range(), operator.range()));
+                state.build(member, "FieldAccessExpr " + member.fieldName(), member.range());
+                return member;
+            }
             int offset = state.check(TokenType.SCOPE) ? 1 : 0;
             while (state.peekAt(offset).type() == TokenType.IDENTIFIER
                     && state.peekAt(offset + 1).type() == TokenType.SCOPE) {

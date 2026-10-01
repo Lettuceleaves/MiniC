@@ -85,6 +85,11 @@ public final class CppNameBinder {
         CppCopyConstructorPlan.Result<Constructor> copyPlan;
         boolean copyEmitted;
         boolean copyPrototypeEmitted;
+        boolean assignmentPlanned;
+        Method implicitAssignment;
+        AssignmentPlan assignmentPlan;
+        boolean assignmentEmitted;
+        boolean assignmentPrototypeEmitted;
         Destructor destructor;
 
         TypeEntity(String name, String canonicalName, MiniType type, boolean classType,
@@ -112,6 +117,10 @@ public final class CppNameBinder {
 
     private record Destructor(TypeEntity owner, DestructorMember source, Access access, Entity function,
                               boolean implicit) { }
+
+    private record AssignmentEntry(StructField field, List<Integer> dimensions, Method method) { }
+    private record AssignmentPlan(MiniType parameterType, List<AssignmentEntry> entries, List<String> problems,
+                                  boolean trivial) { }
 
     private record ImplicitField(TypeEntity owner, String name) implements Candidate { }
 
@@ -348,6 +357,7 @@ public final class CppNameBinder {
                 }
                 if (destructor != null) bindDestructor(destructor);
                 ensureImplicitCopy(entity);
+                ensureImplicitAssignment(entity);
                 for (Method method : methods) bindMethod(method, namespace);
             }
         }
@@ -1009,7 +1019,7 @@ public final class CppNameBinder {
                 case ADD, SUBTRACT, MULTIPLY, DIVIDE, REMAINDER, BIT_XOR, BIT_AND, BIT_OR,
                         BIT_NOT, LOGICAL_NOT, LESS, GREATER, SHIFT_LEFT, SHIFT_RIGHT, EQUAL, NOT_EQUAL,
                         LESS_EQUAL, GREATER_EQUAL, INCREMENT, DECREMENT, CALL, SUBSCRIPT, MEMBER_ACCESS,
-                        LOGICAL_AND, LOGICAL_OR, COMMA -> true;
+                        LOGICAL_AND, LOGICAL_OR, COMMA, ASSIGN -> true;
                 default -> false;
             }) return false;
             report("CPP005", node.operatorName().range(), "运算符重载声明已解析；重载选择和执行语义尚未实现。");
@@ -1023,7 +1033,7 @@ public final class CppNameBinder {
             boolean valid = switch (kind) {
                 case CALL -> member;
                 case MEMBER_ACCESS -> member && count == 1;
-                case SUBSCRIPT -> member && count == 2;
+                case SUBSCRIPT, ASSIGN -> member && count == 2;
                 case ADD, SUBTRACT, MULTIPLY, BIT_AND -> count == 1 || count == 2;
                 case BIT_NOT, LOGICAL_NOT -> count == 1;
                 case INCREMENT, DECREMENT -> count == 1 || count == 2
@@ -1409,15 +1419,17 @@ public final class CppNameBinder {
                         report("CPP004", n.target().range(), "内置赋值要求可修改的左值，临时对象的标量子对象不是左值。");
                     }
                     requireComplete(targetType, n.range());
-                    if (objectType(targetType) != null && (hasConstSubobject(targetType, new HashSet<>())
-                            || hasReferenceSubobject(targetType, new HashSet<>()))) {
-                        report("CPP005", n.range(), "尚未支持含 const 子对象的整体赋值所需的特殊成员函数规则。");
-                    }
                     if (n.operator() == TokenType.PLUS_EQUAL || n.operator() == TokenType.MINUS_EQUAL) {
                         requireComplete(elementType(declaredExpressionType(target)), n.range());
                     }
                     Expression value = n.compoundBinaryOperator().isEmpty()
                             ? expressionForTarget(targetType, n.value(), namespace, local) : expression(n.value(), namespace, local);
+                    if (objectType(targetType) != null) {
+                        if (n.operator() == TokenType.EQUAL)
+                            yield operatorExpression("operator=", n, List.of(n.target(), n.value()),
+                                    List.of(target, value), namespace, local, true);
+                        report("CPP005", n.range(), "Compound assignment overload execution is not supported yet.");
+                    }
                     AssignmentExpr assignment = new AssignmentExpr(target, n.operator(), value, n.range());
                     yield normalizedAssignment(assignment, addressDemand);
                 }
@@ -1504,7 +1516,10 @@ public final class CppNameBinder {
                                 ? bindReference(parameter, argument, namespace, local, argument.range())
                                 : convertCallValue(parameter, expressionForTarget(parameter, argument, namespace, local), argument));
                     }
-                    CallExpr call = new CallExpr(callee, arguments, n.range());
+                    List<Integer> evaluationOrder = new ArrayList<>();
+                    if (binding.receiver() != null) evaluationOrder.add(0);
+                    for (int index : n.argumentEvaluationOrder()) evaluationOrder.add(index + offset);
+                    CallExpr call = new CallExpr(callee, arguments, evaluationOrder, n.range());
                     if (signature != null) declaredExpressionTypes.put(call, signature.returnType().isReference()
                             ? coreType(signature.returnType()) : signature.returnType());
                     if (signature != null && signature.returnType().isReference()) {
@@ -1901,7 +1916,9 @@ public final class CppNameBinder {
             requireComplete(signature.returnType(), original.range());
             signature.parameterTypes().forEach(type -> requireComplete(type, original.range()));
             requireSupportedCallLifetime(signature.returnType(), signature.parameterTypes(), original.range());
-            CallExpr call = new CallExpr(new NameExpr(selected.function.coreName, original.range()), lowered, original.range());
+            List<Integer> evaluationOrder = name.equals("operator=") && original instanceof AssignmentExpr
+                    ? List.of(1, 0) : java.util.stream.IntStream.range(0, lowered.size()).boxed().toList();
+            CallExpr call = new CallExpr(new NameExpr(selected.function.coreName, original.range()), lowered, evaluationOrder, original.range());
             declaredExpressionTypes.put(call, signature.returnType().isReference()
                     ? coreType(signature.returnType()) : signature.returnType());
             if (signature.returnType().isReference())
@@ -2269,10 +2286,16 @@ public final class CppNameBinder {
 
         private MethodSet memberMethods(MiniType owner, String name) {
             TypeEntity type = objectType(owner);
+            if (type != null && name.equals("operator=")) ensureImplicitAssignment(type);
             return type == null ? null : type.methods.get(name);
         }
 
         private void requireMethodAccess(Method method, SourceRange range) {
+            if (method == method.owner.implicitAssignment) {
+                if (!method.owner.assignmentPlan.problems.isEmpty())
+                    report("CPP004", range, "隐式复制赋值已被删除：" + method.owner.assignmentPlan.problems.getFirst());
+                else emitImplicitAssignment(method.owner);
+            }
             if (method.access != Access.PUBLIC && currentClass != method.owner) {
                 report("CPP004", range, "不能访问 " + method.access.name().toLowerCase(java.util.Locale.ROOT)
                         + " 成员函数 " + method.owner.canonicalName + "::" + method.source.method().name());
@@ -2770,7 +2793,145 @@ public final class CppNameBinder {
             }
         }
 
-        /** Copy construction is selected from source signatures before reference erasure. */
+        /** A differently typed assignment overload does not suppress the implicit copy assignment. */
+        private boolean isCopyAssignment(Method method) {
+            if (!method.source.method().name().equals("operator=") || method.parameterTypes.size() != 1) return false;
+            MiniType parameter = method.parameterTypes.getFirst();
+            return objectTypeOfReference(parameter).unqualified().equals(method.owner.type);
+        }
+
+        private void ensureImplicitAssignment(TypeEntity owner) {
+            if (owner.assignmentPlanned || !owner.complete) return;
+            owner.assignmentPlanned = true;
+            MethodSet declared = owner.methods.get("operator=");
+            if (declared != null && declared.methods.stream().anyMatch(this::isCopyAssignment)) return;
+            boolean constant = true;
+            for (StructField field : owner.fields) {
+                MiniType leaf = field.type();
+                while (leaf.isArray()) leaf = MiniType.qualified(leaf.elementType(), leaf.qualifiers());
+                TypeEntity member = objectType(leaf);
+                if (member == null) continue;
+                ensureImplicitAssignment(member);
+                MethodSet methods = member.methods.get("operator=");
+                constant &= methods != null && methods.methods.stream().filter(this::isCopyAssignment).anyMatch(method -> {
+                    MiniType parameter = method.parameterTypes.getFirst();
+                    return !parameter.isReference() || parameter.referent().isConstQualified();
+                });
+            }
+            MiniType sourceOwner = constant ? MiniType.qualified(owner.type, Set.of(MiniType.TypeQualifier.CONST)) : owner.type;
+            List<AssignmentEntry> entries = new ArrayList<>();
+            List<String> problems = new ArrayList<>();
+            boolean trivial = true;
+            for (StructField field : owner.fields) {
+                MiniType target = field.type();
+                List<Integer> dimensions = new ArrayList<>();
+                while (target.isArray()) {
+                    dimensions.add(((MiniType.ArrayType) target.unqualified()).length());
+                    target = MiniType.qualified(target.elementType(), target.qualifiers());
+                }
+                if (target.isReference()) { problems.add("Reference member '" + field.name() + "' cannot be reseated"); continue; }
+                MiniType source = inheritObjectQualifiers(sourceOwner, target);
+                TypeEntity member = objectType(target);
+                Method selected = null;
+                if (member == null) {
+                    if (target.isConstQualified()) problems.add("Const member '" + field.name() + "' is not assignable");
+                } else {
+                    MethodSet methods = member.methods.get("operator=");
+                    List<CppOverloadResolver.Candidate<Method>> candidates = methods == null ? List.of()
+                            : methods.methods.stream().map(method -> new CppOverloadResolver.Candidate<>(method,
+                            method.parameterTypes, false, methodThisType(member, method.source).pointee())).toList();
+                    var resolution = CppOverloadResolver.resolveOperators(candidates, List.of(
+                            new CppOverloadResolver.Argument(target, CppValueCategory.LVALUE, false),
+                            new CppOverloadResolver.Argument(source, CppValueCategory.LVALUE, false)));
+                    if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
+                        problems.add("No unique member assignment for '" + field.name() + "'"); continue;
+                    }
+                    selected = resolution.winner().identity();
+                    if (selected.access != Access.PUBLIC && selected.owner != owner)
+                        problems.add("Assignment of member '" + field.name() + "' is inaccessible");
+                    boolean implicit = selected == member.implicitAssignment;
+                    if (implicit && !member.assignmentPlan.problems.isEmpty()) problems.add("Assignment of member '" + field.name() + "' is deleted");
+                    boolean memberTrivial = implicit && member.assignmentPlan.trivial;
+                    if (owner.union && !memberTrivial) problems.add("Union member '" + field.name() + "' has nontrivial assignment");
+                    trivial &= memberTrivial;
+                }
+                entries.add(new AssignmentEntry(field, List.copyOf(dimensions), selected));
+            }
+            owner.assignmentPlan = new AssignmentPlan(sourceOwner.referenceTo(), List.copyOf(entries), List.copyOf(problems), trivial);
+            SourceRange range = owner.sourceRecord.range();
+            FunctionDecl source = new FunctionDecl("operator=", owner.type.referenceTo(),
+                    List.of(new Parameter("other", sourceOwner.referenceTo(), range)), false, null, false, range);
+            MethodMember member = new MethodMember(source, false, range);
+            Entity function = new Entity("operator=", freshName(owner.canonicalName.substring(2) + "::operator="), Kind.FUNCTION,
+                    owner.owner, MiniType.function(owner.type.referenceTo(), List.of(owner.type.pointerTo(), sourceOwner.referenceTo())), null, true);
+            coreValues.put(function.coreName, function);
+            owner.implicitAssignment = new Method(owner, member, Access.PUBLIC, function, owner.type.referenceTo(), List.of(sourceOwner.referenceTo()));
+            List<Method> methods = new ArrayList<>(declared == null ? List.of() : declared.methods);
+            methods.add(owner.implicitAssignment); owner.methods.put("operator=", new MethodSet(methods));
+        }
+
+        private void emitImplicitAssignment(TypeEntity owner) {
+            if (owner.assignmentEmitted || !owner.assignmentPlan.problems.isEmpty()) return;
+            SourceRange range = owner.sourceRecord.range();
+            boolean anonymous = owner.fields.stream().anyMatch(StructField::anonymous);
+            boolean representationCopy = owner.union || anonymous && owner.assignmentPlan.trivial
+                    && !hasVolatileSubobject(owner.type, new HashSet<>());
+            if (anonymous && !representationCopy) {
+                report("CPP005", range, "Nontrivial assignment of anonymous aggregate storage requires subobject addressing support.");
+                return;
+            }
+            if (unevaluatedDepth > 0 && owner.assignmentPrototypeEmitted) return;
+            String self = freshName("this"), other = freshName("other");
+            MiniType sourcePointer = coreType(owner.assignmentPlan.parameterType);
+            List<Statement> statements = new ArrayList<>();
+            if (unevaluatedDepth == 0) {
+                owner.assignmentEmitted = true;
+                if (representationCopy) {
+                    Expression to = typed(new UnaryExpr(TokenType.STAR, typed(new NameExpr(self, range), owner.type.pointerTo()), range), owner.type);
+                    Expression from = typed(new UnaryExpr(TokenType.STAR, typed(new NameExpr(other, range), sourcePointer), range), owner.assignmentPlan.parameterType.referent());
+                    statements.add(new ExprStmt(new AssignmentExpr(to, TokenType.EQUAL, from, range), range));
+                } else for (AssignmentEntry entry : owner.assignmentPlan.entries) {
+                    Expression target = typed(new FieldAccessExpr(typed(new NameExpr(self, range), owner.type.pointerTo()), entry.field.name(), true, range), entry.field.type());
+                    MiniType sourceType = inheritObjectQualifiers(owner.assignmentPlan.parameterType.referent(), entry.field.type());
+                    Expression source = typed(new FieldAccessExpr(typed(new NameExpr(other, range), sourcePointer), entry.field.name(), true, range), sourceType);
+                    TypeEntity savedClass = currentClass;
+                    currentClass = owner;
+                    try { statements.add(assignMemberStatement(entry, target, source, entry.field.type(), 0)); }
+                    finally { currentClass = savedClass; }
+                }
+                statements.add(new ReturnStmt(new NameExpr(self, range), range));
+            } else owner.assignmentPrototypeEmitted = true;
+            FunctionDecl core = new FunctionDecl(owner.implicitAssignment.function.coreName, owner.type.pointerTo(),
+                    List.of(new Parameter(self, owner.type.pointerTo(), range), new Parameter(other, sourcePointer, range)), false,
+                    unevaluatedDepth > 0 ? null : new BlockStmt(statements, range), false, range);
+            functions.add(core); declarations.add(core);
+        }
+
+        private Statement assignMemberStatement(AssignmentEntry entry, Expression target, Expression source, MiniType type, int dimension) {
+            SourceRange range = entry.field.range();
+            if (dimension < entry.dimensions.size()) {
+                String index = freshName("assignment_index"); Expression i = typed(new NameExpr(index, range), MiniType.INT);
+                MiniType element = MiniType.qualified(type.elementType(), type.qualifiers());
+                Expression to = typed(new IndexExpr(target, i, range), element);
+                Expression from = typed(new IndexExpr(source, i, range), inheritObjectQualifiers(declaredExpressionType(source), element));
+                return new ForStmt(new VarDeclStmt(index, MiniType.INT, new IntegerLiteralExpr(0,"0",range),range),
+                        new BinaryExpr(i,TokenType.LESS,new IntegerLiteralExpr(entry.dimensions.get(dimension),"length",range),range),
+                        new PostfixUpdateExpr(i,TokenType.PLUS_PLUS,range),assignMemberStatement(entry,to,from,element,dimension+1),range);
+            }
+            if (entry.method == null) return new ExprStmt(new AssignmentExpr(target, TokenType.EQUAL, source, range), range);
+            Method selected = entry.method;
+            if (selected == selected.owner.implicitAssignment) emitImplicitAssignment(selected.owner);
+            MiniType parameter = selected.parameterTypes.getFirst();
+            Expression argument = parameter.isReference() ? address(source)
+                    : copyInitialize(parameter, source, range, CppInitializer.Kind.COPY);
+            destructorForUse(parameter, range);
+            destructorForUse(selected.returnType, range);
+            Expression call = typed(new CallExpr(new NameExpr(selected.function.coreName, range),
+                    List.of(address(target), argument), List.of(1,0), range), coreType(selected.returnType));
+            if (selected.returnType.isStruct()) call = recordPrvalue(selected.returnType, call, range);
+            return new ExprStmt(fullExpression(call, false, entry.field), range);
+        }
+
         private boolean isCopyConstructor(Constructor constructor) {
             return CppCopyConstructorPlan.classify(constructor.owner.type, constructor.parameterTypes)
                     == CppCopyConstructorPlan.Classification.COPY;

@@ -183,8 +183,7 @@ final class CppOperatorExecutionTest {
         for(int index=1;index<history.size();index++)assertSame(history.get(index),debug.next());
     }
 
-    @ParameterizedTest @ValueSource(strings={"Value& operator=(const Value&);", "Value& operator+=(int);",
-            "bool operator&&(const Value&)const;", "int operator,(int);", "Value* operator->();", "int operator->*(int);"})
+    @ParameterizedTest @ValueSource(strings={"Value& operator+=(int);", "int operator->*(int);"})
     void laterOperatorFamiliesKeepTheirExplicitExecutionGuard(String declaration) throws Exception {
         String text="struct Value{"+declaration+"};int main(){return 0;}";
         Path file=temporary.resolve("later.cpp");Files.writeString(file,text);

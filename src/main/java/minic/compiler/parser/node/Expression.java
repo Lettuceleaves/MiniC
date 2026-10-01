@@ -133,12 +133,23 @@ public interface Expression extends AstNode {
         }
     }
 
-    record CallExpr(Expression callee, List<Expression> arguments, SourceRange range) implements Expression {
+    /** Arguments retain ABI order; evaluation order is a validated permutation, after evaluating the callee. */
+    record CallExpr(Expression callee, List<Expression> arguments, List<Integer> argumentEvaluationOrder,
+                    SourceRange range) implements Expression {
+        public CallExpr(Expression callee, List<Expression> arguments, SourceRange range) {
+            this(callee, arguments, java.util.stream.IntStream.range(0, arguments.size()).boxed().toList(), range);
+        }
         public CallExpr {
             Objects.requireNonNull(callee, "callee");
             Objects.requireNonNull(arguments, "arguments");
             Objects.requireNonNull(range, "range");
             arguments = List.copyOf(arguments);
+            argumentEvaluationOrder = List.copyOf(argumentEvaluationOrder);
+            int argumentCount = arguments.size();
+            if (argumentEvaluationOrder.size() != argumentCount
+                    || new java.util.HashSet<>(argumentEvaluationOrder).size() != argumentCount
+                    || argumentEvaluationOrder.stream().anyMatch(index -> index < 0 || index >= argumentCount))
+                throw new IllegalArgumentException("Argument evaluation order must be a permutation of the argument indices");
         }
 
         public String calleeName() {
