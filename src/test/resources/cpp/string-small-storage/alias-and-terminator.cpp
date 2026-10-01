@@ -17,7 +17,7 @@ int main(){
     s.insert(s.begin()+1,s.begin(),s.end());require(s=="aabcabcbcabc",17);valid(s);
     s="abcdef";s.replace(s.begin()+1,s.begin()+5,s.begin()+2,s.end());require(s=="acdeff",18);valid(s);
     s="abcdefghijklmnop";s.replace(1,14,s.data()+2,12);require(s=="acdefghijklmnp",19);valid(s);
-    s="abc";s.append(s.data(),0);s.insert(1,s.data()+s.size(),0);s.replace((std::string::size_type)0,(std::string::size_type)0,s.data(),0);s.assign(s.data(),s.size());
+    s="abc";s.append(s.data(),0);s.insert(1,s.data()+s.size(),0);s.replace(0,0,s.data(),0);s.assign(s.data(),s.size());
     require(s=="abc",20);valid(s);
     char output[4]={'?','?','?','!'};require(s.copy(output,3)==3&&output[3]=='!'&&output[2]=='c',21);
     s="abc";std::string sum=std::move(s)+s;require(sum=="abcabc",22);valid(s);valid(sum);

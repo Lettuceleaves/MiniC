@@ -176,29 +176,41 @@ public:
     string& insert(size_type position,const char* text) { return replace_text(position,0,text,text_length(text)); }
     string& insert(size_type position,const char* text,size_type count) { return replace_text(position,0,text,count); }
     string& insert(size_type position,size_type count,char value) { return replace_fill(position,0,count,value); }
-    iterator insert(const_iterator position,char value) { size_type index=(size_type)(position-data());replace_fill(index,0,1,value);return data()+index; }
-    iterator insert(const_iterator position,size_type count,char value) { size_type index=(size_type)(position-data());replace_fill(index,0,count,value);return data()+index; }
-    template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
-    iterator insert(const_iterator position,I first,I last) { size_type index=(size_type)(position-data());string saved(first,last);replace_text(index,0,saved.data(),saved.size());return data()+index; }
-    iterator insert(const_iterator position,initializer_list<char> values) { return insert(position,values.begin(),values.end()); }
+    // Deduction keeps integer zero in the index overloads while retaining
+    // independent, implicitly convertible iterator positions. Convert each once.
+    template<class P,class Enable=typename enable_if<is_convertible<P,const_iterator>::value>::type>
+    iterator insert(P&& input,char value) { const_iterator position=std::forward<P>(input); size_type index=(size_type)(position-data());replace_fill(index,0,1,value);return data()+index; }
+    template<class P,class Enable=typename enable_if<is_convertible<P,const_iterator>::value>::type>
+    iterator insert(P&& input,size_type count,char value) { const_iterator position=std::forward<P>(input); size_type index=(size_type)(position-data());replace_fill(index,0,count,value);return data()+index; }
+    template<class P,class I,class Enable=typename enable_if<is_convertible<P,const_iterator>::value && !is_integral<I>::value>::type>
+    iterator insert(P&& input,I first,I last) { const_iterator position=std::forward<P>(input); size_type index=(size_type)(position-data());string saved(first,last);replace_text(index,0,saved.data(),saved.size());return data()+index; }
+    template<class P,class Enable=typename enable_if<is_convertible<P,const_iterator>::value>::type>
+    iterator insert(P&& input,initializer_list<char> values) { const_iterator position=std::forward<P>(input); return insert(position,values.begin(),values.end()); }
     string& erase(size_type position,size_type count) { return replace_fill(position,count,0,0); }
     string& erase(size_type position) { return erase(position,npos); }
     string& erase() { clear();return *this; }
-    iterator erase(const_iterator position) { size_type index=(size_type)(position-data());erase(index,1);return data()+index; }
-    iterator erase(const_iterator first,const_iterator last) { size_type index=(size_type)(first-data());erase(index,(size_type)(last-first));return data()+index; }
+    template<class P,class Enable=typename enable_if<is_convertible<P,const_iterator>::value>::type>
+    iterator erase(P&& input) { const_iterator position=std::forward<P>(input); size_type index=(size_type)(position-data());erase(index,1);return data()+index; }
+    template<class F,class L,class Enable=typename enable_if<is_convertible<F,const_iterator>::value && is_convertible<L,const_iterator>::value>::type>
+    iterator erase(F&& begin_input,L&& end_input) { const_iterator first=std::forward<F>(begin_input);const_iterator last=std::forward<L>(end_input); size_type index=(size_type)(first-data());erase(index,(size_type)(last-first));return data()+index; }
     string& replace(size_type position,size_type count,const string& other) { return replace_text(position,count,other.data(),other.size_); }
     string& replace(size_type position,size_type count,const string& other,size_type source_position) { return replace(position,count,other,source_position,npos); }
     string& replace(size_type position,size_type count,const string& other,size_type source_position,size_type source_count) { source_count=other.clipped(source_position,source_count);return replace_text(position,count,other.data()+source_position,source_count); }
     string& replace(size_type position,size_type count,const char* text) { return replace_text(position,count,text,text_length(text)); }
     string& replace(size_type position,size_type count,const char* text,size_type n) { return replace_text(position,count,text,n); }
     string& replace(size_type position,size_type count,size_type n,char value) { return replace_fill(position,count,n,value); }
-    string& replace(const_iterator first,const_iterator last,const string& other) { return replace_text((size_type)(first-data()),(size_type)(last-first),other.data(),other.size_); }
-    string& replace(const_iterator first,const_iterator last,const char* text) { return replace_text((size_type)(first-data()),(size_type)(last-first),text,text_length(text)); }
-    string& replace(const_iterator first,const_iterator last,const char* text,size_type count) { return replace_text((size_type)(first-data()),(size_type)(last-first),text,count); }
-    string& replace(const_iterator first,const_iterator last,size_type count,char value) { return replace_fill((size_type)(first-data()),(size_type)(last-first),count,value); }
-    template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
-    string& replace(const_iterator first,const_iterator last,I source_first,I source_last) { size_type index=(size_type)(first-data()),count=(size_type)(last-first);string saved(source_first,source_last);return replace_text(index,count,saved.data(),saved.size()); }
-    string& replace(const_iterator first,const_iterator last,initializer_list<char> values) { return replace(first,last,values.begin(),values.end()); }
+    template<class F,class L,class Enable=typename enable_if<is_convertible<F,const_iterator>::value && is_convertible<L,const_iterator>::value>::type>
+    string& replace(F&& begin_input,L&& end_input,const string& other) { const_iterator first=std::forward<F>(begin_input);const_iterator last=std::forward<L>(end_input); return replace_text((size_type)(first-data()),(size_type)(last-first),other.data(),other.size_); }
+    template<class F,class L,class Enable=typename enable_if<is_convertible<F,const_iterator>::value && is_convertible<L,const_iterator>::value>::type>
+    string& replace(F&& begin_input,L&& end_input,const char* text) { const_iterator first=std::forward<F>(begin_input);const_iterator last=std::forward<L>(end_input); return replace_text((size_type)(first-data()),(size_type)(last-first),text,text_length(text)); }
+    template<class F,class L,class Enable=typename enable_if<is_convertible<F,const_iterator>::value && is_convertible<L,const_iterator>::value>::type>
+    string& replace(F&& begin_input,L&& end_input,const char* text,size_type count) { const_iterator first=std::forward<F>(begin_input);const_iterator last=std::forward<L>(end_input); return replace_text((size_type)(first-data()),(size_type)(last-first),text,count); }
+    template<class F,class L,class Enable=typename enable_if<is_convertible<F,const_iterator>::value && is_convertible<L,const_iterator>::value>::type>
+    string& replace(F&& begin_input,L&& end_input,size_type count,char value) { const_iterator first=std::forward<F>(begin_input);const_iterator last=std::forward<L>(end_input); return replace_fill((size_type)(first-data()),(size_type)(last-first),count,value); }
+    template<class F,class L,class I,class Enable=typename enable_if<is_convertible<F,const_iterator>::value && is_convertible<L,const_iterator>::value && !is_integral<I>::value>::type>
+    string& replace(F&& begin_input,L&& end_input,I source_first,I source_last) { const_iterator first=std::forward<F>(begin_input);const_iterator last=std::forward<L>(end_input); size_type index=(size_type)(first-data()),count=(size_type)(last-first);string saved(source_first,source_last);return replace_text(index,count,saved.data(),saved.size()); }
+    template<class F,class L,class Enable=typename enable_if<is_convertible<F,const_iterator>::value && is_convertible<L,const_iterator>::value>::type>
+    string& replace(F&& begin_input,L&& end_input,initializer_list<char> values) { const_iterator first=std::forward<F>(begin_input);const_iterator last=std::forward<L>(end_input); return replace(first,last,values.begin(),values.end()); }
     string substr(size_type position,size_type count) const { count=clipped(position,count);return string(data()+position,count); }
     string substr(size_type position) const { return substr(position,npos); }
     string substr() const { return *this; }
