@@ -3,17 +3,46 @@
 #include "iterator.mh"
 #include "functional.mh"
 #include "initializer_list.mh"
+#include "__bulk_live_integral.mh"
 #include <stdlib.h>
 namespace std {
 template<class T,class C> constexpr const T& min(const T& a,const T& b,C comp) { return comp(b,a)?b:a; }
 template<class T> constexpr const T& min(const T& a,const T& b) { return b<a?b:a; }
 template<class T,class C> constexpr const T& max(const T& a,const T& b,C comp) { return comp(a,b)?b:a; }
 template<class T> constexpr const T& max(const T& a,const T& b) { return a<b?b:a; }
-template<class I,class O> O copy(I first,I last,O out) { while(first!=last){*out=*first;++first;++out;}return out; }
+template<class I,class O> O __minic_copy_range(I first,I last,O out) { while(first!=last){*out=*first;++first;++out;}return out; }
+template<class From,class To> To* __minic_copy_range(From* first,From* last,To* out) {
+    if(first==last)return out;
+    unsigned long long count=(unsigned long long)(last-first);
+    if(std::__minic_try_live_integral_copy(first,out,count))return out+count;
+    while(first!=last){*out=*first;++first;++out;}return out;
+}
+template<class I,class O> O copy(I first,I last,O out) { return std::__minic_copy_range(first,last,out); }
 template<class I,class N,class O> O copy_n(I first,N n,O out) { while(n>0){*out=*first;++first;++out;--n;}return out; }
-template<class I,class O> O copy_backward(I first,I last,O out) { while(first!=last){--last;--out;*out=*last;}return out; }
-template<class I,class O> O move(I first,I last,O out) { while(first!=last){*out=std::move(*first);++first;++out;}return out; }
-template<class I,class O> O move_backward(I first,I last,O out) { while(first!=last){--last;--out;*out=std::move(*last);}return out; }
+template<class I,class O> O __minic_copy_backward_range(I first,I last,O out) { while(first!=last){--last;--out;*out=*last;}return out; }
+template<class From,class To> To* __minic_copy_backward_range(From* first,From* last,To* out) {
+    if(first==last)return out;
+    unsigned long long count=(unsigned long long)(last-first);
+    if(std::__minic_try_live_integral_copy(first,out-count,count))return out-count;
+    while(first!=last){--last;--out;*out=*last;}return out;
+}
+template<class I,class O> O copy_backward(I first,I last,O out) { return std::__minic_copy_backward_range(first,last,out); }
+template<class I,class O> O __minic_move_range(I first,I last,O out) { while(first!=last){*out=std::move(*first);++first;++out;}return out; }
+template<class From,class To> To* __minic_move_range(From* first,From* last,To* out) {
+    if(first==last)return out;
+    unsigned long long count=(unsigned long long)(last-first);
+    if(std::__minic_try_live_integral_copy(first,out,count))return out+count;
+    while(first!=last){*out=std::move(*first);++first;++out;}return out;
+}
+template<class I,class O> O move(I first,I last,O out) { return std::__minic_move_range(first,last,out); }
+template<class I,class O> O __minic_move_backward_range(I first,I last,O out) { while(first!=last){--last;--out;*out=std::move(*last);}return out; }
+template<class From,class To> To* __minic_move_backward_range(From* first,From* last,To* out) {
+    if(first==last)return out;
+    unsigned long long count=(unsigned long long)(last-first);
+    if(std::__minic_try_live_integral_copy(first,out-count,count))return out-count;
+    while(first!=last){--last;--out;*out=std::move(*last);}return out;
+}
+template<class I,class O> O move_backward(I first,I last,O out) { return std::__minic_move_backward_range(first,last,out); }
 template<class I,class T> void fill(I first,I last,const T& value) { while(first!=last){*first=value;++first;} }
 template<class I,class N,class T> I fill_n(I first,N count,const T& value) { while(count>0){*first=value;++first;--count;}return first; }
 template<class I,class J,class P> bool equal(I first,I last,J other,P pred) { while(first!=last){if(!pred(*first,*other))return false;++first;++other;}return true; }

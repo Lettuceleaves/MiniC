@@ -3,6 +3,7 @@
 #include "memory.mh"
 #include "iterator.mh"
 #include "initializer_list.mh"
+#include "__bulk_live_integral.mh"
 namespace std {
 template<class T> class vector {
     T* data_;
@@ -48,7 +49,8 @@ public:
         if(this==&other)return *this;
         if(other.size_>capacity_){vector copy(other);swap(copy);return *this;}
         size_type common=size_<other.size_?size_:other.size_;
-        for(size_type i=0;i<common;++i)data_[i]=other.data_[i];
+        if(!std::__minic_try_live_integral_copy(other.data_,data_,common))
+            for(size_type i=0;i<common;++i)data_[i]=other.data_[i];
         for(size_type i=common;i<other.size_;++i)std::__minic_construct(data_+i,other.data_[i]);
         while(size_>other.size_){--size_;std::__minic_destroy(data_+size_);}
         size_=other.size_;return *this;
@@ -120,7 +122,8 @@ public:
     iterator erase(const_iterator first,const_iterator last) {
         size_type index=offset(first),finish=offset(last),n=finish-index;
         if(n==0)return data_?data_+index:data_;
-        for(size_type i=finish;i<size_;++i)data_[i-n]=std::move(data_[i]);
+        if(!std::__minic_try_live_integral_copy(data_+finish,data_+index,size_-finish))
+            for(size_type i=finish;i<size_;++i)data_[i-n]=std::move(data_[i]);
         for(size_type i=0;i<n;++i)pop_back();return data_+index;
     }
     void assign(size_type n,const T& value) { T saved=value;clear();if(n>capacity_)reserve(n);while(size_<n){std::__minic_construct(data_+size_,saved);++size_;} }
