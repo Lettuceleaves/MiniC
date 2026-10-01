@@ -45,6 +45,7 @@ public final class MiniCWorker {
         long compileTimeoutNanos = Long.parseLong(args[8]);
         Path phasePath = Path.of(args[9]);
         OptimizationLevel optimizationLevel = args.length > 10 ? OptimizationLevel.valueOf(args[10]) : OptimizationLevel.BASELINE;
+        boolean compileOnly = args.length > 11 && Boolean.parseBoolean(args[11]);
         var completed = new AtomicBoolean();
         try {
             Compilation compilation = timed(phasePath, "compile", compileTimeoutNanos, resultPath, backend,
@@ -65,7 +66,7 @@ public final class MiniCWorker {
                 publish(resultPath, CppDifferentialHarness.failed(backend, Status.COMPILE_ERROR, compilation.errors()), completed);
                 return;
             }
-            if (backend == Backend.MINIC_NATIVE) {
+            if (compileOnly || backend == Backend.MINIC_NATIVE) {
                 publish(resultPath, new Outcome(backend, Status.OK, 0, "", "", ""), completed);
                 return;
             }

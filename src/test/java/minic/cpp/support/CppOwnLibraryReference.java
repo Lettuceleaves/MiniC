@@ -43,8 +43,9 @@ public final class CppOwnLibraryReference {
         if(names.contains("__all"))writeShim(headers.resolve("bits/stdc++.h"),library.resolve("__all.mh"));
         Path program=directory.resolve("program.cpp"),executable=directory.resolve("program.exe");
         Files.writeString(program,source);
-        var command=new ArrayList<>(List.of(CppDifferentialHarness.referenceCompiler(System.getenv()),
-                "-std=c++17","-O2","-nostdinc++","-D__MINIC_SELF_STL__=1","-I",headers.toString(),
+        var command=new ArrayList<>(List.of(CppDifferentialHarness.referenceCompiler(System.getenv())));
+        command.addAll(CppDifferentialHarness.referenceFlags());
+        command.addAll(List.of("-nostdinc++","-D__MINIC_SELF_STL__=1","-I",headers.toString(),
                 program.toString(),"-o",executable.toString()));
         var compile=BoundedProcess.run(command,directory,"",limits.compileTimeout(),limits.maxOutputBytes());
         if(compile.timedOut())return new Result(Status.COMPILE_TIMEOUT,-1,"","",compile.stderr());

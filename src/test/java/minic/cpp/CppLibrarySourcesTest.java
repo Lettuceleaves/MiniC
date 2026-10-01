@@ -97,7 +97,7 @@ final class CppLibrarySourcesTest {
         }
         var limits=new CppDifferentialHarness.Limits(Duration.ofSeconds(90),Duration.ofSeconds(30),2_000_000,1_048_576);
         var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),limits,
-                LanguageMode.CPP17_ALGORITHM).run(name,source,"");
+                LanguageMode.CPP17_ALGORITHM).compile(name,source);
         var own=CppOwnLibraryReference.compile(temporary,source,limits);
         for(var outcome:report.outcomes().values())
             assertEquals(CppDifferentialHarness.Status.COMPILE_ERROR,outcome.status(),report::describe);

@@ -178,6 +178,32 @@ final class CppDifferentialHarnessTest {
         }
     }
 
+    @Test void compileOnlyDoesNotExecuteSuccessfullyCompiledPrograms() throws Exception {
+        var report = harness().compile("compile-only", """
+                #include <stdio.h>
+                int main(void){puts("must-not-run");return 7;}
+                """);
+        assertTrue(report.passed(), report::describe);
+        for (var outcome : report.outcomes().values()) {
+            assertEquals(Status.OK, outcome.status(), report::describe);
+            assertEquals(0, outcome.exitCode());
+            assertEquals("", outcome.stdout());
+            assertEquals("", outcome.stderr());
+        }
+    }
+
+    @Test void constStringSearchResultRejectsWritesInEveryBackend() throws Exception {
+        var report = new CppDifferentialHarness(temporary,
+                CppDifferentialHarness.referenceCompiler(System.getenv()),
+                CppDifferentialHarness.Limits.defaults(), LanguageMode.CPP17_ALGORITHM)
+                .compile("cstring-const-write", """
+                        #include <cstring>
+                        int main(){*std::strchr("abc",'a')='x';return 0;}
+                        """);
+        for (var outcome : report.outcomes().values())
+            assertEquals(Status.COMPILE_ERROR, outcome.status(), report::describe);
+    }
+
     @Test void deliberatelyWrongProgramOutputIsReportedAsMismatch() throws Exception {
         // Deliberate fixture fault: the same source changes output by compiler identity.
         var report = harness().run("injected-wrong-output", """

@@ -60,6 +60,16 @@ public final class CppDifferentialHarness {
 
     /** Uses precisely the same saved source and stdin for all three backends. */
     public Report run(String name, String source, String standardInput) throws IOException, InterruptedException {
+        return compileOrRun(name, source, standardInput, false);
+    }
+
+    /** Compile each backend without executing even an unexpectedly accepted negative case. */
+    public Report compile(String name, String source) throws IOException, InterruptedException {
+        return compileOrRun(name, source, "", true);
+    }
+
+    private Report compileOrRun(String name, String source, String standardInput, boolean compileOnly)
+            throws IOException, InterruptedException {
         Files.createDirectories(temporary);
         String prefix = name.replaceAll("[^A-Za-z0-9_-]", "_");
         Path directory = Files.createTempDirectory(temporary, prefix.substring(0, Math.min(prefix.length(), 40)) + "-");
@@ -67,12 +77,12 @@ public final class CppDifferentialHarness {
         Path inputPath = directory.resolve("stdin.txt");
         Files.writeString(sourcePath, source);
         Files.writeString(inputPath, standardInput);
-        return compare(List.of(runMiniC(Backend.MINIC_NATIVE, directory, sourcePath, inputPath, standardInput),
-                runMiniC(Backend.MINIC_DEBUG, directory, sourcePath, inputPath, standardInput),
-                runReference(directory, sourcePath, standardInput)));
+        return compare(List.of(runMiniC(Backend.MINIC_NATIVE, directory, sourcePath, inputPath, standardInput, compileOnly),
+                runMiniC(Backend.MINIC_DEBUG, directory, sourcePath, inputPath, standardInput, compileOnly),
+                runReference(directory, sourcePath, standardInput, compileOnly)));
     }
 
-    private Outcome runMiniC(Backend backend, Path directory, Path source, Path input, String stdin)
+    private Outcome runMiniC(Backend backend, Path directory, Path source, Path input, String stdin, boolean compileOnly)
             throws InterruptedException {
         Path resultFile = directory.resolve(backend.name() + ".properties");
         Path phaseFile = directory.resolve(backend.name() + ".phase");
@@ -80,7 +90,8 @@ public final class CppDifferentialHarness {
             var command = ProcessProbe.javaCommand(MiniCWorker.class, backend.name(), source.toString(),
                     input.toString(), resultFile.toString(), Integer.toString(limits.debugSteps()),
                     Integer.toString(limits.maxOutputBytes()), Long.toString(limits.runTimeout().toNanos()), languageMode.name(),
-                    Long.toString(limits.compileTimeout().toNanos()), phaseFile.toString(), optimizationLevel.name());
+                    Long.toString(limits.compileTimeout().toNanos()), phaseFile.toString(), optimizationLevel.name(),
+                    Boolean.toString(compileOnly));
             // Actual phase limits are enforced inside the worker. This outer deadline also bounds
             // JVM startup/reporting and remains a fallback if a watchdog cannot publish its result.
             Duration workerTimeout = limits.compileTimeout().plusSeconds(5);
@@ -101,23 +112,27 @@ public final class CppDifferentialHarness {
                 return failed(backend, Status.OUTPUT_LIMIT, "MiniC worker report exceeds allowed size");
             }
             Outcome compiled = MiniCWorker.readResult(resultFile, backend);
-            if (backend == Backend.MINIC_DEBUG || compiled.status() != Status.OK) return compiled;
+            if (compileOnly || backend == Backend.MINIC_DEBUG || compiled.status() != Status.OK) return compiled;
             return execute(backend, directory.resolve("native/program.exe"), directory, stdin);
         } catch (IOException | IllegalArgumentException error) {
             return failed(backend, Status.TOOL_ERROR, error.toString());
         }
     }
 
-    private Outcome runReference(Path directory, Path source, String stdin) throws InterruptedException {
+    private Outcome runReference(Path directory, Path source, String stdin, boolean compileOnly) throws InterruptedException {
         try {
             Path executable = directory.resolve("reference.exe");
-            var result = BoundedProcess.run(List.of(referenceCompiler, "-std=c++17", "-O2",
-                            source.toString(), "-o", executable.toString()), directory, "",
+            var command = new ArrayList<>(List.of(referenceCompiler));
+            command.addAll(languageMode == LanguageMode.CPP17_ALGORITHM
+                    ? referenceFlags() : List.of("-std=c++17", "-O2"));
+            command.addAll(List.of(source.toString(), "-o", executable.toString()));
+            var result = BoundedProcess.run(command, directory, "",
                     limits.compileTimeout(), limits.maxOutputBytes());
             if (result.timedOut()) return failed(Backend.GXX, Status.COMPILE_TIMEOUT, "Reference compilation timed out");
             if (result.outputExceeded()) return failed(Backend.GXX, Status.OUTPUT_LIMIT, "Reference compiler output limit exceeded");
             if (result.exitCode() != 0) return new Outcome(Backend.GXX, Status.COMPILE_ERROR, result.exitCode(),
                     "", "", result.stdout() + result.stderr());
+            if (compileOnly) return new Outcome(Backend.GXX, Status.OK, 0, "", "", "");
             return execute(Backend.GXX, executable, directory, stdin);
         } catch (IOException error) {
             return failed(Backend.GXX, Status.TOOL_ERROR,
@@ -174,5 +189,12 @@ public final class CppDifferentialHarness {
             if (value != null && !value.isBlank()) return value;
         }
         return "g++";
+    }
+
+    /** Older MinGW headers default _CONST_RETURN to empty, losing C++ string-search constness.
+     * Configure their supported header switch rather than weakening the library contracts.
+     * This macro is unused by platforms whose C headers already provide the correct overloads. */
+    public static List<String> referenceFlags() {
+        return List.of("-std=c++17", "-O2", "-D_CONST_RETURN=const");
     }
 }
