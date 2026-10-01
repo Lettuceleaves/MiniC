@@ -234,12 +234,50 @@ public interface Declaration extends AstNode {
         }
     }
 
-    sealed interface CppMember extends AstNode permits FieldMember, MethodMember, AccessLabel {}
+    sealed interface CppMember extends AstNode permits FieldMember, MethodMember, ConstructorMember, AccessLabel {}
 
     /** Transparent source wrapper: layout and member views retain the same field node. */
-    record FieldMember(StructField field) implements CppMember {
+    record FieldMember(StructField field, CppInitializer defaultInitializer) implements CppMember {
+        public FieldMember(StructField field) { this(field, null); }
         public FieldMember { Objects.requireNonNull(field, "field"); }
         @Override public SourceRange range() { return field.range(); }
+    }
+
+    /** Constructor spelling and signature are source syntax, not an ordinary named method. */
+    record ConstructorMember(String name, List<Parameter> parameters, boolean variadic,
+                             List<MemberInitializer> initializers, BlockStmt body,
+                             SourceRange nameRange, SourceRange range) implements CppMember {
+        public ConstructorMember {
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(nameRange, "nameRange");
+            Objects.requireNonNull(range, "range");
+            if (name.isBlank()) throw new IllegalArgumentException("Constructor spelling must not be blank");
+            parameters = List.copyOf(parameters);
+            initializers = List.copyOf(initializers);
+        }
+    }
+
+    /** Written order is retained separately from the declaration order used for execution. */
+    record MemberInitializer(QualifiedName target, CppInitializer initializer, SourceRange range) implements AstNode {
+        public MemberInitializer {
+            Objects.requireNonNull(target, "target");
+            Objects.requireNonNull(initializer, "initializer");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
+    record OutOfLineConstructorDecl(QualifiedName qualifiedName, ConstructorMember constructor,
+                                    SourceRange nameRange) implements Declaration {
+        public OutOfLineConstructorDecl {
+            Objects.requireNonNull(qualifiedName, "qualifiedName");
+            Objects.requireNonNull(constructor, "constructor");
+            Objects.requireNonNull(nameRange, "nameRange");
+            if (qualifiedName.segments().size() < 2
+                    || !qualifiedName.segments().getLast().equals(constructor.name())) {
+                throw new IllegalArgumentException("Qualified constructor requires its owner and matching constructor spelling");
+            }
+        }
+        @Override public SourceRange range() { return constructor.range(); }
     }
 
     record MethodMember(FunctionDecl method, boolean constQualified, SourceRange nameRange) implements CppMember {

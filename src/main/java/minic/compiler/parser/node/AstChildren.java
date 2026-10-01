@@ -17,8 +17,16 @@ public final class AstChildren {
             case Program n -> n.declarations();
             case NamespaceDecl n -> n.declarations();
             case StructDecl n -> n.cppInfo() == null ? n.fields() : n.cppInfo().members();
-            case FieldMember n -> present(n.field());
+            case FieldMember n -> present(n.field(), n.defaultInitializer());
             case MethodMember n -> present(n.method());
+            case ConstructorMember n -> {
+                var children = new ArrayList<AstNode>(n.parameters());
+                children.addAll(n.initializers());
+                if (n.body() != null) children.add(n.body());
+                yield List.copyOf(children);
+            }
+            case MemberInitializer n -> present(n.initializer());
+            case OutOfLineConstructorDecl n -> present(n.constructor());
             case OutOfLineMethodDecl n -> present(n.method());
             case FunctionDecl n -> present(n.body());
             case GlobalVarDecl n -> present(n.initializer());
@@ -52,6 +60,7 @@ public final class AstChildren {
             case VaCopyExpr n -> present(n.destination(), n.source());
             case VaEndExpr n -> present(n.list());
             case AggregateInitExpr n -> n.values();
+            case CppInitializer n -> n.arguments();
             case DesignatedInitExpr n -> present(n.value());
             default -> List.of();
         };
@@ -80,6 +89,8 @@ public final class AstChildren {
             if (!visited.add(node)) continue;
             if (!onlyReferences && (node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
+                    || node instanceof CppInitializer || node instanceof ConstructorMember
+                    || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof StructDecl record && record.cppInfo() != null)) return node;
             AstNode reference = referenceTypeOwner(node);
             if (reference != null) return reference;

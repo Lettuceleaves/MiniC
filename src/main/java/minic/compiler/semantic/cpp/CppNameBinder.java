@@ -233,8 +233,14 @@ public final class CppNameBinder {
                 Access current = node.cppInfo().key() == RecordKey.CLASS ? Access.PRIVATE : Access.PUBLIC;
                 for (CppMember member : node.cppInfo().members()) {
                     if (member instanceof AccessLabel label) current = label.access();
-                    else if (member instanceof FieldMember field) access.put(field.field(), current);
+                    else if (member instanceof FieldMember field) {
+                        access.put(field.field(), current);
+                        if (field.defaultInitializer() != null) report("CPP005", field.defaultInitializer().range(),
+                                "默认成员初始化的构造语义尚未实现。");
+                    }
                     else if (member instanceof MethodMember method) methodAccess.put(method, current);
+                    else if (member instanceof ConstructorMember constructor) report("CPP005", constructor.nameRange(),
+                            "构造函数执行和成员初始化尚未实现。");
                 }
             }
             List<StructField> fields = new ArrayList<>();
