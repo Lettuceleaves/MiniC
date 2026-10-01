@@ -26,6 +26,7 @@ import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrValue.IrFloatConstant;
+import minic.compiler.ir.value.IrValue.IrConstant;
 
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -35,6 +36,7 @@ final class InstructionEmitter {
     private final ValueEmitter valueEmitter;
     private final Set<String> externalFunctionNames;
     private final Set<String> addressedLocals;
+    private final boolean optimizeInstructions;
 
     InstructionEmitter(FrameLayout frame, Set<String> externalFunctionNames, IrFunction function) {
         this(frame, externalFunctionNames, function, TemporaryLocations.allStack(frame));
@@ -42,7 +44,13 @@ final class InstructionEmitter {
 
     InstructionEmitter(FrameLayout frame, Set<String> externalFunctionNames, IrFunction function,
                        TemporaryLocations locations) {
+        this(frame, externalFunctionNames, function, locations, false);
+    }
+
+    InstructionEmitter(FrameLayout frame, Set<String> externalFunctionNames, IrFunction function,
+                       TemporaryLocations locations, boolean optimizeInstructions) {
         this.frame = frame;
+        this.optimizeInstructions = optimizeInstructions;
         this.externalFunctionNames = Set.copyOf(externalFunctionNames);
         addressedLocals = function.blocks().stream().flatMap(block -> block.instructions().stream())
                 .filter(IrAddressOfLocalInstruction.class::isInstance).map(IrAddressOfLocalInstruction.class::cast)
@@ -220,12 +228,13 @@ final class InstructionEmitter {
         IrType operationType = binaryOperationType(binary);
         String leftRegister = arithmeticRegister("rax", operationType);
         String rightRegister = arithmeticRegister("rcx", operationType);
+        if (emitImmediateBinary(builder, binary, operationType, leftRegister)) return;
         valueEmitter.emitLoadValue(builder, binary.left(), leftRegister);
         if (operationType.isFloatingScalar()) {
             builder.append(operationType == IrType.FLOAT ? "    sub rsp, 4" : "    sub rsp, 8")
                     .append(System.lineSeparator());
             emitStoreRegisterToMemory(builder, floatingScratchSlot(operationType), operationType, leftRegister);
-        } else {
+        } else if (!optimizeInstructions) {
             builder.append("    push rax").append(System.lineSeparator());
         }
         valueEmitter.emitLoadValue(builder, binary.right(), rightRegister);
@@ -233,7 +242,7 @@ final class InstructionEmitter {
             emitLoadMemoryToRegister(builder, floatingScratchSlot(operationType), operationType, leftRegister);
             builder.append(operationType == IrType.FLOAT ? "    add rsp, 4" : "    add rsp, 8")
                     .append(System.lineSeparator());
-        } else {
+        } else if (!optimizeInstructions) {
             builder.append("    pop rax").append(System.lineSeparator());
         }
         switch (binary.operator()) {
@@ -297,6 +306,34 @@ final class InstructionEmitter {
                 builder, binary.result(),
                 valueEmitter.storeRegister("rax", binary.result().type())
         );
+    }
+
+    /** IR values are already evaluated; integer loads into rcx do not clobber rax. */
+    private boolean emitImmediateBinary(StringBuilder builder, IrBinaryInstruction binary,
+                                        IrType type, String leftRegister) {
+        if (!optimizeInstructions || !(binary.right() instanceof IrConstant constant)
+                || binary.left().type() != type || constant.type() != type
+                || type.isFloatingScalar() || type.sizeBytes() < 4) return false;
+        String mnemonic = switch (binary.operator()) {
+            case ADD -> "add";
+            case SUBTRACT -> "sub";
+            case MULTIPLY -> "imul";
+            case BITWISE_AND -> "and";
+            case BITWISE_OR -> "or";
+            case BITWISE_XOR -> "xor";
+            default -> null;
+        };
+        if (mnemonic == null) return false;
+        // 32-bit operations consume the low 32 bits. A 64-bit x64 operation sign-extends
+        // its encoded immediate, so 0x00000000ffffffff must not be emitted as -1.
+        long immediate = type.sizeBytes() == 4 ? (int) constant.value() : constant.value();
+        if (immediate < Integer.MIN_VALUE || immediate > Integer.MAX_VALUE) return false;
+        valueEmitter.emitLoadValue(builder, binary.left(), leftRegister);
+        builder.append("    ").append(mnemonic).append(" ").append(leftRegister).append(", ")
+                .append(immediate).append(System.lineSeparator());
+        valueEmitter.emitStoreTemporary(builder, binary.result(),
+                valueEmitter.storeRegister("rax", binary.result().type()));
+        return true;
     }
 
     private void emitUnary(StringBuilder builder, IrUnaryInstruction unary) {

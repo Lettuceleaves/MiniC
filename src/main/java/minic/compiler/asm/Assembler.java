@@ -378,7 +378,7 @@ public final class Assembler extends Stage {
                         new ValueLocation.Register(registerPlan.temporaryTypes().get(name), register)));
                 locations = TemporaryLocations.withOverrides(frame, assignments);
             }
-            instructionEmitter = new InstructionEmitter(frame, externalFunctionNames, function, locations);
+            instructionEmitter = new InstructionEmitter(frame, externalFunctionNames, function, locations, optimizeValueLocations);
         }
 
         private String nextLine() {
