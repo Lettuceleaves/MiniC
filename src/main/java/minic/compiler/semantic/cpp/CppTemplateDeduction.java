@@ -141,7 +141,15 @@ public final class CppTemplateDeduction {
                 return p.templateName().equals(a.templateName()) && argumentList(p.arguments(),a.arguments());
             }
             if(pattern instanceof MiniType.FunctionType p && actual instanceof MiniType.FunctionType a) {
-                return p.variadic()==a.variadic() && type(p.returnType(),a.returnType()) && typeList(p.parameterTypes(),a.parameterTypes());
+                if(p.variadic()!=a.variadic() || !type(p.returnType(),a.returnType()) || !typeList(p.parameterTypes(),a.parameterTypes()))return false;
+                var specification=p.exceptionSpecification();var actualSpecification=a.exceptionSpecification();
+                if(specification.condition() instanceof CppTemplateValueExpr value && parameters.contains(value.parameter())) {
+                    TemplateArgument actualException=actualSpecification.condition() instanceof CppTemplateValueExpr other
+                            ?new TemplateArgument.Value(other):new TemplateArgument.Integral(actualSpecification.nonThrowing()?1:0,MiniType.BOOL);
+                    return argument(new TemplateArgument.Value(value),actualException);
+                }
+                // C++17 permits deduction followed by the nonthrowing-to-potentially-throwing function-pointer conversion.
+                return specification.condition()!=null || !specification.nonThrowing() || actualSpecification.nonThrowing();
             }
             return pattern.equals(actual);
         }

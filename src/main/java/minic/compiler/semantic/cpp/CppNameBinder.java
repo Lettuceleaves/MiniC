@@ -311,6 +311,7 @@ public final class CppNameBinder {
         private record FunctionTemplateInstance(FunctionTemplateDefinition definition,CppTemplateDeduction.Bindings bindings,FunctionDecl function,
                 Method method,Constructor constructor) {}
         private final Map<Entity,FunctionTemplateDefinition> functionTemplates=new IdentityHashMap<>();
+        private final Map<Entity,FunctionDecl> explicitFunctionSpecializations=new IdentityHashMap<>();
         private final Map<FunctionTemplateKey,Entity> functionTemplateCache=new LinkedHashMap<>();
         private final Map<Entity,FunctionTemplateInstance> functionTemplateInstances=new IdentityHashMap<>();
         private final Set<Entity> requestedFunctionTemplates=Collections.newSetFromMap(new IdentityHashMap<>());
@@ -382,7 +383,7 @@ public final class CppNameBinder {
                 int before=emittedFunctionTemplates.size();
                 for(Entity entity:pending)instantiateFunctionTemplate(entity);
                 if(before==emittedFunctionTemplates.size()) {
-                    for(Entity entity:pending)report("CPP004",functionTemplateInstances.get(entity).definition.source.range(),"Used function template has no definition: "+entity.name);
+                    for(Entity entity:pending)report("CPP004",explicitFunctionSpecializations.containsKey(entity)?explicitFunctionSpecializations.get(entity).range():functionTemplateInstances.get(entity).definition.source.range(),"Used function template has no definition: "+entity.name);
                     break;
                 }
             }
@@ -477,7 +478,7 @@ public final class CppNameBinder {
 
         private void declareFunctionTemplate(FunctionTemplateDecl declaration,Namespace namespace) {
             FunctionDecl function=declaration.function();
-            if(declaration.parameters().isEmpty()) {report("CPP005",declaration.range(),"Explicit function template specialization requires a primary template-id");return;}
+            if(declaration.specialization()){declareFunctionSpecialization(declaration,namespace);return;}
             Candidate prior=namespace.values.get(function.name());
             if(namespace.children.containsKey(function.name())||namespace.typedefs.containsKey(function.name())) {
                 report("CPP004",declaration.range(),"Function template conflicts with a namespace or type name");return;
@@ -546,6 +547,54 @@ public final class CppNameBinder {
                     ?(TemplateArgument)new TemplateArgument.Type(normalizeType(type.type(),namespace,local,range))
                     :argument instanceof TemplateArgument.Value value?new TemplateArgument.Value(expression(value.expression(),namespace,local)):argument).toList();
         }
+        private void declareFunctionSpecialization(FunctionTemplateDecl declaration,Namespace lexicalNamespace) {
+            FunctionDecl function=declaration.function();Namespace namespace=lexicalNamespace;
+            if(declaration.qualifiedName()!=null) {
+                QualifiedName path=declaration.qualifiedName();
+                namespace=path.segments().size()==1?root:resolveNamespace(new QualifiedName(path.global(),path.segments().subList(0,path.segments().size()-1),path.range()),lexicalNamespace,null);
+                if(namespace==null)return;
+            }
+            boolean enclosing=false;for(Namespace at=namespace;at!=null;at=at.parent)enclosing|=at==lexicalNamespace;
+            if(!enclosing){report("CPP004",declaration.range(),"Explicit specialization must be declared in an enclosing namespace");return;}
+            if(function.parameters().stream().anyMatch(p->p.defaultValue()!=null)){report("CPP004",function.range(),"An explicit specialization cannot add default function arguments");return;}
+            if(function.definitionKind()==DefinitionKind.DEFAULTED){report("CPP004",function.range(),"A free function specialization cannot be defaulted");return;}
+            Candidate visible=namespace.values.get(function.name());
+            if(!(visible instanceof OverloadSet set)){report("CPP003",function.range(),"Explicit specialization requires a declared function template");return;}
+            final Namespace owner=namespace;
+            List<MiniType> parameters=function.parameters().stream().map(p->normalizeType(p.type(),owner,null,p.range())).toList();
+            MiniType result=normalizeReturnType(function.returnType(),function.parameters(),parameters,namespace,null,null,function.range());
+            var target=(MiniType.FunctionType)MiniType.function(result,parameters.stream().map(MiniType::unqualified).toList(),function.variadic(),function.exceptionSpecification());
+            var explicit=declaration.specializationArguments()==null?null:normalizeExplicitArguments(declaration.specializationArguments(),namespace,null,declaration.range());
+            List<Entity> matches=new ArrayList<>();
+            for(Entity primary:set.functions) {
+                if(!functionTemplates.containsKey(primary)||primary.owner!=namespace)continue;
+                Entity candidate=deduceFunctionTemplateForTarget(primary,target,explicit,function.range());
+                if(candidate==null || !(candidate.type instanceof MiniType.FunctionType signature))continue;
+                if(signature.returnType().equals(result)&&signature.parameterTypes().equals(target.parameterTypes())&&signature.variadic()==target.variadic())matches.add(candidate);
+            }
+            Entity selected=null;
+            for(Entity candidate:matches)if(matches.stream().allMatch(other->other==candidate||betterTemplateCandidate(candidate,other))) {
+                if(selected!=null){selected=null;break;}selected=candidate;
+            }
+            if(selected==null){report("CPP004",function.range(),matches.isEmpty()?"No function template matches this explicit specialization":"Ambiguous function template specialization");return;}
+            FunctionDecl previous=explicitFunctionSpecializations.get(selected);
+            if(previous==null && (requestedFunctionTemplates.contains(selected)||emittedFunctionTemplates.contains(selected))) {
+                report("CPP004",function.range(),"Explicit specialization follows an instantiation");return;
+            }
+            if(previous!=null && previous.hasDefinition() && function.hasDefinition()) {report("CPP004",function.range(),"Explicit specialization is defined more than once");return;}
+            if(previous!=null && function.definitionKind()==DefinitionKind.DELETED){report("CPP004",function.range(),"A deleted specialization must be its first declaration");return;}
+            if(previous==null || function.hasDefinition())explicitFunctionSpecializations.put(selected,function);
+            selected.defined=previous!=null&&previous.hasDefinition() || function.hasDefinition();
+            exceptionSource(selected,function.exceptionSpecification(),function.parameters(),parameters,namespace,null,null,false,function.range());
+            functionNonThrowing(selected);
+            if(function.hasDefinition()) {
+                registerSpecialDefinition(selected,function.definitionKind(),function.range());
+                // A full specialization is an ordinary function: check and bind its body now, even if unused.
+                emittedFunctionTemplates.add(selected);
+                bindFunction(function,namespace,selected);
+            }
+        }
+
         private MiniType functionTemplatePattern(MiniType type,Namespace namespace,SourceRange range) {
             if(!type.isDependentTemplate())return normalizeType(type,namespace,null,range);
             if(type instanceof MiniType.PackExpansionType pack)return new MiniType.PackExpansionType(functionTemplatePattern(pack.pattern(),namespace,range));
@@ -647,6 +696,7 @@ public final class CppNameBinder {
             var instance=functionTemplateInstances.get(entity);
             if(instance==null||unevaluatedDepth>0&&!((MiniType.FunctionType)entity.type).returnType().containsAuto()||emittedFunctionTemplates.contains(entity))return;
             requestedFunctionTemplates.add(entity);
+            if(explicitFunctionSpecializations.containsKey(entity))return;
             var definition=functionTemplates.getOrDefault(functionTemplateDeclarations.get(entity),instance.definition);
             if(definition.source.definitionKind()==DefinitionKind.DELETED){deletedFunctions.add(entity);return;}
             if(!definition.source.hasBody())return;
@@ -689,9 +739,9 @@ public final class CppNameBinder {
             FunctionTemplateDefinition definition=functionTemplates.get(declaration);
             if(definition==null)return explicit==null?declaration:null;
             if(explicit!=null&&!explicit.isEmpty())return deduceFunctionTemplate(declaration,target.parameterTypes(),explicit,range);
-            var pattern=new ArrayList<MiniType>();pattern.add(definition.source.returnType());pattern.addAll(definition.source.parameters().stream().map(Parameter::type).toList());
-            var actual=new ArrayList<MiniType>();actual.add(target.returnType());actual.addAll(target.parameterTypes());
-            var bindings=CppTemplateDeduction.deduce(pattern,actual,definition.parameters,Map.of(),Map.of(),this::expandTemplateType);
+            MiniType pattern=MiniType.function(definition.source.returnType(),definition.source.parameters().stream().map(Parameter::type).toList(),
+                    definition.source.variadic(),definition.source.exceptionSpecification());
+            var bindings=CppTemplateDeduction.deduce(List.of(pattern),List.of(target),definition.parameters,Map.of(),Map.of(),this::expandTemplateType);
             if(bindings==null)return null;
             var arguments=new ArrayList<TemplateArgument>();
             for(var parameter:definition.parameters) {

@@ -294,7 +294,7 @@ public final class Parser extends Stage {
             if(parameters==null||context.consumeTemplateGreater("模板参数后期望 '>'")==null)return null;
             typeReader.pendingFunctionTemplateParameters=parameters;
             typeReader.definitionTemplateParameters=parameters;
-            typeReader.templateDefinitionOwner=null;
+            typeReader.templateDefinitionOwner=null;typeReader.functionSpecializationArguments=null;
             Declaration declaration=declarationManager.parseFunctionOrGlobalDecl();
             if(declaration!=null && typeReader.templateDefinitionOwner!=null) {
                 for(var parameter:parameters)if(parameter.defaultType()!=null || parameter instanceof ClassTemplateDecl.ValueParameter value&&value.defaultValue()!=null)
@@ -303,14 +303,20 @@ public final class Parser extends Stage {
                         declaration,SourceRange.span(start.range(),declaration.range()));
                 context.build(result,"TemplateMemberDefinition",result.range());return result;
             }
+            QualifiedName qualifiedName=null;
+            if(parameters.isEmpty() && declaration instanceof Declaration.OutOfLineMethodDecl method) {
+                if(method.constQualified())context.report(method.range(),"自由函数显式特化不能使用成员 cv 限定符");
+                declaration=method.method();qualifiedName=method.qualifiedName();
+            }
             if(!(declaration instanceof FunctionDecl function)) {
                 context.unsupportedCpp(start.range(),"此模板声明需要普通函数定义或声明");return null;
             }
-            typeReader.registerFunctionTemplate(function.name(),parameters);
-            var result=new FunctionTemplateDecl(parameters,function,SourceRange.span(start.range(),function.range()));
+            if(!parameters.isEmpty())typeReader.registerFunctionTemplate(function.name(),parameters);
+            if(!parameters.isEmpty() && typeReader.functionSpecializationArguments!=null)context.report(function.range(),"函数模板不能偏特化");
+            var result=new FunctionTemplateDecl(parameters,function,typeReader.functionSpecializationArguments,qualifiedName,SourceRange.span(start.range(),function.range()));
             context.build(result,"FunctionTemplate "+function.name(),result.range());return result;
         } finally {typeReader.pendingFunctionTemplateParameters=null;typeReader.definitionTemplateParameters=null;
-            typeReader.templateDefinitionOwner=null;typeReader.exitFunctionTemplate();}
+            typeReader.templateDefinitionOwner=null;typeReader.functionSpecializationArguments=null;typeReader.exitFunctionTemplate();}
     }
 
     /** Find the owner without consuming the header or giving its name premature scope. */
@@ -793,6 +799,7 @@ public final class Parser extends Stage {
         private ExpressionManager expressionManager;
         private List<ClassTemplateDecl.Parameter> pendingFunctionTemplateParameters;
         private List<ClassTemplateDecl.Parameter> definitionTemplateParameters;
+        private List<TemplateArgument> functionSpecializationArguments;
         private MiniType.TemplateIdType templateDefinitionOwner;
         private final java.util.Map<String,List<ClassTemplateDecl>> templateDeclarations=new java.util.LinkedHashMap<>();
         private void recordTemplateDeclaration(ClassTemplateDecl declaration) {
@@ -842,7 +849,7 @@ public final class Parser extends Stage {
             }
         }
         public void registerPendingFunctionTemplate(String name){
-            if(pendingFunctionTemplateParameters!=null && templateDefinitionOwner==null){registerFunctionTemplate(name,pendingFunctionTemplateParameters);pendingFunctionTemplateParameters=null;}
+            if(pendingFunctionTemplateParameters!=null && !pendingFunctionTemplateParameters.isEmpty() && templateDefinitionOwner==null){registerFunctionTemplate(name,pendingFunctionTemplateParameters);pendingFunctionTemplateParameters=null;}
         }
         public void registerFunctionTemplate(String name,List<ClassTemplateDecl.Parameter> parameters){functionTemplateNames.put(name,List.copyOf(parameters));}
         public List<ClassTemplateDecl.Parameter> readTemplateParameters(Token anchor,String owner) {
@@ -1737,6 +1744,9 @@ public final class Parser extends Stage {
                 return null;
             }
 
+            if(isCpp() && definitionTemplateParameters!=null && templateDefinitionOwner==null && context.check(TokenType.LESS)) {
+                functionSpecializationArguments=parseFunctionTemplateArguments();if(functionSpecializationArguments==null)return null;
+            }
             boolean memberScope = direct.qualifiedName() != null && direct.qualifiedName().segments().size() > 1;
             if (memberScope) enterMemberDefinitionScope(direct.qualifiedName());
             try {

@@ -18,7 +18,12 @@ public final class AstChildren {
             case NamespaceDecl n -> n.declarations();
             case InternalLinkageDecl n -> present(n.declaration());
             case ClassTemplateDecl n -> prepend(n.record(), n.parameters());
-            case FunctionTemplateDecl n -> prepend(n.function(),n.parameters());
+            case FunctionTemplateDecl n -> {
+                var children=new ArrayList<AstNode>();children.add(n.function());children.addAll(n.parameters());
+                if(n.specializationArguments()!=null)for(var argument:n.specializationArguments())
+                    if(argument instanceof minic.compiler.type.TemplateArgument.Value value)children.add(value.expression());
+                yield children;
+            }
             case CppTemplateMemberDefinition n -> prepend(n.declaration(),n.parameters());
             case TemplateMethodMember n -> prepend(n.method(),n.parameters());
             case TemplateConstructorMember n -> prepend(n.constructor(),n.parameters());

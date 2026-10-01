@@ -193,10 +193,12 @@ public final class CppTypeEnvironment {
 
     /** Reenters an existing owner's namespace; no namespace or class is created during lookup. */
     public MiniType enterMemberDefinitionScope(QualifiedName owner) {
-        Lookup found = classify(resolve(owner, Search.QUALIFIER));
+        Set<Entry> candidates=resolve(owner,Search.QUALIFIER);
+        Lookup found = classify(candidates);
         MiniType type = found.kind == Kind.TYPE && found.type.unqualified() instanceof MiniType.StructType
                 ? found.type.unqualified() : null;
-        Namespace target = type instanceof MiniType.StructType record ? classOwners.get(record.name()) : null;
+        Namespace target = type instanceof MiniType.StructType record ? classOwners.get(record.name())
+                :found.kind==Kind.NAMESPACE && candidates.size()==1?candidates.iterator().next().namespace:null;
         definitionScopes.push(new DefinitionContext(namespace, local));
         if (target != null) namespace = target;
         local = null;
