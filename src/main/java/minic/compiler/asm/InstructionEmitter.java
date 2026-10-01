@@ -800,6 +800,43 @@ final class InstructionEmitter {
         return (type == IrType.FLOAT ? "DWORD PTR" : "QWORD PTR") + " [rsp]";
     }
 
+    /** Called only for an adjacent, single-use comparison/[bool cast]/branch emission group. */
+    void emitComparisonBranch(StringBuilder builder, String functionName, IrBinaryInstruction comparison, IrBranchInstruction branch) {
+        IrType type = binaryOperationType(comparison);
+        String left = arithmeticRegister("rax", type), right = arithmeticRegister("rcx", type);
+        valueEmitter.emitLoadValue(builder, comparison.left(), left);
+        if (type.isFloatingScalar()) {
+            // Keep the existing operand-load convention, including preservation of the first XMM value.
+            builder.append(type == IrType.FLOAT ? "    sub rsp, 4" : "    sub rsp, 8").append(System.lineSeparator());
+            emitStoreRegisterToMemory(builder, floatingScratchSlot(type), type, left);
+        }
+        valueEmitter.emitLoadValue(builder, comparison.right(), right);
+        if (type.isFloatingScalar()) {
+            emitLoadMemoryToRegister(builder, floatingScratchSlot(type), type, left);
+            builder.append(type == IrType.FLOAT ? "    add rsp, 4" : "    add rsp, 8").append(System.lineSeparator());
+        }
+        boolean reverse = type.isFloatingScalar() && (comparison.operator() == IrBinaryOperator.LESS_THAN
+                || comparison.operator() == IrBinaryOperator.LESS_EQUAL);
+        builder.append(type == IrType.FLOAT ? "    ucomiss " : type == IrType.DOUBLE ? "    ucomisd " : "    cmp ")
+                .append(reverse ? right : left).append(", ").append(reverse ? left : right).append(System.lineSeparator());
+        String yes = blockSymbol(functionName, branch.thenLabel()), no = blockSymbol(functionName, branch.elseLabel());
+        // Unordered sets PF=CF=ZF=1. Equality excludes it; inequality includes it.
+        if (type.isFloatingScalar() && (comparison.operator() == IrBinaryOperator.EQUAL || comparison.operator() == IrBinaryOperator.NOT_EQUAL))
+            builder.append("    jp ").append(comparison.operator() == IrBinaryOperator.EQUAL ? no : yes).append(System.lineSeparator());
+        boolean unsigned = type.isUnsignedInteger() || type == IrType.POINTER || type.isFloatingScalar();
+        String jump = switch (comparison.operator()) {
+            case EQUAL -> "je"; case NOT_EQUAL -> "jne";
+            case LESS_THAN -> reverse ? "ja" : unsigned ? "jb" : "jl";
+            case LESS_EQUAL -> reverse ? "jae" : unsigned ? "jbe" : "jle";
+            case GREATER_THAN -> unsigned ? "ja" : "jg";
+            case GREATER_EQUAL -> unsigned ? "jae" : "jge";
+            default -> throw new IllegalArgumentException("not a comparison");
+        };
+        // No emitted instruction between comparison and jumps can clobber the condition flags.
+        builder.append("    ").append(jump).append(" ").append(yes).append(System.lineSeparator());
+        emitJump(builder, functionName, branch.elseLabel());
+    }
+
     private void emitBranch(StringBuilder builder, String functionName, IrBranchInstruction branch) {
         if (branch.condition().type().isFloatingScalar()) {
             valueEmitter.emitLoadValue(builder, branch.condition(), "xmm0");

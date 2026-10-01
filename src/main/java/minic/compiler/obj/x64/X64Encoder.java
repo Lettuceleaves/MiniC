@@ -118,6 +118,14 @@ public final class X64Encoder {
             case "jmp" -> branch(w, i, 0xE9, null, symbols, relocs);
             case "je" -> branch(w, i, 0x0F, 0x84, symbols, relocs);
             case "jne" -> branch(w, i, 0x0F, 0x85, symbols, relocs);
+            case "jb" -> branch(w, i, 0x0F, 0x82, symbols, relocs);
+            case "jae" -> branch(w, i, 0x0F, 0x83, symbols, relocs);
+            case "jbe" -> branch(w, i, 0x0F, 0x86, symbols, relocs);
+            case "ja" -> branch(w, i, 0x0F, 0x87, symbols, relocs);
+            case "jp" -> branch(w, i, 0x0F, 0x8A, symbols, relocs);
+            case "jl" -> branch(w, i, 0x0F, 0x8C, symbols, relocs);
+            case "jle" -> branch(w, i, 0x0F, 0x8E, symbols, relocs);
+            case "jg" -> branch(w, i, 0x0F, 0x8F, symbols, relocs);
             case "jge" -> branch(w, i, 0x0F, 0x8D, symbols, relocs);
             case "movss" -> sseMove(w, i, 0xF3, symbols, relocs);
             case "movsd" -> sseMove(w, i, 0xF2, symbols, relocs);
