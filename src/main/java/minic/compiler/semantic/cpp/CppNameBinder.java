@@ -1019,7 +1019,9 @@ public final class CppNameBinder {
                 case ADD, SUBTRACT, MULTIPLY, DIVIDE, REMAINDER, BIT_XOR, BIT_AND, BIT_OR,
                         BIT_NOT, LOGICAL_NOT, LESS, GREATER, SHIFT_LEFT, SHIFT_RIGHT, EQUAL, NOT_EQUAL,
                         LESS_EQUAL, GREATER_EQUAL, INCREMENT, DECREMENT, CALL, SUBSCRIPT, MEMBER_ACCESS,
-                        LOGICAL_AND, LOGICAL_OR, COMMA, ASSIGN -> true;
+                        LOGICAL_AND, LOGICAL_OR, COMMA, ASSIGN, ADD_ASSIGN, SUBTRACT_ASSIGN,
+                        MULTIPLY_ASSIGN, DIVIDE_ASSIGN, REMAINDER_ASSIGN, XOR_ASSIGN, AND_ASSIGN,
+                        OR_ASSIGN, SHIFT_LEFT_ASSIGN, SHIFT_RIGHT_ASSIGN -> true;
                 default -> false;
             }) return false;
             report("CPP005", node.operatorName().range(), "运算符重载声明已解析；重载选择和执行语义尚未实现。");
@@ -1428,7 +1430,11 @@ public final class CppNameBinder {
                         if (n.operator() == TokenType.EQUAL)
                             yield operatorExpression("operator=", n, List.of(n.target(), n.value()),
                                     List.of(target, value), namespace, local, true);
-                        report("CPP005", n.range(), "Compound assignment overload execution is not supported yet.");
+                    }
+                    if (n.compoundBinaryOperator().isPresent()) {
+                        Expression overloaded = operatorExpression(operatorName(n.operator()), n,
+                                List.of(n.target(), n.value()), List.of(target, value), namespace, local, false);
+                        if (overloaded != null) yield overloaded;
                     }
                     AssignmentExpr assignment = new AssignmentExpr(target, n.operator(), value, n.range());
                     yield normalizedAssignment(assignment, addressDemand);
@@ -1823,6 +1829,10 @@ public final class CppNameBinder {
                 case EQUAL_EQUAL -> "=="; case BANG_EQUAL -> "!="; case LESS_EQUAL -> "<="; case GREATER_EQUAL -> ">=";
                 case PLUS_PLUS -> "++"; case MINUS_MINUS -> "--";
                 case AMPERSAND_AMPERSAND -> "&&"; case PIPE_PIPE -> "||";
+                case PLUS_EQUAL -> "+="; case MINUS_EQUAL -> "-="; case STAR_EQUAL -> "*=";
+                case SLASH_EQUAL -> "/="; case PERCENT_EQUAL -> "%="; case CARET_EQUAL -> "^=";
+                case AMPERSAND_EQUAL -> "&="; case PIPE_EQUAL -> "|=";
+                case LESS_LESS_EQUAL -> "<<="; case GREATER_GREATER_EQUAL -> ">>=";
                 default -> null;
             };
             return symbol == null ? null : "operator" + symbol;
@@ -1916,7 +1926,7 @@ public final class CppNameBinder {
             requireComplete(signature.returnType(), original.range());
             signature.parameterTypes().forEach(type -> requireComplete(type, original.range()));
             requireSupportedCallLifetime(signature.returnType(), signature.parameterTypes(), original.range());
-            List<Integer> evaluationOrder = name.equals("operator=") && original instanceof AssignmentExpr
+            List<Integer> evaluationOrder = original instanceof AssignmentExpr
                     ? List.of(1, 0) : java.util.stream.IntStream.range(0, lowered.size()).boxed().toList();
             CallExpr call = new CallExpr(new NameExpr(selected.function.coreName, original.range()), lowered, evaluationOrder, original.range());
             declaredExpressionTypes.put(call, signature.returnType().isReference()
