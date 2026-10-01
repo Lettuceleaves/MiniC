@@ -70,7 +70,7 @@ final class CppClassTemplateSpecializationTest {
         Path input=temporary.resolve("invalid.cpp");java.nio.file.Files.writeString(input,source);
         var reference=BoundedProcess.run(java.util.List.of(CppDifferentialHarness.referenceCompiler(System.getenv()).toString(),"-std=c++17","-pedantic-errors","-fsyntax-only",input.toString()),temporary,"",java.time.Duration.ofSeconds(20),64*1024);
         assertFalse(reference.timedOut());assertNotEquals(0,reference.exitCode());
-        var api=new CompilerApi(new minic.SourceFile("invalid-template.cpp",source),LanguageMode.CPP17_ALGORITHM);
+        var api=new CompilerApi(new minic.compiler.SourceFile("invalid-template.cpp",source),LanguageMode.CPP17_ALGORITHM);
         var semantic=api.stages().stream().filter(minic.compiler.semantic.SemanticAnalyzer.class::isInstance).map(minic.compiler.semantic.SemanticAnalyzer.class::cast).findFirst().orElseThrow();
         api.runThrough(semantic);
         assertTrue(api.stages().stream().anyMatch(stage->!stage.errors().isEmpty()));

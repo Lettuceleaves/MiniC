@@ -58,7 +58,7 @@ final class CppClassTemplateParserTest {
         api.runThrough(semantic);
         assertTrue(api.stages().stream().filter(Parser.class::isInstance).allMatch(s -> s.succeeded()));
         assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
-        assertNull(AstChildren.firstCppSyntax(semantic.result().program()));
+        assertNull(AstChildren.firstCppSyntax(semantic.program()));
     }
 
     @ParameterizedTest @ValueSource(strings = {
