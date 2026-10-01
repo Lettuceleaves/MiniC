@@ -53,7 +53,7 @@ class StlBitsetCountWorkloadsTest {
 
     @ParameterizedTest @ValueSource(strings={"bitset-count-sparse","bitset-count-dense"})
     void fourUninstrumentedBuildsMatchPerBitOracle(String id)throws Exception {
-        Path root=Path.of(System.getProperty("minic.project.root")).toAbsolutePath();
+        Path root=Path.of(System.getProperty("minic.project.root", ".")).toAbsolutePath();
         Path out=output(id);var w=workload(id);String source=Files.readString(root.resolve(w.sourcePath()));
         var report=new LinkedHashMap<String,Object>();report.put("purpose","four-build checksum correctness only; no timing samples");report.put("sourceSha256",StlBenchmarkSupport.hash(source));
         var builds=new ArrayList<Object>();report.put("builds",builds);
@@ -72,7 +72,7 @@ class StlBitsetCountWorkloadsTest {
         } finally {Files.writeString(out.resolve("correctness.json"),NativeBenchmarkReport.encode(report));}
     }
     @Test void allElevenCounterProbesKeepHashesAndBalanceAcrossFourBuilds()throws Exception {
-        Path root=Path.of(System.getProperty("minic.project.root")).toAbsolutePath(),out=output("probes");
+        Path root=Path.of(System.getProperty("minic.project.root", ".")).toAbsolutePath(),out=output("probes");
         var instrumented=StlBenchmarkProbes.instrumentOwnHeaders(root,out.resolve("instrumented-project"));
         String source=StlBenchmarkProbes.source(root);var report=new LinkedHashMap<String,Object>();
         report.put("purpose","counter correctness only; no timing samples");report.put("sourceSha256",StlBenchmarkSupport.hash(source));report.put("instrumentation",instrumented.strategy());
