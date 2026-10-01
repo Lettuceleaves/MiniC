@@ -16,7 +16,7 @@ import java.util.*;
 import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Explicit-specialization and exception-specification deduction corpus; execution is deferred. */
+/** Explicit specializations and exception-specification deduction, including CWG 2355. */
 @Timeout(90) @Execution(ExecutionMode.SAME_THREAD)
 final class CppFunctionSpecializationTest {
     @TempDir Path temporary;
@@ -81,21 +81,72 @@ final class CppFunctionSpecializationTest {
             template<class... T>int count(T... values){return sizeof...(T);}
             template<>int count<int,double>(int a,double b){return 7;}
             int main(){printf("%d %d %d\\n",count(),count(1),count(1,2.0));return 0;}
-            ""","0 1 7\n"),
+            ""","0 1 7\n")
+    );}
+    static Stream<Arguments> noexceptDeductionPrograms(){return Stream.of(
         Arguments.of("noexcept-parameter-deduction", """
             void safe()noexcept{}void risky(){}
             template<bool B>int kind(void(*operation)()noexcept(B)){operation();return B;}
             int main(){printf("%d %d\\n",kind(safe),kind(risky));return 0;}
+            """, """
+            void safe()noexcept{}void risky(){}
+            template<bool B>int kind(void(*operation)()noexcept(B)){operation();return B;}
+            int main(){printf("%d %d\\n",kind<true>(safe),kind<false>(risky));return 0;}
             ""","1 0\n"),
         Arguments.of("noexcept-target-deduction", """
             template<bool B>int answer()noexcept(B){return B?7:3;}
             int main(){int(*safe)()noexcept=answer;int(*risky)()=answer;printf("%d %d\\n",safe(),risky());return 0;}
+            """, """
+            template<bool B>int answer()noexcept(B){return B?7:3;}
+            int main(){int(*safe)()noexcept=answer<true>;int(*risky)()=answer<false>;printf("%d %d\\n",safe(),risky());return 0;}
             ""","7 3\n")
     );}
     @ParameterizedTest(name="{0}") @MethodSource("programs")
     void specializationKeepsPrimaryIdentity(String name,String source,String expected)throws Exception {
         var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),CppDifferentialHarness.Limits.defaults(),LanguageMode.CPP17_ALGORITHM).run(name,"#include <stdio.h>\n"+source,"");
         assertTrue(report.passed(),report::describe);assertEquals(expected,report.outcomes().get(CppDifferentialHarness.Backend.GXX).stdout().replace("\r\n","\n"));
+    }
+    @ParameterizedTest(name="{0}") @MethodSource("noexceptDeductionPrograms")
+    void noexceptDeductionKeepsTheOriginalSourceAndExplicitReferenceControl(
+            String name,String source,String explicitReference,String expected,TestReporter reporter)throws Exception {
+        // CWG 2355 was accepted in July 2022; original N4659 did not list noexcept
+        // values among deducible forms. The installed GCC 8.1 predates that rule.
+        // https://cplusplus.github.io/CWG/issues/2355.html
+        // https://www.open-std.org/jtc1/sc22/wg21/docs/papers/2022/p2622r0.html
+        String compiler=CppDifferentialHarness.referenceCompiler(System.getenv());
+        var harness=new CppDifferentialHarness(temporary,compiler,CppDifferentialHarness.Limits.defaults(),LanguageMode.CPP17_ALGORITHM);
+        var report=harness.run(name,"#include <stdio.h>\n"+source,"");
+        for(var backend:List.of(CppDifferentialHarness.Backend.MINIC_NATIVE,CppDifferentialHarness.Backend.MINIC_DEBUG)){
+            var actual=report.outcomes().get(backend);
+            assertEquals(CppDifferentialHarness.Status.OK,actual.status(),report::describe);
+            assertEquals(0,actual.exitCode(),report::describe);
+            assertEquals(expected,actual.stdout().replace("\r\n","\n"),report::describe);
+            assertEquals("",actual.stderr(),report::describe);
+        }
+        var reference=report.outcomes().get(CppDifferentialHarness.Backend.GXX);
+        if(reference.status()==CppDifferentialHarness.Status.OK){
+            assertTrue(report.passed(),report::describe);
+        }else{
+            // Do not turn arbitrary reference failures into successful tests. This
+            // adaptation is limited to the version and deduction diagnostics verified here.
+            var version=BoundedProcess.run(List.of(compiler,"-dumpfullversion"),temporary,"",Duration.ofSeconds(10),4096);
+            assertFalse(version.timedOut());assertFalse(version.outputExceeded());assertEquals(0,version.exitCode());
+            assertEquals("8.1.0",version.stdout().strip(),report::describe);
+            assertEquals(CppDifferentialHarness.Status.COMPILE_ERROR,reference.status(),report::describe);
+            assertNotEquals(0,reference.exitCode(),report::describe);
+            String diagnostic=reference.diagnostics();
+            assertTrue(name.equals("noexcept-parameter-deduction")
+                    ? diagnostic.contains("couldn't deduce template parameter 'B'")
+                    : diagnostic.contains("no matches converting function 'answer'"),report::describe);
+            reporter.publishEntry(Map.of("reference-rule","CWG 2355 (accepted July 2022)",
+                    "reference-version",version.stdout().strip(),"original-source",source,
+                    "reference-diagnostic",diagnostic,"explicit-reference-source",explicitReference));
+        }
+        // Preserve an executable G++ oracle for both deduced boolean choices. This
+        // control does not replace either MiniC run of the original deduction source.
+        var control=harness.run(name+"-explicit-reference","#include <stdio.h>\n"+explicitReference,"");
+        assertTrue(control.passed(),control::describe);
+        assertEquals(expected,control.outcomes().get(CppDifferentialHarness.Backend.GXX).stdout().replace("\r\n","\n"));
     }
     @ParameterizedTest @ValueSource(strings={
         "template<>int missing<int>(int x){return x;}int main(){return 0;}",

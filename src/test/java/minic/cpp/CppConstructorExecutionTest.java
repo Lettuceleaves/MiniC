@@ -141,7 +141,34 @@ final class CppConstructorExecutionTest {
                             void finish(){value+=2;}
                         };
                         int main(){Box box(5);printf("%d\\n",box.read());return 0;}
-                        """, "7\n"));
+                        """, "7\n"),
+                Arguments.of("array-elements-run-default-construction", """
+                        #include <stdio.h>
+                        int calls=0;
+                        struct Box{int sequence;Box():sequence(++calls){}};
+                        int main(){Box values[2];printf("%d %d %d\\n",calls,values[0].sequence,values[1].sequence);return 0;}
+                        """, "2 1 2\n"),
+                Arguments.of("aggregate-element-overrides-default-member-initializer", """
+                        #include <stdio.h>
+                        int calls=0;int next(){++calls;return 1;}
+                        struct Box{int value=next();};
+                        int main(){Box value{2};printf("%d %d\\n",value.value,calls);return 0;}
+                        """, "2 0\n"),
+                Arguments.of("array-member-empty-list-initializes-each-element", """
+                        #include <stdio.h>
+                        struct Box{int values[2];Box():values{}{} };
+                        int main(){Box value;printf("%d %d\\n",value.values[0],value.values[1]);return 0;}
+                        """, "0 0\n"),
+                Arguments.of("aggregate-member-nonempty-list-initializes-value", """
+                        #include <stdio.h>
+                        struct Pair{int value;};struct Box{Pair p;Box():p{3}{} };
+                        int main(){Box value;printf("%d\\n",value.p.value);return 0;}
+                        """, "3\n"),
+                Arguments.of("global-construction-completes-before-main", """
+                        #include <stdio.h>
+                        int calls=0;struct Box{int sequence;Box():sequence(++calls){}};Box global;
+                        int main(){printf("%d %d\\n",calls,global.sequence);return 0;}
+                        """, "1 1\n"));
     }
 
     @Test @Timeout(120)
@@ -308,29 +335,4 @@ final class CppConstructorExecutionTest {
                 """);
     }
 
-    @Test void laterConstructionSlicesKeepExplicitSourceDiagnostics() throws Exception {
-        var sources=List.of(
-                "struct Box{Box(){}};int main(){Box values[2];return 0;}",
-                "struct Box{int value=1;};int main(){Box value{2};return 0;}",
-                "struct Box{int values[2];Box():values{}{} };int main(){return 0;}",
-                "struct Pair{int value;};struct Box{Pair p;Box():p{3}{} };int main(){return 0;}",
-                "struct Box{Box(){}};Box global;int main(){return 0;}");
-        for(int index=0;index<sources.size();index++) {
-            String source=sources.get(index);
-            Path file=temporary.resolve("future-"+index+".cpp");
-            Files.writeString(file,source);
-            var reference=BoundedProcess.run(List.of(CppDifferentialHarness.referenceCompiler(System.getenv()),
-                    "-std=c++17","-pedantic-errors","-fsyntax-only",file.toString()),temporary,"",Duration.ofSeconds(20),65536);
-            assertFalse(reference.timedOut(),reference::stderr);
-            assertEquals(0,reference.exitCode(),reference::stderr);
-            var api=compiler(source);
-            var parser=stage(api,Parser.class);
-            var semantic=stage(api,SemanticAnalyzer.class);
-            api.runThrough(semantic);
-            assertTrue(parser.succeeded(),()->parser.errors().toString());
-            assertFalse(semantic.succeeded(),source);
-            assertTrue(semantic.errors().stream().anyMatch(error->error.code().equals("CPP005")),
-                    ()->source+"\n"+semantic.errors());
-        }
-    }
 }
