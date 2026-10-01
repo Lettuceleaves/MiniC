@@ -76,16 +76,22 @@ public final class CppTemplateSubstitution {
     private Object copy(Object source) {
         if (source == null || source instanceof String || source instanceof Number || source instanceof Boolean
                 || source instanceof Character || source instanceof Enum<?> || source instanceof SourceRange) return source;
+        // Compatibility projections share operands by identity, including transformed AST nodes.
+        Object existing = copies.get(source);
+        if (existing != null) return existing;
         if (source instanceof MiniType.ExceptionSpecification specification) return exceptionSpecification(specification);
         if (source instanceof MiniType type) return type(type);
         if(source instanceof CppSizeofPackExpr size) {
             Integer count=parameterPacks.containsKey(size.name())?parameterPacks.get(size.name()).size():null;
             var identity=templateNames.get(size.name());if(identity!=null && packs.containsKey(identity))count=packs.get(identity).size();
             if(count==null)return source; // a nested member template can still own this pack
-            return new Expression.IntegerConstantExpr(count,MiniType.UNSIGNED_LONG_LONG,Integer.toString(count),size.range());
+            var result=new Expression.IntegerConstantExpr(count,MiniType.UNSIGNED_LONG_LONG,Integer.toString(count),size.range());
+            copies.put(source,result);origins.put(result,size);return result;
         }
-        if(source instanceof Expression.NameExpr name && selectedNames.containsKey(name.name()))
-            return new Expression.NameExpr(selectedNames.get(name.name()),name.range());
+        if(source instanceof Expression.NameExpr name && selectedNames.containsKey(name.name())) {
+            var result=new Expression.NameExpr(selectedNames.get(name.name()),name.range());
+            copies.put(source,result);origins.put(result,name);return result;
+        }
         if(source instanceof Expression.CallExpr call)return copyCall(call);
         if(source instanceof minic.compiler.type.TemplateArgument.Expansion expansion)
             return new minic.compiler.type.TemplateArgument.Expansion((minic.compiler.type.TemplateArgument)copy(expansion.pattern()));
@@ -94,14 +100,15 @@ public final class CppTemplateSubstitution {
         if(source instanceof minic.compiler.type.TemplateArgument.Integral argument)return argument;
         if (source instanceof CppTemplateValueExpr value) {
             Expression replacement=values.get(value.parameter());
-            if(replacement==null)return new CppTemplateValueExpr(value.parameter(),type(value.valueType()),value.range());
+            if(replacement==null) {
+                var result=new CppTemplateValueExpr(value.parameter(),type(value.valueType()),value.range());
+                copies.put(source,result);origins.put(result,value);return result;
+            }
             Expression result=replacement instanceof Expression.IntegerConstantExpr constant
                     ?new Expression.IntegerConstantExpr(constant.value(),constant.type(),constant.lexeme(),value.range())
                     :minic.compiler.type.TemplateValues.substitute(replacement,arguments,values);
             copies.put(source,result);origins.put(result,value);return result;
         }
-        Object existing = copies.get(source);
-        if (existing != null) return existing;
         if (source instanceof List<?> list) {
             List<?> result = copyList(list);
             copies.put(source, result);

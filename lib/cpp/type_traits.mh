@@ -66,6 +66,8 @@ template<> struct __minic_integral<long long> { static constexpr bool value=true
 template<> struct __minic_integral<unsigned long long> { static constexpr bool value=true; };
 template<class T> struct is_integral : public integral_constant<bool,(__minic_integral<typename remove_cv<T>::type>::value)> {};
 template<class T,class... A> struct is_constructible : public integral_constant<bool,(__is_constructible(T,A...))> {};
+// Unknown-bound arrays cannot define the object required by C++17 [meta.unary.prop].
+template<class T,class... A> struct is_constructible<T[],A...> : public false_type {};
 template<class T,class U> struct is_assignable : public integral_constant<bool,(__is_assignable(T,U))> {};
 #ifdef __MINIC__
 template<class From,class To> struct is_convertible : public integral_constant<bool,(__is_convertible(From,To))> {};

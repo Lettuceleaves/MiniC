@@ -35,6 +35,20 @@ static_assert(std::is_nothrow_move_assignable<Quiet>::value,"quiet move assignme
 static_assert(std::is_nothrow_constructible<int&,int&>::value,"direct reference binding");
 static_assert(!std::is_nothrow_default_constructible<int&>::value,"unbound reference");
 static_assert(!std::is_nothrow_default_constructible<int[]>::value,"unknown array");
+static_assert(!std::is_nothrow_default_constructible<const int[]>::value,"const unknown array");
+static_assert(!std::is_nothrow_default_constructible<volatile int[]>::value,"volatile unknown array");
+static_assert(!std::is_nothrow_constructible<const volatile int[],int>::value,"unknown array with argument");
+#if defined(__MINIC__) || defined(__MINIC_SELF_STL__)
+// MinGW 8's system is_constructible also misreports unknown bounds. Check the
+// required contract on both MiniC and G++ compiling our source library.
+static_assert(!std::is_constructible<int[]>::value,"unknown bound is not constructible");
+static_assert(!std::is_constructible<const int[]>::value,"const unknown bound");
+static_assert(!std::is_constructible<volatile int[]>::value,"volatile unknown bound");
+static_assert(!std::is_constructible<const volatile int[]>::value,"const volatile unknown bound");
+static_assert(!std::is_constructible<int[],int>::value,"unknown bound with scalar argument");
+static_assert(!std::is_constructible<const int[],const int(&)[2]>::value,"unknown bound with array argument");
+static_assert(!std::is_constructible<volatile int[],int,int>::value,"unknown bound with multiple arguments");
+#endif
 static_assert(!std::is_nothrow_default_constructible<void>::value,"void");
 static_assert(!std::is_nothrow_constructible<Deleted>::value,"deleted constructor");
 static_assert(!std::is_nothrow_constructible<Private>::value,"private constructor");

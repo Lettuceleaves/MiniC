@@ -7332,10 +7332,13 @@ public final class CppNameBinder {
 
         private boolean isNullIntegerLiteral(Expression source) {
             while (source instanceof GroupingExpr group) source = group.expression();
+            // A substituted non-type argument remains an id-expression, even when its value is zero.
+            if(templateOrigins.get(source) instanceof CppTemplateValueExpr)return false;
             return switch (source) {
                 case IntegerLiteralExpr integer -> integer.value() == 0;
                 case LongLiteralExpr integer -> integer.value() == 0;
-                case IntegerConstantExpr integer -> integer.value() == 0
+                case IntegerConstantExpr integer -> integer.value() == 0 && integer.type().isIntegerScalar()
+                        && !integer.type().unqualified().equals(MiniType.BOOL)
                         && !integer.lexeme().matches("[A-Za-z_][A-Za-z0-9_]*");
                 default -> false;
             };
@@ -7773,6 +7776,7 @@ public final class CppNameBinder {
 
         private Candidate classMember(TypeEntity owner, String name, SourceRange range) {
             if (owner == null) { report("CPP004", range, "Member qualifier must denote a class type."); return null; }
+            completeTemplate(owner,range);
             TypeEntity declaring=declaringMember(owner,name);
             StaticField field = declaring==null?null:declaring.staticFields.get(name);
             if (field != null) return field.entity;
