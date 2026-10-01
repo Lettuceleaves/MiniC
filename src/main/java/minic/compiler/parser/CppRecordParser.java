@@ -243,6 +243,9 @@ public final class CppRecordParser {
                         else if (end != null) members.add(new StaticFieldMember(new GlobalVarDecl(declaration.name(), declaration.type(),
                                 initialization.expression(), false, declaration.alignmentSpecs(), initialization.cppInitializer(),
                                 SourceRange.span(declarationStart.range(), end.range())).withConstexprSpecifier(constexprSpecifier)));
+                    } else if (declaration.type().containsAuto()) {
+                        state.report(declaration.range(), "A non-static data member cannot have an auto or decltype(auto) placeholder type");
+                        recoverMember();
                     } else if (state.check(TokenType.EQUAL) || state.check(TokenType.LEFT_BRACE)) {
                         if(constexprSpecifier)state.report(declarationStart,"A non-static data member cannot be constexpr");
                         if (union) {
@@ -695,7 +698,8 @@ public final class CppRecordParser {
     private boolean unsupportedPrefix(Token token) {
         return token.type() == TokenType.TILDE
                 || token.type() == TokenType.TYPEDEF || token.type() == TokenType.USING
-                || token.type().isCppToken() && token.type() != TokenType.CLASS && token.type() != TokenType.SCOPE && token.type() != TokenType.TYPENAME;
+                || token.type().isCppToken() && token.type() != TokenType.CLASS && token.type() != TokenType.SCOPE
+                    && token.type() != TokenType.TYPENAME && token.type() != TokenType.AUTO && token.type() != TokenType.DECLTYPE;
     }
 
     /** An anonymous type can still have a named, array, or pointer field declarator. */
