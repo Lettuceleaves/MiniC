@@ -245,7 +245,8 @@ public final class Assembler extends Stage {
     private boolean nextFunctionLine() {
         while (functionIndex < input.irResult.functions().size()) {
             if (functionState == null) {
-                functionState = new FunctionState(input.irResult.functions().get(functionIndex), input.irResult.externalFunctionNames());
+                functionState = new FunctionState(input.irResult.functions().get(functionIndex), input.irResult.externalFunctionNames(),
+                        optimizationLevel() == OptimizationLevel.OPTIMIZED);
                 work.currentFunctionName = functionState.function.name();
                 work.currentFrameLayout = functionState.frame;
                 work.currentSection = "function";
@@ -360,9 +361,9 @@ public final class Assembler extends Stage {
         private int trapIndex;
         private SourceRange currentRange;
 
-        private FunctionState(IrFunction function, java.util.Set<String> externalFunctionNames) {
+        private FunctionState(IrFunction function, java.util.Set<String> externalFunctionNames, boolean reuseTemporarySlots) {
             this.function = function;
-            frame = FrameLayout.create(function);
+            frame = FrameLayout.create(function, reuseTemporarySlots);
             functionSymbol = CallingConvention.functionDefinitionSymbol(function.name());
             epilogueLabel = functionSymbol + "$epilogue";
             instructionEmitter = new InstructionEmitter(frame, externalFunctionNames, function);

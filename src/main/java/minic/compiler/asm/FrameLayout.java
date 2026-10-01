@@ -22,6 +22,7 @@ import minic.compiler.ir.model.IrLocal;
 import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
 import minic.compiler.ir.value.IrValue.IrTemporary;
+import minic.compiler.ir.optimize.TemporarySlotPlan;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -33,8 +34,38 @@ record FrameLayout(
         Map<String, Integer> localInitializedOffsets,
         Map<String, Integer> temporaryOffsets,
         int outgoingArgumentAreaSize,
-        int frameSize
+        int frameSize,
+        TemporarySlotPlan temporarySlotPlan
 ) {
+    static FrameLayout create(IrFunction function, boolean reuseTemporarySlots) {
+        FrameLayout baseline = create(function);
+        if (!reuseTemporarySlots) return baseline;
+        TemporarySlotPlan plan = TemporarySlotPlan.allocate(function);
+        LinkedHashMap<String, Integer> localOffsets = new LinkedHashMap<>();
+        LinkedHashMap<String, Integer> initializedOffsets = new LinkedHashMap<>();
+        LinkedHashMap<String, Integer> temporaries = new LinkedHashMap<>();
+        int nextOffset = baseline.parameterOffsets().values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        for (var block : function.blocks()) for (IrInstruction instruction : block.instructions()) {
+            IrLocal local = switch (instruction) {
+                case IrDeclareLocalInstruction value -> value.local();
+                case IrCheckInitializedInstruction value -> value.local();
+                case IrAddressOfLocalInstruction value -> value.local();
+                case IrLoadLocalInstruction value -> value.local();
+                case IrStoreLocalInstruction value -> value.local();
+                default -> null;
+            };
+            if (local != null) nextOffset = ensureLocal(local, localOffsets, initializedOffsets, nextOffset);
+        }
+        // Fixed homes and source objects never alias temporary slots. Plan offsets require an aligned base.
+        int temporaryBase = plan.temporaryCount() == 0 ? nextOffset : alignTo(nextOffset, Long.BYTES);
+        plan.slots().forEach((name, slot) -> temporaries.put(name, Math.addExact(temporaryBase, slot.offset())));
+        int frameSize = CallingConvention.alignTo16(Math.addExact(baseline.outgoingArgumentAreaSize(), Math.addExact(temporaryBase, plan.storageBytes())));
+        // Alignment padding in a tiny function must not increase the native frame.
+        if (frameSize > baseline.frameSize()) return baseline;
+        return new FrameLayout(baseline.parameterOffsets(), baseline.parameterTypes(), localOffsets, initializedOffsets,
+                temporaries, baseline.outgoingArgumentAreaSize(), frameSize, plan);
+    }
+
     static FrameLayout create(IrFunction function) {
         LinkedHashMap<String, Integer> parameterOffsets = new LinkedHashMap<>();
         LinkedHashMap<String, IrType> parameterTypes = new LinkedHashMap<>();
@@ -67,7 +98,8 @@ record FrameLayout(
                 localInitializedOffsets,
                 temporaryOffsets,
                 outgoingArgumentAreaSize,
-                frameSize
+                frameSize,
+                null
         );
     }
 
