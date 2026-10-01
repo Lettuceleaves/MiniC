@@ -71,6 +71,14 @@ class ostream {
     }
     ostream& signed_number(long long value){char text[96];int n=::sprintf(text,(flags()&ios::showpos)?"%+lld":"%lld",value);return formatted(text,n,true);}
     ostream& floating_number(double value){
+        if(value!=value || value>DBL_MAX || value<-DBL_MAX){
+            unsigned long long representation=0;::memcpy(&representation,&value,sizeof(value));
+            char text[8];int n=0;
+            if(representation>>63)text[n++]='-';else if(flags()&ios::showpos)text[n++]='+';
+            const char* word=value!=value?((flags()&ios::uppercase)?"NAN":"nan"):((flags()&ios::uppercase)?"INF":"inf");
+            for(int i=0;word[i];++i)text[n++]=word[i];
+            return formatted(text,n,true);
+        }
         streamsize p=precision();if(p<0)p=6;if(p>2147483000LL)::abort();
         char* text=std::__minic_allocate<char>((size_t)p+384);
         char format[16];int at=0;format[at++]='%';
@@ -78,7 +86,18 @@ class ostream {
         format[at++]='.';format[at++]='*';
         char spec=(flags()&ios::fixed)?'f':(flags()&ios::scientific)?'e':'g';
         if(flags()&ios::uppercase)spec=(char)(spec-'a'+'A');format[at++]=spec;format[at]=0;
-        int n=::sprintf(text,format,(int)p,value);if(n<0)state_.setstate(ios::badbit);else formatted(text,n,true);
+        int n=::sprintf(text,format,(int)p,value);
+        if(n<0)state_.setstate(ios::badbit);
+        else{
+            // The legacy Windows CRT pads exponents to three digits. C++ streams
+            // use two unless the exponent needs more; keep this independent of CRT.
+            for(int i=0;i<n;++i)if(text[i]=='e' || text[i]=='E'){
+                int digits=i+2;
+                while(n-digits>2 && text[digits]=='0'){::memmove(text+digits,text+digits+1,n-digits);--n;}
+                break;
+            }
+            formatted(text,n,true);
+        }
         std::__minic_deallocate(text);return *this;
     }
 public:
