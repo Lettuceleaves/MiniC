@@ -68,6 +68,7 @@ public final class AstChildren {
             case AggregateInitExpr n -> n.values();
             case CppInitializer n -> n.arguments();
             case CppConstructionExpr n -> present(n.initializer());
+            case CppDestructorCallExpr n -> present(n.receiver());
             case DesignatedInitExpr n -> present(n.value());
             default -> List.of();
         };
@@ -96,7 +97,7 @@ public final class AstChildren {
             if (!visited.add(node)) continue;
             if (!onlyReferences && (node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
-                    || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof ConstructorMember
+                    || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
                     || node instanceof FunctionDecl function && function.operatorName() != null
@@ -126,6 +127,7 @@ public final class AstChildren {
             case TypedefStmt n -> n.type();
             case CastExpr n -> n.targetType();
             case CppConstructionExpr n -> n.type();
+            case CppDestructorCallExpr n -> n.ownerType();
             case LetExpr n -> n.type();
             case MaterializeExpr n -> n.type();
             case ObjectInitExpr n -> n.type();

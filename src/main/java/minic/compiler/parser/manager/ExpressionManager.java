@@ -410,6 +410,19 @@ public final class ExpressionManager {
     }
 
     private Expression finishFieldAccess(Expression target, boolean viaPointer) {
+        if (state.languageMode() == LanguageMode.CPP17_ALGORITHM) {
+            if (state.match(TokenType.TILDE)) return finishDestructorCall(target, viaPointer, state.previous());
+            int offset = state.check(TokenType.SCOPE) ? 1 : 0;
+            while (state.peekAt(offset).type() == TokenType.IDENTIFIER
+                    && state.peekAt(offset + 1).type() == TokenType.SCOPE) {
+                offset += 2;
+                if (state.peekAt(offset).type() == TokenType.TILDE) {
+                    state.unsupportedCpp(SourceRange.span(state.peek().range(), state.peekAt(offset).range()),
+                            "显式析构调用的限定类型前缀尚未实现");
+                    return null;
+                }
+            }
+        }
         Token fieldToken = state.consume(TokenType.IDENTIFIER, "期望字段名");
         if (fieldToken == null) {
             return target;
@@ -422,6 +435,20 @@ public final class ExpressionManager {
         );
         state.build(fieldAccessExpr, "FieldAccessExpr " + fieldAccessExpr.fieldName(), fieldAccessExpr.range());
         return fieldAccessExpr;
+    }
+
+    private Expression finishDestructorCall(Expression receiver, boolean viaPointer, Token tilde) {
+        Token name = state.consume(TokenType.IDENTIFIER, "析构调用的 ~ 后期望类型名称");
+        if (name == null) return null;
+        var destructorName = new minic.compiler.parser.node.QualifiedName(false, java.util.List.of(name.lexeme()), name.range());
+        MiniType ownerType = typeReader.resolveTypedef(name.lexeme());
+        if (state.consume(TokenType.LEFT_PAREN, "显式析构调用期望 '('") == null) return null;
+        Token end = state.consume(TokenType.RIGHT_PAREN, "显式析构调用不接受参数，期望 ')'");
+        if (end == null) return null;
+        var call = new minic.compiler.parser.node.CppDestructorCallExpr(receiver, ownerType, destructorName,
+                viaPointer, SourceRange.span(tilde.range(), name.range()), SourceRange.span(receiver.range(), end.range()));
+        state.build(call, "CppDestructorCallExpr", call.range());
+        return call;
     }
 
     private Expression parsePrimary() {
