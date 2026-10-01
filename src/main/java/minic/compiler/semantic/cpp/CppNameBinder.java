@@ -6485,6 +6485,10 @@ public final class CppNameBinder {
             MiniType objectTarget = objectTypeOfReference(target).unqualified();
             TypeEntity owner = objectType(objectTarget);
             if (owner != null && !objectTarget.equals(source.type().unqualified()) && mode != ConversionContext.BOOLEAN) {
+                // A parameter in a prototype does not instantiate its class. Candidate
+                // conversion lookup needs that class's actual constructors, independently
+                // of whether a definition or some earlier object completed it already.
+                completeTemplate(owner, owner.sourceRecord == null ? Binding.this.source.range() : owner.sourceRecord.range());
                 var output = new CppOverloadResolver.Argument(objectTarget, CppValueCategory.PRVALUE, false);
                 if (standardViable(output, target)) for (Constructor declaration : owner.constructors) {
                     Entity concrete=deduceFunctionTemplateShapes(declaration.function,List.of(source),null,definitionRange(declaration));
