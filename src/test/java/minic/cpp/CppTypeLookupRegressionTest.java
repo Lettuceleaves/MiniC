@@ -50,6 +50,11 @@ final class CppTypeLookupRegressionTest {
 
     static Stream<Arguments> invalidPrograms() {
         return Stream.of(
+                Arguments.of("ordinary-template-type-argument-still-obeys-value-shadowing", """
+                        template<class T> struct Box { typedef T Type; };
+                        struct Item {};
+                        int main() { int Item = 3; Box<Item>::Type value; return 0; }
+                        """),
                 Arguments.of("anonymous-union-member-hides-outer-typedef", """
                         typedef int Type;
                         struct Record { union { int Type; }; Type item; };
@@ -150,13 +155,19 @@ final class CppTypeLookupRegressionTest {
                         namespace A { typedef int Type; }
                         int main() { int A = 3; A::Type value = 7; return A + value == 10 ? 0 : 1; }
                         """),
-                Arguments.of("scalar-alias-does-not-hide-namespace-type-qualifier", """
-                        namespace A { typedef int Type; }
-                        int main() { typedef double A; A::Type value = 7; return value == 7 && sizeof(A) == 8 ? 0 : 1; }
+                Arguments.of("local-value-does-not-hide-class-type-qualifier", """
+                        struct A { typedef int Type; };
+                        int main() { int A = 3; A::Type value = 7; return A + value == 10 ? 0 : 1; }
                         """),
-                Arguments.of("scalar-alias-does-not-hide-namespace-value-qualifier", """
-                        namespace A { int value = 7; }
-                        int main() { typedef double A; return A::value == 7 && sizeof(A) == 8 ? 0 : 1; }
+                Arguments.of("local-value-does-not-hide-class-value-qualifier", """
+                        struct A { static int value; };
+                        int A::value = 7;
+                        int main() { int A = 3; return A + A::value == 10 ? 0 : 1; }
+                        """),
+                Arguments.of("class-alias-hides-outer-namespace", """
+                        namespace A { typedef double Type; }
+                        struct Record { typedef int Type; };
+                        int main() { typedef Record A; A::Type value = 7; return value == 7 && sizeof(A::Type) == 4 ? 0 : 1; }
                         """),
                 Arguments.of("field-type-before-later-member-name", """
                         typedef int Type;
@@ -171,5 +182,32 @@ final class CppTypeLookupRegressionTest {
                             return object.next->value == 9 && Node == 3 ? 0 : 1;
                         }
                         """));
+    }
+
+    static Stream<Arguments> invalidNonClassQualifiers() {
+        // Preserve both original sources: GCC 8.1 incorrectly ignores the scalar alias.
+        // C++17 [basic.lookup.qual]/1 first considers types (not ordinary values),
+        // then requires the found type to be a class, enumeration or dependent type.
+        // https://timsong-cpp.github.io/cppwp/n4659/basic.lookup.qual#1
+        return Stream.of(
+                Arguments.of("scalar-alias-invalid-type-qualifier", """
+                        namespace A { typedef int Type; }
+                        int main() { typedef double A; A::Type value = 7; return value == 7 && sizeof(A) == 8 ? 0 : 1; }
+                        """),
+                Arguments.of("scalar-alias-invalid-value-qualifier", """
+                        namespace A { int value = 7; }
+                        int main() { typedef double A; return A::value == 7 && sizeof(A) == 8 ? 0 : 1; }
+                        """));
+    }
+
+    @ParameterizedTest(name = "{0}") @MethodSource("invalidNonClassQualifiers")
+    void nonClassTypeQualifiersRemainInvalidDespiteGcc8Acceptance(String name, String content) {
+        var compiler = new CompilerApi(new SourceFile(name + ".cpp", content), LanguageMode.CPP17_ALGORITHM);
+        var semantic = compiler.stages().stream().filter(SemanticAnalyzer.class::isInstance)
+                .map(SemanticAnalyzer.class::cast).findFirst().orElseThrow();
+        compiler.runThrough(semantic);
+        var errors = compiler.stages().stream().flatMap(stage -> stage.errors().stream()).toList();
+        assertTrue(errors.stream().anyMatch(error -> (error.code().equals("CPP004") || error.code().equals("PAR001"))
+                && error.range().startLine() == 2), errors::toString);
     }
 }

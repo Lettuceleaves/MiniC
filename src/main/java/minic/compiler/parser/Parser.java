@@ -1202,7 +1202,7 @@ public final class Parser extends Stage {
         public boolean namesConstructor(QualifiedName name) {
             if (!isCpp() || name.segments().size() < 2) return false;
             var owner = new QualifiedName(name.global(), name.segments().subList(0, name.segments().size() - 1), name.range());
-            var lookup = cppTypes.lookup(owner);
+            var lookup = cppTypes.lookupQualifier(owner);
             if (lookup.kind() != CppTypeEnvironment.Kind.TYPE || !(lookup.type().unqualified() instanceof MiniType.StructType record)) return false;
             String injectedName = record.name().substring(record.name().lastIndexOf("::") + 2);
             return injectedName.equals(name.segments().getLast());
@@ -1588,7 +1588,9 @@ public final class Parser extends Stage {
                 int cursor=offset+(global?1:0);var segments=new ArrayList<String>();
                 while(context.peekAt(cursor).type()==TokenType.IDENTIFIER) {
                     Token name=context.peekAt(cursor);segments.add(name.lexeme());cursor++;
-                    var lookup=cppTypes.lookup(new QualifiedName(global,segments,name.range()));
+                    var prefix=new QualifiedName(global,segments,name.range());
+                    var lookup=context.peekAt(cursor).type()==TokenType.SCOPE
+                            ?cppTypes.lookupQualifier(prefix):cppTypes.lookup(prefix);
                     if(lookup.kind()==CppTypeEnvironment.Kind.TYPE){end=templateArgumentsEndAt(cursor);break;}
                     if(context.peekAt(cursor).type()!=TokenType.SCOPE)return -1;cursor++;
                 }
@@ -1758,8 +1760,11 @@ public final class Parser extends Stage {
             if (isCpp() && (type == TokenType.IDENTIFIER || type == TokenType.SCOPE)) {
                 var name = CppNameParser.peekName(context, offset);
                 if(name==null)return false;
-                for(int count=1;count<=name.segments().size();count++)
-                    if(cppTypes.lookup(new QualifiedName(name.global(),name.segments().subList(0,count),name.range())).kind()==CppTypeEnvironment.Kind.TYPE)return true;
+                for(int count=1;count<=name.segments().size();count++) {
+                    var prefix=new QualifiedName(name.global(),name.segments().subList(0,count),name.range());
+                    var found=count<name.segments().size()?cppTypes.lookupQualifier(prefix):cppTypes.lookup(prefix);
+                    if(found.kind()==CppTypeEnvironment.Kind.TYPE)return true;
+                }
                 return false;
             }
             return type == TokenType.BOOL
@@ -2213,7 +2218,8 @@ public final class Parser extends Stage {
                 if(identifier==null)return null;
                 segments.add(identifier.lexeme());
                 var name=new QualifiedName(global,segments,SourceRange.span(first.range(),identifier.range()));
-                var found=cppTypes.lookup(name);
+                var found=context.check(TokenType.SCOPE)||typeOwnerDepth>0&&context.check(TokenType.EOF)
+                        ?cppTypes.lookupQualifier(name):cppTypes.lookup(name);
                 if(found.kind()==CppTypeEnvironment.Kind.TYPE)type=parseTemplateId(found.type(),name.range());
                 else if(found.kind()==CppTypeEnvironment.Kind.NAMESPACE && context.match(TokenType.SCOPE))continue;
                 else {context.report(name.range(),"此位置不能将名称作为类型使用："+name+" ("+found.kind()+")");return null;}

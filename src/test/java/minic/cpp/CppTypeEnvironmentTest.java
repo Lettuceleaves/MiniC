@@ -86,7 +86,7 @@ class CppTypeEnvironmentTest {
         assertEquals(MiniType.INT, lookup("::A::T").type());
     }
 
-    @Test void namespaceQualifiersIgnoreAliasesThatDoNotNameClassTypes() {
+    @Test void nonClassAliasesBlockNamespaceQualifiersInsteadOfFallingThrough() {
         MiniType classType = names.declareStruct("ClassType", false, true, RANGE);
         names.enterNamespace(List.of("A"), RANGE);
         names.declareTypedef("T", MiniType.INT, RANGE);
@@ -96,7 +96,10 @@ class CppTypeEnvironmentTest {
             names.enterLocalScope();
             names.declareTypedef("A", type, RANGE);
             assertEquals(type, lookup("A").type());
-            assertEquals(MiniType.INT, lookup("A::T").type(), () -> "Non-class alias must not hide the qualifier: " + type);
+            assertEquals(UNSUPPORTED_QUALIFIER, lookup("A::T").kind(),
+                    () -> "[basic.lookup.qual]/1 rejects a non-class type before :: instead of falling through: " + type);
+            assertEquals(type, lookup("A::T").type());
+            assertEquals(MiniType.INT, lookup("::A::T").type());
             names.exitLocalScope();
         }
     }

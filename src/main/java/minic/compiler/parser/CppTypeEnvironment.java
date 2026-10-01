@@ -328,6 +328,10 @@ public final class CppTypeEnvironment {
 
     public Lookup lookup(QualifiedName name) { return classify(resolve(name, Search.ORDINARY)); }
 
+    /** [basic.lookup.qual]/1 ignores values before ::, but a non-class typedef
+     * still wins lookup and must be rejected by the caller, not skipped. */
+    public Lookup lookupQualifier(QualifiedName name) { return classify(resolve(name, Search.QUALIFIER)); }
+
     /** Ignores values, but never creates an undeclared tag, especially in another namespace. */
     public Lookup lookupElaborated(QualifiedName name) {
         Set<Entry> candidates = resolve(name, Search.ELABORATED);
@@ -396,10 +400,10 @@ public final class CppTypeEnvironment {
         if (slot == null) return null;
         if (slot.ordinary != null) {
             Entry entry = slot.ordinary;
-            // Nested-name-specifier lookup considers namespaces and class types, not
-            // scalar/pointer/array/function typedefs that merely share their spelling.
-            boolean qualifying = entry.kind == Kind.NAMESPACE || entry.kind == Kind.TYPE
-                    && entry.type.unqualified() instanceof MiniType.StructType;
+            // Lookup considers every type. A found scalar/pointer/array/function
+            // alias is an invalid qualifier; falling through to an outer namespace
+            // would silently accept an ill-formed qualified name.
+            boolean qualifying = entry.kind == Kind.NAMESPACE || entry.kind == Kind.TYPE;
             if (search == Search.ORDINARY || search == Search.ELABORATED && entry.kind != Kind.VALUE
                     || search == Search.QUALIFIER && qualifying) return entry;
         }
