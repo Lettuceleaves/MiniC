@@ -830,6 +830,13 @@ public final class ExpressionManager {
         }
         if (state.match(TokenType.IDENTIFIER)) {
             Token nameToken = state.previous();
+            // Construction and qualified member access were handled above. A bare
+            // known type is not an id-expression, including after a declaration
+            // probe falls back to parsing a direct initializer.
+            if (typeReader.isCpp() && typeReader.resolveTypedef(nameToken.lexeme()) != null) {
+                state.report(nameToken, "类型名称不能单独作为表达式");
+                return null;
+            }
             var templateValue = typeReader.templateValueReference(nameToken);
             if (templateValue != null) {
                 state.build(templateValue, "TemplateValue", templateValue.range());
