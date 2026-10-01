@@ -5433,6 +5433,7 @@ public final class CppNameBinder {
         }
 
         private boolean referenceRelated(MiniType first, MiniType second) {
+            if (first == null || second == null) return false;
             if (first.isArray() && second.isArray()) return first.arrayLength() == second.arrayLength()
                     && referenceRelated(first.elementType(), second.elementType());
             return first.unqualified().equals(second.unqualified());
@@ -6128,9 +6129,6 @@ public final class CppNameBinder {
                     report("CPP005", syntax.range(), "Parenthesized aggregate initialization requires a constructor in C++17.");
                     return arguments.isEmpty() ? null : expression(arguments.getFirst(), namespace, local);
                 }
-                if (object != null && object.fields.stream().anyMatch(field -> field.type().isReference())) {
-                    report("CPP005", range, "Aggregate initialization of reference data members is not supported yet.");
-                }
                 Expression source = syntax.kind() == CppInitializer.Kind.DEFAULT ? null
                         : list ? legacy instanceof AggregateInitExpr ? legacy : new AggregateInitExpr(arguments, syntax.range()) : arguments.getFirst();
                 return initializer(target, source, namespace, local, range);
@@ -6433,6 +6431,13 @@ public final class CppNameBinder {
                         return directClassConversion(type, value, source.range());
                     }
                 }
+                if (hasReferenceSubobject(type, new HashSet<>())) {
+                    if (syntax.kind() != CppInitializer.Kind.DIRECT_LIST && !arguments.isEmpty())
+                        report("CPP004", source.range(), "A C++17 aggregate has no matching parenthesized constructor.");
+                    Expression initialized = initializer(type, aggregateReferenceList(new AggregateInitExpr(arguments, syntax.range())),
+                            namespace, local, source.range());
+                    return recordPrvalue(type, initialized, source.range());
+                }
                 String destination = freshName("construction");
                 Expression slot = typed(new UnaryExpr(TokenType.STAR,
                         typed(new NameExpr(destination, source.range()), type.unqualified().pointerTo()), source.range()), type.unqualified());
@@ -6473,6 +6478,12 @@ public final class CppNameBinder {
             Expression value = arguments.isEmpty() ? new IntegerLiteralExpr(0, "0", source.range())
                     : expression(arguments.getFirst(), namespace, local);
             return explicitConversion(type, value, source.range());
+        }
+
+        /** Construction syntax uses CppInitializer for nested braces; target binding needs one list shape. */
+        private Expression aggregateReferenceList(Expression source) {
+            if (!isBraced(source)) return source;
+            return new AggregateInitExpr(listItems(source).stream().map(this::aggregateReferenceList).toList(), source.range());
         }
 
         private enum ConversionContext { IMPLICIT, EXPLICIT, BOOLEAN }
@@ -7580,6 +7591,9 @@ public final class CppNameBinder {
         }
 
         private void requireImplicitInitialization(MiniType target, boolean valueInitialization, SourceRange range) {
+            if (hasReferenceSubobject(target, new HashSet<>()) && !needsConstructedType(target)) {
+                report("CPP004", range, "A reference data member requires an initializer.");
+            }
             if (needsConstConstructionRules(target, valueInitialization, new HashSet<>())) {
                 report("CPP005", range, "尚未支持含 const 子对象的隐式构造初始化规则；不能直接按 C 聚合零填。");
             }
@@ -7619,6 +7633,24 @@ public final class CppNameBinder {
         }
         private Expression checkInitializer(MiniType target, Expression sourceNode, Expression bound, boolean listElement) {
             if (target == null) return bound;
+            if (target.isReference()) {
+                Expression value = bound;
+                Expression original = sourceNode;
+                if (bound instanceof AggregateInitExpr list) {
+                    List<Expression> sources = listItems(sourceNode);
+                    if (list.values().size() == 1 && referenceRelated(target.referent(), declaredExpressionType(list.values().getFirst()))) {
+                        value = list.values().getFirst();
+                        original = sources.getFirst();
+                    } else {
+                        value = checkInitializer(target.referent(), sourceNode, bound, true);
+                        value = target.referent().isStruct() ? recordPrvalue(target.referent(), value, sourceNode.range())
+                                : typed(value, target.referent());
+                    }
+                }
+                Expression address = bindReferenceValue(target, value, original, sourceNode.range());
+                if (listElement || isBraced(sourceNode)) checkReferenceListConversion(target.referent(), address, sourceNode.range());
+                return mapped(sourceNode, address);
+            }
             Expression characters=characterArrayInitializer(target,sourceNode);
             if(characters!=null)return characters;
             TypeEntity object = objectType(target);
