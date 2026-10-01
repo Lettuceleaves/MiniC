@@ -457,7 +457,6 @@ public final class CppNameBinder {
             if (type instanceof MiniType.ReferenceType reference) {
                 MiniType referent = normalizeType(reference.referent(), namespace, local, range);
                 if (referent.isVoid()) report("CPP004", range, "引用不能指向 void。");
-                if (referent.isArray() || referent.isFunction()) report("CPP005", range, "数组和函数引用绑定将在后续切片实现。");
                 return referent.referenceTo();
             }
             if (type instanceof MiniType.QualifiedType qualified) {
@@ -1077,7 +1076,7 @@ public final class CppNameBinder {
                 case UnaryExpr unary -> {
                     MiniType operand = declaredExpressionType(unary.operand());
                     yield switch (unary.operator()) {
-                        case STAR -> elementType(operand);
+                        case STAR -> operand != null && operand.isFunction() ? operand : elementType(operand);
                         case AMPERSAND -> operand == null ? null : operand.pointerTo();
                         case PLUS_PLUS, MINUS_MINUS -> operand;
                         default -> null;
@@ -1228,16 +1227,31 @@ public final class CppNameBinder {
                     report("CPP005", sourceNode.range(), "此引用绑定需要尚未实现的左值规范化或临时对象物化。");
                 } else report("CPP004", sourceNode.range(), "此引用必须绑定到兼容类型的左值。");
             } else if (actual != null) {
-                if (!target.qualifiers().containsAll(actual.qualifiers())) {
+                if (!target.isArray() && !target.qualifiers().containsAll(actual.qualifiers())) {
                     report("CPP004", sourceNode.range(), "引用绑定不能丢弃对象的 const/volatile 限定符。");
-                } else if (!target.unqualified().equals(actual.unqualified())) {
+                } else if (!referenceCompatible(target, actual)) {
                     boolean conversion = target.isConstQualified() && !target.isVolatileQualified()
                             && (target.isScalar() && actual.isScalar() || target.isPointer() && actual.isPointer());
                     report(conversion ? "CPP005" : "CPP004", sourceNode.range(), conversion
                             ? "此 const 引用转换需要尚未实现的临时对象物化。" : "引用绑定的对象类型不兼容。");
                 }
             }
-            return new UnaryExpr(TokenType.AMPERSAND, value, sourceNode.range());
+            Expression address = new UnaryExpr(TokenType.AMPERSAND, value, sourceNode.range());
+            // Array CV is attached to element types. Validate it recursively before
+            // spelling the safe qualification conversion in the C pointer ABI.
+            if (actual != null && target.isArray() && referenceCompatible(target, actual) && !target.equals(actual)) {
+                address = new CastExpr(coreType(target).pointerTo(), address, sourceNode.range());
+            }
+            return address;
+        }
+
+        private boolean referenceCompatible(MiniType target, MiniType actual) {
+            if (target.isArray() && actual.isArray()) {
+                return target.arrayLength() == actual.arrayLength()
+                        && referenceCompatible(elementType(target), elementType(actual));
+            }
+            if (!target.qualifiers().containsAll(actual.qualifiers())) return false;
+            return target.unqualified().equals(actual.unqualified());
         }
 
         private void requireImplicitInitialization(MiniType target, boolean valueInitialization, SourceRange range) {

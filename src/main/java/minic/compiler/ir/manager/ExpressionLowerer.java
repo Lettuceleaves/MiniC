@@ -593,7 +593,8 @@ final class ExpressionLowerer {
         }
         if (unaryExpr.operator() == TokenType.STAR) {
             IrValue address = lowerExpression(unaryExpr.operand());
-            if (isAggregateType(expressionTypes.get(unaryExpr))) {
+            MiniType resultType = expressionTypes.get(unaryExpr);
+            if (isAggregateType(resultType) || resultType != null && resultType.isFunction()) {
                 return address;
             }
             IrTemporary result = builder.newTemporary(irTypeOf(unaryExpr));
@@ -959,7 +960,7 @@ final class ExpressionLowerer {
     private MiniType decay(MiniType type) {
         return type != null && type.unqualified() instanceof MiniType.ArrayType arrayType
                 ? arrayType.elementType().pointerTo()
-                : type;
+                : type != null && type.isFunction() ? type.pointerTo() : type;
     }
 
     private boolean volatileAccess(Expression expression) {
@@ -1069,7 +1070,7 @@ final class ExpressionLowerer {
     }
 
     private ArrayList<IrValue> castArguments(CallExpr callExpr, ArrayList<IrValue> arguments) {
-        MiniType calleeType = expressionTypes.get(callExpr.callee());
+        MiniType calleeType = decay(expressionTypes.get(callExpr.callee()));
         if (calleeType == null || !calleeType.isPointer() || !calleeType.pointee().isFunction()) {
             return arguments;
         }
@@ -1126,7 +1127,7 @@ final class ExpressionLowerer {
     }
 
     private boolean isVariadicIndirectCall(CallExpr callExpr) {
-        MiniType calleeType = expressionTypes.get(callExpr.callee());
+        MiniType calleeType = decay(expressionTypes.get(callExpr.callee()));
         return calleeType != null
                 && calleeType.isPointer()
                 && calleeType.pointee().unqualified() instanceof MiniType.FunctionType functionType

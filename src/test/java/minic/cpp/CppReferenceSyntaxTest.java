@@ -162,7 +162,8 @@ final class CppReferenceSyntaxTest {
         api.runThrough(semantic);
         assertTrue(parser.succeeded(), () -> parser.errors().toString());
         boolean supported = Set.of("local", "cv-local", "return-and-parameter", "abstract-parameter",
-                "pointer-reference", "qualified-alias", "sizeof-type", "direct-initialization", "list-initialization").contains(name);
+                "pointer-reference", "qualified-alias", "sizeof-type", "direct-initialization", "list-initialization",
+                "array-reference", "function-reference", "reference-to-function-returning-reference").contains(name);
         if (supported) assertTrue(semantic.succeeded(), () -> semantic.errors().toString());
         else {
             assertFalse(semantic.succeeded());

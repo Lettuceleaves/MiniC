@@ -228,12 +228,12 @@ final class TypeCompatibility {
         return type;
     }
 
-    /** C 数组仅在值上下文中退化一层；声明、sizeof 和取址仍保留完整数组节点。 */
+    /** Arrays and function designators decay only in value contexts; queries and address-of keep their types. */
     static MiniType decay(MiniType type) {
         MiniType unqualified = type.unqualified();
         return unqualified instanceof MiniType.ArrayType arrayType
                 ? qualifiedElementType(type, arrayType.elementType()).pointerTo()
-                : type;
+                : unqualified instanceof MiniType.FunctionType ? type.pointerTo() : type;
     }
 
     /** const/volatile on an array object qualify its elements for lvalue access. */

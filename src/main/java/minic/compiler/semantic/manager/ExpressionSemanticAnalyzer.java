@@ -181,6 +181,7 @@ final class ExpressionSemanticAnalyzer {
         }
         MiniType operandType = analyzeExpression(unaryExpr.operand(), scope);
         if (unaryExpr.operator() == TokenType.STAR) {
+            operandType = TypeCompatibility.decay(operandType);
             if (!operandType.isPointer()) {
                 report(unaryExpr.range(), "解引用操作数必须是指针");
                 return MiniType.INT;
@@ -649,7 +650,7 @@ final class ExpressionSemanticAnalyzer {
     }
 
     private MiniType resolveFunctionPointerCall(CallExpr callExpr, Scope scope, ArrayList<MiniType> argumentTypes) {
-        MiniType calleeType = analyzeExpression(callExpr.callee(), scope);
+        MiniType calleeType = TypeCompatibility.decay(analyzeExpression(callExpr.callee(), scope));
         if (!calleeType.isPointer() || !calleeType.pointee().isFunction()) {
             report(callExpr.range(), "函数指针调用目标必须是函数指针");
             return MiniType.INT;
