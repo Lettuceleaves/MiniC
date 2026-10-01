@@ -163,10 +163,8 @@ final class CppOperatorDeclarationParserTest {
     }
 
     @ParameterizedTest @ValueSource(strings = {
-            "unsigned long long operator \"\" _sample(unsigned long long value);",
-            "void* operator new(unsigned long long size);",
-            "void operator delete(void* pointer);"})
-    void literalAndAllocationOperatorsStayExplicitlyUnsupported(String text) {
+            "unsigned long long operator \"\" _sample(unsigned long long value);"})
+    void literalOperatorsStayExplicitlyUnsupported(String text) {
         var parser = parse(text, LanguageMode.CPP17_ALGORITHM);
         assertFalse(parser.succeeded());
         assertTrue(parser.errors().stream().anyMatch(error -> error.code().equals("CPP001")), () -> parser.errors().toString());
@@ -187,7 +185,7 @@ final class CppOperatorDeclarationParserTest {
                 assertTrue(new SourceFile("guard.cpp", text).text(error.range()).startsWith("operator")));
     }
 
-    @ParameterizedTest @EnumSource(OperatorName.Kind.class)
+    @ParameterizedTest @EnumSource(value=OperatorName.Kind.class, names={"NEW","NEW_ARRAY","DELETE","DELETE_ARRAY"}, mode=EnumSource.Mode.EXCLUDE)
     void everyPunctuationOperatorHasItsDistinctIdentity(OperatorName.Kind kind) throws Exception {
         String signature = switch (kind) {
             case CALL -> "int operator()(int a,int b)";

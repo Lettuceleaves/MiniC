@@ -11,9 +11,9 @@ public record OperatorName(Kind kind, SourceRange range) {
         Objects.requireNonNull(range, "range");
     }
 
-    public String spelling() { return "operator" + kind.symbol(); }
+    public String spelling() { return "operator" + (kind.allocation() ? " " : "") + kind.symbol(); }
 
-    /** C++17 punctuation operators; unary/binary and prefix/postfix share the same name. */
+    /** Unary/binary and prefix/postfix operations share the same source name. */
     public enum Kind {
         ADD("+"), SUBTRACT("-"), MULTIPLY("*"), DIVIDE("/"), REMAINDER("%"),
         BIT_XOR("^"), BIT_AND("&"), BIT_OR("|"), BIT_NOT("~"), LOGICAL_NOT("!"),
@@ -23,10 +23,12 @@ public record OperatorName(Kind kind, SourceRange range) {
         SHIFT_LEFT_ASSIGN("<<="), SHIFT_RIGHT_ASSIGN(">>="), EQUAL("=="), NOT_EQUAL("!="),
         LESS_EQUAL("<="), GREATER_EQUAL(">="), LOGICAL_AND("&&"), LOGICAL_OR("||"),
         INCREMENT("++"), DECREMENT("--"), COMMA(","), POINTER_TO_MEMBER("->*"),
-        MEMBER_ACCESS("->"), CALL("()"), SUBSCRIPT("[]");
+        MEMBER_ACCESS("->"), CALL("()"), SUBSCRIPT("[]"),
+        NEW("new"), NEW_ARRAY("new[]"), DELETE("delete"), DELETE_ARRAY("delete[]");
 
         private final String symbol;
         Kind(String symbol) { this.symbol = symbol; }
         public String symbol() { return symbol; }
+        public boolean allocation() { return this == NEW || this == NEW_ARRAY || this == DELETE || this == DELETE_ARRAY; }
     }
 }

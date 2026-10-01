@@ -33,11 +33,12 @@ public final class CppOperatorNameParser {
             case PIPE_PIPE -> Kind.LOGICAL_OR; case PLUS_PLUS -> Kind.INCREMENT; case MINUS_MINUS -> Kind.DECREMENT;
             case COMMA -> Kind.COMMA; case ARROW -> Kind.MEMBER_ACCESS;
             case LEFT_PAREN -> Kind.CALL; case LEFT_BRACKET -> Kind.SUBSCRIPT;
+            case NEW -> Kind.NEW; case DELETE -> Kind.DELETE;
             default -> null;
         };
         if (kind == null) {
-            if (token.type() == TokenType.NEW || token.type() == TokenType.DELETE || token.type() == TokenType.STRING_LITERAL)
-                state.unsupportedCpp(SourceRange.span(start.range(), token.range()), "分配和字面量运算符声明尚未实现");
+            if (token.type() == TokenType.STRING_LITERAL)
+                state.unsupportedCpp(SourceRange.span(start.range(), token.range()), "字面量运算符声明尚未实现");
             else state.report(token.range(), "期望可重载的运算符名称");
             return null;
         }
@@ -45,6 +46,10 @@ public final class CppOperatorNameParser {
         if (kind == Kind.CALL || kind == Kind.SUBSCRIPT) {
             end = state.consume(kind == Kind.CALL ? TokenType.RIGHT_PAREN : TokenType.RIGHT_BRACKET, "运算符名称需要完整的 () 或 []");
             if (end == null) return null;
+        } else if ((kind == Kind.NEW || kind == Kind.DELETE) && state.match(TokenType.LEFT_BRACKET)) {
+            end = state.consume(TokenType.RIGHT_BRACKET, "分配运算符名称需要完整的 []");
+            if (end == null) return null;
+            kind = kind == Kind.NEW ? Kind.NEW_ARRAY : Kind.DELETE_ARRAY;
         } else if (kind == Kind.MEMBER_ACCESS && state.check(TokenType.STAR)
                 && token.range().endLine() == state.peek().range().startLine()
                 && token.range().endByte() == state.peek().range().startByte()) {

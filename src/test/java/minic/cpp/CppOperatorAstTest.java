@@ -26,7 +26,7 @@ final class CppOperatorAstTest {
         var function = new FunctionDecl(name.spelling(), MiniType.INT, List.of(), false, null, false, false, RANGE, name);
         assertSame(kind, name.kind());
         assertSame(NAME, name.range());
-        assertEquals("operator" + kind.symbol(), function.name());
+        assertEquals("operator" + (kind.allocation() ? " " : "") + kind.symbol(), function.name());
         assertSame(name, function.operatorName());
         assertThrows(IllegalArgumentException.class, () -> new FunctionDecl("ordinary", MiniType.INT, List.of(), false, null, false, false, RANGE, name));
     }
