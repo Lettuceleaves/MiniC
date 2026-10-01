@@ -78,6 +78,15 @@ public interface Declaration extends AstNode {
         }
     }
 
+    /** One declaration's ordered declarators; it introduces no scope of its own. */
+    record DeclGroupDecl(List<Declaration> declarations,SourceRange range) implements Declaration {
+        public DeclGroupDecl {
+            declarations=List.copyOf(declarations);
+            if(declarations.isEmpty())throw new IllegalArgumentException("Empty declaration group");
+            Objects.requireNonNull(range,"range");
+        }
+    }
+
     /** Namespace-scope static is linkage metadata, distinct from block static storage duration. */
     record InternalLinkageDecl(Declaration declaration, SourceRange range) implements Declaration {
         public InternalLinkageDecl {

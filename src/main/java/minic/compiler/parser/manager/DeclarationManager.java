@@ -114,21 +114,32 @@ public final class DeclarationManager {
         };
     }
 
-    public TypedefDecl parseTypedefDecl() {
-        Token start = state.consume(TokenType.TYPEDEF, "期望 typedef");
-        Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望 typedef 类型", "期望 typedef 名称");
-        Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
-        if (start == null || declaration == null || semicolon == null) {
-            return null;
-        }
-        if (!declaration.alignmentSpecs().isEmpty()) {
-            state.report(declaration.range(), "typedef 声明不能使用 alignas");
-        }
-        SourceRange range = SourceRange.span(start.range(), semicolon.range());
-        typeReader.defineTypedef(declaration.name(), declaration.type(), range);
-        TypedefDecl typedefDecl = new TypedefDecl(declaration.name(), declaration.type(), range);
-        state.build(typedefDecl, "TypedefDecl " + typedefDecl.name(), typedefDecl.range());
-        return typedefDecl;
+    public Declaration parseTypedefDecl() {
+        Token start=state.consume(TokenType.TYPEDEF,"期望 typedef");
+        var specifiers=typeReader.parseDeclarationSpecifiers("期望 typedef 类型");
+        if(start==null||specifiers==null)return null;
+        var declarations=new ArrayList<Declaration>();boolean first=true;
+        do {
+            var declaration=typeReader.parseNamedDeclarator(specifiers,"期望 typedef 名称",first);
+            if(declaration==null)return null;
+            if(!declaration.alignmentSpecs().isEmpty())state.report(declaration.range(),"typedef 声明不能使用 alignas");
+            SourceRange end=declaration.range();
+            if(!state.check(TokenType.COMMA)){
+                Token semicolon=state.consume(TokenType.SEMICOLON,"期望 ';'");if(semicolon==null)return null;end=semicolon.range();
+            }
+            SourceRange range=SourceRange.span(first?start.range():declaration.range(),end);
+            typeReader.defineTypedef(declaration.name(),declaration.type(),range);
+            var typedef=new TypedefDecl(declaration.name(),declaration.type(),range);
+            declarations.add(typedef);state.build(typedef,"TypedefDecl "+typedef.name(),range);first=false;
+            if(state.previous().type()==TokenType.SEMICOLON)break;
+        }while(state.match(TokenType.COMMA));
+        return declarationGroup(declarations,start.range());
+    }
+
+    private Declaration declarationGroup(java.util.List<Declaration> declarations,SourceRange start){
+        if(declarations.size()==1)return declarations.getFirst();
+        var group=new Declaration.DeclGroupDecl(declarations,SourceRange.span(start,declarations.getLast().range()));
+        state.build(group,"DeclGroupDecl",group.range());return group;
     }
 
     public minic.compiler.parser.node.CppStaticAssertDecl parseStaticAssert(){return statementManager.parseStaticAssert();}
@@ -181,14 +192,29 @@ public final class DeclarationManager {
             if(binding!=null)state.exit("functionDecl",binding.range());
             return binding;
         }
-        Parser.ParsedNamedType declaration = typeReader.parseNamedType(
-                "期望函数返回类型",
-                "期望函数名",
-                typeReader.isCpp()
-        );
-        if (declaration == null) {
-            return null;
+        var specifiers=typeReader.parseDeclarationSpecifiers("期望函数返回类型");
+        if(specifiers==null)return null;
+        var declarations=new ArrayList<Declaration>();boolean first=true;
+        do {
+            Token declaratorStart=first?startToken:state.peek();
+            var declaration=typeReader.parseGlobalDeclarator(specifiers,"期望函数或变量名称",first);
+            if(declaration==null)return null;
+            if(!first)state.enter("functionDecl");
+            Declaration parsed=finishFunctionOrGlobalDecl(declaration,declaratorStart,external,noReturn,internal,constexpr);
+            if(parsed==null)return null;
+            declarations.add(parsed);first=false;
+            if(state.previous().type()==TokenType.SEMICOLON)break;
+        }while(state.match(TokenType.COMMA));
+        if(declarations.size()>1)for(Declaration item:declarations){
+            Declaration unwrapped=item instanceof Declaration.InternalLinkageDecl linkage?linkage.declaration():item;
+            FunctionDecl function=unwrapped instanceof FunctionDecl f?f:unwrapped instanceof Declaration.OutOfLineMethodDecl method?method.method():null;
+            if(function!=null&&function.hasDefinition())state.report(function.range(),"A function definition cannot share a declaration with another declarator");
         }
+        return declarationGroup(declarations,startToken.range());
+    }
+
+    private Declaration finishFunctionOrGlobalDecl(Parser.ParsedNamedType declaration,Token startToken,
+                                                   boolean external,boolean noReturn,boolean internal,boolean constexpr){
         // In C++, a declarator hides an outer type name in its own initializer/body.
         boolean qualified = declaration.qualifiedName() != null;
         if (qualified && internal) state.report(startToken, "类外成员定义不能重复 static 说明符");
@@ -206,11 +232,13 @@ public final class DeclarationManager {
             } finally {
                 if (qualified) typeReader.exitMemberDefinitionScope();
             }
-            Token semicolon = state.consume(TokenType.SEMICOLON, "期望 ';'");
-            if (semicolon == null) return null;
+            SourceRange end=initialization.expression()!=null?initialization.expression().range():declaration.range();
+            if(!state.check(TokenType.COMMA)){
+                Token semicolon=state.consume(TokenType.SEMICOLON,"期望 ';'");if(semicolon==null)return null;end=semicolon.range();
+            }
             GlobalVarDecl global = new GlobalVarDecl(
                     declaration.name(), declaration.type(), initialization.expression(), external,
-                    declaration.alignmentSpecs(), initialization.cppInitializer(), SourceRange.span(startToken.range(), semicolon.range())).withConstexprSpecifier(constexpr);
+                    declaration.alignmentSpecs(), initialization.cppInitializer(), SourceRange.span(startToken.range(), end)).withConstexprSpecifier(constexpr);
             if (!typeReader.isCpp()) typeReader.declareOrdinaryName(global.name(), global.range());
             state.build(global, "GlobalVarDecl " + global.name(), global.range());
             state.exit("functionDecl", global.range());
@@ -238,6 +266,8 @@ public final class DeclarationManager {
             definitionKind=minic.compiler.parser.CppFunctionDefinitionParser.parse(state);semicolonToken=state.previous();
         } else if (state.match(TokenType.SEMICOLON)) {
             semicolonToken = state.previous();
+        } else if(state.check(TokenType.COMMA)) {
+            semicolonToken=state.previous();
         } else {
             if (!state.check(TokenType.LEFT_BRACE)) {
                 state.report(state.peek(), "期望 '{'");

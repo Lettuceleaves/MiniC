@@ -17,6 +17,7 @@ public final class AstChildren {
             case CppStaticAssertDecl n -> present(n.condition(),n.message());
             case Program n -> n.declarations();
             case NamespaceDecl n -> n.declarations();
+            case DeclGroupDecl n -> n.declarations();
             case InternalLinkageDecl n -> present(n.declaration());
             case ClassTemplateDecl n -> prepend(n.record(), n.parameters());
             case FunctionTemplateDecl n -> {

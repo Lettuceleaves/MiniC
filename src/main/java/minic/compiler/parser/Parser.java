@@ -150,12 +150,7 @@ public final class Parser extends Stage {
         Declaration declaration = parseDeclaration();
         if (declaration != null) {
             declarations.add(declaration);
-            Declaration indexed = declaration instanceof Declaration.InternalLinkageDecl internal ? internal.declaration() : declaration;
-            if (indexed instanceof TypedefDecl item) typedefs.add(item);
-            else if (indexed instanceof EnumDecl item) enums.add(item);
-            else if (indexed instanceof StructDecl item) structs.add(item);
-            else if (indexed instanceof FunctionDecl item) functions.add(item);
-            else if (indexed instanceof GlobalVarDecl item) globals.add(item);
+            indexDeclaration(declaration);
             captureNode(declaration);
         } else {
             context.synchronizeFunction();
@@ -166,6 +161,16 @@ public final class Parser extends Stage {
                 : context.peek().range();
         String operation = currentNode == null ? "RECOVER" : "PARSE_" + currentNode.getClass().getSimpleName();
         return finishStep(range, operation, context.reportedErrors(), this::currentResult);
+    }
+
+    private void indexDeclaration(Declaration declaration) {
+        Declaration indexed=declaration instanceof Declaration.InternalLinkageDecl internal?internal.declaration():declaration;
+        if(indexed instanceof Declaration.DeclGroupDecl group){group.declarations().forEach(this::indexDeclaration);return;}
+        if(indexed instanceof TypedefDecl item)typedefs.add(item);
+        else if(indexed instanceof EnumDecl item)enums.add(item);
+        else if(indexed instanceof StructDecl item)structs.add(item);
+        else if(indexed instanceof FunctionDecl item)functions.add(item);
+        else if(indexed instanceof GlobalVarDecl item)globals.add(item);
     }
 
     public ParserResult result() {
@@ -1422,6 +1427,9 @@ public final class Parser extends Stage {
         }
         public ParsedNamedType parseNamedDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
             return parseNamedDeclarator(specifiers,expectedNameMessage,false,false,first?specifiers.range():context.peek().range());
+        }
+        public ParsedNamedType parseGlobalDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
+            return parseNamedDeclarator(specifiers,expectedNameMessage,isCpp(),isCpp(),first?specifiers.range():context.peek().range());
         }
         public ParsedNamedType parseMemberDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
             return parseNamedDeclarator(specifiers,expectedNameMessage,false,true,first?specifiers.range():context.peek().range());

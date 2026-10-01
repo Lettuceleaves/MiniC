@@ -569,6 +569,20 @@ public final class CppNameBinder {
         private void bindDeclarations(List<Declaration> input, Namespace namespace) {
             for (Declaration declaration : input) {
                 switch (declaration) {
+                    case DeclGroupDecl node -> {
+                        int start=declarations.size();MiniType commonAuto=null;
+                        for(Declaration child:node.declarations()){
+                            bindDeclarations(List.of(child),namespace);
+                            Declaration value=child instanceof InternalLinkageDecl linkage?linkage.declaration():child;
+                            if(value instanceof GlobalVarDecl variable&&variable.type().containsAuto()
+                                    &&namespace.values.get(variable.name()) instanceof Entity entity){
+                                MiniType deduced=autoGroupType(variable.type(),entity.type);
+                                if(commonAuto!=null&&!commonAuto.equals(deduced))report("CPP004",variable.range(),"All declarators sharing auto must deduce the same placeholder type");
+                                else commonAuto=deduced;
+                            }
+                        }
+                        mapped(node,new DeclGroupDecl(declarations.subList(start,declarations.size()),node.range()));
+                    }
                     case ClassTemplateDecl node -> declareTemplate(node, namespace);
                     case FunctionTemplateDecl node -> declareFunctionTemplate(node,namespace);
                     case CppTemplateMemberDefinition node -> declareTemplateMemberDefinition(node,namespace);
