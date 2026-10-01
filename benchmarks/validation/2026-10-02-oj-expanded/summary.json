@@ -1,0 +1,15 @@
+{
+  "productRevision": "71b49e0c333bee7ad1bcdc520b370c5bbd3e607f",
+  "runnerRevision": "f43ab65",
+  "scope": "96 OJ configurations, four native builds, correctness only",
+  "programs": 8,
+  "artifacts": 32,
+  "configurations": 96,
+  "executions": 384,
+  "functionalPassed": true,
+  "performanceMeasured": false,
+  "reportSha256": "f9f242af58d8b7f45582d73dc3f75bea8647c85def03d00069bd3ab92298fdf8",
+  "independentReceiptChecks": 7688,
+  "independentReceiptErrors": [],
+  "cacheManifestSha256": "e9e423e20851cc6ae687edcdeb4591779307ed567c05f08dde8eb967acb3a466"
+}

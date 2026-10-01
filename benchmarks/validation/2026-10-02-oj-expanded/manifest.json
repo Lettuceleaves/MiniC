@@ -1,0 +1,82 @@
+{
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 9,
+      "sha256": "8b9c3028d6467ff3be7c793141927841d70f47f52d0590677438f488ca154992"
+    },
+    {
+      "path": "raw-evidence.zip",
+      "bytes": 7428771,
+      "sha256": "6b83d2950d0a50b4d422a070e1b666fedf3b2f726e3f6cd5c9161f637598d76f"
+    },
+    {
+      "path": "raw-members.json",
+      "bytes": 1189469,
+      "sha256": "e7c4a3840cc42d00062b6044ec1a38785d32e8398852c0accb3a2112dd5b6a39"
+    },
+    {
+      "path": "README.md",
+      "bytes": 2761,
+      "sha256": "64a5a418ce37591a6bdababc7192c58ee7314891cdd7d81dc87d3621c22c4894"
+    },
+    {
+      "path": "summary.json",
+      "bytes": 577,
+      "sha256": "adc71d60f65eb997bfdc9edad4e17793aee6b5f6ebdeb49cf8ae0b2cbb6442e0"
+    }
+  ],
+  "rawRecords": 5615,
+  "uniqueBlobs": 3275,
+  "omittedRedundantGitSourcePaths": [
+    "cache/source/benchmarks/baselines/2026-10-01-windows-development/report.json",
+    "cache/source/benchmarks/baselines/2026-10-01-windows-development/samples.csv",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/.gitattributes",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/completed.txt",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/.gitattributes",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/baseline/counts.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/baseline/run.txt",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/comparison/comparison.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/comparison/per-round-counters.csv",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/comparison/summary.csv",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/export-validation.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/final/counts.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/final/run.txt",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/final/verification.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/manifest.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/counts/README.md",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/environment.initial.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/environment.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/final-validation.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/manifest.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/raw-evidence.zip",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/raw-members.json",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/README.md",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/report-tool-tests.txt",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/report.md",
+    "cache/source/benchmarks/baselines/2026-10-02-stl-windows/summary.json",
+    "cache/source/benchmarks/iterations/2026-10-02-round1/.gitattributes",
+    "cache/source/benchmarks/iterations/2026-10-02-round1/manifest.json",
+    "cache/source/benchmarks/iterations/2026-10-02-round1/raw-evidence.zip",
+    "cache/source/benchmarks/iterations/2026-10-02-round1/raw-members.json",
+    "cache/source/benchmarks/iterations/2026-10-02-round1/README.md",
+    "cache/source/benchmarks/iterations/2026-10-02-round1/summary.json",
+    "cache/source/benchmarks/iterations/2026-10-02-round2/.gitattributes",
+    "cache/source/benchmarks/iterations/2026-10-02-round2/manifest.json",
+    "cache/source/benchmarks/iterations/2026-10-02-round2/raw-evidence.zip",
+    "cache/source/benchmarks/iterations/2026-10-02-round2/raw-members.json",
+    "cache/source/benchmarks/iterations/2026-10-02-round2/README.md",
+    "cache/source/benchmarks/iterations/2026-10-02-round2/summary.json",
+    "cache/source/benchmarks/validation/2026-10-02-cpp17/.gitattributes",
+    "cache/source/benchmarks/validation/2026-10-02-cpp17/coverage.md",
+    "cache/source/benchmarks/validation/2026-10-02-cpp17/eligible.properties",
+    "cache/source/benchmarks/validation/2026-10-02-cpp17/eligible.receipt.json",
+    "cache/source/benchmarks/validation/2026-10-02-cpp17/gate-receipt.json",
+    "cache/source/benchmarks/validation/2026-10-02-cpp17/installed-resource.json",
+    "cache/source/benchmarks/validation/2026-10-02-cpp17/manifest.json",
+    "cache/source/benchmarks/validation/2026-10-02-cpp17/mapping.json",
+    "cache/source/benchmarks/validation/2026-10-02-cpp17/source-manifest.json",
+    "cache/source/benchmarks/validation/2026-10-02-cpp17/test-results.zip",
+    "cache/source.zip"
+  ]
+}

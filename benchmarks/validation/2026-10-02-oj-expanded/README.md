@@ -1,0 +1,13 @@
+# Expanded OJ correctness validation — 2026-10-02
+
+All **96 configurations × four builds = 384 executions** passed the independent Java answer models. This run verifies correctness only; no calibrated performance measurement or 1.2× acceptance claim is made. It ran alongside compiler regression tests, so its recorded execution times must not be used as a performance comparison.
+
+The eight algorithms each have three distributions, two sizes and two seeds. See [the workload specification](../../oj-scenarios/README.md) for the inputs, observation order and independent models. MiniC BASELINE, MiniC OPTIMIZED, G++ own library and G++ system STL were compiled into 32 distinct executables from fixed product `71b49e0c333bee7ad1bcdc520b370c5bbd3e607f`. The committed runner is `f43ab65`; its source-only tag/task changes did not replace the already compiled runner classes. Compile commands and bytecode hashes are retained.
+
+The Java audit verified artifact identities, the full cache manifest, all sample receipts and the oracle outputs. A separate Python reconstruction made **7,688 checks with no errors**, including exact inputs, outputs, executable labels, observer receipts and the report status. These receipt checks are not additional algorithm test cases. The nine small functional OJ programs and 63 inputs/operation traces are documented [separately](../../../docs/cpp-stl-oj-coverage.md); their counts are not added to this matrix.
+
+`raw-evidence.zip` stores the complete validation run and the current cache's source files, compiler classes, native artifacts and provenance as deduplicated `blobs/<sha256>`. `raw-members.json` maps every archived relative path to its bytes and digest. It includes exact compile/run commands, full input and output bytes, observer data, cache and run manifests, Java audit log and the independent Python audit. To avoid recursively embedding old publications, the redundant Git source ZIP and earlier benchmark evidence inside that source tree are excluded; their hashes remain in the cache manifest, and `manifest.json` lists the omitted paths. The immutable Git revision supplies those source/archive inputs. All original files remain in the cache.
+
+`manifest.json` protects the publication files. Paths in the reports identify the original directory `D:/MiniC-artifacts/cpp-stl-71b49e0-oj-20261002`; the Java audit requires the full cache/run directories at their recorded paths.
+
+The full compiler regression for this same product is a separate result. This publication does not claim that all compiler tests passed. The original 15 container/algorithm performance workloads also remain required, alongside these 96 configurations; each must independently satisfy the user's 1.2× threshold.
