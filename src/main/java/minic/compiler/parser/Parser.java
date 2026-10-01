@@ -1208,12 +1208,11 @@ public final class Parser extends Stage {
                     || context.check(TokenType.AMPERSAND_AMPERSAND)) {
                 Token operator = context.advance();
                 boolean reference = operator.type() != TokenType.STAR;
-                if (operator.type() == TokenType.AMPERSAND_AMPERSAND)
-                    context.unsupportedCpp(operator.range(), "右值引用尚未实现");
+
                 var qualifiers = parseTypeQualifiers();
                 if (reference && !qualifiers.isEmpty())
                     context.report(operator.range(), "引用声明器不能直接带 const/volatile 限定符");
-                type = reference ? type.referenceTo() : MiniType.qualified(type.pointerTo(), qualifiers);
+                type = reference ? type.referenceTo(operator.type()==TokenType.AMPERSAND_AMPERSAND?MiniType.ReferenceKind.RVALUE:MiniType.ReferenceKind.LVALUE) : MiniType.qualified(type.pointerTo(), qualifiers);
                 end = context.previous();
             }
             SourceRange range = SourceRange.span(base.startToken().range(), end.range());
@@ -1553,9 +1552,7 @@ public final class Parser extends Stage {
                     && (context.check(TokenType.AMPERSAND) || context.check(TokenType.AMPERSAND_AMPERSAND))) {
                 Token operator = context.advance();
                 boolean reference = operator.type() != TokenType.STAR;
-                if (operator.type() == TokenType.AMPERSAND_AMPERSAND) {
-                    context.unsupportedCpp(operator.range(), "右值引用尚未实现");
-                }
+
                 var qualifiers = parseTypeQualifiers();
                 if (reference && !qualifiers.isEmpty()) context.report(operator, "引用声明器不能直接带 const/volatile 限定符");
                 pointerLayers.add(new PointerLayer(operator, qualifiers, reference));
@@ -1674,7 +1671,7 @@ public final class Parser extends Stage {
             // on their exact pointer level when Declarator.resolve walks inside-out.
             for (int index = pointerLayers.size() - 1; index >= 0; index--) {
                 PointerLayer layer = pointerLayers.get(index);
-                direct.modifiers().add(layer.reference() ? new ReferenceModifier() : new PointerModifier(layer.qualifiers()));
+                direct.modifiers().add(layer.reference() ? new ReferenceModifier(layer.token().type()==TokenType.AMPERSAND_AMPERSAND?MiniType.ReferenceKind.RVALUE:MiniType.ReferenceKind.LVALUE) : new PointerModifier(layer.qualifiers()));
             }
             if (!pointerLayers.isEmpty()) {
                 direct = direct.withStart(pointerLayers.getFirst().token());
@@ -2132,8 +2129,8 @@ public final class Parser extends Stage {
         private record PointerLayer(Token token, java.util.Set<MiniType.TypeQualifier> qualifiers, boolean reference) {
         }
 
-        private record ReferenceModifier() implements DeclaratorModifier {
-            @Override public MiniType apply(MiniType inner) { return inner.referenceTo(); }
+        private record ReferenceModifier(MiniType.ReferenceKind kind) implements DeclaratorModifier {
+            @Override public MiniType apply(MiniType inner) { return inner.referenceTo(kind); }
         }
 
         private MiniType resolveDeclarator(Declarator declarator, MiniType baseType) {

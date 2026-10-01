@@ -11,23 +11,23 @@ import java.util.function.Function;
 import static minic.compiler.type.MiniType.TypeQualifier.CONST;
 
 /**
- * C++17 [class.copy.ctor] rules for the current non-inheriting, lvalue-reference subset.
+ * C++17 [class.copy.ctor] rules for the current non-inheriting record subset.
  * Inputs use resolved source types, before references are erased to pointers. The caller supplies
  * member constructor/destructor access as viewed from this enclosing class, and recursively plans
  * class members first. This helper neither binds expressions nor generates constructor bodies.
  * Default member initializers are deliberately absent: implicit copying must not execute them.
- * Move operations, bases, virtual functions, mutable fields and default arguments require later
- * extensions; callers must not use this plan to silently accept those unsupported features.
+ * Copy and move share field traversal, with distinct source categories and deletion rules.
+ * Bases, virtual functions and mutable fields require additional caller-supplied modeling.
  */
 public final class CppCopyConstructorPlan {
     private CppCopyConstructorPlan() {}
-    public enum Classification { ORDINARY, COPY, INVALID_BY_VALUE }
+    public enum Classification { ORDINARY, COPY, MOVE, INVALID_BY_VALUE }
     public enum Status { SUPPRESSED, AVAILABLE, DELETED }
     public enum Action { VALUE, REFERENCE, CONSTRUCTOR }
     public enum Destructor { AVAILABLE, DELETED, INACCESSIBLE }
     public enum Failure {
         NO_VIABLE_CONSTRUCTOR, AMBIGUOUS_CONSTRUCTOR, DELETED_CONSTRUCTOR, INACCESSIBLE_CONSTRUCTOR,
-        DELETED_DESTRUCTOR, INACCESSIBLE_DESTRUCTOR, NONTRIVIAL_UNION_MEMBER
+        DELETED_DESTRUCTOR, INACCESSIBLE_DESTRUCTOR, NONTRIVIAL_UNION_MEMBER, RVALUE_REFERENCE_MEMBER
     }
     /** Includes inaccessible/deleted candidates: access is checked only after overload selection. */
     public record Constructor<T>(T identity, MiniType parameterType, boolean accessible, boolean deleted, boolean trivial) {
@@ -64,12 +64,12 @@ public final class CppCopyConstructorPlan {
         }
     }
 
-    /** No default arguments in the current source AST; a following required parameter is ordinary. */
+    /** Signature shape only; callers omit trailing defaulted parameters before classification. */
     public static Classification classify(MiniType owner,List<MiniType> parameterTypes) {
         requireOwner(owner);parameterTypes=List.copyOf(parameterTypes);
         if(parameterTypes.size()!=1)return Classification.ORDINARY;
         MiniType first=parameterTypes.getFirst();
-        if(first.isReference()&&first.referent().unqualified().equals(owner.unqualified()))return Classification.COPY;
+        if(first.isReference()&&first.referent().unqualified().equals(owner.unqualified()))return first.isRvalueReference()?Classification.MOVE:Classification.COPY;
         return first.unqualified().equals(owner.unqualified())?Classification.INVALID_BY_VALUE:Classification.ORDINARY;
     }
 
@@ -80,14 +80,22 @@ public final class CppCopyConstructorPlan {
      */
     public static <T> Result<T> plan(MiniType owner,List<StructField> fields,boolean union,boolean userDeclaredCopy,
                                     Function<MiniType,Operations<T>> operations) {
+        return planTransfer(owner,fields,union,userDeclaredCopy,false,operations);
+    }
+    public static <T> Result<T> planMove(MiniType owner,List<StructField> fields,boolean union,boolean suppressed,
+                                       Function<MiniType,Operations<T>> operations) {
+        return planTransfer(owner,fields,union,suppressed,true,operations);
+    }
+    private static <T> Result<T> planTransfer(MiniType owner,List<StructField> fields,boolean union,boolean userDeclaredCopy,
+                                             boolean move,Function<MiniType,Operations<T>> operations) {
         requireOwner(owner);fields=List.copyOf(fields);Objects.requireNonNull(operations,"operations");
         if(userDeclaredCopy)return new Result<>(Status.SUPPRESSED,null,List.of(),List.of(),false,false);
         Map<MiniType,Operations<T>> members=new LinkedHashMap<>();
-        boolean constant=true;
+        boolean constant=!move;
         for(StructField field:fields){
             MiniType leaf=leaf(field.type());
             if(!leaf.isStruct())continue; // Reference members preserve aliases, not their referent's copyability.
-            Operations<T> available=members.computeIfAbsent(leaf.unqualified(),type->checkedOperations(type,operations.apply(type)));
+            Operations<T> available=members.computeIfAbsent(leaf.unqualified(),type->checkedOperations(type,operations.apply(type),move));
             constant &= available.constructors().stream().anyMatch(c->c.parameterType().referent().isConstQualified());
         }
         MiniType sourceOwner=constant?MiniType.qualified(owner.unqualified(),java.util.Set.of(CONST)):owner.unqualified();
@@ -99,6 +107,7 @@ public final class CppCopyConstructorPlan {
                 source=MiniType.qualified(source.elementType(),source.qualifiers());
             }
             if(source.isReference()){
+                if(!move&&source.isRvalueReference()){problems.add(new Problem<>(field,Failure.RVALUE_REFERENCE_MEMBER,null));continue;}
                 entries.add(new Entry<>(field,dimensions,source.referent(),Action.REFERENCE,null));continue;
             }
             if(constant)source=MiniType.qualified(source,java.util.Set.of(CONST));
@@ -108,7 +117,7 @@ public final class CppCopyConstructorPlan {
             Operations<T> available=members.get(source.unqualified());
             List<CppOverloadResolver.Candidate<Constructor<T>>> candidates=available.constructors().stream()
                     .map(c->new CppOverloadResolver.Candidate<>(c,List.of(c.parameterType()),false)).toList();
-            var resolution=CppOverloadResolver.resolve(candidates,List.of(new CppOverloadResolver.Argument(source,CppValueCategory.LVALUE,false)));
+            var resolution=CppOverloadResolver.resolve(candidates,List.of(new CppOverloadResolver.Argument(source,move?CppValueCategory.XVALUE:CppValueCategory.LVALUE,false)));
             if(resolution.status()!=CppOverloadResolver.Status.SELECTED){
                 problems.add(new Problem<>(field,resolution.status()==CppOverloadResolver.Status.AMBIGUOUS
                         ?Failure.AMBIGUOUS_CONSTRUCTOR:Failure.NO_VIABLE_CONSTRUCTOR,null));continue;
@@ -122,8 +131,8 @@ public final class CppCopyConstructorPlan {
             trivial &= selected.trivial();
             entries.add(new Entry<>(field,dimensions,source,Action.CONSTRUCTOR,selected.identity()));
         }
-        if(!problems.isEmpty())return new Result<>(Status.DELETED,sourceOwner.referenceTo(),List.of(),problems,false,false);
-        return new Result<>(Status.AVAILABLE,sourceOwner.referenceTo(),union?List.of():entries,List.of(),trivial,union);
+        if(!problems.isEmpty())return new Result<>(Status.DELETED,sourceOwner.referenceTo(move?MiniType.ReferenceKind.RVALUE:MiniType.ReferenceKind.LVALUE),List.of(),problems,false,false);
+        return new Result<>(Status.AVAILABLE,sourceOwner.referenceTo(move?MiniType.ReferenceKind.RVALUE:MiniType.ReferenceKind.LVALUE),union?List.of():entries,List.of(),trivial,union);
     }
     private static void requireOwner(MiniType owner){
         Objects.requireNonNull(owner,"owner");if(!owner.isStruct())throw new IllegalArgumentException("Copy constructor owner must be a class");
@@ -131,9 +140,9 @@ public final class CppCopyConstructorPlan {
     private static MiniType leaf(MiniType type){
         while(type.isArray())type=MiniType.qualified(type.elementType(),type.qualifiers());return type;
     }
-    private static <T> Operations<T> checkedOperations(MiniType owner,Operations<T> operations){
+    private static <T> Operations<T> checkedOperations(MiniType owner,Operations<T> operations,boolean move){
         if(operations==null)throw new IllegalArgumentException("Missing copy/destructor operations for "+owner);
-        for(Constructor<T> constructor:operations.constructors())if(classify(owner,List.of(constructor.parameterType()))!=Classification.COPY)
+        for(Constructor<T> constructor:operations.constructors())if(classify(owner,List.of(constructor.parameterType()))!=Classification.COPY&&(!move||classify(owner,List.of(constructor.parameterType()))!=Classification.MOVE))
             throw new IllegalArgumentException("Copy candidate belongs to a different class");
         return operations;
     }

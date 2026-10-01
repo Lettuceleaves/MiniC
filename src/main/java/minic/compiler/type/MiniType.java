@@ -134,10 +134,12 @@ public sealed interface MiniType permits
         return new PointerType(this);
     }
 
-    /** C++ source lvalue reference; normalization must remove this type before core lowering. */
-    default MiniType referenceTo() {
-        return isReference() ? unqualified() : new ReferenceType(this);
-    }
+    /** Source references collapse during alias/template composition; core ABI remains a pointer. */
+    default MiniType referenceTo() { return referenceTo(ReferenceKind.LVALUE); }
+    default MiniType rvalueReferenceTo() { return referenceTo(ReferenceKind.RVALUE); }
+    default MiniType referenceTo(ReferenceKind kind) { return new ReferenceType(this,kind); }
+    default boolean isLvalueReference() { return unqualified() instanceof ReferenceType reference && reference.kind()==ReferenceKind.LVALUE; }
+    default boolean isRvalueReference() { return unqualified() instanceof ReferenceType reference && reference.kind()==ReferenceKind.RVALUE; }
 
     default boolean isReference() {
         return unqualified() instanceof ReferenceType;
@@ -190,7 +192,7 @@ public sealed interface MiniType permits
             case DecltypeType query -> new DecltypeType(TemplateValues.substitute(query.expression(),arguments,values));
             case QualifiedType qualified -> MiniType.qualified(qualified.baseType().substituteTemplateParameters(arguments,values), qualified.qualifiers());
             case PointerType pointer -> pointer.pointee().substituteTemplateParameters(arguments,values).pointerTo();
-            case ReferenceType reference -> reference.referent().substituteTemplateParameters(arguments,values).referenceTo();
+            case ReferenceType reference -> reference.referent().substituteTemplateParameters(arguments,values).referenceTo(reference.kind());
             case ArrayType array -> array.elementType().substituteTemplateParameters(arguments,values).arrayOf(array.length());
             case DependentArrayType array -> {
                 MiniType element=array.elementType().substituteTemplateParameters(arguments,values);
@@ -682,17 +684,18 @@ public sealed interface MiniType permits
         }
     }
 
-    /** Source-only C++ lvalue reference. Alias composition collapses nested lvalue references. */
-    record ReferenceType(MiniType referent) implements CombinationType {
+    enum ReferenceKind { LVALUE, RVALUE }
+    /** Source-only C++ reference, with standard alias/template reference collapsing. */
+    record ReferenceType(MiniType referent,ReferenceKind kind) implements CombinationType {
+        public ReferenceType(MiniType referent){this(referent,ReferenceKind.LVALUE);}
         public ReferenceType {
-            Objects.requireNonNull(referent, "referent");
-            if (referent.unqualified() instanceof ReferenceType reference) referent = reference.referent();
+            Objects.requireNonNull(referent, "referent");Objects.requireNonNull(kind,"kind");
+            if (referent.unqualified() instanceof ReferenceType reference) {
+                if(kind==ReferenceKind.LVALUE||reference.kind()==ReferenceKind.LVALUE)kind=ReferenceKind.LVALUE;
+                referent = reference.referent();
+            }
         }
-
-        @Override
-        public String toString() {
-            return referent + "&";
-        }
+        @Override public String toString() { return referent + (kind==ReferenceKind.RVALUE?"&&":"&"); }
     }
 
     /**

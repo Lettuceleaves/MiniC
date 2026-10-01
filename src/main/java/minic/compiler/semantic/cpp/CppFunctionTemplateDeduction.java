@@ -41,7 +41,7 @@ public final class CppFunctionTemplateDeduction {
             Map<MiniType.TemplateParameterType,Expression> replacements=expressions(values,parameters);
             for(int index=0;index<actual.size()&&index<signature.size();index++) {
                 MiniType pattern=signature.get(index).substituteTemplateParameters(types,replacements);
-                addConstraints(pattern,actual.get(index),patterns,arguments,initializerListElement);
+                addConstraints(pattern,actual.get(index),patterns,arguments,initializerListElement,parameters);
             }
             var deduction=CppTemplateDeduction.deduce(patterns,arguments,parameters,types,values,expand);
             if(deduction==null)return null;
@@ -64,7 +64,7 @@ public final class CppFunctionTemplateDeduction {
         } catch(IllegalArgumentException error){return null;}
     }
     private static void addConstraints(MiniType pattern,CppOverloadResolver.Argument actual,List<MiniType> patterns,
-            List<MiniType> arguments,java.util.function.Function<MiniType,MiniType> initializerListElement) {
+            List<MiniType> arguments,java.util.function.Function<MiniType,MiniType> initializerListElement,List<ClassTemplateDecl.Parameter> parameters) {
         if(actual==null||!pattern.isDependentTemplate()||nonDeduced(pattern))return;
         if(actual.braced()) {
             MiniType base=(pattern.isReference()?pattern.referent():pattern).unqualified();
@@ -79,10 +79,16 @@ public final class CppFunctionTemplateDeduction {
                     }
                 }
             }
-            if(element!=null)for(var item:actual.listElements())addConstraints(element,item,patterns,arguments,initializerListElement);
+            if(element!=null)for(var item:actual.listElements())addConstraints(element,item,patterns,arguments,initializerListElement,parameters);
             return;
         }
         MiniType argument=actual.type();
+        boolean forwarding=pattern.isRvalueReference()&&pattern.referent() instanceof MiniType.TemplateParameterType parameter
+                && parameters.stream().anyMatch(p->p instanceof ClassTemplateDecl.TypeParameter&&p.type().equals(parameter));
+        if(forwarding&&actual.category()==CppValueCategory.LVALUE) {
+            patterns.add(pattern.referent());arguments.add(argument.referenceTo());return;
+        }
+        if(argument.isReference())argument=argument.referent();
         if(pattern.isReference()) {
             pattern=pattern.referent();
             var cv=EnumSet.noneOf(MiniType.TypeQualifier.class);cv.addAll(argument.qualifiers());cv.addAll(pattern.qualifiers());

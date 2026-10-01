@@ -93,6 +93,13 @@ public final class CppNameBinder {
         final Map<String, Entity> defaultInitializers = new LinkedHashMap<>();
         Constructor aggregateInitializer;
         Constructor implicitCopy;
+        boolean movePlanned;
+        Constructor implicitMove;
+        CppCopyConstructorPlan.Result<Constructor> movePlan;
+        boolean moveEmitted,movePrototypeEmitted;
+        Method implicitMoveAssignment;
+        AssignmentPlan moveAssignmentPlan;
+        boolean moveAssignmentEmitted,moveAssignmentPrototypeEmitted;
         CppCopyConstructorPlan.Result<Constructor> copyPlan;
         boolean copyEmitted;
         boolean copyPrototypeEmitted;
@@ -208,6 +215,7 @@ public final class CppNameBinder {
         private final Map<Entity, Method> staticMethods = new IdentityHashMap<>();
         private final IdentityHashMap<Expression, MiniType> declaredExpressionTypes = new IdentityHashMap<>();
         private final IdentityHashMap<Expression, CppValueCategory> valueCategories = new IdentityHashMap<>();
+        private final Set<Expression> implicitMoveSources=Collections.newSetFromMap(new IdentityHashMap<>());
         private final Set<Expression> temporaryAddressPaths = Collections.newSetFromMap(new IdentityHashMap<>());
         private int unevaluatedDepth;
         private final Map<Entity, List<Diagnostic>> deletedConstructors = new IdentityHashMap<>();
@@ -462,7 +470,7 @@ public final class CppNameBinder {
         private MiniType functionTemplatePattern(MiniType type,Namespace namespace,SourceRange range) {
             if(!type.isDependentTemplate())return normalizeType(type,namespace,null,range);
             if(type instanceof MiniType.PointerType pointer)return functionTemplatePattern(pointer.pointee(),namespace,range).pointerTo();
-            if(type instanceof MiniType.ReferenceType reference)return functionTemplatePattern(reference.referent(),namespace,range).referenceTo();
+            if(type instanceof MiniType.ReferenceType reference)return functionTemplatePattern(reference.referent(),namespace,range).referenceTo(reference.kind());
             if(type instanceof MiniType.QualifiedType qualified)return MiniType.qualified(functionTemplatePattern(qualified.baseType(),namespace,range),qualified.qualifiers());
             if(type instanceof MiniType.ArrayType array)return functionTemplatePattern(array.elementType(),namespace,range).arrayOf(array.length());
             if(type instanceof MiniType.DependentArrayType array)return new MiniType.DependentArrayType(functionTemplatePattern(array.elementType(),namespace,range),array.bound());
@@ -811,7 +819,7 @@ public final class CppNameBinder {
         private String templateTypeDisplay(MiniType type) {
             if (type instanceof MiniType.StructType record) return displayNames.getOrDefault(record.name(), record.name());
             if (type instanceof MiniType.PointerType pointer) return templateTypeDisplay(pointer.pointee()) + "*";
-            if (type instanceof MiniType.ReferenceType reference) return templateTypeDisplay(reference.referent()) + "&";
+            if (type instanceof MiniType.ReferenceType reference) return templateTypeDisplay(reference.referent()) + (reference.kind()==MiniType.ReferenceKind.RVALUE?"&&":"&");
             return type.toString();
         }
 
@@ -826,7 +834,7 @@ public final class CppNameBinder {
         private MiniType templatePatternType(MiniType type,TemplateDefinition definition) {
             if(type instanceof MiniType.StructType)return normalizeType(type,definition.owner,null,definition.source.range());
             if(type instanceof MiniType.PointerType pointer)return templatePatternType(pointer.pointee(),definition).pointerTo();
-            if(type instanceof MiniType.ReferenceType reference)return templatePatternType(reference.referent(),definition).referenceTo();
+            if(type instanceof MiniType.ReferenceType reference)return templatePatternType(reference.referent(),definition).referenceTo(reference.kind());
             if(type instanceof MiniType.QualifiedType qualified)return MiniType.qualified(templatePatternType(qualified.baseType(),definition),qualified.qualifiers());
             if(type instanceof MiniType.ArrayType array)return templatePatternType(array.elementType(),definition).arrayOf(array.length());
             if(type instanceof MiniType.TemplateIdType id)return new MiniType.TemplateIdType(id.templateName(),id.arguments().stream().map(a->a instanceof TemplateArgument.Type t?(TemplateArgument)new TemplateArgument.Type(templatePatternType(t.type(),definition)):a).toList());
@@ -935,6 +943,7 @@ public final class CppNameBinder {
         }
 
         private void instantiateConstructor(Constructor constructor) {
+            if(constructor==constructor.owner.implicitMove){emitImplicitMove(constructor.owner);return;}
             if(functionTemplateInstances.containsKey(constructor.function)){instantiateFunctionTemplate(constructor.function);return;}
             if (unevaluatedDepth > 0 || pendingTemplateConstructors.remove(constructor.function) == null) return;
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;
@@ -1072,6 +1081,7 @@ public final class CppNameBinder {
                 }
                 ensureImplicitCopy(entity);
                 ensureImplicitAssignment(entity);
+                ensureImplicitMove(entity);
                 if (!instanceKeys.containsKey(entity)) for (Method method : methods) bindMethod(method, namespace);
             }
         }
@@ -1547,7 +1557,9 @@ public final class CppNameBinder {
             } else {
                 Expression value=unevaluatedExpression(node.expression(),namespace,scope);
                 MiniType actual=checkedDeduced(declaredExpressionType(value),node.range());
-                deduced=deducePattern(currentAutoReturn.pattern,currentAutoReturn.pattern.isReference()?actual:TypeCompatibility.decay(actual).unqualified());
+                MiniType adjusted=currentAutoReturn.pattern.isReference()?actual:TypeCompatibility.decay(actual).unqualified();
+                if(isForwardingAuto(currentAutoReturn.pattern)&&valueCategory(value)==CppValueCategory.LVALUE)adjusted=adjusted.referenceTo();
+                deduced=deducePattern(currentAutoReturn.pattern,adjusted);
                 if(deduced==null){report("CPP004",node.range(),"Return expression does not match the auto return declarator.");deduced=MiniType.INT;}
             }
             if (deduced.isVoid() && !(currentAutoReturn.pattern.unqualified() instanceof MiniType.AutoType))
@@ -1782,7 +1794,8 @@ public final class CppNameBinder {
             }
             Expression value = decltypeExpression(operand, namespace, local);
             MiniType type = checkedDeduced(declaredExpressionType(value), operand.range());
-            return valueCategory(value) == CppValueCategory.LVALUE ? type.referenceTo() : type;
+            return valueCategory(value) == CppValueCategory.LVALUE ? type.referenceTo()
+                    : valueCategory(value)==CppValueCategory.XVALUE?type.rvalueReferenceTo():type;
         }
         private MiniType checkedDeduced(MiniType type, SourceRange range) {
             if (type == null || type.containsPlaceholder()) {
@@ -1813,7 +1826,7 @@ public final class CppNameBinder {
                 }
                 return decltypeType(arguments.getFirst(), namespace, local);
             }
-            MiniType actual;
+            MiniType actual;CppValueCategory category=CppValueCategory.PRVALUE;
             if (copyList) {
                 MiniType element = null;
                 for (Expression item : arguments) {
@@ -1830,12 +1843,17 @@ public final class CppNameBinder {
                 }
                 Expression value = unevaluatedExpression(arguments.getFirst(), namespace, local);
                 actual = checkedDeduced(declaredExpressionType(value), arguments.getFirst().range());
+                category=valueCategory(value);
             }
             if (actual.isVoid()) { report("CPP004", range, "An auto object cannot have void type."); return MiniType.INT; }
             MiniType adjusted = pattern.isReference() ? actual : TypeCompatibility.decay(actual).unqualified();
+            if(isForwardingAuto(pattern)&&category==CppValueCategory.LVALUE)adjusted=adjusted.referenceTo();
             MiniType result = deducePattern(pattern, adjusted);
             if (result == null) { report("CPP004", range, "The initializer does not match the auto declarator pattern."); return MiniType.INT; }
             return result;
+        }
+        private boolean isForwardingAuto(MiniType pattern) {
+            return pattern.isRvalueReference()&&pattern.referent() instanceof MiniType.AutoType auto&&!auto.decltypeAuto();
         }
         private MiniType deducePattern(MiniType pattern, MiniType actual) {
             if (pattern instanceof MiniType.QualifiedType qualified) {
@@ -1845,7 +1863,7 @@ public final class CppNameBinder {
             if (pattern instanceof MiniType.AutoType) return actual;
             if (pattern instanceof MiniType.ReferenceType reference) {
                 MiniType result = deducePattern(reference.referent(), actual);
-                return result == null ? null : result.referenceTo();
+                return result == null ? null : result.referenceTo(reference.kind());
             }
             if (pattern instanceof MiniType.PointerType pointer && actual.isPointer()) {
                 MiniType result = deducePattern(pointer.pointee(), actual.pointee());
@@ -1919,7 +1937,7 @@ public final class CppNameBinder {
             if (type instanceof MiniType.ReferenceType reference) {
                 MiniType referent = normalizeType(reference.referent(), namespace, local, range);
                 if (referent.isVoid()) report("CPP004", range, "引用不能指向 void。");
-                return referent.referenceTo();
+                return referent.referenceTo(reference.kind());
             }
             if (type instanceof MiniType.QualifiedType qualified) {
                 return MiniType.qualified(normalizeType(qualified.baseType(), namespace, local, range), qualified.qualifiers());
@@ -2482,7 +2500,7 @@ public final class CppNameBinder {
                     if (currentReturnType != null && currentReturnType.isStruct()) destructorForUse(currentReturnType, n.range());
                     yield new ReturnStmt(fullExpression(currentReturnType != null && currentReturnType.isReference()
                             ? bindReference(currentReturnType, n.expression(), namespace, scope, n.range())
-                            : convertCallValue(currentReturnType, expressionForTarget(currentReturnType, n.expression(), namespace, scope), n.expression()),
+                            : returnValue(n.expression(),namespace,scope),
                             currentReturnType != null && currentReturnType.isStruct(), n), n.range());
                 }
                 case IfStmt n -> new IfStmt(fullExpression(contextualBool(expression(n.condition(), namespace, scope)), false, n),
@@ -2551,7 +2569,8 @@ public final class CppNameBinder {
             Expression pointer=valueCategory(range)==CppValueCategory.LVALUE || addressableObject(range)
                     ? address(range) : materialize(type,range);
             pointer=extendTemporaryLifetime(pointer,new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE,node));
-            Entity rangeEntity=declareLocal(freshName("range"),type.referenceTo(),loop,node.initializer().range());
+            Entity rangeEntity=declareLocal(freshName("range"),valueCategory(range)==CppValueCategory.LVALUE
+                    ? type.referenceTo() : type.rvalueReferenceTo(),loop,node.initializer().range());
             Statement rangeVariable=boundRangeLocal(rangeEntity,pointer,node.initializer(),node);
             Expression rangeName=new NameExpr(rangeEntity.name,node.initializer().range());
             Expression begin;
@@ -2765,10 +2784,11 @@ public final class CppNameBinder {
                     MiniType firstType = declaredExpressionType(first), secondType = declaredExpressionType(second);
                     MiniType common = conditionalLvalueType(firstType, secondType);
                     boolean lvalues = valueCategory(first) == CppValueCategory.LVALUE && valueCategory(second) == CppValueCategory.LVALUE;
+                    boolean xvalues=valueCategory(first)==CppValueCategory.XVALUE&&valueCategory(second)==CppValueCategory.XVALUE;
                     boolean temporarySubobjects = valueCategory(first) == CppValueCategory.PRVALUE
                             && valueCategory(second) == CppValueCategory.PRVALUE && addressableObject(first) && addressableObject(second);
-                    if (common != null && (lvalues || temporarySubobjects)) {
-                        if (addressDemand || common.isArray() || common.isFunction() || common.isStruct()) {
+                    if (common != null && (lvalues || xvalues || temporarySubobjects)) {
+                        if (addressDemand || xvalues || common.isArray() || common.isFunction() || common.isStruct()) {
                             // Aggregate values are represented by addresses. In this uncommon
                             // path rebind compound lvalue arms for addresses, never evaluating them.
                             if (!addressableObject(first)) first = expression(n.thenExpression(), namespace, local, true);
@@ -2778,7 +2798,7 @@ public final class CppNameBinder {
                                         qualifiedAddress(second, common), n.range());
                                 Expression object = typed(new UnaryExpr(TokenType.STAR, selected, n.range()), common);
                                 temporaryAddressPaths.add(object);
-                                valueCategories.put(object, lvalues ? CppValueCategory.LVALUE : CppValueCategory.PRVALUE);
+                                valueCategories.put(object, lvalues ? CppValueCategory.LVALUE : xvalues?CppValueCategory.XVALUE:CppValueCategory.PRVALUE);
                                 yield object;
                             }
                         } else {
@@ -2786,7 +2806,7 @@ public final class CppNameBinder {
                             // for volatile objects. Keep the narrow glvalue type for sizeof too.
                             Expression selected = new ConditionalExpr(condition, first, second, n.range());
                             Expression value = typed(new CastExpr(coreType(common), selected, n.range()), common);
-                            valueCategories.put(value, lvalues ? CppValueCategory.LVALUE : CppValueCategory.PRVALUE);
+                            valueCategories.put(value, lvalues ? CppValueCategory.LVALUE : xvalues?CppValueCategory.XVALUE:CppValueCategory.PRVALUE);
                             yield value;
                         }
                     }
@@ -2833,7 +2853,7 @@ public final class CppNameBinder {
                     Expression field = fieldReference(target, n.fieldName(), n.viaPointer(), owner, n.range());
                     MiniType memberType = declaredFieldType(owner, n.fieldName(), new HashSet<>());
                     valueCategories.put(field, n.viaPointer() || memberType != null && memberType.isReference()
-                            ? CppValueCategory.LVALUE : valueCategory(target));
+                            ? CppValueCategory.LVALUE : valueCategory(target)==CppValueCategory.PRVALUE?CppValueCategory.XVALUE:valueCategory(target));
                     yield field;
                 }
                 case GroupingExpr n -> new GroupingExpr(expression(n.expression(), namespace, local, addressDemand), n.range());
@@ -3031,9 +3051,7 @@ public final class CppNameBinder {
                     if (signature != null) declaredExpressionTypes.put(call, signature.returnType().isReference()
                             ? coreType(signature.returnType()) : signature.returnType());
                     if (signature != null && signature.returnType().isReference()) {
-                        UnaryExpr object = new UnaryExpr(TokenType.STAR, call, n.range());
-                        declaredExpressionTypes.put(object, signature.returnType().referent());
-                        return object;
+                        return referenceResult(signature.returnType(),call,n.range());
                     }
                     return signature != null && signature.returnType().isStruct()
                             ? recordPrvalue(signature.returnType(), call, n.range()) : call;
@@ -3292,7 +3310,7 @@ public final class CppNameBinder {
             declaredExpressionTypes.put(call, signature.returnType().isReference()
                     ? coreType(signature.returnType()) : signature.returnType());
             if (signature.returnType().isReference())
-                return typed(new UnaryExpr(TokenType.STAR, call, original.range()), signature.returnType().referent());
+                return referenceResult(signature.returnType(),call,original.range());
             return signature.returnType().isStruct() ? recordPrvalue(signature.returnType(), call, original.range()) : call;
         }
 
@@ -3415,7 +3433,7 @@ public final class CppNameBinder {
                 requireComplete(signature.returnType(), original.range());
                 destructorForUse(signature.returnType(), original.range());
                 Expression call = typed(new CallExpr(callee, arguments, original.range()), coreType(signature.returnType()));
-                if (signature.returnType().isReference()) return typed(new UnaryExpr(TokenType.STAR, call, original.range()), signature.returnType().referent());
+                if (signature.returnType().isReference()) return referenceResult(signature.returnType(),call,original.range());
                 return signature.returnType().isStruct() ? recordPrvalue(signature.returnType(), call, original.range()) : call;
             }
             if (original instanceof BinaryExpr binary) {
@@ -4056,6 +4074,20 @@ public final class CppNameBinder {
             return mapped(original, new GroupingExpr(rebuildCalleeGroups(group.expression(), designator, core), original.range()));
         }
 
+        private Expression returnValue(Expression source,Namespace namespace,Local scope) {
+            Expression value=expressionForTarget(currentReturnType,source,namespace,scope);
+            Expression plain=value;while(plain instanceof GroupingExpr group)plain=group.expression();
+            if(currentReturnType!=null&&currentReturnType.isStruct()&&plain instanceof NameExpr name) {
+                Entity entity=coreValues.get(name.name());
+                if(entity!=null&&entity.owner==null&&!entity.type.isReference()&&!entity.type.isVolatileQualified())implicitMoveSources.add(value);
+            }
+            return convertCallValue(currentReturnType,value,source);
+        }
+        private Expression referenceResult(MiniType reference,Expression pointer,SourceRange range) {
+            Expression object=typed(new UnaryExpr(TokenType.STAR,pointer,range),reference.referent());
+            valueCategories.put(object,reference.isRvalueReference()&&!reference.referent().isFunction()?CppValueCategory.XVALUE:CppValueCategory.LVALUE);
+            return object;
+        }
         private boolean addressableObject(Expression node) {
             if (node instanceof GroupingExpr group) return addressableObject(group.expression());
             if (node instanceof NameExpr) return true;
@@ -4080,11 +4112,12 @@ public final class CppNameBinder {
 
         private MethodSet memberMethods(MiniType owner, String name) {
             TypeEntity type = objectType(owner);
-            if (type != null && name.equals("operator=")) ensureImplicitAssignment(type);
+            if (type != null && name.equals("operator=")) {ensureImplicitAssignment(type);ensureImplicitMove(type);}
             return type == null ? null : type.methods.get(name);
         }
 
         private void requireMethodAccess(Method method, SourceRange range) {
+            if(method==method.owner.implicitMoveAssignment)emitImplicitMoveAssignment(method.owner);
             if (method == method.owner.implicitAssignment) {
                 if (!method.owner.assignmentPlan.problems.isEmpty())
                     report("CPP004", range, "隐式复制赋值已被删除：" + method.owner.assignmentPlan.problems.getFirst());
@@ -4620,7 +4653,7 @@ public final class CppNameBinder {
                 if (!receiver.qualifiers().containsAll(source.type().qualifiers())) continue;
                 MiniType result = objectTypeOfReference(methodReturnType(method));
                 var output = new CppOverloadResolver.Argument(result, methodReturnType(method).isReference()
-                        ? CppValueCategory.LVALUE : CppValueCategory.PRVALUE, false);
+                        ? methodReturnType(method).isRvalueReference()?CppValueCategory.XVALUE:CppValueCategory.LVALUE : CppValueCategory.PRVALUE, false);
                 if (!CppOverloadResolver.standardViable(output, target)) continue;
                 var input = new CppOverloadResolver.Argument(source.type(), CppValueCategory.LVALUE, false);
                 choices.add(new UserChoice(method, null, output, input, receiver.referenceTo()));
@@ -4630,7 +4663,7 @@ public final class CppNameBinder {
             if (owner != null && !objectTarget.equals(source.type().unqualified()) && mode != ConversionContext.BOOLEAN) {
                 var output = new CppOverloadResolver.Argument(objectTarget, CppValueCategory.PRVALUE, false);
                 if (CppOverloadResolver.standardViable(output, target)) for (Constructor declaration : owner.constructors) {
-                    Entity concrete=deduceFunctionTemplate(declaration.function,List.of(source.type()),null,definitionRange(declaration));
+                    Entity concrete=deduceFunctionTemplateShapes(declaration.function,List.of(source),null,definitionRange(declaration));
                     if(concrete==null)continue;
                     Constructor constructor=concrete==declaration.function?declaration:functionTemplateInstances.get(concrete).constructor;
                     if (constructor.parameterTypes.isEmpty() || requiredParameters(constructor.function,constructor.parameterTypes.size())>1
@@ -4659,7 +4692,7 @@ public final class CppNameBinder {
             if (selection.viable.isEmpty()) return null;
             if (selection.ambiguous()) return new CppOverloadResolver.UserConversion(selection,
                     new CppOverloadResolver.Argument(objectTypeOfReference(target), target.isReference()
-                            ? CppValueCategory.LVALUE : CppValueCategory.PRVALUE, false), true);
+                            ? target.isRvalueReference()?CppValueCategory.XVALUE:CppValueCategory.LVALUE : CppValueCategory.PRVALUE, false), true);
             return new CppOverloadResolver.UserConversion(selection.selected.identity(), selection.selected.output, false);
         }
         /** Emits the chosen user step; the caller applies its validated trailing standard conversion. */
@@ -4685,7 +4718,7 @@ public final class CppNameBinder {
                 destructorForUse(methodReturnType(method), range);
                 Expression call = typed(new CallExpr(new NameExpr(method.function.coreName, range), List.of(address(receiver)), range),
                         coreType(methodReturnType(method)));
-                if (methodReturnType(method).isReference()) return typed(new UnaryExpr(TokenType.STAR, call, range), methodReturnType(method).referent());
+                if (methodReturnType(method).isReference()) return referenceResult(methodReturnType(method),call,range);
                 return methodReturnType(method).isStruct() ? recordPrvalue(methodReturnType(method), call, range) : call;
             }
             Constructor constructor = selected.constructor;
@@ -4719,6 +4752,8 @@ public final class CppNameBinder {
         private List<Constructor> allConstructors(TypeEntity owner) {
             List<Constructor> result = new ArrayList<>(owner.constructors);
             for (Constructor copy : copyConstructors(owner)) if (!result.contains(copy)) result.add(copy);
+            ensureImplicitMove(owner);
+            if(owner.implicitMove!=null&&!deletedConstructors.containsKey(owner.implicitMove.function))result.add(owner.implicitMove);
             return result;
         }
 
@@ -4749,14 +4784,14 @@ public final class CppNameBinder {
                     if (converted != null) { value = converted; actual = declaredExpressionType(value); }
                 }
                 // Cast notation also admits const_cast/reinterpret_cast for addressable objects.
-                if (valueCategory(value) == CppValueCategory.LVALUE && addressableObject(value)
+                if ((valueCategory(value) == CppValueCategory.LVALUE || target.isRvalueReference()&&valueCategory(value)==CppValueCategory.XVALUE) && addressableObject(value)
                         && !actual.isVoid() && !target.referent().isVoid()) {
                     Expression pointer = typed(new CastExpr(coreType(target.referent()).pointerTo(), address(value), range),
                             target.referent().pointerTo());
-                    return typed(new UnaryExpr(TokenType.STAR, pointer, range), target.referent());
+                    return referenceResult(target,pointer,range);
                 }
                 Expression pointer = bindReferenceValue(target, value, value, range);
-                return typed(new UnaryExpr(TokenType.STAR, pointer, range), target.referent());
+                return referenceResult(target,pointer,range);
             }
             if (target.isStruct()) {
                 if (actual.unqualified().equals(target.unqualified()))
@@ -4843,7 +4878,7 @@ public final class CppNameBinder {
 
         /** A differently typed assignment overload does not suppress the implicit copy assignment. */
         private boolean isCopyAssignment(Method method) {
-            if(functionTemplates.containsKey(method.function))return false;
+            if(functionTemplates.containsKey(method.function)||method.parameterTypes.size()==1&&method.parameterTypes.getFirst().isRvalueReference())return false;
             if (!method.source.method().name().equals("operator=") || method.parameterTypes.size() != 1) return false;
             MiniType parameter = method.parameterTypes.getFirst();
             return objectTypeOfReference(parameter).unqualified().equals(method.owner.type);
@@ -4870,6 +4905,7 @@ public final class CppNameBinder {
             MiniType sourceOwner = constant ? MiniType.qualified(owner.type, Set.of(MiniType.TypeQualifier.CONST)) : owner.type;
             List<AssignmentEntry> entries = new ArrayList<>();
             List<String> problems = new ArrayList<>();
+            if(userDeclaredMove(owner))problems.add("A user-declared move operation deletes implicit copy assignment");
             boolean trivial = true;
             for (StructField field : owner.fields) {
                 MiniType target = field.type();
@@ -4919,38 +4955,43 @@ public final class CppNameBinder {
             methods.add(owner.implicitAssignment); owner.methods.put("operator=", new MethodSet(methods));
         }
 
-        private void emitImplicitAssignment(TypeEntity owner) {
-            if (owner.assignmentEmitted || !owner.assignmentPlan.problems.isEmpty()) return;
+        private void emitImplicitAssignment(TypeEntity owner) {emitImplicitAssignment(owner,false);}
+        private void emitImplicitMoveAssignment(TypeEntity owner) {emitImplicitAssignment(owner,true);}
+        private void emitImplicitAssignment(TypeEntity owner,boolean move) {
+            AssignmentPlan plan=move?owner.moveAssignmentPlan:owner.assignmentPlan;
+            Method operation=move?owner.implicitMoveAssignment:owner.implicitAssignment;
+            if ((move?owner.moveAssignmentEmitted:owner.assignmentEmitted) || !plan.problems.isEmpty()) return;
             SourceRange range = owner.sourceRecord.range();
             boolean anonymous = owner.fields.stream().anyMatch(StructField::anonymous);
-            boolean representationCopy = owner.union || anonymous && owner.assignmentPlan.trivial
+            boolean representationCopy = owner.union || anonymous && plan.trivial
                     && !hasVolatileSubobject(owner.type, new HashSet<>());
             if (anonymous && !representationCopy) {
                 report("CPP005", range, "Nontrivial assignment of anonymous aggregate storage requires subobject addressing support.");
                 return;
             }
-            if (unevaluatedDepth > 0 && owner.assignmentPrototypeEmitted) return;
+            if (unevaluatedDepth > 0 && (move?owner.moveAssignmentPrototypeEmitted:owner.assignmentPrototypeEmitted)) return;
             String self = freshName("this"), other = freshName("other");
-            MiniType sourcePointer = coreType(owner.assignmentPlan.parameterType);
+            MiniType sourcePointer = coreType(plan.parameterType);
             List<Statement> statements = new ArrayList<>();
             if (unevaluatedDepth == 0) {
-                owner.assignmentEmitted = true;
+                if(move)owner.moveAssignmentEmitted=true;else owner.assignmentEmitted=true;
                 if (representationCopy) {
                     Expression to = typed(new UnaryExpr(TokenType.STAR, typed(new NameExpr(self, range), owner.type.pointerTo()), range), owner.type);
-                    Expression from = typed(new UnaryExpr(TokenType.STAR, typed(new NameExpr(other, range), sourcePointer), range), owner.assignmentPlan.parameterType.referent());
+                    Expression from = typed(new UnaryExpr(TokenType.STAR, typed(new NameExpr(other, range), sourcePointer), range), plan.parameterType.referent());
                     statements.add(new ExprStmt(new AssignmentExpr(to, TokenType.EQUAL, from, range), range));
-                } else for (AssignmentEntry entry : owner.assignmentPlan.entries) {
+                } else for (AssignmentEntry entry : plan.entries) {
                     Expression target = typed(new FieldAccessExpr(typed(new NameExpr(self, range), owner.type.pointerTo()), entry.field.name(), true, range), entry.field.type());
-                    MiniType sourceType = inheritObjectQualifiers(owner.assignmentPlan.parameterType.referent(), entry.field.type());
+                    MiniType sourceType = inheritObjectQualifiers(plan.parameterType.referent(), entry.field.type());
                     Expression source = typed(new FieldAccessExpr(typed(new NameExpr(other, range), sourcePointer), entry.field.name(), true, range), sourceType);
+                    if(move)valueCategories.put(source,CppValueCategory.XVALUE);
                     TypeEntity savedClass = currentClass;
                     currentClass = owner;
                     try { statements.add(assignMemberStatement(entry, target, source, entry.field.type(), 0)); }
                     finally { currentClass = savedClass; }
                 }
                 statements.add(new ReturnStmt(new NameExpr(self, range), range));
-            } else owner.assignmentPrototypeEmitted = true;
-            FunctionDecl core = new FunctionDecl(owner.implicitAssignment.function.coreName, owner.type.pointerTo(),
+            } else {if(move)owner.moveAssignmentPrototypeEmitted=true;else owner.assignmentPrototypeEmitted=true;}
+            FunctionDecl core = new FunctionDecl(operation.function.coreName, owner.type.pointerTo(),
                     List.of(new Parameter(self, owner.type.pointerTo(), range), new Parameter(other, sourcePointer, range)), false,
                     unevaluatedDepth > 0 ? null : new BlockStmt(statements, range), false, range);
             functions.add(core); declarations.add(core);
@@ -4963,6 +5004,7 @@ public final class CppNameBinder {
                 MiniType element = MiniType.qualified(type.elementType(), type.qualifiers());
                 Expression to = typed(new IndexExpr(target, i, range), element);
                 Expression from = typed(new IndexExpr(source, i, range), inheritObjectQualifiers(declaredExpressionType(source), element));
+                valueCategories.put(from,valueCategory(source));
                 return new ForStmt(new VarDeclStmt(index, MiniType.INT, new IntegerLiteralExpr(0,"0",range),range),
                         new BinaryExpr(i,TokenType.LESS,new IntegerLiteralExpr(entry.dimensions.get(dimension),"length",range),range),
                         new PostfixUpdateExpr(i,TokenType.PLUS_PLUS,range),assignMemberStatement(entry,to,from,element,dimension+1),range);
@@ -4970,6 +5012,7 @@ public final class CppNameBinder {
             if (entry.method == null) return new ExprStmt(new AssignmentExpr(target, TokenType.EQUAL, source, range), range);
             Method selected = entry.method;
             if (selected == selected.owner.implicitAssignment) emitImplicitAssignment(selected.owner);
+            else if(selected==selected.owner.implicitMoveAssignment)emitImplicitMoveAssignment(selected.owner);
             else instantiateMethod(selected);
             MiniType parameter = selected.parameterTypes.getFirst();
             Expression argument = parameter.isReference() ? address(source)
@@ -4983,9 +5026,26 @@ public final class CppNameBinder {
         }
 
         private boolean isCopyConstructor(Constructor constructor) {
-            if(functionTemplates.containsKey(constructor.function))return false;
-            return CppCopyConstructorPlan.classify(constructor.owner.type, constructor.parameterTypes)
-                    == CppCopyConstructorPlan.Classification.COPY;
+            if(functionTemplates.containsKey(constructor.function)||constructor.parameterTypes.isEmpty()
+                    ||requiredParameters(constructor.function,constructor.parameterTypes.size())>1)return false;
+            return CppCopyConstructorPlan.classify(constructor.owner.type,List.of(constructor.parameterTypes.getFirst()))==CppCopyConstructorPlan.Classification.COPY;
+        }
+        private boolean isMoveConstructor(Constructor constructor) {
+            return !functionTemplates.containsKey(constructor.function)&&!constructor.parameterTypes.isEmpty()
+                    &&requiredParameters(constructor.function,constructor.parameterTypes.size())<=1
+                    &&CppCopyConstructorPlan.classify(constructor.owner.type,List.of(constructor.parameterTypes.getFirst()))==CppCopyConstructorPlan.Classification.MOVE;
+        }
+        private boolean isMoveAssignment(Method method) {
+            return !functionTemplates.containsKey(method.function)&&method.source.method().name().equals("operator=")&&method.parameterTypes.size()==1
+                    &&method.parameterTypes.getFirst().isRvalueReference()&&method.parameterTypes.getFirst().referent().unqualified().equals(method.owner.type);
+        }
+        private boolean userDeclaredMove(TypeEntity owner) {
+            return owner.constructors.stream().anyMatch(this::isMoveConstructor)
+                    ||owner.methods.getOrDefault("operator=",new MethodSet(List.of())).methods.stream().anyMatch(m->m!=owner.implicitMoveAssignment&&isMoveAssignment(m));
+        }
+        private boolean trivialTransfer(Constructor constructor) {
+            TypeEntity owner=constructor.owner;
+            return constructor==owner.implicitCopy&&owner.copyPlan.trivial()||constructor==owner.implicitMove&&owner.movePlan.trivial();
         }
 
         private List<Constructor> copyConstructors(TypeEntity owner) {
@@ -4993,6 +5053,82 @@ public final class CppNameBinder {
             if (!declared.isEmpty()) return declared;
             ensureImplicitCopy(owner);
             return owner.implicitCopy == null ? List.of() : List.of(owner.implicitCopy);
+        }
+
+
+        private boolean suppressImplicitMove(TypeEntity owner) {
+            return owner.constructors.stream().anyMatch(c->isCopyConstructor(c)||isMoveConstructor(c))
+                    ||owner.methods.getOrDefault("operator=",new MethodSet(List.of())).methods.stream()
+                        .anyMatch(m->m!=owner.implicitAssignment&&m!=owner.implicitMoveAssignment&&(isCopyAssignment(m)||isMoveAssignment(m)))
+                    ||owner.destructor!=null&&!owner.destructor.implicit;
+        }
+        private void ensureImplicitMove(TypeEntity owner) {
+            if(owner.movePlanned||!owner.complete)return;
+            owner.movePlanned=true;
+            if(suppressImplicitMove(owner))return;
+            SourceRange range=owner.sourceRecord.range();
+            owner.movePlan=CppCopyConstructorPlan.planMove(owner.type,owner.fields,owner.union,false,memberType->{
+                TypeEntity member=objectType(memberType);
+                Expression source=typed(new NameExpr("__move_member_source",range),memberType);
+                valueCategories.put(source,CppValueCategory.XVALUE);
+                var candidates=expandConstructorTemplates(allConstructors(member),List.of(source),range).stream()
+                        .filter(c->!c.parameterTypes.isEmpty()&&c.parameterTypes.getFirst().isReference()&&requiredParameters(c.function,c.parameterTypes.size())<=1)
+                        .map(c->new CppCopyConstructorPlan.Constructor<>(c,c.parameterTypes.getFirst(),c.access==Access.PUBLIC||c.owner==owner,
+                                deletedConstructors.containsKey(c.function),trivialTransfer(c))).toList();
+                var destructor=member.destructor==null?CppCopyConstructorPlan.Destructor.AVAILABLE
+                        :deletedDestructors.containsKey(member.destructor.function)?CppCopyConstructorPlan.Destructor.DELETED
+                        :member.destructor.access==Access.PUBLIC||member==owner?CppCopyConstructorPlan.Destructor.AVAILABLE:CppCopyConstructorPlan.Destructor.INACCESSIBLE;
+                return new CppCopyConstructorPlan.Operations<>(candidates,destructor);
+            });
+            MiniType parameter=owner.type.rvalueReferenceTo();
+            ConstructorMember source=new ConstructorMember(owner.name,List.of(new Parameter("other",parameter,range)),false,List.of(),new BlockStmt(List.of(),range),range,range);
+            Entity function=new Entity(owner.name,freshName(owner.canonicalName+"::move"),Kind.FUNCTION,owner.owner,
+                    MiniType.function(MiniType.VOID,List.of(owner.type.pointerTo(),parameter)),null,owner.movePlan.status()==CppCopyConstructorPlan.Status.AVAILABLE);
+            coreValues.put(function.coreName,function);
+            owner.implicitMove=new Constructor(owner,source,Access.PUBLIC,function,List.of(parameter),true);
+            if(owner.movePlan.status()==CppCopyConstructorPlan.Status.DELETED)deletedConstructors.put(function,owner.movePlan.problems().stream()
+                    .map(problem->new Diagnostic("CPP004",Diagnostic.Severity.ERROR,"Implicit move of member '"+problem.field().name()+"' is unavailable: "+problem.reason(),problem.field().range())).toList());
+            planImplicitMoveAssignment(owner);
+        }
+        private void planImplicitMoveAssignment(TypeEntity owner) {
+            List<AssignmentEntry> entries=new ArrayList<>();List<String> problems=new ArrayList<>();boolean trivial=true;
+            for(StructField field:owner.fields) {
+                MiniType target=field.type();var dimensions=new ArrayList<Integer>();
+                while(target.isArray()){dimensions.add(target.arrayLength());target=MiniType.qualified(target.elementType(),target.qualifiers());}
+                if(target.isReference()){problems.add("Reference member '"+field.name()+"' cannot be reseated");continue;}
+                TypeEntity member=objectType(target);Method selected=null;
+                if(member==null) {if(target.isConstQualified())problems.add("Const member '"+field.name()+"' is not assignable");}
+                else {
+                    ensureImplicitAssignment(member);ensureImplicitMove(member);
+                    var methods=member.methods.get("operator=");
+                    Expression source=typed(new NameExpr("__move_assignment_source",field.range()),target);valueCategories.put(source,CppValueCategory.XVALUE);
+                    var overloads=methods==null?List.<Method>of():expandMethodTemplates(methods.methods,List.of(source),null,field.range());
+                    var candidates=overloads.stream().map(m->new CppOverloadResolver.Candidate<>(m,m.parameterTypes,false,methodThisType(member,m.source).pointee())).toList();
+                    var resolution=CppOverloadResolver.resolveOperators(candidates,List.of(new CppOverloadResolver.Argument(target,CppValueCategory.LVALUE,false),
+                            new CppOverloadResolver.Argument(target,CppValueCategory.XVALUE,false)),this::implicitUserConversion,this::betterTemplateCandidate);
+                    if(resolution.status()!=CppOverloadResolver.Status.SELECTED){problems.add("No unique member move assignment for '"+field.name()+"'");continue;}
+                    selected=resolution.winner().identity();
+                    if(selected.access!=Access.PUBLIC&&selected.owner!=owner)problems.add("Move assignment of member '"+field.name()+"' is inaccessible");
+                    AssignmentPlan plan=selected==member.implicitAssignment?member.assignmentPlan:selected==member.implicitMoveAssignment?member.moveAssignmentPlan:null;
+                    if(plan!=null&&!plan.problems.isEmpty())problems.add("Move assignment of member '"+field.name()+"' is deleted");
+                    boolean memberTrivial=plan!=null&&plan.trivial;
+                    if(owner.union&&!memberTrivial)problems.add("Union member '"+field.name()+"' has nontrivial move assignment");
+                    trivial&=memberTrivial;
+                }
+                entries.add(new AssignmentEntry(field,List.copyOf(dimensions),selected));
+            }
+            owner.moveAssignmentPlan=new AssignmentPlan(owner.type.rvalueReferenceTo(),List.copyOf(entries),List.copyOf(problems),trivial);
+            // A deleted implicitly declared move operation is ignored by overload resolution.
+            if(!problems.isEmpty())return;
+            SourceRange range=owner.sourceRecord.range();MiniType parameter=owner.type.rvalueReferenceTo();
+            FunctionDecl source=new FunctionDecl("operator=",owner.type.referenceTo(),List.of(new Parameter("other",parameter,range)),false,null,false,range);
+            MethodMember member=new MethodMember(source,false,range);
+            Entity function=new Entity("operator=",freshName(owner.canonicalName+"::operator=(move)"),Kind.FUNCTION,owner.owner,
+                    MiniType.function(owner.type.referenceTo(),List.of(owner.type.pointerTo(),parameter)),null,true);
+            coreValues.put(function.coreName,function);
+            owner.implicitMoveAssignment=new Method(owner,member,Access.PUBLIC,function,owner.type.referenceTo(),List.of(parameter));
+            var methods=new ArrayList<>(owner.methods.getOrDefault("operator=",new MethodSet(List.of())).methods);methods.add(owner.implicitMoveAssignment);
+            owner.methods.put("operator=",new MethodSet(methods));
         }
 
         private void ensureImplicitCopy(TypeEntity owner) {
@@ -5021,7 +5157,9 @@ public final class CppNameBinder {
                     owner.copyPlan.status() == CppCopyConstructorPlan.Status.AVAILABLE);
             coreValues.put(function.coreName, function);
             owner.implicitCopy = new Constructor(owner, source, Access.PUBLIC, function, List.of(parameter), true);
-            if (owner.copyPlan.status() == CppCopyConstructorPlan.Status.DELETED) {
+            if(userDeclaredMove(owner))deletedConstructors.put(function,List.of(new Diagnostic("CPP004",Diagnostic.Severity.ERROR,
+                    "A user-declared move operation deletes the implicit copy constructor",range)));
+            else if (owner.copyPlan.status() == CppCopyConstructorPlan.Status.DELETED) {
                 deletedConstructors.put(function, owner.copyPlan.problems().stream().map(problem -> new Diagnostic("CPP004",
                         Diagnostic.Severity.ERROR, "Implicit copy of member '" + problem.field().name() + "' is unavailable: "
                                 + problem.reason(), problem.field().range())).toList());
@@ -5038,11 +5176,18 @@ public final class CppNameBinder {
             // new result object and cannot use guaranteed prvalue copy elision.
             if (category == CppValueCategory.PRVALUE && !copySourceHasStorage(value)) return value;
             TypeEntity owner = objectType(target);
-            List<CppOverloadResolver.Candidate<Constructor>> candidates = copyConstructors(owner).stream()
-                    .filter(c -> kind != CppInitializer.Kind.COPY || !c.source.explicitSpecifier())
-                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic(),null,false,requiredParameters(c.function,c.parameterTypes.size()))).toList();
+            boolean implicitMove=implicitMoveSources.contains(value);
+            if(implicitMove)valueCategories.put(value,CppValueCategory.XVALUE);
+            List<CppOverloadResolver.Candidate<Constructor>> candidates=transferCandidates(owner,value,kind,range);
             var resolution = CppOverloadResolver.resolve(candidates,
-                    List.of(new CppOverloadResolver.Argument(actual, category, false)));
+                    List.of(new CppOverloadResolver.Argument(actual, implicitMove?CppValueCategory.XVALUE:category, false)),null,null,this::betterTemplateCandidate);
+            if(implicitMove) {
+                valueCategories.put(value,category);
+                if(resolution.status()!=CppOverloadResolver.Status.SELECTED||!resolution.winner().identity().parameterTypes.getFirst().isRvalueReference()) {
+                    candidates=transferCandidates(owner,value,kind,range);
+                    resolution=CppOverloadResolver.resolve(candidates,List.of(new CppOverloadResolver.Argument(actual,category,false)),null,null,this::betterTemplateCandidate);
+                }
+            }
             if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
                 report("CPP004", range, resolution.status() == CppOverloadResolver.Status.AMBIGUOUS
                         ? "Copy constructor selection is ambiguous." : "No viable copy constructor for this source object.");
@@ -5058,15 +5203,22 @@ public final class CppNameBinder {
                 report("CPP004", range, "Copy constructor is deleted: " + deletedConstructors.get(selected.function).getFirst().message());
                 return value;
             }
-            if (selected == owner.implicitCopy && owner.copyPlan.trivial() && !hasVolatileSubobject(owner.type, new HashSet<>())) return value;
+            if (trivialTransfer(selected) && !hasVolatileSubobject(owner.type, new HashSet<>())) return value;
             if (selected == owner.implicitCopy) emitImplicitCopy(owner);
             String destination = freshName("copy_destination");
             Expression address = typed(new NameExpr(destination, range), owner.type.pointerTo());
             Expression source = copySourceAddress(value);
-            Expression call = typed(new CallExpr(new NameExpr(selected.function.coreName, range), List.of(address, source), range), MiniType.VOID);
+            var transferArguments=new ArrayList<Expression>();transferArguments.add(address);transferArguments.add(source);
+            transferArguments.addAll(defaultArguments(selected.function,selected.parameterTypes,1));
+            Expression call = typed(new CallExpr(new NameExpr(selected.function.coreName, range),transferArguments,range), MiniType.VOID);
             return typed(new ObjectInitExpr(coreType(target), destination, call, range), target);
         }
 
+        private List<CppOverloadResolver.Candidate<Constructor>> transferCandidates(TypeEntity owner,Expression value,CppInitializer.Kind kind,SourceRange range) {
+            return expandConstructorTemplates(allConstructors(owner),List.of(value),range).stream()
+                    .filter(c->kind!=CppInitializer.Kind.COPY||!c.source.explicitSpecifier())
+                    .map(c->new CppOverloadResolver.Candidate<>(c,c.parameterTypes,c.source.variadic(),null,false,requiredParameters(c.function,c.parameterTypes.size()))).toList();
+        }
         private boolean copySourceHasStorage(Expression value) {
             if (value instanceof GroupingExpr group) return copySourceHasStorage(group.expression());
             if (value instanceof CommaExpr comma) return copySourceHasStorage(comma.expressions().getLast());
@@ -5098,40 +5250,43 @@ public final class CppNameBinder {
         }
 
         /** Laziness avoids requiring the definition of an unused member copy constructor. */
-        private void emitImplicitCopy(TypeEntity owner) {
-            if (owner.copyEmitted || owner.copyPlan.status() != CppCopyConstructorPlan.Status.AVAILABLE) return;
-            Constructor constructor = owner.implicitCopy;
-            if (!owner.copyPlan.objectRepresentation() && owner.fields.stream().anyMatch(StructField::anonymous)) {
+        private void emitImplicitCopy(TypeEntity owner) {emitImplicitTransfer(owner,false);}
+        private void emitImplicitMove(TypeEntity owner) {emitImplicitTransfer(owner,true);}
+        private void emitImplicitTransfer(TypeEntity owner,boolean move) {
+            var plan=move?owner.movePlan:owner.copyPlan;
+            if ((move?owner.moveEmitted:owner.copyEmitted) || plan.status() != CppCopyConstructorPlan.Status.AVAILABLE) return;
+            Constructor constructor = move?owner.implicitMove:owner.implicitCopy;
+            if (!plan.objectRepresentation() && owner.fields.stream().anyMatch(StructField::anonymous)) {
                 report("CPP005", owner.sourceRecord.range(), "Nontrivial copying of anonymous aggregate storage requires subobject initialization support.");
                 return;
             }
             if (unevaluatedDepth > 0) {
-                if (!owner.copyPrototypeEmitted) {
+                if (!(move?owner.movePrototypeEmitted:owner.copyPrototypeEmitted)) {
                     SourceRange range = owner.sourceRecord.range();
                     FunctionDecl declaration = new FunctionDecl(constructor.function.coreName, MiniType.VOID,
                             List.of(new Parameter(freshName("this"), owner.type.pointerTo(), range),
-                                    new Parameter(freshName("other"), coreType(owner.copyPlan.parameterType()), range)),
+                                    new Parameter(freshName("other"), coreType(plan.parameterType()), range)),
                             false, null, false, range);
                     functions.add(declaration); declarations.add(declaration);
-                    owner.copyPrototypeEmitted = true;
+                    if(move)owner.movePrototypeEmitted=true;else owner.copyPrototypeEmitted = true;
                 }
                 return;
             }
-            owner.copyEmitted = true;
+            if(move)owner.moveEmitted=true;else owner.copyEmitted = true;
             SourceRange range = owner.sourceRecord.range();
             String self = freshName("this"), source = freshName("other");
-            MiniType sourcePointer = coreType(owner.copyPlan.parameterType());
+            MiniType sourcePointer = coreType(plan.parameterType());
             List<Statement> statements = new ArrayList<>();
-            if (owner.copyPlan.objectRepresentation()) {
+            if (plan.objectRepresentation()) {
                 Expression to = new UnaryExpr(TokenType.STAR, new NameExpr(self, range), range);
                 Expression from = new UnaryExpr(TokenType.STAR, new NameExpr(source, range), range);
                 statements.add(new ExprStmt(new InitializeExpr(to, from, range), range));
             }
-            for (var entry : owner.copyPlan.entries()) {
+            for (var entry : plan.entries()) {
                 Expression destination = typed(new FieldAccessExpr(typed(new NameExpr(self, range), owner.type.pointerTo()),
                         entry.field().name(), true, entry.field().range()), coreType(entry.field().type()));
                 MiniType sourceFieldType = entry.field().type().isReference() ? coreType(entry.field().type())
-                        : inheritObjectQualifiers(owner.copyPlan.parameterType().referent(), entry.field().type());
+                        : inheritObjectQualifiers(plan.parameterType().referent(), entry.field().type());
                 Expression from = typed(new FieldAccessExpr(typed(new NameExpr(source, range), sourcePointer),
                         entry.field().name(), true, entry.field().range()), sourceFieldType);
                 statements.add(copyMemberStatement(entry, destination, from, entry.field().type(), 0));
@@ -5161,12 +5316,13 @@ public final class CppNameBinder {
             if (entry.action() == CppCopyConstructorPlan.Action.CONSTRUCTOR) {
                 Constructor selected = entry.constructor();
                 instantiateConstructor(selected);
-                if (selected == selected.owner.implicitCopy && selected.owner.copyPlan.trivial()
+                if (trivialTransfer(selected)
                         && !hasVolatileSubobject(selected.owner.type, new HashSet<>()))
                     return new ExprStmt(new InitializeExpr(destination, source, range), range);
                 if (selected == selected.owner.implicitCopy) emitImplicitCopy(selected.owner);
-                Expression call = new CallExpr(new NameExpr(selected.function.coreName, range),
-                        List.of(address(destination),address(source)),range);
+                var arguments=new ArrayList<Expression>();arguments.add(address(destination));arguments.add(address(source));
+                arguments.addAll(defaultArguments(selected.function,selected.parameterTypes,1));
+                Expression call = new CallExpr(new NameExpr(selected.function.coreName, range),arguments,range);
                 return new ExprStmt(call,range);
             }
             return new ExprStmt(new InitializeExpr(destination,value,range),range);
@@ -5343,7 +5499,8 @@ public final class CppNameBinder {
                 }
                 CppValueCategory category = valueCategory(value);
                 boolean compatible = actual != null && referenceCompatible(target, actual);
-                boolean direct = category == CppValueCategory.LVALUE && compatible && addressableObject(value);
+                boolean direct = compatible && addressableObject(value) && CppOverloadResolver.standardViable(
+                        new CppOverloadResolver.Argument(actual,category,isNullIntegerLiteral(sourceNode)),reference);
                 if (!direct) {
                     boolean viable = actual != null && CppOverloadResolver.resolve(
                             List.of(new CppOverloadResolver.Candidate<>("reference", List.of(reference), false)),

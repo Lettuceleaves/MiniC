@@ -168,16 +168,20 @@ public final class CppOverloadResolver {
     // Lvalue/array/function transformations are deliberately excluded from subsequence ranking.
     private enum Step { STATIC_OBJECT, NONE, NUMERIC, NULL_POINTER, POINTER_VOID, POINTER_BOOL, ELLIPSIS }
     private record Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference,
-                              Object userIdentity, Conversion trailing, boolean ambiguous, int listKind, int listBound) {
-        Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference,
-                   Object userIdentity, Conversion trailing, boolean ambiguous) {
-            this(rank, step, qualification, target, reference, userIdentity, trailing, ambiguous, 0, 0);
-        }
-        Conversion list(int kind, int bound) {
-            return new Conversion(rank, step, qualification, target, reference, userIdentity, trailing, ambiguous, kind, bound);
-        }
+                              Object userIdentity, Conversion trailing, boolean ambiguous, int listKind, int listBound,
+                              MiniType.ReferenceKind referenceKind) {
         Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference) {
-            this(rank, step, qualification, target, reference, null, null, false);
+            this(rank,step,qualification,target,reference,null,null,false);
+        }
+        Conversion(Rank rank,Step step,boolean qualification,MiniType target,boolean reference,Object identity,Conversion trailing,boolean ambiguous) {
+            this(rank,step,qualification,target,reference,identity,trailing,ambiguous,0,0,reference?MiniType.ReferenceKind.LVALUE:null);
+        }
+        Conversion list(int kind,int bound) {
+            return new Conversion(rank,step,qualification,target,reference,userIdentity,trailing,ambiguous,kind,bound,referenceKind);
+        }
+        Conversion withReference(MiniType parameter) {
+            return new Conversion(rank,step,qualification,parameter.referent(),true,userIdentity,trailing,ambiguous,listKind,listBound,
+                    ((MiniType.ReferenceType)parameter.unqualified()).kind());
         }
     }
     private record Viable<T>(Candidate<T> candidate, List<Conversion> conversions) {}
@@ -231,11 +235,11 @@ public final class CppOverloadResolver {
         if (parameter.isReference() && elements.size() == 1 && !elements.getFirst().braced()
                 && sameUnqualified(elements.getFirst().type, target)) {
             Conversion direct = convert(elements.getFirst(), parameter);
-            if (direct != null) return direct.list(1, 0);
+            return direct == null ? null : direct.list(1, 0);
         }
         MiniType element = provider == null ? null : provider.initializerListElement(target);
         if (element != null || target.isArray()) {
-            if (parameter.isReference() && (!cv(target).contains(CONST) || cv(target).contains(VOLATILE))) return null;
+            if (parameter.isLvalueReference() && (!cv(target).contains(CONST) || cv(target).contains(VOLATILE))) return null;
             if (element == null) element = target.elementType();
             if (target.isArray() && (target.arrayLength() < elements.size() || target.arrayLength() < 0)) return null;
             Conversion worst = new Conversion(Rank.EXACT, Step.NONE, false, target, parameter.isReference());
@@ -249,10 +253,11 @@ public final class CppOverloadResolver {
                 if (omitted == null) return null;
                 if (omitted.rank.ordinal() > worst.rank.ordinal()) worst = omitted;
             }
+            if(parameter.isReference())worst=worst.withReference(parameter);
             return worst.list(target.isArray() ? 3 : 2, target.isArray() ? target.arrayLength() : 0);
         }
         if (target.isStruct()) {
-            if (parameter.isReference() && (!cv(target).contains(CONST) || cv(target).contains(VOLATILE))) return null;
+            if (parameter.isLvalueReference() && (!cv(target).contains(CONST) || cv(target).contains(VOLATILE))) return null;
             if (provider == null) return null;
             UserConversion user = provider.find(identity, list, parameter);
             if (user == null) return null;
@@ -269,8 +274,10 @@ public final class CppOverloadResolver {
             return converted == null ? null : converted.list(1, 0);
         }
         if (!elements.isEmpty() || target.isVoid() || target.isFunction()) return null;
-        if (parameter.isReference() && (!cv(target).contains(CONST) || cv(target).contains(VOLATILE))) return null;
-        return new Conversion(Rank.EXACT, Step.NONE, false, target, parameter.isReference()).list(1, 0);
+        if (parameter.isLvalueReference() && (!cv(target).contains(CONST) || cv(target).contains(VOLATILE))) return null;
+        Conversion empty=new Conversion(Rank.EXACT, Step.NONE, false, target, parameter.isReference());
+        if(parameter.isReference())empty=empty.withReference(parameter);
+        return empty.list(1,0);
     }
 
     private static Conversion convert(Argument argument, MiniType parameter) {
@@ -280,17 +287,16 @@ public final class CppOverloadResolver {
         MiniType target = parameter.referent();
         boolean related = sameUnqualified(source, target);
         boolean compatible = related && cv(target).containsAll(cv(source));
-        if (argument.category == CppValueCategory.LVALUE && compatible)
-            return new Conversion(Rank.EXACT, Step.NONE, false, target, true);
-        if (!cv(target).contains(CONST) || cv(target).contains(VOLATILE)) return null;
-        // A related-but-incompatible binding cannot drop volatile/const via a copied temporary.
+        boolean rvalue=parameter.isRvalueReference();
+        boolean directCategory=rvalue?argument.category!=CppValueCategory.LVALUE||target.isFunction():argument.category==CppValueCategory.LVALUE;
+        if(directCategory&&compatible)return new Conversion(Rank.EXACT,Step.NONE,false,target,true).withReference(parameter);
+        if(rvalue&&related&&argument.category==CppValueCategory.LVALUE)return null;
+        if(!rvalue&&(!cv(target).contains(CONST)||cv(target).contains(VOLATILE)))return null;
         if (related && !compatible) return null;
-        if (compatible) return new Conversion(Rank.EXACT, Step.NONE, false, target, true);
-        // Arrays/functions cannot be synthesized as conversion temporaries.
+        if (compatible) return new Conversion(Rank.EXACT, Step.NONE, false, target, true).withReference(parameter);
         if (target.isArray() || target.isFunction() || source.isStruct() || target.isStruct()) return null;
         Conversion converted = valueConversion(argument, target.unqualified());
-        return converted == null ? null : new Conversion(converted.rank, converted.step,
-                converted.qualification, target, true);
+        return converted == null ? null : converted.withReference(parameter);
     }
 
     private static Conversion valueConversion(Argument argument, MiniType target) {
@@ -362,6 +368,10 @@ public final class CppOverloadResolver {
                 int qualification = qualificationSubset(first.target, second.target);
                 if (qualification != 0) return qualification;
             }
+        }
+        if(first.reference&&second.reference&&first.referenceKind!=second.referenceKind) {
+            boolean function=first.target.isFunction()&&second.target.isFunction();
+            return first.referenceKind==(function?MiniType.ReferenceKind.LVALUE:MiniType.ReferenceKind.RVALUE)?-1:1;
         }
         if (first.reference && second.reference && sameUnqualified(first.target, second.target))
             return subset(cv(first.target), cv(second.target));
@@ -441,7 +451,7 @@ public final class CppOverloadResolver {
             return canonical(MiniType.qualified(array.elementType(), type.qualifiers())).arrayOf(array.length());
         MiniType result = switch (base) {
             case MiniType.PointerType pointer -> canonical(pointer.pointee()).pointerTo();
-            case MiniType.ReferenceType reference -> canonical(reference.referent()).referenceTo();
+            case MiniType.ReferenceType reference -> canonical(reference.referent()).referenceTo(reference.kind());
             case MiniType.FunctionType function -> MiniType.function(canonical(function.returnType()),
                     function.parameterTypes().stream().map(CppOverloadResolver::canonical)
                             .map(t -> t.isReference() ? t : decay(t).unqualified()).toList(), function.variadic());

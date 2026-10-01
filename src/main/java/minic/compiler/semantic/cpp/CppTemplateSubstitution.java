@@ -42,7 +42,7 @@ public final class CppTemplateSubstitution {
             case MiniType.TrailingReturnType trailing -> new MiniType.TrailingReturnType(type(trailing.type()));
             case MiniType.QualifiedType qualified -> MiniType.qualified(type(qualified.baseType()),qualified.qualifiers());
             case MiniType.PointerType pointer -> type(pointer.pointee()).pointerTo();
-            case MiniType.ReferenceType reference -> type(reference.referent()).referenceTo();
+            case MiniType.ReferenceType reference -> type(reference.referent()).referenceTo(reference.kind());
             case MiniType.ArrayType array -> type(array.elementType()).arrayOf(array.length());
             case MiniType.DependentArrayType array -> new MiniType.DependentArrayType(type(array.elementType()),(Expression)copy(array.bound()))
                     .substituteTemplateParameters(arguments,values);
