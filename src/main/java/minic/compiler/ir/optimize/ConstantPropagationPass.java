@@ -128,30 +128,7 @@ public final class ConstantPropagationPass implements IrPass {
     }
 
     private IrInstruction rewrite(IrInstruction instruction, Map<String, IrValue> facts) {
-        return switch (instruction) {
-            case IrBinaryInstruction v -> new IrBinaryInstruction(v.result(), v.operator(), resolve(v.left(), facts), resolve(v.right(), facts), v.range());
-            case IrUnaryInstruction v -> new IrUnaryInstruction(v.result(), v.operator(), resolve(v.operand(), facts), v.range());
-            case IrCastInstruction v -> new IrCastInstruction(v.result(), resolve(v.value(), facts), v.range());
-            case IrMoveInstruction v -> new IrMoveInstruction(v.result(), resolve(v.value(), facts), v.range());
-            case IrSelectInstruction v -> new IrSelectInstruction(v.result(), resolve(v.condition(), facts), resolve(v.thenValue(), facts), resolve(v.elseValue(), facts), v.range());
-            case IrLoadPointerInstruction v -> new IrLoadPointerInstruction(v.result(), resolve(v.address(), facts), v.volatileAccess(), v.range());
-            case IrStorePointerInstruction v -> new IrStorePointerInstruction(resolve(v.address(), facts), resolve(v.value(), facts), v.volatileAccess(), v.range());
-            case IrStoreLocalInstruction v -> new IrStoreLocalInstruction(v.local(), resolve(v.value(), facts), v.volatileAccess(), v.range());
-            case IrElementAddressInstruction v -> new IrElementAddressInstruction(v.result(), resolve(v.baseAddress(), facts), resolve(v.index(), facts), v.elementType(), v.elementSizeBytes(), v.range());
-            case IrFieldAddressInstruction v -> new IrFieldAddressInstruction(v.result(), resolve(v.baseAddress(), facts), v.ownerStructName(), v.fieldName(), v.offset(), v.fieldType(), v.range());
-            case IrMemCopyInstruction v -> new IrMemCopyInstruction(resolve(v.destination(), facts), resolve(v.source(), facts), v.sizeBytes(), v.volatileAccess(), v.range());
-            case IrCallInstruction v -> new IrCallInstruction(v.result(), v.calleeName(), v.arguments().stream().map(value -> resolve(value, facts)).toList(), v.variadic(), v.range());
-            case IrIndirectCallInstruction v -> new IrIndirectCallInstruction(v.result(), resolve(v.calleeAddress(), facts), v.arguments().stream().map(value -> resolve(value, facts)).toList(), v.variadic(), v.range());
-            case IrBranchInstruction v -> new IrBranchInstruction(resolve(v.condition(), facts), v.thenLabel(), v.elseLabel(), v.range());
-            case IrReturnInstruction v -> new IrReturnInstruction(v.value() == null ? null : resolve(v.value(), facts), v.range());
-            case IrCheckNonZeroInstruction v -> new IrCheckNonZeroInstruction(resolve(v.value(), facts), v.range());
-            case IrDeclareLocalInstruction v -> v;
-            case IrCheckInitializedInstruction v -> v;
-            case IrAddressOfLocalInstruction v -> v;
-            case IrLoadLocalInstruction v -> v;
-            case IrJumpInstruction v -> v;
-            case IrTrapInstruction v -> v;
-        };
+        return IrValueRewriter.inputs(instruction,value->resolve(value,facts));
     }
 
     private IrInstruction fold(IrInstruction instruction) {

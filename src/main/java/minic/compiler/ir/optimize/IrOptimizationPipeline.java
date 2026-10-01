@@ -36,7 +36,7 @@ public final class IrOptimizationPipeline {
                 ? List.of(new DirectCallResolutionPass(), new PrivateAddressNormalizationPass(), new InitializedCheckEliminationPass(),
                           new EarlySimplificationPass(), new SmallFunctionInliningPass(), new PostInliningScalarPreparationPass(),
                           new LocalScalarPromotionPass(), new ReadOnlyParameterPromotionPass(), new ConstantPropagationPass(),
-                          new NonZeroCheckEliminationPass(), new LoopInvariantCodeMotionPass(),
+                          new NonZeroCheckEliminationPass(), new LoopInvariantCodeMotionPass(), new BlockCopyPropagationPass(),
                           new DeadCodeEliminationPass(), new ControlFlowSimplificationPass()) : List.of());
     }
 
