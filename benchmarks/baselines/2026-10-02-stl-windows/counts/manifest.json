@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "hashAlgorithm": "SHA-256",
+  "selfExcluded": true,
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 8,
+      "sha256": "705fd4d6451a31d36b3df7de96f83f30ac976c9b4a6d1e51671d8e2f33e2d0da"
+    },
+    {
+      "path": "baseline/counts.json",
+      "bytes": 52017,
+      "sha256": "bddd1fe94e762fe9441e9c160be0ad24dfd0a10e4584ab3c36c959931444eff2"
+    },
+    {
+      "path": "baseline/run.txt",
+      "bytes": 68,
+      "sha256": "baba877489820499ad11aff06a2f6501ba7ce687f105c4759f55225410114882"
+    },
+    {
+      "path": "comparison/comparison.json",
+      "bytes": 73192,
+      "sha256": "0424395b2d34720b2a9b3ad8abf79c778a66ac914602daf77b5f1faecfa51348"
+    },
+    {
+      "path": "comparison/per-round-counters.csv",
+      "bytes": 91140,
+      "sha256": "2192a66ab7f825c987a905c982375c16a034804e802ab400077b3b8809f29452"
+    },
+    {
+      "path": "comparison/summary.csv",
+      "bytes": 7937,
+      "sha256": "f3efcebb0d9508e8f5db45058546f0d96e311ecf0578226866c8e93bc76fd06c"
+    },
+    {
+      "path": "export-validation.json",
+      "bytes": 2641,
+      "sha256": "18fe7f56b8c2877ae0fdfa4b18b7cf015e29d9693373b111c388591b0caef9ce"
+    },
+    {
+      "path": "final/counts.json",
+      "bytes": 52163,
+      "sha256": "d93c9307714efac5496f9a1d0b11b7ddb16072891f3654ffdaaac1dc9abf0c2c"
+    },
+    {
+      "path": "final/run.txt",
+      "bytes": 68,
+      "sha256": "baba877489820499ad11aff06a2f6501ba7ce687f105c4759f55225410114882"
+    },
+    {
+      "path": "final/verification.json",
+      "bytes": 12089,
+      "sha256": "86256d9b517d4036382441fee043f45e504b45821eef54a6931726cc59be6ff9"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3067,
+      "sha256": "89473f32ee185df9b109653bd1a13c2c1d9e4f6df23a681568a174d5dd73545d"
+    }
+  ]
+}

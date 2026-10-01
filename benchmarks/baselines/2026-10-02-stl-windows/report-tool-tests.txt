@@ -1,0 +1,25 @@
+test_absolute_or_escaping_paths_are_rejected (test_generate_report.BaselineSelectionTests.test_absolute_or_escaping_paths_are_rejected) ... ok
+test_default_selection_remains_original_glob (test_generate_report.BaselineSelectionTests.test_default_selection_remains_original_glob) ... ok
+test_duplicate_selected_directory_alias_is_rejected (test_generate_report.BaselineSelectionTests.test_duplicate_selected_directory_alias_is_rejected) ... ok
+test_explicit_retry_excludes_preserved_interrupted_batch (test_generate_report.BaselineSelectionTests.test_explicit_retry_excludes_preserved_interrupted_batch) ... ok
+test_interrupted_reason_and_hash_are_mandatory (test_generate_report.BaselineSelectionTests.test_interrupted_reason_and_hash_are_mandatory) ... ok
+test_selected_and_interrupted_cannot_overlap (test_generate_report.BaselineSelectionTests.test_selected_and_interrupted_cannot_overlap) ... ok
+test_unselected_batch_cannot_disappear_silently (test_generate_report.BaselineSelectionTests.test_unselected_batch_cannot_disappear_silently) ... ok
+test_paired_modes_preserve_inputs_and_raw_observer_metrics (test_generate_report.BulkIntegrityTests.test_paired_modes_preserve_inputs_and_raw_observer_metrics) ... ok
+test_published_bulk_statistics_must_match_samples (test_generate_report.BulkIntegrityTests.test_published_bulk_statistics_must_match_samples) ... ok
+test_reversed_pair_order_is_rejected (test_generate_report.BulkIntegrityTests.test_reversed_pair_order_is_rejected) ... ok
+test_smoke_does_not_become_performance (test_generate_report.BulkIntegrityTests.test_smoke_does_not_become_performance) ... ok
+test_before_after_inputs_cannot_differ (test_generate_report.IntegrityTests.test_before_after_inputs_cannot_differ) ... ok
+test_csv_mismatch_cannot_hide_behind_report_summary (test_generate_report.IntegrityTests.test_csv_mismatch_cannot_hide_behind_report_summary) ... ok
+test_eighth_sample_cannot_be_missing (test_generate_report.IntegrityTests.test_eighth_sample_cannot_be_missing) ... ok
+test_incomplete_status_is_not_a_result (test_generate_report.IntegrityTests.test_incomplete_status_is_not_a_result) ... ok
+test_missing_completion_marker_never_creates_output (test_generate_report.IntegrityTests.test_missing_completion_marker_never_creates_output) ... ok
+test_mutated_artifact_is_rejected (test_generate_report.IntegrityTests.test_mutated_artifact_is_rejected) ... ok
+test_observer_timing_is_the_source_of_samples (test_generate_report.IntegrityTests.test_observer_timing_is_the_source_of_samples) ... ok
+test_report_ratios_and_memory_wording_have_explicit_meaning (test_generate_report.IntegrityTests.test_report_ratios_and_memory_wording_have_explicit_meaning) ... ok
+test_valid_raw_archive_csv_observer_and_artifacts (test_generate_report.IntegrityTests.test_valid_raw_archive_csv_observer_and_artifacts) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 15.760s
+
+OK
