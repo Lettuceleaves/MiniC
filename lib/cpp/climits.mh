@@ -1,0 +1,4 @@
+#ifndef MINIC_CPP_CLIMITS_MH
+#define MINIC_CPP_CLIMITS_MH
+#include <limits.h>
+#endif

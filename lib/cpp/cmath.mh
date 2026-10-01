@@ -1,0 +1,31 @@
+#ifndef MINIC_CPP_CMATH_MH
+#define MINIC_CPP_CMATH_MH
+#include <math.h>
+#include "cstdlib.mh"
+namespace std {
+using ::acos;
+using ::asin;
+using ::atan;
+using ::atan2;
+using ::ceil;
+using ::cos;
+using ::cosh;
+using ::exp;
+using ::fabs;
+using ::floor;
+using ::fmod;
+using ::frexp;
+using ::ldexp;
+using ::log;
+using ::log10;
+using ::modf;
+using ::pow;
+using ::sin;
+using ::sinh;
+using ::sqrt;
+using ::tan;
+using ::tanh;
+double abs(double value){return ::fabs(value);}
+float abs(float value){return (float)::fabs((double)value);}
+}
+#endif

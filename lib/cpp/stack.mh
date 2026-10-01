@@ -1,0 +1,36 @@
+#ifndef MINIC_CPP_STACK_MH
+#define MINIC_CPP_STACK_MH
+#include "deque.mh"
+#include "utility.mh"
+namespace std {
+template<class T,class Container=deque<T>> class stack {
+protected:
+    Container c;
+public:
+    typedef T value_type;
+    typedef Container container_type;
+    typedef typename Container::size_type size_type;
+    typedef typename Container::reference reference;
+    typedef typename Container::const_reference const_reference;
+    stack():c() {}
+    explicit stack(const Container& container):c(container) {}
+    explicit stack(Container&& container):c(std::move(container)) {}
+    bool empty() const { return c.empty(); }
+    size_type size() const { return c.size(); }
+    reference top() { return c.back(); }
+    const_reference top() const { return c.back(); }
+    void push(const T& value) { c.push_back(value); }
+    void push(T&& value) { c.push_back(std::move(value)); }
+    template<class... A> reference emplace(A&&... args) { return c.emplace_back(std::forward<A>(args)...); }
+    void pop() { c.pop_back(); }
+    void swap(stack& other) { using std::swap;swap(c,other.c); }
+    bool operator==(const stack& other) const { return c==other.c; }
+    bool operator!=(const stack& other) const { return !(c==other.c); }
+    bool operator<(const stack& other) const { return c<other.c; }
+    bool operator>(const stack& other) const { return other.c<c; }
+    bool operator<=(const stack& other) const { return !(other.c<c); }
+    bool operator>=(const stack& other) const { return !(c<other.c); }
+};
+template<class T,class C> void swap(stack<T,C>& a,stack<T,C>& b) { a.swap(b); }
+}
+#endif

@@ -12,6 +12,7 @@ template<class T> void swap(T& a, T& b) { T saved=std::move(a); a=std::move(b); 
 template<class T, unsigned long long N> void swap(T (&a)[N], T (&b)[N]) {
     for (unsigned long long i=0;i<N;++i) { using std::swap; swap(a[i],b[i]); }
 }
+struct __minic_pair_key_tag {};
 template<class T, class U> struct pair {
     typedef T first_type;
     typedef U second_type;
@@ -22,6 +23,7 @@ template<class T, class U> struct pair {
     template<class A,class B> pair(A&& a,B&& b):first(std::forward<A>(a)),second(std::forward<B>(b)) {}
     template<class A,class B> pair(const pair<A,B>& other):first(other.first),second(other.second) {}
     template<class A,class B> pair(pair<A,B>&& other):first(std::forward<A>(other.first)),second(std::forward<B>(other.second)) {}
+    template<class K,class... A> pair(__minic_pair_key_tag,K&& key,A&&... a):first(std::forward<K>(key)),second(std::forward<A>(a)...) {}
     void swap(pair& other) { using std::swap; swap(first,other.first); swap(second,other.second); }
 };
 template<class T,class U> bool operator==(const pair<T,U>& a,const pair<T,U>& b) { return a.first==b.first && a.second==b.second; }

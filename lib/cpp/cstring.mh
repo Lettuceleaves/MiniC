@@ -1,0 +1,24 @@
+#ifndef MINIC_CPP_CSTRING_MH
+#define MINIC_CPP_CSTRING_MH
+#include <string.h>
+namespace std {
+using ::memcpy;
+using ::memmove;
+using ::memcmp;
+using ::strcpy;
+using ::strncpy;
+using ::strcat;
+using ::strncat;
+using ::strcmp;
+using ::strncmp;
+using ::strlen;
+using ::strchr;
+using ::strrchr;
+using ::strstr;
+using ::strspn;
+using ::strcspn;
+using ::strpbrk;
+using ::strtok;
+using ::memset;
+}
+#endif

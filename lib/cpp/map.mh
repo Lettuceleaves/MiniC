@@ -1,0 +1,100 @@
+#ifndef MINIC_CPP_MAP_MH
+#define MINIC_CPP_MAP_MH
+#include "__tree.mh"
+#include "algorithm.mh"
+namespace std {
+template<class Key,class T,class Compare> class __minic_map_value_compare {
+    Compare compare_;
+public:
+    explicit __minic_map_value_compare(const Compare& c):compare_(c) {}
+    bool operator()(const pair<const Key,T>& a,const pair<const Key,T>& b) const{return compare_(a.first,b.first);}
+};
+template<class Key,class T,class Compare=less<Key>> class map {
+    typedef __minic_tree<Key,pair<const Key,T>,__minic_first<Key,T>,Compare,false> tree_type;
+    tree_type tree_;
+public:
+    typedef Key key_type;
+    typedef T mapped_type;
+    typedef pair<const Key,T> value_type;
+    typedef Compare key_compare;
+    typedef __minic_map_value_compare<Key,T,Compare> value_compare;
+    typedef size_t size_type;
+    typedef ptrdiff_t difference_type;
+    typedef value_type& reference;
+    typedef const value_type& const_reference;
+    typedef value_type* pointer;
+    typedef const value_type* const_pointer;
+    typedef typename tree_type::iterator iterator;
+    typedef typename tree_type::const_iterator const_iterator;
+    typedef std::reverse_iterator<iterator> reverse_iterator;
+    typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+    map():tree_() {}
+    explicit map(const Compare& c):tree_(c) {}
+    template<class I> map(I first,I last):tree_(){insert(first,last);}
+    template<class I> map(I first,I last,const Compare& c):tree_(c){insert(first,last);}
+    map(initializer_list<value_type> values):tree_(){insert(values.begin(),values.end());}
+    map(initializer_list<value_type> values,const Compare& c):tree_(c){insert(values.begin(),values.end());}
+    map(const map& other):tree_(other.tree_) {}
+    map(map&& other):tree_(std::move(other.tree_)) {}
+    map& operator=(const map& other){tree_=other.tree_;return *this;}
+    map& operator=(map&& other){tree_=std::move(other.tree_);return *this;}
+    map& operator=(initializer_list<value_type> values){clear();insert(values);return *this;}
+    iterator begin(){return tree_.begin();} const_iterator begin() const{return tree_.begin();}
+    iterator end(){return tree_.end();} const_iterator end() const{return tree_.end();}
+    const_iterator cbegin() const{return begin();} const_iterator cend() const{return end();}
+    reverse_iterator rbegin(){return reverse_iterator(end());} const_reverse_iterator rbegin() const{return const_reverse_iterator(end());}
+    reverse_iterator rend(){return reverse_iterator(begin());} const_reverse_iterator rend() const{return const_reverse_iterator(begin());}
+    const_reverse_iterator crbegin() const{return rbegin();} const_reverse_iterator crend() const{return rend();}
+    bool empty() const{return tree_.empty();} size_type size() const{return tree_.size();}
+    size_type max_size() const{return tree_.max_size();}
+    void clear(){tree_.clear();}
+    T& operator[](const Key& key){return try_emplace(key).first->second;}
+    T& operator[](Key&& key){return try_emplace(std::move(key)).first->second;}
+    T& at(const Key& key){iterator i=find(key);if(i==end())::abort();return i->second;}
+    const T& at(const Key& key) const{const_iterator i=find(key);if(i==end())::abort();return i->second;}
+    pair<iterator,bool> insert(const value_type& value){return tree_.emplace(value);}
+    pair<iterator,bool> insert(value_type&& value){return tree_.emplace(std::move(value));}
+    template<class P> pair<iterator,bool> insert(P&& value){return tree_.emplace(std::forward<P>(value));}
+    iterator insert(const_iterator hint,const value_type& value){return tree_.emplace_hint(hint,value);}
+    iterator insert(const_iterator hint,value_type&& value){return tree_.emplace_hint(hint,std::move(value));}
+    template<class I> void insert(I first,I last){while(first!=last){insert(*first);++first;}}
+    void insert(initializer_list<value_type> values){insert(values.begin(),values.end());}
+    template<class... A> pair<iterator,bool> emplace(A&&... a){return tree_.emplace(std::forward<A>(a)...);}
+    template<class... A> iterator emplace_hint(const_iterator hint,A&&... a){return tree_.emplace_hint(hint,std::forward<A>(a)...);}
+    template<class... A> pair<iterator,bool> try_emplace(const Key& key,A&&... a){
+        iterator i=find(key);if(i!=end())return pair<iterator,bool>(i,false);
+        return tree_.emplace(__minic_pair_key_tag(),key,std::forward<A>(a)...);
+    }
+    template<class... A> pair<iterator,bool> try_emplace(Key&& key,A&&... a){
+        iterator i=find(key);if(i!=end())return pair<iterator,bool>(i,false);
+        return tree_.emplace(__minic_pair_key_tag(),std::move(key),std::forward<A>(a)...);
+    }
+    template<class... A> iterator try_emplace(const_iterator hint,const Key& key,A&&... a){return try_emplace(key,std::forward<A>(a)...).first;}
+    template<class... A> iterator try_emplace(const_iterator hint,Key&& key,A&&... a){return try_emplace(std::move(key),std::forward<A>(a)...).first;}
+    template<class M> pair<iterator,bool> insert_or_assign(const Key& key,M&& value){
+        iterator i=find(key);if(i!=end()){i->second=std::forward<M>(value);return pair<iterator,bool>(i,false);}return try_emplace(key,std::forward<M>(value));
+    }
+    template<class M> pair<iterator,bool> insert_or_assign(Key&& key,M&& value){
+        iterator i=find(key);if(i!=end()){i->second=std::forward<M>(value);return pair<iterator,bool>(i,false);}return try_emplace(std::move(key),std::forward<M>(value));
+    }
+    iterator erase(iterator i){return tree_.erase(i);} iterator erase(const_iterator i){return tree_.erase(i);}
+    iterator erase(const_iterator first,const_iterator last){return tree_.erase(first,last);}
+    size_type erase(const Key& key){return tree_.erase(key);}
+    void swap(map& other){tree_.swap(other.tree_);}
+    size_type count(const Key& key) const{return tree_.count(key);}
+    iterator find(const Key& key){return tree_.find(key);} const_iterator find(const Key& key) const{return tree_.find(key);}
+    iterator lower_bound(const Key& key){return tree_.lower_bound(key);} const_iterator lower_bound(const Key& key) const{return tree_.lower_bound(key);}
+    iterator upper_bound(const Key& key){return tree_.upper_bound(key);} const_iterator upper_bound(const Key& key) const{return tree_.upper_bound(key);}
+    pair<iterator,iterator> equal_range(const Key& key){return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
+    pair<const_iterator,const_iterator> equal_range(const Key& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
+    Compare key_comp() const{return tree_.key_comp();} value_compare value_comp() const{return value_compare(tree_.key_comp());}
+};
+template<class K,class T,class C> void swap(map<K,T,C>& a,map<K,T,C>& b){a.swap(b);}
+template<class K,class T,class C> bool operator==(const map<K,T,C>& a,const map<K,T,C>& b){return a.size()==b.size() && std::equal(a.begin(),a.end(),b.begin());}
+template<class K,class T,class C> bool operator!=(const map<K,T,C>& a,const map<K,T,C>& b){return !(a==b);}
+template<class K,class T,class C> bool operator<(const map<K,T,C>& a,const map<K,T,C>& b){return std::lexicographical_compare(a.begin(),a.end(),b.begin(),b.end());}
+template<class K,class T,class C> bool operator>(const map<K,T,C>& a,const map<K,T,C>& b){return b<a;}
+template<class K,class T,class C> bool operator<=(const map<K,T,C>& a,const map<K,T,C>& b){return !(b<a);}
+template<class K,class T,class C> bool operator>=(const map<K,T,C>& a,const map<K,T,C>& b){return !(a<b);}
+}
+#endif

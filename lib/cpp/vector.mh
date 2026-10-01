@@ -133,4 +133,5 @@ template<class T> bool operator>(const vector<T>& a,const vector<T>& b) { return
 template<class T> bool operator<=(const vector<T>& a,const vector<T>& b) { return !(b<a); }
 template<class T> bool operator>=(const vector<T>& a,const vector<T>& b) { return !(a<b); }
 }
+#include "__vector_bool.mh"
 #endif

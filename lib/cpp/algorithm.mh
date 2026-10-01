@@ -2,6 +2,8 @@
 #define MINIC_CPP_ALGORITHM_MH
 #include "iterator.mh"
 #include "functional.mh"
+#include "initializer_list.mh"
+#include <stdlib.h>
 namespace std {
 template<class T,class C> const T& min(const T& a,const T& b,C comp) { return comp(b,a)?b:a; }
 template<class T> const T& min(const T& a,const T& b) { return b<a?b:a; }
@@ -102,5 +104,49 @@ template<class I,class C> void sort(I first,I last,C comp) {
     while(n>1){n/=2;++depth;}std::__minic_introsort(first,last,2*depth,comp);
 }
 template<class I> void sort(I first,I last) { std::sort(first,last,less<void>()); }
+template<class I,class J,class C> bool lexicographical_compare(I first,I last,J other,J end,C comp) {
+    while(first!=last && other!=end){if(comp(*first,*other))return true;if(comp(*other,*first))return false;++first;++other;}
+    return first==last && other!=end;
+}
+template<class I,class J> bool lexicographical_compare(I first,I last,J other,J end) { return std::lexicographical_compare(first,last,other,end,less<void>()); }
+template<class T,class C> T min(initializer_list<T> values,C comp){const T* best=values.begin();for(const T* p=best+1;p!=values.end();++p)if(comp(*p,*best))best=p;return *best;}
+template<class T> T min(initializer_list<T> values){return std::min(values,less<void>());}
+template<class T,class C> T max(initializer_list<T> values,C comp){const T* best=values.begin();for(const T* p=best+1;p!=values.end();++p)if(comp(*best,*p))best=p;return *best;}
+template<class T> T max(initializer_list<T> values){return std::max(values,less<void>());}
+template<class G> unsigned long long __minic_uniform_index(G& generator,unsigned long long bound){
+    if(bound<=1)return 0;
+    unsigned long long low=generator.min(),range=generator.max()-low;
+    if(range==0)::abort();
+    if(range>=bound-1){
+        if(range==bound-1)return (unsigned long long)generator()-low;
+        unsigned long long limit=(range/bound)*bound,value;
+        do{value=(unsigned long long)generator()-low;}while(value>=limit);
+        return value%bound;
+    }
+    unsigned long long base=range+1,value;
+    do{
+        unsigned long long high=std::__minic_uniform_index(generator,(bound-1)/base+1);
+        unsigned long long tail=(unsigned long long)generator()-low;
+        value=high*base+tail;
+        if(value<high*base)continue;
+        if(value<bound)return value;
+    }while(true);
+}
+template<class I,class G> void shuffle(I first,I last,G&& generator){
+    if(first==last)return;
+    typename iterator_traits<I>::difference_type n=last-first;
+    for(typename iterator_traits<I>::difference_type i=n-1;i>0;--i)std::iter_swap(first+i,first+std::__minic_uniform_index(generator,(unsigned long long)i+1));
+}
+struct __minic_rand_generator {
+    static unsigned int min(){return 0;} static unsigned int max(){return RAND_MAX;}
+    unsigned int operator()(){return (unsigned int)::rand();}
+};
+// Kept as an explicitly documented pre-C++17 compatibility extension.
+template<class I> void random_shuffle(I first,I last){__minic_rand_generator generator;std::shuffle(first,last,generator);}
+template<class I,class R> void random_shuffle(I first,I last,R&& random){
+    if(first==last)return;
+    typename iterator_traits<I>::difference_type n=last-first;
+    for(typename iterator_traits<I>::difference_type i=1;i<n;++i)std::iter_swap(first+i,first+random(i+1));
+}
 }
 #endif

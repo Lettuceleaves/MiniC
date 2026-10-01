@@ -131,6 +131,16 @@
 | F12b 类模板实例化 | `d664cd6` | 规范类型实例缓存、定义点查找、按使用实例化成员体；编译检查通过，待统一验收 |
 | F13a 模板类型参数 | `db21142` | 多类型参数、依赖默认类型、forward 合并、嵌套 >>；编译检查通过，待统一验收 |
 | F09 静态生命周期 | `01c2ef2` | native/debug 共用入口、全局动态初始化、局部 static 一次初始化、逆实际完成顺序清理及 exit；完整非 UI 编译通过，待统一验收 |
+| F13b 整型模板参数 | `c00822c` | 类型化整型实参、依赖数组界限及默认值；编译检查通过，待统一验收 |
+| F11 用户转换 | `080748f` | 转换函数、显式/上下文转换、内置运算候选与转换等级；编译检查通过，待统一验收 |
+| F13c 模板成员类型 | `7b63ea4` | typedef、typename 和依赖成员类型查找；编译检查通过，待统一验收 |
+| 类静态成员 | `aa8f4b9` | 静态字段/方法、类外定义、ODR 使用、静态/非静态重载混合；编译检查通过，待统一验收 |
+| F13c 模板特化 | `b780c2d`、`29776a6` | 完整/部分特化及结构推导排序；第二提交修复首次交接中遗漏的解析分支；编译检查通过，待统一验收 |
+| L06/L11–L12 库源码 | `abb01b0` | string、分段 deque 及 4 个待验收源码；只静态审阅，尚未编译/运行头文件 |
+| F19 初始化列表 | `4c35c20` | 列表重载、const 底层数组、局部/静态生命周期与窄化；编译检查通过，37 个用例待统一验收 |
+| I/O 运行时 | `b8122f7` | MSVCRT 标准 FILE 流和 debug 共用输入/回退/UTF-8 输出；编译检查通过，待统一验收 |
+| L22 预处理入口 | `26a4bb3` | __MINIC__/__cplusplus、C++ NULL 和 bits/stdc++.h 精确别名；编译检查通过，待统一验收 |
+| 单精度转换 | `7ed96e2` | UCRT strtof 与跨 CRT errno 桥接、debug 单次 float 舍入、stof；编译检查通过，待统一验收 |
 
 `44ea4d2` 的独立 Git 归档已完成完整非 UI 验收：**1858/1858 通过，无跳过**，约 893.4 秒，日志 `build/integration-b2/all-tests.txt`。它包括此前调试停点修复、位宽修复、非易失寄存器保存和临时引用绑定；不包括其后字符串、普通变量初始化、标量提升及数值窄化提交，也没有混入开发中的源码重载红测。
 
@@ -194,7 +204,7 @@ $env:MINIC_CXX = 'C:\mingw64\bin\g++.exe'
 
 ## 库初版与待完成依赖
 
-`lib/cpp` 已开始落地实际实现，不使用占位空头文件。当前初版包含 `type_traits`、`utility`、`functional`、`iterator`、`algorithm`、`new`、`memory`、`initializer_list` 与 `vector`。尚未执行头文件编译或功能验收，能力清单保持 `planned`。库依赖整型模板参数、类成员 typedef/静态常量、特化、函数/成员模板、引用折叠、移动、参数包和 initializer_list 语言构造，这些依赖由通用前端机制实现。迭代器标签继承关系、异常失败恢复、自定义 allocator 及 vector<bool> 仍需按最终兼容范围补齐，不能因源码文件存在而宣称完整 STL 兼容。
+`lib/cpp` 已开始落地实际实现，不使用占位空头文件。当前源码初版覆盖 `type_traits`、`utility`、`functional`、`iterator`、`algorithm`、`new`、`memory`、`initializer_list`、`vector`（含 bool 代理）、`string`、分段 `deque`、`queue/stack/priority_queue`、红黑树 `set/multiset/map`、`bitset`、`iostream/iomanip` 和常见 C 标准头的 C++ namespace 包装。尚未执行头文件编译或功能验收，能力清单保持 `planned`。库依赖整型模板参数、类成员 typedef/静态常量、特化、函数/成员模板、引用折叠、移动、参数包和 initializer_list 语言构造，这些依赖由通用前端机制实现。函数模板/移动/转发等通用语言能力仍在开发；迭代器标签继承关系、异常失败恢复、自定义 allocator 及更广泛 C++17 接口仍有缺口。当前库的分配、越界和转换失败路径采用 abort，不能当作标准异常行为；long double、stold 未实现。UCRT 单精度转换暂沿用 C locale，未同步 MSVCRT 的非 C locale。这些边界须在最终兼容范围中明确处理，不能因源码文件存在而宣称完整 STL 兼容。
 
 ## 后续提交顺序
 

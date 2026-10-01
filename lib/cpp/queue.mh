@@ -1,0 +1,66 @@
+#ifndef MINIC_CPP_QUEUE_MH
+#define MINIC_CPP_QUEUE_MH
+#include "deque.mh"
+#include "vector.mh"
+#include "algorithm.mh"
+namespace std {
+template<class T,class Container=deque<T>> class queue {
+protected:
+    Container c;
+public:
+    typedef T value_type;
+    typedef Container container_type;
+    typedef typename Container::size_type size_type;
+    typedef typename Container::reference reference;
+    typedef typename Container::const_reference const_reference;
+    queue():c() {}
+    explicit queue(const Container& container):c(container) {}
+    explicit queue(Container&& container):c(std::move(container)) {}
+    bool empty() const { return c.empty(); }
+    size_type size() const { return c.size(); }
+    reference front() { return c.front(); }
+    const_reference front() const { return c.front(); }
+    reference back() { return c.back(); }
+    const_reference back() const { return c.back(); }
+    void push(const T& value) { c.push_back(value); }
+    void push(T&& value) { c.push_back(std::move(value)); }
+    template<class... A> reference emplace(A&&... args) { return c.emplace_back(std::forward<A>(args)...); }
+    void pop() { c.pop_front(); }
+    void swap(queue& other) { using std::swap;swap(c,other.c); }
+    bool operator==(const queue& other) const { return c==other.c; }
+    bool operator!=(const queue& other) const { return !(c==other.c); }
+    bool operator<(const queue& other) const { return c<other.c; }
+    bool operator>(const queue& other) const { return other.c<c; }
+    bool operator<=(const queue& other) const { return !(other.c<c); }
+    bool operator>=(const queue& other) const { return !(c<other.c); }
+};
+template<class T,class C> void swap(queue<T,C>& a,queue<T,C>& b) { a.swap(b); }
+template<class T,class Container=vector<T>,class Compare=less<typename Container::value_type>> class priority_queue {
+protected:
+    Container c;
+    Compare comp;
+public:
+    typedef T value_type;
+    typedef Container container_type;
+    typedef Compare value_compare;
+    typedef typename Container::size_type size_type;
+    typedef typename Container::const_reference const_reference;
+    priority_queue():c(),comp() {}
+    explicit priority_queue(const Compare& compare):c(),comp(compare) {}
+    priority_queue(const Compare& compare,const Container& container):c(container),comp(compare) { std::make_heap(c.begin(),c.end(),comp); }
+    priority_queue(const Compare& compare,Container&& container):c(std::move(container)),comp(compare) { std::make_heap(c.begin(),c.end(),comp); }
+    template<class I> priority_queue(I first,I last):c(first,last),comp() { std::make_heap(c.begin(),c.end(),comp); }
+    template<class I> priority_queue(I first,I last,const Compare& compare):c(first,last),comp(compare) { std::make_heap(c.begin(),c.end(),comp); }
+    template<class I> priority_queue(I first,I last,const Compare& compare,const Container& container):c(container),comp(compare) { c.insert(c.end(),first,last);std::make_heap(c.begin(),c.end(),comp); }
+    bool empty() const { return c.empty(); }
+    size_type size() const { return c.size(); }
+    const_reference top() const { return c.front(); }
+    void push(const T& value) { c.push_back(value);std::push_heap(c.begin(),c.end(),comp); }
+    void push(T&& value) { c.push_back(std::move(value));std::push_heap(c.begin(),c.end(),comp); }
+    template<class... A> void emplace(A&&... args) { c.emplace_back(std::forward<A>(args)...);std::push_heap(c.begin(),c.end(),comp); }
+    void pop() { std::pop_heap(c.begin(),c.end(),comp);c.pop_back(); }
+    void swap(priority_queue& other) { using std::swap;swap(c,other.c);swap(comp,other.comp); }
+};
+template<class T,class C,class P> void swap(priority_queue<T,C,P>& a,priority_queue<T,C,P>& b) { a.swap(b); }
+}
+#endif
