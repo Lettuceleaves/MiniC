@@ -223,7 +223,8 @@ public final class IrLowerer extends Stage {
                 input.structLayouts,
                 currentAstNode,
                 currentSubject,
-                input.displayNames
+                input.displayNames,
+                input.program.entryFunction()
         );
     }
 
@@ -296,7 +297,8 @@ public final class IrLowerer extends Stage {
     private IrResult buildResult() {
         IrReachability.Result reachable = IrReachability.prune(
                 work.functions,
-                work.externalFunctionNames
+                work.externalFunctionNames,
+                input.program.entryFunction()
         );
         return new IrResult(
                 reachable.functions(),
@@ -307,7 +309,8 @@ public final class IrLowerer extends Stage {
                 input.structLayouts,
                 null,
                 "",
-                input.displayNames
+                input.displayNames,
+                input.program.entryFunction()
         );
     }
 

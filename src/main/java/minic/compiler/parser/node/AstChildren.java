@@ -16,6 +16,7 @@ public final class AstChildren {
         return switch (node) {
             case Program n -> n.declarations();
             case NamespaceDecl n -> n.declarations();
+            case InternalLinkageDecl n -> present(n.declaration());
             case ClassTemplateDecl n -> prepend(n.record(), n.parameters());
             case StructDecl n -> n.cppInfo() == null ? n.fields() : n.cppInfo().members();
             case FieldMember n -> present(n.field(), n.defaultInitializer());
@@ -101,12 +102,13 @@ public final class AstChildren {
         while (!pending.isEmpty()) {
             AstNode node = pending.removeFirst();
             if (!visited.add(node)) continue;
-            if (!onlyReferences && (node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
+            if (!onlyReferences && (node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
                     || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
                     || node instanceof FunctionDecl function && (function.operatorName() != null || function.conversionName() != null)
+                    || node instanceof VarDeclStmt variable && variable.staticStorage()
                     || node instanceof StructDecl record && record.cppInfo() != null)) return node;
             AstNode reference = sourceTypeOwner(node, onlyReferences);
             if (reference != null) return reference;

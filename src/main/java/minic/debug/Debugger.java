@@ -60,8 +60,8 @@ public final class Debugger {
     private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
                      int heapCapacity) {
         runtime = new DebugRuntime(new DebugProgram(source, ir), standardInput, timeSource, heapCapacity);
-        runtime.push(runtime.code().ir().findFunction("main")
-                .orElseThrow(() -> new IllegalStateException("Missing main function")), List.of(), null);
+        runtime.push(runtime.code().ir().findFunction(runtime.code().ir().entryFunction())
+                .orElseThrow(() -> new IllegalStateException("Missing entry function: " + runtime.code().ir().entryFunction())), List.of(), null);
         remember(latestStop);
     }
 

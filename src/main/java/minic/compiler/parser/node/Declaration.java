@@ -22,6 +22,7 @@ public interface Declaration extends AstNode {
             List<FunctionDecl> functions,
             List<Declaration> declarations,
             LanguageMode languageMode,
+            String entryFunction,
             SourceRange range
     ) implements Declaration {
         public Program {
@@ -32,12 +33,19 @@ public interface Declaration extends AstNode {
             Objects.requireNonNull(functions, "functions");
             Objects.requireNonNull(range, "range");
             Objects.requireNonNull(languageMode, "languageMode");
+            if (Objects.requireNonNull(entryFunction, "entryFunction").isBlank()) throw new IllegalArgumentException("entryFunction is blank");
             structs = List.copyOf(structs);
             enums = List.copyOf(enums);
             typedefs = List.copyOf(typedefs);
             globals = List.copyOf(globals);
             functions = List.copyOf(functions);
             declarations = List.copyOf(declarations);
+        }
+
+        public Program(List<StructDecl> structs, List<EnumDecl> enums, List<TypedefDecl> typedefs,
+                       List<GlobalVarDecl> globals, List<FunctionDecl> functions,
+                       List<Declaration> declarations, LanguageMode languageMode, SourceRange range) {
+            this(structs, enums, typedefs, globals, functions, declarations, languageMode, "main", range);
         }
 
         /** Compatibility for existing C AST producers; the parser supplies exact source order. */
@@ -67,6 +75,16 @@ public interface Declaration extends AstNode {
 
         public Program(List<StructDecl> structs, List<EnumDecl> enums, List<FunctionDecl> functions, SourceRange range) {
             this(structs, enums, List.of(), List.of(), functions, range);
+        }
+    }
+
+    /** Namespace-scope static is linkage metadata, distinct from block static storage duration. */
+    record InternalLinkageDecl(Declaration declaration, SourceRange range) implements Declaration {
+        public InternalLinkageDecl {
+            Objects.requireNonNull(declaration, "declaration");
+            Objects.requireNonNull(range, "range");
+            if (!(declaration instanceof GlobalVarDecl) && !(declaration instanceof FunctionDecl))
+                throw new IllegalArgumentException("static linkage requires a variable or function");
         }
     }
 

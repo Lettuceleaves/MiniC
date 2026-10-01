@@ -34,7 +34,8 @@ public record IrResult(
         Map<String, StructLayout> structLayouts,
         AstNode currentAstNode,
         String currentSubject,
-        Map<String, String> displayNames
+        Map<String, String> displayNames,
+        String entryFunction
 ) implements Stage.Context {
     public IrResult {
         Objects.requireNonNull(functions, "functions");
@@ -54,6 +55,15 @@ public record IrResult(
         externalObjectNames = Set.copyOf(externalObjectNames);
         structLayouts = Map.copyOf(structLayouts);
         displayNames = Map.copyOf(displayNames);
+        if (Objects.requireNonNull(entryFunction, "entryFunction").isBlank()) throw new IllegalArgumentException("entryFunction is blank");
+    }
+
+    public IrResult(List<IrFunction> functions, List<IrStringData> stringData, List<IrGlobalData> globalData,
+                    Set<String> externalFunctionNames, Set<String> externalObjectNames,
+                    Map<String, StructLayout> structLayouts, AstNode currentAstNode, String currentSubject,
+                    Map<String, String> displayNames) {
+        this(functions, stringData, globalData, externalFunctionNames, externalObjectNames,
+                structLayouts, currentAstNode, currentSubject, displayNames, "main");
     }
 
     public IrResult(List<IrFunction> functions, List<IrStringData> stringData, List<IrGlobalData> globalData,

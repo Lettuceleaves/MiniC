@@ -22,7 +22,7 @@ public final class InitializedCheckEliminationPass implements IrPass {
         List<IrFunction> functions = input.functions().stream().map(this::eliminate).toList();
         return functions.equals(input.functions()) ? input
                 : new IrResult(functions, input.stringData(), input.globalData(), input.externalFunctionNames(),
-                        input.externalObjectNames(), input.structLayouts(), input.currentAstNode(), input.currentSubject(), input.displayNames());
+                        input.externalObjectNames(), input.structLayouts(), input.currentAstNode(), input.currentSubject(), input.displayNames(), input.entryFunction());
     }
 
     private IrFunction eliminate(IrFunction function) {

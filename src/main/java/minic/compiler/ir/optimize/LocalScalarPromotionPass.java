@@ -19,7 +19,7 @@ public final class LocalScalarPromotionPass implements IrPass {
         var functions = input.functions().stream().map(this::promote).toList();
         return functions.equals(input.functions()) ? input : new IrResult(functions, input.stringData(), input.globalData(),
                 input.externalFunctionNames(), input.externalObjectNames(), input.structLayouts(), input.currentAstNode(),
-                input.currentSubject(), input.displayNames());
+                input.currentSubject(), input.displayNames(), input.entryFunction());
     }
 
     private IrFunction promote(IrFunction function) {

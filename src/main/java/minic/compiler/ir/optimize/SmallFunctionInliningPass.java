@@ -96,7 +96,7 @@ public final class SmallFunctionInliningPass implements IrPass {
             }
         }
         return !changed ? input : new IrResult(functions, input.stringData(), input.globalData(), input.externalFunctionNames(),
-                input.externalObjectNames(), input.structLayouts(), input.currentAstNode(), input.currentSubject(), input.displayNames());
+                input.externalObjectNames(), input.structLayouts(), input.currentAstNode(), input.currentSubject(), input.displayNames(), input.entryFunction());
     }
 
     private Candidate candidate(IrFunction function) {

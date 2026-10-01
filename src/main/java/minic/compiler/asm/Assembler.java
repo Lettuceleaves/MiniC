@@ -280,11 +280,11 @@ public final class Assembler extends Stage {
         );
     }
 
-    private static List<String> entryPointLines() {
+    private List<String> entryPointLines() {
         return List.of(
                 CallingConvention.ENTRY_SYMBOL + " PROC",
                 "    sub rsp, 40",
-                "    call " + CallingConvention.USER_MAIN_SYMBOL,
+                "    call " + CallingConvention.functionDefinitionSymbol(input.irResult.entryFunction()),
                 "    mov ecx, eax",
                 "    call ExitProcess",
                 CallingConvention.ENTRY_SYMBOL + " ENDP"

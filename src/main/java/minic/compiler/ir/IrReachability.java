@@ -38,17 +38,21 @@ final class IrReachability {
     }
 
     static Result prune(List<IrFunction> functions, Set<String> declaredExternals) {
+        return prune(functions, declaredExternals, ENTRY_FUNCTION);
+    }
+
+    static Result prune(List<IrFunction> functions, Set<String> declaredExternals, String entryFunction) {
         LinkedHashMap<String, IrFunction> locals = new LinkedHashMap<>();
         functions.forEach(function -> locals.put(function.name(), function));
 
         // IrLowerer is also used for isolated snippets. Without an executable entry,
         // preserve the complete module rather than guessing an external root.
-        if (!locals.containsKey(ENTRY_FUNCTION)) {
+        if (!locals.containsKey(entryFunction)) {
             return new Result(functions, declaredExternals);
         }
 
         LinkedHashSet<String> roots = new LinkedHashSet<>();
-        roots.add(ENTRY_FUNCTION);
+        roots.add(entryFunction);
         // Any materialized local function address can escape through memory or an
         // indirect call. Treat every such target as a root, even when the address
         // occurs in code that later proves unreachable.

@@ -16,6 +16,7 @@ import java.util.List;
 final class CppLifetimeLowering {
     interface Context {
         MiniType type(Expression expression);
+        default Expression staticMaterialize(MaterializeExpr temporary) { return null; }
         boolean needsDestruction(MiniType type);
         Expression destroy(MiniType type, Expression address, SourceRange range);
         Expression copy(MiniType type, Expression value, SourceRange range);
@@ -69,7 +70,10 @@ final class CppLifetimeLowering {
         Expression result = switch (expression) {
             case MaterializeExpr temporary -> {
                 Expression initializer = rewrite(temporary.initializer(), true);
-                Expression materialized = new MaterializeExpr(temporary.type(), initializer, temporary.lifetime(), temporary.range());
+                MaterializeExpr rewritten = new MaterializeExpr(temporary.type(), initializer, temporary.lifetime(), temporary.range());
+                Expression staticAddress = context.staticMaterialize(rewritten);
+                if (staticAddress != null) yield staticAddress;
+                Expression materialized = rewritten;
                 if (context.needsDestruction(temporary.type())) {
                     Registration registration = register(temporary.type(),
                             temporary.lifetime().kind() == TemporaryLifetime.Kind.REFERENCE_SCOPE, temporary.range());

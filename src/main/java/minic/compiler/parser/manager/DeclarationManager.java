@@ -144,16 +144,22 @@ public final class DeclarationManager {
         Token startToken = state.peek();
         boolean external = false;
         boolean noReturn = false;
-        while (state.check(TokenType.EXTERN) || state.check(TokenType.NORETURN)) {
+        boolean internal = false;
+        while (state.check(TokenType.EXTERN) || state.check(TokenType.NORETURN)
+                || typeReader.isCpp() && state.check(TokenType.STATIC)) {
             Token specifier = state.advance();
             if (specifier.type() == TokenType.EXTERN) {
                 if (external) state.report(specifier, "extern 函数说明符重复");
                 external = true;
+            } else if (specifier.type() == TokenType.STATIC) {
+                if (internal) state.report(specifier, "static 说明符重复");
+                internal = true;
             } else {
                 if (noReturn) state.report(specifier, "noreturn 函数说明符重复");
                 noReturn = true;
             }
         }
+        if (internal && external) state.report(startToken, "static 与 extern 不能用于同一声明");
         Parser.ParsedNamedType declaration = typeReader.parseNamedType(
                 "期望函数返回类型",
                 "期望函数名",
@@ -164,6 +170,7 @@ public final class DeclarationManager {
         }
         // In C++, a declarator hides an outer type name in its own initializer/body.
         boolean qualified = declaration.qualifiedName() != null;
+        if (qualified && internal) state.report(startToken, "类外成员定义不能重复 static 说明符");
         if (qualified && declaration.qualifiedName().segments().size() < 2) {
             state.unsupportedCpp(declaration.nameRange(), "此限定声明需要所属类名称");
             return null;
@@ -184,7 +191,7 @@ public final class DeclarationManager {
             if (!typeReader.isCpp()) typeReader.declareOrdinaryName(global.name(), global.range());
             state.build(global, "GlobalVarDecl " + global.name(), global.range());
             state.exit("functionDecl", global.range());
-            return global;
+            return internal ? new Declaration.InternalLinkageDecl(global, global.range()) : global;
         }
         if (!declaration.alignmentSpecs().isEmpty()) {
             state.report(declaration.range(), "函数声明不能使用 alignas");
@@ -244,7 +251,7 @@ public final class DeclarationManager {
             return new Declaration.OutOfLineMethodDecl(declaration.qualifiedName(), functionDecl,
                     constQualified, declaration.nameRange());
         }
-        return functionDecl;
+        return internal ? new Declaration.InternalLinkageDecl(functionDecl, functionDecl.range()) : functionDecl;
     }
 
     /** 兼容旧调用方；新代码应使用 parseFunctionOrGlobalDecl。 */

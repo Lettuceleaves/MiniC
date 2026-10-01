@@ -23,7 +23,7 @@ public final class LoopInvariantCodeMotionPass implements IrPass {
         var functions=input.functions().stream().map(this::optimize).toList();
         return functions.equals(input.functions())?input:new IrResult(functions,input.stringData(),input.globalData(),
                 input.externalFunctionNames(),input.externalObjectNames(),input.structLayouts(),input.currentAstNode(),
-                input.currentSubject(),input.displayNames());
+                input.currentSubject(),input.displayNames(), input.entryFunction());
     }
 
     private IrFunction optimize(IrFunction function) {

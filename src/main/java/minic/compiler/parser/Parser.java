@@ -144,11 +144,12 @@ public final class Parser extends Stage {
         Declaration declaration = parseDeclaration();
         if (declaration != null) {
             declarations.add(declaration);
-            if (declaration instanceof TypedefDecl item) typedefs.add(item);
-            else if (declaration instanceof EnumDecl item) enums.add(item);
-            else if (declaration instanceof StructDecl item) structs.add(item);
-            else if (declaration instanceof FunctionDecl item) functions.add(item);
-            else if (declaration instanceof GlobalVarDecl item) globals.add(item);
+            Declaration indexed = declaration instanceof Declaration.InternalLinkageDecl internal ? internal.declaration() : declaration;
+            if (indexed instanceof TypedefDecl item) typedefs.add(item);
+            else if (indexed instanceof EnumDecl item) enums.add(item);
+            else if (indexed instanceof StructDecl item) structs.add(item);
+            else if (indexed instanceof FunctionDecl item) functions.add(item);
+            else if (indexed instanceof GlobalVarDecl item) globals.add(item);
             captureNode(declaration);
         } else {
             context.synchronizeFunction();

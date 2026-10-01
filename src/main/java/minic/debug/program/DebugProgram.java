@@ -71,7 +71,8 @@ public final class DebugProgram {
                 original.structLayouts(),
                 original.currentAstNode(),
                 original.currentSubject(),
-                original.displayNames()
+                original.displayNames(),
+                original.entryFunction()
         );
         lines = lineIndex.stream().map(List::copyOf).toList();
     }

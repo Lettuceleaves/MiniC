@@ -131,6 +131,7 @@ public interface Statement extends AstNode {
             Expression initializer,
             List<AlignmentSpec> alignmentSpecs,
             CppInitializer cppInitializer,
+            boolean staticStorage,
             SourceRange range
     ) implements Statement {
         public VarDeclStmt {
@@ -145,6 +146,11 @@ public interface Statement extends AstNode {
             if (cppInitializer != null && !cppInitializer.isCompatibilityProjection(initializer)) {
                 throw new IllegalArgumentException("C++ initialization operands must match the compatibility projection");
             }
+        }
+
+        public VarDeclStmt(String name, MiniType type, Expression initializer,
+                           List<AlignmentSpec> alignmentSpecs, CppInitializer cppInitializer, SourceRange range) {
+            this(name, type, initializer, alignmentSpecs, cppInitializer, false, range);
         }
 
         public VarDeclStmt(String name, MiniType type, Expression initializer,

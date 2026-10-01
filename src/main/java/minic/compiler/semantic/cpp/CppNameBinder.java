@@ -216,14 +216,40 @@ public final class CppNameBinder {
         private final Map<AstNode, AstNode> templateOrigins = new IdentityHashMap<>();
         private final Map<String, String> templateDisplay = new LinkedHashMap<>();
         private Map<Namespace, NamespaceView> currentTemplateLookup;
+        private boolean staticInitialization;
+        private boolean internalDeclaration;
+        private final IdentityHashMap<Entity, Boolean> internalLinkages = new IdentityHashMap<>();
+        private final Set<Entity> libraryExitFunctions = Collections.newSetFromMap(new IdentityHashMap<>());
+        private final CppStaticLifetime staticLifetime;
 
-        Binding(Program source) { this.source = source; reserveNames(source); }
+        Binding(Program source) {
+            this.source = source;
+            reserveNames(source);
+            staticLifetime = new CppStaticLifetime(new CppStaticLifetime.Context() {
+                public String fresh(String display) { return freshName(display); }
+                public void global(GlobalVarDecl variable) { addStaticGlobal(variable); }
+                public void function(FunctionDecl function) { addStaticFunction(function); }
+            }, source.range());
+        }
+
+        private void addStaticGlobal(GlobalVarDecl variable) {
+            globals.add(variable); declarations.add(variable);
+            coreValues.putIfAbsent(variable.name(), new Entity(variable.name(), variable.name(), Kind.VARIABLE,
+                    root, variable.type(), null, true));
+        }
+
+        private void addStaticFunction(FunctionDecl function) {
+            functions.add(function); declarations.add(function);
+            coreValues.putIfAbsent(function.name(), new Entity(function.name(), function.name(), Kind.FUNCTION, root,
+                    MiniType.function(function.returnType(), function.parameters().stream().map(Parameter::type).toList(), function.variadic()),
+                    null, function.hasBody()));
+        }
 
         Result run() {
             bindDeclarations(source.declarations(), root);
             // The compatibility constructor deliberately produces a core C Program.
             Program core = mapped(source, new Program(structs, enums, typedefs, globals, functions,
-                    declarations, source.range()));
+                    declarations, minic.compiler.LanguageMode.C, staticLifetime.finish(), source.range()));
             return new Result(core, diagnostics, origins, displayNames);
         }
 
@@ -231,6 +257,12 @@ public final class CppNameBinder {
             for (Declaration declaration : input) {
                 switch (declaration) {
                     case ClassTemplateDecl node -> declareTemplate(node, namespace);
+                    case InternalLinkageDecl node -> {
+                        boolean saved = internalDeclaration;
+                        internalDeclaration = true;
+                        try { bindDeclarations(List.of(node.declaration()), namespace); }
+                        finally { internalDeclaration = saved; }
+                    }
                     case NamespaceDecl node -> {
                         Namespace target = namespace;
                         for (String name : node.name().segments()) {
@@ -1235,27 +1267,77 @@ public final class CppNameBinder {
         }
 
         private void bindGlobal(GlobalVarDecl node, Namespace namespace) {
-            if (namespace != root && node.external()) report("CPP005", node.range(),
+            if (namespace != root && node.external() && !existingInternal(namespace, node.name())) report("CPP005", node.range(),
                     "尚未支持命名空间中的外部对象链接：" + namespace.qualify(node.name()));
             MiniType type = normalizeType(node.type(), namespace, null, node.range());
-            if (type.isReference()) report("CPP005", node.range(), "全局引用的静态地址初始化尚未实现。");
-            if ((!node.external() || node.initializer() != null) && needsDestruction(type)) {
-                report("CPP005", node.range(), "Global object destruction requires static lifetime support.");
-            }
-            if ((!node.external() || node.initializer() != null) && needsConstructedType(type)) {
-                report("CPP005", node.range(), "Global object construction requires dynamic initialization support.");
-            }
-            if (!node.external() || node.initializer() != null) requireComplete(type, node.range());
-            Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, type,
-                    !node.external() || node.initializer() != null, namespace, node.range());
-            Expression initializer = node.external() && node.initializer() == null ? null
-                    : initializer(type, node.initializer(), namespace, null, node.range());
-            if (initializer != null && !constantInitializer(initializer)) {
-                report("CPP005", node.initializer().range(), "尚未支持动态或地址形式的全局初始化；此阶段仅支持可直接写入数据段的常量初始化。");
-            }
-            GlobalVarDecl core = mapped(node, new GlobalVarDecl(entity.coreName, coreType(type), initializer,
-                    node.external(), normalizeAlignments(node.alignmentSpecs(), namespace, null), node.range()));
+            boolean defined = !node.external() || node.initializer() != null;
+            if (defined) requireComplete(type, node.range());
+            Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, type, defined, namespace, node.range());
+            recordLinkage(entity, node.range());
+            Expression value = defined ? bindStaticInitializer(type, node.cppInitializer(), node.initializer(),
+                    namespace, null, node, node.name()) : null;
+            boolean constant = value == null || constantInitializer(value);
+            GlobalVarDecl core = mapped(node, new GlobalVarDecl(entity.coreName, coreType(type), constant ? value : null,
+                    node.external() && !defined && !internalLinkages.getOrDefault(entity, false), normalizeAlignments(node.alignmentSpecs(), namespace, null), node.range()));
             globals.add(core); declarations.add(core);
+            if (defined) for (Statement action : staticActions(entity, type, constant ? null : value, node.range()))
+                staticLifetime.startup(action);
+        }
+
+        private Expression bindStaticInitializer(MiniType type, CppInitializer syntax, Expression legacy,
+                                                 Namespace namespace, Local scope, AstNode sourceNode, String name) {
+            boolean previous = staticInitialization;
+            staticInitialization = true;
+            try {
+                Expression value = variableInitializer(type, syntax, legacy, namespace, scope, sourceNode.range(), name);
+                if (type.isReference() && value != null) value = extendTemporaryLifetime(value,
+                        new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, sourceNode));
+                return value;
+            } finally { staticInitialization = previous; }
+        }
+
+        private List<Statement> staticActions(Entity entity, MiniType type, Expression initialized, SourceRange range) {
+            List<Expression> actions = new ArrayList<>();
+            Expression storage = typed(new NameExpr(entity.coreName, range), coreType(type));
+            if (initialized != null) actions.add(new InitializeExpr(storage, initialized, range));
+            Expression cleanup = destruction(type, address(storage), range);
+            Expression registration = staticLifetime.register(cleanup, range);
+            if (registration != null) actions.add(registration);
+            if (actions.isEmpty()) return List.of();
+            Expression action = actions.size() == 1 ? actions.getFirst() : new CommaExpr(actions, range);
+            boolean saved = staticInitialization;
+            staticInitialization = true;
+            try {
+                // Store the initialized result and register its lifetime before the initializer's
+                // temporaries are destroyed (a temporary destructor may itself call exit).
+                return List.of(new ExprStmt(fullExpression(action, false, action), range));
+            } finally { staticInitialization = saved; }
+        }
+
+        private Statement bindLocalStatic(VarDeclStmt node, Namespace namespace, Local scope, MiniType type) {
+            Entity entity = declareLocal(node.name(), type, scope, node.range());
+            Expression value = bindStaticInitializer(type, node.cppInitializer(), node.initializer(), namespace, scope, node, node.name());
+            boolean constant = value == null || constantInitializer(value);
+            addStaticGlobal(new GlobalVarDecl(entity.coreName, coreType(type), constant ? value : null, false,
+                    normalizeAlignments(node.alignmentSpecs(), namespace, scope), node.range()));
+            List<Statement> actions = staticActions(entity, type, constant ? null : value, node.range());
+            return actions.isEmpty() ? new BlockStmt(List.of(), node.range()) : staticLifetime.once(actions, node.range());
+        }
+
+        private Expression staticMaterialization(MaterializeExpr temporary) {
+            String name = freshName("static_reference_temporary");
+            MiniType type = temporary.type();
+            addStaticGlobal(new GlobalVarDecl(name, type, null, false, List.of(), temporary.range()));
+            Expression storage = typed(new NameExpr(name, temporary.range()), type);
+            Expression result = address(storage);
+            List<Expression> actions = new ArrayList<>();
+            // The caller already rewrote this initializer. Keep its pending full-expression
+            // temporary registrations in that enclosing traversal instead of lowering it twice.
+            actions.add(new InitializeExpr(storage, temporary.initializer(), temporary.range()));
+            Expression registration = staticLifetime.register(destruction(type, result, temporary.range()), temporary.range());
+            if (registration != null) actions.add(registration);
+            actions.add(result);
+            return typed(new CommaExpr(actions, temporary.range()), type.pointerTo());
         }
 
         private boolean unsupportedOperator(FunctionDecl node) {
@@ -1315,7 +1397,7 @@ public final class CppNameBinder {
         private void bindFunction(FunctionDecl node, Namespace namespace) {
             boolean allocation = node.operatorName() != null && node.operatorName().kind().allocation();
             if (!allocation && unsupportedOperator(node)) return;
-            if (namespace != root && node.external()) report("CPP005", node.range(),
+            if (namespace != root && node.external() && !existingInternal(namespace, node.name())) report("CPP005", node.range(),
                     "尚未支持命名空间中的外部函数链接：" + namespace.qualify(node.name()));
             MiniType returnType = normalizeType(node.returnType(), namespace, null, node.range());
             List<MiniType> parameterTypes = node.parameters().stream()
@@ -1330,6 +1412,9 @@ public final class CppNameBinder {
             MiniType.FunctionType signature = (MiniType.FunctionType) MiniType.function(returnType, parameterTypes.stream()
                     .map(MiniType::unqualified).toList(), node.variadic());
             Entity entity = declareNamespaceFunction(node.name(), signature, node.hasBody(), namespace, node.range(), node.operatorName() != null);
+            recordLinkage(entity, node.range());
+            if (node.external() && namespace == root && node.name().equals("exit")
+                    && !internalLinkages.getOrDefault(entity, false)) libraryExitFunctions.add(entity);
             Local scope = new Local(null, namespace);
             List<Parameter> parameters = new ArrayList<>();
             for (int i = 0; i < node.parameters().size(); i++) {
@@ -1343,7 +1428,7 @@ public final class CppNameBinder {
             try {
                 BlockStmt body = node.body() == null ? null : block(node.body(), scope, false);
                 FunctionDecl core = mapped(node, new FunctionDecl(entity.coreName, coreType(returnType), parameters,
-                        node.variadic(), body, node.external(), node.noReturn(), node.range()));
+                        node.variadic(), body, node.external() && !internalLinkages.getOrDefault(entity, false), node.noReturn(), node.range()));
                 functions.add(core); declarations.add(core);
             } finally { currentReturnType = savedReturnType; }
         }
@@ -1517,6 +1602,7 @@ public final class CppNameBinder {
                 case VarDeclStmt n -> {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
                     requireComplete(type, n.range());
+                    if (n.staticStorage()) yield bindLocalStatic(n, namespace, scope, type);
                     Entity value = declareLocal(n.name(), type, scope, n.range());
                     Expression initialized = variableInitializer(type, n.cppInitializer(), n.initializer(), namespace, scope, n.range(), n.name());
                     if (type.isReference() && initialized != null) {
@@ -1610,6 +1696,10 @@ public final class CppNameBinder {
         private CppLifetimeLowering.Result lowerLifetime(Expression value, boolean resultOwned, AstNode owner) {
             return new CppLifetimeLowering(new CppLifetimeLowering.Context() {
                 public MiniType type(Expression expression) { return declaredExpressionType(expression); }
+                public Expression staticMaterialize(MaterializeExpr temporary) {
+                    return staticInitialization && temporary.lifetime().kind() == TemporaryLifetime.Kind.REFERENCE_SCOPE
+                            ? staticMaterialization(temporary) : null;
+                }
                 public boolean needsDestruction(MiniType type) { return Binding.this.needsDestruction(type); }
                 public Expression destroy(MiniType type, Expression address, SourceRange range) {
                     return destruction(type, address, range);
@@ -2285,7 +2375,7 @@ public final class CppNameBinder {
 
         private Expression rebuildFunctionDesignator(Expression original, Expression name, Entity selected, boolean functionReference) {
             Expression core;
-            if (original == name) core = new NameExpr(selected.coreName, original.range());
+            if (original == name) core = new NameExpr(functionReferenceName(selected), original.range());
             else if (original instanceof GroupingExpr group) core = new GroupingExpr(
                     rebuildFunctionDesignator(group.expression(), name, selected, functionReference), original.range());
             else if (original instanceof UnaryExpr unary && unary.operator() == TokenType.AMPERSAND) {
@@ -2379,7 +2469,7 @@ public final class CppNameBinder {
             Entity selected = selectOverload(candidates, sourceCallee, sourceArguments, prepared, null);
             if (selected == null) return new BoundCallee(new NameExpr(set.functions.getFirst().coreName, sourceCallee.range()), null, recoveryArguments(sourceArguments, values));
             return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator,
-                    new NameExpr(selected.coreName, designator.range())), null,
+                    new NameExpr(functionReferenceName(selected), designator.range())), null,
                     lowerSelectedArguments(((MiniType.FunctionType) selected.type).parameterTypes(), sourceArguments, values, namespace, local));
         }
 
@@ -3778,10 +3868,34 @@ public final class CppNameBinder {
             return nodes.stream().map(n -> expression(n, namespace, local)).toList();
         }
 
+        private boolean existingInternal(Namespace namespace, String name) {
+            Candidate candidate = namespace.values.get(name);
+            if (candidate instanceof Entity entity) return internalLinkages.getOrDefault(entity, false);
+            return candidate instanceof OverloadSet set && set.functions.stream()
+                    .allMatch(entity -> internalLinkages.getOrDefault(entity, false));
+        }
+
+        private void recordLinkage(Entity entity, SourceRange range) {
+            if (internalDeclaration && entity.kind == Kind.FUNCTION && entity.owner == root && entity.name.equals("main"))
+                report("CPP004", range, "main 不能具有内部链接。");
+            Boolean previous = internalLinkages.putIfAbsent(entity, internalDeclaration);
+            if (internalDeclaration && Boolean.FALSE.equals(previous))
+                report("CPP004", range, "static 声明不能改变先前声明的外部链接：" + entity.name);
+        }
+
+        private String functionReferenceName(Entity entity) {
+            if (libraryExitFunctions.contains(entity)) {
+                String name = staticLifetime.exitFunction();
+                coreValues.putIfAbsent(name, new Entity("exit", name, Kind.FUNCTION, root, entity.type, null, true));
+                return name;
+            }
+            return entity.coreName;
+        }
+
         private Expression reference(String fallback, SourceRange range, Entity entity) {
             if (entity == null) return new NameExpr(fallback, range);
             if (entity.kind == Kind.ENUM_CONSTANT) return new IntegerConstantExpr(entity.enumValue, MiniType.INT, entity.name, range);
-            NameExpr name = new NameExpr(entity.coreName, range);
+            NameExpr name = new NameExpr(functionReferenceName(entity), range);
             if (!entity.type.isReference()) return name;
             declaredExpressionTypes.put(name, coreType(entity.type));
             UnaryExpr object = new UnaryExpr(TokenType.STAR, name, range);

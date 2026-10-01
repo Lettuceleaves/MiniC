@@ -345,6 +345,7 @@ public final class StatementManager {
     }
 
     private VarDeclStmt parseVarDeclStmt() {
+        Token storage = typeReader.isCpp() && state.match(TokenType.STATIC) ? state.previous() : null;
         Parser.ParsedNamedType declaration = typeReader.parseNamedType("期望变量类型", "期望变量名");
         if (typeReader.isCpp() && declaration != null) {
             typeReader.declareOrdinaryName(declaration.name(), declaration.range());
@@ -365,7 +366,8 @@ public final class StatementManager {
                 initialization.expression(),
                 declaration.alignmentSpecs(),
                 initialization.cppInitializer(),
-                SourceRange.span(declaration.range(), semicolonToken.range())
+                storage != null,
+                SourceRange.span(storage == null ? declaration.range() : storage.range(), semicolonToken.range())
         );
         if (!typeReader.isCpp()) typeReader.declareOrdinaryName(varDeclStmt.name(), varDeclStmt.range());
         state.build(varDeclStmt, "VarDeclStmt " + varDeclStmt.name(), varDeclStmt.range());
@@ -564,6 +566,6 @@ public final class StatementManager {
     }
 
     private boolean isDeclarationStart() {
-        return state.check(TokenType.ALIGNAS) || typeReader.canStartType() && !typeReader.startsCppConstructionStatement();
+        return typeReader.isCpp() && state.check(TokenType.STATIC) || state.check(TokenType.ALIGNAS) || typeReader.canStartType() && !typeReader.startsCppConstructionStatement();
     }
 }

@@ -27,7 +27,7 @@ public final class DeadCodeEliminationPass implements IrPass {
         var functions = input.functions().stream().map(this::eliminate).toList();
         if (functions.equals(input.functions())) return input;
         return new IrResult(functions, input.stringData(), input.globalData(), input.externalFunctionNames(),
-                input.externalObjectNames(), input.structLayouts(), input.currentAstNode(), input.currentSubject(), input.displayNames());
+                input.externalObjectNames(), input.structLayouts(), input.currentAstNode(), input.currentSubject(), input.displayNames(), input.entryFunction());
     }
 
     private IrFunction eliminate(IrFunction source) {
