@@ -70,7 +70,7 @@ class CppTypeBindingTest {
     @Test void typesImportedByUsingRemainTypesAndSupportEquivalentAliases() {
         success(parse("namespace A {struct S{int x;}; typedef struct S Alias;} "
                 + "namespace B {using A::S; using A::Alias;} using A::S; using B::Alias; int main(){return 0;}"));
-        failure(parse("namespace A {typedef int T;} using A::T; int main(){return T;}"), "类型");
+        // Bare imported type names are rejected by the parser; see CppPrimaryTypeNameTest.
         failure(parse("namespace A {struct S{int x;};} namespace B {struct S{int y;};} "
                 + "using A::S; using B::S; int main(){return 0;}"), "冲突");
         analyze(success(parse("namespace A {struct S{int x;};} using namespace A; "

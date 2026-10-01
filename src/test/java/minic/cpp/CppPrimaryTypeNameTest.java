@@ -30,6 +30,7 @@ final class CppPrimaryTypeNameTest {
     @ParameterizedTest @ValueSource(strings = {
             "struct Value {}; int main(){return Value;}",
             "typedef int Value; int consume(int); int main(){return consume(Value);}",
+            "namespace A {typedef int T;} using A::T; int main(){return T;}",
             "struct Value{}; int ordinary(int (operator+)(Value));",
             "struct Value{}; int main(){return sizeof(int (operator+)(Value));}"})
     void aKnownTypeCannotStandAloneAsAnExpression(String text) throws Exception {
