@@ -25,6 +25,7 @@ import minic.compiler.ir.instruction.ComputeInstruction.IrUnaryInstruction;
 import minic.compiler.ir.model.IrFunction;
 import minic.compiler.ir.model.IrParameter;
 import minic.compiler.ir.model.IrType;
+import minic.compiler.ir.value.IrValue.IrFloatConstant;
 
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -317,9 +318,17 @@ final class InstructionEmitter {
             case BITWISE_NOT -> builder.append("    not ")
                     .append(valueEmitter.storeRegister("rax", unary.result().type()))
                     .append(System.lineSeparator());
-            case NEGATE -> builder.append("    neg ")
-                    .append(valueEmitter.storeRegister("rax", unary.result().type()))
-                    .append(System.lineSeparator());
+            case NEGATE -> {
+                if (unary.result().type().isFloatingScalar()) {
+                    // Flip only the sign: subtraction would lose negative zero and may alter NaNs.
+                    valueEmitter.emitLoadValue(builder, new IrFloatConstant(-0.0, unary.result().type()), "xmm1");
+                    builder.append(unary.result().type() == IrType.FLOAT ? "    xorps xmm0, xmm1" : "    xorpd xmm0, xmm1")
+                            .append(System.lineSeparator());
+                } else {
+                    builder.append("    neg ").append(valueEmitter.storeRegister("rax", unary.result().type()))
+                            .append(System.lineSeparator());
+                }
+            }
         }
         emitStoreRegisterToMemory(
                 builder,
