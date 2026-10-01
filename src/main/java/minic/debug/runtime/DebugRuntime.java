@@ -119,6 +119,7 @@ public final class DebugRuntime {
     public DebugProgram code() { return code; }
     public String stdout() { return output.toString(StandardCharsets.UTF_8); }
     public String stderr() { return errorOutput.toString(StandardCharsets.UTF_8); }
+    boolean outputExceeds(int maximumBytes) { return output.size() > maximumBytes || errorOutput.size() > maximumBytes; }
     public int stdinCursor() { return inputOffset; }
     public int errno() {
         return errnoPointer == 0

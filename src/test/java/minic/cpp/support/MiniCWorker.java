@@ -72,28 +72,24 @@ public final class MiniCWorker {
             }
             Outcome outcome = timed(phasePath, "run", runTimeoutNanos, resultPath, backend,
                     Status.RUN_TIMEOUT, completed, () -> {
-                // Functional differential execution needs the current state. Full replay history
-                // is verified independently, without retaining every container snapshot here.
-                DebugApi debug = DebugApi.fromIr(compilation.source(), compilation.ir(), Files.readString(Path.of(args[2])), 1);
-                int steps = 0;
-                while (debug.canNext() && steps++ < stepLimit) {
-                    debug.next();
-                    if (exceeds(debug.current().runtime().stdout(), outputLimit)
-                            || exceeds(debug.current().runtime().stderr(), outputLimit)) {
-                        return new Outcome(backend, Status.OUTPUT_LIMIT, -1,
-                                cap(debug.current().runtime().stdout(), outputLimit),
-                                cap(debug.current().runtime().stderr(), outputLimit), "Debug output limit exceeded");
-                    }
+                // Use the same interpreter, with bounded execution and a final snapshot.
+                // Interactive stepping and full replay are verified by dedicated history tests.
+                var execution = DebugApi.execute(compilation.source(), compilation.ir(),
+                        Files.readString(Path.of(args[2])), stepLimit, outputLimit);
+                var state = execution.context();
+                if (execution.outputLimitReached()) {
+                    return new Outcome(backend, Status.OUTPUT_LIMIT, -1,
+                            cap(state.runtime().stdout(), outputLimit), cap(state.runtime().stderr(), outputLimit),
+                            "Debug output limit exceeded");
                 }
-                var state = debug.current();
-                Status status = debug.canNext() ? Status.RUN_TIMEOUT
+                Status status = execution.stepLimitReached() ? Status.RUN_TIMEOUT
                         : state.stop().status() == Debugger.Status.FAILED ? Status.RUNTIME_ERROR : Status.OK;
                 Integer terminationStatus = state.runtime().termination().status();
                 int exitCode = status == Status.OK && terminationStatus != null ? terminationStatus : -1;
                 if (status == Status.OK && terminationStatus == null) status = Status.RUNTIME_ERROR;
                 if (status == Status.OK && exitCode != 0) status = Status.NONZERO_EXIT;
                 return new Outcome(backend, status, exitCode, state.runtime().stdout(), state.runtime().stderr(),
-                        debug.canNext() ? "Debug step budget exceeded: " + stepLimit : state.stop().error());
+                        execution.stepLimitReached() ? "Debug step budget exceeded: " + stepLimit : state.stop().error());
             });
             publish(resultPath, outcome, completed);
         } catch (DeadlineExceeded ignored) {

@@ -44,6 +44,21 @@ public final class DebugApi {
                 Objects.requireNonNull(ir, "ir"), Objects.requireNonNull(standardInput, "standardInput"), historyLimit));
     }
 
+    /**
+     * Runs the same checked interpreter without intermediate history snapshots.
+     * The stop budget counts advances to source stops, including the terminal stop but
+     * excluding the initial ready context. The output budget applies independently to
+     * the raw bytes emitted to stdout and stderr; exactly the limit is permitted.
+     * Budgets are checked between stops, so one advance can exceed the output budget.
+     * These are not instruction, wall-clock, or hard memory limits.
+     * Interactive stepping and history recording use the ordinary instance API.
+     */
+    public static Debugger.Execution execute(SourceFile source, IrResult ir, String standardInput,
+                                             int maximumStops, int maximumOutputBytes) {
+        return Debugger.fromIr(Objects.requireNonNull(source, "source"), Objects.requireNonNull(ir, "ir"),
+                Objects.requireNonNull(standardInput, "standardInput"), 1).execute(maximumStops, maximumOutputBytes);
+    }
+
     public DebugApi(Debugger debugger) {
         this.debugger = Objects.requireNonNull(debugger, "debugger");
         current = debugger.initialContext();

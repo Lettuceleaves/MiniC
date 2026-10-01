@@ -84,6 +84,10 @@ public final class Debugger {
             return contexts.get(++contextIndex);
         }
         if (finished()) return contexts.get(contextIndex);
+        return remember(advance());
+    }
+
+    private Stop advance() {
         SourceRange range = null;
         String function = "", block = "";
         int index = -1;
@@ -102,18 +106,34 @@ public final class Debugger {
                         if (frame.lastLine == range.startLine()) continue;
                         frame.lastLine = range.startLine();
                     }
-                    return remember(new Stop(Status.PAUSED, range, trap.kind(), function, block, index, ""));
+                    return new Stop(Status.PAUSED, range, trap.kind(), function, block, index, "");
                 }
                 execute(frame, instruction);
             }
-            return remember(new Stop(Status.COMPLETED, range, null, function, block, index, ""));
+            return new Stop(Status.COMPLETED, range, null, function, block, index, "");
         } catch (RuntimeException error) {
             String message = error.getMessage() == null
                     ? error.getClass().getSimpleName()
                     : error.getMessage();
             runtime.fail(message);
-            return remember(new Stop(Status.FAILED, range, null, function, block, index, message));
+            return new Stop(Status.FAILED, range, null, function, block, index, message);
         }
+    }
+
+    /** A bounded interpreter run with a final snapshot, without recording intermediate history. */
+    public record Execution(Context context, boolean stepLimitReached, boolean outputLimitReached) { }
+
+    Execution execute(int maximumStops, int maximumOutputBytes) {
+        if (maximumStops < 1 || maximumOutputBytes < 0)
+            throw new IllegalArgumentException("Positive stop budget and nonnegative output budget required");
+        int stops = 0;
+        while (!finished() && stops < maximumStops && !runtime.outputExceeds(maximumOutputBytes)) {
+            latestStop = advance();
+            stops++;
+        }
+        nextContextIndex += Math.max(0, stops - 1);
+        return new Execution(remember(latestStop), !finished() && stops == maximumStops,
+                runtime.outputExceeds(maximumOutputBytes));
     }
 
     /** 在已生成的上下文历史中向后移动一步；到达初始上下文后保持不动。 */
