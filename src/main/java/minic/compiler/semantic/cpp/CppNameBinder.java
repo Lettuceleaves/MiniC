@@ -2908,6 +2908,7 @@ public final class CppNameBinder {
             if (type == null) return null;
             if (type.containsPlaceholder()) { report("CPP004", source.range(), "A source placeholder has not been deduced in this declaration."); return MiniType.INT; }
             return switch (type) {
+                case MiniType.NullPointerType ignored -> MiniType.VOID.pointerTo();
                 case MiniType.ReferenceType reference -> coreType(reference.referent()).pointerTo();
                 case MiniType.QualifiedType qualified -> MiniType.qualified(coreType(qualified.baseType()), qualified.qualifiers());
                 case MiniType.PointerType pointer -> coreType(pointer.pointee()).pointerTo();
@@ -6143,6 +6144,8 @@ public final class CppNameBinder {
                 if (target.isConstQualified()) report("CPP004", range, "A const scalar data member requires initialization.");
                 return null;
             }
+            if (arguments.isEmpty() && target.isNullPointer())
+                return typed(new NullLiteralExpr("nullptr", syntax.range()), target.unqualified());
             if (arguments.isEmpty()) return typed(new CastExpr(coreType(target.unqualified()),
                     new IntegerLiteralExpr(0, "0", syntax.range()), syntax.range()), target.unqualified());
             if (arguments.size() != 1) {
@@ -6481,6 +6484,7 @@ public final class CppNameBinder {
                 return variableInitializer(type, syntax, null, namespace, local, source.range());
             }
             if (arguments.size() > 1) report("CPP004", syntax.range(), "A scalar functional conversion requires at most one argument.");
+            if (arguments.isEmpty() && type.isNullPointer()) return typed(new NullLiteralExpr("nullptr", source.range()), type);
             Expression value = arguments.isEmpty() ? new IntegerLiteralExpr(0, "0", source.range())
                     : expression(arguments.getFirst(), namespace, local);
             return explicitConversion(type, value, source.range());
