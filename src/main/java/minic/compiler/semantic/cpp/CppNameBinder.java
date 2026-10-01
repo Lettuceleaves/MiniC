@@ -3045,7 +3045,7 @@ public final class CppNameBinder {
             staticInitialization = true;
             try {
                 Expression value = variableInitializer(type, syntax, legacy, namespace, scope, sourceNode.range(), name);
-                if (type.isReference() && value != null) value = extendTemporaryLifetime(value,
+                if (value != null) value = extendAggregateReferenceLifetimes(type, value,
                         new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, sourceNode));
                 if (initializerListElement(type) != null && value != null) value = extendListLifetime(value,
                         new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, sourceNode));
@@ -3493,8 +3493,8 @@ public final class CppNameBinder {
                     requireComplete(type, n.range());
                     Expression initialized = variableInitializer(type, n.cppInitializer(), n.initializer(), namespace, scope, n.range(), n.name());
                     initialized=constantObject(value,type,initialized,n.constexprSpecifier(),false,n.range());
-                    if (type.isReference() && initialized != null) {
-                        initialized = extendTemporaryLifetime(initialized,
+                    if (initialized != null) {
+                        initialized = extendAggregateReferenceLifetimes(type, initialized,
                                 new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE, n));
                     }
                     if (initializerListElement(type) != null && initialized != null) initialized = extendListLifetime(initialized,
@@ -3996,7 +3996,7 @@ public final class CppNameBinder {
             try {
                 Expression initialized=copyArray?structuredArrayCopy(storageType,expression(only,namespace,scope,true),syntax.kind(),node.range())
                         :variableInitializer(storageType,syntax,syntax,namespace,scope,node.range(),hiddenName);
-                if(storageType.isReference())initialized=extendTemporaryLifetime(initialized,new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE,node));
+                if(initialized!=null)initialized=extendAggregateReferenceLifetimes(storageType,initialized,new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE,node));
                 if(initializerListElement(storageType)!=null)initialized=extendListLifetime(initialized,new TemporaryLifetime(TemporaryLifetime.Kind.REFERENCE_SCOPE,node));
                 if(copyArray)initialized=mapped(syntax,initialized);
                 AstNode backing=structuredStorage(hidden,initialized,node,scope,sequence);
@@ -6022,8 +6022,9 @@ public final class CppNameBinder {
                 if (initialized != null) {
                     Expression slot = typed(new IndexExpr(array, new IntegerLiteralExpr(index, Integer.toString(index), range), range), coreType(element));
                     Expression action = typed(new InitializeExpr(slot, initialized, source.range()), MiniType.VOID);
-                    // Temporaries belonging to this element finish before the next element starts.
-                    actions.add(fullExpression(action, false, source));
+                    // Reference subobjects may extend a bound temporary to the enclosing array's
+                    // lifetime. Leave their initialization visible until that actual owner is known.
+                    actions.add(hasReferenceSubobject(element, new HashSet<>()) ? action : fullExpression(action, false, source));
                 }
                 index++;
             }
@@ -7359,7 +7360,9 @@ public final class CppNameBinder {
                 requireImplicitInitialization(target, false, range);
                 return null;
             }
-            return checkInitializer(target, sourceNode, expressionForTarget(target, sourceNode, namespace, local));
+            Expression listSource = hasReferenceSubobject(target, new HashSet<>()) && isBraced(sourceNode)
+                    ? aggregateReferenceList(sourceNode) : sourceNode;
+            return mapped(sourceNode, checkInitializer(target, listSource, expressionForTarget(target, listSource, namespace, local), false, namespace, local));
         }
 
         /** Forms an address without reading the referred-to object or changing source expression identity. */
@@ -7558,11 +7561,91 @@ public final class CppNameBinder {
             return object;
         }
 
+        /** Extend only initializers of the result object's reference subobjects, never copied aliases or calls. */
+        private Expression extendAggregateReferenceLifetimes(MiniType type, Expression expression, TemporaryLifetime lifetime) {
+            if (type.isReference()) return extendTemporaryLifetime(expression, lifetime);
+            if (!hasReferenceSubobject(type, new HashSet<>())) return expression;
+            Expression extended = switch (expression) {
+                case AggregateInitExpr aggregate -> {
+                    TypeEntity owner = objectType(type);
+                    List<Expression> values = new ArrayList<>();
+                    for (int index = 0; index < aggregate.values().size(); index++) {
+                        MiniType element = type.isArray() ? elementType(type)
+                                : owner != null && index < owner.fields.size() ? owner.fields.get(index).type() : null;
+                        Expression value = aggregate.values().get(index);
+                        values.add(element == null ? value : extendAggregateReferenceLifetimes(element, value, lifetime));
+                    }
+                    yield new AggregateInitExpr(values, aggregate.range());
+                }
+                case GroupingExpr group -> new GroupingExpr(extendAggregateReferenceLifetimes(type, group.expression(), lifetime), group.range());
+                case ObjectInitExpr object -> new ObjectInitExpr(object.type(), object.destinationName(),
+                        extendAggregateInitializationActions(object.body(), object.destinationName(), type, lifetime), object.range());
+                case CommaExpr comma -> {
+                    var values = new ArrayList<>(comma.expressions());
+                    values.set(values.size() - 1, extendAggregateReferenceLifetimes(type, values.getLast(), lifetime));
+                    yield new CommaExpr(values, comma.range());
+                }
+                case ConditionalExpr conditional -> new ConditionalExpr(conditional.condition(),
+                        extendAggregateReferenceLifetimes(type, conditional.thenExpression(), lifetime),
+                        extendAggregateReferenceLifetimes(type, conditional.elseExpression(), lifetime), conditional.range());
+                case LetExpr let -> new LetExpr(let.name(), let.type(), let.initializer(),
+                        extendAggregateReferenceLifetimes(type, let.body(), lifetime), let.range());
+                default -> expression;
+            };
+            return preserveInitializerMetadata(expression, extended);
+        }
+
+        private Expression extendAggregateInitializationActions(Expression expression, String destination, MiniType type,
+                                                                TemporaryLifetime lifetime) {
+            Expression extended = switch (expression) {
+                case InitializeExpr initialization -> {
+                    MiniType subobject = aggregateDestinationType(initialization.target(), destination, type);
+                    yield subobject == null ? expression : new InitializeExpr(initialization.target(),
+                            extendAggregateReferenceLifetimes(subobject, initialization.value(), lifetime), initialization.range());
+                }
+                case CommaExpr comma -> new CommaExpr(comma.expressions().stream()
+                        .map(item -> extendAggregateInitializationActions(item, destination, type, lifetime)).toList(), comma.range());
+                case GroupingExpr group -> new GroupingExpr(extendAggregateInitializationActions(group.expression(), destination, type, lifetime), group.range());
+                case ConditionalExpr conditional -> new ConditionalExpr(conditional.condition(),
+                        extendAggregateInitializationActions(conditional.thenExpression(), destination, type, lifetime),
+                        extendAggregateInitializationActions(conditional.elseExpression(), destination, type, lifetime), conditional.range());
+                default -> expression;
+            };
+            return preserveInitializerMetadata(expression, extended);
+        }
+
+        private MiniType aggregateDestinationType(Expression target, String destination, MiniType type) {
+            return switch (target) {
+                case UnaryExpr unary when unary.operator() == TokenType.STAR
+                        && unary.operand() instanceof NameExpr name && name.name().equals(destination) -> type;
+                case FieldAccessExpr field when !field.viaPointer() -> {
+                    MiniType owner = aggregateDestinationType(field.target(), destination, type);
+                    yield owner == null ? null : declaredFieldType(owner, field.fieldName(), new HashSet<>());
+                }
+                case IndexExpr index -> {
+                    MiniType array = aggregateDestinationType(index.target(), destination, type);
+                    yield array == null || !array.isArray() ? null : elementType(array);
+                }
+                default -> null;
+            };
+        }
+
+        private Expression preserveInitializerMetadata(Expression original, Expression result) {
+            if (result != original) {
+                if (declaredExpressionTypes.containsKey(original)) declaredExpressionTypes.put(result, declaredExpressionTypes.get(original));
+                if (valueCategories.containsKey(original)) valueCategories.put(result, valueCategories.get(original));
+                if (temporaryAddressPaths.contains(original)) temporaryAddressPaths.add(result);
+                origins.replaceAll((source, core) -> core == original ? result : core);
+            }
+            return result;
+        }
+
         /** Follow only the bound object's address, never calls, arithmetic, or a temporary's initializer. */
         private Expression extendTemporaryLifetime(Expression expression, TemporaryLifetime lifetime) {
             Expression extended = switch (expression) {
                 case MaterializeExpr temporary -> new MaterializeExpr(temporary.type(),
-                        extendListLifetime(temporary.initializer(), lifetime), lifetime, temporary.range());
+                        extendAggregateReferenceLifetimes(temporary.type(),
+                                extendListLifetime(temporary.initializer(), lifetime), lifetime), lifetime, temporary.range());
                 case GroupingExpr group -> new GroupingExpr(extendTemporaryLifetime(group.expression(), lifetime), group.range());
                 case UnaryExpr unary when unary.operator() == TokenType.AMPERSAND || temporaryAddressPaths.contains(unary) ->
                         new UnaryExpr(unary.operator(), extendTemporaryLifetime(unary.operand(), lifetime), unary.range());
@@ -7638,26 +7721,14 @@ public final class CppNameBinder {
         }
 
         /** Validates C++ list initialization before the C aggregate initializer can write fields. */
-        private Expression checkInitializer(MiniType target, Expression sourceNode, Expression bound) {
-            return checkInitializer(target, sourceNode, bound, false);
-        }
-        private Expression checkInitializer(MiniType target, Expression sourceNode, Expression bound, boolean listElement) {
+        private Expression checkInitializer(MiniType target, Expression sourceNode, Expression bound, boolean listElement,
+                                            Namespace namespace, Local local) {
             if (target == null) return bound;
             if (target.isReference()) {
-                Expression value = bound;
-                Expression original = sourceNode;
-                if (bound instanceof AggregateInitExpr list) {
-                    List<Expression> sources = listItems(sourceNode);
-                    if (list.values().size() == 1 && referenceRelated(target.referent(), declaredExpressionType(list.values().getFirst()))) {
-                        value = list.values().getFirst();
-                        original = sources.getFirst();
-                    } else {
-                        value = checkInitializer(target.referent(), sourceNode, bound, true);
-                        value = target.referent().isStruct() ? recordPrvalue(target.referent(), value, sourceNode.range())
-                                : typed(value, target.referent());
-                    }
-                }
-                Expression address = bindReferenceValue(target, value, original, sourceNode.range());
+                // A braced reference initializer needs the referred-to type as context (including
+                // its constructors). Only the final bound address becomes executable core AST.
+                Expression address = isBraced(sourceNode) ? bindReference(target, sourceNode, namespace, local, sourceNode.range())
+                        : bindReferenceValue(target, bound, sourceNode, sourceNode.range());
                 if (listElement || isBraced(sourceNode)) checkReferenceListConversion(target.referent(), address, sourceNode.range());
                 return mapped(sourceNode, address);
             }
@@ -7671,7 +7742,7 @@ public final class CppNameBinder {
             if (target.isArray() && elementType(target).isArray()
                     && list.values().stream().noneMatch(DesignatedInitExpr.class::isInstance)) {
                 int[] cursor = {0};
-                Expression initialized = checkElidedArray(target, original.values(), list.values(), cursor, list.range());
+                Expression initialized = checkElidedArray(target, original.values(), list.values(), cursor, list.range(), namespace, local);
                 if (cursor[0] < list.values().size())
                     report("CPP004", original.values().get(cursor[0]).range(), "Too many array initializer elements.");
                 return mapped(sourceNode, initialized);
@@ -7707,11 +7778,11 @@ public final class CppNameBinder {
                         for (int j = 0; j < object.fields.size(); j++) if (object.fields.get(j).name().equals(field.name())) position = j;
                     }
                     values.add(mapped(originalValue, new DesignatedInitExpr(designated.designators(),
-                            checkInitializer(element, sourceDesignated.value(), designated.value(), true), designated.range())));
+                            checkInitializer(element, sourceDesignated.value(), designated.value(), true, namespace, local), designated.range())));
                 } else {
                     element = target.unqualified() instanceof MiniType.ArrayType array ? array.elementType()
                             : object != null && position < object.fields.size() ? object.fields.get(position).type() : null;
-                    values.add(checkInitializer(element, originalValue, value, true));
+                    values.add(checkInitializer(element, originalValue, value, true, namespace, local));
                 }
                 initialized.add(position);
                 position++;
@@ -7730,16 +7801,16 @@ public final class CppNameBinder {
 
         /** Group brace-elided dimensions without rebinding or duplicating any source operand. */
         private Expression checkElidedArray(MiniType target, List<Expression> originals,
-                                            List<Expression> bound, int[] cursor, SourceRange range) {
+                                            List<Expression> bound, int[] cursor, SourceRange range, Namespace namespace, Local local) {
             MiniType element = elementType(target);
             List<Expression> values = new ArrayList<>();
             while (values.size() < target.arrayLength() && cursor[0] < bound.size()) {
                 Expression source = originals.get(cursor[0]);
                 if (element.isArray() && !isBraced(source) && !(source instanceof StringLiteralExpr)) {
-                    values.add(checkElidedArray(element, originals, bound, cursor, source.range()));
+                    values.add(checkElidedArray(element, originals, bound, cursor, source.range(), namespace, local));
                 } else {
                     int index = cursor[0]++;
-                    values.add(checkInitializer(element, source, bound.get(index), true));
+                    values.add(checkInitializer(element, source, bound.get(index), true, namespace, local));
                 }
             }
             if (values.size() < target.arrayLength()) requireImplicitInitialization(element, true, range);
