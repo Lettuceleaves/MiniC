@@ -24,6 +24,15 @@ public final class CppTemplateDeduction {
         }
         return new Bindings(matcher.types,matcher.values);
     }
+    /** Function deduction may intentionally leave parameters for explicit/default arguments. */
+    public static Bindings deduce(List<MiniType> pattern,List<MiniType> actual,List<ClassTemplateDecl.Parameter> parameters,
+                                  Map<MiniType.TemplateParameterType,MiniType> initialTypes,
+                                  Map<MiniType.TemplateParameterType,TemplateArgument> initialValues,UnaryOperator<MiniType> expand) {
+        if(pattern.size()!=actual.size())return null;
+        var matcher=new Matcher(parameters,expand);matcher.types.putAll(initialTypes);matcher.values.putAll(initialValues);
+        for(int index=0;index<pattern.size();index++)if(!matcher.type(pattern.get(index),actual.get(index)))return null;
+        return new Bindings(matcher.types,matcher.values);
+    }
     private static final class Matcher {
         final Set<MiniType.TemplateParameterType> parameters=new HashSet<>();
         final Map<MiniType.TemplateParameterType,MiniType> types=new LinkedHashMap<>();

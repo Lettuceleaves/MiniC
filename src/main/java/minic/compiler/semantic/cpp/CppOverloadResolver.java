@@ -22,13 +22,17 @@ public final class CppOverloadResolver {
     public enum Status { SELECTED, NO_VIABLE, AMBIGUOUS }
     /** implicitObjectType is the cv-qualified owner class, not its lowered pointer ABI type. */
     public record Candidate<T>(T identity, List<MiniType> parameterTypes, boolean variadic,
-                               MiniType implicitObjectType, boolean staticMember) {
+                               MiniType implicitObjectType, boolean staticMember, int requiredParameterCount) {
         public Candidate {
             Objects.requireNonNull(identity, "identity");
             parameterTypes = List.copyOf(parameterTypes);
+            if(requiredParameterCount<0||requiredParameterCount>parameterTypes.size())throw new IllegalArgumentException("Invalid required parameter count");
             if (staticMember && implicitObjectType != null) throw new IllegalArgumentException("static member has no implicit object type");
             if (implicitObjectType != null && !implicitObjectType.isStruct())
                 throw new IllegalArgumentException("implicit object must have class type");
+        }
+        public Candidate(T identity,List<MiniType> parameterTypes,boolean variadic,MiniType implicitObjectType,boolean staticMember) {
+            this(identity,parameterTypes,variadic,implicitObjectType,staticMember,parameterTypes.size());
         }
         public Candidate(T identity, List<MiniType> parameterTypes, boolean variadic, MiniType implicitObjectType) {
             this(identity, parameterTypes, variadic, implicitObjectType, false);
@@ -106,6 +110,10 @@ public final class CppOverloadResolver {
     }
     public static <T> Resolution<T> resolve(List<Candidate<T>> candidates, List<Argument> arguments,
                                            Argument receiver, UserConversionProvider provider) {
+        return resolve(candidates,arguments,receiver,provider,(a,b)->false);
+    }
+    public static <T> Resolution<T> resolve(List<Candidate<T>> candidates,List<Argument> arguments,Argument receiver,
+            UserConversionProvider provider,java.util.function.BiPredicate<T,T> tieBreak) {
         candidates = List.copyOf(candidates);
         arguments = List.copyOf(arguments);
         var viable = new ArrayList<Viable<T>>();
@@ -113,7 +121,7 @@ public final class CppOverloadResolver {
             var conversions = conversions(candidate, arguments, receiver, provider);
             if (conversions != null) viable.add(new Viable<>(candidate, conversions));
         }
-        return choose(viable);
+        return choose(viable,tieBreak);
     }
 
     /** Operator notation compares member receivers and free-function first arguments together. */
@@ -122,6 +130,10 @@ public final class CppOverloadResolver {
     }
     public static <T> Resolution<T> resolveOperators(List<Candidate<T>> candidates, List<Argument> operands,
                                                     UserConversionProvider provider) {
+        return resolveOperators(candidates,operands,provider,(a,b)->false);
+    }
+    public static <T> Resolution<T> resolveOperators(List<Candidate<T>> candidates,List<Argument> operands,
+            UserConversionProvider provider,java.util.function.BiPredicate<T,T> tieBreak) {
         candidates = List.copyOf(candidates);
         operands = List.copyOf(operands);
         var viable = new ArrayList<Viable<T>>();
@@ -131,16 +143,18 @@ public final class CppOverloadResolver {
                     : conversions(candidate, operands.subList(1, operands.size()), operands.getFirst(), provider);
             if (conversions != null) viable.add(new Viable<>(candidate, conversions));
         }
-        return choose(viable);
+        return choose(viable,tieBreak);
     }
 
-    private static <T> Resolution<T> choose(List<Viable<T>> viable) {
+    private static <T> Resolution<T> choose(List<Viable<T>> viable,java.util.function.BiPredicate<T,T> tieBreak) {
         var entities = viable.stream().map(Viable::candidate).toList();
         if (viable.isEmpty()) return new Resolution<>(Status.NO_VIABLE, null, entities);
         for (var candidate : viable) {
             boolean wins = true;
             for (var other : viable) {
-                if (candidate != other && !better(candidate.conversions, other.conversions)) {
+                if (candidate != other && !better(candidate.conversions, other.conversions)
+                        && !(indistinguishable(candidate.conversions,other.conversions)
+                            && tieBreak.test(candidate.candidate.identity,other.candidate.identity))) {
                     wins = false;
                     break;
                 }
@@ -171,7 +185,7 @@ public final class CppOverloadResolver {
     private static <T> List<Conversion> conversions(Candidate<T> candidate, List<Argument> args, Argument receiver,
                                                     UserConversionProvider provider) {
         int fixed = candidate.parameterTypes.size();
-        if (args.size() < fixed || (!candidate.variadic && args.size() != fixed)) return null;
+        if (args.size() < candidate.requiredParameterCount || (!candidate.variadic && args.size() > fixed)) return null;
         var result = new ArrayList<Conversion>();
         // A homogeneous lookup set contains either ordinary functions or member functions.
         // Reject absent/extraneous receivers instead of comparing conversion lists of unequal size.
@@ -306,6 +320,11 @@ public final class CppOverloadResolver {
         return null;
     }
 
+    private static boolean indistinguishable(List<Conversion> first,List<Conversion> second) {
+        if(first.size()!=second.size())return false;
+        for(int i=0;i<first.size();i++)if(compare(first.get(i),second.get(i))!=0)return false;
+        return true;
+    }
     private static boolean better(List<Conversion> first, List<Conversion> second) {
         boolean strictly = false;
         for (int i=0; i<first.size(); i++) {

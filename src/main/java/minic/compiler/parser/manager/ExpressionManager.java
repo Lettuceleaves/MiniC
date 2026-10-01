@@ -409,6 +409,11 @@ public final class ExpressionManager {
     private Expression parsePostfix() {
         Expression expression = parsePrimary();
         while (expression != null) {
+            if(typeReader.isCpp()&&typeReader.beginsFunctionTemplateArguments(expression)) {
+                var arguments=typeReader.parseFunctionTemplateArguments();
+                if(arguments==null)return null;
+                expression=new minic.compiler.parser.node.CppTemplateIdExpr(expression,arguments,SourceRange.span(expression.range(),state.previous().range()));continue;
+            }
             if (state.match(TokenType.LEFT_BRACKET)) {
                 Expression index = state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.check(TokenType.LEFT_BRACE)
                         ? parseInitializerClause() : parseExpression();
@@ -454,6 +459,12 @@ public final class ExpressionManager {
 
     private Expression finishFieldAccess(Expression target, boolean viaPointer) {
         if (state.languageMode() == LanguageMode.CPP17_ALGORITHM) {
+            if(state.match(TokenType.TEMPLATE)) {
+                Token name=state.consume(TokenType.IDENTIFIER,"template 后期望成员模板名称");if(name==null)return null;
+                Expression member=new FieldAccessExpr(target,name.lexeme(),viaPointer,SourceRange.span(target.range(),name.range()));
+                var arguments=typeReader.parseFunctionTemplateArguments();
+                return arguments==null?null:new minic.compiler.parser.node.CppTemplateIdExpr(member,arguments,SourceRange.span(target.range(),state.previous().range()));
+            }
             if (state.match(TokenType.TILDE)) return finishDestructorCall(target, viaPointer, state.previous());
             if (state.check(TokenType.OPERATOR)) {
                 if (typeReader.canStartTypeAt(1)) {

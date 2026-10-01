@@ -20,6 +20,7 @@ import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.QualifiedName;
 import minic.compiler.parser.node.OperatorName;
 import minic.compiler.parser.node.ClassTemplateDecl;
+import minic.compiler.parser.node.FunctionTemplateDecl;
 import minic.compiler.type.MiniType;
 import minic.compiler.type.TemplateArgument;
 import minic.compiler.type.TemplateValues;
@@ -255,14 +256,11 @@ public final class Parser extends Stage {
         return declarationManager.parseFunctionOrGlobalDecl();
     }
 
-    private ClassTemplateDecl parseClassTemplate() {
+    private Declaration parseClassTemplate() {
         Token start = context.advance();
         if (context.consume(TokenType.LESS, "template 后期望 '<'") == null) return null;
         Token name = peekTemplateClassName();
-        if (name == null) {
-            context.unsupportedCpp(context.peek().range(), "此切片仅支持类模板声明");
-            return null;
-        }
+        if (name == null) return parseFunctionTemplate(start);
         String owner = typeReader.beginClassTemplate(name);
         try {
             var parameters = new ArrayList<ClassTemplateDecl.Parameter>();
@@ -309,6 +307,22 @@ public final class Parser extends Stage {
         } finally {
             typeReader.exitClassTemplate();
         }
+    }
+
+    private Declaration parseFunctionTemplate(Token start) {
+        String owner=typeReader.beginFunctionTemplate(start);
+        try {
+            var parameters=typeReader.readTemplateParameters(start,owner);
+            if(parameters==null||context.consumeTemplateGreater("模板参数后期望 '>'")==null)return null;
+            typeReader.pendingFunctionTemplateParameters=parameters;
+            Declaration declaration=declarationManager.parseFunctionOrGlobalDecl();
+            if(!(declaration instanceof FunctionDecl function)) {
+                context.unsupportedCpp(start.range(),"此模板声明需要普通函数定义或声明");return null;
+            }
+            typeReader.registerFunctionTemplate(function.name(),parameters);
+            var result=new FunctionTemplateDecl(parameters,function,SourceRange.span(start.range(),function.range()));
+            context.build(result,"FunctionTemplate "+function.name(),result.range());return result;
+        } finally {typeReader.pendingFunctionTemplateParameters=null;typeReader.exitFunctionTemplate();}
     }
 
     /** Find the owner without consuming the header or giving its name premature scope. */
@@ -789,6 +803,8 @@ public final class Parser extends Stage {
         private final java.util.Map<String, List<ClassTemplateDecl.Parameter>> classTemplates = new java.util.LinkedHashMap<>();
         private final java.util.Map<String, List<Optional<TemplateArgument>>> classTemplateDefaults = new java.util.LinkedHashMap<>();
         private ExpressionManager expressionManager;
+        private List<ClassTemplateDecl.Parameter> pendingFunctionTemplateParameters;
+        private final java.util.Map<String,List<ClassTemplateDecl.Parameter>> functionTemplateNames=new java.util.LinkedHashMap<>();
         private final java.util.Deque<java.util.Map<String,CppTemplateValueExpr>> templateValues = new java.util.ArrayDeque<>();
         private final java.util.Deque<List<TemplateArgument>> specializationArguments = new java.util.ArrayDeque<>();
         private final java.util.Deque<String> activeClassTemplates = new java.util.ArrayDeque<>();
@@ -806,6 +822,74 @@ public final class Parser extends Stage {
         }
 
         public boolean isCpp() { return context.languageMode() == LanguageMode.CPP17_ALGORITHM; }
+
+        public String beginFunctionTemplate(Token anchor) {
+            cppTypes.enterTemplateScope();templateValues.push(new java.util.LinkedHashMap<>());
+            return cppTypes.namespaceIdentity("$functionTemplate"+anchor.range().startLine()+"_"+anchor.range().startByte());
+        }
+        public void exitFunctionTemplate(){cppTypes.exitTemplateScope();templateValues.pop();}
+        public void restoreFunctionTemplateParameters(List<ClassTemplateDecl.Parameter> parameters) {
+            cppTypes.enterTemplateScope();templateValues.push(new java.util.LinkedHashMap<>());
+            for(var parameter:parameters) {
+                if(parameter instanceof ClassTemplateDecl.TypeParameter)cppTypes.declareTypedef(parameter.name(),parameter.type(),parameter.range());
+                else {
+                    var value=(ClassTemplateDecl.ValueParameter)parameter;
+                    cppTypes.declareValue(value.name(),value.range());
+                    templateValues.peek().put(value.name(),new CppTemplateValueExpr(value.type(),value.valueType(),value.range()));
+                }
+            }
+        }
+        public void registerPendingFunctionTemplate(String name){
+            if(pendingFunctionTemplateParameters!=null){registerFunctionTemplate(name,pendingFunctionTemplateParameters);pendingFunctionTemplateParameters=null;}
+        }
+        public void registerFunctionTemplate(String name,List<ClassTemplateDecl.Parameter> parameters){functionTemplateNames.put(name,List.copyOf(parameters));}
+        public List<ClassTemplateDecl.Parameter> readTemplateParameters(Token anchor,String owner) {
+            var parameters=new ArrayList<ClassTemplateDecl.Parameter>();
+            if(context.check(TokenType.GREATER))return parameters;
+            do {
+                Token key=context.peek();
+                if(context.match(TokenType.CLASS)||context.match(TokenType.TYPENAME)) {
+                    if(context.check(TokenType.ELLIPSIS)){context.unsupportedCpp(context.peek().range(),"模板参数包将在可变参数模板切片中实现");return null;}
+                    Token name=context.check(TokenType.IDENTIFIER)?context.advance():new Token(TokenType.IDENTIFIER,"__templateParameter"+parameters.size(),key.range());
+                    var identity=declareTemplateParameter(anchor,name,owner,parameters.size());
+                    MiniType defaultType=null;
+                    if(context.match(TokenType.EQUAL)){var value=parseType("期望默认模板类型");if(value==null)return null;defaultType=value.type();}
+                    parameters.add(new ClassTemplateDecl.TypeParameter(name.lexeme(),identity,defaultType,name.range()));
+                } else {
+                    BaseType base=parseBaseType("期望非类型模板参数类型");if(base==null)return null;
+                    Declarator declarator=canStartDeclarator(true)?parseDeclarator("",false):new Declarator("",new ArrayList<>(),base.endToken(),base.endToken(),base.endToken());
+                    if(declarator==null)return null;
+                    MiniType valueType=adjustParameterType(resolveDeclarator(declarator,base.type()));
+                    Token name=new Token(TokenType.IDENTIFIER,declarator.name().isEmpty()?"__templateParameter"+parameters.size():declarator.name(),declarator.endToken().range());
+                    var identity=declareValueTemplateParameter(anchor,name,owner,parameters.size(),valueType);
+                    Expression defaultValue=context.match(TokenType.EQUAL)?parseTemplateValue():null;
+                    parameters.add(new ClassTemplateDecl.ValueParameter(name.lexeme(),identity,valueType,defaultValue,SourceRange.span(base.startToken().range(),name.range())));
+                }
+            }while(context.match(TokenType.COMMA));
+            return parameters;
+        }
+        public boolean beginsFunctionTemplateArguments(Expression target) {
+            if(!context.check(TokenType.LESS))return false;
+            String name=target instanceof Expression.NameExpr n?n.name():target instanceof Expression.QualifiedNameExpr q?q.name().segments().getLast():target instanceof Expression.FieldAccessExpr f?f.fieldName():target instanceof minic.compiler.parser.node.CppTypeMemberExpr m?m.memberName():null;
+            if(name==null||!functionTemplateNames.containsKey(name))return false;
+            int depth=1,parens=0;
+            for(int offset=1;;offset++){
+                TokenType token=context.peekAt(offset).type();
+                if(token==TokenType.EOF||token==TokenType.SEMICOLON||token==TokenType.LEFT_BRACE)return false;
+                if(token==TokenType.LEFT_PAREN)parens++;if(token==TokenType.RIGHT_PAREN)parens--;
+                if(parens==0){if(token==TokenType.LESS)depth++;if(token==TokenType.GREATER)depth--;if(token==TokenType.GREATER_GREATER)depth-=2;}
+                if(depth<=0)return depth==0;
+            }
+        }
+        public List<TemplateArgument> parseFunctionTemplateArguments() {
+            if(context.consume(TokenType.LESS,"期望 '<'")==null)return null;
+            var arguments=new ArrayList<TemplateArgument>();
+            if(!context.check(TokenType.GREATER))do {
+                if(canStartType()) {var type=parseType("期望模板类型实参");if(type==null)return null;arguments.add(new TemplateArgument.Type(type.type()));}
+                else {var value=parseTemplateValue();if(value==null)return null;arguments.add(new TemplateArgument.Value(value));}
+            }while(context.match(TokenType.COMMA));
+            return context.consumeTemplateGreater("模板实参后期望 '>'")==null?null:arguments;
+        }
 
         public String beginClassTemplate(Token name) {
             String owner = cppTypes.namespaceIdentity(name.lexeme());
@@ -1634,7 +1718,10 @@ public final class Parser extends Stage {
                 }
                 MiniType parameterType = adjustParameterType(resolveDeclarator(declarator, baseType.type()));
                 SourceRange range = SourceRange.span(baseType.startToken().range(), declarator.endToken().range());
-                parameters.add(new ParsedParameter(declarator.name(), parameterType, range));
+                Expression defaultValue=null;
+                if(isCpp()&&context.match(TokenType.EQUAL))defaultValue=expressionManager.parseAssignmentExpression();
+                if(isCpp()&&defaultValue==null&&parameters.stream().anyMatch(p->p.defaultValue()!=null))context.report(range,"默认函数实参之后的参数也需要默认实参");
+                parameters.add(new ParsedParameter(declarator.name(), parameterType, defaultValue, range));
                 if (isCpp() && !declarator.name().isEmpty()) declareOrdinaryName(declarator.name(), range);
             } while (context.match(TokenType.COMMA));
             return new ParameterList(parameters, variadic);
@@ -2169,7 +2256,8 @@ public final class Parser extends Stage {
         }
     }
 
-    public record ParsedParameter(String name, MiniType type, SourceRange range) {
+    public record ParsedParameter(String name, MiniType type, Expression defaultValue, SourceRange range) {
+        public ParsedParameter(String name,MiniType type,SourceRange range){this(name,type,null,range);}
     }
 
     /** Parser 递归下降与 AST 构建观察事件。 */

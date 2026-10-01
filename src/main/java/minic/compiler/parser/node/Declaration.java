@@ -241,7 +241,8 @@ public interface Declaration extends AstNode {
         }
     }
 
-    record Parameter(String name, MiniType type, SourceRange range) implements Declaration {
+    record Parameter(String name, MiniType type, Expression defaultValue, SourceRange range) implements Declaration {
+        public Parameter(String name,MiniType type,SourceRange range){this(name,type,null,range);}
         public Parameter {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(type, "type");
@@ -280,7 +281,16 @@ public interface Declaration extends AstNode {
         }
     }
 
-    sealed interface CppMember extends AstNode permits FieldMember, StaticFieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel, MemberTypedef {}
+    sealed interface CppMember extends AstNode permits FieldMember, StaticFieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel, MemberTypedef, TemplateMethodMember, TemplateConstructorMember {}
+
+    record TemplateMethodMember(List<ClassTemplateDecl.Parameter> parameters,MethodMember method) implements CppMember {
+        public TemplateMethodMember {parameters=List.copyOf(parameters);Objects.requireNonNull(method);}
+        @Override public SourceRange range(){return method.range();}
+    }
+    record TemplateConstructorMember(List<ClassTemplateDecl.Parameter> parameters,ConstructorMember constructor) implements CppMember {
+        public TemplateConstructorMember {parameters=List.copyOf(parameters);Objects.requireNonNull(constructor);}
+        @Override public SourceRange range(){return constructor.range();}
+    }
 
     record MemberTypedef(TypedefDecl declaration) implements CppMember {
         public MemberTypedef { Objects.requireNonNull(declaration); }

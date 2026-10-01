@@ -8,6 +8,7 @@ import minic.compiler.parser.node.Declaration.*;
 import minic.compiler.parser.node.CppInitializer;
 import minic.compiler.parser.node.ConversionName;
 import minic.compiler.parser.node.QualifiedName;
+import minic.compiler.parser.node.ClassTemplateDecl;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.type.MiniType;
 
@@ -65,10 +66,25 @@ public final class CppRecordParser {
         List<DeferredConstructor> constructors = new ArrayList<>();
         List<DeferredDestructor> destructors = new ArrayList<>();
         List<DeferredField> defaults = new ArrayList<>();
+        List<DeferredMemberTemplate> templates = new ArrayList<>();
         types.enterMemberScope(type);
         try {
             while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
                 if (state.match(TokenType.SEMICOLON)) continue;
+                if(state.check(TokenType.TEMPLATE)) {
+                    DeferredMemberTemplate item=readMemberTemplate(simpleName,members.size());
+                    if(item==null)recoverMember();
+                    else {
+                        templates.add(item);
+                        if(item.constructor()!=null)members.add(new TemplateConstructorMember(item.parameters(),item.constructor().signature()));
+                        else {
+                            types.registerFunctionTemplate(item.method().name(),item.parameters());
+                            types.declareOrdinaryName(item.method().name(),item.nameRange());
+                            members.add(new TemplateMethodMember(item.parameters(),new MethodMember(item.method(),item.constant(),item.statik(),item.nameRange())));
+                        }
+                    }
+                    continue;
+                }
                 int before = state.currentIndex();
                 Token declarationStart = state.peek();
                 boolean staticMember = state.match(TokenType.STATIC);
@@ -239,6 +255,18 @@ public final class CppRecordParser {
                 members.set(item.memberIndex(), member);
                 state.build(method, "MethodDecl " + method.name(), method.range());
             }
+            for(var item:templates) {
+                types.restoreFunctionTemplateParameters(item.parameters());
+                try {
+                    if(item.constructor()!=null)members.set(item.index(),new TemplateConstructorMember(item.parameters(),completeConstructor(item.constructor())));
+                    else {
+                        FunctionDecl signature=item.method();
+                        BlockStmt body=item.body()==null?null:state.inTokenWindow(item.body(),()->statements.parseFunctionBlock(signature.parameters().stream().map(Parameter::name).toList()));
+                        FunctionDecl method=new FunctionDecl(signature.name(),signature.returnType(),signature.parameters(),signature.variadic(),body,false,false,signature.range(),signature.operatorName(),signature.conversionName());
+                        members.set(item.index(),new TemplateMethodMember(item.parameters(),new MethodMember(method,item.constant(),item.statik(),item.nameRange())));
+                    }
+                } finally {types.exitFunctionTemplate();}
+            }
             for (DeferredConstructor item : constructors) members.set(item.memberIndex(), completeConstructor(item));
             for (DeferredDestructor item : destructors) members.set(item.memberIndex(), completeDestructor(item));
             for (DeferredField item : defaults) {
@@ -252,6 +280,34 @@ public final class CppRecordParser {
         }
     }
 
+    private DeferredMemberTemplate readMemberTemplate(String className,int index) {
+        Token start=state.advance();if(state.consume(TokenType.LESS,"template 后期望 '<'")==null)return null;
+        String owner=types.beginFunctionTemplate(start);
+        try {
+            var parameters=types.readTemplateParameters(start,owner);
+            if(parameters==null||state.consumeTemplateGreater("模板参数后期望 '>'")==null)return null;
+            if(parameters.isEmpty()){state.report(start,"成员模板不能在类内显式特化");return null;}
+            boolean explicit=state.match(TokenType.EXPLICIT);
+            boolean statik=state.match(TokenType.STATIC);
+            if(state.check(TokenType.IDENTIFIER)&&state.peek().lexeme().equals(className)&&state.peekAt(1).type()==TokenType.LEFT_PAREN) {
+                Token name=state.advance();
+                if(statik)state.report(name,"构造模板不能是 static");
+                var constructor=readConstructor(name.lexeme(),name.range(),start.range(),index,explicit);
+                return constructor==null?null:new DeferredMemberTemplate(index,parameters,null,constructor,null,false,false,name.range());
+            }
+            if(explicit){state.report(start,"此成员模板不能使用 explicit");return null;}
+            var declaration=types.parseNamedType("期望成员模板返回类型","期望成员模板名称",false,true);
+            if(declaration==null)return null;
+            if(!(declaration.type().unqualified() instanceof MiniType.FunctionType function)){state.report(start,"成员模板需要函数或构造函数");return null;}
+            boolean constant=state.match(TokenType.CONST);
+            if(statik&&constant)state.report(start,"static 成员模板不能 cv 限定");
+            Parser.Context.TokenWindow body=state.check(TokenType.LEFT_BRACE)?state.deferBlock():null;
+            if(body==null&&state.consume(TokenType.SEMICOLON,"期望成员模板函数体或 ';'")==null)return null;
+            FunctionDecl method=makeMethod(declaration,function,null,state.previous().range());
+            return new DeferredMemberTemplate(index,parameters,method,null,body,constant,statik,declaration.nameRange());
+        } finally {types.exitFunctionTemplate();}
+    }
+
     private void addField(StructField field, List<StructField> fields, List<CppMember> members) {
         fields.add(field);
         members.add(new FieldMember(field));
@@ -263,7 +319,7 @@ public final class CppRecordParser {
         List<Parameter> parameters = new ArrayList<>();
         for (int index = 0; index < declaration.parameters().size(); index++) {
             var parsed = declaration.parameters().get(index);
-            parameters.add(new Parameter(parsed.name().isEmpty() ? "__unnamed" + index : parsed.name(), parsed.type(), parsed.range()));
+            parameters.add(new Parameter(parsed.name().isEmpty() ? "__unnamed" + index : parsed.name(), parsed.type(), parsed.defaultValue(), parsed.range()));
         }
         return new FunctionDecl(declaration.name(), function.returnType(), parameters, function.variadic(), body,
                 false, false, SourceRange.span(declaration.range(), end), declaration.operatorName());
@@ -494,7 +550,7 @@ public final class CppRecordParser {
         for (int i = 0; i < parameters.parameters().size(); i++) {
             var parameter = parameters.parameters().get(i);
             if (parameter.name().isEmpty()) unnamed.add(parameter.range());
-            resolved.add(new Parameter(parameter.name().isEmpty() ? "__unnamed" + i : parameter.name(), parameter.type(), parameter.range()));
+            resolved.add(new Parameter(parameter.name().isEmpty() ? "__unnamed" + i : parameter.name(), parameter.type(), parameter.defaultValue(), parameter.range()));
         }
         var signature = new ConstructorMember(name, resolved, parameters.variadic(), List.of(), null,
                 nameRange, SourceRange.span(start, state.previous().range()), explicitSpecifier);
@@ -583,6 +639,9 @@ public final class CppRecordParser {
     }
     private static boolean isAccess(TokenType token) { return token == TokenType.PUBLIC || token == TokenType.PROTECTED || token == TokenType.PRIVATE; }
     private static Access access(TokenType token) { return switch (token) { case PUBLIC -> Access.PUBLIC; case PROTECTED -> Access.PROTECTED; default -> Access.PRIVATE; }; }
+    private record DeferredMemberTemplate(int index,List<ClassTemplateDecl.Parameter> parameters,FunctionDecl method,
+                                           DeferredConstructor constructor,Parser.Context.TokenWindow body,
+                                           boolean constant,boolean statik,SourceRange nameRange) {}
     private record DeferredMethod(int memberIndex, FunctionDecl signature, Parser.Context.TokenWindow body,
                                   List<SourceRange> unnamedParameters) { }
     private record DeferredInitializer(QualifiedName target, Parser.Context.TokenWindow arguments, SourceRange range) { }

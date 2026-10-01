@@ -11,6 +11,8 @@ import minic.compiler.parser.node.CppDestructorCallExpr;
 import minic.compiler.parser.node.CppNewExpr;
 import minic.compiler.parser.node.CppTypeMemberExpr;
 import minic.compiler.parser.node.ClassTemplateDecl;
+import minic.compiler.parser.node.FunctionTemplateDecl;
+import minic.compiler.parser.node.CppTemplateIdExpr;
 import minic.compiler.parser.node.CleanupScopeStmt;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.Declaration.*;
@@ -236,6 +238,22 @@ public final class CppNameBinder {
                                      List<Namespace> directives) {}
         private record TemplateDefinition(ClassTemplateDecl source, Namespace owner,
                                           Map<Namespace, NamespaceView> lookup) {}
+        private record DefaultArgument(Expression source,Namespace owner,TypeEntity record,Map<Namespace,NamespaceView> lookup) {}
+        private final Map<Entity,List<DefaultArgument>> functionDefaults=new IdentityHashMap<>();
+        private record FunctionTemplateDefinition(List<ClassTemplateDecl.Parameter> parameters, FunctionDecl source,
+                Namespace owner, TypeEntity record, MethodMember method, ConstructorMember constructor, Access access,
+                Map<Namespace, NamespaceView> lookup) {}
+        private record FunctionTemplateKey(Entity declaration,List<TemplateArgument> arguments) {}
+        private record FunctionTemplateInstance(FunctionTemplateDefinition definition,CppTemplateDeduction.Bindings bindings,FunctionDecl function,
+                Method method,Constructor constructor) {}
+        private final Map<Entity,FunctionTemplateDefinition> functionTemplates=new IdentityHashMap<>();
+        private final Map<FunctionTemplateKey,Entity> functionTemplateCache=new LinkedHashMap<>();
+        private final Map<Entity,FunctionTemplateInstance> functionTemplateInstances=new IdentityHashMap<>();
+        private final Set<Entity> requestedFunctionTemplates=Collections.newSetFromMap(new IdentityHashMap<>());
+        private final Map<Entity,Entity> functionTemplateDeclarations=new IdentityHashMap<>();
+        private int functionTemplateDepth;
+        private final Set<Entity> emittedFunctionTemplates=Collections.newSetFromMap(new IdentityHashMap<>());
+
         private final Map<String, TemplateDefinition> templates = new LinkedHashMap<>();
         private final Map<String,List<TemplateDefinition>> templateSpecializations=new LinkedHashMap<>();
         private record TemplateSelection(TemplateDefinition definition,CppTemplateDeduction.Bindings bindings) {}
@@ -280,6 +298,16 @@ public final class CppNameBinder {
 
         Result run() {
             bindDeclarations(source.declarations(), root);
+            while(true) {
+                List<Entity> pending=requestedFunctionTemplates.stream().filter(e->!emittedFunctionTemplates.contains(e)).toList();
+                if(pending.isEmpty())break;
+                int before=emittedFunctionTemplates.size();
+                for(Entity entity:pending)instantiateFunctionTemplate(entity);
+                if(before==emittedFunctionTemplates.size()) {
+                    for(Entity entity:pending)report("CPP004",functionTemplateInstances.get(entity).definition.source.range(),"Used function template has no definition: "+entity.name);
+                    break;
+                }
+            }
             for (StaticField field : staticFields.values()) if (!field.entity.defined)
                 for (SourceRange use : field.uses) report("CPP004", use,
                         "ODR-used static data member has no definition: " + field.owner.canonicalName + "::" + field.entity.name);
@@ -293,6 +321,7 @@ public final class CppNameBinder {
             for (Declaration declaration : input) {
                 switch (declaration) {
                     case ClassTemplateDecl node -> declareTemplate(node, namespace);
+                    case FunctionTemplateDecl node -> declareFunctionTemplate(node,namespace);
                     case InternalLinkageDecl node -> {
                         boolean saved = internalDeclaration;
                         internalDeclaration = true;
@@ -354,6 +383,238 @@ public final class CppNameBinder {
             return true;
         }
 
+
+        private void declareFunctionTemplate(FunctionTemplateDecl declaration,Namespace namespace) {
+            FunctionDecl function=declaration.function();
+            if(declaration.parameters().isEmpty()) {report("CPP005",declaration.range(),"Explicit function template specialization requires a primary template-id");return;}
+            Candidate prior=namespace.values.get(function.name());
+            if(namespace.children.containsKey(function.name())||namespace.typedefs.containsKey(function.name())) {
+                report("CPP004",declaration.range(),"Function template conflicts with a namespace or type name");return;
+            }
+            if(prior!=null&&!(prior instanceof OverloadSet)) {report("CPP004",declaration.range(),"Function template conflicts with a non-function declaration");return;}
+            var visible=new ArrayList<Entity>(prior instanceof OverloadSet set?set.functions:List.of());
+            var signature=MiniType.function(function.returnType(),function.parameters().stream().map(Parameter::type).toList(),function.variadic());
+            for(Entity previous:visible) {
+                FunctionTemplateDefinition old=functionTemplates.get(previous);
+                if(old==null||!sameFunctionTemplate(old,declaration.parameters(),function))continue;
+                if(old.source.hasBody()&&function.hasBody())report("CPP004",declaration.range(),"Function template is defined more than once");
+                else if(function.hasBody())functionTemplates.put(previous,new FunctionTemplateDefinition(declaration.parameters(),function,namespace,null,null,null,null,snapshotLookup()));
+                return;
+            }
+            Entity entity=new Entity(function.name(),freshName(namespace.qualify(function.name())),Kind.FUNCTION,namespace,signature,null,function.hasBody());
+            visible.add(entity);namespace.values.put(function.name(),new OverloadSet(visible));
+            functionTemplates.put(entity,new FunctionTemplateDefinition(declaration.parameters(),function,namespace,null,null,null,null,snapshotLookup()));
+            validateFunctionTemplateNames(function,namespace);
+        }
+        private boolean sameFunctionTemplate(FunctionTemplateDefinition old,List<ClassTemplateDecl.Parameter> parameters,FunctionDecl source) {
+            if(old.parameters.size()!=parameters.size()||old.source.variadic()!=source.variadic())return false;
+            var types=new LinkedHashMap<MiniType.TemplateParameterType,MiniType>();
+            var values=new LinkedHashMap<MiniType.TemplateParameterType,Expression>();
+            for(int i=0;i<parameters.size();i++) {
+                var from=old.parameters.get(i);var to=parameters.get(i);
+                if(from.getClass()!=to.getClass())return false;
+                if(from instanceof ClassTemplateDecl.TypeParameter)types.put(from.type(),to.type());
+                else values.put(from.type(),new CppTemplateValueExpr(to.type(),((ClassTemplateDecl.ValueParameter)to).valueType(),to.range()));
+            }
+            return old.source.parameters().stream().map(p->p.type().substituteTemplateParameters(types,values)).toList()
+                    .equals(source.parameters().stream().map(Parameter::type).toList());
+        }
+        private void validateFunctionTemplateNames(FunctionDecl function,Namespace namespace) {
+            if(function.body()==null)return;
+            Local scope=new Local(null,namespace);Set<String> dependent=new HashSet<>();
+            for(Parameter parameter:function.parameters()) {
+                scope.values.put(parameter.name(),new Entity(parameter.name(),parameter.name(),Kind.VARIABLE,null,parameter.type(),null,true));
+                if(parameter.type().isDependentTemplate())dependent.add(parameter.name());
+            }
+            validateTemplateNames(function.body(),scope,dependent);
+        }
+        private void declareMemberTemplate(TypeEntity owner,List<ClassTemplateDecl.Parameter> parameters,
+                                           MethodMember method,ConstructorMember constructor,Access access) {
+            FunctionDecl source=method!=null?method.method():new FunctionDecl(owner.name,MiniType.VOID,constructor.parameters(),constructor.variadic(),constructor.body(),false,constructor.range());
+            List<MiniType> argumentTypes=source.parameters().stream().map(Parameter::type).toList();
+            var abi=new ArrayList<MiniType>();
+            if(method==null||!method.staticMember())abi.add(method==null?owner.type.pointerTo():methodThisType(owner,method));
+            abi.addAll(argumentTypes);
+            Entity entity=new Entity(source.name(),freshName(owner.canonicalName+"::"+source.name()),Kind.FUNCTION,owner.owner,
+                    MiniType.function(source.returnType(),abi,source.variadic()),null,source.hasBody());
+            functionTemplates.put(entity,new FunctionTemplateDefinition(parameters,source,owner.owner,owner,method,constructor,access,currentTemplateLookup==null?snapshotLookup():currentTemplateLookup));
+            if(method!=null) {
+                var previous=owner.methods.get(source.name());
+                var overloads=new ArrayList<Method>(previous==null?List.of():previous.methods);
+                overloads.add(new Method(owner,method,access,entity,source.returnType(),argumentTypes));
+                owner.methods.put(source.name(),new MethodSet(overloads));
+            } else owner.constructors.add(new Constructor(owner,constructor,access,entity,argumentTypes,false));
+        }
+        private List<TemplateArgument> normalizeExplicitArguments(List<TemplateArgument> source,Namespace namespace,Local local,SourceRange range) {
+            return source.stream().map(argument->argument instanceof TemplateArgument.Type type
+                    ?(TemplateArgument)new TemplateArgument.Type(normalizeType(type.type(),namespace,local,range))
+                    :argument instanceof TemplateArgument.Value value?new TemplateArgument.Value(expression(value.expression(),namespace,local)):argument).toList();
+        }
+        private MiniType functionTemplatePattern(MiniType type,Namespace namespace,SourceRange range) {
+            if(!type.isDependentTemplate())return normalizeType(type,namespace,null,range);
+            if(type instanceof MiniType.PointerType pointer)return functionTemplatePattern(pointer.pointee(),namespace,range).pointerTo();
+            if(type instanceof MiniType.ReferenceType reference)return functionTemplatePattern(reference.referent(),namespace,range).referenceTo();
+            if(type instanceof MiniType.QualifiedType qualified)return MiniType.qualified(functionTemplatePattern(qualified.baseType(),namespace,range),qualified.qualifiers());
+            if(type instanceof MiniType.ArrayType array)return functionTemplatePattern(array.elementType(),namespace,range).arrayOf(array.length());
+            if(type instanceof MiniType.DependentArrayType array)return new MiniType.DependentArrayType(functionTemplatePattern(array.elementType(),namespace,range),array.bound());
+            if(type instanceof MiniType.FunctionType function)return MiniType.function(functionTemplatePattern(function.returnType(),namespace,range),function.parameterTypes().stream().map(p->functionTemplatePattern(p,namespace,range)).toList(),function.variadic());
+            return type;
+        }
+        private Entity deduceFunctionTemplate(Entity declaration,List<MiniType> actual,List<TemplateArgument> explicit,SourceRange range) {
+            return deduceFunctionTemplateShapes(declaration,actual.stream().map(t->t==null?null:
+                    new CppOverloadResolver.Argument(t,CppValueCategory.PRVALUE,false)).toList(),explicit,range);
+        }
+        private Entity deduceFunctionTemplateShapes(Entity declaration,List<CppOverloadResolver.Argument> actual,List<TemplateArgument> explicit,SourceRange range) {
+            FunctionTemplateDefinition definition=functionTemplates.get(declaration);
+            if(definition==null)return explicit==null?declaration:null;
+            int required=definition.source.parameters().size();
+            while(required>0&&definition.source.parameters().get(required-1).defaultValue()!=null)required--;
+            if(actual.size()<required||!definition.source.variadic()&&actual.size()>definition.source.parameters().size())return null;
+            var savedLookup=currentTemplateLookup;TypeEntity savedClass=currentClass;Entity savedThis=currentThis;
+            currentTemplateLookup=definition.lookup;currentClass=definition.record;currentThis=null;
+            int errors=diagnostics.size();
+            try {
+                List<MiniType> pattern=definition.source.parameters().stream().map(p->functionTemplatePattern(p.type(),definition.owner,p.range())).toList();
+                var bindings=CppFunctionTemplateDeduction.deduceShapes(definition.parameters,pattern,actual,explicit==null?List.of():explicit,this::expandTemplateType,
+                        t->normalizeType(t,definition.owner,null,range),e->evaluateTemplateConstant(expression(e,definition.owner,null)),this::initializerListElementPattern);
+                if(bindings==null)return null;
+                var arguments=new ArrayList<TemplateArgument>();
+                for(var parameter:definition.parameters)arguments.add(parameter instanceof ClassTemplateDecl.TypeParameter
+                        ?new TemplateArgument.Type(normalizeType(bindings.types().get(parameter.type()),definition.owner,null,range)):bindings.values().get(parameter.type()));
+                var key=new FunctionTemplateKey(declaration,List.copyOf(arguments));
+                Entity existing=functionTemplateCache.get(key);if(existing!=null)return existing;
+                CppTemplateSubstitution substitution=functionSubstitution(definition,bindings);
+                FunctionDecl original=definition.source;
+                FunctionDecl header=new FunctionDecl(original.name(),original.returnType(),original.parameters(),original.variadic(),null,
+                        original.external(),original.noReturn(),original.range(),original.operatorName(),original.conversionName());
+                FunctionDecl instance=substitution.instantiate(header);
+                MiniType result=normalizeType(instance.returnType(),definition.owner,null,instance.range());
+                List<MiniType> parameters=instance.parameters().stream().map(p->normalizeType(p.type(),definition.owner,null,p.range())).toList();
+                if(result.containsTemplateType()||parameters.stream().anyMatch(MiniType::containsTemplateType)||diagnostics.size()!=errors)return null;
+                var abi=new ArrayList<MiniType>();
+                if(definition.constructor!=null)abi.add(definition.record.type.pointerTo());
+                else if(definition.method!=null&&!definition.method.staticMember())abi.add(methodThisType(definition.record,definition.method));
+                parameters.stream().map(MiniType::unqualified).forEach(abi::add);
+                String display=(definition.record==null?definition.owner.qualify(original.name()):definition.record.canonicalName+"::"+original.name())
+                        +"<"+String.join(",",arguments.stream().map(Object::toString).toList())+">";
+                Entity entity=new Entity(original.name(),freshName(display),Kind.FUNCTION,definition.owner,
+                        MiniType.function(result,abi,original.variadic()),null,original.hasBody());
+                Method method=definition.method==null?null:new Method(definition.record,
+                        new MethodMember(instance,definition.method.constQualified(),definition.method.staticMember(),definition.method.nameRange()),definition.access,entity,result,parameters);
+                Constructor constructor=null;
+                if(definition.constructor!=null) {
+                    var originalConstructor=definition.constructor;
+                    var member=new ConstructorMember(originalConstructor.name(),instance.parameters(),originalConstructor.variadic(),List.of(),null,
+                            originalConstructor.nameRange(),originalConstructor.range(),originalConstructor.explicitSpecifier());
+                    constructor=new Constructor(definition.record,member,definition.access,entity,parameters,false);
+                }
+                functionTemplateCache.put(key,entity);functionTemplateDeclarations.put(entity,declaration);coreValues.put(entity.coreName,entity);
+                functionTemplateInstances.put(entity,new FunctionTemplateInstance(definition,bindings,instance,method,constructor));
+                recordDefaultArguments(entity,instance.parameters(),definition.owner,definition.record);
+                // A prototype permits recursion. The selected body is still instantiated lazily.
+                declareTemplatePrototype(entity,range);
+                return entity;
+            } catch(IllegalArgumentException error) {return null;}
+            finally {
+                // Only signature substitution is an immediate context. Body errors are never caught here.
+                diagnostics.subList(errors,diagnostics.size()).clear();
+                currentTemplateLookup=savedLookup;currentClass=savedClass;currentThis=savedThis;
+            }
+        }
+        private CppTemplateSubstitution functionSubstitution(FunctionTemplateDefinition definition,CppTemplateDeduction.Bindings bindings) {
+            String owner=definition.record==null?"::"+definition.owner.qualify(definition.source.name()):definition.record.canonicalName;
+            return new CppTemplateSubstitution(bindings.types(),CppFunctionTemplateDeduction.expressions(bindings.values(),definition.parameters),owner,owner);
+        }
+        private void instantiateFunctionTemplate(Entity entity) {
+            var instance=functionTemplateInstances.get(entity);
+            if(instance==null||unevaluatedDepth>0||emittedFunctionTemplates.contains(entity))return;
+            requestedFunctionTemplates.add(entity);
+            var definition=functionTemplates.getOrDefault(functionTemplateDeclarations.get(entity),instance.definition);
+            if(!definition.source.hasBody())return;
+            if(functionTemplateDepth>=128){report("CPP004",definition.source.range(),"Function template instantiation depth exceeds 128");emittedFunctionTemplates.add(entity);return;}
+            var bindings=instance.bindings;
+            if(definition!=instance.definition) {
+                var types=new LinkedHashMap<MiniType.TemplateParameterType,MiniType>();var values=new LinkedHashMap<MiniType.TemplateParameterType,TemplateArgument>();
+                for(int index=0;index<definition.parameters.size();index++) {
+                    var old=instance.definition.parameters.get(index);var current=definition.parameters.get(index);
+                    if(current instanceof ClassTemplateDecl.TypeParameter)types.put(current.type(),bindings.types().get(old.type()));
+                    else values.put(current.type(),bindings.values().get(old.type()));
+                }
+                bindings=new CppTemplateDeduction.Bindings(types,values);
+            }
+            emittedFunctionTemplates.add(entity);functionTemplateDepth++;
+            var savedLookup=currentTemplateLookup;TypeEntity savedClass=currentClass;Entity savedThis=currentThis;
+            currentTemplateLookup=definition.lookup;currentClass=definition.record;currentThis=null;
+            try {
+                var substitution=functionSubstitution(definition,bindings);
+                if(instance.constructor!=null) {
+                    ConstructorMember source=substitution.instantiate(definition.constructor);
+                    templateOrigins.putAll(substitution.origins());
+                    bindConstructor(new Constructor(definition.record,source,definition.access,entity,instance.constructor.parameterTypes,false));
+                } else {
+                    FunctionDecl source=substitution.instantiate(definition.source);
+                    templateOrigins.putAll(substitution.origins());
+                    if(instance.method!=null)bindMethod(new Method(definition.record,
+                            new MethodMember(source,definition.method.constQualified(),definition.method.staticMember(),definition.method.nameRange()),
+                            definition.access,entity,instance.method.returnType,instance.method.parameterTypes),definition.owner);
+                    else bindFunction(source,definition.owner,entity);
+                }
+            } catch(IllegalArgumentException error){report("CPP004",definition.source.range(),"Cannot instantiate selected function template: "+error.getMessage());}
+            finally {currentTemplateLookup=savedLookup;currentClass=savedClass;currentThis=savedThis;functionTemplateDepth--;}
+        }
+        private Entity deduceFunctionTemplateForTarget(Entity declaration,MiniType.FunctionType target,List<TemplateArgument> explicit,SourceRange range) {
+            FunctionTemplateDefinition definition=functionTemplates.get(declaration);
+            if(definition==null)return explicit==null?declaration:null;
+            if(explicit!=null&&!explicit.isEmpty())return deduceFunctionTemplate(declaration,target.parameterTypes(),explicit,range);
+            var pattern=new ArrayList<MiniType>();pattern.add(definition.source.returnType());pattern.addAll(definition.source.parameters().stream().map(Parameter::type).toList());
+            var actual=new ArrayList<MiniType>();actual.add(target.returnType());actual.addAll(target.parameterTypes());
+            var bindings=CppTemplateDeduction.deduce(pattern,actual,definition.parameters,Map.of(),Map.of(),this::expandTemplateType);
+            if(bindings==null)return null;
+            var arguments=new ArrayList<TemplateArgument>();
+            for(var parameter:definition.parameters) {
+                TemplateArgument argument=parameter instanceof ClassTemplateDecl.TypeParameter?new TemplateArgument.Type(bindings.types().getOrDefault(parameter.type(),parameter.type())):bindings.values().get(parameter.type());
+                if(argument==null||argument instanceof TemplateArgument.Type type&&type.type().isDependentTemplate())return null;
+                arguments.add(argument);
+            }
+            return deduceFunctionTemplate(declaration,target.parameterTypes(),arguments,range);
+        }
+        private List<Entity> expandFunctionTemplates(java.util.Collection<Entity> candidates,List<Expression> values,List<TemplateArgument> explicit,SourceRange range) {
+            List<CppOverloadResolver.Argument> types=values.stream().map(value->value==null?null:argumentShape(value,value)).toList();
+            var result=new ArrayList<Entity>();
+            for(Entity candidate:candidates){Entity concrete=deduceFunctionTemplateShapes(candidate,types,explicit,range);if(concrete!=null)result.add(concrete);}
+            return result;
+        }
+        private List<Method> expandMethodTemplates(List<Method> candidates,List<Expression> values,List<TemplateArgument> explicit,SourceRange range) {
+            List<CppOverloadResolver.Argument> types=values.stream().map(value->value==null?null:argumentShape(value,value)).toList();
+            var result=new ArrayList<Method>();
+            for(Method candidate:candidates){Entity concrete=deduceFunctionTemplateShapes(candidate.function,types,explicit,range);
+                if(concrete!=null)result.add(concrete==candidate.function?candidate:functionTemplateInstances.get(concrete).method);}
+            return result;
+        }
+        private List<Constructor> expandConstructorTemplates(List<Constructor> candidates,List<Expression> values,SourceRange range) {
+            List<CppOverloadResolver.Argument> types=values.stream().map(value->value==null?null:argumentShape(value,value)).toList();
+            return expandConstructorTemplateShapes(candidates,types,range);
+        }
+        private List<Constructor> expandConstructorTemplateShapes(List<Constructor> candidates,List<CppOverloadResolver.Argument> types,SourceRange range) {
+            var result=new ArrayList<Constructor>();
+            for(Constructor candidate:candidates){Entity concrete=deduceFunctionTemplateShapes(candidate.function,types,null,range);
+                if(concrete!=null)result.add(concrete==candidate.function?candidate:functionTemplateInstances.get(concrete).constructor);}
+            return result;
+        }
+        private Entity templateCandidateEntity(Object candidate) {
+            return candidate instanceof Entity e?e:candidate instanceof Method m?m.function:candidate instanceof Constructor c?c.function
+                    :candidate instanceof OperatorCandidate operator?operator.function:null;
+        }
+        private boolean betterTemplateCandidate(Object first,Object second) {
+            FunctionTemplateInstance a=functionTemplateInstances.get(templateCandidateEntity(first)),b=functionTemplateInstances.get(templateCandidateEntity(second));
+            if(a==null||b==null)return a==null&&b!=null;
+            var pa=a.definition.source.parameters().stream().map(Parameter::type).map(t->t.isReference()?t.referent():t.unqualified()).toList();
+            var pb=b.definition.source.parameters().stream().map(Parameter::type).map(t->t.isReference()?t.referent():t.unqualified()).toList();
+            boolean acceptsA=CppTemplateDeduction.deduce(pb,pa,b.definition.parameters,Map.of(),Map.of(),this::expandTemplateType)!=null;
+            boolean acceptsB=CppTemplateDeduction.deduce(pa,pb,a.definition.parameters,Map.of(),Map.of(),this::expandTemplateType)!=null;
+            return acceptsA&&!acceptsB;
+        }
+
         private void declareTemplate(ClassTemplateDecl node, Namespace namespace) {
             if(!node.specializationArguments().isEmpty()) {
                 if(!templates.containsKey(node.record().name())){report("CPP003",node.range(),"Template specialization needs a primary declaration");return;}
@@ -407,8 +668,10 @@ public final class CppNameBinder {
                     memberNames.add(field.declaration().name());
                     if (field.declaration().type().containsTemplateType()) dependent.add(field.declaration().name());
                 } else if (member instanceof MethodMember method) memberNames.add(method.method().name());
+                else if(member instanceof TemplateMethodMember method)memberNames.add(method.method().method().name());
             }
-            for (CppMember member : record.cppInfo().members()) {
+            for (CppMember originalMember : record.cppInfo().members()) {
+                CppMember member=originalMember instanceof TemplateMethodMember m?m.method():originalMember instanceof TemplateConstructorMember c?c.constructor():originalMember;
                 List<Parameter> parameters = member instanceof MethodMember method ? method.method().parameters()
                         : member instanceof ConstructorMember constructor ? constructor.parameters() : List.of();
                 Local scope = new Local(null, namespace);
@@ -426,6 +689,7 @@ public final class CppNameBinder {
 
         private boolean dependentTemplateExpression(AstNode node, Set<String> names) {
             if (node instanceof ThisExpr || node instanceof CppTemplateValueExpr) return true;
+            if(node instanceof CppTemplateIdExpr id && id.arguments().stream().anyMatch(a->a instanceof TemplateArgument.Type t?t.type().isDependentTemplate():a instanceof TemplateArgument.Value v&&TemplateValues.dependent(v.expression())))return true;
             if (node instanceof CppTypeMemberExpr member && member.ownerType().containsTemplateType()) return true;
             if (node instanceof NameExpr name && names.contains(name.name())) return true;
             if (node instanceof CppConstructionExpr construction && construction.type().containsTemplateType()) return true;
@@ -509,7 +773,7 @@ public final class CppNameBinder {
                         var valueParameter=(ClassTemplateDecl.ValueParameter)parameter;
                         MiniType target=normalizeType(valueParameter.valueType().substituteTemplateParameters(typeArguments),namespace,local,range);
                         var integral=sourceArgument instanceof TemplateArgument.Integral value?value:
-                                sourceArgument instanceof TemplateArgument.Value value?TemplateValues.evaluate(expression(value.expression(),namespace,local)):null;
+                                sourceArgument instanceof TemplateArgument.Value value?evaluateTemplateConstant(expression(value.expression(),namespace,local)):null;
                         if(integral==null)throw new IllegalArgumentException("Expected integral template argument");
                         arguments.add(TemplateValues.convert(integral,target,true));
                     }
@@ -625,6 +889,7 @@ public final class CppNameBinder {
         }
 
         private void instantiateMethod(Method method) {
+            if(functionTemplateInstances.containsKey(method.function)){instantiateFunctionTemplate(method.function);return;}
             if (unevaluatedDepth > 0) return;
             if (pendingTemplateMethods.remove(method.function) == null) return;
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;
@@ -658,6 +923,7 @@ public final class CppNameBinder {
         }
 
         private void instantiateConstructor(Constructor constructor) {
+            if(functionTemplateInstances.containsKey(constructor.function)){instantiateFunctionTemplate(constructor.function);return;}
             if (unevaluatedDepth > 0 || pendingTemplateConstructors.remove(constructor.function) == null) return;
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;
             currentTemplateLookup = instanceLookup.get(constructor.owner);
@@ -686,6 +952,7 @@ public final class CppNameBinder {
             Map<StaticFieldMember, Access> staticAccess = new IdentityHashMap<>();
             Map<ConstructorMember, Access> constructorAccess = new IdentityHashMap<>();
             Map<DestructorMember, Access> destructorAccess = new IdentityHashMap<>();
+            Map<CppMember,Access> templateAccess=new IdentityHashMap<>();
             if (node.cppInfo() != null) {
                 Access current = node.cppInfo().key() == RecordKey.CLASS ? Access.PRIVATE : Access.PUBLIC;
                 for (CppMember member : node.cppInfo().members()) {
@@ -702,6 +969,7 @@ public final class CppNameBinder {
                     else if (member instanceof MethodMember method) methodAccess.put(method, current);
                     else if (member instanceof ConstructorMember constructor) constructorAccess.put(constructor, current);
                     else if (member instanceof DestructorMember destructor) destructorAccess.put(destructor, current);
+                    else if(member instanceof TemplateMethodMember || member instanceof TemplateConstructorMember)templateAccess.put(member,current);
                     else report("CPP005", member.range(), "This C++ record member is not supported yet: " + member.getClass().getSimpleName());
                 }
             }
@@ -734,7 +1002,11 @@ public final class CppNameBinder {
                 List<Constructor> constructors = new ArrayList<>();
                 Destructor destructor = null;
                 for (CppMember member : members) {
-                    if (member instanceof StaticFieldMember field) {
+                    if(member instanceof TemplateMethodMember method) {
+                        declareMemberTemplate(entity,method.parameters(),method.method(),null,templateAccess.get(member));
+                    } else if(member instanceof TemplateConstructorMember constructor) {
+                        declareMemberTemplate(entity,constructor.parameters(),null,constructor.constructor(),templateAccess.get(member));
+                    } else if (member instanceof StaticFieldMember field) {
                         declareStaticField(entity, field, staticAccess.get(field), namespace);
                     } else if (member instanceof MethodMember method) {
                         Method registered = declareMethod(entity, method, methodAccess.get(method), namespace);
@@ -754,7 +1026,7 @@ public final class CppNameBinder {
                 for (CppMember member : members) {
                     if (member instanceof FieldMember field && field.defaultInitializer() != null) bindDefaultMember(entity, field);
                 }
-                if (constructors.isEmpty() && needsConstruction(entity)) {
+                if (constructors.isEmpty() && entity.constructors.isEmpty() && needsConstruction(entity)) {
                     ConstructorMember synthetic = new ConstructorMember(entity.name, List.of(), false, List.of(),
                             new BlockStmt(List.of(), node.range()), node.range(), node.range());
                     Constructor registered = declareConstructor(entity, synthetic, Access.PUBLIC, true);
@@ -958,6 +1230,7 @@ public final class CppNameBinder {
             coreValues.put(function.coreName, function);
             Constructor constructor = new Constructor(owner, member, access, function, parameters, implicit);
             owner.constructors.add(constructor);
+            recordDefaultArguments(function,member.parameters(),owner.owner,owner);
             return constructor;
         }
 
@@ -1236,6 +1509,7 @@ public final class CppNameBinder {
             List<Method> methods = new ArrayList<>(previous);
             methods.add(method);
             owner.methods.put(name, new MethodSet(methods));
+            recordDefaultArguments(function,sourceMethod.parameters(),namespace,owner);
             return method;
         }
 
@@ -1398,8 +1672,42 @@ public final class CppNameBinder {
         }
 
         /** Frontend canonical names are source identities, never linker/layout identities. */
+
+        private TemplateArgument.Integral evaluateTemplateConstant(Expression expression) {
+            return TemplateValues.evaluate(resolveTemplateQueries(expression));
+        }
+        private Expression resolveTemplateQueries(Expression expression) {
+            if(expression instanceof SizeofExpr || expression instanceof AlignofExpr) {
+                MiniType type=expression instanceof SizeofExpr size?size.queriedType():((AlignofExpr)expression).queriedType();
+                Expression operand=expression instanceof SizeofExpr size?size.expression():((AlignofExpr)expression).expression();
+                if(type==null)type=declaredExpressionType(operand);
+                type=objectTypeOfReference(type);if(type==null)throw new IllegalArgumentException("Cannot determine constant layout query type");
+                requireComplete(type,expression.range());
+                var layoutDiagnostics=new ArrayList<Diagnostic>();
+                var registry=new minic.compiler.semantic.manager.StructRegistry(new minic.compiler.semantic.model.Scope(),layoutDiagnostics);
+                registry.defineStructs(new Program(structs,List.of(),source.range()));
+                int value=expression instanceof SizeofExpr?registry.completeObjectSize(coreType(type)):registry.completeObjectAlignment(coreType(type));
+                if(!layoutDiagnostics.isEmpty())throw new IllegalArgumentException(layoutDiagnostics.getFirst().message());
+                return new IntegerConstantExpr(value,MiniType.UNSIGNED_LONG_LONG,Integer.toString(value),expression.range());
+            }
+            if(expression instanceof GroupingExpr group)return new GroupingExpr(resolveTemplateQueries(group.expression()),group.range());
+            if(expression instanceof UnaryExpr unary)return new UnaryExpr(unary.operator(),resolveTemplateQueries(unary.operand()),unary.range());
+            if(expression instanceof BinaryExpr binary)return new BinaryExpr(resolveTemplateQueries(binary.left()),binary.operator(),resolveTemplateQueries(binary.right()),binary.range());
+            if(expression instanceof ConditionalExpr conditional)return new ConditionalExpr(resolveTemplateQueries(conditional.condition()),resolveTemplateQueries(conditional.thenExpression()),resolveTemplateQueries(conditional.elseExpression()),conditional.range());
+            if(expression instanceof CastExpr cast)return new CastExpr(cast.targetType(),resolveTemplateQueries(cast.operand()),cast.range());
+            return expression;
+        }
+
         private MiniType normalizeType(MiniType type, Namespace namespace, Local local, SourceRange range) {
             if (type == null) return null;
+            if(type instanceof MiniType.DependentArrayType array) {
+                MiniType element=normalizeType(array.elementType(),namespace,local,range);
+                try {
+                    long length=evaluateTemplateConstant(expression(array.bound(),namespace,local)).value();
+                    if(length<=0||length>Integer.MAX_VALUE)throw new IllegalArgumentException("Array bound must be in 1..2147483647");
+                    return element.arrayOf((int)length);
+                } catch(IllegalArgumentException error){report("CPP004",range,error.getMessage());return element.arrayOf(1);}
+            }
             if (type instanceof MiniType.MemberType member) {
                 MiniType ownerType=normalizeType(member.owner(),namespace,local,range);
                 TypeEntity owner=objectType(ownerType);
@@ -1661,7 +1969,58 @@ public final class CppNameBinder {
                 report("CPP004", node.range(), "Invalid first allocation or deallocation parameter type.");
         }
 
-        private void bindFunction(FunctionDecl node, Namespace namespace) {
+        private void recordDefaultArguments(Entity function,List<Parameter> parameters,Namespace namespace,TypeEntity record) {
+            List<DefaultArgument> prior=functionDefaults.getOrDefault(function,List.of());
+            var merged=new ArrayList<DefaultArgument>();
+            for(int index=0;index<parameters.size();index++) {
+                Parameter parameter=parameters.get(index);
+                DefaultArgument old=index<prior.size()?prior.get(index):null;
+                if(parameter.defaultValue()!=null) {
+                    if(old!=null)report("CPP004",parameter.range(),"Default argument is declared more than once");
+                    old=new DefaultArgument(parameter.defaultValue(),namespace,record,currentTemplateLookup==null?snapshotLookup():currentTemplateLookup);
+                }
+                merged.add(old);
+            }
+            functionDefaults.put(function,Collections.unmodifiableList(merged));
+        }
+        private int requiredParameters(Entity function,int size) {
+            List<DefaultArgument> defaults=functionDefaults.getOrDefault(function,List.of());
+            int required=size;
+            while(required>0&&required<=defaults.size()&&defaults.get(required-1)!=null)required--;
+            return required;
+        }
+        private List<Expression> lowerSelectedArguments(Entity function,List<MiniType> parameters,List<Expression> sourceArguments,
+                                                       List<Expression> values,Namespace namespace,Local local) {
+            return lowerSelectedArguments(function,parameters,sourceArguments,values,namespace,local,false);
+        }
+        private List<Expression> lowerSelectedArguments(Entity function,List<MiniType> parameters,List<Expression> sourceArguments,
+                                                       List<Expression> values,Namespace namespace,Local local,boolean listNarrowing) {
+            var result=new ArrayList<>(lowerSelectedArguments(parameters,sourceArguments,values,namespace,local,listNarrowing));
+            result.addAll(defaultArguments(function,parameters,sourceArguments.size()));return List.copyOf(result);
+        }
+        private List<Expression> defaultArguments(Entity function,List<MiniType> parameters,int supplied) {
+            var result=new ArrayList<Expression>();var defaults=functionDefaults.getOrDefault(function,List.of());
+            for(int index=supplied;index<parameters.size();index++) {
+                DefaultArgument argument=index<defaults.size()?defaults.get(index):null;
+                if(argument==null){report("CPP004",source.range(),"Missing required function argument");break;}
+                var savedLookup=currentTemplateLookup;var savedClass=currentClass;var savedThis=currentThis;
+                currentTemplateLookup=argument.lookup;currentClass=argument.record;currentThis=null;
+                try {
+                    MiniType target=parameters.get(index);
+                    if(target.isReference()) result.add(bindReference(target,argument.source,argument.owner,null,argument.source.range()));
+                    else {
+                        Expression value=isBraced(argument.source)?bindListValue(target,argument.source,argument.owner,null)
+                                :expressionForTarget(target,argument.source,argument.owner,null);
+                        result.add(convertCallValue(target,value,argument.source));
+                    }
+                } finally {currentTemplateLookup=savedLookup;currentClass=savedClass;currentThis=savedThis;}
+            }
+            return List.copyOf(result);
+        }
+
+        private void bindFunction(FunctionDecl node, Namespace namespace) { bindFunction(node,namespace,null); }
+
+        private void bindFunction(FunctionDecl node, Namespace namespace,Entity instantiated) {
             if (node.conversionName() != null) {
                 report("CPP004", node.range(), "转换函数必须是非静态类成员。"); return;
             }
@@ -1681,7 +2040,8 @@ public final class CppNameBinder {
             requireSupportedCallLifetime(returnType, parameterTypes, node.range());
             MiniType.FunctionType signature = (MiniType.FunctionType) MiniType.function(returnType, parameterTypes.stream()
                     .map(MiniType::unqualified).toList(), node.variadic());
-            Entity entity = declareNamespaceFunction(node.name(), signature, node.hasBody(), namespace, node.range(), node.operatorName() != null);
+            Entity entity = instantiated!=null?instantiated:declareNamespaceFunction(node.name(), signature, node.hasBody(), namespace, node.range(), node.operatorName() != null);
+            if(instantiated==null)recordDefaultArguments(entity,node.parameters(),namespace,null);
             recordLinkage(entity, node.range());
             if (node.external() && namespace == root && node.name().equals("exit")
                     && !internalLinkages.getOrDefault(entity, false)) libraryExitFunctions.add(entity);
@@ -1742,6 +2102,7 @@ public final class CppNameBinder {
             }
             List<Entity> visible = previous instanceof OverloadSet set ? set.functions : List.of();
             for (Entity function : visible) {
+                if(functionTemplates.containsKey(function))continue;
                 MiniType.FunctionType signature = (MiniType.FunctionType) function.type;
                 if (!signature.parameterTypes().equals(type.parameterTypes()) || signature.variadic() != type.variadic()) continue;
                 if (function.owner != namespace) report("CPP004", range, "函数声明与 using 引入的函数冲突：" + name);
@@ -2145,6 +2506,7 @@ public final class CppNameBinder {
                     List<Integer> evaluationOrder = new ArrayList<>();
                     if (binding.receiver() != null) evaluationOrder.add(0);
                     for (int index : n.argumentEvaluationOrder()) evaluationOrder.add(index + offset);
+                    for(int index=n.arguments().size()+offset;index<arguments.size();index++)evaluationOrder.add(index);
                     CallExpr call = new CallExpr(callee, arguments, evaluationOrder, n.range());
                     if (signature != null) declaredExpressionTypes.put(call, signature.returnType().isReference()
                             ? coreType(signature.returnType()) : signature.returnType());
@@ -2246,6 +2608,18 @@ public final class CppNameBinder {
                     if (overloaded != null) yield overloaded;
                     requireUpdateOperand(target, n.range());
                     yield new PostfixUpdateExpr(target, n.operator(), n.range());
+                }
+                case CppTemplateIdExpr n -> {
+                    OverloadDesignator designator=overloadDesignator(n,namespace,local);
+                    if(designator==null){report("CPP004",n.range(),"Template-id does not denote a function template");yield new IntegerLiteralExpr(0,"0",n.range());}
+                    var matches=new ArrayList<Entity>();
+                    for(Entity candidate:designator.set.functions) {
+                        var definition=functionTemplates.get(candidate);if(definition==null)continue;
+                        List<MiniType> unknown=new ArrayList<>();for(int i=0;i<definition.source.parameters().size();i++)unknown.add(null);
+                        Entity instance=deduceFunctionTemplate(candidate,unknown,designator.explicit,n.range());if(instance!=null)matches.add(instance);
+                    }
+                    if(matches.size()!=1){report("CPP004",n.range(),"Function template-id needs a unique specialization or target function type");yield new IntegerLiteralExpr(0,"0",n.range());}
+                    yield new NameExpr(functionReferenceName(matches.getFirst()),n.range());
                 }
                 case SizeofExpr n -> {
                     MiniType type = objectTypeOfReference(normalizeType(n.queriedType(), namespace, local, n.range()));
@@ -2536,12 +2910,12 @@ public final class CppNameBinder {
             if (name == null || values.stream().noneMatch(value -> objectType(declaredExpressionType(value)) != null)) return null;
             List<CppOverloadResolver.Candidate<OperatorCandidate>> candidates = new ArrayList<>();
             MethodSet members = memberMethods(declaredExpressionType(values.getFirst()), name);
-            if (members != null) for (Method method : members.methods) {
+            if (members != null) for (Method method : expandMethodTemplates(members.methods,values.subList(1,values.size()),null,original.range())) {
                 var candidate = new OperatorCandidate(method.function, method, method.parameterTypes);
                 candidates.add(new CppOverloadResolver.Candidate<>(candidate, method.parameterTypes,
-                        method.source.method().variadic(), methodThisType(method.owner, method.source).pointee()));
+                        method.source.method().variadic(), methodThisType(method.owner, method.source).pointee(),false,requiredParameters(method.function,method.parameterTypes.size())));
             }
-            if (!memberOnly) for (Entity function : operatorFunctions(name, values, namespace, local)) {
+            if (!memberOnly) for (Entity function : expandFunctionTemplates(operatorFunctions(name, values, namespace, local),values,null,original.range())) {
                 MiniType.FunctionType type = (MiniType.FunctionType) function.type;
                 var candidate = new OperatorCandidate(function, null, type.parameterTypes());
                 candidates.add(new CppOverloadResolver.Candidate<>(candidate, type.parameterTypes(), type.variadic()));
@@ -2555,7 +2929,7 @@ public final class CppNameBinder {
                     return new IntegerLiteralExpr(0, "0", original.range()); }
                 arguments.add(shape);
             }
-            var resolution = CppOverloadResolver.resolveOperators(candidates, arguments, conversions);
+            var resolution = CppOverloadResolver.resolveOperators(candidates, arguments, conversions, this::betterTemplateCandidate);
             if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
                 // C++ unary & falls back to builtin address-of only when no candidate is viable.
                 if ((name.equals("operator&") && values.size() == 1 || name.equals("operator,"))
@@ -2578,7 +2952,7 @@ public final class CppNameBinder {
                 }
                 lowered.add(address(receiver));
             }
-            lowered.addAll(lowerSelectedArguments(selected.parameters, sources.subList(offset, sources.size()),
+            lowered.addAll(lowerSelectedArguments(selected.function,selected.parameters, sources.subList(offset, sources.size()),
                     values.subList(offset, values.size()), namespace, local));
             MiniType.FunctionType signature = (MiniType.FunctionType) selected.function.type;
             requireComplete(signature.returnType(), original.range());
@@ -2586,7 +2960,7 @@ public final class CppNameBinder {
             requireSupportedCallLifetime(signature.returnType(), signature.parameterTypes(), original.range());
             List<Integer> evaluationOrder = original instanceof AssignmentExpr
                     ? List.of(1, 0) : java.util.stream.IntStream.range(0, lowered.size()).boxed().toList();
-            CallExpr call = new CallExpr(new NameExpr(selected.function.coreName, original.range()), lowered, evaluationOrder, original.range());
+            CallExpr call = new CallExpr(new NameExpr(functionReferenceName(selected.function), original.range()), lowered, evaluationOrder, original.range());
             declaredExpressionTypes.put(call, signature.returnType().isReference()
                     ? coreType(signature.returnType()) : signature.returnType());
             if (signature.returnType().isReference())
@@ -2779,7 +3153,11 @@ public final class CppNameBinder {
             switch (type.unqualified()) {
                 case MiniType.StructType ignored -> {
                     TypeEntity owner = objectType(type);
-                    if (owner != null) namespaces.add(owner.owner);
+                    if (owner != null) {
+                        namespaces.add(owner.owner);
+                        MiniType.TemplateIdType key=instanceKeys.get(owner);
+                        if(key!=null)for(TemplateArgument argument:key.arguments())if(argument instanceof TemplateArgument.Type t)associatedNamespaces(t.type(),namespaces);
+                    }
                 }
                 case MiniType.PointerType pointer -> associatedNamespaces(pointer.pointee(), namespaces);
                 case MiniType.ReferenceType reference -> associatedNamespaces(reference.referent(), namespaces);
@@ -2793,7 +3171,7 @@ public final class CppNameBinder {
         }
 
         private record OverloadDesignator(Expression source, Expression name, OverloadSet set, boolean addressOf,
-                                          Expression receiver) { }
+                                          Expression receiver,List<TemplateArgument> explicit) { }
 
         private OverloadDesignator overloadDesignator(Expression source, Namespace namespace, Local local) {
             Expression name = source;
@@ -2801,6 +3179,8 @@ public final class CppNameBinder {
             boolean addressOf = name instanceof UnaryExpr unary && unary.operator() == TokenType.AMPERSAND;
             if (addressOf) name = ((UnaryExpr) name).operand();
             while (name instanceof GroupingExpr group) name = group.expression();
+            List<TemplateArgument> explicit=null;
+            if(name instanceof CppTemplateIdExpr id){explicit=normalizeExplicitArguments(id.arguments(),namespace,local,id.range());name=id.target();}
             int beforeLookup = diagnostics.size();
             Expression receiver = null;
             Candidate candidate = name instanceof NameExpr simple ? lookupName(simple.name(), namespace, local, name.range())
@@ -2819,11 +3199,11 @@ public final class CppNameBinder {
             // This is a contextual probe. Ordinary expression binding owns diagnostics when the
             // expression does not denote an overloaded free function.
             if (!(candidate instanceof OverloadSet set) || set.functions.isEmpty()
-                    || !memberDesignator && set.functions.size() < 2) {
+                    || !memberDesignator && set.functions.size() < 2 && set.functions.stream().noneMatch(functionTemplates::containsKey)) {
                 diagnostics.subList(beforeLookup, diagnostics.size()).clear();
                 return null;
             }
-            return new OverloadDesignator(source, name, set, addressOf, receiver);
+            return new OverloadDesignator(source, name, set, addressOf, receiver,explicit);
         }
 
         private MiniType.FunctionType targetFunction(MiniType target) {
@@ -2837,10 +3217,13 @@ public final class CppNameBinder {
             MiniType.FunctionType signature = targetFunction(target);
             if (signature == null) return null;
             Entity selected = null;
-            for (Entity candidate : designator.set.functions) {
-                if (!candidate.type.equals(signature)) continue;
-                if (selected != null) return null;
-                selected = candidate;
+            for (Entity declaration : designator.set.functions) {
+                Entity candidate=deduceFunctionTemplateForTarget(declaration,signature,designator.explicit,designator.name.range());
+                if(candidate==null||!candidate.type.equals(signature))continue;
+                if(selected!=null) {
+                    if(betterTemplateCandidate(candidate,selected))selected=candidate;
+                    else if(!betterTemplateCandidate(selected,candidate))return null;
+                } else selected=candidate;
             }
             return selected;
         }
@@ -2875,6 +3258,7 @@ public final class CppNameBinder {
             }
             else if (original instanceof GroupingExpr group) core = new GroupingExpr(
                     rebuildFunctionDesignator(group.expression(), name, selected, functionReference, receiver), original.range());
+            else if(original instanceof CppTemplateIdExpr id)core=rebuildFunctionDesignator(id.target(),name,selected,functionReference,receiver);
             else if (original instanceof UnaryExpr unary && unary.operator() == TokenType.AMPERSAND) {
                 Expression operand = rebuildFunctionDesignator(unary.operand(), name, selected, functionReference, receiver);
                 // [over.over] permits an optional & on an unresolved overload designator,
@@ -2889,6 +3273,8 @@ public final class CppNameBinder {
         private BoundCallee bindCallee(Expression sourceCallee, List<Expression> sourceArguments, Namespace namespace, Local local) {
             Expression designator = sourceCallee;
             while (designator instanceof GroupingExpr group) designator = group.expression();
+            List<TemplateArgument> explicit=null;
+            if(designator instanceof CppTemplateIdExpr id){explicit=normalizeExplicitArguments(id.arguments(),namespace,local,id.range());designator=id.target();}
             MethodSet methods = null;
             Expression receiver = null;
             String sourceName = designator instanceof NameExpr name ? name.name()
@@ -2897,6 +3283,7 @@ public final class CppNameBinder {
             String fallbackName = designator instanceof QualifiedNameExpr qualified ? spelling(qualified.name()) : sourceName;
             if (sourceName != null || designator instanceof QualifiedNameExpr || designator instanceof CppTypeMemberExpr) {
                 if (designator instanceof CppTypeMemberExpr member) fallbackName = member.memberName();
+                int lookupDiagnostics=diagnostics.size();
                 Candidate candidate = designator instanceof CppTypeMemberExpr member ? typeMember(member, namespace, local)
                         : designator instanceof QualifiedNameExpr qualified
                         ? resolveQualifiedName(qualified.name(), namespace, local)
@@ -2905,13 +3292,22 @@ public final class CppNameBinder {
                     report("CPP005", designator.range(), "Functional construction expressions are not supported in this slice.");
                     return new BoundCallee(new NameExpr(fallbackName, designator.range()), null);
                 }
-                if (candidate instanceof OverloadSet set && set.functions.size() > 1) {
-                    return bindOverloadedCall(set, sourceCallee, designator, sourceArguments, namespace, local);
+                if(sourceName!=null && (candidate==null||candidate instanceof OverloadSet)) {
+                    diagnostics.subList(lookupDiagnostics,diagnostics.size()).clear();
+                    PreparedArguments prepared=prepareArguments(sourceArguments,namespace,local);
+                    var candidates=operatorFunctions(sourceName,prepared.values,namespace,local);
+                    if(!candidates.isEmpty())return bindOverloadedCall(new OverloadSet(new ArrayList<>(candidates)),sourceCallee,designator,sourceArguments,namespace,local,explicit,prepared);
+                    report("CPP003",designator.range(),"No visible function or associated function named "+sourceName);
+                    return new BoundCallee(new NameExpr(sourceName,designator.range()),null,recoveryArguments(sourceArguments,prepared.values));
+                }
+                if (candidate instanceof OverloadSet set) {
+                    return bindOverloadedCall(set, sourceCallee, designator, sourceArguments, namespace, local,explicit,null);
                 }
                 if (candidate instanceof MethodSet members) {
                     methods = members;
                     receiver = currentThis != null && members.methods.getFirst().owner == currentClass ? thisValue(designator.range()) : null;
                 } else {
+                    if(explicit!=null)report("CPP004",designator.range(),"Explicit template arguments require a function template");
                     Expression core;
                     core = memberReference(candidate, fallbackName, designator.range(), false);
                     return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
@@ -2939,34 +3335,34 @@ public final class CppNameBinder {
                 }
             }
             if (methods == null) return new BoundCallee(expression(sourceCallee, namespace, local), null);
-            return bindOverloadedMethod(methods, sourceCallee, receiver, sourceArguments, namespace, local);
+            return bindOverloadedMethod(methods, sourceCallee, receiver, sourceArguments, namespace, local,explicit);
         }
 
         private BoundCallee bindOverloadedCall(OverloadSet set, Expression sourceCallee, Expression designator,
-                                              List<Expression> sourceArguments, Namespace namespace, Local local) {
+                                              List<Expression> sourceArguments, Namespace namespace, Local local,List<TemplateArgument> explicit,PreparedArguments alreadyPrepared) {
             // Provisional expressions only provide types/categories. Exactly one selected ABI
             // argument list is emitted; reference arguments are rebound with address demand.
-            PreparedArguments prepared = prepareArguments(sourceArguments, namespace, local);
+            PreparedArguments prepared = alreadyPrepared==null?prepareArguments(sourceArguments, namespace, local):alreadyPrepared;
             List<Expression> values = prepared.values;
-            List<CppOverloadResolver.Candidate<Entity>> candidates = set.functions.stream().map(function -> {
+            List<CppOverloadResolver.Candidate<Entity>> candidates = expandFunctionTemplates(set.functions,values,explicit,sourceCallee.range()).stream().map(function -> {
                 MiniType.FunctionType type = (MiniType.FunctionType) function.type;
-                return new CppOverloadResolver.Candidate<>(function, type.parameterTypes(), type.variadic());
+                return new CppOverloadResolver.Candidate<>(function, type.parameterTypes(), type.variadic(),null,false,requiredParameters(function,type.parameterTypes().size()));
             }).toList();
             Entity selected = selectOverload(candidates, sourceCallee, sourceArguments, prepared, null);
             if (selected == null) return new BoundCallee(new NameExpr(set.functions.getFirst().coreName, sourceCallee.range()), null, recoveryArguments(sourceArguments, values));
             return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator,
                     new NameExpr(functionReferenceName(selected), designator.range())), null,
-                    lowerSelectedArguments(((MiniType.FunctionType) selected.type).parameterTypes(), sourceArguments, values, namespace, local));
+                    lowerSelectedArguments(selected,((MiniType.FunctionType) selected.type).parameterTypes(), sourceArguments, values, namespace, local));
         }
 
         private BoundCallee bindOverloadedMethod(MethodSet set, Expression sourceCallee, Expression receiver,
-                                                List<Expression> sourceArguments, Namespace namespace, Local local) {
+                                                List<Expression> sourceArguments, Namespace namespace, Local local,List<TemplateArgument> explicit) {
             PreparedArguments prepared = prepareArguments(sourceArguments, namespace, local);
             List<Expression> values = prepared.values;
-            List<CppOverloadResolver.Candidate<Method>> candidates = set.methods.stream().map(method ->
+            List<CppOverloadResolver.Candidate<Method>> candidates = expandMethodTemplates(set.methods,values,explicit,sourceCallee.range()).stream().map(method ->
                     new CppOverloadResolver.Candidate<>(method, method.parameterTypes, method.source.method().variadic(),
                             method.source.staticMember() ? null : methodThisType(method.owner, method.source).pointee(),
-                            method.source.staticMember())).toList();
+                            method.source.staticMember(),requiredParameters(method.function,method.parameterTypes.size()))).toList();
             MiniType object = elementType(declaredExpressionType(receiver));
             if (object == null && receiver != null) {
                 report("CPP004", sourceCallee.range(), "无法确定成员函数接收者的类型。");
@@ -2982,7 +3378,7 @@ public final class CppNameBinder {
             Expression callee = new NameExpr(selected.function.coreName, sourceCallee.range());
             if (selected.source.staticMember()) callee = evaluateReceiver(receiver, callee, sourceCallee.range());
             return new BoundCallee(mapped(sourceCallee, callee), selected.source.staticMember() ? null : receiver,
-                    lowerSelectedArguments(selected.parameterTypes, sourceArguments, values, namespace, local));
+                    lowerSelectedArguments(selected.function,selected.parameterTypes, sourceArguments, values, namespace, local));
         }
 
         private boolean isList(CppInitializer syntax) {
@@ -3008,6 +3404,21 @@ public final class CppNameBinder {
             }
             MiniType type = declaredExpressionType(value);
             return type == null ? null : new CppOverloadResolver.Argument(type, valueCategory(value), isNullIntegerLiteral(source));
+        }
+        private MiniType initializerListElementPattern(MiniType type) {
+            if(type.isReference())type=type.referent();
+            type=type.unqualified();
+            if(type instanceof MiniType.TemplateIdType id && id.templateName().equals("::std::initializer_list")
+                    && id.arguments().size()==1 && id.arguments().getFirst() instanceof TemplateArgument.Type argument)
+                return argument.type();
+            return initializerListElement(type);
+        }
+        private CppOverloadResolver.Candidate<Constructor> constructorCandidate(Constructor c) {
+            return new CppOverloadResolver.Candidate<>(c,c.parameterTypes,c.source.variadic(),null,false,requiredParameters(c.function,c.parameterTypes.size()));
+        }
+        private boolean initializerListConstructor(Constructor c) {
+            return !c.parameterTypes.isEmpty() && requiredParameters(c.function,c.parameterTypes.size())<=1
+                    && initializerListElement(c.parameterTypes.getFirst())!=null;
         }
         /** Recognition uses the declared standard template identity, never a record's short name. */
         private MiniType initializerListElement(MiniType type) {
@@ -3037,17 +3448,18 @@ public final class CppNameBinder {
                         : new CppOverloadResolver.UserConversion(owner, result, resolution.status() == CppOverloadResolver.Status.AMBIGUOUS);
             }
             List<Constructor> constructors = allConstructors(owner);
-            List<CppOverloadResolver.Candidate<Constructor>> candidates = constructors.stream()
-                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
-            if (!(elements.isEmpty() && constructors.stream().anyMatch(c -> c.parameterTypes.isEmpty()))) {
-                var listCandidates = candidates.stream().filter(c -> c.parameterTypes().size() == 1
-                        && initializerListElement(c.parameterTypes().getFirst()) != null).toList();
-                var phase = CppOverloadResolver.resolve(listCandidates, List.of(source), null, conversions);
+            SourceRange range=owner.sourceRecord==null?Binding.this.source.range():owner.sourceRecord.range();
+            List<Constructor> ordinary=expandConstructorTemplateShapes(constructors,elements,range);
+            List<CppOverloadResolver.Candidate<Constructor>> candidates=ordinary.stream().map(this::constructorCandidate).toList();
+            if (!(elements.isEmpty() && ordinary.stream().anyMatch(c -> requiredParameters(c.function,c.parameterTypes.size())==0))) {
+                var listCandidates = expandConstructorTemplateShapes(constructors,List.of(source),range).stream()
+                        .filter(this::initializerListConstructor).map(this::constructorCandidate).toList();
+                var phase = CppOverloadResolver.resolve(listCandidates, List.of(source), null, conversions,this::betterTemplateCandidate);
                 if (phase.status() != CppOverloadResolver.Status.NO_VIABLE)
                     return new CppOverloadResolver.UserConversion(phase.winner() == null ? owner : phase.winner().identity(), result,
                             phase.status() == CppOverloadResolver.Status.AMBIGUOUS);
             }
-            var phase = CppOverloadResolver.resolve(candidates, elements, null, conversions);
+            var phase = CppOverloadResolver.resolve(candidates, elements, null, conversions,this::betterTemplateCandidate);
             return phase.status() == CppOverloadResolver.Status.NO_VIABLE ? null
                     : new CppOverloadResolver.UserConversion(phase.winner() == null ? owner : phase.winner().identity(), result,
                             phase.status() == CppOverloadResolver.Status.AMBIGUOUS,
@@ -3240,9 +3652,9 @@ public final class CppNameBinder {
                     parameters.set(index, MiniType.INT);
                 }
                 if (viable) contextual.add(new CppOverloadResolver.Candidate<>(candidate.identity(), parameters,
-                        candidate.variadic(), candidate.implicitObjectType(), candidate.staticMember()));
+                        candidate.variadic(), candidate.implicitObjectType(), candidate.staticMember(),candidate.requiredParameterCount()));
             }
-            var resolution = CppOverloadResolver.resolve(contextual, arguments, receiver, conversions);
+            var resolution = CppOverloadResolver.resolve(contextual, arguments, receiver, conversions, this::betterTemplateCandidate);
             if (resolution.status() == CppOverloadResolver.Status.SELECTED) return resolution.winner().identity();
             report("CPP004", sourceCallee.range(), resolution.status() == CppOverloadResolver.Status.AMBIGUOUS
                     ? "重载函数调用具有二义性。" : "没有与实参匹配的重载函数。");
@@ -3311,7 +3723,7 @@ public final class CppNameBinder {
         }
 
         private Expression rebuildCalleeGroups(Expression original, Expression designator, Expression core) {
-            if (original == designator) return mapped(original, core);
+            if (original == designator || original instanceof CppTemplateIdExpr) return mapped(original, core);
             GroupingExpr group = (GroupingExpr) original;
             return mapped(original, new GroupingExpr(rebuildCalleeGroups(group.expression(), designator, core), original.range()));
         }
@@ -3889,8 +4301,11 @@ public final class CppNameBinder {
             TypeEntity owner = objectType(objectTarget);
             if (owner != null && !objectTarget.equals(source.type().unqualified()) && mode != ConversionContext.BOOLEAN) {
                 var output = new CppOverloadResolver.Argument(objectTarget, CppValueCategory.PRVALUE, false);
-                if (CppOverloadResolver.standardViable(output, target)) for (Constructor constructor : owner.constructors) {
-                    if (constructor.parameterTypes.size() != 1 || constructor.source.variadic()
+                if (CppOverloadResolver.standardViable(output, target)) for (Constructor declaration : owner.constructors) {
+                    Entity concrete=deduceFunctionTemplate(declaration.function,List.of(source.type()),null,definitionRange(declaration));
+                    if(concrete==null)continue;
+                    Constructor constructor=concrete==declaration.function?declaration:functionTemplateInstances.get(concrete).constructor;
+                    if (constructor.parameterTypes.isEmpty() || requiredParameters(constructor.function,constructor.parameterTypes.size())>1
                             || constructor.source.explicitSpecifier() && mode == ConversionContext.IMPLICIT) continue;
                     MiniType parameter = constructor.parameterTypes.getFirst();
                     if (CppOverloadResolver.standardViable(source, parameter))
@@ -3903,7 +4318,7 @@ public final class CppNameBinder {
                 for (UserChoice other : choices) if (candidate != other) {
                     int initial = CppOverloadResolver.compareStandard(candidate.input, candidate.inputTarget, other.input, other.inputTarget);
                     int trailing = CppOverloadResolver.compareStandard(candidate.output, target, other.output, target);
-                    if (!(initial < 0 || initial == 0 && trailing < 0)) { best = false; break; }
+                    if (!(initial < 0 || initial == 0 && (trailing < 0 || trailing == 0 && betterTemplateCandidate(candidate.identity(),other.identity())))) { best = false; break; }
                 }
                 if (best) { winner = candidate; break; }
             }
@@ -3958,8 +4373,9 @@ public final class CppNameBinder {
                     : convertCallValue(parameter, value, value);
             destructorForUse(constructor.owner.type, range);
             String destination = freshName("conversion");
-            Expression call = typed(new CallExpr(new NameExpr(constructor.function.coreName, range),
-                    List.of(typed(new NameExpr(destination, range), constructor.owner.type.pointerTo()), lowered), range), MiniType.VOID);
+            var arguments=new ArrayList<Expression>();arguments.add(typed(new NameExpr(destination,range),constructor.owner.type.pointerTo()));arguments.add(lowered);
+            arguments.addAll(defaultArguments(constructor.function,constructor.parameterTypes,1));
+            Expression call = typed(new CallExpr(new NameExpr(constructor.function.coreName, range), arguments, range), MiniType.VOID);
             return typed(new ObjectInitExpr(constructor.owner.type, destination, call, range), constructor.owner.type);
         }
         private Expression contextualBool(Expression value) {
@@ -3971,6 +4387,7 @@ public final class CppNameBinder {
             return typed(new CastExpr(MiniType.BOOL, converted, value.range()), MiniType.BOOL);
         }
 
+        private SourceRange definitionRange(Constructor constructor){return constructor.source.range();}
         private List<Constructor> allConstructors(TypeEntity owner) {
             List<Constructor> result = new ArrayList<>(owner.constructors);
             for (Constructor copy : copyConstructors(owner)) if (!result.contains(copy)) result.add(copy);
@@ -3980,11 +4397,11 @@ public final class CppNameBinder {
         private Expression directClassConversion(MiniType target, Expression value, SourceRange range) {
             TypeEntity owner = objectType(target);
             if (owner == null) return value;
-            List<CppOverloadResolver.Candidate<Constructor>> candidates = allConstructors(owner).stream()
-                    .map(constructor -> new CppOverloadResolver.Candidate<>(constructor, constructor.parameterTypes, constructor.source.variadic())).toList();
+            List<CppOverloadResolver.Candidate<Constructor>> candidates = expandConstructorTemplates(allConstructors(owner),List.of(value),range).stream()
+                    .map(constructor -> new CppOverloadResolver.Candidate<>(constructor, constructor.parameterTypes, constructor.source.variadic(),null,false,requiredParameters(constructor.function,constructor.parameterTypes.size()))).toList();
             var resolution = CppOverloadResolver.resolve(candidates,
                     List.of(new CppOverloadResolver.Argument(declaredExpressionType(value), valueCategory(value), isNullIntegerLiteral(value))),
-                    null, conversions);
+                    null, conversions, this::betterTemplateCandidate);
             if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
                 report("CPP004", range, "直接初始化没有唯一的可行构造函数。"); return value;
             }
@@ -4098,6 +4515,7 @@ public final class CppNameBinder {
 
         /** A differently typed assignment overload does not suppress the implicit copy assignment. */
         private boolean isCopyAssignment(Method method) {
+            if(functionTemplates.containsKey(method.function))return false;
             if (!method.source.method().name().equals("operator=") || method.parameterTypes.size() != 1) return false;
             MiniType parameter = method.parameterTypes.getFirst();
             return objectTypeOfReference(parameter).unqualified().equals(method.owner.type);
@@ -4237,6 +4655,7 @@ public final class CppNameBinder {
         }
 
         private boolean isCopyConstructor(Constructor constructor) {
+            if(functionTemplates.containsKey(constructor.function))return false;
             return CppCopyConstructorPlan.classify(constructor.owner.type, constructor.parameterTypes)
                     == CppCopyConstructorPlan.Classification.COPY;
         }
@@ -4293,7 +4712,7 @@ public final class CppNameBinder {
             TypeEntity owner = objectType(target);
             List<CppOverloadResolver.Candidate<Constructor>> candidates = copyConstructors(owner).stream()
                     .filter(c -> kind != CppInitializer.Kind.COPY || !c.source.explicitSpecifier())
-                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
+                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic(),null,false,requiredParameters(c.function,c.parameterTypes.size()))).toList();
             var resolution = CppOverloadResolver.resolve(candidates,
                     List.of(new CppOverloadResolver.Argument(actual, category, false)));
             if (resolution.status() != CppOverloadResolver.Status.SELECTED) {
@@ -4473,15 +4892,16 @@ public final class CppNameBinder {
                 }
             }
             boolean listPhase = false;
-            List<CppOverloadResolver.Candidate<Constructor>> listCandidates = allConstructors(owner).stream()
-                    .filter(c -> c.parameterTypes.size() == 1 && initializerListElement(c.parameterTypes.getFirst()) != null)
-                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
-            if (list && !(arguments.isEmpty() && allConstructors(owner).stream().anyMatch(c -> c.parameterTypes.isEmpty()))) {
-                bracedArguments.put(syntax, prepared);
+            if(list)bracedArguments.put(syntax, prepared);
+            List<CppOverloadResolver.Candidate<Constructor>> listCandidates = list
+                    ? expandConstructorTemplates(allConstructors(owner),List.of(syntax),range).stream()
+                        .filter(this::initializerListConstructor).map(this::constructorCandidate).toList() : List.of();
+            if (list && !(arguments.isEmpty() && expandConstructorTemplates(allConstructors(owner),List.of(),range).stream()
+                    .anyMatch(c -> requiredParameters(c.function,c.parameterTypes.size())==0))) {
                 CppOverloadResolver.Argument shape = argumentShape(syntax, syntax);
                 if (shape == null) { report("CPP004", syntax.range(), "Cannot determine initializer-list element types.");
                     return new IntegerLiteralExpr(0, "0", syntax.range()); }
-                var probe = CppOverloadResolver.resolve(listCandidates, List.of(shape), null, conversions);
+                var probe = CppOverloadResolver.resolve(listCandidates, List.of(shape), null, conversions,this::betterTemplateCandidate);
                 if (probe.status() != CppOverloadResolver.Status.NO_VIABLE) {
                     arguments = List.of(syntax);
                     prepared = new PreparedArguments(arguments, Map.of());
@@ -4494,9 +4914,9 @@ public final class CppNameBinder {
                 if (sourceType != null && target.unqualified().equals(sourceType.unqualified()))
                     return copyInitialize(target, value, range, syntax.kind());
             }
-            List<CppOverloadResolver.Candidate<Constructor>> candidates = listPhase ? listCandidates : allConstructors(owner).stream()
+            List<CppOverloadResolver.Candidate<Constructor>> candidates = listPhase ? listCandidates : expandConstructorTemplates(allConstructors(owner),prepared.values,range).stream()
                     .filter(c -> syntax.kind() != CppInitializer.Kind.COPY || !c.source.explicitSpecifier())
-                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic())).toList();
+                    .map(c -> new CppOverloadResolver.Candidate<>(c, c.parameterTypes, c.source.variadic(),null,false,requiredParameters(c.function,c.parameterTypes.size()))).toList();
             Constructor selected = selectOverload(candidates, new NameExpr(owner.name, range), arguments, prepared, null);
             if (selected != null) {
                 instantiateConstructor(selected);
@@ -4521,7 +4941,7 @@ public final class CppNameBinder {
             List<Expression> lowered = new ArrayList<>();
             String destination = freshName("construction");
             lowered.add(typed(new NameExpr(destination, range), owner.type.pointerTo()));
-            lowered.addAll(lowerSelectedArguments(selected.parameterTypes, arguments, prepared.values, namespace, local, list && !listPhase));
+            lowered.addAll(lowerSelectedArguments(selected.function, selected.parameterTypes, arguments, prepared.values, namespace, local, list && !listPhase));
             Expression call = typed(new CallExpr(new NameExpr(selected.function.coreName, range), lowered, range), MiniType.VOID);
             if (arguments.isEmpty() && selected.implicit
                     && (syntax.kind() == CppInitializer.Kind.DIRECT_PAREN || list && nonAggregate(owner))) {
@@ -4896,6 +5316,7 @@ public final class CppNameBinder {
         }
 
         private String functionReferenceName(Entity entity) {
+            instantiateFunctionTemplate(entity);
             if (libraryExitFunctions.contains(entity)) {
                 String name = staticLifetime.exitFunction();
                 coreValues.putIfAbsent(name, new Entity("exit", name, Kind.FUNCTION, root, entity.type, null, true));
@@ -5127,6 +5548,9 @@ public final class CppNameBinder {
         }
 
         private Entity requireValue(Candidate candidate, String name, SourceRange range) {
+            if(candidate instanceof OverloadSet set && set.functions.size()==1 && functionTemplates.containsKey(set.functions.getFirst())) {
+                report("CPP004",range,"Function template requires deduction or explicit template arguments: "+name);return null;
+            }
             if (candidate == null) return null;
             if (candidate instanceof Entity entity) return entity;
             if (candidate instanceof OverloadSet set) {

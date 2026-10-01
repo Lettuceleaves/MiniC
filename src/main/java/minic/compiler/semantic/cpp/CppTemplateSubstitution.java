@@ -31,6 +31,8 @@ public final class CppTemplateSubstitution {
         this.instanceName = Objects.requireNonNull(instanceName);
     }
 
+    public FunctionDecl instantiate(FunctionDecl source) { return (FunctionDecl)copy(source); }
+    public ConstructorMember instantiate(ConstructorMember source) { return (ConstructorMember)copy(source); }
     public StructDecl instantiate(StructDecl source) { return (StructDecl) copy(source); }
     public Map<AstNode, AstNode> origins() { return Collections.unmodifiableMap(origins); }
 
@@ -42,9 +44,12 @@ public final class CppTemplateSubstitution {
         if (source == null || source instanceof String || source instanceof Number || source instanceof Boolean
                 || source instanceof Character || source instanceof Enum<?> || source instanceof SourceRange) return source;
         if (source instanceof MiniType type) return type(type);
+        if(source instanceof minic.compiler.type.TemplateArgument.Type argument)return new minic.compiler.type.TemplateArgument.Type(type(argument.type()));
+        if(source instanceof minic.compiler.type.TemplateArgument.Value argument)return new minic.compiler.type.TemplateArgument.Value((Expression)copy(argument.expression()));
+        if(source instanceof minic.compiler.type.TemplateArgument.Integral argument)return argument;
         if (source instanceof CppTemplateValueExpr value) {
             Expression replacement=values.get(value.parameter());
-            if(replacement==null)throw new IllegalArgumentException("Unsubstituted value template parameter: "+value.parameter());
+            if(replacement==null)return new CppTemplateValueExpr(value.parameter(),type(value.valueType()),value.range());
             Expression result=replacement instanceof Expression.IntegerConstantExpr constant
                     ?new Expression.IntegerConstantExpr(constant.value(),constant.type(),constant.lexeme(),value.range())
                     :minic.compiler.type.TemplateValues.substitute(replacement,arguments,values);

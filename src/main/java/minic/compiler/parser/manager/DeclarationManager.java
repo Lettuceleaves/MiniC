@@ -202,6 +202,7 @@ public final class DeclarationManager {
         if (!declaration.alignmentSpecs().isEmpty()) {
             state.report(declaration.range(), "函数声明不能使用 alignas");
         }
+        if(typeReader.isCpp())typeReader.registerPendingFunctionTemplate(declaration.name());
         boolean constQualified = qualified && state.match(TokenType.CONST);
         if (qualified && external) state.unsupportedCpp(startToken.range(), "类外成员定义不能使用 extern");
         Token semicolonToken = null;
@@ -236,7 +237,7 @@ public final class DeclarationManager {
                 return null;
             }
             String name = parameter.name().isEmpty() ? "__unnamed" + index : parameter.name();
-            parameters.add(new Parameter(name, parameter.type(), parameter.range()));
+            parameters.add(new Parameter(name, parameter.type(), parameter.defaultValue(), parameter.range()));
         }
         SourceRange endRange = body != null ? body.range() : semicolonToken.range();
         FunctionDecl functionDecl = new FunctionDecl(

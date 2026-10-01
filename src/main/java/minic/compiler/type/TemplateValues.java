@@ -14,19 +14,29 @@ public final class TemplateValues {
         return switch (expression) {
             case CppTemplateValueExpr value -> values.getOrDefault(value.parameter(),
                     new CppTemplateValueExpr(value.parameter(), value.valueType().substituteTemplateParameters(types), value.range()));
+            case CppTypeMemberExpr member -> new CppTypeMemberExpr(member.ownerType().substituteTemplateParameters(types,values),member.memberName(),member.nameRange(),member.range());
             case GroupingExpr group -> new GroupingExpr(substitute(group.expression(),types,values),group.range());
             case UnaryExpr unary -> new UnaryExpr(unary.operator(),substitute(unary.operand(),types,values),unary.range());
             case BinaryExpr binary -> new BinaryExpr(substitute(binary.left(),types,values),binary.operator(),substitute(binary.right(),types,values),binary.range());
             case ConditionalExpr conditional -> new ConditionalExpr(substitute(conditional.condition(),types,values),substitute(conditional.thenExpression(),types,values),substitute(conditional.elseExpression(),types,values),conditional.range());
             case CastExpr cast -> new CastExpr(cast.targetType().substituteTemplateParameters(types),substitute(cast.operand(),types,values),cast.range());
+            case AlignofExpr align -> new AlignofExpr(align.expression()==null?null:substitute(align.expression(),types,values),align.queriedType()==null?null:align.queriedType().substituteTemplateParameters(types),align.range());
             case SizeofExpr size -> new SizeofExpr(size.expression()==null?null:substitute(size.expression(),types,values),size.queriedType()==null?null:size.queriedType().substituteTemplateParameters(types),size.range());
             default -> expression;
         };
     }
     public static boolean dependent(Expression expression) {
         if (expression instanceof CppTemplateValueExpr) return true;
-        if (expression instanceof SizeofExpr size && size.queriedType()!=null && size.queriedType().containsTemplateType()) return true;
+        if (expression instanceof AlignofExpr align && align.queriedType()!=null && align.queriedType().isDependentTemplate()) return true;
+        if (expression instanceof CppTypeMemberExpr member && member.ownerType().isDependentTemplate()) return true;
+        if (expression instanceof SizeofExpr size && size.queriedType()!=null && size.queriedType().isDependentTemplate()) return true;
         for (AstNode child : AstChildren.of(expression)) if (child instanceof Expression e && dependent(e)) return true;
+        return false;
+    }
+    /** Record layout and member constants are resolved by the owning semantic context. */
+    public static boolean requiresSemanticContext(Expression expression) {
+        if(expression instanceof SizeofExpr||expression instanceof AlignofExpr||expression instanceof CppTypeMemberExpr)return true;
+        for(AstNode child:AstChildren.of(expression))if(child instanceof Expression e&&requiresSemanticContext(e))return true;
         return false;
     }
     public static TemplateArgument.Integral evaluate(Expression expression) {

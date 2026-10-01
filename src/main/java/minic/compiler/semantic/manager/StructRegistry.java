@@ -299,6 +299,24 @@ public final class StructRegistry {
         }
     }
 
+    /** Exact target layout query for already bound, complete object types. Never returns recovery size. */
+    public int completeObjectSize(MiniType type) {
+        type=type.unqualified();
+        if(type.isArray())return Math.multiplyExact(completeObjectSize(type.elementType()),type.arrayLength());
+        requireObjectLayout(type);return sizeOf(type);
+    }
+    public int completeObjectAlignment(MiniType type) {
+        type=type.unqualified();
+        if(type.isArray())return completeObjectAlignment(type.elementType());
+        requireObjectLayout(type);return alignmentOf(type);
+    }
+    private void requireObjectLayout(MiniType type) {
+        if(type.isVoid()||type.isFunction()||type.isReference()||type.containsTemplateType())
+            throw new IllegalArgumentException("Layout query requires a complete object type: "+type);
+        if(type instanceof MiniType.StructType record && layoutOf(record.name())==null)
+            throw new IllegalArgumentException("Incomplete record layout: "+record.name());
+    }
+
     int sizeOf(MiniType type) {
         type = type.unqualified();
         // 非法函数对象已由 validateTypeShape 报错；占位布局只用于让诊断阶段安全完成。

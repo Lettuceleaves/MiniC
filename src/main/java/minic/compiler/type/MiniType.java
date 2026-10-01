@@ -152,7 +152,7 @@ public sealed interface MiniType permits
             case DependentArrayType array -> {
                 MiniType element=array.elementType().substituteTemplateParameters(arguments,values);
                 var bound=TemplateValues.substitute(array.bound(),arguments,values);
-                if(TemplateValues.dependent(bound))yield new DependentArrayType(element,bound);
+                if(TemplateValues.dependent(bound)||TemplateValues.requiresSemanticContext(bound))yield new DependentArrayType(element,bound);
                 long length=TemplateValues.evaluate(bound).value();
                 if(length<=0||length>Integer.MAX_VALUE)throw new IllegalArgumentException("Array bound must be in 1..2147483647");
                 yield element.arrayOf((int)length);
