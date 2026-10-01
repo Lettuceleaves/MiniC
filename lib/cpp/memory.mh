@@ -4,14 +4,29 @@
 #include "new.mh"
 #include "utility.mh"
 namespace std {
+void* __minic_allocate_bytes(unsigned long long bytes,unsigned long long alignment) {
+    if(bytes==0)return nullptr;
+    if(alignment<=16){void* storage=::malloc(bytes);if(!storage)::abort();return storage;}
+    // malloc on the Windows x64 target guarantees 16-byte alignment. Keep the
+    // original allocation immediately before an over-aligned payload for free.
+    unsigned long long overhead=alignment-1+sizeof(void*);
+    if(bytes>0x7fffffffffffffffULL-overhead)::abort();
+    void* original=::malloc(bytes+overhead);if(!original)::abort();
+    unsigned long long start=(unsigned long long)original+sizeof(void*);
+    unsigned long long aligned=(start+alignment-1)/alignment*alignment;
+    void* storage=(void*)aligned;((void**)storage)[-1]=original;return storage;
+}
+void __minic_deallocate_bytes(void* storage,unsigned long long alignment) {
+    if(!storage)return;
+    ::free(alignment<=16?storage:((void**)storage)[-1]);
+}
 template<class T> T* __minic_allocate(unsigned long long count) {
     if(count==0)return nullptr;
     if(count>0x7fffffffffffffffULL/sizeof(T))::abort();
-    void* storage=::malloc(count*sizeof(T));
-    if(storage==nullptr)::abort();
+    void* storage=std::__minic_allocate_bytes(count*sizeof(T),alignof(T));
     return (T*)storage;
 }
-template<class T> void __minic_deallocate(T* storage) { ::free((void*)storage); }
+template<class T> void __minic_deallocate(T* storage) { std::__minic_deallocate_bytes((void*)storage,alignof(T)); }
 template<class T,class... A> void __minic_construct(T* target,A&&... args) { ::new((void*)target) T(std::forward<A>(args)...); }
 template<class T> void __minic_destroy(T* value) { value->~T(); }
 template<class T> void __minic_destroy_range(T* data,unsigned long long n) { while(n>0){--n;std::__minic_destroy(data+n);} }

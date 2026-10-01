@@ -44,7 +44,7 @@ public:
     pair<iterator,bool> insert(Key&& value){pair<typename tree_type::iterator,bool> r=tree_.emplace(std::move(value));return pair<iterator,bool>(r.first,r.second);}
     iterator insert(const_iterator hint,const Key& value){return tree_.emplace_hint(hint,value);}
     iterator insert(const_iterator hint,Key&& value){return tree_.emplace_hint(hint,std::move(value));}
-    template<class I> void insert(I first,I last){while(first!=last){insert(*first);++first;}}
+    template<class I> void insert(I first,I last){while(first!=last){insert(end(),*first);++first;}}
     void insert(initializer_list<Key> values){insert(values.begin(),values.end());}
     template<class... A> pair<iterator,bool> emplace(A&&... a){pair<typename tree_type::iterator,bool> r=tree_.emplace(std::forward<A>(a)...);return pair<iterator,bool>(r.first,r.second);}
     template<class... A> iterator emplace_hint(const_iterator hint,A&&... a){return tree_.emplace_hint(hint,std::forward<A>(a)...);}
@@ -107,7 +107,7 @@ public:
     iterator insert(Key&& value){return tree_.emplace(std::move(value)).first;}
     iterator insert(const_iterator hint,const Key& value){return tree_.emplace_hint(hint,value);}
     iterator insert(const_iterator hint,Key&& value){return tree_.emplace_hint(hint,std::move(value));}
-    template<class I> void insert(I first,I last){while(first!=last){insert(*first);++first;}}
+    template<class I> void insert(I first,I last){while(first!=last){insert(end(),*first);++first;}}
     void insert(initializer_list<Key> values){insert(values.begin(),values.end());}
     template<class... A> iterator emplace(A&&... a){return tree_.emplace(std::forward<A>(a)...).first;}
     template<class... A> iterator emplace_hint(const_iterator hint,A&&... a){return tree_.emplace_hint(hint,std::forward<A>(a)...);}

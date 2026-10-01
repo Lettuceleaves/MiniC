@@ -127,12 +127,17 @@ template<class Key,class Value,class KeyOfValue,class Compare,bool Multi> class 
     }
     template<class... A> __minic_rb_node* create(A&&... a){
         size_t bytes=std::__minic_rb_offset<Value>()+sizeof(Value);
-        void* storage=::malloc(bytes);if(!storage)::abort();
+        size_t alignment=alignof(Value)>alignof(__minic_rb_node)?alignof(Value):alignof(__minic_rb_node);
+        void* storage=std::__minic_allocate_bytes(bytes,alignment);
         __minic_rb_node* n=::new(storage) __minic_rb_node();
         std::__minic_construct(std::__minic_rb_value<Value>(n),std::forward<A>(a)...);
         return n;
     }
-    void destroy(__minic_rb_node* n){std::__minic_destroy(std::__minic_rb_value<Value>(n));n->~__minic_rb_node();::free((void*)n);}
+    void destroy(__minic_rb_node* n){
+        std::__minic_destroy(std::__minic_rb_value<Value>(n));n->~__minic_rb_node();
+        size_t alignment=alignof(Value)>alignof(__minic_rb_node)?alignof(Value):alignof(__minic_rb_node);
+        std::__minic_deallocate_bytes((void*)n,alignment);
+    }
     void destroy_subtree(__minic_rb_node* n){
         // A red-black tree has logarithmic height, so recursion is bounded by its height.
         while(n){destroy_subtree(n->right);__minic_rb_node* left=n->left;destroy(n);n=left;}
@@ -189,6 +194,7 @@ public:
         if(size_==0)return attach(n,&header_,true).first;
         if(h==&header_){
             if(Multi?!compare_(key(n),key(header_.right)):compare_(key(header_.right),key(n)))return attach(n,header_.right,false).first;
+            if(!Multi && !compare_(key(n),key(header_.right))){destroy(n);return iterator(header_.right);}
         }else{
             bool before=Multi?!compare_(key(h),key(n)):compare_(key(n),key(h));
             if(before){
@@ -219,6 +225,22 @@ public:
         while(n){if(compare_(k,key(n))){found=n;n=n->left;}else n=n->right;}return const_iterator(found);
     }
     template<class K> iterator find(const K& k){iterator i=lower_bound(k);return i==end() || compare_(k,key(i.node))?end():i;}
+    // A correct insertion hint proves absence between its predecessor and itself.
+    // Look up before constructing mapped values so a duplicate never consumes args.
+    template<class K> iterator find_with_hint(const_iterator hint,const K& k){
+        if(size_==0)return end();
+        __minic_rb_node* h=hint.node;
+        if(h==&header_){
+            if(compare_(key(header_.right),k))return end();
+            if(!compare_(k,key(header_.right)))return iterator(header_.right);
+        }else if(compare_(k,key(h))){
+            if(h==header_.left)return end();
+            __minic_rb_node* previous=std::__minic_rb_prev(h);
+            if(compare_(key(previous),k))return end();
+            if(!compare_(k,key(previous)))return iterator(previous);
+        }else if(!compare_(key(h),k))return iterator(h);
+        return find(k);
+    }
     template<class K> const_iterator find(const K& k) const{const_iterator i=lower_bound(k);return i==end() || compare_(k,key(i.node))?end():i;}
     template<class K> size_t count(const K& k) const{const_iterator first=lower_bound(k),last=upper_bound(k);return std::distance(first,last);}
     iterator erase(const_iterator position){

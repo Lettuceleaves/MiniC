@@ -57,7 +57,7 @@ public:
     template<class P> pair<iterator,bool> insert(P&& value){return tree_.emplace(std::forward<P>(value));}
     iterator insert(const_iterator hint,const value_type& value){return tree_.emplace_hint(hint,value);}
     iterator insert(const_iterator hint,value_type&& value){return tree_.emplace_hint(hint,std::move(value));}
-    template<class I> void insert(I first,I last){while(first!=last){insert(*first);++first;}}
+    template<class I> void insert(I first,I last){while(first!=last){insert(end(),*first);++first;}}
     void insert(initializer_list<value_type> values){insert(values.begin(),values.end());}
     template<class... A> pair<iterator,bool> emplace(A&&... a){return tree_.emplace(std::forward<A>(a)...);}
     template<class... A> iterator emplace_hint(const_iterator hint,A&&... a){return tree_.emplace_hint(hint,std::forward<A>(a)...);}
@@ -69,13 +69,27 @@ public:
         iterator i=find(key);if(i!=end())return pair<iterator,bool>(i,false);
         return tree_.emplace(__minic_pair_key_tag(),std::move(key),std::forward<A>(a)...);
     }
-    template<class... A> iterator try_emplace(const_iterator hint,const Key& key,A&&... a){return try_emplace(key,std::forward<A>(a)...).first;}
-    template<class... A> iterator try_emplace(const_iterator hint,Key&& key,A&&... a){return try_emplace(std::move(key),std::forward<A>(a)...).first;}
+    template<class... A> iterator try_emplace(const_iterator hint,const Key& key,A&&... a){
+        iterator i=tree_.find_with_hint(hint,key);if(i!=end())return i;
+        return tree_.emplace_hint(hint,__minic_pair_key_tag(),key,std::forward<A>(a)...);
+    }
+    template<class... A> iterator try_emplace(const_iterator hint,Key&& key,A&&... a){
+        iterator i=tree_.find_with_hint(hint,key);if(i!=end())return i;
+        return tree_.emplace_hint(hint,__minic_pair_key_tag(),std::move(key),std::forward<A>(a)...);
+    }
     template<class M> pair<iterator,bool> insert_or_assign(const Key& key,M&& value){
         iterator i=find(key);if(i!=end()){i->second=std::forward<M>(value);return pair<iterator,bool>(i,false);}return try_emplace(key,std::forward<M>(value));
     }
     template<class M> pair<iterator,bool> insert_or_assign(Key&& key,M&& value){
         iterator i=find(key);if(i!=end()){i->second=std::forward<M>(value);return pair<iterator,bool>(i,false);}return try_emplace(std::move(key),std::forward<M>(value));
+    }
+    template<class M> iterator insert_or_assign(const_iterator hint,const Key& key,M&& value){
+        iterator i=tree_.find_with_hint(hint,key);if(i!=end()){i->second=std::forward<M>(value);return i;}
+        return tree_.emplace_hint(hint,__minic_pair_key_tag(),key,std::forward<M>(value));
+    }
+    template<class M> iterator insert_or_assign(const_iterator hint,Key&& key,M&& value){
+        iterator i=tree_.find_with_hint(hint,key);if(i!=end()){i->second=std::forward<M>(value);return i;}
+        return tree_.emplace_hint(hint,__minic_pair_key_tag(),std::move(key),std::forward<M>(value));
     }
     iterator erase(iterator i){return tree_.erase(i);} iterator erase(const_iterator i){return tree_.erase(i);}
     iterator erase(const_iterator first,const_iterator last){return tree_.erase(first,last);}

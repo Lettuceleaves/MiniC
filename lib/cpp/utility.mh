@@ -19,11 +19,17 @@ template<class T, class U> struct pair {
     T first;
     U second;
     pair():first(),second() {}
+    pair(const pair& other):first(other.first),second(other.second) {}
+    pair(pair&& other):first(std::forward<T>(other.first)),second(std::forward<U>(other.second)) {}
     pair(const T& a,const U& b):first(a),second(b) {}
     template<class A,class B> pair(A&& a,B&& b):first(std::forward<A>(a)),second(std::forward<B>(b)) {}
     template<class A,class B> pair(const pair<A,B>& other):first(other.first),second(other.second) {}
     template<class A,class B> pair(pair<A,B>&& other):first(std::forward<A>(other.first)),second(std::forward<B>(other.second)) {}
     template<class K,class... A> pair(__minic_pair_key_tag,K&& key,A&&... a):first(std::forward<K>(key)),second(std::forward<A>(a)...) {}
+    pair& operator=(const pair& other) { first=other.first;second=other.second;return *this; }
+    pair& operator=(pair&& other) { first=std::forward<T>(other.first);second=std::forward<U>(other.second);return *this; }
+    template<class A,class B> pair& operator=(const pair<A,B>& other) { first=other.first;second=other.second;return *this; }
+    template<class A,class B> pair& operator=(pair<A,B>&& other) { first=std::forward<A>(other.first);second=std::forward<B>(other.second);return *this; }
     void swap(pair& other) { using std::swap; swap(first,other.first); swap(second,other.second); }
 };
 template<class T,class U> bool operator==(const pair<T,U>& a,const pair<T,U>& b) { return a.first==b.first && a.second==b.second; }

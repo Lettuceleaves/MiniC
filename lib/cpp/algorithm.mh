@@ -18,6 +18,11 @@ template<class I,class T> void fill(I first,I last,const T& value) { while(first
 template<class I,class N,class T> I fill_n(I first,N count,const T& value) { while(count>0){*first=value;++first;--count;}return first; }
 template<class I,class J,class P> bool equal(I first,I last,J other,P pred) { while(first!=last){if(!pred(*first,*other))return false;++first;++other;}return true; }
 template<class I,class J> bool equal(I first,I last,J other) { return std::equal(first,last,other,equal_to<void>()); }
+template<class I,class J,class P> bool equal(I first,I last,J other,J end,P pred) {
+    while(first!=last && other!=end){if(!pred(*first,*other))return false;++first;++other;}
+    return first==last && other==end;
+}
+template<class I,class J> bool equal(I first,I last,J other,J end) { return std::equal(first,last,other,end,equal_to<void>()); }
 template<class I,class T> I find(I first,I last,const T& value) { while(first!=last && !(*first==value))++first;return first; }
 template<class I,class P> I find_if(I first,I last,P pred) { while(first!=last && !pred(*first))++first;return first; }
 template<class I,class T> typename iterator_traits<I>::difference_type count(I first,I last,const T& value) { typename iterator_traits<I>::difference_type n=0;while(first!=last){if(*first==value)++n;++first;}return n; }

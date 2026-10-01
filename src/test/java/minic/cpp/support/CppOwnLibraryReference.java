@@ -20,6 +20,14 @@ public final class CppOwnLibraryReference {
     }
     public static Result run(Path temporary,String source,String stdin,CppDifferentialHarness.Limits limits)
             throws IOException,InterruptedException {
+        return compileOrRun(temporary,source,stdin,limits,true);
+    }
+    public static Result compile(Path temporary,String source,CppDifferentialHarness.Limits limits)
+            throws IOException,InterruptedException {
+        return compileOrRun(temporary,source,"",limits,false);
+    }
+    private static Result compileOrRun(Path temporary,String source,String stdin,CppDifferentialHarness.Limits limits,boolean run)
+            throws IOException,InterruptedException {
         Files.createDirectories(temporary);
         Path directory=Files.createTempDirectory(temporary,"own-library-");
         Path headers=directory.resolve("headers");Files.createDirectories(headers);
@@ -42,6 +50,7 @@ public final class CppOwnLibraryReference {
         if(compile.timedOut())return new Result(Status.COMPILE_TIMEOUT,-1,"","",compile.stderr());
         if(compile.outputExceeded())return new Result(Status.OUTPUT_LIMIT,-1,"","",compile.stderr());
         if(compile.exitCode()!=0)return new Result(Status.COMPILE_ERROR,compile.exitCode(),"","",compile.stdout()+compile.stderr());
+        if(!run)return new Result(Status.OK,0,"","","");
         var execute=BoundedProcess.run(List.of(executable.toString()),directory,stdin,limits.runTimeout(),limits.maxOutputBytes());
         Status status=execute.timedOut()?Status.RUN_TIMEOUT:execute.outputExceeded()?Status.OUTPUT_LIMIT:
                 execute.exitCode()==0?Status.OK:Status.NONZERO_EXIT;

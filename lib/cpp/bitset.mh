@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "string.mh"
+#include "iostream.mh"
 namespace std {
 template<unsigned long long N> class __minic_bitset_reference {
     unsigned long long* word_;
@@ -29,14 +30,17 @@ template<unsigned long long N> class bitset {
         if(pos>text.size())::abort();unsigned long long available=text.size()-pos;if(n>available)n=available;
         read(text.data()+pos,n,zero,one);
     }
+    void read_pointer(const char* text,unsigned long long n,char zero,char one) {
+        read(text,n==string::npos?::strlen(text):n,zero,one);
+    }
 public:
     typedef __minic_bitset_reference<N> reference;
     bitset() { reset(); }
     bitset(unsigned long long value) { reset();words_[0]=value;trim(); }
     explicit bitset(const char* text) { read(text,::strlen(text),'0','1'); }
-    bitset(const char* text,unsigned long long n) { read(text,n,'0','1'); }
-    bitset(const char* text,unsigned long long n,char zero) { read(text,n,zero,'1'); }
-    bitset(const char* text,unsigned long long n,char zero,char one) { read(text,n,zero,one); }
+    bitset(const char* text,unsigned long long n) { read_pointer(text,n,'0','1'); }
+    bitset(const char* text,unsigned long long n,char zero) { read_pointer(text,n,zero,'1'); }
+    bitset(const char* text,unsigned long long n,char zero,char one) { read_pointer(text,n,zero,one); }
     explicit bitset(const string& text) { read_string(text,0,text.size(),'0','1'); }
     bitset(const string& text,unsigned long long pos) { read_string(text,pos,text.size(),'0','1'); }
     bitset(const string& text,unsigned long long pos,unsigned long long n) { read_string(text,pos,n,'0','1'); }
@@ -82,5 +86,9 @@ public:
 template<unsigned long long N> bitset<N> operator&(bitset<N> a,const bitset<N>& b) { a&=b;return a; }
 template<unsigned long long N> bitset<N> operator|(bitset<N> a,const bitset<N>& b) { a|=b;return a; }
 template<unsigned long long N> bitset<N> operator^(bitset<N> a,const bitset<N>& b) { a^=b;return a; }
+template<unsigned long long N> ostream& operator<<(ostream& stream,const bitset<N>& value) { return stream<<value.to_string(); }
+template<unsigned long long N> istream& operator>>(istream& stream,bitset<N>& value) {
+    string digits;if(stream.__bitset_token(digits,N))value=bitset<N>(digits);return stream;
+}
 }
 #endif

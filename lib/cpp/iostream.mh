@@ -254,6 +254,15 @@ public:
         while(true){int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit);break;}if(!::isspace(c))break;take();}
         return *this;
     }
+    bool __bitset_token(string& text,unsigned long long maximum){
+        if(!sentry(true))return false;text.clear();
+        while(text.size()<maximum){
+            int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit);break;}
+            if(c!='0' && c!='1')break;text.push_back((char)take());
+        }
+        if(maximum && text.empty()){state_.setstate(ios::failbit);return false;}
+        return true;
+    }
 };
 ostream cout(stdout);
 ostream cerr(stderr,&cout,true);
