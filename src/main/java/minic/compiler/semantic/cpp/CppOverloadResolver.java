@@ -213,7 +213,12 @@ public final class CppOverloadResolver {
             // No ref-qualifiers: prvalues also bind to mutable implicit object parameters.
             result.add(distance>0?new Conversion(Rank.CONVERSION,Step.BASE,!cv(source).equals(cv(target)),
                     target,true,null,null,false,0,0,null,distance)
-                    :new Conversion(Rank.EXACT, Step.NONE, !cv(source).equals(cv(target)), target, true));
+                    // [over.ics.ref]/1: binding to cv X is identity, not a pointer
+                    // qualification conversion. The reference cv tiebreak still applies.
+                    // null ref-kind marks an implicit object without a ref-qualifier;
+                    // [over.ics.rank]/3.2.3 excludes it from the rvalue-reference tiebreak.
+                    :new Conversion(Rank.EXACT, Step.NONE, false, target, true,
+                            null,null,false,0,0,null,0));
         }
         for (int i=0; i<args.size(); i++) {
             if (!args.get(i).braced() && expressionType(args.get(i).type).isVoid()) return null;
@@ -413,7 +418,8 @@ public final class CppOverloadResolver {
                 if (qualification != 0) return qualification;
             }
         }
-        if(first.reference&&second.reference&&first.referenceKind!=second.referenceKind) {
+        if(first.reference&&second.reference&&first.referenceKind!=null&&second.referenceKind!=null
+                &&first.referenceKind!=second.referenceKind) {
             boolean function=first.target.isFunction()&&second.target.isFunction();
             return first.referenceKind==(function?MiniType.ReferenceKind.LVALUE:MiniType.ReferenceKind.RVALUE)?-1:1;
         }
