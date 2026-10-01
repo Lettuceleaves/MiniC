@@ -69,7 +69,7 @@ public:
     typedef std::reverse_iterator<iterator> reverse_iterator;
     typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
     static const size_type npos=0xffffffffffffffffULL;
-    string():buffer_(nullptr),size_(0),capacity_(0),empty_(0) {}
+    string() noexcept:buffer_(nullptr),size_(0),capacity_(0),empty_(0) {}
     string(const char* text):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(text,text_length(text)); }
     string(const char* text,size_type n):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(text,n); }
     string(size_type n,char value):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(n,value); }
@@ -79,23 +79,23 @@ public:
     template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
     string(I first,I last):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { while(first!=last){push_back(*first);++first;} }
     string(initializer_list<char> values):buffer_(nullptr),size_(0),capacity_(0),empty_(0) { assign(values.begin(),values.size()); }
-    string(string&& other):buffer_(other.buffer_),size_(other.size_),capacity_(other.capacity_),empty_(0) { other.buffer_=nullptr;other.size_=0;other.capacity_=0;other.empty_=0; }
+    string(string&& other) noexcept:buffer_(other.buffer_),size_(other.size_),capacity_(other.capacity_),empty_(0) { other.buffer_=nullptr;other.size_=0;other.capacity_=0;other.empty_=0; }
     ~string() { std::__minic_deallocate(buffer_); }
     string& operator=(const string& other) { if(this!=&other)assign(other);return *this; }
-    string& operator=(string&& other) {
+    string& operator=(string&& other) noexcept {
         if(this!=&other){std::__minic_deallocate(buffer_);buffer_=other.buffer_;size_=other.size_;capacity_=other.capacity_;empty_=0;other.buffer_=nullptr;other.size_=0;other.capacity_=0;other.empty_=0;}return *this;
     }
     string& operator=(const char* text) { return assign(text); }
     string& operator=(char value) { return assign(1,value); }
     string& operator=(initializer_list<char> values) { return assign(values); }
-    char* data() { return buffer_?buffer_:&empty_; }
-    const char* data() const { return buffer_?buffer_:&empty_; }
-    const char* c_str() const { return data(); }
-    size_type size() const { return size_; }
-    size_type length() const { return size_; }
-    size_type capacity() const { return capacity_; }
-    size_type max_size() const { return 0x7ffffffffffffffeULL; }
-    bool empty() const { return size_==0; }
+    char* data() noexcept { return buffer_?buffer_:&empty_; }
+    const char* data() const noexcept { return buffer_?buffer_:&empty_; }
+    const char* c_str() const noexcept { return data(); }
+    size_type size() const noexcept { return size_; }
+    size_type length() const noexcept { return size_; }
+    size_type capacity() const noexcept { return capacity_; }
+    size_type max_size() const noexcept { return 0x7ffffffffffffffeULL; }
+    bool empty() const noexcept { return size_==0; }
     char& operator[](size_type index) { return data()[index]; }
     const char& operator[](size_type index) const { return data()[index]; }
     char& at(size_type index) { if(index>=size_)::abort();return data()[index]; }
@@ -104,19 +104,19 @@ public:
     const char& front() const { return data()[0]; }
     char& back() { return data()[size_-1]; }
     const char& back() const { return data()[size_-1]; }
-    iterator begin() { return data(); }
-    const_iterator begin() const { return data(); }
-    const_iterator cbegin() const { return data(); }
-    iterator end() { return data()+size_; }
-    const_iterator end() const { return data()+size_; }
-    const_iterator cend() const { return data()+size_; }
-    reverse_iterator rbegin() { return reverse_iterator(end()); }
-    const_reverse_iterator rbegin() const { return const_reverse_iterator(end()); }
-    const_reverse_iterator crbegin() const { return const_reverse_iterator(cend()); }
-    reverse_iterator rend() { return reverse_iterator(begin()); }
-    const_reverse_iterator rend() const { return const_reverse_iterator(begin()); }
-    const_reverse_iterator crend() const { return const_reverse_iterator(cbegin()); }
-    void clear() { size_=0;data()[0]=0; }
+    iterator begin() noexcept { return data(); }
+    const_iterator begin() const noexcept { return data(); }
+    const_iterator cbegin() const noexcept { return data(); }
+    iterator end() noexcept { return data()+size_; }
+    const_iterator end() const noexcept { return data()+size_; }
+    const_iterator cend() const noexcept { return data()+size_; }
+    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(cend()); }
+    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+    const_reverse_iterator crend() const noexcept { return const_reverse_iterator(cbegin()); }
+    void clear() noexcept { size_=0;data()[0]=0; }
     void reserve(size_type n) { if(n>capacity_)allocate_capacity(n); }
     void reserve() { shrink_to_fit(); }
     void shrink_to_fit() { if(size_==capacity_)return;if(size_==0){std::__minic_deallocate(buffer_);buffer_=nullptr;capacity_=0;empty_=0;}else allocate_capacity(size_); }
@@ -124,9 +124,9 @@ public:
     void resize(size_type n) { resize(n,0); }
     void push_back(char value) { if(size_==max_size())::abort();ensure(size_+1);data()[size_++]=value;data()[size_]=0; }
     void pop_back() { --size_;data()[size_]=0; }
-    void swap(string& other) { std::swap(buffer_,other.buffer_);std::swap(size_,other.size_);std::swap(capacity_,other.capacity_); }
+    void swap(string& other) noexcept { std::swap(buffer_,other.buffer_);std::swap(size_,other.size_);std::swap(capacity_,other.capacity_); }
     string& assign(const string& other) { return replace_text(0,size_,other.data(),other.size_); }
-    string& assign(string&& other) { return *this=std::move(other); }
+    string& assign(string&& other) noexcept { return *this=std::move(other); }
     string& assign(const string& other,size_type position) { return assign(other,position,npos); }
     string& assign(const string& other,size_type position,size_type count) { count=other.clipped(position,count);return replace_text(0,size_,other.data()+position,count); }
     string& assign(const char* text) { return assign(text,text_length(text)); }
@@ -182,7 +182,7 @@ public:
     string substr() const { return *this; }
     size_type copy(char* destination,size_type count,size_type position) const { count=clipped(position,count);for(size_type i=0;i<count;++i)destination[i]=data()[position+i];return count; }
     size_type copy(char* destination,size_type count) const { return copy(destination,count,0); }
-    int compare(const string& other) const { return compare_text(data(),size_,other.data(),other.size_); }
+    int compare(const string& other) const noexcept { return compare_text(data(),size_,other.data(),other.size_); }
     int compare(size_type position,size_type count,const string& other) const { count=clipped(position,count);return compare_text(data()+position,count,other.data(),other.size_); }
     int compare(size_type position,size_type count,const string& other,size_type source_position,size_type source_count) const { count=clipped(position,count);source_count=other.clipped(source_position,source_count);return compare_text(data()+position,count,other.data()+source_position,source_count); }
     int compare(size_type position,size_type count,const string& other,size_type source_position) const { return compare(position,count,other,source_position,npos); }
@@ -194,8 +194,8 @@ public:
         if(count==0)return position;
         for(size_type i=position;i<=size_-count;++i){size_type j=0;while(j<count && data()[i+j]==text[j])++j;if(j==count)return i;}return npos;
     }
-    size_type find(const string& other,size_type position) const { return find(other.data(),position,other.size_); }
-    size_type find(const string& other) const { return find(other,0); }
+    size_type find(const string& other,size_type position) const noexcept { return find(other.data(),position,other.size_); }
+    size_type find(const string& other) const noexcept { return find(other,0); }
     size_type find(const char* text,size_type position) const { return find(text,position,text_length(text)); }
     size_type find(const char* text) const { return find(text,0); }
     size_type find(char value,size_type position) const { for(size_type i=position;i<size_;++i)if(data()[i]==value)return i;return npos; }
@@ -205,36 +205,36 @@ public:
         if(count==0)return i;
         while(true){size_type j=0;while(j<count && data()[i+j]==text[j])++j;if(j==count)return i;if(i==0)break;--i;}return npos;
     }
-    size_type rfind(const string& other,size_type position) const { return rfind(other.data(),position,other.size_); }
-    size_type rfind(const string& other) const { return rfind(other,npos); }
+    size_type rfind(const string& other,size_type position) const noexcept { return rfind(other.data(),position,other.size_); }
+    size_type rfind(const string& other) const noexcept { return rfind(other,npos); }
     size_type rfind(const char* text,size_type position) const { return rfind(text,position,text_length(text)); }
     size_type rfind(const char* text) const { return rfind(text,npos); }
     size_type rfind(char value,size_type position) const { if(size_==0)return npos;size_type i=position<size_?position:size_-1;while(true){if(data()[i]==value)return i;if(i==0)break;--i;}return npos; }
     size_type rfind(char value) const { return rfind(value,npos); }
     size_type find_first_of(const char* set,size_type position,size_type count) const { for(size_type i=position;i<size_;++i)if(in_set(data()[i],set,count))return i;return npos; }
-    size_type find_first_of(const string& set,size_type position) const { return find_first_of(set.data(),position,set.size_); }
-    size_type find_first_of(const string& set) const { return find_first_of(set,0); }
+    size_type find_first_of(const string& set,size_type position) const noexcept { return find_first_of(set.data(),position,set.size_); }
+    size_type find_first_of(const string& set) const noexcept { return find_first_of(set,0); }
     size_type find_first_of(const char* set,size_type position) const { return find_first_of(set,position,text_length(set)); }
     size_type find_first_of(const char* set) const { return find_first_of(set,0); }
     size_type find_first_of(char value,size_type position) const { return find(value,position); }
     size_type find_first_of(char value) const { return find(value); }
     size_type find_last_of(const char* set,size_type position,size_type count) const { if(size_==0)return npos;size_type i=position<size_?position:size_-1;while(true){if(in_set(data()[i],set,count))return i;if(i==0)break;--i;}return npos; }
-    size_type find_last_of(const string& set,size_type position) const { return find_last_of(set.data(),position,set.size_); }
-    size_type find_last_of(const string& set) const { return find_last_of(set,npos); }
+    size_type find_last_of(const string& set,size_type position) const noexcept { return find_last_of(set.data(),position,set.size_); }
+    size_type find_last_of(const string& set) const noexcept { return find_last_of(set,npos); }
     size_type find_last_of(const char* set,size_type position) const { return find_last_of(set,position,text_length(set)); }
     size_type find_last_of(const char* set) const { return find_last_of(set,npos); }
     size_type find_last_of(char value,size_type position) const { return rfind(value,position); }
     size_type find_last_of(char value) const { return rfind(value); }
     size_type find_first_not_of(const char* set,size_type position,size_type count) const { for(size_type i=position;i<size_;++i)if(!in_set(data()[i],set,count))return i;return npos; }
-    size_type find_first_not_of(const string& set,size_type position) const { return find_first_not_of(set.data(),position,set.size_); }
-    size_type find_first_not_of(const string& set) const { return find_first_not_of(set,0); }
+    size_type find_first_not_of(const string& set,size_type position) const noexcept { return find_first_not_of(set.data(),position,set.size_); }
+    size_type find_first_not_of(const string& set) const noexcept { return find_first_not_of(set,0); }
     size_type find_first_not_of(const char* set,size_type position) const { return find_first_not_of(set,position,text_length(set)); }
     size_type find_first_not_of(const char* set) const { return find_first_not_of(set,0); }
     size_type find_first_not_of(char value,size_type position) const { for(size_type i=position;i<size_;++i)if(data()[i]!=value)return i;return npos; }
     size_type find_first_not_of(char value) const { return find_first_not_of(value,0); }
     size_type find_last_not_of(const char* set,size_type position,size_type count) const { if(size_==0)return npos;size_type i=position<size_?position:size_-1;while(true){if(!in_set(data()[i],set,count))return i;if(i==0)break;--i;}return npos; }
-    size_type find_last_not_of(const string& set,size_type position) const { return find_last_not_of(set.data(),position,set.size_); }
-    size_type find_last_not_of(const string& set) const { return find_last_not_of(set,npos); }
+    size_type find_last_not_of(const string& set,size_type position) const noexcept { return find_last_not_of(set.data(),position,set.size_); }
+    size_type find_last_not_of(const string& set) const noexcept { return find_last_not_of(set,npos); }
     size_type find_last_not_of(const char* set,size_type position) const { return find_last_not_of(set,position,text_length(set)); }
     size_type find_last_not_of(const char* set) const { return find_last_not_of(set,npos); }
     size_type find_last_not_of(char value,size_type position) const { if(size_==0)return npos;size_type i=position<size_?position:size_-1;while(true){if(data()[i]!=value)return i;if(i==0)break;--i;}return npos; }
@@ -244,13 +244,13 @@ const string::size_type string::npos;
 class istream;
 istream& getline(istream& input,string& output,char delimiter);
 istream& getline(istream& input,string& output);
-void swap(string& a,string& b) { a.swap(b); }
-bool operator==(const string& a,const string& b) { return a.compare(b)==0; }
-bool operator!=(const string& a,const string& b) { return a.compare(b)!=0; }
-bool operator<(const string& a,const string& b) { return a.compare(b)<0; }
-bool operator>(const string& a,const string& b) { return a.compare(b)>0; }
-bool operator<=(const string& a,const string& b) { return a.compare(b)<=0; }
-bool operator>=(const string& a,const string& b) { return a.compare(b)>=0; }
+void swap(string& a,string& b) noexcept(noexcept(a.swap(b))) { a.swap(b); }
+bool operator==(const string& a,const string& b) noexcept { return a.compare(b)==0; }
+bool operator!=(const string& a,const string& b) noexcept { return a.compare(b)!=0; }
+bool operator<(const string& a,const string& b) noexcept { return a.compare(b)<0; }
+bool operator>(const string& a,const string& b) noexcept { return a.compare(b)>0; }
+bool operator<=(const string& a,const string& b) noexcept { return a.compare(b)<=0; }
+bool operator>=(const string& a,const string& b) noexcept { return a.compare(b)>=0; }
 bool operator==(const string& a,const char* b) { return a.compare(b)==0; }
 bool operator!=(const string& a,const char* b) { return a.compare(b)!=0; }
 bool operator<(const string& a,const char* b) { return a.compare(b)<0; }

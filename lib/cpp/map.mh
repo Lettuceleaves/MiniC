@@ -37,17 +37,17 @@ public:
     map(const map& other):tree_(other.tree_) {}
     map(map&& other):tree_(std::move(other.tree_)) {}
     map& operator=(const map& other){tree_=other.tree_;return *this;}
-    map& operator=(map&& other){tree_=std::move(other.tree_);return *this;}
+    map& operator=(map&& other) noexcept(is_nothrow_move_assignable<Compare>::value) {tree_=std::move(other.tree_);return *this;}
     map& operator=(initializer_list<value_type> values){clear();insert(values);return *this;}
-    iterator begin(){return tree_.begin();} const_iterator begin() const{return tree_.begin();}
-    iterator end(){return tree_.end();} const_iterator end() const{return tree_.end();}
-    const_iterator cbegin() const{return begin();} const_iterator cend() const{return end();}
-    reverse_iterator rbegin(){return reverse_iterator(end());} const_reverse_iterator rbegin() const{return const_reverse_iterator(end());}
-    reverse_iterator rend(){return reverse_iterator(begin());} const_reverse_iterator rend() const{return const_reverse_iterator(begin());}
-    const_reverse_iterator crbegin() const{return rbegin();} const_reverse_iterator crend() const{return rend();}
-    bool empty() const{return tree_.empty();} size_type size() const{return tree_.size();}
-    size_type max_size() const{return tree_.max_size();}
-    void clear(){tree_.clear();}
+    iterator begin() noexcept {return tree_.begin();} const_iterator begin() const noexcept {return tree_.begin();}
+    iterator end() noexcept {return tree_.end();} const_iterator end() const noexcept {return tree_.end();}
+    const_iterator cbegin() const noexcept {return begin();} const_iterator cend() const noexcept {return end();}
+    reverse_iterator rbegin() noexcept {return reverse_iterator(end());} const_reverse_iterator rbegin() const noexcept {return const_reverse_iterator(end());}
+    reverse_iterator rend() noexcept {return reverse_iterator(begin());} const_reverse_iterator rend() const noexcept {return const_reverse_iterator(begin());}
+    const_reverse_iterator crbegin() const noexcept {return rbegin();} const_reverse_iterator crend() const noexcept {return rend();}
+    bool empty() const noexcept {return tree_.empty();} size_type size() const noexcept {return tree_.size();}
+    size_type max_size() const noexcept {return tree_.max_size();}
+    void clear() noexcept {tree_.clear();}
     T& operator[](const Key& key){return try_emplace(key).first->second;}
     T& operator[](Key&& key){return try_emplace(std::move(key)).first->second;}
     T& at(const Key& key){iterator i=find(key);if(i==end())::abort();return i->second;}
@@ -94,7 +94,7 @@ public:
     iterator erase(iterator i){return tree_.erase(i);} iterator erase(const_iterator i){return tree_.erase(i);}
     iterator erase(const_iterator first,const_iterator last){return tree_.erase(first,last);}
     size_type erase(const Key& key){return tree_.erase(key);}
-    void swap(map& other){tree_.swap(other.tree_);}
+    void swap(map& other) noexcept(is_nothrow_swappable<Compare>::value) {tree_.swap(other.tree_);}
     size_type count(const Key& key) const{return tree_.count(key);}
     iterator find(const Key& key){return tree_.find(key);} const_iterator find(const Key& key) const{return tree_.find(key);}
     iterator lower_bound(const Key& key){return tree_.lower_bound(key);} const_iterator lower_bound(const Key& key) const{return tree_.lower_bound(key);}
@@ -103,7 +103,7 @@ public:
     pair<const_iterator,const_iterator> equal_range(const Key& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
     Compare key_comp() const{return tree_.key_comp();} value_compare value_comp() const{return value_compare(tree_.key_comp());}
 };
-template<class K,class T,class C> void swap(map<K,T,C>& a,map<K,T,C>& b){a.swap(b);}
+template<class K,class T,class C> void swap(map<K,T,C>& a,map<K,T,C>& b) noexcept(noexcept(a.swap(b))) {a.swap(b);}
 template<class K,class T,class C> bool operator==(const map<K,T,C>& a,const map<K,T,C>& b){return a.size()==b.size() && std::equal(a.begin(),a.end(),b.begin());}
 template<class K,class T,class C> bool operator!=(const map<K,T,C>& a,const map<K,T,C>& b){return !(a==b);}
 template<class K,class T,class C> bool operator<(const map<K,T,C>& a,const map<K,T,C>& b){return std::lexicographical_compare(a.begin(),a.end(),b.begin(),b.end());}

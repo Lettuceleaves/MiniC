@@ -37,118 +37,20 @@ template<class T> struct remove_extent<T[]> { typedef T type; };
 template<class T,unsigned long long N> struct remove_extent<T[N]> { typedef T type; };
 template<class T,class Enable=void> struct add_pointer { typedef T type; };
 template<class T> struct add_pointer<T,typename __minic_trait_void<typename remove_reference<T>::type*>::type> { typedef typename remove_reference<T>::type* type; };
-template<class T,class U> struct is_same {
-    static constexpr bool value = false;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T,class U> constexpr bool is_same<T,U>::value;
-template<class T> struct is_same<T,T> {
-    static constexpr bool value = true;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_same<T,T>::value;
-template<class T> struct is_const {
-    static constexpr bool value = false;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_const<T>::value;
-template<class T> struct is_const<const T> {
-    static constexpr bool value = true;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_const<const T>::value;
-template<class T> struct is_lvalue_reference {
-    static constexpr bool value = false;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_lvalue_reference<T>::value;
-template<class T> struct is_lvalue_reference<T&> {
-    static constexpr bool value = true;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_lvalue_reference<T&>::value;
-template<class T> struct is_rvalue_reference {
-    static constexpr bool value = false;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_rvalue_reference<T>::value;
-template<class T> struct is_rvalue_reference<T&&> {
-    static constexpr bool value = true;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_rvalue_reference<T&&>::value;
-template<class T> struct is_reference {
-    static constexpr bool value = is_lvalue_reference<T>::value || is_rvalue_reference<T>::value;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_reference<T>::value;
-template<class T> struct is_void {
-    static constexpr bool value = is_same<typename remove_cv<T>::type,void>::value;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_void<T>::value;
-template<class T> struct is_array {
-    static constexpr bool value = false;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_array<T>::value;
-template<class T> struct is_array<T[]> {
-    static constexpr bool value = true;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_array<T[]>::value;
-template<class T,unsigned long long N> struct is_array<T[N]> {
-    static constexpr bool value = true;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T,unsigned long long N> constexpr bool is_array<T[N]>::value;
-template<class T> struct is_function {
-    static constexpr bool value = !is_const<const T>::value && !is_reference<T>::value;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_function<T>::value;
+template<class T,class U> struct is_same : public integral_constant<bool,(false)> {};
+template<class T> struct is_same<T,T> : public integral_constant<bool,(true)> {};
+template<class T> struct is_const : public integral_constant<bool,(false)> {};
+template<class T> struct is_const<const T> : public integral_constant<bool,(true)> {};
+template<class T> struct is_lvalue_reference : public integral_constant<bool,(false)> {};
+template<class T> struct is_lvalue_reference<T&> : public integral_constant<bool,(true)> {};
+template<class T> struct is_rvalue_reference : public integral_constant<bool,(false)> {};
+template<class T> struct is_rvalue_reference<T&&> : public integral_constant<bool,(true)> {};
+template<class T> struct is_reference : public integral_constant<bool,(is_lvalue_reference<T>::value || is_rvalue_reference<T>::value)> {};
+template<class T> struct is_void : public integral_constant<bool,(is_same<typename remove_cv<T>::type,void>::value)> {};
+template<class T> struct is_array : public integral_constant<bool,(false)> {};
+template<class T> struct is_array<T[]> : public integral_constant<bool,(true)> {};
+template<class T,unsigned long long N> struct is_array<T[N]> : public integral_constant<bool,(true)> {};
+template<class T> struct is_function : public integral_constant<bool,(!is_const<const T>::value && !is_reference<T>::value)> {};
 template<class T> struct __minic_integral { static constexpr bool value=false; };
 template<> struct __minic_integral<bool> { static constexpr bool value=true; };
 template<> struct __minic_integral<char> { static constexpr bool value=true; };
@@ -162,39 +64,11 @@ template<> struct __minic_integral<long> { static constexpr bool value=true; };
 template<> struct __minic_integral<unsigned long> { static constexpr bool value=true; };
 template<> struct __minic_integral<long long> { static constexpr bool value=true; };
 template<> struct __minic_integral<unsigned long long> { static constexpr bool value=true; };
-template<class T> struct is_integral {
-    static constexpr bool value = __minic_integral<typename remove_cv<T>::type>::value;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_integral<T>::value;
-template<class T,class... A> struct is_constructible {
-    static constexpr bool value = __is_constructible(T,A...);
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T,class... A> constexpr bool is_constructible<T,A...>::value;
-template<class T,class U> struct is_assignable {
-    static constexpr bool value = __is_assignable(T,U);
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T,class U> constexpr bool is_assignable<T,U>::value;
+template<class T> struct is_integral : public integral_constant<bool,(__minic_integral<typename remove_cv<T>::type>::value)> {};
+template<class T,class... A> struct is_constructible : public integral_constant<bool,(__is_constructible(T,A...))> {};
+template<class T,class U> struct is_assignable : public integral_constant<bool,(__is_assignable(T,U))> {};
 #ifdef __MINIC__
-template<class From,class To> struct is_convertible {
-    static constexpr bool value = __is_convertible(From,To);
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class From,class To> constexpr bool is_convertible<From,To>::value;
+template<class From,class To> struct is_convertible : public integral_constant<bool,(__is_convertible(From,To))> {};
 #else
 // The reference compiler need not implement MiniC's intrinsic spelling.
 // Form a real implicit function-argument conversion and a valid return type.
@@ -203,60 +77,51 @@ template<class From,class To,class Returnable=decltype(static_cast<To(*)()>(null
          class Convertible=decltype(__minic_implicit_argument<To>(std::declval<From>()))>
 true_type __minic_conversion_probe(int);
 template<class From,class To> false_type __minic_conversion_probe(...);
-template<class From,class To> struct is_convertible {
-    static constexpr bool value = is_void<From>::value && is_void<To>::value || decltype(__minic_conversion_probe<From,To>(0))::value;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class From,class To> constexpr bool is_convertible<From,To>::value;
+template<class From,class To> struct is_convertible : public integral_constant<bool,(is_void<From>::value && is_void<To>::value || decltype(__minic_conversion_probe<From,To>(0))::value)> {};
 #endif
-template<class T> struct is_default_constructible {
-    static constexpr bool value = is_constructible<T>::value;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_default_constructible<T>::value;
-template<class T> struct is_copy_constructible {
-    static constexpr bool value = is_constructible<T,typename add_lvalue_reference<typename add_const<T>::type>::type>::value;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_copy_constructible<T>::value;
-template<class T> struct is_move_constructible {
-    static constexpr bool value = is_constructible<T,typename add_rvalue_reference<T>::type>::value;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_move_constructible<T>::value;
-template<class T> struct is_copy_assignable {
-    static constexpr bool value = is_assignable<typename add_lvalue_reference<T>::type,typename add_lvalue_reference<typename add_const<T>::type>::type>::value;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_copy_assignable<T>::value;
-template<class T> struct is_move_assignable {
-    static constexpr bool value = is_assignable<typename add_lvalue_reference<T>::type,typename add_rvalue_reference<T>::type>::value;
-    typedef bool value_type;
-    typedef integral_constant<bool,value> type;
-    constexpr operator bool() const noexcept { return value; }
-    constexpr bool operator()() const noexcept { return value; }
-};
-template<class T> constexpr bool is_move_assignable<T>::value;
+template<class T> struct is_default_constructible : public integral_constant<bool,(is_constructible<T>::value)> {};
+template<class T> struct is_copy_constructible : public integral_constant<bool,(is_constructible<T,typename add_lvalue_reference<typename add_const<T>::type>::type>::value)> {};
+template<class T> struct is_move_constructible : public integral_constant<bool,(is_constructible<T,typename add_rvalue_reference<T>::type>::value)> {};
+template<class T> struct is_copy_assignable : public integral_constant<bool,(is_assignable<typename add_lvalue_reference<T>::type,typename add_lvalue_reference<typename add_const<T>::type>::type>::value)> {};
+template<class T> struct is_move_assignable : public integral_constant<bool,(is_assignable<typename add_lvalue_reference<T>::type,typename add_rvalue_reference<T>::type>::value)> {};
 template<class T,bool Array=is_array<T>::value,bool Function=is_function<T>::value> struct __minic_decay {
     typedef typename remove_cv<T>::type type;
 };
 template<class T> struct __minic_decay<T,true,false> { typedef typename remove_extent<T>::type* type; };
 template<class T> struct __minic_decay<T,false,true> { typedef typename add_pointer<T>::type type; };
 template<class T> struct decay { typedef typename __minic_decay<typename remove_reference<T>::type>::type type; };
+// A failed operation is rejected before its noexcept operand is instantiated.
+template<bool Valid,class T,class... A> struct __minic_nothrow_construct { static constexpr bool value=false; };
+template<class T,class... A> struct __minic_nothrow_construct<true,T,A...> { static constexpr bool value=noexcept(T(std::declval<A>()...)); };
+template<class T,unsigned long long N> struct __minic_nothrow_construct<true,T[N]> { static constexpr bool value=__minic_nothrow_construct<is_constructible<T>::value,T>::value; };
+template<bool Valid,class T,class U> struct __minic_nothrow_assign { static constexpr bool value=false; };
+template<class T,class U> struct __minic_nothrow_assign<true,T,U> { static constexpr bool value=noexcept(std::declval<T>()=std::declval<U>()); };
+template<class T,class... A> struct is_nothrow_constructible : public integral_constant<bool,(__minic_nothrow_construct<is_constructible<T,A...>::value,T,A...>::value)> {};
+template<class T,class U> struct is_nothrow_assignable : public integral_constant<bool,(__minic_nothrow_assign<is_assignable<T,U>::value,T,U>::value)> {};
+template<class T> struct is_nothrow_default_constructible : public integral_constant<bool,(is_nothrow_constructible<T>::value)> {};
+template<class T> struct is_nothrow_copy_constructible : public integral_constant<bool,(is_nothrow_constructible<T,typename add_lvalue_reference<typename add_const<T>::type>::type>::value)> {};
+template<class T> struct is_nothrow_move_constructible : public integral_constant<bool,(is_nothrow_constructible<T,typename add_rvalue_reference<T>::type>::value)> {};
+template<class T> struct is_nothrow_copy_assignable : public integral_constant<bool,(is_nothrow_assignable<typename add_lvalue_reference<T>::type,typename add_lvalue_reference<typename add_const<T>::type>::type>::value)> {};
+template<class T> struct is_nothrow_move_assignable : public integral_constant<bool,(is_nothrow_assignable<typename add_lvalue_reference<T>::type,typename add_rvalue_reference<T>::type>::value)> {};
+
+// The standard swap candidates participate even when only <type_traits> is included.
+template<class T> struct is_swappable;
+template<class T> struct is_nothrow_swappable;
+template<class T> typename enable_if<is_move_constructible<T>::value && is_move_assignable<T>::value>::type
+swap(T& a,T& b) noexcept(is_nothrow_move_constructible<T>::value && is_nothrow_move_assignable<T>::value);
+template<class T,unsigned long long N> typename enable_if<is_swappable<T>::value>::type
+swap(T (&a)[N],T (&b)[N]) noexcept(is_nothrow_swappable<T>::value);
+template<class T,class U,class Forward=decltype(swap(std::declval<T>(),std::declval<U>())),
+         class Backward=decltype(swap(std::declval<U>(),std::declval<T>()))> true_type __minic_swap_probe(int);
+template<class T,class U> false_type __minic_swap_probe(...);
+template<bool Valid,class T,class U> struct __minic_nothrow_swap { static constexpr bool value=false; };
+template<class T,class U> struct __minic_nothrow_swap<true,T,U> {
+    static constexpr bool value=noexcept(swap(std::declval<T>(),std::declval<U>())) && noexcept(swap(std::declval<U>(),std::declval<T>()));
+};
+template<class T,class U> struct is_swappable_with : public integral_constant<bool,(decltype(__minic_swap_probe<T,U>(0))::value)> {};
+template<class T,class U> struct is_nothrow_swappable_with : public integral_constant<bool,(__minic_nothrow_swap<is_swappable_with<T,U>::value,T,U>::value)> {};
+template<class T> struct is_swappable : public integral_constant<bool,(is_swappable_with<typename add_lvalue_reference<T>::type,typename add_lvalue_reference<T>::type>::value)> {};
+template<class T> struct is_nothrow_swappable : public integral_constant<bool,(is_nothrow_swappable_with<typename add_lvalue_reference<T>::type,typename add_lvalue_reference<T>::type>::value)> {};
+
 }
 #endif

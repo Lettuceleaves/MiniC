@@ -164,11 +164,11 @@ public:
     __minic_tree(__minic_tree&& other):header_(),size_(0),compare_(std::move(other.compare_)){reset();take(other);}
     ~__minic_tree(){clear();}
     __minic_tree& operator=(const __minic_tree& other){if(this!=&other){__minic_tree tmp(other);swap(tmp);}return *this;}
-    __minic_tree& operator=(__minic_tree&& other){if(this!=&other){clear();compare_=std::move(other.compare_);take(other);}return *this;}
-    iterator begin(){return iterator(header_.left);} const_iterator begin() const{return const_iterator(header_.left);}
-    iterator end(){return iterator(&header_);} const_iterator end() const{return const_iterator((__minic_rb_node*)&header_);}
-    bool empty() const{return size_==0;} size_t size() const{return size_;}
-    size_t max_size() const{return 0x7fffffffffffffffULL/(std::__minic_rb_offset<Value>()+sizeof(Value));}
+    __minic_tree& operator=(__minic_tree&& other) noexcept(is_nothrow_move_assignable<Compare>::value) {if(this!=&other){clear();compare_=std::move(other.compare_);take(other);}return *this;}
+    iterator begin() noexcept {return iterator(header_.left);} const_iterator begin() const noexcept {return const_iterator(header_.left);}
+    iterator end() noexcept {return iterator(&header_);} const_iterator end() const noexcept {return const_iterator((__minic_rb_node*)&header_);}
+    bool empty() const noexcept {return size_==0;} size_t size() const noexcept {return size_;}
+    size_t max_size() const noexcept {return 0x7fffffffffffffffULL/(std::__minic_rb_offset<Value>()+sizeof(Value));}
     Compare key_comp() const{return compare_;}
 private:
     pair<iterator,bool> attach(__minic_rb_node* n,__minic_rb_node* p,bool left){
@@ -262,8 +262,8 @@ public:
     }
     iterator erase(const_iterator first,const_iterator last){while(first!=last)first=erase(first);return iterator(last.node);}
     size_t erase(const Key& k){size_t old=size_;erase(lower_bound(k),upper_bound(k));return old-size_;}
-    void clear(){destroy_subtree(header_.parent);reset();}
-    void swap(__minic_tree& other){
+    void clear() noexcept {destroy_subtree(header_.parent);reset();}
+    void swap(__minic_tree& other) noexcept(is_nothrow_swappable<Compare>::value) {
         if(this==&other)return;
         using std::swap;swap(compare_,other.compare_);swap(size_,other.size_);
         swap(header_.parent,other.header_.parent);swap(header_.left,other.header_.left);swap(header_.right,other.header_.right);

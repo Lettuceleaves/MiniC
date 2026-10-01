@@ -10,11 +10,11 @@ template<unsigned long long N> class __minic_bitset_reference {
     unsigned long long mask_;
 public:
     __minic_bitset_reference(unsigned long long* word,unsigned long long mask):word_(word),mask_(mask) {}
-    operator bool() const { return (*word_&mask_)!=0; }
-    bool operator~() const { return (*word_&mask_)==0; }
-    __minic_bitset_reference& operator=(bool value) { if(value)*word_|=mask_;else *word_&=~mask_;return *this; }
-    __minic_bitset_reference& operator=(const __minic_bitset_reference& value) { return *this=(bool)value; }
-    __minic_bitset_reference& flip() { *word_^=mask_;return *this; }
+    operator bool() const noexcept { return (*word_&mask_)!=0; }
+    bool operator~() const noexcept { return (*word_&mask_)==0; }
+    __minic_bitset_reference& operator=(bool value) noexcept { if(value)*word_|=mask_;else *word_&=~mask_;return *this; }
+    __minic_bitset_reference& operator=(const __minic_bitset_reference& value) noexcept { return *this=(bool)value; }
+    __minic_bitset_reference& flip() noexcept { *word_^=mask_;return *this; }
 };
 template<unsigned long long N> class bitset {
     unsigned long long words_[(N+63)/64?(N+63)/64:1];
@@ -50,42 +50,42 @@ public:
     reference operator[](unsigned long long index) { return reference(words_+index/64,1ULL<<(index%64)); }
     constexpr bool operator[](unsigned long long index) const { return (words_[index/64]&(1ULL<<(index%64)))!=0; }
     bool test(unsigned long long index) const { if(index>=N)::abort();return (*this)[index]; }
-    bitset& set() { for(unsigned long long i=0;i<word_count();++i)words_[i]=~0ULL;trim();return *this; }
+    bitset& set() noexcept { for(unsigned long long i=0;i<word_count();++i)words_[i]=~0ULL;trim();return *this; }
     bitset& set(unsigned long long index) { return set(index,true); }
     bitset& set(unsigned long long index,bool value) { if(index>=N)::abort();if(value)words_[index/64]|=1ULL<<(index%64);else words_[index/64]&=~(1ULL<<(index%64));return *this; }
-    bitset& reset() { for(unsigned long long i=0;i<word_count();++i)words_[i]=0;if(N==0)words_[0]=0;return *this; }
+    bitset& reset() noexcept { for(unsigned long long i=0;i<word_count();++i)words_[i]=0;if(N==0)words_[0]=0;return *this; }
     bitset& reset(unsigned long long index) { return set(index,false); }
-    bitset& flip() { for(unsigned long long i=0;i<word_count();++i)words_[i]=~words_[i];trim();return *this; }
+    bitset& flip() noexcept { for(unsigned long long i=0;i<word_count();++i)words_[i]=~words_[i];trim();return *this; }
     bitset& flip(unsigned long long index) { if(index>=N)::abort();words_[index/64]^=1ULL<<(index%64);return *this; }
-    bitset operator~() const { bitset result=*this;result.flip();return result; }
-    bitset& operator&=(const bitset& other) { for(unsigned long long i=0;i<word_count();++i)words_[i]&=other.words_[i];return *this; }
-    bitset& operator|=(const bitset& other) { for(unsigned long long i=0;i<word_count();++i)words_[i]|=other.words_[i];return *this; }
-    bitset& operator^=(const bitset& other) { for(unsigned long long i=0;i<word_count();++i)words_[i]^=other.words_[i];return *this; }
-    bitset& operator<<=(unsigned long long distance) {
+    bitset operator~() const noexcept { bitset result=*this;result.flip();return result; }
+    bitset& operator&=(const bitset& other) noexcept { for(unsigned long long i=0;i<word_count();++i)words_[i]&=other.words_[i];return *this; }
+    bitset& operator|=(const bitset& other) noexcept { for(unsigned long long i=0;i<word_count();++i)words_[i]|=other.words_[i];return *this; }
+    bitset& operator^=(const bitset& other) noexcept { for(unsigned long long i=0;i<word_count();++i)words_[i]^=other.words_[i];return *this; }
+    bitset& operator<<=(unsigned long long distance) noexcept {
         if(distance>=N)return reset();unsigned long long blocks=distance/64,bits=distance%64;
         for(unsigned long long i=word_count();i>0;){--i;unsigned long long value=0;if(i>=blocks){value=words_[i-blocks]<<bits;if(bits && i>blocks)value|=words_[i-blocks-1]>>(64-bits);}words_[i]=value;}trim();return *this;
     }
-    bitset& operator>>=(unsigned long long distance) {
+    bitset& operator>>=(unsigned long long distance) noexcept {
         if(distance>=N)return reset();unsigned long long blocks=distance/64,bits=distance%64;
         for(unsigned long long i=0;i<word_count();++i){unsigned long long value=0;if(i+blocks<word_count()){value=words_[i+blocks]>>bits;if(bits && i+blocks+1<word_count())value|=words_[i+blocks+1]<<(64-bits);}words_[i]=value;}trim();return *this;
     }
-    bitset operator<<(unsigned long long distance) const { bitset result=*this;result<<=distance;return result; }
-    bitset operator>>(unsigned long long distance) const { bitset result=*this;result>>=distance;return result; }
-    bool operator==(const bitset& other) const { for(unsigned long long i=0;i<word_count();++i)if(words_[i]!=other.words_[i])return false;return true; }
-    bool operator!=(const bitset& other) const { return !(*this==other); }
-    unsigned long long count() const { unsigned long long count=0;for(unsigned long long i=0;i<word_count();++i){unsigned long long value=words_[i];while(value){value&=value-1;++count;}}return count; }
-    bool any() const { for(unsigned long long i=0;i<word_count();++i)if(words_[i])return true;return false; }
-    bool none() const { return !any(); }
-    bool all() const { return count()==N; }
+    bitset operator<<(unsigned long long distance) const noexcept { bitset result=*this;result<<=distance;return result; }
+    bitset operator>>(unsigned long long distance) const noexcept { bitset result=*this;result>>=distance;return result; }
+    bool operator==(const bitset& other) const noexcept { for(unsigned long long i=0;i<word_count();++i)if(words_[i]!=other.words_[i])return false;return true; }
+    bool operator!=(const bitset& other) const noexcept { return !(*this==other); }
+    unsigned long long count() const noexcept { unsigned long long count=0;for(unsigned long long i=0;i<word_count();++i){unsigned long long value=words_[i];while(value){value&=value-1;++count;}}return count; }
+    bool any() const noexcept { for(unsigned long long i=0;i<word_count();++i)if(words_[i])return true;return false; }
+    bool none() const noexcept { return !any(); }
+    bool all() const noexcept { return count()==N; }
     unsigned long long to_ullong() const { for(unsigned long long i=1;i<word_count();++i)if(words_[i])::abort();return N?words_[0]:0; }
     unsigned long to_ulong() const { unsigned long long value=to_ullong();if(value>0xffffffffULL)::abort();return (unsigned long)value; }
     string to_string() const { return to_string('0','1'); }
     string to_string(char zero) const { return to_string(zero,'1'); }
     string to_string(char zero,char one) const { string result(N,zero);for(unsigned long long i=0;i<N;++i)if((*this)[i])result[N-1-i]=one;return result; }
 };
-template<unsigned long long N> bitset<N> operator&(bitset<N> a,const bitset<N>& b) { a&=b;return a; }
-template<unsigned long long N> bitset<N> operator|(bitset<N> a,const bitset<N>& b) { a|=b;return a; }
-template<unsigned long long N> bitset<N> operator^(bitset<N> a,const bitset<N>& b) { a^=b;return a; }
+template<unsigned long long N> bitset<N> operator&(const bitset<N>& a,const bitset<N>& b) noexcept { bitset<N> result=a;result&=b;return result; }
+template<unsigned long long N> bitset<N> operator|(const bitset<N>& a,const bitset<N>& b) noexcept { bitset<N> result=a;result|=b;return result; }
+template<unsigned long long N> bitset<N> operator^(const bitset<N>& a,const bitset<N>& b) noexcept { bitset<N> result=a;result^=b;return result; }
 template<unsigned long long N> ostream& operator<<(ostream& stream,const bitset<N>& value) { return stream<<value.to_string(); }
 template<unsigned long long N> istream& operator>>(istream& stream,bitset<N>& value) {
     string digits;if(stream.__bitset_token(digits,N))value=bitset<N>(digits);return stream;

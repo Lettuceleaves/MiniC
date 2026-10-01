@@ -41,7 +41,17 @@ final class CppLibrarySourcesTest {
         Arguments.of("library-contract/iterator-contract.cpp",""),
         Arguments.of("library-contract/pair-trait-contract.cpp",""),
         Arguments.of("library-contract/predicate-return-contract.cpp",""),
-        Arguments.of("library-contract/priority-queue-move-range.cpp","")
+        Arguments.of("library-contract/priority-queue-move-range.cpp",""),
+        Arguments.of("library-noexcept/associative-adaptor-contract.cpp",""),
+        Arguments.of("library-noexcept/bit-proxy-contract.cpp",""),
+        Arguments.of("library-noexcept/iterator-contract.cpp",""),
+        Arguments.of("library-noexcept/move-if-noexcept.cpp",""),
+        Arguments.of("library-noexcept/pair-and-array-swap.cpp",""),
+        Arguments.of("library-noexcept/placement-contract.cpp",""),
+        Arguments.of("library-noexcept/sequence-contract.cpp",""),
+        Arguments.of("library-noexcept/trait-base-contract.cpp",""),
+        Arguments.of("library-noexcept/type-traits-only.cpp",""),
+        Arguments.of("library-noexcept/vector-relocation.cpp","")
     );}
     @ParameterizedTest(name="{0}") @MethodSource("programs")
     void libraryProgramsAgree(String name,String input)throws Exception{

@@ -144,25 +144,25 @@ public:
     }
     ~deque() { clear();std::__minic_deallocate(map_); }
     deque& operator=(const deque& other) { if(this!=&other){deque copy(other);swap(copy);}return *this; }
-    deque& operator=(deque&& other) {
+    deque& operator=(deque&& other) noexcept {
         if(this!=&other){clear();std::__minic_deallocate(map_);map_=other.map_;map_capacity_=other.map_capacity_;first_=other.first_;offset_=other.offset_;size_=other.size_;other.map_=nullptr;other.map_capacity_=0;other.first_=0;other.offset_=block_size()/2;other.size_=0;}return *this;
     }
     deque& operator=(initializer_list<T> values) { assign(values);return *this; }
-    iterator begin() { return iterator(map_?map_+first_:nullptr,(difference_type)offset_); }
-    const_iterator begin() const { return const_iterator(map_?map_+first_:nullptr,(difference_type)offset_); }
-    const_iterator cbegin() const { return begin(); }
-    iterator end() { return begin()+(difference_type)size_; }
-    const_iterator end() const { return begin()+(difference_type)size_; }
-    const_iterator cend() const { return end(); }
-    reverse_iterator rbegin() { return reverse_iterator(end()); }
-    const_reverse_iterator rbegin() const { return const_reverse_iterator(end()); }
-    const_reverse_iterator crbegin() const { return const_reverse_iterator(cend()); }
-    reverse_iterator rend() { return reverse_iterator(begin()); }
-    const_reverse_iterator rend() const { return const_reverse_iterator(begin()); }
-    const_reverse_iterator crend() const { return const_reverse_iterator(cbegin()); }
-    bool empty() const { return size_==0; }
-    size_type size() const { return size_; }
-    size_type max_size() const { return 0x3fffffffffffffffULL/sizeof(T); }
+    iterator begin() noexcept { return iterator(map_?map_+first_:nullptr,(difference_type)offset_); }
+    const_iterator begin() const noexcept { return const_iterator(map_?map_+first_:nullptr,(difference_type)offset_); }
+    const_iterator cbegin() const noexcept { return begin(); }
+    iterator end() noexcept { return begin()+(difference_type)size_; }
+    const_iterator end() const noexcept { return begin()+(difference_type)size_; }
+    const_iterator cend() const noexcept { return end(); }
+    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    const_reverse_iterator crbegin() const noexcept { return const_reverse_iterator(cend()); }
+    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+    const_reverse_iterator crend() const noexcept { return const_reverse_iterator(cbegin()); }
+    bool empty() const noexcept { return size_==0; }
+    size_type size() const noexcept { return size_; }
+    size_type max_size() const noexcept { return 0x3fffffffffffffffULL/sizeof(T); }
     reference operator[](size_type index) { return *slot(index); }
     const_reference operator[](size_type index) const { return *slot(index); }
     reference at(size_type index) { if(index>=size_)::abort();return *slot(index); }
@@ -188,7 +188,7 @@ public:
         if(size_==0){release_last_block();return;}
         if(offset_==block_size()){std::__minic_deallocate(map_[first_]);map_[first_]=nullptr;++first_;offset_=0;}
     }
-    void clear() { while(size_>0)pop_back(); }
+    void clear() noexcept { while(size_>0)pop_back(); }
     void shrink_to_fit() { if(size_==0){std::__minic_deallocate(map_);map_=nullptr;map_capacity_=0;first_=0;offset_=block_size()/2;}else replace_map(active_blocks()+2,0,0); }
     void resize(size_type n) { if(n>max_size())::abort();while(size_>n)pop_back();while(size_<n)emplace_back(); }
     void resize(size_type n,const T& value) { if(n>max_size())::abort();if(n>size_){T saved=value;while(size_<n)push_back(saved);}else while(size_>n)pop_back(); }
@@ -219,9 +219,9 @@ public:
     template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
     void assign(I first,I last) { deque saved(first,last);swap(saved); }
     void assign(initializer_list<T> values) { assign(values.begin(),values.end()); }
-    void swap(deque& other) { std::swap(map_,other.map_);std::swap(map_capacity_,other.map_capacity_);std::swap(first_,other.first_);std::swap(offset_,other.offset_);std::swap(size_,other.size_); }
+    void swap(deque& other) noexcept { std::swap(map_,other.map_);std::swap(map_capacity_,other.map_capacity_);std::swap(first_,other.first_);std::swap(offset_,other.offset_);std::swap(size_,other.size_); }
 };
-template<class T> void swap(deque<T>& a,deque<T>& b) { a.swap(b); }
+template<class T> void swap(deque<T>& a,deque<T>& b) noexcept(noexcept(a.swap(b))) { a.swap(b); }
 template<class T> bool operator==(const deque<T>& a,const deque<T>& b) { if(a.size()!=b.size())return false;for(unsigned long long i=0;i<a.size();++i)if(!(a[i]==b[i]))return false;return true; }
 template<class T> bool operator!=(const deque<T>& a,const deque<T>& b) { return !(a==b); }
 template<class T> bool operator<(const deque<T>& a,const deque<T>& b) { unsigned long long n=a.size()<b.size()?a.size():b.size();for(unsigned long long i=0;i<n;++i){if(a[i]<b[i])return true;if(b[i]<a[i])return false;}return a.size()<b.size(); }

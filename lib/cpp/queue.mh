@@ -26,7 +26,7 @@ public:
     void push(T&& value) { c.push_back(std::move(value)); }
     template<class... A> reference emplace(A&&... args) { return c.emplace_back(std::forward<A>(args)...); }
     void pop() { c.pop_front(); }
-    void swap(queue& other) { using std::swap;swap(c,other.c); }
+    void swap(queue& other) noexcept(is_nothrow_swappable<Container>::value) { using std::swap;swap(c,other.c); }
     bool operator==(const queue& other) const { return c==other.c; }
     bool operator!=(const queue& other) const { return !(c==other.c); }
     bool operator<(const queue& other) const { return c<other.c; }
@@ -34,7 +34,7 @@ public:
     bool operator<=(const queue& other) const { return !(other.c<c); }
     bool operator>=(const queue& other) const { return !(c<other.c); }
 };
-template<class T,class C> void swap(queue<T,C>& a,queue<T,C>& b) { a.swap(b); }
+template<class T,class C> typename enable_if<is_swappable<C>::value>::type swap(queue<T,C>& a,queue<T,C>& b) noexcept(noexcept(a.swap(b))) { a.swap(b); }
 template<class T,class Container=vector<T>,class Compare=less<typename Container::value_type>> class priority_queue {
 protected:
     Container c;
@@ -61,8 +61,8 @@ public:
     void push(T&& value) { c.push_back(std::move(value));std::push_heap(c.begin(),c.end(),comp); }
     template<class... A> void emplace(A&&... args) { c.emplace_back(std::forward<A>(args)...);std::push_heap(c.begin(),c.end(),comp); }
     void pop() { std::pop_heap(c.begin(),c.end(),comp);c.pop_back(); }
-    void swap(priority_queue& other) { using std::swap;swap(c,other.c);swap(comp,other.comp); }
+    void swap(priority_queue& other) noexcept(is_nothrow_swappable<Container>::value && is_nothrow_swappable<Compare>::value) { using std::swap;swap(c,other.c);swap(comp,other.comp); }
 };
-template<class T,class C,class P> void swap(priority_queue<T,C,P>& a,priority_queue<T,C,P>& b) { a.swap(b); }
+template<class T,class C,class P> typename enable_if<is_swappable<C>::value && is_swappable<P>::value>::type swap(priority_queue<T,C,P>& a,priority_queue<T,C,P>& b) noexcept(noexcept(a.swap(b))) { a.swap(b); }
 }
 #endif
