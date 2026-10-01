@@ -6065,6 +6065,12 @@ public final class CppNameBinder {
             }
             if (object != null || target.isArray()) {
                 if (syntax.kind() == CppInitializer.Kind.DIRECT_PAREN) {
+                    // Empty parentheses value-initialize an aggregate (including member arrays)
+                    // in C++17; only a nonempty aggregate argument list needs C++20 rules.
+                    if (arguments.isEmpty()) {
+                        Expression empty = new AggregateInitExpr(List.of(), syntax.range());
+                        return initializerMapping(syntax, initializer(target, empty, namespace, local, range));
+                    }
                     if (object != null && arguments.size() == 1) {
                         Expression value = expression(arguments.getFirst(), namespace, local);
                         MiniType actual = declaredExpressionType(value);
