@@ -115,6 +115,40 @@ final class CppMaterializationTest {
         assertEquals(3, execute(ir));
     }
 
+    @Test void bracedScalarMaterializationUsesItsExplicitTargetType() {
+        var temporary=materialize(constant(MiniType.SHORT),new AggregateInitExpr(List.of(integer(7)),RANGE));
+        assertEquals(7,execute(lower(program(List.of(new ReturnStmt(new UnaryExpr(TokenType.STAR,temporary,RANGE),RANGE))))));
+    }
+
+    @Test void bracedArrayMaterializationInitializesElementsAndZeroFillsOnlyTheRemainder() {
+        var type=constant(MiniType.INT).arrayOf(3);
+        var temporary=materialize(type,new AggregateInitExpr(List.of(integer(4),integer(6)),RANGE));
+        var array=new UnaryExpr(TokenType.STAR,name("pointer"),RANGE);
+        var first=new IndexExpr(array,integer(0),RANGE);
+        var second=new IndexExpr(array,integer(1),RANGE);
+        var last=new IndexExpr(array,integer(2),RANGE);
+        var total=new BinaryExpr(new BinaryExpr(first,TokenType.PLUS,second,RANGE),TokenType.PLUS,last,RANGE);
+        var ir=lower(program(List.of(new VarDeclStmt("pointer",type.pointerTo(),temporary,RANGE),new ReturnStmt(total,RANGE))));
+        assertEquals(10,execute(ir));
+        assertEquals(2,declarations(ir));
+    }
+
+    @Test void transparentGroupingPreservesFirstInitializationTarget() {
+        var type=MiniType.struct("Pair");
+        var record=new StructDecl("Pair",List.of(new StructField("first",MiniType.INT,RANGE),new StructField("last",MiniType.INT,RANGE)),RANGE);
+        var temporary=materialize(type,new GroupingExpr(new AggregateInitExpr(List.of(integer(9)),RANGE),RANGE));
+        var body=List.<Statement>of(new VarDeclStmt("pointer",type.pointerTo(),temporary,RANGE),
+                new ReturnStmt(new BinaryExpr(new FieldAccessExpr(name("pointer"),"first",true,RANGE),TokenType.PLUS,
+                        new FieldAccessExpr(name("pointer"),"last",true,RANGE),RANGE),RANGE));
+        assertEquals(9,execute(lower(new Program(List.of(record),List.of(main(body)),RANGE))));
+    }
+
+    @Test void excessBracedMaterializationElementsRemainErrors() {
+        var temporary=materialize(MiniType.INT.arrayOf(1),new AggregateInitExpr(List.of(integer(1),integer(2)),RANGE));
+        var semantic=new SemanticAnalyzer(program(List.of(new ExprStmt(temporary,RANGE),new ReturnStmt(integer(0),RANGE))));
+        semantic.analyze();assertFalse(semantic.succeeded());
+    }
+
     @Test void materializedConstStorageCannotBeModifiedAndInvalidConversionsAreRejected() {
         var type = constant(MiniType.INT);
         var program = program(List.of(new VarDeclStmt("pointer", type.pointerTo(), materialize(type, integer(3)), RANGE),

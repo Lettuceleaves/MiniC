@@ -125,26 +125,11 @@ final class ExpressionLowerer {
             return address;
         }
         if (expression instanceof Expression.MaterializeExpr temporary) {
-            if (Expression.ObjectInitExpr.occursInResultOf(temporary.initializer())) {
-                IrLocal object = builder.declareAnonymousLocal(temporary.type(), temporary.range());
-                builder.addInstruction(new IrDeclareLocalInstruction(object, temporary.range()));
-                IrTemporary address = builder.newTemporary(IrType.POINTER);
-                builder.addInstruction(new IrAddressOfLocalInstruction(address, object, temporary.range()));
-                initializeObjectAt(temporary.initializer(), address);
-                return address;
-            }
-            IrValue value = lowerExpression(temporary.initializer());
             IrLocal object = builder.declareAnonymousLocal(temporary.type(), temporary.range());
             builder.addInstruction(new IrDeclareLocalInstruction(object, temporary.range()));
             IrTemporary address = builder.newTemporary(IrType.POINTER);
             builder.addInstruction(new IrAddressOfLocalInstruction(address, object, temporary.range()));
-            if (temporary.type().isStruct()) {
-                builder.addInstruction(new IrMemCopyInstruction(address, value, builder.sizeOf(temporary.type()),
-                        temporary.type().isVolatileQualified(), temporary.range()));
-            } else {
-                builder.addInstruction(new IrStoreLocalInstruction(object,
-                        castIfNeeded(value, object.type(), temporary.range()), temporary.type().isVolatileQualified(), temporary.range()));
-            }
+            initializeAt(address, temporary.type(), temporary.initializer(), temporary.range());
             return address;
         }
         if (expression instanceof Expression.LetExpr capture) {
@@ -651,6 +636,10 @@ final class ExpressionLowerer {
 
     /** Initialize existing storage, keeping the destination capture private to this expression. */
     void initializeAt(IrValue address, MiniType type, Expression value, minic.SourceRange range) {
+        if (value instanceof GroupingExpr group) {
+            initializeAt(address, type, group.expression(), range);
+            return;
+        }
         if (value instanceof Expression.AggregateInitExpr aggregate) {
             if (aggregate.values().isEmpty()) ObjectZeroInitializer.emit(builder, address, type, range, true);
             else ObjectAggregateInitializer.emit(builder, this, address, type, aggregate, range);

@@ -196,14 +196,13 @@ final class ExpressionSemanticAnalyzer {
 
     private MiniType analyzeMaterialization(Expression.MaterializeExpr temporary, Scope scope) {
         MiniType type = temporary.type();
-        MiniType value = analyzeExpression(temporary.initializer(), scope);
         if ((!type.isScalar() && !type.isPointer() && !type.isStruct() && !type.isArray())
                 || (!TypeLayout.hasFixedLayout(type) && !hasStructLayout(type))) {
-            report(temporary.range(), "临时对象需要完整的标量、指针或记录类型");
-        } else if (!isArrayConstruction(type, value, temporary.initializer())
-                && !TypeCompatibility.isAssignmentCompatible(type, value, temporary.initializer())) {
-            report(temporary.range(), "临时对象初始化类型不兼容");
+            report(temporary.range(), "临时对象需要完整的标量、指针、记录或数组类型");
         }
+        // The temporary is newly created storage. Its explicit type supplies the
+        // initializer-list target, just as InitializeExpr does for a subobject.
+        analyzeFirstInitialization(temporary.initializer(), type, scope);
         return type.pointerTo();
     }
 
@@ -219,6 +218,11 @@ final class ExpressionSemanticAnalyzer {
     }
 
     private void analyzeFirstInitialization(Expression value, MiniType target, Scope scope) {
+        if (value instanceof GroupingExpr group) {
+            analyzeFirstInitialization(group.expression(), target, scope);
+            expressionTypes.put(group, expressionTypes.get(group.expression()));
+            return;
+        }
         if (!(value instanceof AggregateInitExpr aggregate)) {
             MiniType actual = analyzeExpression(value, scope);
             if (!isArrayConstruction(target, actual, value)

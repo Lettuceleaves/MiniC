@@ -123,8 +123,8 @@ final class CppInitializerListExecutionTest {
         Arguments.of("const-array-reference-from-braces", """
             int main(){const int(&values)[3]={1,2};printf("%d %d %d\\n",values[0],values[1],values[2]);return 0;}
             """, "1 2 0\n"),
-        Arguments.of("empty-list-of-incomplete-type", """
-            struct Item;int main(){std::initializer_list<Item> xs{};printf("%llu\\n",xs.size());return 0;}
+        Arguments.of("default-list-of-incomplete-type", """
+            struct Item;int main(){std::initializer_list<Item> xs=std::initializer_list<Item>();printf("%llu\\n",xs.size());return 0;}
             """, "0\n"),
         Arguments.of("other-namespace-name-is-ordinary-class", """
             namespace other{template<class T>struct initializer_list{T value;initializer_list(T n):value(n){}};}
@@ -149,6 +149,31 @@ final class CppInitializerListExecutionTest {
     void preservesRequiredLanguageErrors(String name,String source)throws Exception {
         reject(temporary,name,HEADERS+source);
     }
+    @Test void emptyBracesOfIncompleteElementUseValueInitializationBeforeListBackingRules() throws Exception {
+        // N4659 [dcl.init.list]/3.4 precedes 3.5: an empty list uses the
+        // default constructor. G++ 8 incorrectly tries to form const Item[0]
+        // for this spelling, so keep the normative {} test independent of that
+        // oracle; the equivalent () spelling remains a three-backend case.
+        String source=HEADERS+"struct Item;int main(){std::initializer_list<Item> xs{};printf(\"%llu\\n\",xs.size());return 0;}";
+        var ir=compiler(source).runToIr();
+        var file=new minic.compiler.SourceFile("empty-incomplete-list.cpp",source);
+        var debug=minic.debug.DebugApi.fromIr(file,ir,"");
+        for(int steps=0;debug.canNext()&&steps<2000;steps++)debug.next();
+        assertFalse(debug.canNext());
+        assertEquals(minic.debug.Debugger.Status.COMPLETED,debug.current().stop().status(),debug.current().stop()::error);
+        assertEquals("0\n",debug.current().runtime().stdout().replace("\r\n","\n"));
+        var assembler=new minic.compiler.asm.Assembler(ir);
+        var object=new minic.compiler.obj.ObjBuilder(file,assembler,temporary,"empty-list");
+        var linker=new minic.compiler.link.Linker(file,object,temporary,"empty-list");
+        new minic.compiler.CompilerApi(java.util.List.of(assembler,object,linker)).runThrough(linker);
+        assertTrue(linker.succeeded(),()->linker.errors().toString());
+        var nativeResult=minic.cpp.support.BoundedProcess.run(java.util.List.of(temporary.resolve("empty-list.exe").toString()),
+                temporary,"",java.time.Duration.ofSeconds(10),65536);
+        assertFalse(nativeResult.timedOut());assertFalse(nativeResult.outputExceeded());
+        assertEquals(0,nativeResult.exitCode(),nativeResult::stderr);
+        assertEquals("0\n",nativeResult.stdout().replace("\r\n","\n"));
+    }
+
     @Test void backingStorageIsConstScopedAndKeepsSourceMappingWithoutHeap(){
         var api=compiler(HEADERS+"int main(){std::initializer_list<int> values={1,2};return values.begin()[1]-2;}");
         var parser=stage(api,Parser.class);var semantic=stage(api,SemanticAnalyzer.class);

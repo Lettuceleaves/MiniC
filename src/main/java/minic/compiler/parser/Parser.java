@@ -1918,7 +1918,7 @@ public final class Parser extends Stage {
                 MiniType parameterType = adjustParameterType(resolveDeclarator(declarator, baseType.type()));
                 SourceRange range = SourceRange.span(baseType.startToken().range(), declarator.endToken().range());
                 Expression defaultValue=null;
-                if(isCpp()&&context.match(TokenType.EQUAL))defaultValue=expressionManager.parseAssignmentExpression();
+                if(isCpp()&&context.match(TokenType.EQUAL))defaultValue=expressionManager.parseInitializerClause();
                 if(isCpp()&&defaultValue==null&&!(parameterType instanceof MiniType.PackExpansionType)&&parameters.stream().anyMatch(p->p.defaultValue()!=null))context.report(range,"默认函数实参之后的参数也需要默认实参");
                 if(parameterType instanceof MiniType.PackExpansionType && defaultValue!=null)context.report(range,"函数参数包不能有默认实参");
                 parameters.add(new ParsedParameter(declarator.name(), parameterType, defaultValue, range));
