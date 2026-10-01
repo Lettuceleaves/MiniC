@@ -257,7 +257,8 @@ public final class IrLowerer extends Stage {
     private void initialize(Program program, Map<String, StructLayout> structLayouts,
                             Map<Expression, MiniType> expressionTypes, Map<String, String> displayNames,
                             Map<AstNode, AstNode> coreToSource) {
-        if (program.languageMode() != minic.compiler.LanguageMode.C) {
+        if (program.languageMode() != minic.compiler.LanguageMode.C
+                || minic.compiler.parser.node.AstChildren.firstCppSyntax(program) != null) {
             throw new IllegalArgumentException("C++ AST requires name binding; provide its SemanticResult");
         }
         input = new Input(program, structLayouts, expressionTypes, displayNames, coreToSource);

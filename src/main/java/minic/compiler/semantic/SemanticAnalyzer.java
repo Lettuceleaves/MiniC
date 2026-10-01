@@ -234,10 +234,12 @@ public final class SemanticAnalyzer extends Stage {
             displayNames = binding.displayNames();
             diagnostics.addAll(binding.diagnostics());
         } else {
-            AstNode cppNode = findUnresolvedCppNameSyntax(program);
+            AstNode cppNode = minic.compiler.parser.node.AstChildren.firstCppSyntax(program);
             if (cppNode != null) diagnostics.add(new Diagnostic("CPP002", Diagnostic.Severity.ERROR,
-                    "C 模式的 AST 不能包含 C++ 命名空间或限定名称。",
-                    "请使用 CPP17_ALGORITHM 模式解析和分析源程序。", cppNode.range()));
+                    "C 模式的 AST 不能包含 C++ 名称、类成员元数据或 this 表达式。",
+                    "请使用 CPP17_ALGORITHM 模式解析和分析源程序。",
+                    cppNode instanceof minic.compiler.parser.node.Declaration.StructDecl record
+                            ? record.cppInfo().keyRange() : cppNode.range()));
         }
         bindingFailed = !diagnostics.isEmpty();
         globalScope = new Scope();
@@ -259,20 +261,6 @@ public final class SemanticAnalyzer extends Stage {
         stepCount = 0;
         completed = false;
         initialized = true;
-    }
-
-    /** Reject malformed standalone C AST input instead of silently dropping C++ nodes. */
-    private AstNode findUnresolvedCppNameSyntax(Program source) {
-        var pending = new java.util.ArrayDeque<AstNode>();
-        pending.add(source);
-        while (!pending.isEmpty()) {
-            AstNode node = pending.removeFirst();
-            if (node instanceof minic.compiler.parser.node.Declaration.NamespaceDecl
-                    || node instanceof minic.compiler.parser.node.Declaration.UsingDecl
-                    || node instanceof Expression.QualifiedNameExpr) return node;
-            pending.addAll(minic.compiler.parser.node.AstChildren.of(node));
-        }
-        return null;
     }
 
     private void ensureInitialized() {

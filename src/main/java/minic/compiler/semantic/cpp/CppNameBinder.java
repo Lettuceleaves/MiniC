@@ -205,6 +205,23 @@ public final class CppNameBinder {
         }
 
         private void bindStruct(StructDecl node, Namespace namespace) {
+            if (node.cppInfo() != null) {
+                boolean unsupported = false;
+                if (node.cppInfo().key() == RecordKey.CLASS) {
+                    report("CPP005", node.cppInfo().keyRange(), "尚未支持 class 声明的成员语义。");
+                    unsupported = true;
+                }
+                for (CppMember member : node.cppInfo().members()) {
+                    if (member instanceof MethodMember method) {
+                        report("CPP005", method.nameRange(), "尚未支持类成员函数：" + method.method().name());
+                        unsupported = true;
+                    } else if (member instanceof AccessLabel label) {
+                        report("CPP005", label.range(), "尚未支持类成员访问控制。");
+                        unsupported = true;
+                    }
+                }
+                if (unsupported) return;
+            }
             String sourceName = simpleTagName(node.name());
             if (node.name().contains("<block")) {
                 report("CPP005", node.range(), "尚未支持具名局部类型声明的作用域保存。");
@@ -555,6 +572,10 @@ public final class CppNameBinder {
         private Expression expression(Expression node, Namespace namespace, Local local) {
             if (node == null) return null;
             Expression core = switch (node) {
+                case ThisExpr n -> {
+                    report("CPP005", n.range(), "尚未支持 this 表达式的类成员语义。");
+                    yield n;
+                }
                 case NameExpr n -> reference(n.name(), n.range(), lookupValue(n.name(), namespace, local, n.range()));
                 case QualifiedNameExpr n -> reference(n.name().segments().getLast(), n.range(),
                         resolveQualified(n.name(), namespace, local));

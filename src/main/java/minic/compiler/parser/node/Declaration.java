@@ -206,7 +206,44 @@ public interface Declaration extends AstNode {
         }
     }
 
-    record StructDecl(String name, List<StructField> fields, boolean definition, boolean union, SourceRange range) implements Declaration {
+    enum RecordKey { STRUCT, CLASS }
+
+    enum Access { PUBLIC, PROTECTED, PRIVATE }
+
+    /** Source-only C++ record information; member order determines effective access later. */
+    record CppRecordInfo(RecordKey key, List<CppMember> members, SourceRange keyRange) {
+        public CppRecordInfo {
+            Objects.requireNonNull(key, "key");
+            members = List.copyOf(members);
+            Objects.requireNonNull(keyRange, "keyRange");
+        }
+    }
+
+    sealed interface CppMember extends AstNode permits FieldMember, MethodMember, AccessLabel {}
+
+    /** Transparent source wrapper: layout and member views retain the same field node. */
+    record FieldMember(StructField field) implements CppMember {
+        public FieldMember { Objects.requireNonNull(field, "field"); }
+        @Override public SourceRange range() { return field.range(); }
+    }
+
+    record MethodMember(FunctionDecl method, SourceRange nameRange) implements CppMember {
+        public MethodMember {
+            Objects.requireNonNull(method, "method");
+            Objects.requireNonNull(nameRange, "nameRange");
+        }
+        @Override public SourceRange range() { return method.range(); }
+    }
+
+    record AccessLabel(Access access, SourceRange range) implements CppMember {
+        public AccessLabel {
+            Objects.requireNonNull(access, "access");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
+    record StructDecl(String name, List<StructField> fields, boolean definition, boolean union,
+                      CppRecordInfo cppInfo, SourceRange range) implements Declaration {
         public StructDecl {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(fields, "fields");
@@ -215,6 +252,20 @@ public interface Declaration extends AstNode {
                 throw new IllegalArgumentException("name must not be blank");
             }
             fields = List.copyOf(fields);
+            if (cppInfo != null) {
+                int index = 0;
+                for (CppMember member : cppInfo.members()) {
+                    if (!(member instanceof FieldMember field)) continue;
+                    if (index >= fields.size() || fields.get(index++) != field.field()) {
+                        throw new IllegalArgumentException("C++ field projection must use the same field nodes in member order");
+                    }
+                }
+                if (index != fields.size()) throw new IllegalArgumentException("C++ field projection is missing a field member");
+            }
+        }
+
+        public StructDecl(String name, List<StructField> fields, boolean definition, boolean union, SourceRange range) {
+            this(name, fields, definition, union, null, range);
         }
 
         public StructDecl(String name, List<StructField> fields, SourceRange range) {

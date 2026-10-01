@@ -201,6 +201,11 @@ public interface Expression extends AstNode {
         }
     }
 
+    /** Source C++ receiver expression; no implicit core variable is invented before binding. */
+    record ThisExpr(SourceRange range) implements Expression {
+        public ThisExpr { Objects.requireNonNull(range, "range"); }
+    }
+
     record NameExpr(String name, SourceRange range) implements Expression {
         public NameExpr {
             Objects.requireNonNull(name, "name");

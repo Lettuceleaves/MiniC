@@ -16,6 +16,9 @@ public final class AstChildren {
         return switch (node) {
             case Program n -> n.declarations();
             case NamespaceDecl n -> n.declarations();
+            case StructDecl n -> n.cppInfo() == null ? n.fields() : n.cppInfo().members();
+            case FieldMember n -> present(n.field());
+            case MethodMember n -> present(n.method());
             case FunctionDecl n -> present(n.body());
             case GlobalVarDecl n -> present(n.initializer());
             case BlockStmt n -> n.statements();
@@ -49,6 +52,33 @@ public final class AstChildren {
             case DesignatedInitExpr n -> present(n.value());
             default -> List.of();
         };
+    }
+
+    /**
+     * Locates source-only C++ syntax before a core-only stage accepts an AST. Flat Program
+     * indexes are checked as well as source order, so malformed manually built indexes cannot
+     * hide unsupported nodes. Identity deduplication does not collapse distinct source nodes.
+     */
+    public static AstNode firstCppSyntax(AstNode root) {
+        var pending = new java.util.ArrayDeque<AstNode>();
+        var visited = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<AstNode, Boolean>());
+        pending.add(Objects.requireNonNull(root, "root"));
+        while (!pending.isEmpty()) {
+            AstNode node = pending.removeFirst();
+            if (!visited.add(node)) continue;
+            if (node instanceof NamespaceDecl || node instanceof UsingDecl
+                    || node instanceof QualifiedNameExpr || node instanceof ThisExpr
+                    || node instanceof StructDecl record && record.cppInfo() != null) return node;
+            pending.addAll(of(node));
+            if (node instanceof Program program) {
+                pending.addAll(program.structs());
+                pending.addAll(program.enums());
+                pending.addAll(program.typedefs());
+                pending.addAll(program.globals());
+                pending.addAll(program.functions());
+            }
+        }
+        return null;
     }
 
     private static List<AstNode> present(AstNode... nodes) {
