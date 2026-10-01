@@ -37,7 +37,21 @@ public final class CppTemplateSubstitution {
     public Map<AstNode, AstNode> origins() { return Collections.unmodifiableMap(origins); }
 
     public MiniType type(MiniType source) {
-        return source.substituteTemplateParameters(arguments,values);
+        return switch (source) {
+            case MiniType.DecltypeType query -> new MiniType.DecltypeType((Expression)copy(query.expression()));
+            case MiniType.TrailingReturnType trailing -> new MiniType.TrailingReturnType(type(trailing.type()));
+            case MiniType.QualifiedType qualified -> MiniType.qualified(type(qualified.baseType()),qualified.qualifiers());
+            case MiniType.PointerType pointer -> type(pointer.pointee()).pointerTo();
+            case MiniType.ReferenceType reference -> type(reference.referent()).referenceTo();
+            case MiniType.ArrayType array -> type(array.elementType()).arrayOf(array.length());
+            case MiniType.DependentArrayType array -> new MiniType.DependentArrayType(type(array.elementType()),(Expression)copy(array.bound()))
+                    .substituteTemplateParameters(arguments,values);
+            case MiniType.TemplateIdType id -> new MiniType.TemplateIdType(id.templateName(),id.arguments().stream()
+                    .map(argument -> (minic.compiler.type.TemplateArgument)copy(argument)).toList());
+            case MiniType.MemberType member -> new MiniType.MemberType(type(member.owner()),member.name());
+            case MiniType.FunctionType function -> MiniType.function(type(function.returnType()),function.parameterTypes().stream().map(this::type).toList(),function.variadic());
+            default -> source.substituteTemplateParameters(arguments,values);
+        };
     }
 
     private Object copy(Object source) {

@@ -204,6 +204,7 @@ public final class DeclarationManager {
         }
         if(typeReader.isCpp())typeReader.registerPendingFunctionTemplate(declaration.name());
         boolean constQualified = qualified && state.match(TokenType.CONST);
+        functionType = typeReader.parseTrailingReturn(functionType);
         if (qualified && external) state.unsupportedCpp(startToken.range(), "类外成员定义不能使用 extern");
         Token semicolonToken = null;
         BlockStmt body = null;

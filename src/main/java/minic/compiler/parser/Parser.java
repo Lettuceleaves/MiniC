@@ -1283,6 +1283,8 @@ public final class Parser extends Stage {
                 context.report(declarator.operatorName().range(), "运算符名称必须声明函数");
                 return null;
             }
+            if (resolvedType instanceof MiniType.FunctionType function && isCpp() && context.check(TokenType.ARROW))
+                resolvedType = parseTrailingReturn(function);
             FunctionModifier topFunction = declarator.topFunction();
             List<ParsedParameter> resolvedParameters;
             boolean resolvedVariadic;
@@ -1312,6 +1314,14 @@ public final class Parser extends Stage {
                     declarator.qualifiedName(),
                     declarator.operatorName()
             );
+        }
+
+        public MiniType.FunctionType parseTrailingReturn(MiniType.FunctionType function) {
+            if (!isCpp() || !context.match(TokenType.ARROW)) return function;
+            if (!function.returnType().equals(MiniType.AUTO)) context.report(context.previous(), "尾置返回类型要求前置 auto");
+            ParsedType result = parseType("期望尾置返回类型");
+            return result == null ? function : (MiniType.FunctionType) MiniType.function(
+                    new MiniType.TrailingReturnType(result.type()), function.parameterTypes(), function.variadic());
         }
 
         public boolean canStartType() {
@@ -1461,7 +1471,7 @@ public final class Parser extends Stage {
                 offset++;
             }
             TokenType type = context.peekAt(offset).type();
-            if (isCpp() && type == TokenType.TYPENAME) return true;
+            if (isCpp() && (type == TokenType.TYPENAME || type == TokenType.AUTO || type == TokenType.DECLTYPE)) return true;
             if (isCpp() && (type == TokenType.IDENTIFIER || type == TokenType.SCOPE)) {
                 var name = CppNameParser.peekName(context, offset);
                 if(name==null)return false;
@@ -1763,7 +1773,19 @@ public final class Parser extends Stage {
 
             MiniType type;
             Token end;
-            if (context.check(TokenType.BOOL)) {
+            if (isCpp() && context.check(TokenType.AUTO)) {
+                end = context.advance(); type = MiniType.AUTO;
+            } else if (isCpp() && context.match(TokenType.DECLTYPE)) {
+                context.consume(TokenType.LEFT_PAREN, "decltype 需要 '('");
+                if (context.match(TokenType.AUTO)) type = MiniType.DECLTYPE_AUTO;
+                else {
+                    Expression operand = expressionManager.parseExpression();
+                    if (operand == null) return null;
+                    type = new MiniType.DecltypeType(operand);
+                }
+                end = context.consume(TokenType.RIGHT_PAREN, "decltype 需要 ')'");
+                if (end == null) return null;
+            } else if (context.check(TokenType.BOOL)) {
                 end = context.advance();
                 type = MiniType.BOOL;
             } else if (context.check(TokenType.FLOAT)) {

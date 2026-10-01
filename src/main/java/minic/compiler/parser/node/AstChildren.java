@@ -13,7 +13,7 @@ public final class AstChildren {
     private AstChildren() {}
 
     public static List<? extends AstNode> of(AstNode node) {
-        return switch (node) {
+        List<? extends AstNode> direct = switch (node) {
             case Program n -> n.declarations();
             case NamespaceDecl n -> n.declarations();
             case InternalLinkageDecl n -> present(n.declaration());
@@ -88,6 +88,39 @@ public final class AstChildren {
             case DesignatedInitExpr n -> present(n.value());
             default -> List.of();
         };
+        List<AstNode> typed = new ArrayList<>();
+        typeExpressions(node, typed);
+        if (typed.isEmpty()) return direct;
+        typed.addAll(direct);
+        return List.copyOf(typed);
+    }
+
+    private static void typeExpressions(AstNode node, List<AstNode> result) {
+        minic.compiler.type.MiniType type = switch (node) {
+            case FunctionDecl n -> n.returnType(); case Parameter n -> n.type();
+            case GlobalVarDecl n -> n.type(); case StructField n -> n.type();
+            case TypedefDecl n -> n.type(); case VarDeclStmt n -> n.type(); case TypedefStmt n -> n.type();
+            case CastExpr n -> n.targetType(); case CppConstructionExpr n -> n.type();
+            case SizeofExpr n -> n.queriedType(); case AlignofExpr n -> n.queriedType();
+            default -> null;
+        };
+        placeholderExpressions(type, result);
+        if (node instanceof FunctionDecl function) for (var parameter : function.parameters()) placeholderExpressions(parameter.type(), result);
+    }
+    private static void placeholderExpressions(minic.compiler.type.MiniType type, List<AstNode> result) {
+        if (type == null) return;
+        switch (type.unqualified()) {
+            case minic.compiler.type.MiniType.DecltypeType query -> result.add(query.expression());
+            case minic.compiler.type.MiniType.TrailingReturnType trailing -> placeholderExpressions(trailing.type(), result);
+            case minic.compiler.type.MiniType.PointerType pointer -> placeholderExpressions(pointer.pointee(), result);
+            case minic.compiler.type.MiniType.ReferenceType reference -> placeholderExpressions(reference.referent(), result);
+            case minic.compiler.type.MiniType.ArrayType array -> placeholderExpressions(array.elementType(), result);
+            case minic.compiler.type.MiniType.FunctionType function -> {
+                placeholderExpressions(function.returnType(), result);
+                function.parameterTypes().forEach(parameter -> placeholderExpressions(parameter, result));
+            }
+            default -> { }
+        }
     }
 
     /**
@@ -175,7 +208,7 @@ public final class AstChildren {
     }
 
     private static boolean sourceType(minic.compiler.type.MiniType type, boolean onlyReferences) {
-        return type != null && (type.containsReference() || !onlyReferences && type.containsTemplateType());
+        return type != null && (type.containsReference() || !onlyReferences && (type.containsTemplateType() || type.containsPlaceholder()));
     }
 
     private static List<AstNode> present(AstNode... nodes) {

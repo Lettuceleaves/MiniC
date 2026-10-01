@@ -17,7 +17,7 @@ public sealed interface MiniType permits
     /**
      * 具有源码名称的叶子节点。标量名和 {@code struct Name} 都在这里终止递归。
      */
-    sealed interface NamedType extends MiniType permits ScalarType, StructType, VaListType, TemplateParameterType, TemplateIdType, MemberType {
+    sealed interface NamedType extends MiniType permits ScalarType, StructType, VaListType, TemplateParameterType, TemplateIdType, MemberType, AutoType, DecltypeType, TrailingReturnType {
     }
 
     /**
@@ -84,6 +84,47 @@ public sealed interface MiniType permits
     /** Opaque Windows x64 variadic cursor exposed by {@code stdarg.mh}. */
     MiniType VA_LIST = new VaListType();
 
+    /** Source placeholders are resolved by C++ binding, never by layout or IR. */
+    MiniType AUTO = new AutoType(false);
+    MiniType DECLTYPE_AUTO = new AutoType(true);
+    record AutoType(boolean decltypeAuto) implements NamedType {
+        @Override public String toString() { return decltypeAuto ? "decltype(auto)" : "auto"; }
+    }
+    record DecltypeType(minic.compiler.parser.node.Expression expression) implements NamedType {
+        public DecltypeType { Objects.requireNonNull(expression); }
+        @Override public String toString() { return "decltype(...)"; }
+    }
+    record TrailingReturnType(MiniType type) implements NamedType {
+        public TrailingReturnType { Objects.requireNonNull(type); }
+        @Override public String toString() { return "auto -> " + type; }
+    }
+    default boolean containsPlaceholder() {
+        return switch (unqualified()) {
+            case AutoType ignored -> true;
+            case DecltypeType ignored -> true;
+            case TrailingReturnType ignored -> true;
+            case PointerType pointer -> pointer.pointee().containsPlaceholder();
+            case ReferenceType reference -> reference.referent().containsPlaceholder();
+            case ArrayType array -> array.elementType().containsPlaceholder();
+            case FunctionType function -> function.returnType().containsPlaceholder()
+                    || function.parameterTypes().stream().anyMatch(MiniType::containsPlaceholder);
+            case TemplateIdType template -> template.arguments().stream().anyMatch(a -> a instanceof TemplateArgument.Type t && t.type().containsPlaceholder());
+            case MemberType member -> member.owner().containsPlaceholder();
+            default -> false;
+        };
+    }
+    default boolean containsAuto() {
+        return switch (unqualified()) {
+            case AutoType ignored -> true;
+            case PointerType pointer -> pointer.pointee().containsAuto();
+            case ReferenceType reference -> reference.referent().containsAuto();
+            case ArrayType array -> array.elementType().containsAuto();
+            case FunctionType function -> function.returnType().containsAuto()
+                    || function.parameterTypes().stream().anyMatch(MiniType::containsAuto);
+            default -> false;
+        };
+    }
+
     /**
      * 返回指向当前类型的指针类型。
      *
@@ -145,6 +186,8 @@ public sealed interface MiniType permits
             case TemplateParameterType parameter -> arguments.getOrDefault(parameter, parameter);
             case MemberType member -> new MemberType(member.owner().substituteTemplateParameters(arguments,values),member.name());
             case TemplateIdType id -> new TemplateIdType(id.templateName(), id.arguments().stream().map(t -> t.substitute(arguments,values)).toList());
+            case TrailingReturnType trailing -> new TrailingReturnType(trailing.type().substituteTemplateParameters(arguments,values));
+            case DecltypeType query -> new DecltypeType(TemplateValues.substitute(query.expression(),arguments,values));
             case QualifiedType qualified -> MiniType.qualified(qualified.baseType().substituteTemplateParameters(arguments,values), qualified.qualifiers());
             case PointerType pointer -> pointer.pointee().substituteTemplateParameters(arguments,values).pointerTo();
             case ReferenceType reference -> reference.referent().substituteTemplateParameters(arguments,values).referenceTo();

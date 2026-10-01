@@ -188,6 +188,7 @@ public final class CppRecordParser {
                     else if (declaration.type().unqualified() instanceof MiniType.FunctionType function) {
                         types.declareOrdinaryName(declaration.name(), declaration.nameRange());
                         boolean constQualified = state.match(TokenType.CONST);
+                        function = types.parseTrailingReturn(function);
                         if (staticMember && constQualified) state.report(declaration.nameRange(), "static 成员函数不能带 const 限定符");
                         if (union) {
                             state.unsupportedCpp(declaration.nameRange(), "union 成员方法尚未实现");

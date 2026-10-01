@@ -153,7 +153,7 @@ public final class CppNameBinder {
         final String coreName;
         final Kind kind;
         final Namespace owner;
-        final MiniType type;
+        MiniType type;
         final Long enumValue;
         boolean defined;
 
@@ -223,7 +223,15 @@ public final class CppNameBinder {
         private TypeEntity currentClass;
         private Entity currentThis;
         private MiniType currentReturnType;
+        private static final class AutoReturnContext {
+            final Entity function; final MiniType pattern; MiniType deduced;
+            AutoReturnContext(Entity function, MiniType pattern) { this.function=function; this.pattern=pattern; }
+        }
+        private AutoReturnContext currentAutoReturn;
+        private final Map<Entity, List<FunctionDecl>> pendingAutoDeclarations = new IdentityHashMap<>();
+        private final Map<Entity, MiniType> autoReturnPatterns = new IdentityHashMap<>();
         private Expression fullExpressionOwner;
+        private Expression decltypeOperand;
         private final Map<Expression, PreparedArguments> bracedArguments = new IdentityHashMap<>();
         private record ListStorage(MiniType type, MiniType element, List<Expression> values, SourceRange range) { }
         private final Map<Expression, ListStorage> listStorage = new IdentityHashMap<>();
@@ -488,8 +496,8 @@ public final class CppNameBinder {
                 FunctionDecl header=new FunctionDecl(original.name(),original.returnType(),original.parameters(),original.variadic(),null,
                         original.external(),original.noReturn(),original.range(),original.operatorName(),original.conversionName());
                 FunctionDecl instance=substitution.instantiate(header);
-                MiniType result=normalizeType(instance.returnType(),definition.owner,null,instance.range());
                 List<MiniType> parameters=instance.parameters().stream().map(p->normalizeType(p.type(),definition.owner,null,p.range())).toList();
+                MiniType result=normalizeReturnType(instance.returnType(),instance.parameters(),parameters,definition.owner,definition.record,definition.method,instance.range());
                 if(result.containsTemplateType()||parameters.stream().anyMatch(MiniType::containsTemplateType)||diagnostics.size()!=errors)return null;
                 var abi=new ArrayList<MiniType>();
                 if(definition.constructor!=null)abi.add(definition.record.type.pointerTo());
@@ -527,7 +535,7 @@ public final class CppNameBinder {
         }
         private void instantiateFunctionTemplate(Entity entity) {
             var instance=functionTemplateInstances.get(entity);
-            if(instance==null||unevaluatedDepth>0||emittedFunctionTemplates.contains(entity))return;
+            if(instance==null||unevaluatedDepth>0&&!((MiniType.FunctionType)entity.type).returnType().containsAuto()||emittedFunctionTemplates.contains(entity))return;
             requestedFunctionTemplates.add(entity);
             var definition=functionTemplates.getOrDefault(functionTemplateDeclarations.get(entity),instance.definition);
             if(!definition.source.hasBody())return;
@@ -543,6 +551,7 @@ public final class CppNameBinder {
                 bindings=new CppTemplateDeduction.Bindings(types,values);
             }
             emittedFunctionTemplates.add(entity);functionTemplateDepth++;
+            int savedUnevaluatedDepth=unevaluatedDepth;unevaluatedDepth=0;
             var savedLookup=currentTemplateLookup;TypeEntity savedClass=currentClass;Entity savedThis=currentThis;
             currentTemplateLookup=definition.lookup;currentClass=definition.record;currentThis=null;
             try {
@@ -560,7 +569,7 @@ public final class CppNameBinder {
                     else bindFunction(source,definition.owner,entity);
                 }
             } catch(IllegalArgumentException error){report("CPP004",definition.source.range(),"Cannot instantiate selected function template: "+error.getMessage());}
-            finally {currentTemplateLookup=savedLookup;currentClass=savedClass;currentThis=savedThis;functionTemplateDepth--;}
+            finally {currentTemplateLookup=savedLookup;currentClass=savedClass;currentThis=savedThis;functionTemplateDepth--;unevaluatedDepth=savedUnevaluatedDepth;}
         }
         private Entity deduceFunctionTemplateForTarget(Entity declaration,MiniType.FunctionType target,List<TemplateArgument> explicit,SourceRange range) {
             FunctionTemplateDefinition definition=functionTemplates.get(declaration);
@@ -890,7 +899,7 @@ public final class CppNameBinder {
 
         private void instantiateMethod(Method method) {
             if(functionTemplateInstances.containsKey(method.function)){instantiateFunctionTemplate(method.function);return;}
-            if (unevaluatedDepth > 0) return;
+            if (unevaluatedDepth > 0 && !methodReturnType(method).containsAuto()) return;
             if (pendingTemplateMethods.remove(method.function) == null) return;
             Map<Namespace, NamespaceView> saved = currentTemplateLookup;
             currentTemplateLookup = instanceLookup.get(method.owner);
@@ -899,6 +908,7 @@ public final class CppNameBinder {
         }
 
         private void declareTemplateMethodPrototype(Method method) {
+            if (methodReturnType(method).containsAuto()) return;
             FunctionDecl source = method.source.method();
             var parameters = new ArrayList<Parameter>();
             if (!method.source.staticMember()) parameters.add(new Parameter(freshName("this"), methodThisType(method.owner, method.source), method.source.nameRange()));
@@ -906,13 +916,14 @@ public final class CppNameBinder {
                 Parameter parameter = source.parameters().get(index);
                 parameters.add(new Parameter(freshName(parameter.name()), coreType(method.parameterTypes.get(index)), parameter.range()));
             }
-            var prototype = new FunctionDecl(method.function.coreName, coreType(method.returnType), parameters,
+            var prototype = new FunctionDecl(method.function.coreName, coreType(methodReturnType(method)), parameters,
                     source.variadic(), null, false, source.noReturn(), source.range());
             functions.add(prototype); declarations.add(prototype);
         }
 
         private void declareTemplatePrototype(Entity function, SourceRange range) {
             MiniType.FunctionType signature = (MiniType.FunctionType) function.type;
+            if(signature.returnType().containsAuto())return;
             var parameters = new ArrayList<Parameter>();
             for (int index = 0; index < signature.parameterTypes().size(); index++)
                 parameters.add(new Parameter(freshName(index == 0 ? "this" : "argument" + index),
@@ -1111,6 +1122,7 @@ public final class CppNameBinder {
             TypeEntity savedClass = currentClass;
             Entity savedThis = currentThis;
             MiniType savedReturn = currentReturnType;
+            AutoReturnContext savedAutoReturn=currentAutoReturn; currentAutoReturn=null;
             currentClass = owner; currentThis = self; currentReturnType = MiniType.VOID;
             int diagnosticStart = diagnostics.size();
             try {
@@ -1143,7 +1155,7 @@ public final class CppNameBinder {
                 FunctionDecl core = mapped(original, new FunctionDecl(destructor.function.coreName, MiniType.VOID,
                         List.of(new Parameter(self.coreName, self.type, original.nameRange())), false, body, false, original.range()));
                 functions.add(core); declarations.add(core);
-            } finally { currentClass = savedClass; currentThis = savedThis; currentReturnType = savedReturn; }
+            } finally { currentClass = savedClass; currentThis = savedThis; currentReturnType = savedReturn; currentAutoReturn=savedAutoReturn; }
         }
 
         private Expression destruction(MiniType type, Expression address, SourceRange range) {
@@ -1274,6 +1286,7 @@ public final class CppNameBinder {
             TypeEntity savedClass = currentClass;
             Entity savedThis = currentThis;
             MiniType savedReturn = currentReturnType;
+            AutoReturnContext savedAutoReturn=currentAutoReturn; currentAutoReturn=null;
             currentClass = owner; currentThis = self; currentReturnType = MiniType.VOID;
             try {
                 int index = owner.sourceRecord.fields().indexOf(member.field());
@@ -1284,7 +1297,7 @@ public final class CppNameBinder {
                 FunctionDecl core = new FunctionDecl(function.coreName, MiniType.VOID,
                         List.of(new Parameter(self.coreName, self.type, member.range())), false, body, false, member.range());
                 functions.add(core); declarations.add(core);
-            } finally { currentClass = savedClass; currentThis = savedThis; currentReturnType = savedReturn; }
+            } finally { currentClass = savedClass; currentThis = savedThis; currentReturnType = savedReturn; currentAutoReturn=savedAutoReturn; }
         }
 
         private void bindConstructor(Constructor constructor) {
@@ -1308,6 +1321,7 @@ public final class CppNameBinder {
             TypeEntity savedClass = currentClass;
             Entity savedThis = currentThis;
             MiniType savedReturn = currentReturnType;
+            AutoReturnContext savedAutoReturn=currentAutoReturn; currentAutoReturn=null;
             currentClass = owner; currentThis = self; currentReturnType = MiniType.VOID;
             int diagnosticStart = diagnostics.size();
             try {
@@ -1345,7 +1359,7 @@ public final class CppNameBinder {
                 FunctionDecl core = mapped(original, new FunctionDecl(constructor.function.coreName, MiniType.VOID,
                         parameters, original.variadic(), body, false, original.range()));
                 functions.add(core); declarations.add(core);
-            } finally { currentClass = savedClass; currentThis = savedThis; currentReturnType = savedReturn; }
+            } finally { currentClass = savedClass; currentThis = savedThis; currentReturnType = savedReturn; currentAutoReturn=savedAutoReturn; }
         }
 
         private Expression initializeField(TypeEntity owner, StructField field, CppInitializer initialization, Local scope, SourceRange range) {
@@ -1477,9 +1491,9 @@ public final class CppNameBinder {
                 report("CPP004", member.nameRange(), "成员函数与数据成员名称冲突：" + name);
                 return null;
             }
-            MiniType returnType = normalizeType(sourceMethod.returnType(), namespace, null, sourceMethod.range());
             List<MiniType> parameterTypes = sourceMethod.parameters().stream()
                     .map(parameter -> normalizeType(parameter.type(), namespace, null, parameter.range())).toList();
+            MiniType returnType = normalizeReturnType(sourceMethod.returnType(),sourceMethod.parameters(),parameterTypes,namespace,owner,member,sourceMethod.range());
             if (member.staticMember() && (member.constQualified() || sourceMethod.operatorName() != null)) {
                 report("CPP004", member.nameRange(), "C++17 static member functions cannot have cv qualifiers or overloaded operator names.");
                 return null;
@@ -1513,9 +1527,60 @@ public final class CppNameBinder {
             return method;
         }
 
+        private MiniType methodReturnType(Method method) { return ((MiniType.FunctionType) method.function.type).returnType(); }
+        private void publishAutoReturn(AutoReturnContext context, MiniType result) {
+            MiniType.FunctionType signature = (MiniType.FunctionType) context.function.type;
+            context.function.type = MiniType.function(result, signature.parameterTypes(), signature.variadic());
+            context.deduced = result;
+            currentReturnType = result;
+        }
+        private void deduceReturn(ReturnStmt node, Namespace namespace, Local scope) {
+            if (currentAutoReturn == null) return;
+            MiniType deduced;
+            if (node.expression() == null) deduced = MiniType.VOID;
+            else if (isBraced(node.expression())) {
+                report("CPP004", node.range(), "An auto return type cannot be deduced from a braced-init-list."); deduced=MiniType.INT;
+            } else if (autoPlaceholder(currentAutoReturn.pattern).decltypeAuto()) {
+                if (!currentAutoReturn.pattern.equals(MiniType.DECLTYPE_AUTO)) report("CPP004", node.range(), "decltype(auto) must stand alone.");
+                deduced=decltypeType(node.expression(),namespace,scope);
+            } else {
+                Expression value=unevaluatedExpression(node.expression(),namespace,scope);
+                MiniType actual=checkedDeduced(declaredExpressionType(value),node.range());
+                deduced=deducePattern(currentAutoReturn.pattern,currentAutoReturn.pattern.isReference()?actual:TypeCompatibility.decay(actual).unqualified());
+                if(deduced==null){report("CPP004",node.range(),"Return expression does not match the auto return declarator.");deduced=MiniType.INT;}
+            }
+            if (deduced.isVoid() && !(currentAutoReturn.pattern.unqualified() instanceof MiniType.AutoType))
+                report("CPP004",node.range(),"This auto return declarator cannot deduce void.");
+            if(currentAutoReturn.deduced!=null&&!currentAutoReturn.deduced.equals(deduced))
+                report("CPP004",node.range(),"All non-discarded returns must deduce the same type.");
+            else publishAutoReturn(currentAutoReturn,deduced);
+        }
+        private MiniType finishAutoReturn(AutoReturnContext context,SourceRange range) {
+            if(context.deduced==null){
+                if(!(context.pattern.unqualified() instanceof MiniType.AutoType))report("CPP004",range,"An auto reference/pointer return requires a return expression.");
+                publishAutoReturn(context,MiniType.VOID);
+            }
+            return context.deduced;
+        }
+        private void emitAutoPrototypes(Entity function,MiniType result) {
+            List<FunctionDecl> pending=pendingAutoDeclarations.remove(function);
+            if(pending==null)return;
+            MiniType.FunctionType signature=(MiniType.FunctionType)function.type;
+            for(FunctionDecl original:pending){
+                List<Parameter> parameters=new ArrayList<>();
+                for(int index=0;index<signature.parameterTypes().size();index++)parameters.add(new Parameter(
+                        freshName("parameter"),coreType(signature.parameterTypes().get(index)),original.range()));
+                FunctionDecl core=mapped(original,new FunctionDecl(function.coreName,coreType(result),parameters,original.variadic(),null,
+                        original.external(),original.noReturn(),original.range()));
+                functions.add(core);declarations.add(core);
+            }
+        }
+
         private void bindMethod(Method method, Namespace namespace) {
             FunctionDecl original = method.source.method();
-            requireSupportedCallLifetime(method.returnType, method.parameterTypes, original.range());
+            MiniType returnPattern=methodReturnType(method);
+            if(returnPattern.containsAuto()&&!original.hasBody()) { autoReturnPatterns.put(method.function,returnPattern); return; }
+            requireSupportedCallLifetime(methodReturnType(method), method.parameterTypes, original.range());
             Local scope = new Local(null, namespace);
             Entity self = method.source.staticMember() ? null : new Entity("this", freshName("this"), Kind.VARIABLE, null,
                     methodThisType(method.owner, method.source), null, true);
@@ -1531,22 +1596,27 @@ public final class CppNameBinder {
             TypeEntity savedClass = currentClass;
             Entity savedThis = currentThis;
             MiniType savedReturnType = currentReturnType;
+            AutoReturnContext savedAutoReturn=currentAutoReturn;
+            currentAutoReturn=returnPattern.containsAuto()?new AutoReturnContext(method.function,returnPattern):null;
+            if(currentAutoReturn!=null)autoReturnPatterns.put(method.function,returnPattern);
             currentClass = method.owner;
             currentThis = self;
-            currentReturnType = method.returnType;
+            currentReturnType = methodReturnType(method);
             try {
                 if (original.hasBody()) {
-                    requireComplete(method.returnType, original.range());
+                    if(!returnPattern.containsAuto()) requireComplete(methodReturnType(method), original.range());
                     method.parameterTypes.forEach(type -> requireComplete(type, original.range()));
                 }
                 BlockStmt body = original.body() == null ? null : block(original.body(), scope, false);
-                FunctionDecl core = mapped(original, new FunctionDecl(method.function.coreName, coreType(method.returnType),
+                if(currentAutoReturn!=null)finishAutoReturn(currentAutoReturn,original.range());
+                FunctionDecl core = mapped(original, new FunctionDecl(method.function.coreName, coreType(methodReturnType(method)),
                         parameters, original.variadic(), body, false, original.noReturn(), original.range()));
                 functions.add(core); declarations.add(core);
             } finally {
                 currentClass = savedClass;
                 currentThis = savedThis;
                 currentReturnType = savedReturnType;
+                currentAutoReturn=savedAutoReturn;
             }
         }
 
@@ -1573,15 +1643,16 @@ public final class CppNameBinder {
                 report("CPP004", node.nameRange(), "类外成员声明必须提供函数定义：" + spelling(path));
                 return;
             }
-            MiniType returnType = normalizeType(definition.returnType(), namespace, null, definition.range());
             List<MiniType> parameterTypes = definition.parameters().stream()
                     .map(p -> normalizeType(p.type(), owner.owner, null, p.range())).toList();
+            MiniType returnType = normalizeReturnType(definition.returnType(),definition.parameters(),parameterTypes,owner.owner,owner,
+                    new MethodMember(definition,node.constQualified(),node.nameRange()),definition.range());
             Method previous = overloads.methods.stream().filter(method ->
                     method.parameterTypes.stream().map(MiniType::unqualified).toList()
                             .equals(parameterTypes.stream().map(MiniType::unqualified).toList())
                     && method.source.method().variadic() == definition.variadic()
                     && method.source.constQualified() == node.constQualified()
-                    && method.returnType.equals(returnType)).findFirst().orElse(null);
+                    && methodReturnType(method).equals(returnType)).findFirst().orElse(null);
             if (previous == null) {
                 report("CPP004", node.nameRange(), "类外定义与成员函数声明的签名不匹配：" + spelling(path));
                 return;
@@ -1671,6 +1742,126 @@ public final class CppNameBinder {
             return entity;
         }
 
+        private MiniType normalizeReturnType(MiniType type,List<Parameter> parameters,List<MiniType> parameterTypes,
+                                             Namespace namespace,TypeEntity owner,MethodMember member,SourceRange range) {
+            if (!(type instanceof MiniType.TrailingReturnType trailing)) return normalizeType(type,namespace,null,range);
+            Local scope=new Local(null,namespace);
+            for(int index=0;index<parameters.size();index++)declareLocal(parameters.get(index).name(),parameterTypes.get(index),scope,parameters.get(index).range());
+            TypeEntity savedClass=currentClass;Entity savedThis=currentThis;
+            if(owner!=null){currentClass=owner;currentThis=member!=null&&member.staticMember()?null:
+                    new Entity("this",freshName("this"),Kind.VARIABLE,null,methodThisType(owner,member),null,true);
+                if(currentThis!=null)coreValues.put(currentThis.coreName,currentThis);}
+            try{return normalizeType(trailing.type(),namespace,scope,range);}
+            finally{currentClass=savedClass;currentThis=savedThis;}
+        }
+        private Expression decltypeExpression(Expression operand,Namespace namespace,Local local) {
+            Expression saved=decltypeOperand;Expression ungrouped=operand;
+            while(ungrouped instanceof GroupingExpr group)ungrouped=group.expression();
+            decltypeOperand=ungrouped;
+            try{return unevaluatedExpression(operand,namespace,local);}finally{decltypeOperand=saved;}
+        }
+        private MiniType decltypeType(Expression operand, Namespace namespace, Local local) {
+            Candidate named = operand instanceof NameExpr name ? lookupName(name.name(), namespace, local, name.range())
+                    : operand instanceof QualifiedNameExpr name ? resolveQualifiedName(name.name(), namespace, local) : null;
+            if (named instanceof Entity entity) { decltypeExpression(operand,namespace,local); return checkedDeduced(entity.type, operand.range()); }
+            if (named instanceof OverloadSet overloads && overloads.functions.size() == 1) {
+                decltypeExpression(operand,namespace,local); return checkedDeduced(overloads.functions.getFirst().type, operand.range()); }
+            if (named instanceof ImplicitField field) {
+                FieldPath path = fieldPath(field.owner.type, field.name, new HashSet<>());
+                if (path != null) return checkedDeduced(path.type(), operand.range());
+            }
+            if (operand instanceof FieldAccessExpr field) {
+                Expression receiver = unevaluatedExpression(field.target(), namespace, local);
+                MiniType ownerType = declaredExpressionType(receiver);
+                if (field.viaPointer()) ownerType = elementType(ownerType);
+                if (ownerType != null) {
+                    FieldPath path = requireAccessible(ownerType.unqualified(), field.fieldName(), field.range(), "decltype member");
+                    if (path != null) return checkedDeduced(path.type(), operand.range());
+                }
+            }
+            Expression value = decltypeExpression(operand, namespace, local);
+            MiniType type = checkedDeduced(declaredExpressionType(value), operand.range());
+            return valueCategory(value) == CppValueCategory.LVALUE ? type.referenceTo() : type;
+        }
+        private MiniType checkedDeduced(MiniType type, SourceRange range) {
+            if (type == null || type.containsPlaceholder()) {
+                report("CPP004", range, "The expression has no deduced type at this point."); return MiniType.INT;
+            }
+            return type;
+        }
+        private MiniType.AutoType autoPlaceholder(MiniType type) {
+            return switch (type.unqualified()) {
+                case MiniType.AutoType placeholder -> placeholder;
+                case MiniType.ReferenceType reference -> autoPlaceholder(reference.referent());
+                case MiniType.PointerType pointer -> autoPlaceholder(pointer.pointee());
+                case MiniType.ArrayType array -> autoPlaceholder(array.elementType());
+                case MiniType.FunctionType function -> autoPlaceholder(function.returnType());
+                default -> null;
+            };
+        }
+        private MiniType deduceVariableType(MiniType pattern, CppInitializer syntax, Expression legacy,
+                                            Namespace namespace, Local local, SourceRange range) {
+            List<Expression> arguments = syntax == null ? legacy == null ? List.of() : List.of(legacy) : syntax.arguments();
+            MiniType.AutoType placeholder = autoPlaceholder(pattern);
+            if (arguments.isEmpty()) { report("CPP004", range, "An auto declaration requires an initializer."); return MiniType.INT; }
+            boolean copyList = syntax != null && syntax.kind() == CppInitializer.Kind.COPY_LIST;
+            if (placeholder != null && placeholder.decltypeAuto()) {
+                if (!pattern.equals(MiniType.DECLTYPE_AUTO)) report("CPP004", range, "decltype(auto) cannot have additional declarator or cv qualifiers.");
+                if (copyList || arguments.size() != 1 || isBraced(arguments.getFirst())) {
+                    report("CPP004", range, "decltype(auto) requires one expression, not a braced list."); return MiniType.INT;
+                }
+                return decltypeType(arguments.getFirst(), namespace, local);
+            }
+            MiniType actual;
+            if (copyList) {
+                MiniType element = null;
+                for (Expression item : arguments) {
+                    if (isBraced(item)) { report("CPP004", item.range(), "auto cannot deduce an element type from nested braces."); return MiniType.INT; }
+                    MiniType candidate = TypeCompatibility.decay(checkedDeduced(declaredExpressionType(unevaluatedExpression(item, namespace, local)), item.range())).unqualified();
+                    if (element != null && !element.equals(candidate)) report("CPP004", item.range(), "All elements of an auto initializer_list must deduce the same type.");
+                    element = candidate;
+                }
+                if (element == null) { report("CPP004", range, "auto cannot deduce an empty initializer_list."); return MiniType.INT; }
+                actual = templateType(new MiniType.TemplateIdType("::std::initializer_list", List.of(new TemplateArgument.Type(element))), namespace, local, range);
+            } else {
+                if (arguments.size() != 1 || isBraced(arguments.getFirst())) {
+                    report("CPP004", range, "Direct-list auto deduction requires exactly one expression."); return MiniType.INT;
+                }
+                Expression value = unevaluatedExpression(arguments.getFirst(), namespace, local);
+                actual = checkedDeduced(declaredExpressionType(value), arguments.getFirst().range());
+            }
+            if (actual.isVoid()) { report("CPP004", range, "An auto object cannot have void type."); return MiniType.INT; }
+            MiniType adjusted = pattern.isReference() ? actual : TypeCompatibility.decay(actual).unqualified();
+            MiniType result = deducePattern(pattern, adjusted);
+            if (result == null) { report("CPP004", range, "The initializer does not match the auto declarator pattern."); return MiniType.INT; }
+            return result;
+        }
+        private MiniType deducePattern(MiniType pattern, MiniType actual) {
+            if (pattern instanceof MiniType.QualifiedType qualified) {
+                MiniType result = deducePattern(qualified.baseType(), actual);
+                return result == null ? null : MiniType.qualified(result, qualified.qualifiers());
+            }
+            if (pattern instanceof MiniType.AutoType) return actual;
+            if (pattern instanceof MiniType.ReferenceType reference) {
+                MiniType result = deducePattern(reference.referent(), actual);
+                return result == null ? null : result.referenceTo();
+            }
+            if (pattern instanceof MiniType.PointerType pointer && actual.isPointer()) {
+                MiniType result = deducePattern(pointer.pointee(), actual.pointee());
+                return result == null ? null : result.pointerTo();
+            }
+            if (pattern instanceof MiniType.ArrayType array && actual.isArray() && array.length() == actual.arrayLength()) {
+                MiniType result = deducePattern(array.elementType(), actual.elementType());
+                return result == null ? null : result.arrayOf(array.length());
+            }
+            if (pattern instanceof MiniType.FunctionType function && actual.unqualified() instanceof MiniType.FunctionType sourceFunction
+                    && function.parameterTypes().equals(sourceFunction.parameterTypes()) && function.variadic() == sourceFunction.variadic()) {
+                MiniType result = deducePattern(function.returnType(), sourceFunction.returnType());
+                return result == null ? null : MiniType.function(result, function.parameterTypes(), function.variadic());
+            }
+            return pattern.equals(actual) ? pattern : null;
+        }
+
         /** Frontend canonical names are source identities, never linker/layout identities. */
 
         private TemplateArgument.Integral evaluateTemplateConstant(Expression expression) {
@@ -1708,6 +1899,7 @@ public final class CppNameBinder {
                     return element.arrayOf((int)length);
                 } catch(IllegalArgumentException error){report("CPP004",range,error.getMessage());return element.arrayOf(1);}
             }
+            if (type instanceof MiniType.DecltypeType query) return decltypeType(query.expression(), namespace, local);
             if (type instanceof MiniType.MemberType member) {
                 MiniType ownerType=normalizeType(member.owner(),namespace,local,range);
                 TypeEntity owner=objectType(ownerType);
@@ -1778,6 +1970,7 @@ public final class CppNameBinder {
         /** Source callable signatures retain references; only emitted core nodes use pointer ABI. */
         private MiniType coreType(MiniType type) {
             if (type == null) return null;
+            if (type.containsPlaceholder()) { report("CPP004", source.range(), "A source placeholder has not been deduced in this declaration."); return MiniType.INT; }
             return switch (type) {
                 case MiniType.ReferenceType reference -> coreType(reference.referent()).pointerTo();
                 case MiniType.QualifiedType qualified -> MiniType.qualified(coreType(qualified.baseType()), qualified.qualifiers());
@@ -1828,6 +2021,7 @@ public final class CppNameBinder {
 
         private void requireComplete(MiniType type, SourceRange range) {
             if (type == null) return; // Unknown scalar expression types are checked by the core semantic pass.
+            if (type.containsPlaceholder()) { report("CPP004", range, "The type must be deduced before it is used."); return; }
             type = type.unqualified();
             if (type instanceof MiniType.ArrayType array) requireComplete(array.elementType(), range);
             else if (type instanceof MiniType.StructType struct) {
@@ -1848,8 +2042,9 @@ public final class CppNameBinder {
                     "尚未支持命名空间中的外部对象链接：" + namespace.qualify(node.name()));
             MiniType type = normalizeType(node.type(), namespace, null, node.range());
             boolean defined = !node.external() || node.initializer() != null;
-            if (defined) requireComplete(type, node.range());
             Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, type, defined, namespace, node.range());
+            if (type.containsAuto()) { type = deduceVariableType(type, node.cppInitializer(), node.initializer(), namespace, null, node.range()); entity.type = type; }
+            if (defined) requireComplete(type, node.range());
             recordLinkage(entity, node.range());
             Expression value = defined ? bindStaticInitializer(type, node.cppInitializer(), node.initializer(),
                     namespace, null, node, node.name()) : null;
@@ -1895,6 +2090,8 @@ public final class CppNameBinder {
 
         private Statement bindLocalStatic(VarDeclStmt node, Namespace namespace, Local scope, MiniType type) {
             Entity entity = declareLocal(node.name(), type, scope, node.range());
+            if (type.containsAuto()) { type = deduceVariableType(type, node.cppInitializer(), node.initializer(), namespace, scope, node.range()); entity.type = type; }
+            requireComplete(type, node.range());
             Expression value = bindStaticInitializer(type, node.cppInitializer(), node.initializer(), namespace, scope, node, node.name());
             boolean constant = value == null || constantInitializer(value);
             addStaticGlobal(new GlobalVarDecl(entity.coreName, coreType(type), constant ? value : null, false,
@@ -2028,13 +2225,13 @@ public final class CppNameBinder {
             if (!allocation && unsupportedOperator(node)) return;
             if (namespace != root && node.external() && !existingInternal(namespace, node.name())) report("CPP005", node.range(),
                     "尚未支持命名空间中的外部函数链接：" + namespace.qualify(node.name()));
-            MiniType returnType = normalizeType(node.returnType(), namespace, null, node.range());
             List<MiniType> parameterTypes = node.parameters().stream()
                     .map(p -> normalizeType(p.type(), namespace, null, p.range())).toList();
+            MiniType returnType = normalizeReturnType(node.returnType(),node.parameters(),parameterTypes,namespace,null,null,node.range());
             if (!allocation && !validOperator(node, parameterTypes, false)) return;
             if (allocation) validateAllocationFunction(node, namespace, returnType, parameterTypes);
             if (node.hasBody()) {
-                requireComplete(returnType, node.range());
+                if (!returnType.containsAuto()) requireComplete(returnType, node.range());
                 for (int i = 0; i < parameterTypes.size(); i++) requireComplete(parameterTypes.get(i), node.parameters().get(i).range());
             }
             requireSupportedCallLifetime(returnType, parameterTypes, node.range());
@@ -2043,6 +2240,14 @@ public final class CppNameBinder {
             Entity entity = instantiated!=null?instantiated:declareNamespaceFunction(node.name(), signature, node.hasBody(), namespace, node.range(), node.operatorName() != null);
             if(instantiated==null)recordDefaultArguments(entity,node.parameters(),namespace,null);
             recordLinkage(entity, node.range());
+            if(returnType.containsAuto()) {
+                autoReturnPatterns.putIfAbsent(entity,returnType);
+                if(!node.hasBody()) {
+                    if(((MiniType.FunctionType)entity.type).returnType().containsAuto())pendingAutoDeclarations.computeIfAbsent(entity,key->new ArrayList<>()).add(node);
+                    else { pendingAutoDeclarations.computeIfAbsent(entity,key->new ArrayList<>()).add(node); emitAutoPrototypes(entity,((MiniType.FunctionType)entity.type).returnType()); }
+                    return;
+                }
+            }
             if (node.external() && namespace == root && node.name().equals("exit")
                     && !internalLinkages.getOrDefault(entity, false)) libraryExitFunctions.add(entity);
             Local scope = new Local(null, namespace);
@@ -2054,13 +2259,16 @@ public final class CppNameBinder {
                 parameters.add(mapped(parameter, new Parameter(value.coreName, coreType(type), parameter.range())));
             }
             MiniType savedReturnType = currentReturnType;
+            AutoReturnContext savedAutoReturn=currentAutoReturn;
+            currentAutoReturn=returnType.containsAuto()?new AutoReturnContext(entity,returnType):null;
             currentReturnType = returnType;
             try {
                 BlockStmt body = node.body() == null ? null : block(node.body(), scope, false);
+                if(currentAutoReturn!=null) { returnType=finishAutoReturn(currentAutoReturn,node.range()); emitAutoPrototypes(entity,returnType); }
                 FunctionDecl core = mapped(node, new FunctionDecl(entity.coreName, coreType(returnType), parameters,
                         node.variadic(), body, node.external() && !internalLinkages.getOrDefault(entity, false), node.noReturn(), node.range()));
                 functions.add(core); declarations.add(core);
-            } finally { currentReturnType = savedReturnType; }
+            } finally { currentReturnType = savedReturnType; currentAutoReturn=savedAutoReturn; }
         }
 
         private Entity declareNamespaceValue(String name, Kind kind, MiniType type, boolean definition,
@@ -2106,7 +2314,8 @@ public final class CppNameBinder {
                 MiniType.FunctionType signature = (MiniType.FunctionType) function.type;
                 if (!signature.parameterTypes().equals(type.parameterTypes()) || signature.variadic() != type.variadic()) continue;
                 if (function.owner != namespace) report("CPP004", range, "函数声明与 using 引入的函数冲突：" + name);
-                if (!signature.returnType().equals(type.returnType())) report("CPP004", range, "函数重声明的返回类型不一致：" + name);
+                if (!signature.returnType().equals(type.returnType())
+                        && !Objects.equals(autoReturnPatterns.get(function),type.returnType())) report("CPP004", range, "函数重声明的返回类型不一致：" + name);
                 if (definition && function.defined) report("CPP004", range, "重复函数定义：" + name);
                 function.defined |= definition;
                 return function;
@@ -2232,9 +2441,10 @@ public final class CppNameBinder {
                 case BlockStmt n -> block(n, scope, true);
                 case VarDeclStmt n -> {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
-                    requireComplete(type, n.range());
                     if (n.staticStorage()) yield bindLocalStatic(n, namespace, scope, type);
                     Entity value = declareLocal(n.name(), type, scope, n.range());
+                    if (type.containsAuto()) { type = deduceVariableType(type, n.cppInitializer(), n.initializer(), namespace, scope, n.range()); value.type = type; }
+                    requireComplete(type, n.range());
                     Expression initialized = variableInitializer(type, n.cppInitializer(), n.initializer(), namespace, scope, n.range(), n.name());
                     if (type.isReference() && initialized != null) {
                         initialized = extendTemporaryLifetime(initialized,
@@ -2265,6 +2475,7 @@ public final class CppNameBinder {
                 }
                 case ExprStmt n -> new ExprStmt(fullExpression(expression(n.expression(), namespace, scope), false, n), n.range());
                 case ReturnStmt n -> {
+                    deduceReturn(n,namespace,scope);
                     // Accessibility is required even when guaranteed copy elision leaves the
                     // returned object's eventual destruction to the caller.
                     if (currentReturnType != null && currentReturnType.isStruct()) destructorForUse(currentReturnType, n.range());
@@ -2485,10 +2696,10 @@ public final class CppNameBinder {
                     }
                     MiniType.FunctionType signature = functionSignature(declaredExpressionType(callee));
                     if (signature != null) {
-                        requireComplete(signature.returnType(), n.range());
+                        if(n!=decltypeOperand) requireComplete(signature.returnType(), n.range());
                         signature.parameterTypes().forEach(t -> requireComplete(t, n.range()));
                         requireSupportedCallLifetime(signature.returnType(), signature.parameterTypes(), n.range());
-                        destructorForUse(signature.returnType(), n.range());
+                        if(n!=decltypeOperand) destructorForUse(signature.returnType(), n.range());
                         signature.parameterTypes().forEach(type -> destructorForUse(type, n.range()));
                     }
                     List<Expression> arguments = new ArrayList<>();
@@ -2954,6 +3165,7 @@ public final class CppNameBinder {
             }
             lowered.addAll(lowerSelectedArguments(selected.function,selected.parameters, sources.subList(offset, sources.size()),
                     values.subList(offset, values.size()), namespace, local));
+            instantiateFunctionTemplate(selected.function);
             MiniType.FunctionType signature = (MiniType.FunctionType) selected.function.type;
             requireComplete(signature.returnType(), original.range());
             signature.parameterTypes().forEach(type -> requireComplete(type, original.range()));
@@ -2986,7 +3198,7 @@ public final class CppNameBinder {
                 if (type == null) continue;
                 List<MiniType> reachable = new ArrayList<>(); reachable.add(type);
                 for (Method conversion : conversionMethods(type)) if (!conversion.source.method().conversionName().explicitSpecifier())
-                    reachable.add(objectTypeOfReference(conversion.returnType));
+                    reachable.add(objectTypeOfReference(methodReturnType(conversion)));
                 for (MiniType result : reachable) {
                     objects.add(result);
                     MiniType decayed = TypeCompatibility.decay(result).unqualified();
@@ -4190,7 +4402,7 @@ public final class CppNameBinder {
             MiniType type = normalizeType(source.type(), namespace, local, source.typeRange());
             requireComplete(type, source.typeRange());
             // Potential destruction is checked even in an unevaluated operand or elided result.
-            destructorForUse(type, source.range());
+            if(source!=decltypeOperand) destructorForUse(type, source.range());
             CppInitializer syntax = source.initializer();
             if (type.isArray()) return arrayInitialization(type, syntax, namespace, local, source.range());
             List<Expression> arguments = syntax.arguments();
@@ -4287,11 +4499,11 @@ public final class CppNameBinder {
                 if (explicit && mode == ConversionContext.IMPLICIT) continue;
                 // Explicit conversion functions may not acquire an unrelated target via
                 // a second arithmetic/pointer conversion (N4659 over.match.conv).
-                if (explicit && !CppOverloadResolver.qualificationOnly(method.returnType, target)) continue;
+                if (explicit && !CppOverloadResolver.qualificationOnly(methodReturnType(method), target)) continue;
                 MiniType receiver = methodThisType(method.owner, method.source).pointee();
                 if (!receiver.qualifiers().containsAll(source.type().qualifiers())) continue;
-                MiniType result = objectTypeOfReference(method.returnType);
-                var output = new CppOverloadResolver.Argument(result, method.returnType.isReference()
+                MiniType result = objectTypeOfReference(methodReturnType(method));
+                var output = new CppOverloadResolver.Argument(result, methodReturnType(method).isReference()
                         ? CppValueCategory.LVALUE : CppValueCategory.PRVALUE, false);
                 if (!CppOverloadResolver.standardViable(output, target)) continue;
                 var input = new CppOverloadResolver.Argument(source.type(), CppValueCategory.LVALUE, false);
@@ -4354,11 +4566,11 @@ public final class CppNameBinder {
                 if (!addressableObject(receiver)) {
                     report("CPP005", range, "此转换函数接收者尚无可用的对象存储。"); return value;
                 }
-                destructorForUse(method.returnType, range);
+                destructorForUse(methodReturnType(method), range);
                 Expression call = typed(new CallExpr(new NameExpr(method.function.coreName, range), List.of(address(receiver)), range),
-                        coreType(method.returnType));
-                if (method.returnType.isReference()) return typed(new UnaryExpr(TokenType.STAR, call, range), method.returnType.referent());
-                return method.returnType.isStruct() ? recordPrvalue(method.returnType, call, range) : call;
+                        coreType(methodReturnType(method)));
+                if (methodReturnType(method).isReference()) return typed(new UnaryExpr(TokenType.STAR, call, range), methodReturnType(method).referent());
+                return methodReturnType(method).isStruct() ? recordPrvalue(methodReturnType(method), call, range) : call;
             }
             Constructor constructor = selected.constructor;
             instantiateConstructor(constructor);
@@ -4450,8 +4662,8 @@ public final class CppNameBinder {
             Set<MiniType> targets = new LinkedHashSet<>();
             for (Method method : conversionMethods(declaredExpressionType(value)))
                 if (!method.source.method().conversionName().explicitSpecifier()
-                        && objectTypeOfReference(method.returnType).isIntegerScalar())
-                    targets.add(objectTypeOfReference(method.returnType).unqualified());
+                        && objectTypeOfReference(methodReturnType(method)).isIntegerScalar())
+                    targets.add(objectTypeOfReference(methodReturnType(method)).unqualified());
             if (targets.size() != 1) { report("CPP004", value.range(), "switch 要求唯一的整型转换目标。"); return value; }
             Expression result = userConversion(targets.iterator().next(), value, ConversionContext.IMPLICIT, value.range());
             if (result == null) { report("CPP004", value.range(), "switch 没有可行的整型转换。"); return value; }
@@ -4647,10 +4859,10 @@ public final class CppNameBinder {
             Expression argument = parameter.isReference() ? address(source)
                     : copyInitialize(parameter, source, range, CppInitializer.Kind.COPY);
             destructorForUse(parameter, range);
-            destructorForUse(selected.returnType, range);
+            destructorForUse(methodReturnType(selected), range);
             Expression call = typed(new CallExpr(new NameExpr(selected.function.coreName, range),
-                    List.of(address(target), argument), List.of(1,0), range), coreType(selected.returnType));
-            if (selected.returnType.isStruct()) call = recordPrvalue(selected.returnType, call, range);
+                    List.of(address(target), argument), List.of(1,0), range), coreType(methodReturnType(selected)));
+            if (methodReturnType(selected).isStruct()) call = recordPrvalue(methodReturnType(selected), call, range);
             return new ExprStmt(fullExpression(call, false, entry.field), range);
         }
 
