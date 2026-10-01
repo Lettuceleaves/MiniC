@@ -264,6 +264,11 @@ final class ExpressionLowerer {
         if (expression instanceof CallExpr callExpr) {
             MiniType callResultType = expressionTypes.get(callExpr);
             boolean structReturn = callResultType != null && callResultType.isStruct();
+            boolean directCall = isDirectFunctionCall(callExpr);
+            // The callee is sequenced before arguments. A parameter reference denotes a
+            // mutable slot, so capture its value before an argument can modify that slot.
+            IrValue calleeAddress = directCall ? null
+                    : captureCallValue(lowerExpression(callExpr.callee()), callExpr.callee().range());
 
             ArrayList<IrValue> arguments = new ArrayList<>();
             IrValue returnSlotAddress = null;
@@ -286,6 +291,8 @@ final class ExpressionLowerer {
                             (MiniType.StructType) argType.unqualified(),
                             callExpr.range()
                     );
+                } else {
+                    argValue = captureCallValue(argValue, argument.range());
                 }
                 arguments.add(argValue);
             }
@@ -293,7 +300,7 @@ final class ExpressionLowerer {
             IrTemporary result = returnsVoid
                     ? null
                     : builder.newTemporary(structReturn ? IrType.POINTER : irTypeOf(callExpr));
-            if (isDirectFunctionCall(callExpr)) {
+            if (directCall) {
                 boolean variadic = isVariadicDirectCall(callExpr.calleeName());
                 arguments = castArguments(callExpr.calleeName(), arguments, callExpr);
                 builder.addInstruction(new IrCallInstruction(
@@ -304,7 +311,6 @@ final class ExpressionLowerer {
                         callExpr.range()
                 ));
             } else {
-                IrValue calleeAddress = lowerExpression(callExpr.callee());
                 boolean variadic = isVariadicIndirectCall(callExpr);
                 arguments = castArguments(callExpr, arguments);
                 builder.addInstruction(new IrIndirectCallInstruction(
@@ -323,6 +329,13 @@ final class ExpressionLowerer {
             return result == null ? new IrConstant(0) : result;
         }
         throw new IllegalArgumentException("unsupported expression: " + expression.getClass().getSimpleName());
+    }
+
+    private IrValue captureCallValue(IrValue value, minic.SourceRange range) {
+        if (!(value instanceof IrValue.IrParameterRef)) return value;
+        IrTemporary snapshot = builder.newTemporary(value.type());
+        builder.addInstruction(new IrMoveInstruction(snapshot, value, range));
+        return snapshot;
     }
 
     private IrValue lowerVaStart(VaStartExpr expression) {
