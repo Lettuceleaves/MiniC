@@ -608,16 +608,17 @@ public final class DebugRuntime {
     }
 
     void push(IrFunction function, List<Value> arguments, IrTemporary target) {
-        if (arguments.size() != function.parameters().size()) throw new IllegalStateException("Argument count: " + code.ir().displayName(function.name()));
-        Frame frame = new Frame(function, target);
-        for (int i = 0; i < arguments.size(); i++) frame.parameters.put(function.parameters().get(i).name(), arguments.get(i));
+        int fixedCount = function.parameters().size();
+        if (arguments.size() < fixedCount || (!function.variadic() && arguments.size() != fixedCount))
+            throw new IllegalStateException("Argument count: " + code.ir().displayName(function.name()));
+        Frame frame = new Frame(function, target, arguments);
+        for (int i = 0; i < fixedCount; i++) frame.parameters.put(function.parameters().get(i).name(), arguments.get(i));
         stack.add(frame);
     }
 
     void pop(Value value) {
         Frame frame = stack.removeLast();
-        frame.locals.values().forEach(memory::remove);
-        frame.parameterAddresses.values().forEach(memory::remove);
+        releaseFrame(frame);
         if (stack.isEmpty()) {
             returnValue = value;
             int status = value == null ? 0 : (int) value.integer();
@@ -631,13 +632,16 @@ public final class DebugRuntime {
     }
 
     void terminate(int status, String reason) {
-        stack.forEach(frame -> {
-            frame.locals.values().forEach(memory::remove);
-            frame.parameterAddresses.values().forEach(memory::remove);
-        });
+        stack.forEach(this::releaseFrame);
         stack.clear();
         returnValue = Value.of(IrType.INT, status);
         termination = new TerminationState(TerminationKind.EXITED, status, reason);
+    }
+
+    private void releaseFrame(Frame frame) {
+        frame.locals.values().forEach(memory::remove);
+        frame.parameterAddresses.values().forEach(memory::remove);
+        if (frame.incomingArgumentAreaAddress != 0) memory.remove(frame.incomingArgumentAreaAddress);
     }
 
     void fail(String message) {
@@ -654,6 +658,22 @@ public final class DebugRuntime {
     }
 
     long local(Frame frame, IrLocal local) {
+        if (local.incomingArgumentArea() && frame.function.variadic()) {
+            return frame.locals.computeIfAbsent(local.name(), key -> {
+                int index = local.incomingArgumentIndex();
+                if (index > frame.arguments.size())
+                    throw new IllegalStateException("Invalid incoming argument index: " + index);
+                if (frame.incomingArgumentAreaAddress == 0) {
+                    // va_start may point one past the final actual argument. Keep that slot
+                    // uninitialized so an invalid va_arg is diagnosed by the ordinary reader.
+                    int bytes = Math.multiplyExact(Math.addExact(frame.arguments.size(), 1), Long.BYTES);
+                    frame.incomingArgumentAreaAddress = allocate(bytes, Long.BYTES, "stack", local.sourceName());
+                    for (int i = 0; i < frame.arguments.size(); i++)
+                        write(frame.incomingArgumentAreaAddress + (long) i * Long.BYTES, frame.arguments.get(i));
+                }
+                return frame.incomingArgumentAreaAddress + (long) index * Long.BYTES;
+            });
+        }
         return frame.locals.computeIfAbsent(local.name(), key -> allocate(
                 local.sizeBytes(),
                 local.alignmentBytes(),
@@ -769,11 +789,17 @@ public final class DebugRuntime {
     static final class Frame {
         final IrFunction function;
         final IrTemporary target;
+        final List<Value> arguments;
+        long incomingArgumentAreaAddress;
         final Map<String, Value> parameters = new LinkedHashMap<>(), temps = new LinkedHashMap<>();
         final Map<String, Long> locals = new LinkedHashMap<>();
         final Map<String, Long> parameterAddresses = new LinkedHashMap<>();
         int block, pc, lastLine = -1;
-        Frame(IrFunction function, IrTemporary target) { this.function = function; this.target = target; }
+        Frame(IrFunction function, IrTemporary target, List<Value> arguments) {
+            this.function = function;
+            this.target = target;
+            this.arguments = List.copyOf(arguments);
+        }
         void jump(String label) {
             for (int i = 0; i < function.blocks().size(); i++) {
                 if (!function.blocks().get(i).label().equals(label)) continue;
