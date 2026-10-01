@@ -65,7 +65,10 @@ public final class StructRegistry {
         program.typedefs().forEach(typedefDecl -> {
             validateTypedefType(typedefDecl.type(), typedefDecl.range());
         });
-        program.globals().forEach(global -> validateDeclaredType(global.type(), global.range()));
+        program.globals().forEach(global -> {
+            if(global.external())validateTypedefType(global.type(),global.range());
+            else validateDeclaredType(global.type(),global.range());
+        });
         program.functions().forEach(functionDecl -> {
             validateFunctionReturnType(functionDecl.returnType(), functionDecl.range());
             functionDecl.parameters().forEach(parameter -> validateDeclaredType(parameter.type(), parameter.range()));
@@ -124,6 +127,8 @@ public final class StructRegistry {
             report(range, "对象不能直接声明为函数类型；请使用函数指针");
         }
         if (unqualified instanceof MiniType.ArrayType arrayType) {
+            if(objectRoot&&arrayType.length()<0)report(range,"An array object definition requires a complete bound");
+            if(arrayType.elementType().isArray()&&arrayType.elementType().arrayLength()<0)report(range,"Array elements cannot have unknown bound");
             if (arrayType.elementType().isFunction() || arrayType.elementType().isVoid()) {
                 report(range, "数组元素不能是函数或 void 类型");
             }
@@ -302,7 +307,10 @@ public final class StructRegistry {
     /** Exact target layout query for already bound, complete object types. Never returns recovery size. */
     public int completeObjectSize(MiniType type) {
         type=type.unqualified();
-        if(type.isArray())return Math.multiplyExact(completeObjectSize(type.elementType()),type.arrayLength());
+        if(type.isArray()) {
+            if(type.arrayLength()<0)throw new IllegalArgumentException("array of unknown bound has no complete size");
+            return Math.multiplyExact(completeObjectSize(type.elementType()),type.arrayLength());
+        }
         requireObjectLayout(type);return sizeOf(type);
     }
     public int completeObjectAlignment(MiniType type) {
@@ -324,7 +332,8 @@ public final class StructRegistry {
             return 1;
         }
         if (type.isArray()) {
-            return sizeOf(type.elementType()) * type.arrayLength();
+            // Keep invalid object declarations diagnosable without producing negative layouts.
+            return sizeOf(type.elementType()) * Math.max(1,type.arrayLength());
         }
         if (type.isPointer()) {
             return TypeLayout.sizeOf(type);

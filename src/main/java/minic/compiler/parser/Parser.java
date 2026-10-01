@@ -1613,6 +1613,9 @@ public final class Parser extends Stage {
                         && context.peekAt(1).type() != TokenType.ELLIPSIS) break;
                 if (context.match(TokenType.LEFT_BRACKET)) {
                     if(isCpp()) {
+                        if(context.match(TokenType.RIGHT_BRACKET)) {
+                            direct.modifiers().add(new ArrayModifier(-1));direct=direct.withEnd(context.previous());continue;
+                        }
                         Expression bound=expressionManager.parseAssignmentExpression();
                         Token close=context.consume(TokenType.RIGHT_BRACKET,"期望 ']'");
                         if(bound==null||close==null)return null;
@@ -2182,6 +2185,7 @@ public final class Parser extends Stage {
                 }
                 case MiniType.ArrayType array -> {
                     if (array.elementType().isReference()) context.report(range, "数组元素不能是引用");
+                    if(array.elementType().isArray()&&array.elementType().arrayLength()<0)context.report(range,"Only the outermost array extent may be omitted");
                     validateReferenceShape(array.elementType(), range);
                 }
                 case MiniType.FunctionType function -> {

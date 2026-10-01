@@ -74,7 +74,7 @@ public final class CppTemplateDeduction {
             if(pattern instanceof MiniType.ReferenceType p && actual instanceof MiniType.ReferenceType a)return p.kind()==a.kind()&&type(p.referent(),a.referent());
             if(pattern instanceof MiniType.ArrayType p && actual instanceof MiniType.ArrayType a)return p.length()==a.length()&&type(p.elementType(),a.elementType());
             if(pattern instanceof MiniType.DependentArrayType p && actual instanceof MiniType.ArrayType a)
-                return type(p.elementType(),a.elementType())&&argument(new TemplateArgument.Value(p.bound()),new TemplateArgument.Integral(a.length(),MiniType.INT));
+                return a.length()>0&&type(p.elementType(),a.elementType())&&argument(new TemplateArgument.Value(p.bound()),new TemplateArgument.Integral(a.length(),MiniType.INT));
             if(pattern instanceof MiniType.TemplateIdType p && actual instanceof MiniType.TemplateIdType a) {
                 if(!p.templateName().equals(a.templateName())||p.arguments().size()!=a.arguments().size())return false;
                 for(int index=0;index<p.arguments().size();index++)if(!argument(p.arguments().get(index),a.arguments().get(index)))return false;

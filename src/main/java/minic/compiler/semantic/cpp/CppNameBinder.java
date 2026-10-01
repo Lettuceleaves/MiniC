@@ -366,6 +366,16 @@ public final class CppNameBinder {
             for (StaticField field : staticFields.values()) if (!field.entity.defined)
                 for (SourceRange use : field.uses) report("CPP004", use,
                         "ODR-used static data member has no definition: " + field.owner.canonicalName + "::" + field.entity.name);
+            // Earlier incomplete extern declarations use the final storage type in core only;
+            // source-point completeness was already checked while binding each expression.
+            for(int index=0;index<globals.size();index++) {
+                GlobalVarDecl previous=globals.get(index);Entity entity=coreValues.get(previous.name());
+                if(previous.type().isArray()&&previous.type().arrayLength()<0&&entity!=null&&entity.type.isArray()&&entity.type.arrayLength()>0) {
+                    GlobalVarDecl complete=new GlobalVarDecl(previous.name(),coreType(entity.type),previous.initializer(),previous.external(),previous.alignmentSpecs(),previous.range());
+                    globals.set(index,complete);int ordered=declarations.indexOf(previous);if(ordered>=0)declarations.set(ordered,complete);
+                    origins.replaceAll((source,core)->core==previous?complete:core);
+                }
+            }
             // The compatibility constructor deliberately produces a core C Program.
             Program core = mapped(source, new Program(structs, enums, typedefs, globals, functions,
                     declarations, minic.compiler.LanguageMode.C, staticLifetime.finish(), source.range()));
@@ -2107,7 +2117,9 @@ public final class CppNameBinder {
                 Expression operand=expression instanceof SizeofExpr size?size.expression():((AlignofExpr)expression).expression();
                 if(type==null)type=declaredExpressionType(operand);
                 type=objectTypeOfReference(type);if(type==null)throw new IllegalArgumentException("Cannot determine constant layout query type");
-                requireComplete(type,expression.range());
+                MiniType required=type;
+                if(expression instanceof AlignofExpr)while(required.isArray())required=elementType(required);
+                requireComplete(required,expression.range());
                 var layoutDiagnostics=new ArrayList<Diagnostic>();
                 var registry=new minic.compiler.semantic.manager.StructRegistry(new minic.compiler.semantic.model.Scope(),layoutDiagnostics);
                 registry.defineStructs(new Program(structs,List.of(),source.range()));
@@ -2257,7 +2269,10 @@ public final class CppNameBinder {
             if (type == null) return; // Unknown scalar expression types are checked by the core semantic pass.
             if (type.containsPlaceholder()) { report("CPP004", range, "The type must be deduced before it is used."); return; }
             type = type.unqualified();
-            if (type instanceof MiniType.ArrayType array) requireComplete(array.elementType(), range);
+            if (type instanceof MiniType.ArrayType array) {
+                if(array.length()<0)report("CPP004",range,"This use requires a complete array bound.");
+                requireComplete(array.elementType(), range);
+            }
             else if (type instanceof MiniType.StructType struct) {
                 TypeEntity entity = coreTypes.get(struct.name());
                 if (entity != null) completeTemplate(entity, range);
@@ -2276,6 +2291,7 @@ public final class CppNameBinder {
                     "尚未支持命名空间中的外部对象链接：" + namespace.qualify(node.name()));
             MiniType type = normalizeType(node.type(), namespace, null, node.range());
             boolean defined = !node.external() || node.initializer() != null;
+            if(defined)type=inferArrayBound(type,node.cppInitializer(),node.initializer(),namespace,null,node.range());
             Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, type, defined, namespace, node.range());
             if (type.containsAuto()) { type = deduceVariableType(type, node.cppInitializer(), node.initializer(), namespace, null, node.range()); entity.type = type; }
             if (defined) requireComplete(type, node.range());
@@ -2288,6 +2304,47 @@ public final class CppNameBinder {
             globals.add(core); declarations.add(core);
             if (defined) for (Statement action : staticActions(entity, type, constant ? null : value, node.range()))
                 staticLifetime.startup(action);
+        }
+
+        private MiniType inferArrayBound(MiniType type,CppInitializer syntax,Expression legacy,Namespace namespace,Local scope,SourceRange range) {
+            if(!type.isArray()||type.arrayLength()>0)return type;
+            List<Expression> values=syntax!=null?syntax.arguments():legacy==null?List.of():legacy instanceof AggregateInitExpr aggregate?aggregate.values():List.of(legacy);
+            int count=0;
+            if(values.size()==1&&values.getFirst() instanceof StringLiteralExpr text
+                    && elementType(type).unqualified().equals(stringLiteralType(text).elementType().unqualified()))count=stringLiteralType(text).arrayLength();
+            else if(syntax!=null&&isList(syntax)||legacy instanceof AggregateInitExpr) {
+                int index=0;
+                while(index<values.size()) {index=skipArrayInitializer(elementType(type),values,index,namespace,scope);count++;}
+            }
+            if(count<=0) {
+                report("CPP004",range,"An array definition of unknown bound needs a non-empty initializer from which to deduce its extent.");
+                return MiniType.qualified(type.elementType().arrayOf(1),type.qualifiers());
+            }
+            return MiniType.qualified(type.elementType().arrayOf(count),type.qualifiers());
+        }
+
+        /** Consume one aggregate element using the same brace-elision boundaries as its initializer. */
+        private int skipArrayInitializer(MiniType type,List<Expression> values,int index,Namespace namespace,Local scope) {
+            if(index>=values.size())return index;
+            Expression source=values.get(index);
+            if(isBraced(source)||type.isArray()&&source instanceof StringLiteralExpr)return index+1;
+            if(type.isArray()) {
+                if(type.arrayLength()<0){report("CPP004",source.range(),"Only the outermost array extent may be omitted.");return index+1;}
+                for(int element=0;element<type.arrayLength()&&index<values.size();element++)index=skipArrayInitializer(elementType(type),values,index,namespace,scope);
+                return index;
+            }
+            TypeEntity owner=objectType(type);
+            if(owner!=null) {
+                completeTemplate(owner,source.range());
+                MiniType actual=declaredExpressionType(unevaluatedExpression(source,namespace,scope));
+                if(!nonAggregate(owner)&&(actual==null||!actual.unqualified().equals(type.unqualified()))) {
+                    if(owner.fields.isEmpty())return index+1;
+                    List<StructField> fields=owner.union?List.of(owner.fields.getFirst()):owner.fields;
+                    for(StructField field:fields)if(index<values.size())index=skipArrayInitializer(field.type(),values,index,namespace,scope);
+                    return index;
+                }
+            }
+            return index+1;
         }
 
         private Expression bindStaticInitializer(MiniType type, CppInitializer syntax, Expression legacy,
@@ -2525,6 +2582,10 @@ public final class CppNameBinder {
             if (existing != null) {
                 if (existing.owner != namespace || existing.kind != kind) {
                     report("CPP004", range, "名称与已有声明或 using 声明冲突：" + name);
+                } else if (existing.type.isArray()&&type.isArray()&&existing.type.elementType().equals(type.elementType())
+                        && existing.type.qualifiers().equals(type.qualifiers())&&(existing.type.arrayLength()<0||type.arrayLength()<0)) {
+                    if(type.arrayLength()>0)existing.type=type;
+                    if(definition&&existing.defined)report("CPP004",range,"重复定义："+name);
                 } else if (!existing.type.equals(type)) {
                     report(kind == Kind.FUNCTION ? "CPP005" : "CPP004", range,
                             kind == Kind.FUNCTION ? "尚未支持函数重载或不同签名的重声明：" + name
@@ -2685,6 +2746,7 @@ public final class CppNameBinder {
                 case CppStructuredBindingDecl n -> structuredBinding(n,namespace,scope);
                 case VarDeclStmt n -> {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
+                    type=inferArrayBound(type,n.cppInitializer(),n.initializer(),namespace,scope,n.range());
                     if (n.staticStorage()) yield bindLocalStatic(n, namespace, scope, type);
                     Entity value = declareLocal(n.name(), type, scope, n.range());
                     if (type.containsAuto()) { type = deduceVariableType(type, n.cppInitializer(), n.initializer(), namespace, scope, n.range()); value.type = type; }
@@ -2977,7 +3039,7 @@ public final class CppNameBinder {
                 initializations.add(lambdaInitialize(target,capture.type,value,capture.initializer.range()));
             }
             Expression body=initializations.isEmpty()?typed(new CastExpr(MiniType.VOID,new IntegerLiteralExpr(0,"0",source.range()),source.range()),MiniType.VOID)
-                    :typed(new CommaExpr(initializations,source.range()),MiniType.VOID);
+                    :typed(initializations.size()==1?initializations.getFirst():new CommaExpr(initializations,source.range()),MiniType.VOID);
             return typed(new ObjectInitExpr(lambda.type.type,destination,body,source.range()),lambda.type.type);
         }
 
@@ -3103,7 +3165,7 @@ public final class CppNameBinder {
                     elements.add(lambdaInitialize(typed(new IndexExpr(target,subscript,range),coreType(element)),element,
                             typed(new IndexExpr(value,subscript,range),element),range));
                 }
-                return typed(new CommaExpr(elements,range),MiniType.VOID);
+                return typed(elements.size()==1?elements.getFirst():new CommaExpr(elements,range),MiniType.VOID);
             }
             Expression initialized=type.isReference()?value:type.isStruct()?copyInitialize(type,value,range,CppInitializer.Kind.DIRECT_PAREN):convertCallValue(type,value,value);
             return typed(new InitializeExpr(target,initialized,range),MiniType.VOID);
@@ -3271,7 +3333,7 @@ public final class CppNameBinder {
                     actions.add(structuredArrayElement(typed(new IndexExpr(target,subscript,range),elementType(type)),elementType(type),
                             typed(new IndexExpr(source,subscript,range),elementType(declaredExpressionType(source))),kind,range));
                 }
-                return typed(new CommaExpr(actions,range),MiniType.VOID);
+                return typed(actions.size()==1?actions.getFirst():new CommaExpr(actions,range),MiniType.VOID);
             }
             Expression value=type.isStruct()?copyInitialize(type,source,range,kind==CppInitializer.Kind.COPY?CppInitializer.Kind.COPY:CppInitializer.Kind.DIRECT_PAREN)
                     :convertCallValue(type.unqualified(),source,source);
@@ -3704,7 +3766,9 @@ public final class CppNameBinder {
                     rejectUnevaluatedLambdas(n.expression());
                     MiniType type = objectTypeOfReference(normalizeType(n.queriedType(), namespace, local, n.range()));
                     Expression operand = unevaluatedExpression(n.expression(), namespace, local);
-                    requireComplete(type != null ? type : declaredExpressionType(operand), n.range());
+                    MiniType alignedElement=type!=null?type:declaredExpressionType(operand);
+                    while(alignedElement!=null&&alignedElement.isArray())alignedElement=elementType(alignedElement);
+                    requireComplete(alignedElement,n.range());
                     yield new AlignofExpr(operand, coreType(type), n.range());
                 }
                 case VaStartExpr n -> new VaStartExpr(expression(n.list(), namespace, local), expression(n.lastParameter(), namespace, local), n.range());
@@ -5396,7 +5460,7 @@ public final class CppNameBinder {
             if (target.isReference()) return arguments.size() == 1
                     && typeQueryConversion(arguments.getFirst(), target,
                     copyInitialization ? ConversionContext.IMPLICIT : ConversionContext.EXPLICIT, range);
-            if (target.isArray()) return arguments.isEmpty()
+            if (target.isArray()) return target.arrayLength()>0 && arguments.isEmpty()
                     && typeQueryConstructible(inheritObjectQualifiers(target, target.elementType()), List.of(), false, range);
             TypeEntity owner = objectType(target);
             if (owner == null) {
@@ -5522,7 +5586,7 @@ public final class CppNameBinder {
         private boolean typeQueryDestructible(MiniType type, SourceRange range) {
             if (type.isReference()) return true;
             if (type.isVoid() || type.isFunction()) return false;
-            if (type.isArray()) return typeQueryDestructible(type.elementType(), range);
+            if (type.isArray()) return type.arrayLength()>0 && typeQueryDestructible(type.elementType(), range);
             TypeEntity owner = objectType(type);
             if (owner == null) return true;
             completeTemplate(owner, range);

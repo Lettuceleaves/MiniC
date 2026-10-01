@@ -713,14 +713,14 @@ public sealed interface MiniType permits
          */
         public ArrayType {
             Objects.requireNonNull(elementType, "elementType");
-            if (length <= 0) {
-                throw new IllegalArgumentException("length must be positive");
+            if (length == 0 || length < -1) {
+                throw new IllegalArgumentException("length must be positive, or -1 for an unknown bound");
             }
         }
 
         @Override
         public String toString() {
-            return elementType + "[" + length + "]";
+            return elementType + "[" + (length < 0 ? "" : length) + "]";
         }
     }
 

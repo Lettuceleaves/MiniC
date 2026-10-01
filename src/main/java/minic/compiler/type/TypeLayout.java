@@ -39,7 +39,8 @@ public final class TypeLayout {
             return POINTER_SIZE_BYTES;
         }
         if (type.isArray()) {
-            return sizeOf(type.elementType()) * type.arrayLength();
+            if(type.arrayLength()<0)throw new IllegalArgumentException("array of unknown bound has no complete object size");
+            return Math.multiplyExact(sizeOf(type.elementType()),type.arrayLength());
         }
         if (type.isNullPointer()) {
             return POINTER_SIZE_BYTES;
@@ -89,7 +90,7 @@ public final class TypeLayout {
             return false;
         }
         if (type.isArray()) {
-            return hasFixedLayout(type.elementType());
+            return type.arrayLength()>0 && hasFixedLayout(type.elementType());
         }
         return true;
     }

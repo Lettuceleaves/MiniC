@@ -436,7 +436,9 @@ final class ExpressionSemanticAnalyzer {
         if (queriedType == null) {
             queriedType = analyzeTypeQueryOperand(alignofExpr.expressionOptional().orElseThrow(), scope);
         }
-        if (!TypeLayout.hasFixedLayout(queriedType) && !hasStructLayout(queriedType)) {
+        MiniType alignedElement=queriedType;
+        while(alignedElement.isArray())alignedElement=alignedElement.elementType();
+        if (!TypeLayout.hasFixedLayout(alignedElement) && !hasStructLayout(alignedElement)) {
             report(alignofExpr.range(), "alignof 只支持具有完整布局的对象类型");
         }
         return MiniType.UNSIGNED_LONG_LONG;
@@ -559,7 +561,7 @@ final class ExpressionSemanticAnalyzer {
             return structRegistry.hasLayout(structType.name());
         }
         if (type instanceof MiniType.ArrayType arrayType) {
-            return hasStructLayout(arrayType.elementType());
+            return arrayType.length()>0 && hasStructLayout(arrayType.elementType());
         }
         return false;
     }
