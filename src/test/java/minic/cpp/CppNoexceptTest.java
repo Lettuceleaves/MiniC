@@ -8,6 +8,7 @@ import minic.compiler.semantic.SemanticAnalyzer;
 import minic.cpp.support.BoundedProcess;
 import minic.cpp.support.CppDifferentialHarness;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -29,7 +30,6 @@ final class CppNoexceptTest {
         Arguments.of("copy-argument-contributes", "struct A{A()noexcept{}A(const A&)noexcept(false){}};int accept(A)noexcept{return 1;}int main(){A value;printf(\"%d %d\\n\",noexcept(accept(value)),noexcept(accept(A())));return 0;}", "0 1\n"),
         Arguments.of("ordinary-and-nested", "int safe()noexcept{return 1;}int loose(){return 2;}int main(){printf(\"%d %d %d %d\\n\",noexcept(safe()),noexcept(loose()),noexcept(noexcept(loose())),sizeof(noexcept(safe()))==sizeof(bool));return 0;}", "1 0 1 1\n"),
         Arguments.of("no-runtime-evaluation", "int count;int touch()noexcept{++count;return 7;}int main(){bool result=noexcept(touch()+count++);printf(\"%d %d\\n\",result,count);return 0;}", "1 0\n"),
-        Arguments.of("dead-branch-still-potentially-throwing", "int loose(){return 1;}int main(){printf(\"%d %d %d %d\\n\",noexcept(false&&loose()),noexcept(true||loose()),noexcept(true?1:loose()),noexcept(sizeof(loose())));return 0;}", "0 0 0 1\n"),
         Arguments.of("undefined-unevaluated-functions", "int absent()noexcept;int loose();int main(){printf(\"%d %d\\n\",noexcept(absent()),noexcept(loose()));return 0;}", "1 0\n"),
         Arguments.of("parameter-names-in-specification", "int safe(int value)noexcept(sizeof(value)==sizeof(int)){return value;}int main(){printf(\"%d %d\\n\",noexcept(safe(3)),safe(3));return 0;}", "1 3\n"),
         Arguments.of("pointer-conversion-and-overload", "int f()noexcept{return 3;}int choose(int(*)()noexcept){return 1;}int choose(int(*)()){return 2;}int main(){int(*loose)()=f;int(*safe)()noexcept=f;printf(\"%d %d %d %d\\n\",noexcept(loose()),noexcept(safe()),choose(f),loose());return 0;}", "0 1 1 3\n"),
@@ -40,7 +40,6 @@ final class CppNoexceptTest {
         Arguments.of("user-body-does-not-infer-spec", "struct A{A(){}A(const A&){}A&operator=(const A&){return *this;}~A(){}};int main(){A a,b;printf(\"%d %d %d %d\\n\",noexcept(A()),noexcept(A(a)),noexcept(a=b),noexcept(a.~A()));return 0;}", "0 0 0 1\n"),
         Arguments.of("dmi-overrides-throwing-default", "struct Leaf{Leaf()noexcept(false){}Leaf(int)noexcept{}};struct Mid{Leaf value=Leaf(1);};struct Outer{Mid value;};int main(){printf(\"%d %d\\n\",noexcept(Mid()),noexcept(Outer()));return 0;}", "1 1\n"),
         Arguments.of("explicit-member-init-overrides-dmi", "int loose(){return 1;}struct Mid{int value=loose();Mid()noexcept:value(2){}};struct Outer{Mid value;};int main(){printf(\"%d %d\\n\",noexcept(Mid()),noexcept(Outer()));return 0;}", "1 1\n"),
-        Arguments.of("default-argument-contributes", "int loose(){return 2;}struct Leaf{Leaf(int value=loose())noexcept{}};struct Outer{Leaf value;};int main(){printf(\"%d %d %d\\n\",noexcept(Leaf()),noexcept(Leaf(1)),noexcept(Outer()));return 0;}", "0 1 0\n"),
         Arguments.of("lazy-unused-class-member-spec", "template<class T>struct Holder{void unused()noexcept(sizeof(typename T::missing)>0);};Holder<int> value;int main(){printf(\"ok\\n\");return 0;}", "ok\n"),
         Arguments.of("dependent-spec-selected-on-use", "template<class T>int inspect(T value)noexcept(noexcept(value.run())){return value.run();}struct A{int run()noexcept{return 4;}};struct B{int run(){return 5;}};int main(){A a;B b;printf(\"%d %d %d\\n\",noexcept(inspect(a)),noexcept(inspect(b)),inspect(a));return 0;}", "1 0 4\n"),
         Arguments.of("explicit-false-matches-absent", "int f()noexcept(false);int f(){return 6;}int main(){int(*p)()noexcept(false)=f;printf(\"%d %d\\n\",noexcept(p()),p());return 0;}", "0 6\n"),
@@ -55,6 +54,35 @@ final class CppNoexceptTest {
         assertEquals(expected,report.outcomes().get(CppDifferentialHarness.Backend.GXX).stdout().replace("\r\n","\n"),report::describe);
         assertTrue(report.passed(),report::describe);
     }
+    // Keep these original source fixtures against the language contract. GCC 8
+    // predates CWG 3128 and omits default arguments from implicit ctor noexcept.
+    // https://cplusplus.github.io/CWG/issues/3128.html
+    // https://timsong-cpp.github.io/cppwp/n4659/except.spec#7.2
+    static Stream<Arguments> normativePrograms() { return Stream.of(
+        Arguments.of("dead-branch-still-potentially-throwing", "int loose(){return 1;}int main(){printf(\"%d %d %d %d\\n\",noexcept(false&&loose()),noexcept(true||loose()),noexcept(true?1:loose()),noexcept(sizeof(loose())));return 0;}", "0 0 0 1\n"),
+        Arguments.of("default-argument-contributes", "int loose(){return 2;}struct Leaf{Leaf(int value=loose())noexcept{}};struct Outer{Leaf value;};int main(){printf(\"%d %d %d\\n\",noexcept(Leaf()),noexcept(Leaf(1)),noexcept(Outer()));return 0;}", "0 1 0\n")
+    ); }
+    @ParameterizedTest(name="{0}") @MethodSource("normativePrograms")
+    void standardRulesRemainCoveredWhenTheLegacyOracleDisagrees(String name,String body,String expected) throws Exception {
+        var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),
+                CppDifferentialHarness.Limits.defaults(),LanguageMode.CPP17_ALGORITHM).run(name,"#include <stdio.h>\n"+body,"");
+        for(var backend:List.of(CppDifferentialHarness.Backend.MINIC_NATIVE,CppDifferentialHarness.Backend.MINIC_DEBUG)) {
+            var outcome=report.outcomes().get(backend);
+            assertEquals(CppDifferentialHarness.Status.OK,outcome.status(),report::describe);
+            assertEquals(expected,outcome.stdout().replace("\r\n","\n"),report::describe);
+        }
+    }
+    @Test void aThrowingFunctionCannotBindToANonThrowingFunctionReference() throws Exception {
+        // N4659 [dcl.init.ref]/4.2 allows only the opposite direction. G++ 8
+        // incorrectly accepts this source; compile-only prevents executing it.
+        // https://timsong-cpp.github.io/cppwp/n4659/dcl.init.ref#4.2
+        var report=new CppDifferentialHarness(temporary,CppDifferentialHarness.referenceCompiler(System.getenv()),
+                CppDifferentialHarness.Limits.defaults(),LanguageMode.CPP17_ALGORITHM).compile("reference-strengthening",
+                "void loose(){}int main(){void(&r)()noexcept=loose;return 0;}");
+        for(var backend:List.of(CppDifferentialHarness.Backend.MINIC_NATIVE,CppDifferentialHarness.Backend.MINIC_DEBUG))
+            assertEquals(CppDifferentialHarness.Status.COMPILE_ERROR,report.outcomes().get(backend).status(),report::describe);
+    }
+
     static Stream<Arguments> rejectedPrograms() { return Stream.of(
         Arguments.of("floating-modulo", "int main(){return noexcept(1%1.5);}"),
         Arguments.of("null-arithmetic", "int main(){return noexcept(1+nullptr);}"),
@@ -65,7 +93,6 @@ final class CppNoexceptTest {
         Arguments.of("redeclaration-spec-mismatch", "int f()noexcept;int f(){return 1;}int main(){return 0;}"),
         Arguments.of("cannot-overload-only-noexcept", "void f()noexcept;void f();int main(){return 0;}"),
         Arguments.of("pointer-strengthening", "void loose(){}int main(){void(*p)()noexcept=loose;return 0;}"),
-        Arguments.of("reference-strengthening", "void loose(){}int main(){void(&r)()noexcept=loose;return 0;}"),
         Arguments.of("private-call-still-invalid", "class A{void f()noexcept{}};int main(){A value;return noexcept(value.f());}"),
         Arguments.of("deleted-call-still-invalid", "void f()noexcept=delete;int main(){return noexcept(f());}"),
         Arguments.of("deleted-destructor-still-invalid", "struct A{A()noexcept{}~A()=delete;};int main(){return noexcept(A());}"),
