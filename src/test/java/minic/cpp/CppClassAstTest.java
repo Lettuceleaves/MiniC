@@ -113,12 +113,17 @@ class CppClassAstTest {
         assertNotNull(new IrLowerer(source, semantic.semanticResult()).lower());
     }
 
-    @Test void classKeyIncludingForwardDeclarationsIsRejectedAtItsKeyword() {
+    @Test void classKeyIncludingForwardDeclarationsLowersAfterDataAccessMetadataIsRecorded() {
         var classDefinition = record(RecordKey.CLASS, List.of(new FieldMember(field())));
-        rejectedByBinder(classDefinition, KEY);
         var forward = new StructDecl("Record", List.of(), false, false,
                 new CppRecordInfo(RecordKey.CLASS, List.of(), KEY), RECORD);
-        rejectedByBinder(forward, KEY);
+        var binding = CppNameBinder.bind(program(LanguageMode.CPP17_ALGORITHM, forward, classDefinition, main(null)));
+        assertTrue(binding.diagnostics().isEmpty(), () -> binding.diagnostics().toString());
+        assertEquals(2, binding.program().structs().size());
+        assertEquals(binding.program().structs().getFirst().name(), binding.program().structs().getLast().name());
+        assertFalse(binding.program().structs().getFirst().definition());
+        assertTrue(binding.program().structs().getLast().definition());
+        assertSame(binding.program().structs().getLast(), binding.sourceToCore().get(classDefinition));
     }
 
     @Test void unusedMethodCannotDisappearDuringCoreBinding() {
@@ -134,8 +139,12 @@ class CppClassAstTest {
     }
 
     @ParameterizedTest @EnumSource(Access.class)
-    void accessLabelsAreRejectedAtTheirOwnRangeEvenWithoutMethods(Access access) {
-        rejectedByBinder(record(RecordKey.STRUCT, List.of(new AccessLabel(access, LABEL))), LABEL);
+    void accessLabelsAreConsumedBeforeLoweringDataOnlyRecords(Access access) {
+        var record = record(RecordKey.STRUCT, List.of(new AccessLabel(access, LABEL)));
+        var binding = CppNameBinder.bind(program(LanguageMode.CPP17_ALGORITHM, record, main(null)));
+        assertTrue(binding.diagnostics().isEmpty(), () -> binding.diagnostics().toString());
+        assertNull(binding.program().structs().getFirst().cppInfo());
+        assertSame(LABEL, record.cppInfo().members().getFirst().range());
     }
 
     @Test void thisGetsAnExplicitCppDiagnosticBeforeCoreExpressionAnalysis() {

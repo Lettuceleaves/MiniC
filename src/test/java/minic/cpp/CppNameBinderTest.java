@@ -184,9 +184,11 @@ class CppNameBinderTest {
     }
 
     @Test void rewritesEveryLessCommonExpressionContainer() {
-        Program original = parse("namespace A {int x=1;} int main(){return A::x;}");
+        Program original = parse("namespace A {struct S{int x;}; int x=1; S *pointer;} "
+                + "int main(){A::pointer->x; return A::x;}");
         FunctionDecl main = original.functions().getFirst();
-        var qualified = ((ReturnStmt) main.body().statements().getFirst()).expression();
+        var field = (FieldAccessExpr) ((ExprStmt) main.body().statements().getFirst()).expression();
+        var qualified = ((ReturnStmt) main.body().statements().getLast()).expression();
         var range = qualified.range();
         var one = new IntegerLiteralExpr(1, "1", range);
         var expressions = List.of(
@@ -203,7 +205,7 @@ class CppNameBinderTest {
                 new ConditionalExpr(qualified, qualified, qualified, range),
                 new CastExpr(MiniType.INT, qualified, range),
                 new IndexExpr(qualified, qualified, range),
-                new FieldAccessExpr(qualified, "x", true, range),
+                field,
                 new GroupingExpr(qualified, range),
                 new UnaryExpr(TokenType.MINUS, qualified, range),
                 new CommaExpr(List.of(qualified, qualified), range),
@@ -220,6 +222,9 @@ class CppNameBinderTest {
         var bound = success(program);
         assertFalse(nodes(bound.program()).stream().anyMatch(QualifiedNameExpr.class::isInstance));
         for (var expression : expressions) assertEquals(expression.range(), bound.sourceToCore().get(expression).range());
+        assertInstanceOf(QualifiedNameExpr.class, field.target());
+        assertInstanceOf(NameExpr.class, bound.sourceToCore().get(field.target()));
+        assertEquals(field.target().range(), bound.sourceToCore().get(field.target()).range());
     }
 
     private static CppNameBinder.Result success(String source) { return success(parse(source)); }

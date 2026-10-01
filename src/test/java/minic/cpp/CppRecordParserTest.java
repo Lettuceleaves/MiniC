@@ -168,8 +168,8 @@ final class CppRecordParserTest {
         assertTrue(successful("union Data { int value; char bytes[4]; };").result().program().structs().getFirst().union());
     }
 
-    @ParameterizedTest @ValueSource(strings = {"class Box { int value; };", "class Box *pointer;", "struct Box { int read() { return 0; } };", "struct Box { public: int value; };"})
-    void parsedNewRecordSyntaxRemainsGuardedUntilMemberSemanticsExist(String declaration) {
+    @ParameterizedTest @ValueSource(strings = {"class Box { int read() { return 0; } };", "struct Box { public: int read() { return 0; } };"})
+    void parsedMethodsRemainGuardedUntilMemberFunctionSemanticsExist(String declaration) {
         var parser = successful(declaration + " int main() { return 0; }");
         var semantic = new SemanticAnalyzer(parser.result().program());
         semantic.analyze();

@@ -62,6 +62,7 @@ public final class CppNameBinder {
         final Namespace owner;
         boolean complete;
         List<StructField> fields = List.of();
+        final Map<StructField, Access> fieldAccess = new IdentityHashMap<>();
 
         TypeEntity(String name, String canonicalName, MiniType type, boolean classType,
                    boolean union, Namespace owner, boolean complete) {
@@ -207,16 +208,9 @@ public final class CppNameBinder {
         private void bindStruct(StructDecl node, Namespace namespace) {
             if (node.cppInfo() != null) {
                 boolean unsupported = false;
-                if (node.cppInfo().key() == RecordKey.CLASS) {
-                    report("CPP005", node.cppInfo().keyRange(), "尚未支持 class 声明的成员语义。");
-                    unsupported = true;
-                }
                 for (CppMember member : node.cppInfo().members()) {
                     if (member instanceof MethodMember method) {
                         report("CPP005", method.nameRange(), "尚未支持类成员函数：" + method.method().name());
-                        unsupported = true;
-                    } else if (member instanceof AccessLabel label) {
-                        report("CPP005", label.range(), "尚未支持类成员访问控制。");
                         unsupported = true;
                     }
                 }
@@ -229,12 +223,22 @@ public final class CppNameBinder {
             }
             TypeEntity entity = declareClass(sourceName, node.union(), namespace, node.range());
             if (node.definition() && entity.complete) report("CPP004", node.range(), "重复类型定义：" + entity.canonicalName);
+            Map<StructField, Access> access = new IdentityHashMap<>();
+            if (node.cppInfo() != null) {
+                Access current = node.cppInfo().key() == RecordKey.CLASS ? Access.PRIVATE : Access.PUBLIC;
+                for (CppMember member : node.cppInfo().members()) {
+                    if (member instanceof AccessLabel label) current = label.access();
+                    else if (member instanceof FieldMember field) access.put(field.field(), current);
+                }
+            }
             List<StructField> fields = new ArrayList<>();
             for (StructField field : node.fields()) {
                 MiniType type = normalizeType(field.type(), namespace, null, field.range());
                 requireComplete(type, field.range());
-                fields.add(mapped(field, new StructField(field.name(), type, field.anonymous(),
-                        normalizeAlignments(field.alignmentSpecs(), namespace, null), field.range())));
+                StructField coreField = mapped(field, new StructField(field.name(), type, field.anonymous(),
+                        normalizeAlignments(field.alignmentSpecs(), namespace, null), field.range()));
+                fields.add(coreField);
+                if (node.definition()) entity.fieldAccess.put(coreField, access.getOrDefault(field, Access.PUBLIC));
             }
             StructDecl core = mapped(node, new StructDecl(((MiniType.StructType) entity.type).name(),
                     fields, node.definition(), node.union(), node.range()));
@@ -369,7 +373,8 @@ public final class CppNameBinder {
             if (!node.external() || node.initializer() != null) requireComplete(type, node.range());
             Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, type,
                     !node.external() || node.initializer() != null, namespace, node.range());
-            Expression initializer = expression(node.initializer(), namespace, null);
+            Expression initializer = node.external() && node.initializer() == null ? null
+                    : initializer(type, node.initializer(), namespace, null, node.range());
             if (initializer != null && !constantInitializer(initializer)) {
                 report("CPP005", node.initializer().range(), "尚未支持动态或地址形式的全局初始化；此阶段仅支持可直接写入数据段的常量初始化。");
             }
@@ -517,7 +522,7 @@ public final class CppNameBinder {
                     MiniType type = normalizeType(n.type(), namespace, scope, n.range());
                     requireComplete(type, n.range());
                     Entity value = declareLocal(n.name(), type, scope, n.range());
-                    yield new VarDeclStmt(value.coreName, type, expression(n.initializer(), namespace, scope),
+                    yield new VarDeclStmt(value.coreName, type, initializer(type, n.initializer(), namespace, scope, n.range()),
                             normalizeAlignments(n.alignmentSpecs(), namespace, scope), n.range());
                 }
                 case TypedefStmt n -> {
@@ -581,7 +586,11 @@ public final class CppNameBinder {
                         resolveQualified(n.name(), namespace, local));
                 case AssignmentExpr n -> {
                     Expression target = expression(n.target(), namespace, local);
-                    requireComplete(declaredExpressionType(target), n.range());
+                    MiniType targetType = declaredExpressionType(target);
+                    requireComplete(targetType, n.range());
+                    if (objectType(targetType) != null && hasConstSubobject(targetType, new HashSet<>())) {
+                        report("CPP005", n.range(), "尚未支持含 const 子对象的整体赋值所需的特殊成员函数规则。");
+                    }
                     if (n.operator() == TokenType.PLUS_EQUAL || n.operator() == TokenType.MINUS_EQUAL) {
                         requireComplete(elementType(declaredExpressionType(target)), n.range());
                     }
@@ -611,7 +620,9 @@ public final class CppNameBinder {
                 case FieldAccessExpr n -> {
                     Expression target = expression(n.target(), namespace, local);
                     MiniType owner = declaredExpressionType(target);
-                    requireComplete(n.viaPointer() ? elementType(owner) : owner, n.range());
+                    owner = n.viaPointer() ? elementType(owner) : owner;
+                    requireComplete(owner, n.range());
+                    requireAccessible(owner, n.fieldName(), n.range(), "数据成员访问");
                     yield new FieldAccessExpr(target, n.fieldName(), n.viaPointer(), n.range());
                 }
                 case GroupingExpr n -> new GroupingExpr(expression(n.expression(), namespace, local), n.range());
@@ -767,16 +778,173 @@ public final class CppNameBinder {
         }
 
         private MiniType declaredFieldType(MiniType owner, String name, Set<String> visited) {
+            FieldPath path = fieldPath(owner, name, visited);
+            return path == null ? null : path.type();
+        }
+
+        private record FieldStep(TypeEntity owner, StructField field, Access access) { }
+        private record FieldPath(MiniType type, List<FieldStep> steps) { }
+
+        private FieldPath fieldPath(MiniType owner, String name, Set<String> visited) {
             if (owner == null || !(owner.unqualified() instanceof MiniType.StructType struct) || !visited.add(struct.name())) return null;
             TypeEntity entity = coreTypes.get(struct.name());
             if (entity == null || !entity.complete) return null;
-            for (StructField field : entity.fields) if (!field.anonymous() && field.name().equals(name)) return field.type();
+            for (StructField field : entity.fields) {
+                if (!field.anonymous() && field.name().equals(name)) return new FieldPath(field.type(),
+                        List.of(new FieldStep(entity, field, entity.fieldAccess.getOrDefault(field, Access.PUBLIC))));
+            }
             for (StructField field : entity.fields) {
                 if (!field.anonymous()) continue;
-                MiniType promoted = declaredFieldType(field.type(), name, visited);
-                if (promoted != null) return promoted;
+                FieldPath promoted = fieldPath(field.type(), name, visited);
+                if (promoted != null) {
+                    List<FieldStep> steps = new ArrayList<>();
+                    steps.add(new FieldStep(entity, field, entity.fieldAccess.getOrDefault(field, Access.PUBLIC)));
+                    steps.addAll(promoted.steps());
+                    return new FieldPath(promoted.type(), List.copyOf(steps));
+                }
             }
             return null;
+        }
+
+        private FieldPath requireAccessible(MiniType owner, String name, SourceRange range, String operation) {
+            if (owner == null) {
+                report("CPP005", range, "无法确定" + operation + "的接收者类型：" + name);
+                return null;
+            }
+            FieldPath path = fieldPath(owner, name, new HashSet<>());
+            // Unknown fields and non-record operands are diagnosed by the core semantic checker.
+            if (path != null) {
+                for (FieldStep step : path.steps()) {
+                    if (step.access() != Access.PUBLIC) {
+                        report("CPP004", range, operation + "不能访问 " + step.access().name().toLowerCase(java.util.Locale.ROOT)
+                                + " 成员 " + step.owner().canonicalName + "::" + name);
+                        break;
+                    }
+                }
+            }
+            return path;
+        }
+
+        private TypeEntity objectType(MiniType type) {
+            return type != null && type.unqualified() instanceof MiniType.StructType struct ? coreTypes.get(struct.name()) : null;
+        }
+
+        private boolean nonAggregate(TypeEntity type) {
+            return type != null && type.fields.stream().anyMatch(f -> type.fieldAccess.getOrDefault(f, Access.PUBLIC) != Access.PUBLIC);
+        }
+
+        private Expression initializer(MiniType target, Expression sourceNode, Namespace namespace, Local local, SourceRange range) {
+            if (sourceNode == null) {
+                requireImplicitInitialization(target, false, range);
+                return null;
+            }
+            return checkInitializer(target, sourceNode, expression(sourceNode, namespace, local));
+        }
+
+        private void requireImplicitInitialization(MiniType target, boolean valueInitialization, SourceRange range) {
+            if (needsConstConstructionRules(target, valueInitialization, new HashSet<>())) {
+                report("CPP005", range, "尚未支持含 const 子对象的隐式构造初始化规则；不能直接按 C 聚合零填。");
+            }
+        }
+
+        private boolean needsConstConstructionRules(MiniType type, boolean valueInitialization, Set<String> visited) {
+            if (type == null) return false;
+            if (type.unqualified() instanceof MiniType.ArrayType array) {
+                return needsConstConstructionRules(array.elementType(), valueInitialization, visited);
+            }
+            TypeEntity object = objectType(type);
+            if (object == null || !visited.add(object.canonicalName)) return false;
+            if ((!valueInitialization || nonAggregate(object)) && hasConstSubobject(type, new HashSet<>())) return true;
+            List<StructField> fields = object.union && !object.fields.isEmpty() ? List.of(object.fields.getFirst()) : object.fields;
+            return fields.stream().anyMatch(field -> needsConstConstructionRules(field.type(), valueInitialization, visited));
+        }
+
+        private boolean hasConstSubobject(MiniType type, Set<String> visited) {
+            if (type.isConstQualified()) return true;
+            if (type.unqualified() instanceof MiniType.ArrayType array) return hasConstSubobject(array.elementType(), visited);
+            TypeEntity object = objectType(type); // Do not follow pointer pointees.
+            return object != null && visited.add(object.canonicalName)
+                    && object.fields.stream().anyMatch(field -> hasConstSubobject(field.type(), visited));
+        }
+
+        /** Validates C++ list initialization before the C aggregate initializer can write fields. */
+        private Expression checkInitializer(MiniType target, Expression sourceNode, Expression bound) {
+            if (target == null) return bound;
+            TypeEntity object = objectType(target);
+            if (!(bound instanceof AggregateInitExpr list)) {
+                MiniType value = declaredExpressionType(bound);
+                if (nonAggregate(object) && (value == null || !target.unqualified().equals(value.unqualified()))) {
+                    report("CPP005", sourceNode.range(), "尚未支持对此非聚合类型省略花括号或转换形式的初始化：" + object.canonicalName);
+                }
+                return bound;
+            }
+            AggregateInitExpr original = (AggregateInitExpr) sourceNode;
+            if (object != null && list.values().size() == 1) {
+                Expression value = list.values().getFirst();
+                MiniType valueType = declaredExpressionType(value);
+                if (valueType != null && target.unqualified().equals(valueType.unqualified())) {
+                    // C++17 permits {sameTypeObject}, including implicit copies of non-aggregates.
+                    return mapped(sourceNode, new GroupingExpr(value, list.range()));
+                }
+            }
+            if (nonAggregate(object) && !list.values().isEmpty()) {
+                report("CPP004", sourceNode.range(), "含有非 public 数据成员的类型不能使用成员值列表进行聚合初始化：" + object.canonicalName);
+                return bound;
+            }
+            List<Expression> values = new ArrayList<>();
+            Set<Integer> initialized = new HashSet<>();
+            int position = 0;
+            for (int i = 0; i < list.values().size(); i++) {
+                Expression value = list.values().get(i), originalValue = original.values().get(i);
+                MiniType element;
+                if (value instanceof DesignatedInitExpr designated) {
+                    var sourceDesignated = (DesignatedInitExpr) originalValue;
+                    if (designated.designators().size() > 1) {
+                        report("CPP005", designated.range(), "C++17 模式尚未支持多层路径指定初始化。");
+                    }
+                    element = designatedTarget(target, designated.designators());
+                    if (designated.designators().getFirst() instanceof Designator.Index index) position = index.index();
+                    else if (object != null && designated.designators().getFirst() instanceof Designator.Field field) {
+                        for (int j = 0; j < object.fields.size(); j++) if (object.fields.get(j).name().equals(field.name())) position = j;
+                    }
+                    values.add(mapped(originalValue, new DesignatedInitExpr(designated.designators(),
+                            checkInitializer(element, sourceDesignated.value(), designated.value()), designated.range())));
+                } else {
+                    element = target.unqualified() instanceof MiniType.ArrayType array ? array.elementType()
+                            : object != null && position < object.fields.size() ? object.fields.get(position).type() : null;
+                    values.add(checkInitializer(element, originalValue, value));
+                }
+                initialized.add(position);
+                position++;
+            }
+            if (target.unqualified() instanceof MiniType.ArrayType array && initialized.size() < array.length()) {
+                requireImplicitInitialization(array.elementType(), true, list.range());
+            } else if (object != null) {
+                if (list.values().isEmpty() && nonAggregate(object)) requireImplicitInitialization(target, true, list.range());
+                else for (int i = 0; i < object.fields.size(); i++) {
+                    if (object.union && (i > 0 || !list.values().isEmpty())) break;
+                    if (!initialized.contains(i)) requireImplicitInitialization(object.fields.get(i).type(), true, list.range());
+                }
+            }
+            return mapped(sourceNode, new AggregateInitExpr(values, list.range()));
+        }
+
+        private MiniType designatedTarget(MiniType target, List<Designator> designators) {
+            MiniType current = target;
+            for (Designator designator : designators) {
+                if (current == null) return null;
+                if (nonAggregate(objectType(current))) {
+                    report("CPP004", designator.range(), "非聚合类型不能通过指定初始化展开其数据成员。");
+                    return null;
+                }
+                if (designator instanceof Designator.Index && current.unqualified() instanceof MiniType.ArrayType array) {
+                    current = array.elementType();
+                } else if (designator instanceof Designator.Field field) {
+                    FieldPath path = requireAccessible(current, field.name(), field.range(), "指定初始化访问");
+                    current = path == null ? null : path.type();
+                } else return null;
+            }
+            return current;
         }
 
         private List<Expression> expressions(List<Expression> nodes, Namespace namespace, Local local) {
