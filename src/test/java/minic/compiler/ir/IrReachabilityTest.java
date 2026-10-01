@@ -84,6 +84,45 @@ final class IrReachabilityTest {
         assertEquals(Set.of("external_operation"), result.externalFunctionNames());
     }
 
+    @Test
+    void retainsFunctionsAndCallClosureReferencedOnlyByStaticRelocations() {
+        var result=lower("""
+            extern int external_dependency(int);
+            int leaf(int n){return external_dependency(n);}
+            int selected(int n){return leaf(n);}
+            int unused(int n){return n;}
+            int (*pointer)(int)=selected;
+            int main(void){return 0;}
+            """);
+        assertEquals(Set.of("selected","leaf","main"),functionNames(result));
+        assertEquals(Set.of("external_dependency"),result.externalFunctionNames());
+    }
+
+    @Test
+    void retainsExternalFunctionsReferencedOnlyByStaticRelocations() {
+        var result=lower("""
+            extern int external_operation(int);
+            extern int unused_operation(int);
+            int (*pointer)(int)=external_operation;
+            int main(void){return 0;}
+            """);
+        assertEquals(Set.of("main"),functionNames(result));
+        assertEquals(Set.of("external_operation"),result.externalFunctionNames());
+    }
+
+    @Test
+    void findsFunctionRootsInsideAggregateStaticData() {
+        var result=lower("""
+            int selected(int n){return n+1;}
+            int unused(int n){return n;}
+            struct Table{int(*items[2])(int);};
+            struct Table table={{0,selected}};
+            int main(void){return 0;}
+            """);
+        assertEquals(Set.of("selected","main"),functionNames(result));
+        assertEquals(Set.of(),result.externalFunctionNames());
+    }
+
     private static IrResult lower(String source) {
         CompilerFixture session = CompilerFixture.fromSource(
                 new SourceFile("reachability.mc", source)

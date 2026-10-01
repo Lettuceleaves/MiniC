@@ -165,7 +165,7 @@ public final class GlobalDataLowerer {
         }
         if(expression instanceof StringLiteralExpr literal)return new AddressValue(strings.define(literal.value(),literal.encoding()).label(),0,IrGlobalData.AddressKind.STRING);
         if(expression instanceof NameExpr name) {
-            MiniType type=typeOf(name);
+            MiniType type=declaredType(name);
             if(type!=null&&type.isFunction())return new AddressValue(name.name(),0,IrGlobalData.AddressKind.FUNCTION);
             if(type!=null&&type.isArray())return new AddressValue(name.name(),0,IrGlobalData.AddressKind.OBJECT);
             return null;
@@ -193,7 +193,7 @@ public final class GlobalDataLowerer {
     private AddressValue lvalueAddress(Expression expression) {
         if(expression instanceof GroupingExpr group)return lvalueAddress(group.expression());
         if(expression instanceof NameExpr name) {
-            MiniType type=typeOf(name);if(type==null)throw new IllegalArgumentException("Unknown static address: "+name.name());
+            MiniType type=declaredType(name);if(type==null)throw new IllegalArgumentException("Unknown static address: "+name.name());
             return new AddressValue(name.name(),0,type.isFunction()?IrGlobalData.AddressKind.FUNCTION:IrGlobalData.AddressKind.OBJECT);
         }
         if(expression instanceof StringLiteralExpr)return addressValue(expression);
@@ -213,6 +213,13 @@ public final class GlobalDataLowerer {
             return base.plus(member.offset());
         }
         return null;
+    }
+
+    private MiniType declaredType(NameExpr name) {
+        // A function designator may already have its converted pointer expression type.
+        // Relocation identity comes from the declaration, not that value conversion.
+        MiniType declared=symbols.get(name.name());
+        return declared!=null?declared:expressionTypes.get(name);
     }
 
     private MiniType typeOf(Expression expression) {

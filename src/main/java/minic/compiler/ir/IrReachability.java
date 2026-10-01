@@ -18,6 +18,7 @@ import minic.compiler.ir.instruction.MemoryInstruction.IrMemCopyInstruction;
 import minic.compiler.ir.instruction.MemoryInstruction.IrStoreLocalInstruction;
 import minic.compiler.ir.instruction.MemoryInstruction.IrStorePointerInstruction;
 import minic.compiler.ir.model.IrFunction;
+import minic.compiler.ir.model.IrGlobalData;
 import minic.compiler.ir.value.IrValue;
 import minic.compiler.ir.value.IrValue.IrFunctionAddress;
 
@@ -42,6 +43,11 @@ final class IrReachability {
     }
 
     static Result prune(List<IrFunction> functions, Set<String> declaredExternals, String entryFunction) {
+        return prune(functions,declaredExternals,entryFunction,List.of());
+    }
+
+    static Result prune(List<IrFunction> functions, Set<String> declaredExternals, String entryFunction,
+                        List<IrGlobalData> globalData) {
         LinkedHashMap<String, IrFunction> locals = new LinkedHashMap<>();
         functions.forEach(function -> locals.put(function.name(), function));
 
@@ -53,6 +59,13 @@ final class IrReachability {
 
         LinkedHashSet<String> roots = new LinkedHashSet<>();
         roots.add(entryFunction);
+        LinkedHashSet<String> staticFunctionTargets = new LinkedHashSet<>();
+        for (IrGlobalData global : globalData) for (var address : global.addresses()) {
+            if (address.kind() == IrGlobalData.AddressKind.FUNCTION) {
+                staticFunctionTargets.add(address.symbol());
+                if (locals.containsKey(address.symbol())) roots.add(address.symbol());
+            }
+        }
         // Any materialized local function address can escape through memory or an
         // indirect call. Treat every such target as a root, even when the address
         // occurs in code that later proves unreachable.
@@ -92,6 +105,9 @@ final class IrReachability {
         }
 
         LinkedHashSet<String> referencedExternals = new LinkedHashSet<>();
+        for (String name : staticFunctionTargets) {
+            if (declaredExternals.contains(name)) referencedExternals.add(name);
+        }
         for (IrFunction function : retainedFunctions) {
             forEachInstruction(function, instruction -> {
                 if (instruction instanceof IrCallInstruction call

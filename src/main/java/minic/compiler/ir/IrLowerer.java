@@ -305,7 +305,8 @@ public final class IrLowerer extends Stage {
         IrReachability.Result reachable = IrReachability.prune(
                 work.functions,
                 work.externalFunctionNames,
-                input.program.entryFunction()
+                input.program.entryFunction(),
+                work.globalData
         );
         return new IrResult(
                 reachable.functions(),
