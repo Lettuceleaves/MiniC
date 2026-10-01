@@ -27,6 +27,9 @@ final class StandardLibraryContractTest {
     private static final Set<String> INTERNAL_BINDINGS = Set.of(
             "ExitProcess",
             "minic_stdout_stream",
+            "minic_iob_base",
+            "minic_ucrt_strtof",
+            "minic_ucrt_errno_location",
             "minic_set_process_error_mode",
             "minic_isctype",
             "minic_string_malloc",

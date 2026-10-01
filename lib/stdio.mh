@@ -7,6 +7,8 @@
 #else
 #define EOF (-1)
 
+// Keep the CRT stream representation incomplete; only pointers cross the ABI.
+struct __minic_file;
 typedef struct __minic_file FILE;
 /* Windows x64 legacy MSVCRT: __iob_func returns contiguous 48-byte _iobufs.
  * FILE remains opaque; only this ABI adapter performs the byte offsets.
