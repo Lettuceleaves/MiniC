@@ -42,6 +42,11 @@ public final class CppFunctionTemplateDeduction {
                 TemplateArgument argument=canonicalArgument(parameter,explicit.get(explicitIndex++),types,normalize,evaluate);
                 if(argument instanceof TemplateArgument.Type type)types.put(parameter.type(),type.type());else values.put(parameter.type(),argument);
             }
+            // Explicit arguments permit later conversions. Previously deduced arguments
+            // must remain in the pattern so each occurrence contributes a constraint.
+            var explicitTypes=Map.copyOf(types);
+            var explicitValues=Map.copyOf(values);
+            var explicitPacks=Map.copyOf(packs);
             int argumentIndex=0;
             for(int signatureIndex=0;signatureIndex<signature.size();signatureIndex++) {
                 MiniType original=signature.get(signatureIndex);
@@ -55,11 +60,14 @@ public final class CppFunctionTemplateDeduction {
                     var sequence=new LinkedHashMap<MiniType.TemplateParameterType,List<TemplateArgument>>();identities.forEach(id->sequence.put(id,new ArrayList<>()));
                     for(int index=0;index<count;index++) {
                         var itemTypes=new LinkedHashMap<>(types);var itemValues=new LinkedHashMap<>(values);
+                        var fixedTypes=new LinkedHashMap<>(explicitTypes);var fixedValues=new LinkedHashMap<>(explicitValues);
                         for(var identity:identities)if(packs.containsKey(identity)&&index<packs.get(identity).size()) {
                             var argument=packs.get(identity).get(index);
-                            if(argument instanceof TemplateArgument.Type type)itemTypes.put(identity,type.type());else itemValues.put(identity,argument);
+                            boolean fixed=explicitPacks.containsKey(identity)&&index<explicitPacks.get(identity).size();
+                            if(argument instanceof TemplateArgument.Type type){itemTypes.put(identity,type.type());if(fixed)fixedTypes.put(identity,type.type());}
+                            else {itemValues.put(identity,argument);if(fixed)fixedValues.put(identity,argument);}
                         }
-                        var deduction=deduceOne(pack.pattern(),actual.get(argumentIndex++),parameters,itemTypes,itemValues,expand,initializerListElement);
+                        var deduction=deduceOne(pack.pattern(),actual.get(argumentIndex++),parameters,itemTypes,itemValues,fixedTypes,fixedValues,expand,initializerListElement);
                         if(deduction==null)return null;
                         for(var identity:identities) {
                             TemplateArgument argument=deduction.types().containsKey(identity)?new TemplateArgument.Type(deduction.types().get(identity)):deduction.values().get(identity);
@@ -74,7 +82,7 @@ public final class CppFunctionTemplateDeduction {
                         packs.put(entry.getKey(),List.copyOf(entry.getValue()));
                     }
                 } else if(argumentIndex<actual.size()) {
-                    var deduction=deduceOne(original,actual.get(argumentIndex++),parameters,types,values,expand,initializerListElement);
+                    var deduction=deduceOne(original,actual.get(argumentIndex++),parameters,types,values,explicitTypes,explicitValues,expand,initializerListElement);
                     if(deduction==null)return null;types.putAll(deduction.types());values.putAll(deduction.values());
                     if(!mergePacks(packs,deduction.packs()))return null;
                 }
@@ -114,9 +122,11 @@ public final class CppFunctionTemplateDeduction {
     }
     private static CppTemplateDeduction.Bindings deduceOne(MiniType source,CppOverloadResolver.Argument actual,
             List<ClassTemplateDecl.Parameter> parameters,Map<MiniType.TemplateParameterType,MiniType> types,
-            Map<MiniType.TemplateParameterType,TemplateArgument> values,UnaryOperator<MiniType> expand,
+            Map<MiniType.TemplateParameterType,TemplateArgument> values,
+            Map<MiniType.TemplateParameterType,MiniType> explicitTypes,
+            Map<MiniType.TemplateParameterType,TemplateArgument> explicitValues,UnaryOperator<MiniType> expand,
             java.util.function.Function<MiniType,MiniType> initializerListElement) {
-        MiniType pattern=source.substituteTemplateParameters(types,expressions(values,parameters));
+        MiniType pattern=source.substituteTemplateParameters(explicitTypes,expressions(explicitValues,parameters));
         var patterns=new ArrayList<MiniType>();var arguments=new ArrayList<MiniType>();
         addConstraints(pattern,actual,patterns,arguments,initializerListElement,parameters);
         return CppTemplateDeduction.deduce(patterns,arguments,parameters,types,values,expand);
