@@ -37,6 +37,14 @@ tasks.withType(Test).configureEach {
     useJUnitPlatform()
 }
 
+// JavaExec 默认使用运行 Gradle 的 JVM；测试类按 21 编译，旧 JVM 扫描时会静默跳过全部测试。
+tasks.withType(JavaExec).configureEach {
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(21)
+    })
+    jvmArgs '-Dfile.encoding=UTF-8'
+}
+
 // 当前 Windows 环境禁止 Gradle test worker 建立回环通道。使用 JUnit ConsoleLauncher
 // 直接启动测试进程，保留同样的 Jupiter 发现与失败退出码，避免测试基础设施依赖回环 socket。
 tasks.register('testWithoutWorker', JavaExec) {
@@ -92,9 +100,6 @@ tasks.register('runUi', JavaExec) {
     description = '启动 MiniC Visual Workbench JavaFX UI'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'minic.ui.Starter'
-    javaLauncher.set(javaToolchains.launcherFor {
-        languageVersion = JavaLanguageVersion.of(21)
-    })
     jvmArgs = [
             '--module-path', configurations.runtimeClasspath.asPath,
             '--add-modules', javafx.modules.join(','),
