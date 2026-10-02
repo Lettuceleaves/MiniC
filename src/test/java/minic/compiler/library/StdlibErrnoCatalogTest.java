@@ -116,7 +116,7 @@ final class StdlibErrnoCatalogTest {
     }
 
     @Test
-    void cppStrtodAdapterUsesUcrtWithoutReplacingTheCBinding() {
+    void strtodAdapterUsesUcrtWithoutReplacingTheCBinding() {
         SystemLibraryCatalog catalog = SystemLibraryCatalog.defaults();
         String header = catalog.header("stdlib.mh").orElseThrow().content();
         assertTrue(header.contains("extern double minic_ucrt_strtod(const char *string, char **endPointer);"));

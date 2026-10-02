@@ -1,0 +1,24 @@
+#ifndef MINIC_STL_BULK_LIVE_INTEGRAL_MH
+#define MINIC_STL_BULK_LIVE_INTEGRAL_MH
+#include "type_traits.mh"
+#include <string.h>
+namespace std {
+// Only assignment between already-live, same integral objects is eligible.
+// Raw-storage construction and volatile/class/proxy assignments stay element-wise.
+template<class From,class To,bool Eligible> struct __minic_live_integral_transfer {
+    static bool copy(From* source,To* destination,unsigned long long count) { return false; }
+};
+template<class From,class To> struct __minic_live_integral_transfer<From,To,true> {
+    static bool copy(From* source,To* destination,unsigned long long count) {
+        if(count!=0)::memmove(destination,source,count*sizeof(To));
+        return true;
+    }
+};
+template<class From,class To> bool __minic_try_live_integral_copy(From* source,To* destination,unsigned long long count) {
+    return __minic_live_integral_transfer<From,To,
+        is_integral<To>::value && !is_const<To>::value &&
+        is_same<To,typename remove_cv<From>::type>::value &&
+        is_same<From,typename remove_volatile<From>::type>::value>::copy(source,destination,count);
+}
+}
+#endif

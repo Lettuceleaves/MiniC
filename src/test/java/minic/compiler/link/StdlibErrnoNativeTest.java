@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Tag("stdlib-native")
 final class StdlibErrnoNativeTest {
     @Test
-    void cppStrtodImportsUcrtAndPreservesBothCrtErrnoSlots() {
+    void strtodImportsUcrtAndPreservesBothCrtErrnoSlots() {
         SourceFile source = new SourceFile("cpp-ucrt-strtod.cpp", """
                 #include <stdlib.h>
                 #include <errno.h>

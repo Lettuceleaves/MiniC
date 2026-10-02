@@ -12,13 +12,13 @@ public final class TemplateValues {
     public static Expression substitute(Expression expression, Map<MiniType.TemplateParameterType,MiniType> types,
                                          Map<MiniType.TemplateParameterType,Expression> values) {
         return switch (expression) {
-            case CppTemplateValueExpr value -> values.getOrDefault(value.parameter(),
-                    new CppTemplateValueExpr(value.parameter(), value.valueType().substituteTemplateParameters(types), value.range()));
-            case CppNoexceptExpr query -> new CppNoexceptExpr(substitute(query.operand(),types,values),query.range());
-            case CppTypeQueryExpr query -> new CppTypeQueryExpr(query.kind(), query.arguments().stream()
-                    .map(argument -> new CppTypeQueryExpr.TypeArgument(argument.type().substituteTemplateParameters(types, values), argument.packExpansion(), argument.range())).toList(),
+            case TemplateValueExpr value -> values.getOrDefault(value.parameter(),
+                    new TemplateValueExpr(value.parameter(), value.valueType().substituteTemplateParameters(types), value.range()));
+            case NoexceptExpr query -> new NoexceptExpr(substitute(query.operand(),types,values),query.range());
+            case TypeQueryExpr query -> new TypeQueryExpr(query.kind(), query.arguments().stream()
+                    .map(argument -> new TypeQueryExpr.TypeArgument(argument.type().substituteTemplateParameters(types, values), argument.packExpansion(), argument.range())).toList(),
                     query.nameRange(), query.range());
-            case CppTypeMemberExpr member -> new CppTypeMemberExpr(member.ownerType().substituteTemplateParameters(types,values),member.memberName(),member.nameRange(),member.range());
+            case TypeMemberExpr member -> new TypeMemberExpr(member.ownerType().substituteTemplateParameters(types,values),member.memberName(),member.nameRange(),member.range());
             case GroupingExpr group -> new GroupingExpr(substitute(group.expression(),types,values),group.range());
             case UnaryExpr unary -> new UnaryExpr(unary.operator(),substitute(unary.operand(),types,values),unary.range());
             case BinaryExpr binary -> new BinaryExpr(substitute(binary.left(),types,values),binary.operator(),substitute(binary.right(),types,values),binary.range());
@@ -30,18 +30,18 @@ public final class TemplateValues {
         };
     }
     public static boolean dependent(Expression expression) {
-        if (expression instanceof CppTemplateValueExpr || expression instanceof CppSizeofPackExpr || expression instanceof CppPackExpansionExpr) return true;
-        if (expression instanceof CppTypeQueryExpr query && query.arguments().stream().anyMatch(argument -> argument.packExpansion() || argument.type().isDependentTemplate())) return true;
+        if (expression instanceof TemplateValueExpr || expression instanceof SizeofPackExpr || expression instanceof PackExpansionExpr) return true;
+        if (expression instanceof TypeQueryExpr query && query.arguments().stream().anyMatch(argument -> argument.packExpansion() || argument.type().isDependentTemplate())) return true;
         if (expression instanceof AlignofExpr align && align.queriedType()!=null && align.queriedType().isDependentTemplate()) return true;
-        if (expression instanceof CppTypeMemberExpr member && member.ownerType().isDependentTemplate()) return true;
+        if (expression instanceof TypeMemberExpr member && member.ownerType().isDependentTemplate()) return true;
         if (expression instanceof SizeofExpr size && size.queriedType()!=null && size.queriedType().isDependentTemplate()) return true;
         for (AstNode child : AstChildren.of(expression)) if (child instanceof Expression e && dependent(e)) return true;
         return false;
     }
     /** Record layout and member constants are resolved by the owning semantic context. */
     public static boolean requiresSemanticContext(Expression expression) {
-        if(expression instanceof CppNoexceptExpr||expression instanceof CppTypeQueryExpr||expression instanceof SizeofExpr||expression instanceof AlignofExpr||expression instanceof CppTypeMemberExpr
-                ||expression instanceof NameExpr||expression instanceof QualifiedNameExpr||expression instanceof CallExpr||expression instanceof CppConstructionExpr
+        if(expression instanceof NoexceptExpr||expression instanceof TypeQueryExpr||expression instanceof SizeofExpr||expression instanceof AlignofExpr||expression instanceof TypeMemberExpr
+                ||expression instanceof NameExpr||expression instanceof QualifiedNameExpr||expression instanceof CallExpr||expression instanceof ConstructionExpr
                 ||expression instanceof FieldAccessExpr||expression instanceof IndexExpr)return true;
         for(AstNode child:AstChildren.of(expression))if(child instanceof Expression e&&requiresSemanticContext(e))return true;
         return false;

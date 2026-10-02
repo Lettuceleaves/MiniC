@@ -1,7 +1,7 @@
 package minic.compiler.type;
 
 import minic.compiler.parser.node.Expression;
-import minic.compiler.parser.node.CppTemplateValueExpr;
+import minic.compiler.parser.node.TemplateValueExpr;
 import java.util.Map;
 import java.util.Objects;
 
@@ -18,7 +18,7 @@ public sealed interface TemplateArgument permits TemplateArgument.Type, Template
     }
     record Value(Expression expression) implements TemplateArgument {
         public Value { Objects.requireNonNull(expression); }
-        @Override public String toString() { return expression instanceof CppTemplateValueExpr value ? value.parameter().toString() : "<constant-expression>"; }
+        @Override public String toString() { return expression instanceof TemplateValueExpr value ? value.parameter().toString() : "<constant-expression>"; }
     }
     record Integral(long value, MiniType type) implements TemplateArgument {
         public Integral { Objects.requireNonNull(type); if (!type.isIntegerScalar()) throw new IllegalArgumentException("integral template value needs an integer type"); }

@@ -453,7 +453,7 @@ public enum TokenType {
     TYPEID, THREAD_LOCAL, WCHAR_T, CHAR16_T, CHAR32_T, ASM, EXPORT, GOTO, REGISTER;
 
     /** Reserved C++ spelling, for useful diagnostics until its grammar is implemented. */
-    public boolean isCppToken() {
+    public boolean isExtendedToken() {
         return switch (this) {
             case SCOPE, NAMESPACE, USING, CLASS, TEMPLATE, TYPENAME,
                     PUBLIC, PRIVATE, PROTECTED, THIS, OPERATOR, AUTO, DECLTYPE,

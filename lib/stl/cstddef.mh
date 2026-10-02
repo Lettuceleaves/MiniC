@@ -1,0 +1,10 @@
+#ifndef MINIC_STL_CSTDDEF_MH
+#define MINIC_STL_CSTDDEF_MH
+#include <stddef.h>
+namespace std {
+using ::size_t;
+using ::ptrdiff_t;
+using ::max_align_t;
+typedef decltype(nullptr) nullptr_t;
+}
+#endif

@@ -1,0 +1,305 @@
+#ifndef MINIC_STL_IOSTREAM_MH
+#define MINIC_STL_IOSTREAM_MH
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <float.h>
+#include <string.h>
+#include "string.mh"
+#include "cstddef.mh"
+namespace std {
+typedef long long streamsize;
+class ios {
+    unsigned int flags_;
+    unsigned int state_;
+    streamsize precision_;
+    streamsize width_;
+    char fill_;
+public:
+    typedef unsigned int fmtflags;
+    typedef unsigned int iostate;
+    static const fmtflags boolalpha=1,dec=2,hex=4,oct=8,fixed=16,scientific=32;
+    static const fmtflags left=64,right=128,internal=256,showbase=512,showpoint=1024,showpos=2048;
+    static const fmtflags skipws=4096,unitbuf=8192,uppercase=16384;
+    static const fmtflags basefield=14,floatfield=48,adjustfield=448;
+    static const iostate goodbit=0,eofbit=1,failbit=2,badbit=4;
+    ios():flags_(dec|skipws),state_(goodbit),precision_(6),width_(0),fill_(' ') {}
+    static bool sync_with_stdio(bool sync){static bool old=true;bool result=old;old=sync;return result;}
+    static bool sync_with_stdio(){return sync_with_stdio(true);}
+    fmtflags flags() const{return flags_;} fmtflags flags(fmtflags value){fmtflags old=flags_;flags_=value;return old;}
+    fmtflags setf(fmtflags value){fmtflags old=flags_;flags_|=value;return old;}
+    fmtflags setf(fmtflags value,fmtflags mask){fmtflags old=flags_;flags_=(flags_&~mask)|(value&mask);return old;}
+    void unsetf(fmtflags value){flags_&=~value;}
+    streamsize precision() const{return precision_;} streamsize precision(streamsize n){streamsize old=precision_;precision_=n;return old;}
+    streamsize width() const{return width_;} streamsize width(streamsize n){streamsize old=width_;width_=n;return old;}
+    char fill() const{return fill_;} char fill(char c){char old=fill_;fill_=c;return old;}
+    iostate rdstate() const{return state_;} void clear(iostate state){state_=state;} void clear(){clear(goodbit);}
+    void setstate(iostate state){state_|=state;}
+    bool good() const{return state_==goodbit;} bool eof() const{return (state_&eofbit)!=0;}
+    bool bad() const{return (state_&badbit)!=0;} bool fail() const{return (state_&(failbit|badbit))!=0;}
+    explicit operator bool() const{return !fail();} bool operator!() const{return fail();}
+};
+typedef ios ios_base;
+class ostream {
+    FILE* file_;
+    ios state_;
+    ostream* tied_;
+    void raw(const char* text,streamsize n){for(streamsize i=0;i<n;++i)if(::fputc((unsigned char)text[i],file_)==EOF){state_.setstate(ios::badbit);break;}}
+    ostream& formatted(const char* text,streamsize n,bool numeric){
+        if(tied_)tied_->flush();if(fail())return *this;
+        streamsize width=state_.width(0),padding=width>n?width-n:0;
+        bool left=(flags()&ios::left)!=0;
+        streamsize prefix=0;
+        if(numeric && (flags()&ios::internal)){
+            if(n && (text[0]=='-' || text[0]=='+'))prefix=1;
+            else if(n>1 && text[0]=='0' && (text[1]=='x' || text[1]=='X'))prefix=2;
+        }
+        if(prefix){raw(text,prefix);text+=prefix;n-=prefix;}
+        if(!left)while(padding-->0)raw_fill();
+        raw(text,n);
+        if(left)while(padding-->0)raw_fill();
+        if(flags()&ios::unitbuf)flush();
+        return *this;
+    }
+    void raw_fill(){char c=state_.fill();raw(&c,1);}
+    int base() const{return (flags()&ios::hex)?16:(flags()&ios::oct)?8:10;}
+    ostream& unsigned_number(unsigned long long value){
+        char text[96];int n;
+        if(base()==16)n=::sprintf(text,(flags()&ios::showbase)?((flags()&ios::uppercase)?"%#llX":"%#llx"):((flags()&ios::uppercase)?"%llX":"%llx"),value);
+        else if(base()==8)n=::sprintf(text,(flags()&ios::showbase)?"%#llo":"%llo",value);
+        else n=::sprintf(text,"%llu",value);
+        return formatted(text,n,true);
+    }
+    ostream& signed_number(long long value){char text[96];int n=::sprintf(text,(flags()&ios::showpos)?"%+lld":"%lld",value);return formatted(text,n,true);}
+    ostream& floating_number(double value){
+        // C++17 num_put uses %f for fixed, even when uppercase is set.
+        bool uppercase=(flags()&ios::uppercase) && (flags()&ios::floatfield)!=ios::fixed;
+        if(value!=value || value>DBL_MAX || value<-DBL_MAX){
+            unsigned long long representation=0;::memcpy(&representation,&value,sizeof(value));
+            char text[8];int n=0;
+            if(representation>>63)text[n++]='-';else if(flags()&ios::showpos)text[n++]='+';
+            const char* word=value!=value?(uppercase?"NAN":"nan"):(uppercase?"INF":"inf");
+            for(int i=0;word[i];++i)text[n++]=word[i];
+            return formatted(text,n,true);
+        }
+        streamsize p=precision();if(p<0)p=6;if(p>2147483000LL)::abort();
+        char* text=std::__minic_allocate<char>((size_t)p+384);
+        char format[16];int at=0;format[at++]='%';
+        if(flags()&ios::showpos)format[at++]='+';if(flags()&ios::showpoint)format[at++]='#';
+        format[at++]='.';format[at++]='*';
+        char spec=(flags()&ios::fixed)?'f':(flags()&ios::scientific)?'e':'g';
+        if(uppercase)spec=(char)(spec-'a'+'A');format[at++]=spec;format[at]=0;
+        int n=::sprintf(text,format,(int)p,value);
+        if(n<0)state_.setstate(ios::badbit);
+        else{
+            // The legacy Windows CRT pads exponents to three digits. C++ streams
+            // use two unless the exponent needs more; keep this independent of CRT.
+            for(int i=0;i<n;++i)if(text[i]=='e' || text[i]=='E'){
+                int digits=i+2;
+                while(n-digits>2 && text[digits]=='0'){::memmove(text+digits,text+digits+1,n-digits);--n;}
+                break;
+            }
+            formatted(text,n,true);
+        }
+        std::__minic_deallocate(text);return *this;
+    }
+public:
+    explicit ostream(FILE* file):file_(file),state_(),tied_(nullptr) {}
+    ~ostream(){flush();}
+    ostream(FILE* file,ostream* tie,bool unit):file_(file),state_(),tied_(tie){if(unit)state_.setf(ios::unitbuf);}
+    ostream* tie() const{return tied_;} ostream* tie(ostream* stream){ostream* old=tied_;tied_=stream;return old;}
+    ios::fmtflags flags() const{return state_.flags();} ios::fmtflags flags(ios::fmtflags f){return state_.flags(f);}
+    ios::fmtflags setf(ios::fmtflags f){return state_.setf(f);} ios::fmtflags setf(ios::fmtflags f,ios::fmtflags mask){return state_.setf(f,mask);}
+    void unsetf(ios::fmtflags f){state_.unsetf(f);}
+    streamsize precision() const{return state_.precision();} streamsize precision(streamsize n){return state_.precision(n);}
+    streamsize width() const{return state_.width();} streamsize width(streamsize n){return state_.width(n);}
+    char fill() const{return state_.fill();} char fill(char c){return state_.fill(c);}
+    ios::iostate rdstate() const{return state_.rdstate();} void clear(){state_.clear();} void clear(ios::iostate s){state_.clear(s);}
+    void setstate(ios::iostate s){state_.setstate(s);} bool good() const{return state_.good();}
+    bool eof() const{return state_.eof();} bool fail() const{return state_.fail();} bool bad() const{return state_.bad();}
+    explicit operator bool() const{return !fail();} bool operator!() const{return fail();}
+    ostream& flush(){if(::fflush(file_)!=0)state_.setstate(ios::badbit);return *this;}
+    ostream& put(char c){if(tied_)tied_->flush();if(!fail())raw(&c,1);if(flags()&ios::unitbuf)flush();return *this;}
+    ostream& write(const char* text,streamsize n){if(tied_)tied_->flush();if(!fail() && n>0)raw(text,n);if(flags()&ios::unitbuf)flush();return *this;}
+    ostream& operator<<(ostream& (*manip)(ostream&)){return manip(*this);}
+    ostream& operator<<(ios& (*manip)(ios&)){manip(state_);return *this;}
+    ostream& operator<<(nullptr_t){return *this<<"nullptr";}
+    ostream& operator<<(const char* text){if(!text){state_.setstate(ios::badbit);return *this;}return formatted(text,::strlen(text),false);}
+    ostream& operator<<(const signed char* text){return *this<<(const char*)text;}
+    ostream& operator<<(const unsigned char* text){return *this<<(const char*)text;}
+    ostream& operator<<(const string& text){return formatted(text.data(),text.size(),false);}
+    ostream& operator<<(char value){return formatted(&value,1,false);}
+    ostream& operator<<(signed char value){return *this<<(char)value;} ostream& operator<<(unsigned char value){return *this<<(char)value;}
+    ostream& operator<<(bool value){if(flags()&ios::boolalpha)return *this<<(value?"true":"false");return base()==10?signed_number(value?1:0):unsigned_number(value?1:0);}
+    ostream& operator<<(short value){return base()==10?signed_number(value):unsigned_number((unsigned short)value);}
+    ostream& operator<<(unsigned short value){return unsigned_number(value);}
+    ostream& operator<<(int value){return base()==10?signed_number(value):unsigned_number((unsigned int)value);}
+    ostream& operator<<(unsigned int value){return unsigned_number(value);}
+    ostream& operator<<(long value){return base()==10?signed_number(value):unsigned_number((unsigned long)value);}
+    ostream& operator<<(unsigned long value){return unsigned_number(value);}
+    ostream& operator<<(long long value){return base()==10?signed_number(value):unsigned_number((unsigned long long)value);}
+    ostream& operator<<(unsigned long long value){return unsigned_number(value);}
+    ostream& operator<<(float value){return floating_number(value);} ostream& operator<<(double value){return floating_number(value);}
+    ostream& operator<<(const void* value){char text[64];int n=::sprintf(text,"%p",value);return formatted(text,n,true);}
+};
+class istream {
+    FILE* file_;
+    ios state_;
+    ostream* tied_;
+    streamsize count_;
+    int last_;
+    int take(){int c=::fgetc(file_);if(c!=EOF)last_=c;return c;}
+    int peek_raw(){int c=::fgetc(file_);if(c!=EOF)::ungetc(c,file_);return c;}
+    bool sentry(bool skip){
+        if(tied_)tied_->flush();
+        if(!good()){state_.setstate(ios::failbit);return false;}
+        if(skip && (flags()&ios::skipws))while(true){int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit|ios::failbit);return false;}if(!::isspace(c))break;take();}
+        return true;
+    }
+    int digit(int c){if(c>='0' && c<='9')return c-'0';if(c>='a' && c<='f')return c-'a'+10;if(c>='A' && c<='F')return c-'A'+10;return -1;}
+    unsigned long long integer(unsigned long long limit,bool is_signed,bool& negative){
+        negative=false;
+        int c=peek_raw();if(c=='+' || c=='-'){negative=c=='-';take();c=peek_raw();}
+        int base=(flags()&ios::hex)?16:(flags()&ios::oct)?8:(flags()&ios::dec)?10:0;
+        bool any=false,overflow=false;unsigned long long value=0;
+        if(c=='0'){
+            take();any=true;c=peek_raw();
+            if((base==0 || base==16) && (c=='x' || c=='X')){take();base=16;any=false;}
+            else if(base==0)base=8;
+        }
+        if(base==0)base=10;
+        if(is_signed && negative)++limit;
+        while(true){c=peek_raw();int d=digit(c);if(d<0 || d>=base)break;take();any=true;if(value>(limit-(unsigned int)d)/(unsigned int)base)overflow=true;else value=value*(unsigned int)base+(unsigned int)d;}
+        if(c==EOF)state_.setstate(ios::eofbit);
+        if(!any){state_.setstate(ios::failbit);return 0;}
+        if(overflow){state_.setstate(ios::failbit);return limit;}
+        return value;
+    }
+    long long signed_integer(unsigned long long maximum){bool negative;unsigned long long magnitude=integer(maximum,true,negative);return negative?(long long)(0ULL-magnitude):(long long)magnitude;}
+    unsigned long long unsigned_integer(unsigned long long maximum){bool negative;unsigned long long magnitude=integer(maximum,false,negative);return negative && !fail()?0ULL-magnitude:magnitude;}
+    string floating_token(){
+        string token;
+        int c=peek_raw();if(c=='+' || c=='-'){token.push_back((char)take());c=peek_raw();}
+        bool digit_seen=false;
+        while(c>='0' && c<='9'){digit_seen=true;token.push_back((char)take());c=peek_raw();}
+        if(c=='.'){token.push_back((char)take());c=peek_raw();while(c>='0' && c<='9'){digit_seen=true;token.push_back((char)take());c=peek_raw();}}
+        if(digit_seen && (c=='e' || c=='E')){
+            token.push_back((char)take());c=peek_raw();if(c=='+' || c=='-'){token.push_back((char)take());c=peek_raw();}
+            bool exponent=false;while(c>='0' && c<='9'){exponent=true;token.push_back((char)take());c=peek_raw();}if(!exponent)state_.setstate(ios::failbit);
+        }
+        if(!digit_seen)state_.setstate(ios::failbit);if(c==EOF)state_.setstate(ios::eofbit);return token;
+    }
+public:
+    explicit istream(FILE* file):file_(file),state_(),tied_(nullptr),count_(0),last_(EOF) {}
+    istream(FILE* file,ostream* tie):file_(file),state_(),tied_(tie),count_(0),last_(EOF) {}
+    ostream* tie() const{return tied_;} ostream* tie(ostream* stream){ostream* old=tied_;tied_=stream;return old;}
+    ios::fmtflags flags() const{return state_.flags();} ios::fmtflags flags(ios::fmtflags f){return state_.flags(f);}
+    ios::fmtflags setf(ios::fmtflags f){return state_.setf(f);} ios::fmtflags setf(ios::fmtflags f,ios::fmtflags mask){return state_.setf(f,mask);}
+    void unsetf(ios::fmtflags f){state_.unsetf(f);} streamsize width() const{return state_.width();} streamsize width(streamsize n){return state_.width(n);}
+    ios::iostate rdstate() const{return state_.rdstate();} void clear(){state_.clear();} void clear(ios::iostate s){state_.clear(s);}
+    void setstate(ios::iostate s){state_.setstate(s);} bool good() const{return state_.good();}
+    bool eof() const{return state_.eof();} bool fail() const{return state_.fail();} bool bad() const{return state_.bad();}
+    explicit operator bool() const{return !fail();} bool operator!() const{return fail();}
+    streamsize gcount() const{return count_;}
+    int get(){count_=0;if(!sentry(false))return EOF;int c=take();if(c==EOF)state_.setstate(ios::eofbit|ios::failbit);else count_=1;return c;}
+    istream& get(char& c){int value=get();if(value!=EOF)c=(char)value;return *this;}
+    int peek(){count_=0;if(!sentry(false))return EOF;int c=peek_raw();if(c==EOF)state_.setstate(ios::eofbit);return c;}
+    istream& unget(){state_.clear(state_.rdstate()&~ios::eofbit);count_=0;if(!sentry(false))return *this;if(last_==EOF || ::ungetc(last_,file_)==EOF)state_.setstate(ios::badbit);last_=EOF;return *this;}
+    istream& putback(char c){state_.clear(state_.rdstate()&~ios::eofbit);count_=0;if(!sentry(false))return *this;if(::ungetc((unsigned char)c,file_)==EOF)state_.setstate(ios::badbit);return *this;}
+    istream& ignore(streamsize n,int delimiter){count_=0;if(!sentry(false))return *this;while(n>0){int c=take();if(c==EOF){state_.setstate(ios::eofbit);break;}++count_;if(c==delimiter)break;if(n!=0x7fffffffffffffffLL)--n;}return *this;}
+    istream& ignore(streamsize n){return ignore(n,EOF);} istream& ignore(){return ignore(1,EOF);}
+    istream& read(char* buffer,streamsize n){count_=0;if(!sentry(false))return *this;while(count_<n){int c=take();if(c==EOF){state_.setstate(ios::eofbit|ios::failbit);break;}buffer[count_++]=(char)c;}return *this;}
+    istream& getline(char* buffer,streamsize n,char delimiter){
+        count_=0;streamsize stored=0;if(!sentry(false)){if(n>0)buffer[0]=0;return *this;}
+        while(true){int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit);break;}if(c==delimiter){take();++count_;break;}if(stored+1>=n){state_.setstate(ios::failbit);break;}buffer[stored++]=(char)take();++count_;}
+        if(n>0)buffer[stored]=0;if(count_==0)state_.setstate(ios::failbit);return *this;
+    }
+    istream& getline(char* buffer,streamsize n){return getline(buffer,n,'\n');}
+    istream& operator>>(istream& (*manip)(istream&)){return manip(*this);}
+    istream& operator>>(ios& (*manip)(ios&)){manip(state_);return *this;}
+    istream& operator>>(char& value){if(sentry(true)){int c=take();if(c==EOF)state_.setstate(ios::eofbit|ios::failbit);else value=(char)c;}return *this;}
+    istream& operator>>(signed char& value){char c;if(*this>>c)value=(signed char)c;return *this;}
+    istream& operator>>(unsigned char& value){char c;if(*this>>c)value=(unsigned char)c;return *this;}
+    istream& operator>>(string& value){
+        streamsize max=state_.width(0);if(max<=0)max=0x7fffffffffffffffLL;if(!sentry(true))return *this;value.clear();
+        while(max>0){int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit);break;}if(::isspace(c))break;value.push_back((char)take());--max;}
+        if(value.empty())state_.setstate(ios::failbit);return *this;
+    }
+    istream& operator>>(char* value){
+        streamsize n=state_.width(0),stored=0;if(!sentry(true))return *this;if(n<=0)n=0x7fffffffffffffffLL;
+        while(stored+1<n){int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit);break;}if(::isspace(c))break;value[stored++]=(char)take();}
+        value[stored]=0;if(stored==0)state_.setstate(ios::failbit);return *this;
+    }
+    istream& operator>>(short& value){if(!sentry(true))return *this;value=(short)signed_integer(32767);return *this;}
+    istream& operator>>(unsigned short& value){if(!sentry(true))return *this;value=(unsigned short)unsigned_integer(65535);return *this;}
+    istream& operator>>(int& value){if(!sentry(true))return *this;value=(int)signed_integer(2147483647);return *this;}
+    istream& operator>>(unsigned int& value){if(!sentry(true))return *this;value=(unsigned int)unsigned_integer(4294967295ULL);return *this;}
+    istream& operator>>(long& value){if(!sentry(true))return *this;value=(long)signed_integer(2147483647);return *this;}
+    istream& operator>>(unsigned long& value){if(!sentry(true))return *this;value=(unsigned long)unsigned_integer(4294967295ULL);return *this;}
+    istream& operator>>(long long& value){if(!sentry(true))return *this;value=signed_integer(0x7fffffffffffffffULL);return *this;}
+    istream& operator>>(unsigned long long& value){if(!sentry(true))return *this;value=unsigned_integer(0xffffffffffffffffULL);return *this;}
+    istream& operator>>(bool& value){
+        if(!sentry(true))return *this;
+        if(flags()&ios::boolalpha){
+            int c=peek_raw();const char* expected=c=='t'?"true":c=='f'?"false":"";int i=0;
+            while(expected[i] && peek_raw()==expected[i]){take();++i;}
+            value=c=='t';if(i==0 || expected[i]){value=false;state_.setstate(ios::failbit);if(peek_raw()==EOF)state_.setstate(ios::eofbit);}
+        }else{bool negative;unsigned long long n=integer(0xffffffffffffffffULL,false,negative);value=n!=0;if(n>1 || (negative && n!=0))state_.setstate(ios::failbit);}return *this;
+    }
+    istream& operator>>(double& value){if(!sentry(true))return *this;string token=floating_token();if(fail()){value=0;return *this;}value=::strtod(token.c_str(),nullptr);if(value>DBL_MAX){value=DBL_MAX;state_.setstate(ios::failbit);}if(value<-DBL_MAX){value=-DBL_MAX;state_.setstate(ios::failbit);}return *this;}
+    istream& operator>>(float& value){if(!sentry(true))return *this;string token=floating_token();if(fail()){value=0;return *this;}value=::strtof(token.c_str(),nullptr);if(value>FLT_MAX){value=FLT_MAX;state_.setstate(ios::failbit);}if(value<-FLT_MAX){value=-FLT_MAX;state_.setstate(ios::failbit);}return *this;}
+    istream& __getline(string& text,char delimiter){
+        if(!sentry(false))return *this;text.clear();bool extracted=false;
+        while(true){int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit);break;}take();extracted=true;if(c==(unsigned char)delimiter)break;text.push_back((char)c);}
+        if(!extracted)state_.setstate(ios::failbit);return *this;
+    }
+    istream& __ws(){
+        if(!sentry(false))return *this;
+        while(true){int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit);break;}if(!::isspace(c))break;take();}
+        return *this;
+    }
+    bool __bitset_token(string& text,unsigned long long maximum){
+        if(!sentry(true))return false;text.clear();
+        while(text.size()<maximum){
+            int c=peek_raw();if(c==EOF){state_.setstate(ios::eofbit);break;}
+            if(c!='0' && c!='1')break;text.push_back((char)take());
+        }
+        if(maximum && text.empty()){state_.setstate(ios::failbit);return false;}
+        return true;
+    }
+};
+ostream cout(stdout);
+ostream cerr(stderr,&cout,true);
+ostream clog(stderr);
+istream cin(stdin,&cout);
+ostream& endl(ostream& stream){stream.put('\n');return stream.flush();}
+ostream& ends(ostream& stream){return stream.put(0);}
+ostream& flush(ostream& stream){return stream.flush();}
+istream& ws(istream& stream){return stream.__ws();}
+istream& getline(istream& stream,string& text,char delimiter){return stream.__getline(text,delimiter);}
+istream& getline(istream& stream,string& text){return std::getline(stream,text,'\n');}
+ios& dec(ios& stream){stream.setf(ios::dec,ios::basefield);return stream;}
+ios& hex(ios& stream){stream.setf(ios::hex,ios::basefield);return stream;}
+ios& oct(ios& stream){stream.setf(ios::oct,ios::basefield);return stream;}
+ios& fixed(ios& stream){stream.setf(ios::fixed,ios::floatfield);return stream;}
+ios& scientific(ios& stream){stream.setf(ios::scientific,ios::floatfield);return stream;}
+ios& defaultfloat(ios& stream){stream.unsetf(ios::floatfield);return stream;}
+ios& left(ios& stream){stream.setf(ios::left,ios::adjustfield);return stream;}
+ios& right(ios& stream){stream.setf(ios::right,ios::adjustfield);return stream;}
+ios& internal(ios& stream){stream.setf(ios::internal,ios::adjustfield);return stream;}
+ios& boolalpha(ios& stream){stream.setf(ios::boolalpha);return stream;}
+ios& noboolalpha(ios& stream){stream.unsetf(ios::boolalpha);return stream;}
+ios& skipws(ios& stream){stream.setf(ios::skipws);return stream;}
+ios& noskipws(ios& stream){stream.unsetf(ios::skipws);return stream;}
+ios& showbase(ios& stream){stream.setf(ios::showbase);return stream;}
+ios& noshowbase(ios& stream){stream.unsetf(ios::showbase);return stream;}
+ios& showpos(ios& stream){stream.setf(ios::showpos);return stream;}
+ios& noshowpos(ios& stream){stream.unsetf(ios::showpos);return stream;}
+ios& showpoint(ios& stream){stream.setf(ios::showpoint);return stream;}
+ios& noshowpoint(ios& stream){stream.unsetf(ios::showpoint);return stream;}
+ios& uppercase(ios& stream){stream.setf(ios::uppercase);return stream;}
+ios& nouppercase(ios& stream){stream.unsetf(ios::uppercase);return stream;}
+ios& unitbuf(ios& stream){stream.setf(ios::unitbuf);return stream;}
+ios& nounitbuf(ios& stream){stream.unsetf(ios::unitbuf);return stream;}
+}
+#endif

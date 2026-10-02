@@ -4,7 +4,7 @@ import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
 import minic.compiler.LanguageMode;
 import minic.compiler.SymbolNames;
-import minic.compiler.semantic.cpp.CppNameBinder;
+import minic.compiler.semantic.manager.NameBinder;
 import minic.compiler.parser.Parser;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.Declaration.FunctionDecl;
@@ -125,7 +125,7 @@ public final class SemanticAnalyzer extends Stage {
             completed = true;
             stepCount++;
             semanticResult = buildResult();
-            return finishStep(diagnostics.getFirst().range(), "CPP_NAME_BINDING_ERROR", diagnostics, () -> semanticResult);
+            return finishStep(diagnostics.getFirst().range(), "NAME_BINDING_ERROR", diagnostics, () -> semanticResult);
         }
 
         if (nextActionIndex >= actionCount()) {
@@ -227,19 +227,19 @@ public final class SemanticAnalyzer extends Stage {
         coreToSource = new IdentityHashMap<>();
         displayNames = Map.of();
         if (sourceProgram.languageMode() == LanguageMode.CPP17_ALGORITHM) {
-            var binding = CppNameBinder.bind(sourceProgram);
+            var binding = NameBinder.bind(sourceProgram);
             program = binding.program();
             sourceToCore = binding.sourceToCore();
             sourceToCore.forEach((original, core) -> coreToSource.put(core, original));
             displayNames = binding.displayNames();
             diagnostics.addAll(binding.diagnostics());
         } else {
-            AstNode cppNode = minic.compiler.parser.node.AstChildren.firstCppSyntax(program);
-            if (cppNode != null) diagnostics.add(new Diagnostic("CPP002", Diagnostic.Severity.ERROR,
+            AstNode extendedNode = minic.compiler.parser.node.AstChildren.firstExtendedSyntax(program);
+            if (extendedNode != null) diagnostics.add(new Diagnostic("CPP002", Diagnostic.Severity.ERROR,
                     "C 模式的 AST 不能包含 C++ 名称、类成员元数据、this 表达式或引用类型。",
                     "请使用 CPP17_ALGORITHM 模式解析和分析源程序。",
-                    cppNode instanceof minic.compiler.parser.node.Declaration.StructDecl record && record.cppInfo() != null
-                            ? record.cppInfo().keyRange() : cppNode.range()));
+                    extendedNode instanceof minic.compiler.parser.node.Declaration.StructDecl record && record.recordInfo() != null
+                            ? record.recordInfo().keyRange() : extendedNode.range()));
         }
         bindingFailed = !diagnostics.isEmpty();
         globalScope = new Scope();

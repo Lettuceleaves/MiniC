@@ -1,0 +1,128 @@
+#ifndef MINIC_STL_VECTOR_BOOL_MH
+#define MINIC_STL_VECTOR_BOOL_MH
+namespace std {
+class __minic_bit_reference {
+    unsigned long long* word_;
+    unsigned long long mask_;
+public:
+    __minic_bit_reference(unsigned long long* p,unsigned long long mask):word_(p),mask_(mask) {}
+    operator bool() const noexcept {return (*word_ & mask_)!=0;}
+    bool operator~() const{return !bool(*this);}
+    __minic_bit_reference& operator=(bool value) noexcept {if(value)*word_|=mask_;else *word_&=~mask_;return *this;}
+    __minic_bit_reference& operator=(const __minic_bit_reference& value) noexcept {return *this=bool(value);}
+    void flip() noexcept {*word_^=mask_;}
+};
+void swap(__minic_bit_reference a,__minic_bit_reference b) noexcept {bool value=a;a=bool(b);b=value;}
+void swap(__minic_bit_reference a,bool& b) noexcept {bool value=a;a=b;b=value;}
+void swap(bool& a,__minic_bit_reference b) noexcept {bool value=a;a=b;b=value;}
+template<bool Constant> struct __minic_bit_iterator {
+    typedef random_access_iterator_tag iterator_category;
+    typedef bool value_type;
+    typedef ptrdiff_t difference_type;
+    typedef void pointer;
+    typedef typename conditional<Constant,bool,__minic_bit_reference>::type reference;
+    typedef typename conditional<Constant,const unsigned long long*,unsigned long long*>::type word_pointer;
+    word_pointer words;
+    difference_type index;
+    __minic_bit_iterator():words(nullptr),index(0) {}
+    __minic_bit_iterator(word_pointer p,difference_type n):words(p),index(n) {}
+    template<bool Other,typename enable_if<Constant || !Other,int>::type = 0>
+    __minic_bit_iterator(const __minic_bit_iterator<Other>& other):words(other.words),index(other.index) {}
+    reference operator*() const{return reference(__minic_bit_reference((unsigned long long*)words+index/64,1ULL<<(index%64)));}
+    reference operator[](difference_type n) const{return *(*this+n);}
+    __minic_bit_iterator& operator++(){++index;return *this;}
+    __minic_bit_iterator operator++(int){__minic_bit_iterator saved=*this;++index;return saved;}
+    __minic_bit_iterator& operator--(){--index;return *this;}
+    __minic_bit_iterator operator--(int){__minic_bit_iterator saved=*this;--index;return saved;}
+    __minic_bit_iterator& operator+=(difference_type n){index+=n;return *this;}
+    __minic_bit_iterator& operator-=(difference_type n){index-=n;return *this;}
+    __minic_bit_iterator operator+(difference_type n) const{return __minic_bit_iterator(words,index+n);}
+    __minic_bit_iterator operator-(difference_type n) const{return __minic_bit_iterator(words,index-n);}
+    template<bool Other> difference_type operator-(const __minic_bit_iterator<Other>& other) const{return index-other.index;}
+    template<bool Other> bool operator==(const __minic_bit_iterator<Other>& other) const{return words==other.words && index==other.index;}
+    template<bool Other> bool operator!=(const __minic_bit_iterator<Other>& other) const{return !(*this==other);}
+    template<bool Other> bool operator<(const __minic_bit_iterator<Other>& other) const{return index<other.index;}
+    template<bool Other> bool operator>(const __minic_bit_iterator<Other>& other) const{return other<*this;}
+    template<bool Other> bool operator<=(const __minic_bit_iterator<Other>& other) const{return !(other<*this);}
+    template<bool Other> bool operator>=(const __minic_bit_iterator<Other>& other) const{return !(*this<other);}
+};
+template<bool C> __minic_bit_iterator<C> operator+(ptrdiff_t n,const __minic_bit_iterator<C>& i){return i+n;}
+template<> class vector<bool> {
+    vector<unsigned long long> words_;
+    size_t size_;
+    void ensure(size_t n){if(n>capacity()){size_t cap=capacity();size_t target=cap>max_size()/2?max_size():cap*2;reserve(target>n?target:n);}}
+    void mask_tail(){if(size_ && size_%64)words_[(size_-1)/64]&=(1ULL<<(size_%64))-1;}
+public:
+    typedef bool value_type;
+    typedef size_t size_type;
+    typedef ptrdiff_t difference_type;
+    typedef __minic_bit_reference reference;
+    typedef bool const_reference;
+    typedef void pointer;
+    typedef const bool* const_pointer;
+    typedef __minic_bit_iterator<false> iterator;
+    typedef __minic_bit_iterator<true> const_iterator;
+    typedef std::reverse_iterator<iterator> reverse_iterator;
+    typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+    vector() noexcept:words_(),size_(0) {}
+    explicit vector(size_type n):words_(),size_(0){resize(n);}
+    vector(size_type n,bool value):words_(),size_(0){resize(n,value);}
+    template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
+    vector(I first,I last):words_(),size_(0){while(first!=last){push_back(bool(*first));++first;}}
+    vector(initializer_list<bool> values):words_(),size_(0){assign(values.begin(),values.end());}
+    vector(const vector& other):words_(other.words_),size_(other.size_) {}
+    vector(vector&& other) noexcept:words_(std::move(other.words_)),size_(other.size_){other.size_=0;}
+    vector& operator=(const vector& other){if(this!=&other){words_=other.words_;size_=other.size_;}return *this;}
+    vector& operator=(vector&& other) noexcept {if(this!=&other){words_=std::move(other.words_);size_=other.size_;other.size_=0;}return *this;}
+    vector& operator=(initializer_list<bool> values){assign(values);return *this;}
+    size_type size() const noexcept {return size_;} bool empty() const noexcept {return size_==0;}
+    size_type max_size() const noexcept {return 0x7fffffffffffffc0ULL;}
+    size_type capacity() const noexcept {return words_.size()*64;}
+    void reserve(size_type n){if(n>max_size())::abort();if(n>capacity())words_.resize((n+63)/64,0ULL);}
+    void shrink_to_fit(){words_.resize((size_+63)/64);words_.shrink_to_fit();}
+    reference operator[](size_type n){return reference(words_.data()+n/64,1ULL<<(n%64));}
+    bool operator[](size_type n) const{return (words_[n/64]&(1ULL<<(n%64)))!=0;}
+    reference at(size_type n){if(n>=size_)::abort();return (*this)[n];}
+    bool at(size_type n) const{if(n>=size_)::abort();return (*this)[n];}
+    reference front(){return (*this)[0];} bool front() const{return (*this)[0];}
+    reference back(){return (*this)[size_-1];} bool back() const{return (*this)[size_-1];}
+    iterator begin() noexcept {return iterator(words_.data(),0);} const_iterator begin() const noexcept {return const_iterator(words_.data(),0);}
+    iterator end() noexcept {return iterator(words_.data(),size_);} const_iterator end() const noexcept {return const_iterator(words_.data(),size_);}
+    const_iterator cbegin() const noexcept {return begin();} const_iterator cend() const noexcept {return end();}
+    reverse_iterator rbegin() noexcept {return reverse_iterator(end());} const_reverse_iterator rbegin() const noexcept {return const_reverse_iterator(end());}
+    reverse_iterator rend() noexcept {return reverse_iterator(begin());} const_reverse_iterator rend() const noexcept {return const_reverse_iterator(begin());}
+    const_reverse_iterator crbegin() const noexcept {return rbegin();} const_reverse_iterator crend() const noexcept {return rend();}
+    void clear() noexcept {size_=0;}
+    void resize(size_type n){resize(n,false);}
+    void resize(size_type n,bool value){if(n>size_){ensure(n);while(size_<n){(*this)[size_]=value;++size_;}}else size_=n;mask_tail();}
+    void push_back(bool value){if(size_==max_size())::abort();ensure(size_+1);(*this)[size_]=value;++size_;}
+    void pop_back(){--size_;mask_tail();}
+    template<class... A> reference emplace_back(A&&... a){bool value(std::forward<A>(a)...);push_back(value);return back();}
+    template<class... A> iterator emplace(const_iterator position,A&&... a){bool value(std::forward<A>(a)...);return insert(position,value);}
+    iterator insert(const_iterator position,bool value){return insert(position,1,value);}
+    iterator insert(const_iterator position,size_type n,bool value){
+        size_type at=position.index;if(n>max_size()-size_)::abort();ensure(size_+n);
+        for(size_type i=size_;i>at;--i)(*this)[i+n-1]=bool((*this)[i-1]);
+        for(size_type i=0;i<n;++i)(*this)[at+i]=value;size_+=n;return begin()+at;
+    }
+    template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
+    iterator insert(const_iterator position,I first,I last){
+        size_type at=position.index;vector saved(first,last);insert(position,saved.size(),false);
+        for(size_type i=0;i<saved.size();++i)(*this)[at+i]=bool(saved[i]);return begin()+at;
+    }
+    iterator insert(const_iterator position,initializer_list<bool> values){return insert(position,values.begin(),values.end());}
+    iterator erase(const_iterator position){return erase(position,position+1);}
+    iterator erase(const_iterator first,const_iterator last){
+        size_type at=first.index,n=last.index-first.index;
+        for(size_type i=last.index;i<size_;++i)(*this)[i-n]=bool((*this)[i]);size_-=n;mask_tail();return begin()+at;
+    }
+    void assign(size_type n,bool value){clear();resize(n,value);}
+    template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
+    void assign(I first,I last){vector saved(first,last);swap(saved);}
+    void assign(initializer_list<bool> values){assign(values.begin(),values.end());}
+    void flip() noexcept {for(size_type i=0;i<(size_+63)/64;++i)words_[i]=~words_[i];mask_tail();}
+    void swap(vector& other) noexcept {words_.swap(other.words_);std::swap(size_,other.size_);}
+    static void swap(reference a,reference b) noexcept {std::swap(a,b);}
+};
+}
+#endif

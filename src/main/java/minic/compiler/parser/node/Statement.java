@@ -139,12 +139,12 @@ public interface Statement extends AstNode {
             MiniType type,
             Expression initializer,
             List<AlignmentSpec> alignmentSpecs,
-            CppInitializer cppInitializer,
+            InitializerSyntax initializerSyntax,
             boolean staticStorage,
             SourceRange range,boolean constexprSpecifier
     ) implements Statement {
-        public VarDeclStmt(String name,MiniType type,Expression initializer,List<AlignmentSpec> alignmentSpecs,CppInitializer cppInitializer,boolean staticStorage,SourceRange range){this(name,type,initializer,alignmentSpecs,cppInitializer,staticStorage,range,false);}
-        public VarDeclStmt withConstexprSpecifier(boolean value){return new VarDeclStmt(name,value?MiniType.qualified(type,java.util.Set.of(MiniType.TypeQualifier.CONST)):type,initializer,alignmentSpecs,cppInitializer,staticStorage,range,value);}
+        public VarDeclStmt(String name,MiniType type,Expression initializer,List<AlignmentSpec> alignmentSpecs,InitializerSyntax initializerSyntax,boolean staticStorage,SourceRange range){this(name,type,initializer,alignmentSpecs,initializerSyntax,staticStorage,range,false);}
+        public VarDeclStmt withConstexprSpecifier(boolean value){return new VarDeclStmt(name,value?MiniType.qualified(type,java.util.Set.of(MiniType.TypeQualifier.CONST)):type,initializer,alignmentSpecs,initializerSyntax,staticStorage,range,value);}
         public VarDeclStmt {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(type, "type");
@@ -154,14 +154,14 @@ public interface Statement extends AstNode {
                 throw new IllegalArgumentException("name must not be blank");
             }
             alignmentSpecs = List.copyOf(alignmentSpecs);
-            if (cppInitializer != null && !cppInitializer.isCompatibilityProjection(initializer)) {
+            if (initializerSyntax != null && !initializerSyntax.isCompatibilityProjection(initializer)) {
                 throw new IllegalArgumentException("C++ initialization operands must match the compatibility projection");
             }
         }
 
         public VarDeclStmt(String name, MiniType type, Expression initializer,
-                           List<AlignmentSpec> alignmentSpecs, CppInitializer cppInitializer, SourceRange range) {
-            this(name, type, initializer, alignmentSpecs, cppInitializer, false, range);
+                           List<AlignmentSpec> alignmentSpecs, InitializerSyntax initializerSyntax, SourceRange range) {
+            this(name, type, initializer, alignmentSpecs, initializerSyntax, false, range);
         }
 
         public VarDeclStmt(String name, MiniType type, Expression initializer,

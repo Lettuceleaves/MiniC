@@ -26,7 +26,7 @@ public final class DeclarationManager {
     private final ExpressionManager expressionManager;
     private final Parser.TypeReader typeReader;
     private final java.util.Map<String, Long> enumConstants;
-    private final minic.compiler.parser.CppRecordParser cppRecordParser;
+    private final minic.compiler.parser.RecordParser recordParser;
 
     public DeclarationManager(Parser.Context state, StatementManager statementManager,
                               ExpressionManager expressionManager, Parser.TypeReader typeReader) {
@@ -41,9 +41,9 @@ public final class DeclarationManager {
         this.expressionManager = expressionManager;
         this.typeReader = typeReader;
         this.enumConstants = enumConstants;
-        cppRecordParser = typeReader.isCpp()
-                ? new minic.compiler.parser.CppRecordParser(state, typeReader, statementManager) : null;
-        if (cppRecordParser != null) typeReader.setCppRecordParser(cppRecordParser);
+        recordParser = typeReader.extendedSyntax()
+                ? new minic.compiler.parser.RecordParser(state, typeReader, statementManager) : null;
+        if (recordParser != null) typeReader.setRecordParser(recordParser);
     }
 
     public EnumDecl parseEnumDecl() {
@@ -142,7 +142,7 @@ public final class DeclarationManager {
         state.build(group,"DeclGroupDecl",group.range());return group;
     }
 
-    public minic.compiler.parser.node.CppStaticAssertDecl parseStaticAssert(){return statementManager.parseStaticAssert();}
+    public minic.compiler.parser.node.StaticAssertDecl parseStaticAssert(){return statementManager.parseStaticAssert();}
     private Declaration constexprDeclaration(Declaration declaration,boolean enabled){
         if(!enabled||declaration==null)return declaration;
         if(declaration instanceof Declaration.OutOfLineConstructorDecl ctor)return new Declaration.OutOfLineConstructorDecl(ctor.qualifiedName(),ctor.constructor().withConstexprSpecifier(true),ctor.nameRange());
@@ -151,26 +151,26 @@ public final class DeclarationManager {
     }
     public Declaration parseFunctionOrGlobalDecl() {
         Token firstSpecifier=state.peek();boolean constexpr=false;
-        while(typeReader.isCpp()&&(state.check(TokenType.CONSTEXPR)||state.check(TokenType.INLINE))){
+        while(typeReader.extendedSyntax()&&(state.check(TokenType.CONSTEXPR)||state.check(TokenType.INLINE))){
             Token specifier=state.advance();if(specifier.type()==TokenType.CONSTEXPR){if(constexpr)state.report(specifier,"Repeated constexpr specifier");constexpr=true;}
         }
-        if (typeReader.isCpp() && state.match(TokenType.EXPLICIT))
+        if (typeReader.extendedSyntax() && state.match(TokenType.EXPLICIT))
             state.report(state.previous().range(), "explicit 只能用于类内构造函数或转换函数声明");
-        if(cppRecordParser!=null && cppRecordParser.startsTemplateSpecialMember())
-            return constexprDeclaration(cppRecordParser.parseTemplateSpecialMember(),constexpr);
-        if (cppRecordParser != null && cppRecordParser.startsOutOfLineConversion())
-            return constexprDeclaration(cppRecordParser.parseOutOfLineConversion(),constexpr);
-        if (cppRecordParser != null && cppRecordParser.startsOutOfLineDestructor())
-            return constexprDeclaration(cppRecordParser.parseOutOfLineDestructor(),constexpr);
-        if (cppRecordParser != null && cppRecordParser.startsOutOfLineConstructor())
-            return constexprDeclaration(cppRecordParser.parseOutOfLineConstructor(),constexpr);
+        if(recordParser!=null && recordParser.startsTemplateSpecialMember())
+            return constexprDeclaration(recordParser.parseTemplateSpecialMember(),constexpr);
+        if (recordParser != null && recordParser.startsOutOfLineConversion())
+            return constexprDeclaration(recordParser.parseOutOfLineConversion(),constexpr);
+        if (recordParser != null && recordParser.startsOutOfLineDestructor())
+            return constexprDeclaration(recordParser.parseOutOfLineDestructor(),constexpr);
+        if (recordParser != null && recordParser.startsOutOfLineConstructor())
+            return constexprDeclaration(recordParser.parseOutOfLineConstructor(),constexpr);
         state.enter("functionDecl");
         Token startToken = firstSpecifier;
         boolean external = false;
         boolean noReturn = false;
         boolean internal = false;
         while (state.check(TokenType.EXTERN) || state.check(TokenType.NORETURN)
-                || typeReader.isCpp() && (state.check(TokenType.STATIC)||state.check(TokenType.CONSTEXPR)||state.check(TokenType.INLINE))) {
+                || typeReader.extendedSyntax() && (state.check(TokenType.STATIC)||state.check(TokenType.CONSTEXPR)||state.check(TokenType.INLINE))) {
             Token specifier = state.advance();
             if(specifier.type()==TokenType.CONSTEXPR){if(constexpr)state.report(specifier,"Repeated constexpr specifier");constexpr=true;continue;}
             if(specifier.type()==TokenType.INLINE)continue;
@@ -219,10 +219,10 @@ public final class DeclarationManager {
         boolean qualified = declaration.qualifiedName() != null;
         if (qualified && internal) state.report(startToken, "类外成员定义不能重复 static 说明符");
         if (qualified && declaration.qualifiedName().segments().size() < 2) {
-            state.unsupportedCpp(declaration.nameRange(), "此限定声明需要所属类名称");
+            state.unsupportedSyntax(declaration.nameRange(), "此限定声明需要所属类名称");
             return null;
         }
-        if (typeReader.isCpp() && !qualified) typeReader.declareOrdinaryName(declaration.name(), declaration.range());
+        if (typeReader.extendedSyntax() && !qualified) typeReader.declareOrdinaryName(declaration.name(), declaration.range());
         if (!(declaration.type() instanceof MiniType.FunctionType functionType)) {
             if (noReturn) state.report(startToken, "noreturn 只能用于函数");
             StatementManager.ParsedInitializer initialization;
@@ -238,8 +238,8 @@ public final class DeclarationManager {
             }
             GlobalVarDecl global = new GlobalVarDecl(
                     declaration.name(), declaration.type(), initialization.expression(), external,
-                    declaration.alignmentSpecs(), initialization.cppInitializer(), SourceRange.span(startToken.range(), end)).withConstexprSpecifier(constexpr);
-            if (!typeReader.isCpp()) typeReader.declareOrdinaryName(global.name(), global.range());
+                    declaration.alignmentSpecs(), initialization.initializerSyntax(), SourceRange.span(startToken.range(), end)).withConstexprSpecifier(constexpr);
+            if (!typeReader.extendedSyntax()) typeReader.declareOrdinaryName(global.name(), global.range());
             state.build(global, "GlobalVarDecl " + global.name(), global.range());
             state.exit("functionDecl", global.range());
             if (qualified) {
@@ -251,19 +251,19 @@ public final class DeclarationManager {
         if (!declaration.alignmentSpecs().isEmpty()) {
             state.report(declaration.range(), "函数声明不能使用 alignas");
         }
-        if(typeReader.isCpp())typeReader.registerPendingFunctionTemplate(declaration.name());
+        if(typeReader.extendedSyntax())typeReader.registerPendingFunctionTemplate(declaration.name());
         boolean constQualified;
         if(qualified)typeReader.enterMemberDefinitionScope(declaration.qualifiedName());
         try {
             constQualified = qualified && state.match(TokenType.CONST);
             functionType = typeReader.parseTrailingReturn(typeReader.parseFunctionException(functionType));
         } finally {if(qualified)typeReader.exitMemberDefinitionScope();}
-        if (qualified && external) state.unsupportedCpp(startToken.range(), "类外成员定义不能使用 extern");
+        if (qualified && external) state.unsupportedSyntax(startToken.range(), "类外成员定义不能使用 extern");
         Token semicolonToken = null;
         Declaration.DefinitionKind definitionKind=Declaration.DefinitionKind.ORDINARY;
         BlockStmt body = null;
-        if(typeReader.isCpp()&&state.check(TokenType.EQUAL)) {
-            definitionKind=minic.compiler.parser.CppFunctionDefinitionParser.parse(state);semicolonToken=state.previous();
+        if(typeReader.extendedSyntax()&&state.check(TokenType.EQUAL)) {
+            definitionKind=minic.compiler.parser.FunctionDefinitionParser.parse(state);semicolonToken=state.previous();
         } else if (state.match(TokenType.SEMICOLON)) {
             semicolonToken = state.previous();
         } else if(state.check(TokenType.COMMA)) {
@@ -291,7 +291,7 @@ public final class DeclarationManager {
         ArrayList<Parameter> parameters = new ArrayList<>();
         for (int index = 0; index < declaration.parameters().size(); index++) {
             Parser.ParsedParameter parameter = declaration.parameters().get(index);
-            if (body != null && parameter.name().isEmpty() && !typeReader.isCpp()) {
+            if (body != null && parameter.name().isEmpty() && !typeReader.extendedSyntax()) {
                 state.report(parameter.range(), "函数定义中的参数必须命名");
                 return null;
             }
@@ -310,7 +310,7 @@ public final class DeclarationManager {
                 SourceRange.span(startToken.range(), endRange),
                 declaration.operatorName()
         ).withDefinitionKind(definitionKind).withExceptionSpecification(functionType.exceptionSpecification()).withConstexprSpecifier(constexpr);
-        if (!typeReader.isCpp()) typeReader.declareOrdinaryName(functionDecl.name(), functionDecl.range());
+        if (!typeReader.extendedSyntax()) typeReader.declareOrdinaryName(functionDecl.name(), functionDecl.range());
         state.build(functionDecl, "FunctionDecl " + functionDecl.name(), functionDecl.range());
         state.exit("functionDecl", functionDecl.range());
         if (qualified) {
@@ -327,13 +327,13 @@ public final class DeclarationManager {
     }
 
     public StructDecl parseStructDecl() {
-        if (cppRecordParser != null) return cppRecordParser.parseDeclaration();
+        if (recordParser != null) return recordParser.parseDeclaration();
         state.enter("structDecl");
         boolean union = state.check(TokenType.UNION);
         Token startToken = state.advance();
         Token nameToken = state.consume(TokenType.IDENTIFIER, "期望结构体名");
         String internalName = nameToken == null ? "" : union ? unionName(nameToken.lexeme()) : nameToken.lexeme();
-        if (typeReader.isCpp() && nameToken != null) {
+        if (typeReader.extendedSyntax() && nameToken != null) {
             // Register before parsing fields so injected names and self pointers are visible.
             MiniType aggregate = typeReader.declareAggregate(nameToken.lexeme(), union,
                     state.check(TokenType.LEFT_BRACE), nameToken.range());
@@ -352,7 +352,7 @@ public final class DeclarationManager {
         }
         state.consume(TokenType.LEFT_BRACE, "期望 '{'");
         ArrayList<StructField> fields = new ArrayList<>();
-        if (typeReader.isCpp()) typeReader.enterMemberScope(MiniType.struct(internalName));
+        if (typeReader.extendedSyntax()) typeReader.enterMemberScope(MiniType.struct(internalName));
         try {
             while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
                 StructField field = parseStructField();
@@ -364,7 +364,7 @@ public final class DeclarationManager {
                 }
             }
         } finally {
-            if (typeReader.isCpp()) typeReader.exitMemberScope();
+            if (typeReader.extendedSyntax()) typeReader.exitMemberScope();
         }
         state.consume(TokenType.RIGHT_BRACE, "期望 '}'");
         Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");

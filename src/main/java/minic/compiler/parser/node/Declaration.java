@@ -122,11 +122,11 @@ public interface Declaration extends AstNode {
             minic.compiler.parser.node.Expression initializer,
             boolean external,
             List<AlignmentSpec> alignmentSpecs,
-            CppInitializer cppInitializer,
+            InitializerSyntax initializerSyntax,
             SourceRange range,boolean constexprSpecifier
     ) implements Declaration {
-        public GlobalVarDecl(String name,MiniType type,Expression initializer,boolean external,List<AlignmentSpec> alignmentSpecs,CppInitializer cppInitializer,SourceRange range){this(name,type,initializer,external,alignmentSpecs,cppInitializer,range,false);}
-        public GlobalVarDecl withConstexprSpecifier(boolean value){return new GlobalVarDecl(name,value?MiniType.qualified(type,java.util.Set.of(MiniType.TypeQualifier.CONST)):type,initializer,external,alignmentSpecs,cppInitializer,range,value);}
+        public GlobalVarDecl(String name,MiniType type,Expression initializer,boolean external,List<AlignmentSpec> alignmentSpecs,InitializerSyntax initializerSyntax,SourceRange range){this(name,type,initializer,external,alignmentSpecs,initializerSyntax,range,false);}
+        public GlobalVarDecl withConstexprSpecifier(boolean value){return new GlobalVarDecl(name,value?MiniType.qualified(type,java.util.Set.of(MiniType.TypeQualifier.CONST)):type,initializer,external,alignmentSpecs,initializerSyntax,range,value);}
         public GlobalVarDecl {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(type, "type");
@@ -134,7 +134,7 @@ public interface Declaration extends AstNode {
             Objects.requireNonNull(range, "range");
             if (name.isBlank()) throw new IllegalArgumentException("name must not be blank");
             alignmentSpecs = List.copyOf(alignmentSpecs);
-            if (cppInitializer != null && !cppInitializer.isCompatibilityProjection(initializer)) {
+            if (initializerSyntax != null && !initializerSyntax.isCompatibilityProjection(initializer)) {
                 throw new IllegalArgumentException("C++ initialization operands must match the compatibility projection");
             }
         }
@@ -308,11 +308,11 @@ public interface Declaration extends AstNode {
     enum Access { PUBLIC, PROTECTED, PRIVATE }
 
     /** Source-only C++ record information; member order determines effective access later. */
-    record CppBase(MiniType type, Access access, boolean virtualBase, SourceRange range) implements AstNode {}
+    record BaseSpecifier(MiniType type, Access access, boolean virtualBase, SourceRange range) implements AstNode {}
 
-    record CppRecordInfo(RecordKey key, List<CppMember> members, List<CppBase> bases, SourceRange keyRange) {
-        public CppRecordInfo(RecordKey key,List<CppMember> members,SourceRange keyRange){this(key,members,List.of(),keyRange);}
-        public CppRecordInfo {
+    record RecordInfo(RecordKey key, List<RecordMember> members, List<BaseSpecifier> bases, SourceRange keyRange) {
+        public RecordInfo(RecordKey key,List<RecordMember> members,SourceRange keyRange){this(key,members,List.of(),keyRange);}
+        public RecordInfo {
             Objects.requireNonNull(key, "key");
             members = List.copyOf(members);
             bases = List.copyOf(bases);
@@ -320,31 +320,31 @@ public interface Declaration extends AstNode {
         }
     }
 
-    sealed interface CppMember extends AstNode permits FieldMember, StaticFieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel, MemberTypedef, TemplateMethodMember, TemplateConstructorMember, CppStaticAssertDecl {}
+    sealed interface RecordMember extends AstNode permits FieldMember, StaticFieldMember, MethodMember, ConstructorMember, DestructorMember, AccessLabel, MemberTypedef, TemplateMethodMember, TemplateConstructorMember, StaticAssertDecl {}
 
-    record TemplateMethodMember(List<ClassTemplateDecl.Parameter> parameters,MethodMember method) implements CppMember {
+    record TemplateMethodMember(List<ClassTemplateDecl.Parameter> parameters,MethodMember method) implements RecordMember {
         public TemplateMethodMember {parameters=List.copyOf(parameters);Objects.requireNonNull(method);}
         @Override public SourceRange range(){return method.range();}
     }
-    record TemplateConstructorMember(List<ClassTemplateDecl.Parameter> parameters,ConstructorMember constructor) implements CppMember {
+    record TemplateConstructorMember(List<ClassTemplateDecl.Parameter> parameters,ConstructorMember constructor) implements RecordMember {
         public TemplateConstructorMember {parameters=List.copyOf(parameters);Objects.requireNonNull(constructor);}
         @Override public SourceRange range(){return constructor.range();}
     }
 
-    record MemberTypedef(TypedefDecl declaration) implements CppMember {
+    record MemberTypedef(TypedefDecl declaration) implements RecordMember {
         public MemberTypedef { Objects.requireNonNull(declaration); }
         @Override public SourceRange range(){return declaration.range();}
     }
 
     /** Transparent source wrapper: layout and member views retain the same field node. */
-    record FieldMember(StructField field, CppInitializer defaultInitializer) implements CppMember {
+    record FieldMember(StructField field, InitializerSyntax defaultInitializer) implements RecordMember {
         public FieldMember(StructField field) { this(field, null); }
         public FieldMember { Objects.requireNonNull(field, "field"); }
         @Override public SourceRange range() { return field.range(); }
     }
 
     /** A static data member belongs to class lookup but has no instance layout slot. */
-    record StaticFieldMember(GlobalVarDecl declaration) implements CppMember {
+    record StaticFieldMember(GlobalVarDecl declaration) implements RecordMember {
         public StaticFieldMember { Objects.requireNonNull(declaration, "declaration"); }
         @Override public SourceRange range() { return declaration.range(); }
     }
@@ -365,7 +365,7 @@ public interface Declaration extends AstNode {
     record ConstructorMember(String name, List<Parameter> parameters, boolean variadic,
                              List<MemberInitializer> initializers, BlockStmt body,
                              SourceRange nameRange, SourceRange range, boolean explicitSpecifier,DefinitionKind definitionKind,
-                             MiniType.ExceptionSpecification exceptionSpecification,boolean constexprSpecifier) implements CppMember {
+                             MiniType.ExceptionSpecification exceptionSpecification,boolean constexprSpecifier) implements RecordMember {
         public ConstructorMember(String name,List<Parameter> parameters,boolean variadic,List<MemberInitializer> initializers,BlockStmt body,SourceRange nameRange,SourceRange range,boolean explicitSpecifier,DefinitionKind definitionKind,MiniType.ExceptionSpecification exceptionSpecification){this(name,parameters,variadic,initializers,body,nameRange,range,explicitSpecifier,definitionKind,exceptionSpecification,false);}
         public ConstructorMember withConstexprSpecifier(boolean value){return new ConstructorMember(name,parameters,variadic,initializers,body,nameRange,range,explicitSpecifier,definitionKind,exceptionSpecification,value);}
         public ConstructorMember(String name,List<Parameter> parameters,boolean variadic,List<MemberInitializer> initializers,
@@ -400,7 +400,7 @@ public interface Declaration extends AstNode {
 
     /** A destructor has neither a return type nor parameters; nameRange includes the '~'. */
     record DestructorMember(String name, BlockStmt body, SourceRange nameRange, SourceRange range,DefinitionKind definitionKind,
-                            MiniType.ExceptionSpecification exceptionSpecification) implements CppMember {
+                            MiniType.ExceptionSpecification exceptionSpecification) implements RecordMember {
         public DestructorMember(String name,BlockStmt body,SourceRange nameRange,SourceRange range,DefinitionKind definitionKind) {
             this(name,body,nameRange,range,definitionKind,MiniType.ExceptionSpecification.UNSPECIFIED);
         }
@@ -436,7 +436,7 @@ public interface Declaration extends AstNode {
     }
 
     /** Written order is retained separately from the declaration order used for execution. */
-    record MemberInitializer(QualifiedName target, CppInitializer initializer, SourceRange range) implements AstNode {
+    record MemberInitializer(QualifiedName target, InitializerSyntax initializer, SourceRange range) implements AstNode {
         public MemberInitializer {
             Objects.requireNonNull(target, "target");
             Objects.requireNonNull(initializer, "initializer");
@@ -458,7 +458,7 @@ public interface Declaration extends AstNode {
         @Override public SourceRange range() { return constructor.range(); }
     }
 
-    record MethodMember(FunctionDecl method, boolean constQualified, boolean staticMember, SourceRange nameRange) implements CppMember {
+    record MethodMember(FunctionDecl method, boolean constQualified, boolean staticMember, SourceRange nameRange) implements RecordMember {
         public MethodMember(FunctionDecl method, boolean constQualified, SourceRange nameRange) {
             this(method, constQualified, false, nameRange);
         }
@@ -472,7 +472,7 @@ public interface Declaration extends AstNode {
         @Override public SourceRange range() { return method.range(); }
     }
 
-    record AccessLabel(Access access, SourceRange range) implements CppMember {
+    record AccessLabel(Access access, SourceRange range) implements RecordMember {
         public AccessLabel {
             Objects.requireNonNull(access, "access");
             Objects.requireNonNull(range, "range");
@@ -480,7 +480,7 @@ public interface Declaration extends AstNode {
     }
 
     record StructDecl(String name, List<StructField> fields, boolean definition, boolean union,
-                      CppRecordInfo cppInfo, SourceRange range) implements Declaration {
+                      RecordInfo recordInfo, SourceRange range) implements Declaration {
         public StructDecl {
             Objects.requireNonNull(name, "name");
             Objects.requireNonNull(fields, "fields");
@@ -489,9 +489,9 @@ public interface Declaration extends AstNode {
                 throw new IllegalArgumentException("name must not be blank");
             }
             fields = List.copyOf(fields);
-            if (cppInfo != null) {
+            if (recordInfo != null) {
                 int index = 0;
-                for (CppMember member : cppInfo.members()) {
+                for (RecordMember member : recordInfo.members()) {
                     if (!(member instanceof FieldMember field)) continue;
                     if (index >= fields.size() || fields.get(index++) != field.field()) {
                         throw new IllegalArgumentException("C++ field projection must use the same field nodes in member order");

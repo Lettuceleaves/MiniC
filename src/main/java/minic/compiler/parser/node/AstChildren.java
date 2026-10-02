@@ -14,7 +14,7 @@ public final class AstChildren {
 
     public static List<? extends AstNode> of(AstNode node) {
         List<? extends AstNode> direct = switch (node) {
-            case CppStaticAssertDecl n -> present(n.condition(),n.message());
+            case StaticAssertDecl n -> present(n.condition(),n.message());
             case Program n -> n.declarations();
             case NamespaceDecl n -> n.declarations();
             case DeclGroupDecl n -> n.declarations();
@@ -26,15 +26,15 @@ public final class AstChildren {
                     if(argument instanceof minic.compiler.type.TemplateArgument.Value value)children.add(value.expression());
                 yield children;
             }
-            case CppTemplateMemberDefinition n -> prepend(n.declaration(),n.parameters());
+            case TemplateMemberDefinitionDecl n -> prepend(n.declaration(),n.parameters());
             case TemplateMethodMember n -> prepend(n.method(),n.parameters());
             case TemplateConstructorMember n -> prepend(n.constructor(),n.parameters());
-            case CppTemplateIdExpr n -> prepend(n.target(),n.arguments().stream().filter(minic.compiler.type.TemplateArgument.Value.class::isInstance).map(minic.compiler.type.TemplateArgument.Value.class::cast).map(minic.compiler.type.TemplateArgument.Value::expression).toList());
-            case CppPackExpansionExpr n -> present(n.pattern());
-            case CppSizeofPackExpr n -> List.of();
+            case TemplateIdExpr n -> prepend(n.target(),n.arguments().stream().filter(minic.compiler.type.TemplateArgument.Value.class::isInstance).map(minic.compiler.type.TemplateArgument.Value.class::cast).map(minic.compiler.type.TemplateArgument.Value::expression).toList());
+            case PackExpansionExpr n -> present(n.pattern());
+            case SizeofPackExpr n -> List.of();
             case Parameter n -> present(n.defaultValue());
             case ClassTemplateDecl.ValueParameter n -> present(n.defaultValue());
-            case StructDecl n -> n.cppInfo() == null ? n.fields() : java.util.stream.Stream.concat(n.cppInfo().bases().stream(),n.cppInfo().members().stream()).toList();
+            case StructDecl n -> n.recordInfo() == null ? n.fields() : java.util.stream.Stream.concat(n.recordInfo().bases().stream(),n.recordInfo().members().stream()).toList();
             case StaticFieldMember n -> present(n.declaration());
             case OutOfLineStaticFieldDecl n -> present(n.declaration());
             case FieldMember n -> present(n.field(), n.defaultInitializer());
@@ -53,21 +53,21 @@ public final class AstChildren {
             case OutOfLineDestructorDecl n -> present(n.destructor());
             case OutOfLineMethodDecl n -> present(n.method());
             case FunctionDecl n -> present(n.exceptionSpecification().condition(),n.body());
-            case GlobalVarDecl n -> present(n.cppInitializer() != null ? n.cppInitializer() : n.initializer());
+            case GlobalVarDecl n -> present(n.initializerSyntax() != null ? n.initializerSyntax() : n.initializer());
             case BlockStmt n -> n.statements();
             case DeclGroupStmt n -> n.statements();
             case CleanupScopeStmt n -> present(n.body(), n.cleanup());
-            case VarDeclStmt n -> present(n.cppInitializer() != null ? n.cppInitializer() : n.initializer());
+            case VarDeclStmt n -> present(n.initializerSyntax() != null ? n.initializerSyntax() : n.initializer());
             case ReturnStmt n -> present(n.expression());
             case ExprStmt n -> present(n.expression());
             case IfStmt n -> present(n.condition(), n.thenBranch(), n.elseBranch());
             case WhileStmt n -> present(n.condition(), n.body());
             case DoWhileStmt n -> present(n.body(), n.condition());
             case ForStmt n -> present(n.initializer(), n.condition(), n.step(), n.body());
-            case CppRangeForStmt n -> present(n.declaration(), n.initializer(), n.body());
-            case CppStructuredBindingDecl n -> prepend(n.initializer(),n.names());
-            case CppLambdaExpr n -> {var children=new ArrayList<AstNode>(n.captures());children.addAll(n.parameters());if(n.exceptionSpecification().condition()!=null)children.add(n.exceptionSpecification().condition());children.add(n.body());yield List.copyOf(children);}
-            case CppLambdaExpr.Capture n -> present(n.initializer());
+            case RangeForStmt n -> present(n.declaration(), n.initializer(), n.body());
+            case StructuredBindingDecl n -> prepend(n.initializer(),n.names());
+            case LambdaExpr n -> {var children=new ArrayList<AstNode>(n.captures());children.addAll(n.parameters());if(n.exceptionSpecification().condition()!=null)children.add(n.exceptionSpecification().condition());children.add(n.body());yield List.copyOf(children);}
+            case LambdaExpr.Capture n -> present(n.initializer());
             case SwitchStmt n -> prepend(n.selector(), n.cases());
             case SwitchCase n -> prepend(n.value(), n.statements());
             case AssignmentExpr n -> present(n.target(), n.value());
@@ -93,12 +93,12 @@ public final class AstChildren {
             case VaCopyExpr n -> present(n.destination(), n.source());
             case VaEndExpr n -> present(n.list());
             case AggregateInitExpr n -> n.values();
-            case CppInitializer n -> n.arguments();
-            case CppConstructionExpr n -> present(n.initializer());
-            case CppTypeQueryExpr n -> n.arguments();
-            case CppNoexceptExpr n -> present(n.operand());
-            case CppDestructorCallExpr n -> present(n.receiver());
-            case CppNewExpr n -> {
+            case InitializerSyntax n -> n.arguments();
+            case ConstructionExpr n -> present(n.initializer());
+            case TypeQueryExpr n -> n.arguments();
+            case NoexceptExpr n -> present(n.operand());
+            case DestructorCallExpr n -> present(n.receiver());
+            case PlacementNewExpr n -> {
                 var children = new ArrayList<AstNode>(n.placementArguments());
                 children.add(n.initializer());
                 yield List.copyOf(children);
@@ -115,14 +115,14 @@ public final class AstChildren {
 
     private static void typeExpressions(AstNode node, List<AstNode> result) {
         minic.compiler.type.MiniType type = switch (node) {
-            case CppLambdaExpr n -> n.returnType();
-            case CppStructuredBindingDecl n -> n.type();
+            case LambdaExpr n -> n.returnType();
+            case StructuredBindingDecl n -> n.type();
             case FunctionDecl n -> n.returnType(); case Parameter n -> n.type();
-            case CppBase n -> n.type();
+            case BaseSpecifier n -> n.type();
             case GlobalVarDecl n -> n.type(); case StructField n -> n.type();
             case TypedefDecl n -> n.type(); case VarDeclStmt n -> n.type(); case TypedefStmt n -> n.type();
-            case CastExpr n -> n.targetType(); case CppConstructionExpr n -> n.type();
-            case CppTypeQueryExpr.TypeArgument n -> n.type();
+            case CastExpr n -> n.targetType(); case ConstructionExpr n -> n.type();
+            case TypeQueryExpr.TypeArgument n -> n.type();
             case SizeofExpr n -> n.queriedType(); case AlignofExpr n -> n.queriedType();
             default -> null;
         };
@@ -151,7 +151,7 @@ public final class AstChildren {
      * indexes are checked as well as source order, so malformed manually built indexes cannot
      * hide unsupported nodes. Identity deduplication does not collapse distinct source nodes.
      */
-    public static AstNode firstCppSyntax(AstNode root) {
+    public static AstNode firstExtendedSyntax(AstNode root) {
         return firstSourceSyntax(root, false);
     }
 
@@ -167,17 +167,17 @@ public final class AstChildren {
         while (!pending.isEmpty()) {
             AstNode node = pending.removeFirst();
             if (!visited.add(node)) continue;
-            if (!onlyReferences && (node instanceof CppStaticAssertDecl || node instanceof CppPackExpansionExpr || node instanceof CppSizeofPackExpr || node instanceof CppStructuredBindingDecl || node instanceof CppLambdaExpr || node instanceof CppRangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof CppTypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
+            if (!onlyReferences && (node instanceof StaticAssertDecl || node instanceof PackExpansionExpr || node instanceof SizeofPackExpr || node instanceof StructuredBindingDecl || node instanceof LambdaExpr || node instanceof RangeForStmt || node instanceof StaticFieldMember || node instanceof OutOfLineStaticFieldDecl || node instanceof TypeMemberExpr || node instanceof InternalLinkageDecl || node instanceof ClassTemplateDecl || node instanceof NamespaceDecl || node instanceof UsingDecl || node instanceof OutOfLineMethodDecl
                     || node instanceof QualifiedNameExpr || node instanceof ThisExpr
-                    || node instanceof CppNoexceptExpr || node instanceof CppTypeQueryExpr || node instanceof CppDestructorCallExpr || node instanceof CppInitializer || node instanceof CppConstructionExpr || node instanceof CppNewExpr || node instanceof ConstructorMember
+                    || node instanceof NoexceptExpr || node instanceof TypeQueryExpr || node instanceof DestructorCallExpr || node instanceof InitializerSyntax || node instanceof ConstructionExpr || node instanceof PlacementNewExpr || node instanceof ConstructorMember
                     || node instanceof OutOfLineConstructorDecl || node instanceof MemberInitializer
                     || node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl
                     || node instanceof FunctionDecl function && (function.constexprSpecifier() || function.operatorName() != null || function.conversionName() != null || function.definitionKind()!=DefinitionKind.ORDINARY || function.exceptionSpecification().specified())
-                    || node instanceof FunctionTemplateDecl || node instanceof CppTemplateMemberDefinition || node instanceof CppTemplateIdExpr
-                    || node instanceof CppTemplateValueExpr
+                    || node instanceof FunctionTemplateDecl || node instanceof TemplateMemberDefinitionDecl || node instanceof TemplateIdExpr
+                    || node instanceof TemplateValueExpr
                     || node instanceof GlobalVarDecl global && global.constexprSpecifier()
                     || node instanceof VarDeclStmt variable && (variable.staticStorage() || variable.constexprSpecifier())
-                    || node instanceof StructDecl record && record.cppInfo() != null)) return node;
+                    || node instanceof StructDecl record && record.recordInfo() != null)) return node;
             AstNode reference = sourceTypeOwner(node, onlyReferences);
             if (reference != null) return reference;
             pending.addAll(of(node));
@@ -202,11 +202,11 @@ public final class AstChildren {
             case VarDeclStmt n -> n.type();
             case TypedefStmt n -> n.type();
             case CastExpr n -> n.targetType();
-            case CppConstructionExpr n -> n.type();
-            case CppTypeQueryExpr.TypeArgument n -> n.type();
-            case CppTypeMemberExpr n -> n.ownerType();
-            case CppStructuredBindingDecl n -> n.type();
-            case CppDestructorCallExpr n -> n.ownerType();
+            case ConstructionExpr n -> n.type();
+            case TypeQueryExpr.TypeArgument n -> n.type();
+            case TypeMemberExpr n -> n.ownerType();
+            case StructuredBindingDecl n -> n.type();
+            case DestructorCallExpr n -> n.ownerType();
             case LetExpr n -> n.type();
             case MaterializeExpr n -> n.type();
             case ObjectInitExpr n -> n.type();

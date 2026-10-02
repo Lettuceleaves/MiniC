@@ -3,7 +3,7 @@ package minic.compiler.preprocess;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.LanguageMode;
 import minic.compiler.SourceFile;
-import minic.compiler.library.CppHeaderCatalog;
+import minic.compiler.library.StlHeaderCatalog;
 import minic.compiler.library.SystemLibraryCatalog;
 import minic.SourceRange;
 
@@ -48,13 +48,13 @@ final class IncludeManager {
             boolean systemHeader = matcher.group(2) != null;
             String requestedPath = systemHeader ? matcher.group(2).strip() : matcher.group(1);
             String resolvedName = requestedPath;
-            boolean cppHeader = false;
+            boolean stlHeader = false;
             if (systemHeader) {
                 if (requestedPath.matches("[A-Za-z0-9_.-]+\\.h")) {
                     resolvedName = requestedPath.substring(0, requestedPath.length() - 2) + ".mh";
                 } else if (work.options.languageMode() == LanguageMode.CPP17_ALGORITHM
-                        && CppHeaderCatalog.defaults().isKnown(requestedPath)) {
-                    cppHeader = true;
+                        && StlHeaderCatalog.defaults().isKnown(requestedPath)) {
+                    stlHeader = true;
                 } else {
                     work.includes.add(new PreprocessResult.IncludeSummary(
                             requestedPath,
@@ -84,7 +84,7 @@ final class IncludeManager {
                     requestedPath,
                     resolvedName,
                     systemHeader,
-                    cppHeader,
+                    stlHeader,
                     mapToThisSource
             );
             return true;
@@ -112,7 +112,7 @@ final class IncludeManager {
             String requestedPath,
             String resolvedName,
             boolean systemHeader,
-            boolean cppHeader,
+            boolean stlHeader,
             boolean mapToThisSource
     ) {
         SourceRange directiveRange = sourceFile.range(startOffset, endOffset);
@@ -134,7 +134,7 @@ final class IncludeManager {
                     resolvedName,
                     work.options.includeRoots(),
                     systemHeader,
-                    cppHeader
+                    stlHeader
             );
         } catch (IncludeReadException exception) {
             work.includes.add(new PreprocessResult.IncludeSummary(requestedPath, null, directiveRange, false));
@@ -152,8 +152,8 @@ final class IncludeManager {
                     sourceFile,
                     startOffset,
                     endOffset,
-                    cppHeader
-                            ? "C++ 标准头文件尚未实现或未安装：<" + requestedPath + ">（预期 lib/cpp/" + requestedPath + ".mh）"
+                    stlHeader
+                            ? "C++ 标准头文件尚未实现或未安装：<" + requestedPath + ">（预期 lib/stl/" + requestedPath + ".mh）"
                             : "include 文件不存在：" + requestedPath
             ));
             return;
@@ -216,11 +216,11 @@ final class IncludeManager {
             String requestedPath,
             List<Path> includeRoots,
             boolean systemHeader,
-            boolean cppHeader
+            boolean stlHeader
     ) {
-        if (cppHeader) {
+        if (stlHeader) {
             try {
-                return CppHeaderCatalog.defaults().header(requestedPath)
+                return StlHeaderCatalog.defaults().header(requestedPath)
                         .map(header -> {
                             Path identity = Path.of(header.resourceName()).toAbsolutePath().normalize();
                             return new ResolvedInclude(identity, identity.toString(), header.content(), identity.getParent());

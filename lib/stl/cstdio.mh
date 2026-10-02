@@ -1,0 +1,20 @@
+#ifndef MINIC_STL_CSTDIO_MH
+#define MINIC_STL_CSTDIO_MH
+#include <stdio.h>
+namespace std {
+using ::FILE;
+using ::fgetc;
+using ::fputc;
+using ::ungetc;
+using ::fflush;
+using ::printf;
+using ::scanf;
+using ::getchar;
+using ::putchar;
+using ::puts;
+using ::sprintf;
+using ::sscanf;
+using ::remove;
+using ::rename;
+}
+#endif

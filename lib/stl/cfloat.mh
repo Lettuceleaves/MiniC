@@ -1,0 +1,4 @@
+#ifndef MINIC_STL_CFLOAT_MH
+#define MINIC_STL_CFLOAT_MH
+#include <float.h>
+#endif

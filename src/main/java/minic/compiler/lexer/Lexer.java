@@ -395,7 +395,7 @@ public final class Lexer extends Stage {
             case "true", "false" -> TokenType.BOOL_LITERAL;
             case "NULL" -> TokenType.NULL_LITERAL;
             default -> languageMode() == LanguageMode.CPP17_ALGORITHM
-                    ? cppKeyword(lexeme) : TokenType.IDENTIFIER;
+                    ? extendedKeyword(lexeme) : TokenType.IDENTIFIER;
         };
         Object literalValue = switch (kind) {
             case BOOL_LITERAL -> Boolean.parseBoolean(lexeme);
@@ -404,7 +404,7 @@ public final class Lexer extends Stage {
         addToken(kind, startOffset, literalValue);
     }
 
-    private static TokenType cppKeyword(String lexeme) {
+    private static TokenType extendedKeyword(String lexeme) {
         return switch (lexeme) {
             case "namespace" -> TokenType.NAMESPACE;
             case "using" -> TokenType.USING;

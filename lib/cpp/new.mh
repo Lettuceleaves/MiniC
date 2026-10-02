@@ -1,5 +1,0 @@
-#ifndef MINIC_CPP_NEW_MH
-#define MINIC_CPP_NEW_MH
-void* operator new(unsigned long long,void* storage) noexcept { return storage; }
-void operator delete(void*,void*) noexcept {}
-#endif
