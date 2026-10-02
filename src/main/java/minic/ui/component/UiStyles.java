@@ -5,13 +5,18 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import minic.ui.component.editor.UiCodeEditor;
 import minic.ui.component.editor.UiCodeEditorStyle;
+import minic.ui.component.swing.UiSwingScrollBarUi;
 
+import javax.swing.JScrollBar;
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.Graphics;
+import java.awt.Rectangle;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.function.BiConsumer;
 
 /**
  * 负责安装 UI 外观资源。
@@ -30,15 +35,35 @@ public final class UiStyles {
             color("8b949e"),
             color("30363d"),
             color("e6edf3"),
-            color("66551b"), // 黄色选区，保留浅色代码文字的对比度。
+            color("1f6feb"),
             color("161b22"),
-            color("403817"),
+            color("264f78"),
             color("f85149"),
             color("f85149"),
-            color("f2cc60", 72)
+            color("f2cc60", 72) // 仅供外部 SourceRange 区域标记使用。
     );
+    private static final Font DEFAULT_TERMINAL_FONT = DEFAULT_CODE_EDITOR_STYLE.font().deriveFont(16f);
 
     private UiStyles() {
+    }
+
+    /** 终端复用代码编辑器的字形及中文补全，仅保留独立字号。 */
+    public static Font terminalFont() {
+        return DEFAULT_TERMINAL_FONT;
+    }
+
+    /** 面板列表与编辑器悬浮候选列表使用相同的基准字形和字号。 */
+    public static javafx.scene.text.Font listFont() {
+        Font font = DEFAULT_CODE_EDITOR_STYLE.font();
+        return javafx.scene.text.Font.font(font.getFamily(), font.getSize2D());
+    }
+
+    /** Swing 内容也使用 App 的滚动条配色，不能依赖外层 JavaFX CSS。 */
+    public static void installScrollBarStyle(JScrollBar scrollBar,
+                                            BiConsumer<Graphics, Rectangle> trackDecoration) {
+        UiSwingScrollBarUi.install(scrollBar, DEFAULT_CODE_EDITOR_STYLE.background(),
+                DEFAULT_CODE_EDITOR_STYLE.mutedForeground(), DEFAULT_CODE_EDITOR_STYLE.foreground(),
+                trackDecoration);
     }
 
     /** 为 Scene 安装默认主题。主题不包含会影响布局的几何参数。 */
@@ -118,9 +143,14 @@ public final class UiStyles {
 
     /** Cascadia Mono 负责代码字形，系统组合字体只补充它缺失的中文字形。 */
     private static Font codeFont() {
-        Font primary = installedFont("Cascadia Mono", 14);
-        if (primary == null) {
-            primary = installedFont("Consolas", 14);
+        return monospacedFont(14, "Cascadia Mono", "Consolas");
+    }
+
+    private static Font monospacedFont(int size, String... families) {
+        Font primary = null;
+        for (String family : families) {
+            primary = installedFont(family, size);
+            if (primary != null) break;
         }
         if (primary != null) {
             try {
@@ -137,7 +167,7 @@ public final class UiStyles {
                 // 非标准启动器未开放字体组合接口时，使用完整覆盖中文的等宽字体。
             }
         }
-        return new Font("SimHei", Font.PLAIN, 14);
+        return new Font("SimHei", Font.PLAIN, size);
     }
 
     private static Font installedFont(String family, int size) {

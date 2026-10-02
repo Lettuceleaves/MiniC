@@ -1,7 +1,6 @@
 package minic.ui.component.editor;
 
 import javafx.application.Platform;
-import javafx.embed.swing.SwingNode;
 import javafx.scene.Cursor;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.ScrollEvent;
@@ -9,14 +8,18 @@ import javafx.scene.layout.StackPane;
 import minic.SourceRange;
 import minic.ui.component.UiComponent;
 import minic.ui.component.UiStyles;
+import minic.ui.component.swing.UiSwingNodeSurface;
+import minic.ui.component.swing.UiSwingFocus;
+import minic.ui.component.swing.UiSwingNode;
 import org.fife.ui.rsyntaxtextarea.Style;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.SyntaxScheme;
 import org.fife.ui.rsyntaxtextarea.TokenTypes;
-import org.fife.ui.rtextarea.RTextScrollPane;
 
 import javax.swing.SwingUtilities;
 import javax.swing.JScrollPane;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.Font;
 import java.awt.Point;
 import java.awt.Rectangle;
@@ -29,13 +32,16 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /** MiniC 源码和只读编译产物共用的代码编辑器。 */
 public final class UiCodeEditor extends StackPane implements UiComponent {
-    private final SwingNode swingNode = new SwingNode();
+    private final UiSwingNode swingNode = new UiSwingNode();
     private final UiCodeEditorTextArea textArea = new UiCodeEditorTextArea();
-    private final RTextScrollPane scrollPane = new RTextScrollPane(textArea, true);
+    private final UiSwingFocus focus = new UiSwingFocus(swingNode, () -> textArea);
+    private final UiCodeEditorScrollPane scrollPane = new UiCodeEditorScrollPane(textArea, true);
+    private final UiEditorResizeSurface resizeSurface = new UiEditorResizeSurface(swingNode, scrollPane);
     private UiEditorBreakpoints breakpointGutter;
     private UiEditorDecorations decorations;
     private UiCodeEditorShortcuts shortcuts;
@@ -46,6 +52,13 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
     private Font baseFont;
     private volatile boolean mouseWheelZoomEnabled = true;
     private volatile Cursor embeddedCursor = Cursor.DEFAULT;
+    private volatile Runnable onTextChanged;
+    private final AtomicBoolean textChangeQueued = new AtomicBoolean();
+    private final DocumentListener textListener = new DocumentListener() {
+        @Override public void insertUpdate(DocumentEvent event) { queueTextChanged(); }
+        @Override public void removeUpdate(DocumentEvent event) { queueTextChanged(); }
+        @Override public void changedUpdate(DocumentEvent event) { queueTextChanged(); }
+    };
 
     /** 创建空编辑器。 */
     public UiCodeEditor() {
@@ -54,6 +67,15 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
 
     /** 创建带初始文本的编辑器；null 按空文本处理，光标位于开头，撤销历史为空。 */
     public UiCodeEditor(String initialSource) {
+        this(initialSource, null);
+    }
+
+    /** 同一磁盘文件的分屏共享文本模型，各自保留光标、滚动、缩放与断点视图。 */
+    public static UiCodeEditor linkedTo(UiCodeEditor editor) {
+        return new UiCodeEditor("", Objects.requireNonNull(editor));
+    }
+
+    private UiCodeEditor(String initialSource, UiCodeEditor shared) {
         setMinSize(0, 0);
         setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         setPrefSize(640, 480);
@@ -61,11 +83,16 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
         setRadius(0);
         setRotate(0);
         getStyleClass().add("ui-code-editor");
-        getChildren().add(swingNode);
+        getChildren().addAll(swingNode, resizeSurface.view());
+        javafx.scene.shape.Rectangle clip = new javafx.scene.shape.Rectangle();
+        clip.widthProperty().bind(widthProperty());
+        clip.heightProperty().bind(heightProperty());
+        setClip(clip);
         swingNode.addEventFilter(ScrollEvent.SCROLL, this::handleZoomScroll);
 
         runOnSwingThread(() -> {
             configureEditor();
+            if (shared != null) textArea.setDocument(shared.textArea.getDocument());
             baseFont = textArea.getFont();
             decorations = new UiEditorDecorations(textArea);
             breakpointGutter = new UiEditorBreakpoints(
@@ -75,10 +102,17 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
             );
             shortcuts = new UiCodeEditorShortcuts(
                     textArea, breakpointGutter, this::zoomIn, this::zoomOut, this::resetZoom);
-            setSource(initialSource);
+            if (shared == null) setSource(initialSource);
+            textArea.getDocument().addDocumentListener(textListener);
         });
         caretList = new UiEditorCaretListBridge(this, swingNode, textArea, scrollPane);
         UiStyles.manage(this);
+    }
+
+    @Override
+    protected void layoutChildren() {
+        super.layoutChildren();
+        resizeSurface.layout();
     }
 
     private void configureEditor() {
@@ -173,6 +207,36 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
 
     public String source() {
         return text();
+    }
+
+    /** 文本变更通知在 JavaFX 线程合并发送，调用者不需要直接访问 Swing Document。 */
+    public void setOnTextChanged(Runnable handler) {
+        onTextChanged = handler;
+    }
+
+    private void queueTextChanged() {
+        if (onTextChanged != null && textChangeQueued.compareAndSet(false, true)) {
+            Platform.runLater(() -> {
+                textChangeQueued.set(false);
+                Runnable handler = onTextChanged;
+                if (handler != null) handler.run();
+            });
+        }
+    }
+
+    /** 仅在真正关闭文件时释放嵌入视图；切换 Tab 不调用此方法。 */
+    public void dispose() {
+        focus.close();
+        onTextChanged = null;
+        caretList.dispose();
+        runOnSwingThread(() -> {
+            textArea.getDocument().removeDocumentListener(textListener);
+            breakpointGutter.dispose();
+            // 从共享 Document 脱离，Swing 自身的 caret/undo/UI 监听器也随之解绑。
+            textArea.setDocument(new org.fife.ui.rsyntaxtextarea.RSyntaxDocument(SyntaxConstants.SYNTAX_STYLE_C));
+            UiSwingNodeSurface.release(scrollPane);
+            swingNode.setContent(null);
+        });
     }
 
     /** 获取编辑器中的完整文本内容。 */
@@ -319,7 +383,10 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
         runOnSwingThread(decorations::clearErrorUnderlines);
     }
 
-    /** 用半透明背景替换当前所有区域高亮。范围使用 IDE 的行号和 UTF-8 字节坐标。 */
+    /**
+     * 用黄色半透明背景显示外部传入的 SourceRange，并替换当前所有区域标记。
+     * 编辑器内部不会自动创建该标记；范围使用 IDE 的行号和 UTF-8 字节坐标。
+     */
     public void setRangeHighlights(Collection<SourceRange> ranges) {
         runOnSwingThread(() -> decorations.setRangeHighlights(ranges));
     }
@@ -392,6 +459,10 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
     public void applyStyle(UiCodeEditorStyle style) {
         Objects.requireNonNull(style, "style");
         runOnSwingThread(() -> {
+            // 拆分容器会使编辑器暂时离开再进入同一 Scene；同一主题无需重装。
+            if (style.equals(baseStyle) && swingNode.getContent() != null) {
+                return;
+            }
             /*
              * RSyntaxTextArea 4.x 在组件已经 displayable、但 SwingNode 尚未完成
              * 首次绘制时调用 Theme.apply()，会用空 Graphics 刷新字体度量。
@@ -416,12 +487,12 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
             if (swingNode.getContent() == null) {
                 swingNode.setContent(scrollPane);
             }
+            UiSwingNodeSurface.prepare(scrollPane);
         });
     }
 
     public void requestEditorFocus() {
-        swingNode.requestFocus();
-        SwingUtilities.invokeLater(textArea::requestFocusInWindow);
+        focus.requestFocus();
     }
 
     private void applyKeywordStyle(UiCodeEditorKeywordStyle style) {

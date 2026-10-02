@@ -18,6 +18,7 @@ import minic.SourceRange;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -29,6 +30,7 @@ public final class Assembler extends Stage {
     private final IrLowerer irStage;
     private final IrResult providedIr;
     private final IrOptimizationPipeline optimizationPipeline;
+    private final boolean utf8Console;
     private IrOptimizationPipeline.Result optimizationResult;
     private Input input;
     private final Work work = new Work();
@@ -55,14 +57,28 @@ public final class Assembler extends Stage {
         this(irResult, OptimizationLevel.BASELINE);
     }
 
+    /** 可为独占控制台的程序入口添加 UTF-8 输入输出初始化。 */
+    public Assembler(IrResult irResult, boolean utf8Console) {
+        this(irResult, OptimizationLevel.BASELINE, utf8Console);
+    }
+
     public Assembler(IrResult irResult, OptimizationLevel level) {
-        this(irResult, IrOptimizationPipeline.forLevel(level));
+        this(irResult, level, false);
+    }
+
+    public Assembler(IrResult irResult, OptimizationLevel level, boolean utf8Console) {
+        this(irResult, IrOptimizationPipeline.forLevel(level), utf8Console);
     }
 
     public Assembler(IrResult irResult, IrOptimizationPipeline optimizationPipeline) {
+        this(irResult, optimizationPipeline, false);
+    }
+
+    public Assembler(IrResult irResult, IrOptimizationPipeline optimizationPipeline, boolean utf8Console) {
         this.irStage = null;
         this.providedIr = Objects.requireNonNull(irResult, "irResult");
         this.optimizationPipeline = Objects.requireNonNull(optimizationPipeline, "optimizationPipeline");
+        this.utf8Console = utf8Console;
     }
 
     /** 创建由 IR 阶段提供输入的 asm 阶段。 */
@@ -70,14 +86,28 @@ public final class Assembler extends Stage {
         this(irStage, OptimizationLevel.BASELINE);
     }
 
+    /** 可为独占控制台的程序入口添加 UTF-8 输入输出初始化。 */
+    public Assembler(IrLowerer irStage, boolean utf8Console) {
+        this(irStage, OptimizationLevel.BASELINE, utf8Console);
+    }
+
     public Assembler(IrLowerer irStage, OptimizationLevel level) {
-        this(irStage, IrOptimizationPipeline.forLevel(level));
+        this(irStage, level, false);
+    }
+
+    public Assembler(IrLowerer irStage, OptimizationLevel level, boolean utf8Console) {
+        this(irStage, IrOptimizationPipeline.forLevel(level), utf8Console);
     }
 
     public Assembler(IrLowerer irStage, IrOptimizationPipeline optimizationPipeline) {
+        this(irStage, optimizationPipeline, false);
+    }
+
+    public Assembler(IrLowerer irStage, IrOptimizationPipeline optimizationPipeline, boolean utf8Console) {
         this.irStage = Objects.requireNonNull(irStage, "irStage");
         this.providedIr = null;
         this.optimizationPipeline = Objects.requireNonNull(optimizationPipeline, "optimizationPipeline");
+        this.utf8Console = utf8Console;
     }
 
     public OptimizationLevel optimizationLevel() { return optimizationPipeline.level(); }
@@ -129,7 +159,7 @@ public final class Assembler extends Stage {
                     return emit("header", "ExitProcess", "EXTERN ExitProcess:PROC", null);
                 }
                 case EXTERNS -> {
-                    if (externalIndex < input.irResult.externalFunctionNames().size()) {
+                    if (externalIndex < input.externalFunctionNames.size()) {
                         String externalName = input.externalFunctionNames.get(externalIndex++);
                         return emit("header", externalName, "EXTERN " + externalName + ":PROC", null);
                     }
@@ -242,7 +272,7 @@ public final class Assembler extends Stage {
             throw new IllegalStateException("IR stage did not succeed");
         }
         optimizationResult = optimizationPipeline.apply(irStage == null ? providedIr : irStage.result());
-        input = new Input(optimizationResult.ir());
+        input = new Input(optimizationResult.ir(), utf8Console);
     }
 
     private boolean nextFunctionLine() {
@@ -283,14 +313,23 @@ public final class Assembler extends Stage {
     }
 
     private List<String> entryPointLines() {
-        return List.of(
+        var lines = new ArrayList<>(List.of(
                 CallingConvention.ENTRY_SYMBOL + " PROC",
-                "    sub rsp, 40",
+                "    sub rsp, 40"));
+        if (utf8Console) {
+            lines.addAll(List.of(
+                    "    mov ecx, 65001",
+                    "    call SetConsoleCP",
+                    "    mov ecx, 65001",
+                    "    call SetConsoleOutputCP"));
+        }
+        lines.addAll(List.of(
                 "    call " + CallingConvention.functionDefinitionSymbol(input.irResult.entryFunction()),
                 "    mov ecx, eax",
                 "    call ExitProcess",
                 CallingConvention.ENTRY_SYMBOL + " ENDP"
-        );
+        ));
+        return lines;
     }
 
     private static List<String> formatStringDataLines(IrStringData stringData) {
@@ -661,9 +700,18 @@ public final class Assembler extends Stage {
             externalObjectNames = List.copyOf(externalObjectNames);
         }
 
-        private Input(IrResult irResult) {
-            this(irResult, irResult.externalFunctionNames().stream().toList(),
+        private Input(IrResult irResult, boolean utf8Console) {
+            this(irResult, functionsWithRuntime(irResult, utf8Console),
                     irResult.externalObjectNames().stream().toList());
+        }
+
+        private static List<String> functionsWithRuntime(IrResult irResult, boolean utf8Console) {
+            var functions = new LinkedHashSet<>(irResult.externalFunctionNames());
+            if (utf8Console) {
+                functions.add("SetConsoleCP");
+                functions.add("SetConsoleOutputCP");
+            }
+            return List.copyOf(functions);
         }
     }
 

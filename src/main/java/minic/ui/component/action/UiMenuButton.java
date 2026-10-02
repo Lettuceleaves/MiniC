@@ -6,7 +6,7 @@ import javafx.scene.layout.Region;
 import minic.ui.component.UiComponent;
 
 /** 打开操作菜单的按钮。 */
-public final class UiMenuButton extends MenuButton implements UiComponent {
+public class UiMenuButton extends MenuButton implements UiComponent {
 
     public UiMenuButton() {
         this("");

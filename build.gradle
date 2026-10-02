@@ -15,6 +15,10 @@ java {
 
 dependencies {
     implementation 'com.fifesoft:rsyntaxtextarea:4.0.1'
+    implementation 'org.jetbrains.jediterm:jediterm-core:3.76'
+    implementation 'org.jetbrains.jediterm:jediterm-ui:3.76'
+    implementation 'org.jetbrains.pty4j:pty4j:0.13.12'
+    runtimeOnly 'org.slf4j:slf4j-nop:2.0.13'
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-console-standalone:1.11.4'
@@ -138,4 +142,34 @@ tasks.register('ojPerf', JavaExec) {
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'minic.benchmark.OjScenarioMain'
     maxHeapSize = '512m'
+}
+
+// 可见窗口的独立性能基准，不依赖编译器/调试器测试源能否编译。
+def resizeBenchmarkClasses = layout.buildDirectory.dir('classes/java/resizeBenchmark')
+tasks.register('compileEditorResizeBenchmark', JavaCompile) {
+    dependsOn tasks.named('classes')
+    source = fileTree('src/benchmark/java') { include '**/*.java' }
+    classpath = sourceSets.main.runtimeClasspath
+    destinationDirectory = resizeBenchmarkClasses
+}
+
+tasks.register('benchmarkEditorResize', JavaExec) {
+    group = 'verification'
+    description = '可见窗口中测量编辑器侧栏动画的布局与渲染完成节奏（非显示器呈现帧率）'
+    dependsOn tasks.named('compileEditorResizeBenchmark')
+    classpath = files(resizeBenchmarkClasses) + sourceSets.main.runtimeClasspath
+    mainClass = 'minic.ui.frame.VisibleAnimationPerformance'
+    jvmArgs '--module-path', configurations.runtimeClasspath.asPath,
+            '--add-modules', javafx.modules.join(','),
+            '--add-exports=java.desktop/sun.font=ALL-UNNAMED',
+            '--add-exports=javafx.graphics/com.sun.javafx.perf=ALL-UNNAMED'
+    systemProperty 'probe.renderTiming', 'true'
+    systemProperty 'probe.measured', providers.gradleProperty('benchmarkIterations').getOrElse('18')
+    systemProperty 'probe.initialDelay', '2000'
+    if (providers.gradleProperty('benchmarkSplit').getOrElse('false').toBoolean()) args '--split'
+    if (providers.gradleProperty('benchmarkEditorOnly').getOrElse('false').toBoolean()) args '--editor-only'
+    if (providers.gradleProperty('benchmarkEmpty').getOrElse('false').toBoolean()) args '--empty'
+    if (providers.gradleProperty('benchmarkScale').isPresent()) {
+        args '--scale=' + providers.gradleProperty('benchmarkScale').get()
+    }
 }

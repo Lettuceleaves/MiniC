@@ -113,4 +113,18 @@ class UiListTest {
         list.layout();
         return list;
     }
+
+    @Test
+    void revealItemScrollsOnlyEnoughToExposeTheSelectedTab() {
+        UiList list = overflowingHorizontalList();
+        list.revealItem(2);
+        assertEquals(80, list.getScrollOffset(), EPSILON);
+        list.revealItem(1);
+        assertEquals(80, list.getScrollOffset(), EPSILON);
+        list.revealItem(0);
+        assertEquals(0, list.getScrollOffset(), EPSILON);
+        list.revealItem(-1);
+        list.revealItem(99);
+        assertEquals(0, list.getScrollOffset(), EPSILON);
+    }
 }

@@ -85,6 +85,19 @@ public final class UiList extends Region implements UiComponent {
         return items;
     }
 
+    /** 将指定项完整移入视口；用于切换标签时跟随当前标签。 */
+    public void revealItem(int index) {
+        if (index < 0 || index >= items.size()) return;
+        double viewport = orientation == Orientation.HORIZONTAL
+                ? getWidth() - snappedLeftInset() - snappedRightInset()
+                : getHeight() - snappedTopInset() - snappedBottomInset();
+        double start = index * itemExtent;
+        if (start < scrollOffset) setScrollOffset(start);
+        else if (start + itemExtent > scrollOffset + viewport) {
+            setScrollOffset(start + itemExtent - Math.max(0, viewport));
+        }
+    }
+
     public double getScrollOffset() {
         return scrollOffset;
     }

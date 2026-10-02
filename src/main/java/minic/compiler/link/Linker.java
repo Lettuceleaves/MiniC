@@ -47,7 +47,13 @@ public final class Linker extends Stage {
     }
 
     public Linker(SourceFile sourceFile, ObjBuilder objStage, Path outputDirectory, String artifactName) {
-        this();
+        this(sourceFile, objStage, outputDirectory, artifactName, SystemLibraryCatalog.defaults());
+    }
+
+    /** 为此流水线注入系统导入绑定，不修改全局标准库目录。 */
+    public Linker(SourceFile sourceFile, ObjBuilder objStage, Path outputDirectory, String artifactName,
+                  SystemLibraryCatalog systemLibraries) {
+        this(new WindowsPeLinker(), systemLibraries);
         this.objStage = Objects.requireNonNull(objStage, "objStage");
         configure(sourceFile, outputDirectory, artifactName);
     }

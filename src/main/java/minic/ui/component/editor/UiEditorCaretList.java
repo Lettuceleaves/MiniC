@@ -21,6 +21,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontPosture;
@@ -73,7 +74,8 @@ final class UiEditorCaretList {
     private Color foreground = Color.rgb(220, 220, 220);
     private Color mutedForeground = Color.rgb(140, 140, 140);
     private Color border = Color.rgb(70, 70, 70);
-    private Color selection = Color.rgb(102, 85, 27);
+    private Color selection = background.interpolate(foreground, 0.2);
+    private Color selectionOutline = border.interpolate(mutedForeground, 0.5);
     private Color currentLine = Color.rgb(45, 45, 45);
 
     UiEditorCaretList(Node owner, EventHandler<KeyEvent> keyHandler) {
@@ -91,6 +93,9 @@ final class UiEditorCaretList {
         listView.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
         listView.setCellFactory(view -> new CaretListCell());
         listView.setFixedCellSize(rowHeight);
+        listView.addEventFilter(ScrollEvent.SCROLL, event -> hideTooltips());
+        // The skin handles wheel scrolling first; keep any remaining event inside the popup.
+        listView.addEventHandler(ScrollEvent.SCROLL, ScrollEvent::consume);
         applyListStyle();
 
         owner.sceneProperty().addListener((observable, oldScene, newScene) -> observeScene(newScene));
@@ -173,7 +178,10 @@ final class UiEditorCaretList {
         foreground = fxColor(style.foreground());
         mutedForeground = fxColor(style.mutedForeground());
         border = fxColor(style.border());
-        selection = fxColor(style.selection());
+        // Suggestions use a quiet neutral fill; the editor selection only tints the focus outline.
+        selection = background.interpolate(foreground, 0.2);
+        selectionOutline = mutedForeground.interpolate(fxColor(style.selection()), 0.15)
+                .interpolate(background, 0.3);
         currentLine = fxColor(style.currentLine());
         java.awt.Font editorFont = style.font();
         font = Font.font(editorFont.getFamily(),
@@ -386,8 +394,15 @@ final class UiEditorCaretList {
     private final class CaretListView extends ListView<UiCodeEditorListItem> {
         @Override
         protected void layoutChildren() {
+            hideScrollbars();
             super.layoutChildren();
-            double scrollbarWidth = 0;
+            hideScrollbars();
+            cellWidth.set(Math.max(0, Math.floor(getWidth() - getInsets().getLeft()
+                    - getInsets().getRight())));
+        }
+
+        private void hideScrollbars() {
+            // Keep VirtualFlow's wheel/keyboard scrolling, but give its bars no visible space.
             for (Node node : lookupAll(".scroll-bar")) {
                 if (!(node instanceof ScrollBar scrollbar)) {
                     continue;
@@ -396,22 +411,14 @@ final class UiEditorCaretList {
                     scrollbar.setMinHeight(0);
                     scrollbar.setPrefHeight(0);
                     scrollbar.setMaxHeight(0);
-                    scrollbar.setOpacity(0);
-                    scrollbar.setMouseTransparent(true);
                 } else {
-                    if (getItems().size() > visibleItems) {
-                        scrollbarWidth = Math.max(scrollbar.getWidth(), scrollbar.prefWidth(-1));
-                    }
-                    scrollbar.setStyle("-fx-background-color: " + cssColor(background) + ";");
-                    Node thumb = scrollbar.lookup(".thumb");
-                    if (thumb != null) {
-                        thumb.setStyle("-fx-background-color: " + cssColor(mutedForeground)
-                                + "; -fx-opacity: 0.65; -fx-background-radius: 2;");
-                    }
+                    scrollbar.setMinWidth(0);
+                    scrollbar.setPrefWidth(0);
+                    scrollbar.setMaxWidth(0);
                 }
+                scrollbar.setOpacity(0);
+                scrollbar.setMouseTransparent(true);
             }
-            cellWidth.set(Math.max(0, Math.floor(getWidth() - getInsets().getLeft()
-                    - getInsets().getRight() - scrollbarWidth)));
         }
     }
 
@@ -492,11 +499,17 @@ final class UiEditorCaretList {
         }
 
         private void updateBackground() {
+            boolean selected = !isEmpty() && isSelected();
             Color rowBackground = isEmpty() ? background
-                    : isSelected() ? selection : isHover() ? currentLine : background;
-            setStyle("-fx-background-color: " + cssColor(rowBackground)
+                    : selected ? selection : isHover() ? currentLine : background;
+            // Layer the 1px outline inside the fill without changing cell insets or text position.
+            String rowFill = selected
+                    ? cssColor(selectionOutline) + ", " + cssColor(rowBackground)
+                    : cssColor(rowBackground);
+            setStyle("-fx-background-color: " + rowFill
                     + "; -fx-text-fill: " + cssColor(foreground)
-                    + "; -fx-background-insets: 0; -fx-background-radius: 0;"
+                    + "; -fx-background-insets: " + (selected ? "0, 1" : "0")
+                    + "; -fx-background-radius: 0;"
                     + " -fx-border-color: transparent; -fx-border-width: 0;"
                     + " -fx-padding: 0 " + CELL_HORIZONTAL_PADDING + " 0 " + CELL_HORIZONTAL_PADDING + ";");
         }
