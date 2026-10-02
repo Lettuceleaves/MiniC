@@ -1,8 +1,0 @@
-{
-  "baseline": "b6464790fd3748edfe2d02981f0f6a421a133d6b",
-  "candidate": "e56d6d149c02432bc51f01bc06ef4f2de786f6c4",
-  "gate": "C:\\Users\\Administrator\\.codex\\worktrees\\7360\\MiniC\\build\\unified-final-optimized",
-  "startedAt": "2026-10-02T00:43:27.3165211+08:00",
-  "hostNote": "Windows desktop; artifacts/executables on D:; own build/test jobs finished before sampling; other user/OS activity not controlled; no power-policy or priority changes. Same input for baseline and candidate; revisions measured in separate serial batches.",
-  "powerScheme": "电源方案 GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (平衡)"
-}

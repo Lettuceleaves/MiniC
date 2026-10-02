@@ -65,25 +65,6 @@ registerTaggedTest('stdlibNative', 'stdlib-native', '验证标准库原生链接
 registerTaggedTest('stdlibDebug', 'stdlib-debug', '验证标准库调试解释运行')
 registerTaggedTest('stdlibParity', 'stdlib-parity', '验证原生与调试结果一致性')
 
-registerTaggedTest('stlContract', 'stl-contract', '验证 C++ 算法库能力清单和生命周期契约')
-registerTaggedTest('cppFrontend', 'cpp-frontend', '验证 C++ 语法树、诊断、头文件和编译入口')
-registerTaggedTest('cppDifferential', 'cpp-differential', '使用同源码比较 MiniC native debug 和 C++17 参考编译器')
-registerTaggedTest('nativePerfContract', 'native-perf-contract', '验证原生性能采样和报告工具')
-
-tasks.register('stlCheck') {
-    group = 'verification'
-    description = '运行 C++ 算法兼容性验收测试'
-    dependsOn 'stlContract', 'cppFrontend', 'cppDifferential', 'nativePerfContract'
-}
-
-tasks.register('nativePerf', JavaExec) {
-    group = 'verification'
-    description = '运行原生性能基线并保存 JSON 和 CSV；用 --args="--help" 查看选项'
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'minic.benchmark.NativeBenchmarkMain'
-}
-
 tasks.register('stdlibCheck') {
     group = 'verification'
     description = '运行全部标准库验收测试'
@@ -124,24 +105,6 @@ tasks.register('runUi', JavaExec) {
             '-Duser.language=en',
             '-Duser.country=US'
     ]
-}
-
-// Four-build STL performance tooling. Run explicitly after functional acceptance.
-tasks.register('stlPerf', JavaExec) {
-    group = 'verification'
-    description = '四构建 STL 原生基准；固定提交，保存样本和内存指标；--args="--help" 查看配置'
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'minic.benchmark.StlBenchmarkMain'
-}
-
-tasks.register('ojPerf', JavaExec) {
-    group = 'verification'
-    description = '真实算法题四构建校验、性能矩阵和离线审计；--args="--help" 查看阶段'
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'minic.benchmark.OjScenarioMain'
-    maxHeapSize = '512m'
 }
 
 // 可见窗口的独立性能基准，不依赖编译器/调试器测试源能否编译。

@@ -1,4 +1,0 @@
-minic-baseline: OK
-minic-optimized: OK
-gxx-own: OK
-gxx-host: OK
