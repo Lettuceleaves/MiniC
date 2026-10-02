@@ -1,9 +1,11 @@
 package minic.compiler.semantic.manager;
 
-import minic.compiler.parser.node.ClassTemplateDecl;
+import minic.compiler.parser.node.Declaration.ClassTemplateDecl;
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.Expression.IntegerConstantExpr;
 import minic.compiler.type.*;
+import minic.compiler.parser.node.Expression.TemplateValueExpr;
+
 import java.util.*;
 import java.util.function.UnaryOperator;
 
@@ -141,7 +143,7 @@ public final class FunctionTemplateDeduction {
                 if(base instanceof MiniType.ArrayType array)element=array.elementType();
                 else if(base instanceof MiniType.DependentArrayType array) {
                     element=array.elementType();
-                    if(!actual.listElements().isEmpty() && array.bound() instanceof minic.compiler.parser.node.TemplateValueExpr) {
+                    if(!actual.listElements().isEmpty() && array.bound() instanceof minic.compiler.parser.node.Expression.TemplateValueExpr) {
                         patterns.add(new MiniType.DependentArrayType(MiniType.INT,array.bound()));
                         arguments.add(MiniType.INT.arrayOf(actual.listElements().size()));
                     }

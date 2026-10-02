@@ -39,6 +39,7 @@ import minic.compiler.semantic.model.StructLayout.StructFieldLayout;
 import minic.compiler.semantic.model.Symbol.SymbolKind;
 import minic.SourceRange;
 import minic.compiler.Diagnostic;
+import minic.compiler.parser.node.Expression.CleanupExpr;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -111,7 +112,7 @@ final class ExpressionSemanticAnalyzer {
             };
             case NameExpr nameExpr -> resolveVariable(scope, nameExpr.name(), nameExpr.range());
             case Expression.LetExpr capture -> analyzeCapture(capture, scope);
-            case minic.compiler.parser.node.CleanupExpr cleanup -> {
+            case minic.compiler.parser.node.Expression.CleanupExpr cleanup -> {
                 MiniType valueType = analyzeExpression(cleanup.value(), scope);
                 if (!analyzeExpression(cleanup.cleanup(), scope).isVoid())
                     report(cleanup.cleanup().range(), "表达式清理必须是 void 表达式");

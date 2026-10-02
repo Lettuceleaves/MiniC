@@ -39,6 +39,8 @@ import minic.compiler.semantic.model.StructLayout;
 import minic.compiler.type.MiniType;
 import minic.compiler.Diagnostic;
 import minic.SourceRange;
+import minic.compiler.parser.node.Expression.CleanupExpr;
+import minic.compiler.parser.node.Statement.CleanupScopeStmt;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -403,7 +405,7 @@ public final class SemanticAnalyzer extends Stage {
         switch (node) {
             case BlockStmt blockStmt -> blockStmt.statements().forEach(statement -> appendVisitNode(statement, nodes));
             case minic.compiler.parser.node.Statement.DeclGroupStmt group -> group.statements().forEach(statement -> appendVisitNode(statement,nodes));
-            case minic.compiler.parser.node.CleanupScopeStmt cleanup -> {
+            case minic.compiler.parser.node.Statement.CleanupScopeStmt cleanup -> {
                 appendVisitNode(cleanup.body(), nodes);
                 appendVisitNode(cleanup.cleanup(), nodes);
             }
@@ -433,7 +435,7 @@ public final class SemanticAnalyzer extends Stage {
                 appendVisitNode(capture.initializer(), nodes);
                 appendVisitNode(capture.body(), nodes);
             }
-            case minic.compiler.parser.node.CleanupExpr cleanup -> {
+            case minic.compiler.parser.node.Expression.CleanupExpr cleanup -> {
                 appendVisitNode(cleanup.value(), nodes);
                 appendVisitNode(cleanup.cleanup(), nodes);
             }

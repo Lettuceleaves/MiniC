@@ -57,6 +57,7 @@ import minic.compiler.ir.value.IrValue.IrTemporary;
 import minic.compiler.ir.value.IrValue;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.type.MiniType;
+import minic.compiler.parser.node.Expression.CleanupExpr;
 
 import java.util.ArrayList;
 import java.util.Map;
@@ -92,7 +93,7 @@ final class ExpressionLowerer {
     }
 
     IrValue lowerExpression(Expression expression) {
-        if (expression instanceof minic.compiler.parser.node.CleanupExpr cleanup) {
+        if (expression instanceof minic.compiler.parser.node.Expression.CleanupExpr cleanup) {
             MiniType type = expressionTypes.get(cleanup);
             IrValue value;
             if (type.isStruct()) {
@@ -657,7 +658,7 @@ final class ExpressionLowerer {
     }
 
     private void initializeObjectAt(Expression expression, IrValue address, boolean volatileDestination) {
-        if (expression instanceof minic.compiler.parser.node.CleanupExpr cleanup) {
+        if (expression instanceof minic.compiler.parser.node.Expression.CleanupExpr cleanup) {
             initializeObjectAt(cleanup.value(), address, volatileDestination);
             lowerExpression(cleanup.cleanup());
             return;

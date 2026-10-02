@@ -3,7 +3,7 @@ package minic.compiler.semantic.manager;
 import minic.SourceRange;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.parser.node.AstNode;
-import minic.compiler.parser.node.CleanupExpr;
+import minic.compiler.parser.node.Expression.CleanupExpr;
 import minic.compiler.parser.node.Expression;
 import minic.compiler.parser.node.Expression.*;
 import minic.compiler.parser.node.Statement.VarDeclStmt;

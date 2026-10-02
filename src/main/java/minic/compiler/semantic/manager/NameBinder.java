@@ -1,25 +1,25 @@
 package minic.compiler.semantic.manager;
 
-import minic.compiler.parser.node.TemplateMemberDefinitionDecl;
+import minic.compiler.parser.node.Declaration.TemplateMemberDefinitionDecl;
 import minic.SourceRange;
 import minic.compiler.Diagnostic;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.parser.node.AstChildren;
 import minic.compiler.parser.node.AstNode;
-import minic.compiler.parser.node.InitializerSyntax;
-import minic.compiler.parser.node.RangeForStmt;
-import minic.compiler.parser.node.StructuredBindingDecl;
-import minic.compiler.parser.node.LambdaExpr;
+import minic.compiler.parser.node.Expression.InitializerSyntax;
+import minic.compiler.parser.node.Statement.RangeForStmt;
+import minic.compiler.parser.node.Declaration.StructuredBindingDecl;
+import minic.compiler.parser.node.Expression.LambdaExpr;
 import minic.compiler.parser.node.ConversionName;
-import minic.compiler.parser.node.ConstructionExpr;
-import minic.compiler.parser.node.TypeQueryExpr;
-import minic.compiler.parser.node.DestructorCallExpr;
-import minic.compiler.parser.node.PlacementNewExpr;
-import minic.compiler.parser.node.TypeMemberExpr;
-import minic.compiler.parser.node.ClassTemplateDecl;
-import minic.compiler.parser.node.FunctionTemplateDecl;
-import minic.compiler.parser.node.TemplateIdExpr;
-import minic.compiler.parser.node.CleanupScopeStmt;
+import minic.compiler.parser.node.Expression.ConstructionExpr;
+import minic.compiler.parser.node.Expression.TypeQueryExpr;
+import minic.compiler.parser.node.Expression.DestructorCallExpr;
+import minic.compiler.parser.node.Expression.PlacementNewExpr;
+import minic.compiler.parser.node.Expression.TypeMemberExpr;
+import minic.compiler.parser.node.Declaration.ClassTemplateDecl;
+import minic.compiler.parser.node.Declaration.FunctionTemplateDecl;
+import minic.compiler.parser.node.Expression.TemplateIdExpr;
+import minic.compiler.parser.node.Statement.CleanupScopeStmt;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.Declaration.*;
 import minic.compiler.parser.node.Expression;
@@ -31,7 +31,7 @@ import minic.compiler.parser.node.Statement.*;
 import minic.compiler.type.MiniType;
 import minic.compiler.type.TemplateArgument;
 import minic.compiler.type.TemplateValues;
-import minic.compiler.parser.node.TemplateValueExpr;
+import minic.compiler.parser.node.Expression.TemplateValueExpr;
 import minic.compiler.semantic.manager.TypeCompatibility;
 
 import java.util.ArrayList;
@@ -374,7 +374,7 @@ public final class NameBinder {
                 return staticStorage||type.isIntegerScalar()||type.unqualified().equals(MiniType.FLOAT)||type.unqualified().equals(MiniType.DOUBLE)?foldedConstant(initializer,folded):initializer;
             }catch(IllegalArgumentException invalid){report("CPP004",range,"Initializer is not a constant expression: "+invalid.getMessage());return initializer;}
         }
-        private void staticAssertion(minic.compiler.parser.node.StaticAssertDecl node,Namespace namespace,Local scope){
+        private void staticAssertion(minic.compiler.parser.node.Declaration.StaticAssertDecl node,Namespace namespace,Local scope){
             try{
                 Expression bound=contextualBool(expression(node.condition(),namespace,scope));
                 validateUnevaluatedCore(bound);
@@ -604,7 +604,7 @@ public final class NameBinder {
                         bindDeclarations(node.declarations(), target);
                     }
                     case UsingDecl node -> bindUsing(node, namespace, null);
-                    case minic.compiler.parser.node.StaticAssertDecl node -> staticAssertion(node,namespace,null);
+                    case minic.compiler.parser.node.Declaration.StaticAssertDecl node -> staticAssertion(node,namespace,null);
                     case GlobalVarDecl node -> bindGlobal(node, namespace);
                     case StructuredBindingDecl node -> structuredBinding(node,namespace,null);
                     case FunctionDecl node -> bindFunction(node, namespace);
@@ -1048,7 +1048,7 @@ public final class NameBinder {
         }
 
         private boolean dependentTemplateExpression(AstNode node, Set<String> names) {
-            if (node instanceof ThisExpr || node instanceof TemplateValueExpr || node instanceof minic.compiler.parser.node.SizeofPackExpr || node instanceof minic.compiler.parser.node.PackExpansionExpr) return true;
+            if (node instanceof ThisExpr || node instanceof TemplateValueExpr || node instanceof minic.compiler.parser.node.Expression.SizeofPackExpr || node instanceof minic.compiler.parser.node.Expression.PackExpansionExpr) return true;
             if (node instanceof TypeQueryExpr query && query.arguments().stream().anyMatch(argument -> argument.type().containsTemplateType())) return true;
             if(node instanceof TemplateIdExpr id && id.arguments().stream().anyMatch(a->a instanceof TemplateArgument.Type t?t.type().isDependentTemplate():a instanceof TemplateArgument.Value v&&TemplateValues.dependent(v.expression())))return true;
             if (node instanceof TypeMemberExpr member && member.ownerType().containsTemplateType()) return true;
@@ -1389,7 +1389,7 @@ public final class NameBinder {
             return node!=null&&node.definition()&&!node.union()&&node.fields().isEmpty()
                     &&(node.recordInfo()==null||node.recordInfo().members().stream().allMatch(member ->
                         member instanceof AccessLabel || member instanceof MemberTypedef || member instanceof StaticFieldMember
-                        || member instanceof minic.compiler.parser.node.StaticAssertDecl
+                        || member instanceof minic.compiler.parser.node.Declaration.StaticAssertDecl
                         || member instanceof MethodMember method && !method.method().name().equals("operator=")
                         || member instanceof TemplateMethodMember method && !method.method().method().name().equals("operator=")));
         }
@@ -1536,7 +1536,7 @@ public final class NameBinder {
                     else if (member instanceof ConstructorMember constructor) constructorAccess.put(constructor, current);
                     else if (member instanceof DestructorMember destructor) destructorAccess.put(destructor, current);
                     else if(member instanceof TemplateMethodMember || member instanceof TemplateConstructorMember)templateAccess.put(member,current);
-                    else if(member instanceof minic.compiler.parser.node.StaticAssertDecl){}
+                    else if(member instanceof minic.compiler.parser.node.Declaration.StaticAssertDecl){}
                     else report("CPP005", member.range(), "This C++ record member is not supported yet: " + member.getClass().getSimpleName());
                 }
             }
@@ -1635,7 +1635,7 @@ public final class NameBinder {
                 ensureImplicitMove(entity);
                 if (!instanceKeys.containsKey(entity)) for (Method method : methods) bindMethod(method, namespace);
                 TypeEntity savedAssertionClass=currentClass;currentClass=entity;
-                try{for(RecordMember member:members)if(member instanceof minic.compiler.parser.node.StaticAssertDecl assertion)staticAssertion(assertion,namespace,null);}
+                try{for(RecordMember member:members)if(member instanceof minic.compiler.parser.node.Declaration.StaticAssertDecl assertion)staticAssertion(assertion,namespace,null);}
                 finally{currentClass=savedAssertionClass;}
             }
             } finally {currentClass=savedDeclarationClass;currentThis=savedDeclarationThis;}
@@ -1975,7 +1975,7 @@ public final class NameBinder {
         }
 
         private boolean potentiallyThrowing(AstNode node) {
-            if(node==null||node instanceof SizeofExpr||node instanceof AlignofExpr||node instanceof minic.compiler.parser.node.NoexceptExpr)return false;
+            if(node==null||node instanceof SizeofExpr||node instanceof AlignofExpr||node instanceof minic.compiler.parser.node.Expression.NoexceptExpr)return false;
             if(node instanceof CallExpr call) {
                 Expression callee=call.callee();while(callee instanceof GroupingExpr group)callee=group.expression();
                 Entity entity=callee instanceof NameExpr name?coreValues.get(name.name()):null;
@@ -1993,7 +1993,7 @@ public final class NameBinder {
             return false;
         }
 
-        private Expression noexceptExpression(minic.compiler.parser.node.NoexceptExpr query,Namespace namespace,Local local) {
+        private Expression noexceptExpression(minic.compiler.parser.node.Expression.NoexceptExpr query,Namespace namespace,Local local) {
             unevaluatedDepth++;
             try {
                 Expression operand=expression(query.operand(),namespace,local);
@@ -3490,7 +3490,7 @@ public final class NameBinder {
             if (node == null) return null;
             Namespace namespace = scope.namespace;
             Statement core = switch (node) {
-                case minic.compiler.parser.node.StaticAssertDecl n -> {staticAssertion(n,namespace,scope);yield new BlockStmt(List.of(),n.range());}
+                case minic.compiler.parser.node.Declaration.StaticAssertDecl n -> {staticAssertion(n,namespace,scope);yield new BlockStmt(List.of(),n.range());}
                 case BlockStmt n -> block(n, scope, true);
                 case DeclGroupStmt group -> {
                     var result=new ArrayList<Statement>();MiniType commonAuto=null;
@@ -4335,7 +4335,7 @@ public final class NameBinder {
                     yield n;
                 }
                 case ConstructionExpr n -> constructionExpression(n, namespace, local);
-                case minic.compiler.parser.node.NoexceptExpr n -> noexceptExpression(n,namespace,local);
+                case minic.compiler.parser.node.Expression.NoexceptExpr n -> noexceptExpression(n,namespace,local);
                 case TypeQueryExpr n -> typeQuery(n, namespace, local);
                 case TypeMemberExpr n -> memberReference(typeMember(n, namespace, local), n.memberName(), n.range(), addressDemand);
                 case DestructorCallExpr n -> explicitDestruction(n, namespace, local);
@@ -4547,8 +4547,8 @@ public final class NameBinder {
                     requireUpdateOperand(target, n.range());
                     yield new PostfixUpdateExpr(target, n.operator(), n.range());
                 }
-                case minic.compiler.parser.node.PackExpansionExpr n -> { report("CPP004",n.range(),"Parameter pack expansion requires a template expansion context"); yield new IntegerLiteralExpr(0,"0",n.range()); }
-                case minic.compiler.parser.node.SizeofPackExpr n -> { report("CPP004",n.range(),"sizeof... requires a substituted parameter pack"); yield new IntegerLiteralExpr(0,"0",n.range()); }
+                case minic.compiler.parser.node.Expression.PackExpansionExpr n -> { report("CPP004",n.range(),"Parameter pack expansion requires a template expansion context"); yield new IntegerLiteralExpr(0,"0",n.range()); }
+                case minic.compiler.parser.node.Expression.SizeofPackExpr n -> { report("CPP004",n.range(),"sizeof... requires a substituted parameter pack"); yield new IntegerLiteralExpr(0,"0",n.range()); }
                 case TemplateIdExpr n -> {
                     OverloadDesignator designator=overloadDesignator(n,namespace,local);
                     if(designator==null){report("CPP004",n.range(),"Template-id does not denote a function template");yield new IntegerLiteralExpr(0,"0",n.range());}

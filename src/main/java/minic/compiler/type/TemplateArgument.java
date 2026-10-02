@@ -1,7 +1,8 @@
 package minic.compiler.type;
 
 import minic.compiler.parser.node.Expression;
-import minic.compiler.parser.node.TemplateValueExpr;
+import minic.compiler.parser.node.Expression.TemplateValueExpr;
+
 import java.util.Map;
 import java.util.Objects;
 

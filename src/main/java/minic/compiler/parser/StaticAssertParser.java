@@ -1,9 +1,12 @@
 package minic.compiler.parser;
+
 import minic.SourceRange;
 import minic.compiler.lexer.token.*;
 import minic.compiler.parser.manager.ExpressionManager;
 import minic.compiler.parser.node.*;
 import minic.compiler.parser.node.Expression.*;
+import minic.compiler.parser.node.Declaration.StaticAssertDecl;
+
 public final class StaticAssertParser {
     private StaticAssertParser(){}
     public static StaticAssertDecl parse(Parser.Context state,ExpressionManager expressions){

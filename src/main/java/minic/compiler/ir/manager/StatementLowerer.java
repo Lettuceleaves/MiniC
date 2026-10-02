@@ -1,7 +1,7 @@
 package minic.compiler.ir.manager;
 
 import minic.compiler.parser.node.Expression;
-import minic.compiler.parser.node.CleanupScopeStmt;
+import minic.compiler.parser.node.Statement.CleanupScopeStmt;
 import minic.compiler.ir.instruction.ComputeInstruction.IrMoveInstruction;
 import minic.compiler.ir.instruction.ComputeInstruction.IrCastInstruction;
 import minic.compiler.parser.node.Statement.BlockStmt;

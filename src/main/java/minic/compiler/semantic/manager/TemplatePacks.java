@@ -2,6 +2,10 @@ package minic.compiler.semantic.manager;
 
 import minic.compiler.parser.node.*;
 import minic.compiler.type.*;
+import minic.compiler.parser.node.Expression.PackExpansionExpr;
+import minic.compiler.parser.node.Expression.SizeofPackExpr;
+import minic.compiler.parser.node.Expression.TypeQueryExpr;
+
 import java.lang.reflect.*;
 import java.util.*;
 

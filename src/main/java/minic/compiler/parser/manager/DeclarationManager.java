@@ -1,7 +1,6 @@
 package minic.compiler.parser.manager;
 
 import minic.compiler.parser.Parser;
-
 import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.parser.node.Declaration.Parameter;
 import minic.compiler.parser.node.Declaration.StructDecl;
@@ -17,6 +16,7 @@ import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.type.MiniType;
 import minic.SourceRange;
+import minic.compiler.parser.node.Declaration.StaticAssertDecl;
 
 import java.util.ArrayList;
 
@@ -142,7 +142,7 @@ public final class DeclarationManager {
         state.build(group,"DeclGroupDecl",group.range());return group;
     }
 
-    public minic.compiler.parser.node.StaticAssertDecl parseStaticAssert(){return statementManager.parseStaticAssert();}
+    public minic.compiler.parser.node.Declaration.StaticAssertDecl parseStaticAssert(){return statementManager.parseStaticAssert();}
     private Declaration constexprDeclaration(Declaration declaration,boolean enabled){
         if(!enabled||declaration==null)return declaration;
         if(declaration instanceof Declaration.OutOfLineConstructorDecl ctor)return new Declaration.OutOfLineConstructorDecl(ctor.qualifiedName(),ctor.constructor().withConstexprSpecifier(true),ctor.nameRange());

@@ -3,6 +3,8 @@ package minic.compiler.parser.node;
 import minic.compiler.type.MiniType;
 import minic.compiler.parser.node.Declaration.AlignmentSpec;
 import minic.SourceRange;
+import minic.compiler.parser.node.Declaration.StructuredBindingDecl;
+import minic.compiler.parser.node.Expression.InitializerSyntax;
 
 import java.util.List;
 import java.util.Objects;
@@ -191,6 +193,35 @@ public interface Statement extends AstNode {
             Objects.requireNonNull(condition, "condition");
             Objects.requireNonNull(body, "body");
             Objects.requireNonNull(range, "range");
+        }
+    }
+
+    /**
+     * Internal lifetime region. The cleanup is bound in the surrounding scope and runs once
+     * after an entered body exits normally or transfers control through return/break/continue.
+     * The body has its own lexical scope. A return value is captured before cleanup executes.
+     */
+    record CleanupScopeStmt(Statement body, Expression cleanup, SourceRange range) implements Statement {
+        public CleanupScopeStmt {
+            Objects.requireNonNull(body, "body");
+            Objects.requireNonNull(cleanup, "cleanup");
+            Objects.requireNonNull(range, "range");
+        }
+    }
+
+    /** Source-only range loop; the declaration is initialized from each iterator dereference. */
+    record RangeForStmt(Statement declaration, Expression initializer,
+                        Statement body, SourceRange range) implements Statement {
+        public RangeForStmt {
+            Objects.requireNonNull(declaration, "declaration");
+            Objects.requireNonNull(initializer, "initializer");
+            Objects.requireNonNull(body, "body");
+            Objects.requireNonNull(range, "range");
+            if (!(declaration instanceof Statement.VarDeclStmt || declaration instanceof StructuredBindingDecl))
+                throw new IllegalArgumentException("Invalid range declaration");
+            if (declaration instanceof Statement.VarDeclStmt variable && (variable.initializer()!=null || variable.staticStorage())
+                    || declaration instanceof StructuredBindingDecl binding && binding.initializer()!=null)
+                throw new IllegalArgumentException("A range declaration has no separate initializer or static storage");
         }
     }
 }

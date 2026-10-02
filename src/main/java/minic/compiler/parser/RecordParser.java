@@ -6,10 +6,10 @@ import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.parser.manager.StatementManager;
 import minic.compiler.parser.node.Declaration.*;
-import minic.compiler.parser.node.InitializerSyntax;
+import minic.compiler.parser.node.Expression.InitializerSyntax;
 import minic.compiler.parser.node.ConversionName;
 import minic.compiler.parser.node.QualifiedName;
-import minic.compiler.parser.node.ClassTemplateDecl;
+import minic.compiler.parser.node.Declaration.ClassTemplateDecl;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.type.MiniType;
 

@@ -4,6 +4,11 @@ import minic.SourceRange;
 import minic.compiler.parser.node.*;
 import minic.compiler.parser.node.Declaration.*;
 import minic.compiler.type.MiniType;
+import minic.compiler.parser.node.Expression.PackExpansionExpr;
+import minic.compiler.parser.node.Expression.SizeofPackExpr;
+import minic.compiler.parser.node.Expression.TemplateValueExpr;
+import minic.compiler.parser.node.Expression.TypeQueryExpr;
+
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.RecordComponent;
 import java.util.*;

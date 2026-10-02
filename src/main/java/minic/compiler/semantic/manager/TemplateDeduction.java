@@ -1,8 +1,9 @@
 package minic.compiler.semantic.manager;
 
-import minic.compiler.parser.node.ClassTemplateDecl;
-import minic.compiler.parser.node.TemplateValueExpr;
+import minic.compiler.parser.node.Declaration.ClassTemplateDecl;
+import minic.compiler.parser.node.Expression.TemplateValueExpr;
 import minic.compiler.type.*;
+
 import java.util.*;
 import java.util.function.UnaryOperator;
 

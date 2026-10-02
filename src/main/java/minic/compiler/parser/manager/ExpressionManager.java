@@ -2,7 +2,6 @@ package minic.compiler.parser.manager;
 
 import minic.compiler.parser.Parser;
 import minic.compiler.LanguageMode;
-
 import minic.compiler.parser.node.Expression.AssignmentExpr;
 import minic.compiler.parser.node.Expression.BinaryExpr;
 import minic.compiler.parser.node.Expression.BoolLiteralExpr;
@@ -36,6 +35,17 @@ import minic.compiler.lexer.token.Token.IntegerLiteralKind;
 import minic.compiler.lexer.token.Token.IntegerLiteralValue;
 import minic.SourceRange;
 import minic.compiler.type.MiniType;
+import minic.compiler.parser.node.Expression.ConstructionExpr;
+import minic.compiler.parser.node.Expression.DestructorCallExpr;
+import minic.compiler.parser.node.Expression.InitializerSyntax;
+import minic.compiler.parser.node.Expression.LambdaExpr;
+import minic.compiler.parser.node.Expression.NoexceptExpr;
+import minic.compiler.parser.node.Expression.PackExpansionExpr;
+import minic.compiler.parser.node.Expression.PlacementNewExpr;
+import minic.compiler.parser.node.Expression.SizeofPackExpr;
+import minic.compiler.parser.node.Expression.TemplateIdExpr;
+import minic.compiler.parser.node.Expression.TypeMemberExpr;
+import minic.compiler.parser.node.Expression.TypeQueryExpr;
 
 import java.util.ArrayList;
 
@@ -323,7 +333,7 @@ public final class ExpressionManager {
             Expression operand=parseExpression();
             Token end=state.consume(TokenType.RIGHT_PAREN,"noexcept 运算符后期望 ')' ");
             if (operand==null || end==null) return null;
-            var result=new minic.compiler.parser.node.NoexceptExpr(operand,SourceRange.span(start.range(),end.range()));
+            var result=new minic.compiler.parser.node.Expression.NoexceptExpr(operand,SourceRange.span(start.range(),end.range()));
             state.build(result,"NoexceptExpr",result.range());return result;
         }
         if (state.match(TokenType.SIZEOF)) {
@@ -358,10 +368,10 @@ public final class ExpressionManager {
         }
         var initializer = state.check(TokenType.LEFT_PAREN) || state.check(TokenType.LEFT_BRACE)
                 ? parseConstructionInitializer()
-                : new minic.compiler.parser.node.InitializerSyntax(minic.compiler.parser.node.InitializerSyntax.Kind.DEFAULT,
+                : new minic.compiler.parser.node.Expression.InitializerSyntax(minic.compiler.parser.node.Expression.InitializerSyntax.Kind.DEFAULT,
                         java.util.List.of(), type.range());
         if (initializer == null) return null;
-        var expression = new minic.compiler.parser.node.PlacementNewExpr(type.type(), placement, initializer, global,
+        var expression = new minic.compiler.parser.node.Expression.PlacementNewExpr(type.type(), placement, initializer, global,
                 type.range(), SourceRange.span(start.range(), initializer.range()));
         state.build(expression, "PlacementNewExpr", expression.range());
         return expression;
@@ -395,7 +405,7 @@ public final class ExpressionManager {
             if(state.consume(TokenType.LEFT_PAREN,"sizeof... 后期望 '('")==null)return null;
             Token name=state.consume(TokenType.IDENTIFIER,"sizeof... 需要参数包名称");
             Token end=state.consume(TokenType.RIGHT_PAREN,"sizeof... 后期望 ')'");
-            return name==null||end==null?null:new minic.compiler.parser.node.SizeofPackExpr(name.lexeme(),SourceRange.span(sizeofToken.range(),end.range()));
+            return name==null||end==null?null:new minic.compiler.parser.node.Expression.SizeofPackExpr(name.lexeme(),SourceRange.span(sizeofToken.range(),end.range()));
         }
 
         if (state.match(TokenType.LEFT_PAREN)) {
@@ -442,7 +452,7 @@ public final class ExpressionManager {
             if(typeReader.extendedSyntax()&&typeReader.beginsFunctionTemplateArguments(expression)) {
                 var arguments=typeReader.parseFunctionTemplateArguments();
                 if(arguments==null)return null;
-                expression=new minic.compiler.parser.node.TemplateIdExpr(expression,arguments,SourceRange.span(expression.range(),state.previous().range()));continue;
+                expression=new minic.compiler.parser.node.Expression.TemplateIdExpr(expression,arguments,SourceRange.span(expression.range(),state.previous().range()));continue;
             }
             if (state.match(TokenType.LEFT_BRACKET)) {
                 Expression index = state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.check(TokenType.LEFT_BRACE)
@@ -493,7 +503,7 @@ public final class ExpressionManager {
                 Token name=state.consume(TokenType.IDENTIFIER,"template 后期望成员模板名称");if(name==null)return null;
                 Expression member=new FieldAccessExpr(target,name.lexeme(),viaPointer,SourceRange.span(target.range(),name.range()));
                 var arguments=typeReader.parseFunctionTemplateArguments();
-                return arguments==null?null:new minic.compiler.parser.node.TemplateIdExpr(member,arguments,SourceRange.span(target.range(),state.previous().range()));
+                return arguments==null?null:new minic.compiler.parser.node.Expression.TemplateIdExpr(member,arguments,SourceRange.span(target.range(),state.previous().range()));
             }
             if (state.match(TokenType.TILDE)) return finishDestructorCall(target, viaPointer, state.previous());
             if (state.check(TokenType.OPERATOR)) {
@@ -548,7 +558,7 @@ public final class ExpressionManager {
         if (state.consume(TokenType.LEFT_PAREN, "显式析构调用期望 '('") == null) return null;
         Token end = state.consume(TokenType.RIGHT_PAREN, "显式析构调用不接受参数，期望 ')'");
         if (end == null) return null;
-        var call = new minic.compiler.parser.node.DestructorCallExpr(receiver, ownerType, destructorName,
+        var call = new minic.compiler.parser.node.Expression.DestructorCallExpr(receiver, ownerType, destructorName,
                 viaPointer, SourceRange.span(tilde.range(), name.range()), SourceRange.span(receiver.range(), end.range()));
         state.build(call, "DestructorCallExpr", call.range());
         return call;
@@ -556,39 +566,39 @@ public final class ExpressionManager {
 
     private Expression parseLambda() {
         Token start=state.advance();
-        var defaultCapture=minic.compiler.parser.node.LambdaExpr.CaptureDefault.NONE;
-        var captures=new ArrayList<minic.compiler.parser.node.LambdaExpr.Capture>();
-        if(state.match(TokenType.EQUAL))defaultCapture=minic.compiler.parser.node.LambdaExpr.CaptureDefault.COPY;
+        var defaultCapture=minic.compiler.parser.node.Expression.LambdaExpr.CaptureDefault.NONE;
+        var captures=new ArrayList<minic.compiler.parser.node.Expression.LambdaExpr.Capture>();
+        if(state.match(TokenType.EQUAL))defaultCapture=minic.compiler.parser.node.Expression.LambdaExpr.CaptureDefault.COPY;
         else if(state.check(TokenType.AMPERSAND)&&(state.peekAt(1).type()==TokenType.COMMA||state.peekAt(1).type()==TokenType.RIGHT_BRACKET)) {
-            state.advance();defaultCapture=minic.compiler.parser.node.LambdaExpr.CaptureDefault.REFERENCE;
+            state.advance();defaultCapture=minic.compiler.parser.node.Expression.LambdaExpr.CaptureDefault.REFERENCE;
         }
-        if(defaultCapture!=minic.compiler.parser.node.LambdaExpr.CaptureDefault.NONE && !state.check(TokenType.RIGHT_BRACKET))
+        if(defaultCapture!=minic.compiler.parser.node.Expression.LambdaExpr.CaptureDefault.NONE && !state.check(TokenType.RIGHT_BRACKET))
             state.consume(TokenType.COMMA,"默认捕获后期望 ','");
         var statements=new StatementManager(state,this,typeReader);
         while(!state.check(TokenType.RIGHT_BRACKET)&&!state.isAtEnd()) {
             Token first=state.peek();
-            var kind=state.match(TokenType.AMPERSAND)?minic.compiler.parser.node.LambdaExpr.CaptureKind.REFERENCE
-                    :minic.compiler.parser.node.LambdaExpr.CaptureKind.COPY;
+            var kind=state.match(TokenType.AMPERSAND)?minic.compiler.parser.node.Expression.LambdaExpr.CaptureKind.REFERENCE
+                    :minic.compiler.parser.node.Expression.LambdaExpr.CaptureKind.COPY;
             boolean star=state.match(TokenType.STAR);
             Token name;
             if(state.match(TokenType.THIS)) {
                 name=state.previous();
-                if(kind==minic.compiler.parser.node.LambdaExpr.CaptureKind.REFERENCE)state.report(name,"this 捕获不能加 '&'");
-                kind=star?minic.compiler.parser.node.LambdaExpr.CaptureKind.THIS_COPY:minic.compiler.parser.node.LambdaExpr.CaptureKind.THIS;
+                if(kind==minic.compiler.parser.node.Expression.LambdaExpr.CaptureKind.REFERENCE)state.report(name,"this 捕获不能加 '&'");
+                kind=star?minic.compiler.parser.node.Expression.LambdaExpr.CaptureKind.THIS_COPY:minic.compiler.parser.node.Expression.LambdaExpr.CaptureKind.THIS;
             } else {
                 if(star)state.report(first,"'*' 捕获只能用于 this");
                 name=state.consume(TokenType.IDENTIFIER,"期望捕获名称");
             }
             if(name==null)return null;
-            minic.compiler.parser.node.InitializerSyntax initializer=null;
+            minic.compiler.parser.node.Expression.InitializerSyntax initializer=null;
             if(state.check(TokenType.EQUAL)||state.check(TokenType.LEFT_BRACE)||state.check(TokenType.LEFT_PAREN))initializer=statements.parseInitializerSyntax();
             SourceRange range=SourceRange.span(first.range(),initializer==null?name.range():initializer.range());
-            captures.add(new minic.compiler.parser.node.LambdaExpr.Capture(name.lexeme(),kind,initializer,range));
+            captures.add(new minic.compiler.parser.node.Expression.LambdaExpr.Capture(name.lexeme(),kind,initializer,range));
             if(!state.match(TokenType.COMMA))break;
             if(state.check(TokenType.RIGHT_BRACKET))state.report(state.peek(),"捕获列表不能以 ',' 结尾");
         }
         if(state.consume(TokenType.RIGHT_BRACKET,"lambda 捕获列表期望 ']'")==null)return null;
-        typeReader.enterScope(captures.stream().map(minic.compiler.parser.node.LambdaExpr.Capture::name).filter(name->!name.equals("this")).toList());
+        typeReader.enterScope(captures.stream().map(minic.compiler.parser.node.Expression.LambdaExpr.Capture::name).filter(name->!name.equals("this")).toList());
         try {
             var parameters=new ArrayList<minic.compiler.parser.node.Declaration.Parameter>();
             boolean variadic=false;
@@ -615,33 +625,33 @@ public final class ExpressionManager {
             }
             var body=statements.parseFunctionBlock(parameters.stream().map(minic.compiler.parser.node.Declaration.Parameter::name).toList());
             if(body==null)return null;
-            var lambda=new minic.compiler.parser.node.LambdaExpr(defaultCapture,captures,parameters,variadic,mutable,returnType,body,SourceRange.span(start.range(),body.range()),exceptionSpecification,constexpr);
+            var lambda=new minic.compiler.parser.node.Expression.LambdaExpr(defaultCapture,captures,parameters,variadic,mutable,returnType,body,SourceRange.span(start.range(),body.range()),exceptionSpecification,constexpr);
             state.build(lambda,"LambdaExpr",lambda.range());return lambda;
         } finally {typeReader.exitScope();}
     }
 
-    private Expression parseTypeQuery(minic.compiler.parser.node.TypeQueryExpr.Kind kind) {
+    private Expression parseTypeQuery(minic.compiler.parser.node.Expression.TypeQueryExpr.Kind kind) {
         Token name = state.advance();
         if (state.consume(TokenType.LEFT_PAREN, "类型查询后期望 '('") == null) return null;
-        var arguments = new ArrayList<minic.compiler.parser.node.TypeQueryExpr.TypeArgument>();
+        var arguments = new ArrayList<minic.compiler.parser.node.Expression.TypeQueryExpr.TypeArgument>();
         if (!state.check(TokenType.RIGHT_PAREN)) {
             do {
                 Parser.ParsedType type = typeReader.parseType("类型查询期望类型实参");
                 if (type == null) return null;
                 boolean expansion = state.match(TokenType.ELLIPSIS) || type.type() instanceof MiniType.PackExpansionType;
                 MiniType argumentType=type.type() instanceof MiniType.PackExpansionType pack?pack.pattern():type.type();
-                arguments.add(new minic.compiler.parser.node.TypeQueryExpr.TypeArgument(argumentType, expansion,
+                arguments.add(new minic.compiler.parser.node.Expression.TypeQueryExpr.TypeArgument(argumentType, expansion,
                         expansion ? SourceRange.span(type.range(), state.previous().range()) : type.range()));
             } while (state.match(TokenType.COMMA));
         }
         Token close = state.consume(TokenType.RIGHT_PAREN, "类型查询后期望 ')'");
         if (close == null) return null;
-        if (arguments.stream().noneMatch(minic.compiler.parser.node.TypeQueryExpr.TypeArgument::packExpansion) && !kind.acceptsArity(arguments.size())) {
-            state.report(name.range(), kind.spelling() + (kind == minic.compiler.parser.node.TypeQueryExpr.Kind.CONSTRUCTIBLE
+        if (arguments.stream().noneMatch(minic.compiler.parser.node.Expression.TypeQueryExpr.TypeArgument::packExpansion) && !kind.acceptsArity(arguments.size())) {
+            state.report(name.range(), kind.spelling() + (kind == minic.compiler.parser.node.Expression.TypeQueryExpr.Kind.CONSTRUCTIBLE
                     ? " 至少需要一个类型实参" : " 需要两个类型实参"));
             return null;
         }
-        var result = new minic.compiler.parser.node.TypeQueryExpr(kind, arguments, name.range(),
+        var result = new minic.compiler.parser.node.Expression.TypeQueryExpr(kind, arguments, name.range(),
                 SourceRange.span(name.range(), close.range()));
         state.build(result, "TypeQueryExpr " + kind.spelling(), result.range());
         return result;
@@ -650,7 +660,7 @@ public final class ExpressionManager {
     private Expression parsePrimary() {
         if(typeReader.extendedSyntax() && state.check(TokenType.LEFT_BRACKET))return parseLambda();
         if (state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.check(TokenType.IDENTIFIER)) {
-            var query = minic.compiler.parser.node.TypeQueryExpr.Kind.fromSpelling(state.peek().lexeme());
+            var query = minic.compiler.parser.node.Expression.TypeQueryExpr.Kind.fromSpelling(state.peek().lexeme());
             if (query != null) return parseTypeQuery(query);
         }
         if (typeReader.typeMemberDelimiterAt(0) >= 0 && typeReader.constructionDelimiterAt(0) < 0) {
@@ -658,7 +668,7 @@ public final class ExpressionManager {
             state.consume(TokenType.SCOPE, "期望 '::'");
             Token name = state.consume(TokenType.IDENTIFIER, "期望类成员名称");
             if (type == null || name == null) return null;
-            var member = new minic.compiler.parser.node.TypeMemberExpr(type.type(), name.lexeme(), name.range(),
+            var member = new minic.compiler.parser.node.Expression.TypeMemberExpr(type.type(), name.lexeme(), name.range(),
                     SourceRange.span(type.range(), name.range()));
             state.build(member, "TypeMemberExpr", member.range());
             return member;
@@ -667,7 +677,7 @@ public final class ExpressionManager {
             Parser.ParsedType type = typeReader.parseConstructionType();
             var initializer = parseConstructionInitializer();
             if (type == null || initializer == null) return null;
-            var construction = new minic.compiler.parser.node.ConstructionExpr(type.type(), initializer,
+            var construction = new minic.compiler.parser.node.Expression.ConstructionExpr(type.type(), initializer,
                     type.range(), SourceRange.span(type.range(), initializer.range()));
             state.build(construction, "ConstructionExpr", construction.range());
             return construction;
@@ -941,7 +951,7 @@ public final class ExpressionManager {
 
     public Expression finishPackExpansion(Expression value) {
         if(value!=null && state.languageMode()==minic.compiler.LanguageMode.CPP17_ALGORITHM && state.match(TokenType.ELLIPSIS))
-            return new minic.compiler.parser.node.PackExpansionExpr(value,SourceRange.span(value.range(),state.previous().range()));
+            return new minic.compiler.parser.node.Expression.PackExpansionExpr(value,SourceRange.span(value.range(),state.previous().range()));
         return value;
     }
 
@@ -969,7 +979,7 @@ public final class ExpressionManager {
         return callExpr;
     }
 
-    private minic.compiler.parser.node.InitializerSyntax parseConstructionInitializer() {
+    private minic.compiler.parser.node.Expression.InitializerSyntax parseConstructionInitializer() {
         Token start = state.advance();
         boolean list = start.type() == TokenType.LEFT_BRACE;
         TokenType close = list ? TokenType.RIGHT_BRACE : TokenType.RIGHT_PAREN;
@@ -984,9 +994,9 @@ public final class ExpressionManager {
             } while (!state.isAtEnd());
         }
         Token end = state.consume(close, list ? "构造初始化期望 '}'" : "构造初始化期望 ')'");
-        return end == null ? null : new minic.compiler.parser.node.InitializerSyntax(list
-                ? minic.compiler.parser.node.InitializerSyntax.Kind.DIRECT_LIST
-                : minic.compiler.parser.node.InitializerSyntax.Kind.DIRECT_PAREN,
+        return end == null ? null : new minic.compiler.parser.node.Expression.InitializerSyntax(list
+                ? minic.compiler.parser.node.Expression.InitializerSyntax.Kind.DIRECT_LIST
+                : minic.compiler.parser.node.Expression.InitializerSyntax.Kind.DIRECT_PAREN,
                 arguments, SourceRange.span(start.range(), end.range()));
     }
 

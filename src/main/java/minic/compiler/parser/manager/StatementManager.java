@@ -1,11 +1,10 @@
 package minic.compiler.parser.manager;
 
 import minic.compiler.parser.Parser;
-
 import minic.compiler.parser.node.Expression;
-import minic.compiler.parser.node.InitializerSyntax;
-import minic.compiler.parser.node.RangeForStmt;
-import minic.compiler.parser.node.StructuredBindingDecl;
+import minic.compiler.parser.node.Expression.InitializerSyntax;
+import minic.compiler.parser.node.Statement.RangeForStmt;
+import minic.compiler.parser.node.Declaration.StructuredBindingDecl;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.parser.node.Expression.DesignatedInitExpr;
 import minic.compiler.parser.node.Expression.Designator;
@@ -26,6 +25,7 @@ import minic.compiler.parser.node.Statement.WhileStmt;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
 import minic.SourceRange;
+import minic.compiler.parser.node.Declaration.StaticAssertDecl;
 
 import java.util.ArrayList;
 
@@ -87,7 +87,7 @@ public final class StatementManager {
         }
     }
 
-    public minic.compiler.parser.node.StaticAssertDecl parseStaticAssert(){return minic.compiler.parser.StaticAssertParser.parse(state,expressionManager);}
+    public minic.compiler.parser.node.Declaration.StaticAssertDecl parseStaticAssert(){return minic.compiler.parser.StaticAssertParser.parse(state,expressionManager);}
     private Statement parseStatement() {
         if(typeReader.extendedSyntax()&&state.check(TokenType.STATIC_ASSERT))return parseStaticAssert();
         if (typeReader.extendedSyntax() && state.check(TokenType.USING)) {

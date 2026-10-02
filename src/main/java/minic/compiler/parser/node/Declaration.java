@@ -4,6 +4,8 @@ import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.type.MiniType;
 import minic.compiler.LanguageMode;
 import minic.SourceRange;
+import minic.compiler.type.TemplateArgument;
+import minic.compiler.parser.node.Expression.InitializerSyntax;
 
 import java.util.List;
 import java.util.Objects;
@@ -538,6 +540,96 @@ public interface Declaration extends AstNode {
 
         public StructField(String name, MiniType type, List<AlignmentSpec> alignmentSpecs, SourceRange range) {
             this(name, type, false, alignmentSpecs, range);
+        }
+    }
+
+    /** A generic source record; only concrete specializations may enter the core record indexes. */
+    record ClassTemplateDecl(List<Parameter> parameters, Declaration.StructDecl record,
+                             List<minic.compiler.type.TemplateArgument> specializationArguments, boolean specialization, SourceRange range) implements Declaration {
+        public ClassTemplateDecl(List<Parameter> parameters, Declaration.StructDecl record, List<minic.compiler.type.TemplateArgument> arguments, SourceRange range) { this(parameters,record,arguments,!arguments.isEmpty(),range); }
+        public ClassTemplateDecl(java.util.Collection<? extends Parameter> parameters, Declaration.StructDecl record, SourceRange range) {
+            this(List.copyOf(parameters),record,List.of(),range);
+        }
+        public ClassTemplateDecl {
+            parameters = List.copyOf(parameters);
+            specializationArguments = List.copyOf(specializationArguments);
+            Objects.requireNonNull(record, "record");
+            Objects.requireNonNull(range, "range");
+            if (parameters.isEmpty() && !specialization) throw new IllegalArgumentException("a primary template needs parameters");
+            for (int index = 0; index < parameters.size(); index++) {
+                MiniType.TemplateParameterType type = parameters.get(index).type();
+                if (!type.owner().equals(record.name()) || type.index() != index)
+                    throw new IllegalArgumentException("template parameter identity does not match its owner");
+            }
+        }
+
+        public sealed interface Parameter extends AstNode permits TypeParameter, ValueParameter {
+            String name();
+            MiniType.TemplateParameterType type();
+            boolean pack();
+            default MiniType defaultType() { return null; }
+        }
+
+        public record ValueParameter(String name, MiniType.TemplateParameterType type, MiniType valueType,
+                                     Expression defaultValue, boolean pack, SourceRange range) implements Parameter {
+            public ValueParameter(String name, MiniType.TemplateParameterType type, MiniType valueType, Expression defaultValue, SourceRange range) { this(name,type,valueType,defaultValue,false,range); }
+            public ValueParameter {
+                Objects.requireNonNull(name); Objects.requireNonNull(type);
+                Objects.requireNonNull(valueType); Objects.requireNonNull(range);
+            }
+        }
+
+        public record TypeParameter(String name, MiniType.TemplateParameterType type, MiniType defaultType, boolean pack, SourceRange range) implements Parameter {
+            public TypeParameter(String name, MiniType.TemplateParameterType type, MiniType defaultType, SourceRange range) { this(name,type,defaultType,false,range); }
+            public TypeParameter(String name, MiniType.TemplateParameterType type, SourceRange range) {
+                this(name, type, null, range);
+            }
+            public TypeParameter {
+                Objects.requireNonNull(name, "name");
+                Objects.requireNonNull(type, "type");
+                Objects.requireNonNull(range, "range");
+                if (name.isBlank()) throw new IllegalArgumentException("template parameter needs a name");
+            }
+        }
+    }
+
+    /** A primary function template or an explicit specialization, before core binding. */
+    record FunctionTemplateDecl(List<ClassTemplateDecl.Parameter> parameters, Declaration.FunctionDecl function,
+                                List<TemplateArgument> specializationArguments, QualifiedName qualifiedName, SourceRange range) implements Declaration {
+        public FunctionTemplateDecl(List<ClassTemplateDecl.Parameter> parameters,Declaration.FunctionDecl function,SourceRange range) {
+            this(parameters,function,null,null,range);
+        }
+        public FunctionTemplateDecl {
+            parameters=List.copyOf(parameters);Objects.requireNonNull(function);Objects.requireNonNull(range);
+            specializationArguments=specializationArguments==null?null:List.copyOf(specializationArguments);
+        }
+        public boolean specialization(){return parameters.isEmpty();}
+    }
+
+    /** Source assertion, discarded only after constant evaluation. */
+    record StaticAssertDecl(Expression condition,Expression.StringLiteralExpr message,SourceRange range)
+                            implements Declaration,Statement,Declaration.RecordMember {
+        public StaticAssertDecl{Objects.requireNonNull(condition);Objects.requireNonNull(range);}
+    }
+
+    /** Source declaration; the backing object and binding references are produced by C++ binding. */
+    record StructuredBindingDecl(MiniType type, List<BindingName> names,
+                                 InitializerSyntax initializer, SourceRange range)
+                                 implements Declaration, Statement {
+        public StructuredBindingDecl {
+            Objects.requireNonNull(type); names=List.copyOf(names); Objects.requireNonNull(range);
+            if(names.isEmpty())throw new IllegalArgumentException("A structured binding needs names");
+        }
+        public record BindingName(String name,SourceRange range) implements AstNode {
+            public BindingName {Objects.requireNonNull(name);Objects.requireNonNull(range);}
+        }
+    }
+
+    /** A member definition with a structural class-template owner, before instantiation. */
+    record TemplateMemberDefinitionDecl(List<ClassTemplateDecl.Parameter> parameters,
+                                        MiniType.TemplateIdType ownerType, Declaration declaration, SourceRange range) implements Declaration {
+        public TemplateMemberDefinitionDecl {
+            parameters=List.copyOf(parameters);Objects.requireNonNull(ownerType);Objects.requireNonNull(declaration);Objects.requireNonNull(range);
         }
     }
 }

@@ -3,7 +3,7 @@ package minic.compiler.semantic.manager;
 import minic.SourceRange;
 import minic.compiler.Diagnostic;
 import minic.compiler.parser.node.AstNode;
-import minic.compiler.parser.node.InitializerSyntax;
+import minic.compiler.parser.node.Expression.InitializerSyntax;
 import minic.compiler.parser.node.Declaration.ConstructorMember;
 import minic.compiler.parser.node.Declaration.FieldMember;
 import minic.compiler.parser.node.Declaration.MemberInitializer;

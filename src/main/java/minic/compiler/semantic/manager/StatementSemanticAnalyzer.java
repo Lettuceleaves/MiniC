@@ -4,7 +4,7 @@ import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.parser.node.Declaration.Parameter;
 import minic.compiler.parser.node.Declaration.GlobalVarDecl;
 import minic.compiler.parser.node.Expression;
-import minic.compiler.parser.node.CleanupScopeStmt;
+import minic.compiler.parser.node.Statement.CleanupScopeStmt;
 import minic.compiler.parser.node.Expression.AggregateInitExpr;
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.parser.node.Statement.BreakStmt;

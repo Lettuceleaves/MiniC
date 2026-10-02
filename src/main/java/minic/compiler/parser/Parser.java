@@ -19,15 +19,17 @@ import minic.compiler.parser.node.Declaration.GlobalVarDecl;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.QualifiedName;
 import minic.compiler.parser.node.OperatorName;
-import minic.compiler.parser.node.ClassTemplateDecl;
-import minic.compiler.parser.node.FunctionTemplateDecl;
+import minic.compiler.parser.node.Declaration.ClassTemplateDecl;
+import minic.compiler.parser.node.Declaration.FunctionTemplateDecl;
 import minic.compiler.type.MiniType;
 import minic.compiler.type.TemplateArgument;
 import minic.compiler.type.TemplateValues;
 import minic.compiler.parser.node.Expression;
-import minic.compiler.parser.node.TemplateValueExpr;
+import minic.compiler.parser.node.Expression.TemplateValueExpr;
 import minic.compiler.Diagnostic;
 import minic.SourceRange;
+import minic.compiler.parser.node.Declaration.TemplateMemberDefinitionDecl;
+import minic.compiler.parser.node.Expression.TypeMemberExpr;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -305,7 +307,7 @@ public final class Parser extends Stage {
             if(declaration!=null && typeReader.templateDefinitionOwner!=null) {
                 for(var parameter:parameters)if(parameter.defaultType()!=null || parameter instanceof ClassTemplateDecl.ValueParameter value&&value.defaultValue()!=null)
                     context.report(parameter.range(),"类模板类外成员定义不能重复默认模板实参");
-                var result=new minic.compiler.parser.node.TemplateMemberDefinitionDecl(parameters,typeReader.templateDefinitionOwner,
+                var result=new minic.compiler.parser.node.Declaration.TemplateMemberDefinitionDecl(parameters,typeReader.templateDefinitionOwner,
                         declaration,SourceRange.span(start.range(),declaration.range()));
                 context.build(result,"TemplateMemberDefinition",result.range());return result;
             }
@@ -916,7 +918,7 @@ public final class Parser extends Stage {
         }
         public boolean beginsFunctionTemplateArguments(Expression target) {
             if(!context.check(TokenType.LESS))return false;
-            String name=target instanceof Expression.NameExpr n?n.name():target instanceof Expression.QualifiedNameExpr q?q.name().segments().getLast():target instanceof Expression.FieldAccessExpr f?f.fieldName():target instanceof minic.compiler.parser.node.TypeMemberExpr m?m.memberName():null;
+            String name=target instanceof Expression.NameExpr n?n.name():target instanceof Expression.QualifiedNameExpr q?q.name().segments().getLast():target instanceof Expression.FieldAccessExpr f?f.fieldName():target instanceof minic.compiler.parser.node.Expression.TypeMemberExpr m?m.memberName():null;
             if(name==null||!functionTemplateNames.containsKey(name))return false;
             int depth=1,parens=0;
             for(int offset=1;;offset++){
