@@ -79,7 +79,9 @@ public final class TemplateValues {
         value=convert(value,type,false);
         return switch(unary.operator()) {
             case PLUS -> value;
-            case MINUS -> checked(number(value).negate(),type,type.isSignedIntegerScalar());
+            // Signed overflow in ordinary constant folding wraps like a real compiler's
+            // runtime arithmetic (e.g. INT_MIN negation, 1<<31), rather than failing to compile.
+            case MINUS -> checked(number(value).negate(),type,false);
             case TILDE -> checked(number(value).not(),type,false);
             case BANG -> new TemplateArgument.Integral(value.value()==0?1:0,MiniType.BOOL);
             default -> throw new IllegalArgumentException("Not a constant unary operator");
@@ -111,7 +113,9 @@ public final class TemplateValues {
             case LESS_LESS -> a.shiftLeft(b.intValue()); case GREATER_GREATER -> a.shiftRight(b.intValue());
             default -> throw new IllegalArgumentException("Not a constant binary operator");
         };
-        return checked(result,type,type.isSignedIntegerScalar());
+        // Signed overflow wraps instead of rejecting the constant: real compilers fold
+        // plain arithmetic (e.g. 1<<31, 65536*65536) the same way it runs at runtime.
+        return checked(result,type,false);
     }
     private static MiniType promote(MiniType type) {
         if(!type.isIntegerScalar()) throw new IllegalArgumentException("Expected integral type");
