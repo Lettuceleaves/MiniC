@@ -282,6 +282,16 @@ public final class CompilerApi {
         return stages;
     }
 
+    /** 返回流水线中第一个指定类型的阶段。 */
+    public <T extends Stage> T stage(Class<T> stageType) {
+        Objects.requireNonNull(stageType, "stageType");
+        return stages.stream()
+                .filter(stageType::isInstance)
+                .map(stageType::cast)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("pipeline has no stage of type " + stageType.getName()));
+    }
+
     private Stage requireStage(Stage stage) {
         Objects.requireNonNull(stage, "stage");
         if (!stages.contains(stage)) {

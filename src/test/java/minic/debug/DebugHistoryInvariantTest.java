@@ -1,10 +1,10 @@
 package minic.debug;
 
+import minic.compiler.CompilerApi;
 import minic.compiler.SourceFile;
 import minic.compiler.ir.instruction.ControlInstruction.TrapKind;
 import minic.debug.DebugRuntime.RuntimeState;
 import minic.debug.DebugRuntime.TerminationKind;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -80,9 +80,9 @@ final class DebugHistoryInvariantTest {
     @Test
     void snapshotIncludesLibraryStateAndDoesNotChangeAfterCapture() {
         SourceFile source = new SourceFile("runtime-state.mc", "int main() { return 0; }");
-        var pipeline = CompilerFixture.fromSource(source);
+        var pipeline = new CompilerApi(source);
         DebugRuntime runtime = new DebugRuntime(
-                new DebugProgram(source, pipeline.compilerApi().runToIr()),
+                new DebugProgram(source, pipeline.runToIr()),
                 "input"
         );
 

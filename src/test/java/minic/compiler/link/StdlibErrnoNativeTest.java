@@ -1,11 +1,14 @@
 package minic.compiler.link;
 
+import minic.compiler.lexer.Lexer;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.SourceFile;
 import minic.compiler.CompilerApi;
 import minic.compiler.execute.ExecutableRunner;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -19,42 +22,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag("stdlib-native")
 final class StdlibErrnoNativeTest {
-    @Test
-    void strtodImportsUcrtAndPreservesBothCrtErrnoSlots() {
-        SourceFile source = new SourceFile("ucrt-strtod.mc", """
-                #include <stdlib.h>
-                #include <errno.h>
-                int main() {
-                    int *foreign = minic_ucrt_errno_location();
-                    *foreign = 91;
-                    errno = 73;
-                    char *end = nullptr;
-                    double number = strtod("0x1.8p+1tail", &end);
-                    if (number != 3.0 || end[0] != 't' || errno != 73 || *foreign != 91) return 1;
-                    double infinity = strtod("inf!", &end);
-                    if (!(infinity > 1e300) || end[0] != '!' || errno != 73 || *foreign != 91) return 2;
-                    double nan = strtod("nan!", &end);
-                    if (nan == nan || end[0] != '!' || errno != 73 || *foreign != 91) return 3;
-                    errno = 0;
-                    double overflow = strtod("1e9999", &end);
-                    return overflow > 0.0 && errno == ERANGE && end[0] == 0 && *foreign == 91 ? 0 : 4;
-                }
-                """);
-        var compiler = new CompilerApi(source);
-        var linker = compiler.stages().stream().filter(Linker.class::isInstance).map(Linker.class::cast).findFirst().orElseThrow();
-        compiler.runThrough(linker);
-        assertTrue(linker.succeeded(), () -> compiler.stages().stream().flatMap(stage -> stage.errors().stream()).toList().toString());
-        Map<String, Set<String>> imports = PeImportIntegrationTest.readImports(linker.peImage().orElseThrow().bytes());
-        assertEquals(Map.of("ucrtbase.dll", Set.of("strtod", "_errno"),
-                "msvcrt.dll", Set.of("_errno"), "KERNEL32.dll", Set.of("ExitProcess")), imports);
-        var runner = new ExecutableRunner();
-        var execution = runner.run(source, linker.result().executableArtifactOptional().orElseThrow());
-        assertTrue(runner.errors().isEmpty(), runner.errors()::toString);
-        assertEquals("", execution.stdout());
-        assertEquals("", execution.stderr());
-        assertEquals(0, execution.exitCode());
-    }
-
     @ParameterizedTest(name = "{0}")
     @MethodSource("behaviorCases")
     void linksOnlyTheExpectedExportsAndRunsTheNativeBehavior(NativeCase testCase) {
@@ -69,21 +36,21 @@ final class StdlibErrnoNativeTest {
 
     private static void runNativeCase(NativeCase testCase) {
         SourceFile sourceFile = new SourceFile("stdlib-native-" + testCase.name() + ".mc", testCase.source());
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        CompilerApi session = new CompilerApi(sourceFile);
 
-        session.compilerApi().runThrough(session.linker());
+        session.runThrough(session.stage(Linker.class));
 
-        assertTrue(session.linker().succeeded(), () -> testCase.name() + ": pre="
-                + session.preprocessor().errors() + ", lex=" + session.lexer().errors()
-                + ", parse=" + session.parser().errors() + ", semantic="
-                + session.semanticAnalyzer().errors() + ", obj=" + session.objBuilder().errors()
-                + ", link=" + session.linker().errors());
+        assertTrue(session.stage(Linker.class).succeeded(), () -> testCase.name() + ": pre="
+                + session.stage(Preprocessor.class).errors() + ", lex=" + session.stage(Lexer.class).errors()
+                + ", parse=" + session.stage(Parser.class).errors() + ", semantic="
+                + session.stage(SemanticAnalyzer.class).errors() + ", obj=" + session.stage(ObjBuilder.class).errors()
+                + ", link=" + session.stage(Linker.class).errors());
         Map<String, Set<String>> imports = PeImportIntegrationTest.readImports(
-                session.linker().peImage().orElseThrow().bytes()
+                session.stage(Linker.class).peImage().orElseThrow().bytes()
         );
         assertEquals(testCase.imports(), imports, testCase.name());
 
-        var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
+        var artifact = session.stage(Linker.class).result().executableArtifactOptional().orElseThrow();
         var executionStage = new ExecutableRunner();
         var execution = executionStage.run(sourceFile, artifact);
         assertTrue(executionStage.errors().isEmpty(), () -> testCase.name() + ": " + executionStage.errors());

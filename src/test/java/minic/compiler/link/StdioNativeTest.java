@@ -1,8 +1,13 @@
 package minic.compiler.link;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -177,18 +182,18 @@ final class StdioNativeTest {
 
     private static CompiledProgram compile(String name, String source) {
         SourceFile sourceFile = new SourceFile("stdlib-native-stdio-" + name + ".mc", source);
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
-        session.compilerApi().runThrough(session.linker());
+        CompilerApi session = new CompilerApi(sourceFile);
+        session.runThrough(session.stage(Linker.class));
 
-        assertTrue(session.linker().succeeded(), () -> name + ": pre="
-                + session.preprocessor().errors() + ", lex=" + session.lexer().errors()
-                + ", parse=" + session.parser().errors() + ", semantic="
-                + session.semanticAnalyzer().errors() + ", obj=" + session.objBuilder().errors()
-                + ", link=" + session.linker().errors());
+        assertTrue(session.stage(Linker.class).succeeded(), () -> name + ": pre="
+                + session.stage(Preprocessor.class).errors() + ", lex=" + session.stage(Lexer.class).errors()
+                + ", parse=" + session.stage(Parser.class).errors() + ", semantic="
+                + session.stage(SemanticAnalyzer.class).errors() + ", obj=" + session.stage(ObjBuilder.class).errors()
+                + ", link=" + session.stage(Linker.class).errors());
         return new CompiledProgram(
                 sourceFile,
-                session.linker().result().executableArtifactOptional().orElseThrow(),
-                PeImportIntegrationTest.readImports(session.linker().peImage().orElseThrow().bytes())
+                session.stage(Linker.class).result().executableArtifactOptional().orElseThrow(),
+                PeImportIntegrationTest.readImports(session.stage(Linker.class).peImage().orElseThrow().bytes())
         );
     }
 

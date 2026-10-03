@@ -1,11 +1,16 @@
 package minic.compiler.link;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.SourceFile;
 import minic.compiler.library.LibraryBinding;
 import minic.compiler.library.LibrarySymbol;
 import minic.compiler.link.pe.PeImage;
 import minic.compiler.link.pe.WindowsPeLinker;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 
 import java.nio.ByteBuffer;
@@ -38,19 +43,19 @@ final class PeImportIntegrationTest {
                     return 0;
                 }
                 """;
-        CompilerFixture session = CompilerFixture.fromSource(
+        CompilerApi session = new CompilerApi(
                 new SourceFile("pe-imports.mc", source)
         );
 
-        session.compilerApi().runThrough(session.linker());
+        session.runThrough(session.stage(Linker.class));
 
-        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().errors()
-                + ", lex=" + session.lexer().errors()
-                + ", parse=" + session.parser().errors()
-                + ", semantic=" + session.semanticAnalyzer().errors()
-                + ", obj=" + session.objBuilder().errors()
-                + ", link=" + session.linker().errors());
-        Map<String, Set<String>> imports = readImports(session.linker().peImage().orElseThrow().bytes());
+        assertTrue(session.stage(Linker.class).succeeded(), () -> "pre=" + session.stage(Preprocessor.class).errors()
+                + ", lex=" + session.stage(Lexer.class).errors()
+                + ", parse=" + session.stage(Parser.class).errors()
+                + ", semantic=" + session.stage(SemanticAnalyzer.class).errors()
+                + ", obj=" + session.stage(ObjBuilder.class).errors()
+                + ", link=" + session.stage(Linker.class).errors());
+        Map<String, Set<String>> imports = readImports(session.stage(Linker.class).peImage().orElseThrow().bytes());
         assertEquals(
                 Set.of("abs", "calloc", "free", "malloc", "printf"),
                 imports.get("msvcrt.dll")
@@ -65,20 +70,20 @@ final class PeImportIntegrationTest {
                 extern int unavailable_system_call();
                 int main() { return unavailable_system_call(); }
                 """;
-        CompilerFixture session = CompilerFixture.fromSource(
+        CompilerApi session = new CompilerApi(
                 new SourceFile("missing-import.mc", source)
         );
 
-        session.compilerApi().runThrough(session.linker());
+        session.runThrough(session.stage(Linker.class));
 
-        assertFalse(session.linker().succeeded());
-        assertTrue(session.linker().errors().stream()
+        assertFalse(session.stage(Linker.class).succeeded());
+        assertTrue(session.stage(Linker.class).errors().stream()
                 .anyMatch(diagnostic -> diagnostic.message().contains("undefined symbol: unavailable_system_call")));
     }
 
     @Test
     void importsTheNativeExportNameWhileRelocationsKeepTheSourceName() {
-        CompilerFixture session = compiledMinimalProgram();
+        CompilerApi session = compiledMinimalProgram();
         LibraryBinding aliasedExit = binding(
                 "ExitProcess",
                 "KERNEL32.dll",
@@ -95,8 +100,8 @@ final class PeImportIntegrationTest {
         );
 
         PeImage image = new WindowsPeLinker().link(
-                session.objBuilder().result().objectFile(),
-                session.objBuilder().result().entrySymbol(),
+                session.stage(ObjBuilder.class).result().objectFile(),
+                session.stage(ObjBuilder.class).result().entrySymbol(),
                 Map.of(aliasedExit.sourceName(), aliasedExit, unused.sourceName(), unused)
         );
 
@@ -107,7 +112,7 @@ final class PeImportIntegrationTest {
 
     @Test
     void rejectsReferencedBindingsThatThePeLinkerCannotImplement() {
-        CompilerFixture session = compiledMinimalProgram();
+        CompilerApi session = compiledMinimalProgram();
         LibraryBinding dataBinding = binding(
                 "ExitProcess",
                 "KERNEL32.dll",
@@ -119,8 +124,8 @@ final class PeImportIntegrationTest {
         UnsupportedOperationException exception = assertThrows(
                 UnsupportedOperationException.class,
                 () -> new WindowsPeLinker().link(
-                        session.objBuilder().result().objectFile(),
-                        session.objBuilder().result().entrySymbol(),
+                        session.stage(ObjBuilder.class).result().objectFile(),
+                        session.stage(ObjBuilder.class).result().entrySymbol(),
                         Map.of(dataBinding.sourceName(), dataBinding)
                 )
         );
@@ -136,8 +141,8 @@ final class PeImportIntegrationTest {
         UnsupportedOperationException nativeKindException = assertThrows(
                 UnsupportedOperationException.class,
                 () -> new WindowsPeLinker().link(
-                        session.objBuilder().result().objectFile(),
-                        session.objBuilder().result().entrySymbol(),
+                        session.stage(ObjBuilder.class).result().objectFile(),
+                        session.stage(ObjBuilder.class).result().entrySymbol(),
                         Map.of(staticWrapper.sourceName(), staticWrapper)
                 )
         );
@@ -153,20 +158,20 @@ final class PeImportIntegrationTest {
         IllegalArgumentException mismatchException = assertThrows(
                 IllegalArgumentException.class,
                 () -> new WindowsPeLinker().link(
-                        session.objBuilder().result().objectFile(),
-                        session.objBuilder().result().entrySymbol(),
+                        session.stage(ObjBuilder.class).result().objectFile(),
+                        session.stage(ObjBuilder.class).result().entrySymbol(),
                         Map.of("ExitProcess", mismatched)
                 )
         );
         assertTrue(mismatchException.getMessage().contains("does not match source symbol"));
     }
 
-    private static CompilerFixture compiledMinimalProgram() {
-        CompilerFixture session = CompilerFixture.fromSource(
+    private static CompilerApi compiledMinimalProgram() {
+        CompilerApi session = new CompilerApi(
                 new SourceFile("minimal-import.mc", "int main() { return 0; }")
         );
-        session.compilerApi().runThrough(session.linker());
-        assertTrue(session.objBuilder().succeeded(), () -> session.objBuilder().errors().toString());
+        session.runThrough(session.stage(Linker.class));
+        assertTrue(session.stage(ObjBuilder.class).succeeded(), () -> session.stage(ObjBuilder.class).errors().toString());
         return session;
     }
 

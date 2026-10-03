@@ -1,9 +1,14 @@
 package minic.stdlib;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.link.Linker;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
 import minic.compiler.preprocess.Preprocessor;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -67,17 +72,17 @@ final class HeaderOnlyLibraryTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("header-only-e2e.mc", source);
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        CompilerApi session = new CompilerApi(sourceFile);
 
-        session.compilerApi().runThrough(session.linker());
+        session.runThrough(session.stage(Linker.class));
 
-        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().errors()
-                + ", lex=" + session.lexer().errors()
-                + ", parse=" + session.parser().errors()
-                + ", semantic=" + session.semanticAnalyzer().errors()
-                + ", obj=" + session.objBuilder().errors()
-                + ", link=" + session.linker().errors());
-        var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
+        assertTrue(session.stage(Linker.class).succeeded(), () -> "pre=" + session.stage(Preprocessor.class).errors()
+                + ", lex=" + session.stage(Lexer.class).errors()
+                + ", parse=" + session.stage(Parser.class).errors()
+                + ", semantic=" + session.stage(SemanticAnalyzer.class).errors()
+                + ", obj=" + session.stage(ObjBuilder.class).errors()
+                + ", link=" + session.stage(Linker.class).errors());
+        var artifact = session.stage(Linker.class).result().executableArtifactOptional().orElseThrow();
         var executionStage = new ExecutableRunner();
         var execution = executionStage.run(sourceFile, artifact, "");
         assertTrue(executionStage.errors().isEmpty(), () -> executionStage.errors().toString());

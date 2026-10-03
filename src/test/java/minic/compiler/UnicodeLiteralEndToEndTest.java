@@ -1,8 +1,12 @@
 package minic.compiler;
 
+import minic.compiler.ir.IrLowerer;
+import minic.compiler.link.Linker;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.debug.DebugApi;
 import minic.debug.Debugger;
-import minic.testing.CompilerFixture;
 import minic.compiler.execute.ExecutableRunner;
 import org.junit.jupiter.api.Test;
 
@@ -23,17 +27,17 @@ final class UnicodeLiteralEndToEndTest {
                         && L'A' == 65 && U'\\U0001F600' == 0x1F600 ? 0 : 1;
                 }
                 """);
-        var session = CompilerFixture.fromSource(source);
-        session.compilerApi().runThrough(session.linker());
-        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().errors()
-                + ", semantic=" + session.semanticAnalyzer().errors()
-                + ", obj=" + session.objBuilder().errors());
-        var ir = session.irLowerer().result();
+        var session = new CompilerApi(source);
+        session.runThrough(session.stage(Linker.class));
+        assertTrue(session.stage(Linker.class).succeeded(), () -> "parse=" + session.stage(Parser.class).errors()
+                + ", semantic=" + session.stage(SemanticAnalyzer.class).errors()
+                + ", obj=" + session.stage(ObjBuilder.class).errors());
+        var ir = session.stage(IrLowerer.class).result();
         assertEquals(3, ir.stringData().size());
         assertArrayEquals(new byte[] {(byte) 0xC3, (byte) 0xA9, 0}, ir.stringData().get(0).bytes());
         var nativeRunStage = new ExecutableRunner();
         var nativeRun = nativeRunStage.run(source,
-                session.linker().result().executableArtifactOptional().orElseThrow());
+                session.stage(Linker.class).result().executableArtifactOptional().orElseThrow());
         assertEquals(0, nativeRun.exitCode(), () -> nativeRunStage.errors().toString());
 
         DebugApi api = new DebugApi(source);

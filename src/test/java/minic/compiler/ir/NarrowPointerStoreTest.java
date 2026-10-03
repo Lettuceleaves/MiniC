@@ -1,12 +1,18 @@
 package minic.compiler.ir;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.link.Linker;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
 import minic.compiler.ir.instruction.MemoryInstruction.IrStorePointerInstruction;
 import minic.compiler.ir.model.IrType;
 import minic.debug.DebugApi;
 import minic.debug.Debugger;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
@@ -22,8 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class NarrowPointerStoreTest {
     @Test
     void castsPointerIndexAndFieldStoresToTheirTargetIrTypes() {
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile());
-        IrResult ir = session.compilerApi().runToIr();
+        CompilerApi session = new CompilerApi(sourceFile());
+        IrResult ir = session.runToIr();
 
         Set<IrType> storedTypes = ir.findFunction("main").orElseThrow().blocks().stream()
                 .flatMap(block -> block.instructions().stream())
@@ -40,19 +46,19 @@ final class NarrowPointerStoreTest {
     @Test
     void preservesAdjacentGuardValuesNativelyAndInTheDebugger() {
         SourceFile source = sourceFile();
-        CompilerFixture nativeSession = CompilerFixture.fromSource(source);
-        nativeSession.compilerApi().runThrough(nativeSession.linker());
-        assertTrue(nativeSession.linker().succeeded(), () -> "pre=" + nativeSession.preprocessor().errors()
-                + ", lex=" + nativeSession.lexer().errors()
-                + ", parse=" + nativeSession.parser().errors()
-                + ", semantic=" + nativeSession.semanticAnalyzer().errors()
-                + ", obj=" + nativeSession.objBuilder().errors()
-                + ", link=" + nativeSession.linker().errors());
+        CompilerApi nativeSession = new CompilerApi(source);
+        nativeSession.runThrough(nativeSession.stage(Linker.class));
+        assertTrue(nativeSession.stage(Linker.class).succeeded(), () -> "pre=" + nativeSession.stage(Preprocessor.class).errors()
+                + ", lex=" + nativeSession.stage(Lexer.class).errors()
+                + ", parse=" + nativeSession.stage(Parser.class).errors()
+                + ", semantic=" + nativeSession.stage(SemanticAnalyzer.class).errors()
+                + ", obj=" + nativeSession.stage(ObjBuilder.class).errors()
+                + ", link=" + nativeSession.stage(Linker.class).errors());
 
         var nativeExecutionStage = new ExecutableRunner();
         var nativeExecution = nativeExecutionStage.run(
                 source,
-                nativeSession.linker().result().executableArtifactOptional().orElseThrow()
+                nativeSession.stage(Linker.class).result().executableArtifactOptional().orElseThrow()
         );
         assertTrue(nativeExecutionStage.errors().isEmpty(), nativeExecutionStage.errors()::toString);
         assertEquals(0, nativeExecution.exitCode(), nativeExecution::stderr);

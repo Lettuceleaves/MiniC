@@ -1,8 +1,13 @@
 package minic.compiler.link;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -37,17 +42,17 @@ final class CtypeHeaderNativeTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("ctype-isblank-native.mc", source);
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        CompilerApi session = new CompilerApi(sourceFile);
 
-        session.compilerApi().runThrough(session.linker());
+        session.runThrough(session.stage(Linker.class));
 
-        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().errors()
-                + ", lex=" + session.lexer().errors()
-                + ", parse=" + session.parser().errors()
-                + ", semantic=" + session.semanticAnalyzer().errors()
-                + ", obj=" + session.objBuilder().errors()
-                + ", link=" + session.linker().errors());
-        var imports = PeImportIntegrationTest.readImports(session.linker().peImage().orElseThrow().bytes());
+        assertTrue(session.stage(Linker.class).succeeded(), () -> "pre=" + session.stage(Preprocessor.class).errors()
+                + ", lex=" + session.stage(Lexer.class).errors()
+                + ", parse=" + session.stage(Parser.class).errors()
+                + ", semantic=" + session.stage(SemanticAnalyzer.class).errors()
+                + ", obj=" + session.stage(ObjBuilder.class).errors()
+                + ", link=" + session.stage(Linker.class).errors());
+        var imports = PeImportIntegrationTest.readImports(session.stage(Linker.class).peImage().orElseThrow().bytes());
         assertEquals(Set.of("_isctype"), imports.get("msvcrt.dll"));
         assertFalse(imports.get("msvcrt.dll").contains("isblank"), "MSVCRT has no isblank export");
         assertEquals(Set.of("ExitProcess"), imports.get("KERNEL32.dll"));
@@ -55,7 +60,7 @@ final class CtypeHeaderNativeTest {
         var executionStage = new ExecutableRunner();
         var execution = executionStage.run(
                 sourceFile,
-                session.linker().result().executableArtifactOptional().orElseThrow()
+                session.stage(Linker.class).result().executableArtifactOptional().orElseThrow()
         );
         assertTrue(executionStage.errors().isEmpty(), executionStage.errors()::toString);
         assertEquals(0, execution.exitCode(), execution::stderr);

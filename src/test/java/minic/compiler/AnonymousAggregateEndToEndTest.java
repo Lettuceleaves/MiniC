@@ -1,9 +1,10 @@
 package minic.compiler;
 
+import minic.compiler.link.Linker;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.debug.DebugApi;
 import minic.debug.Debugger;
 import minic.compiler.execute.ExecutableRunner;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -24,12 +25,12 @@ final class AnonymousAggregateEndToEndTest {
                             && local.left == 0 && local.right == 3 ? 0 : 1;
                 }
                 """);
-        var session = CompilerFixture.fromSource(source);
-        session.compilerApi().runThrough(session.linker());
-        assertTrue(session.linker().succeeded(), () -> session.semanticAnalyzer().errors().toString());
+        var session = new CompilerApi(source);
+        session.runThrough(session.stage(Linker.class));
+        assertTrue(session.stage(Linker.class).succeeded(), () -> session.stage(SemanticAnalyzer.class).errors().toString());
         var nativeRunStage = new ExecutableRunner();
         var nativeRun = nativeRunStage.run(source,
-                session.linker().result().executableArtifactOptional().orElseThrow());
+                session.stage(Linker.class).result().executableArtifactOptional().orElseThrow());
         assertEquals(0, nativeRun.exitCode(), () -> nativeRunStage.errors().toString());
 
         DebugApi api = new DebugApi(source);

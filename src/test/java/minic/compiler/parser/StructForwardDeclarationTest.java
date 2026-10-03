@@ -1,8 +1,10 @@
 package minic.compiler.parser;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.link.Linker;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -21,12 +23,12 @@ final class StructForwardDeclarationTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("forward.mc", source);
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
-        session.compilerApi().runThrough(session.linker());
-        assertTrue(session.linker().succeeded(), () -> "parse=" + session.parser().errors()
-                + ", semantic=" + session.semanticAnalyzer().errors());
+        CompilerApi session = new CompilerApi(sourceFile);
+        session.runThrough(session.stage(Linker.class));
+        assertTrue(session.stage(Linker.class).succeeded(), () -> "parse=" + session.stage(Parser.class).errors()
+                + ", semantic=" + session.stage(SemanticAnalyzer.class).errors());
         var result = new ExecutableRunner().run(
-                sourceFile, session.linker().result().executableArtifactOptional().orElseThrow());
+                sourceFile, session.stage(Linker.class).result().executableArtifactOptional().orElseThrow());
         assertEquals(0, result.exitCode());
     }
 }

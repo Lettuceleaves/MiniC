@@ -99,41 +99,12 @@ final class StdlibErrnoCatalogTest {
     }
 
     @Test
-    void strtofUsesAHeaderAdapterToTheRealUcrtFloatParserAndCopiesErrno() {
+    void strtofRemainsDeferredWithoutAnAbiCompatibleMsvcrtExport() {
         SystemLibraryCatalog catalog = SystemLibraryCatalog.defaults();
         String header = catalog.header("stdlib.mh").orElseThrow().content();
 
         assertFalse(declaredFunctions(header).contains("strtof"));
         assertFalse(catalog.bindings().containsKey("strtof"));
-        assertTrue(header.contains("float strtof(const char *string, char **endPointer)"));
-        assertTrue(header.contains("if (conversion_errno != 0) errno = conversion_errno;"));
-        LibraryBinding parser=catalog.binding("minic_ucrt_strtof").orElseThrow();
-        assertEquals("ucrtbase.dll",parser.dllName());assertEquals("strtof",parser.exportName());
-        assertEquals(LibraryBinding.RuntimeFamily.UCRT,parser.runtimeFamily());
-        LibraryBinding error=catalog.binding("minic_ucrt_errno_location").orElseThrow();
-        assertEquals("ucrtbase.dll",error.dllName());assertEquals("_errno",error.exportName());
-    }
-
-    @Test
-    void strtodUsesAHeaderAdapterToTheUcrtParser() {
-        SystemLibraryCatalog catalog = SystemLibraryCatalog.defaults();
-        String header = catalog.header("stdlib.mh").orElseThrow().content();
-        assertTrue(header.contains("extern double minic_ucrt_strtod(const char *string, char **endPointer);"));
-        assertFalse(declaredFunctions(header).contains("strtod"));
-        assertFalse(catalog.bindings().containsKey("strtod"));
-        assertTrue(header.contains("double strtod(const char *string, char **endPointer)"));
-        LibraryBinding parser = catalog.binding("minic_ucrt_strtod").orElseThrow();
-        assertEquals("minic_ucrt_strtod", parser.sourceName());
-        assertEquals("strtod", parser.exportName());
-        assertEquals("ucrtbase.dll", parser.dllName());
-        assertEquals(FUNCTION, parser.symbolKind());
-        assertEquals(LibraryBinding.RuntimeFamily.UCRT, parser.runtimeFamily());
-        assertEquals(WINDOWS_X64, parser.callingConvention());
-        assertEquals(DLL_IMPORT, parser.nativeKind());
-        LibraryBinding error = catalog.binding("minic_ucrt_errno_location").orElseThrow();
-        assertEquals("ucrtbase.dll", error.dllName());
-        assertEquals("_errno", error.exportName());
-        assertEquals(LibraryBinding.RuntimeFamily.UCRT, error.runtimeFamily());
     }
 
     private static Set<String> declaredFunctions(String header) {

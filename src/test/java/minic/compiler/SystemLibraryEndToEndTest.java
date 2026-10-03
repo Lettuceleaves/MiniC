@@ -1,7 +1,12 @@
 package minic.compiler;
 
+import minic.compiler.lexer.Lexer;
+import minic.compiler.link.Linker;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.execute.ExecutableRunner;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
@@ -56,17 +61,17 @@ final class SystemLibraryEndToEndTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("system-library-e2e.mc", source);
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        CompilerApi session = new CompilerApi(sourceFile);
 
-        session.compilerApi().runThrough(session.linker());
+        session.runThrough(session.stage(Linker.class));
 
-        assertTrue(session.linker().succeeded(), () -> "pre=" + session.preprocessor().errors()
-                + ", lex=" + session.lexer().errors()
-                + ", parse=" + session.parser().errors()
-                + ", semantic=" + session.semanticAnalyzer().errors()
-                + ", obj=" + session.objBuilder().errors()
-                + ", link=" + session.linker().errors());
-        var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
+        assertTrue(session.stage(Linker.class).succeeded(), () -> "pre=" + session.stage(Preprocessor.class).errors()
+                + ", lex=" + session.stage(Lexer.class).errors()
+                + ", parse=" + session.stage(Parser.class).errors()
+                + ", semantic=" + session.stage(SemanticAnalyzer.class).errors()
+                + ", obj=" + session.stage(ObjBuilder.class).errors()
+                + ", link=" + session.stage(Linker.class).errors());
+        var artifact = session.stage(Linker.class).result().executableArtifactOptional().orElseThrow();
         var executionStage = new ExecutableRunner();
         var execution = executionStage.run(sourceFile, artifact, "4 -7 1.25 ok\n");
         assertTrue(executionStage.errors().isEmpty(), () -> executionStage.errors().toString());

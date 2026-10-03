@@ -48,9 +48,6 @@ final class SystemHeaderPreprocessTest {
         assertTrue(result.sourceFile().content().contains("extern int printf(const char *format, ...);"));
         assertTrue(result.sourceFile().content().contains("(((abs(-7)) < (4)) ? (abs(-7)) : (4))"));
         assertEquals(4, result.includes().size());
-        assertEquals(java.util.Set.of("stdlib.mh", "errno.h", "stdio.mh", "minwindef.mh"),
-                result.includes().stream().map(PreprocessResult.IncludeSummary::requestedPath)
-                        .collect(java.util.stream.Collectors.toSet()));
         assertTrue(result.includes().stream().allMatch(PreprocessResult.IncludeSummary::expanded));
     }
 

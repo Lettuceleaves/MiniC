@@ -1,8 +1,14 @@
 package minic.debug;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.link.Linker;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -57,19 +63,19 @@ final class DebugLocaleEndToEndParityTest {
                 """;
         SourceFile sourceFile = new SourceFile("locale-debug-native-parity.mc", source);
 
-        CompilerFixture nativeSession = CompilerFixture.fromSource(sourceFile);
-        nativeSession.compilerApi().runThrough(nativeSession.linker());
-        assertTrue(nativeSession.linker().succeeded(), () -> "stage=" + nativeSession.compilerApi().currentStage()
-                + ", preprocess=" + nativeSession.preprocessor().errors()
-                + ", lexer=" + nativeSession.lexer().errors()
-                + ", parser=" + nativeSession.parser().errors()
-                + ", semantic=" + nativeSession.semanticAnalyzer().errors()
-                + ", obj=" + nativeSession.objBuilder().errors()
-                + ", link=" + nativeSession.linker().errors());
+        CompilerApi nativeSession = new CompilerApi(sourceFile);
+        nativeSession.runThrough(nativeSession.stage(Linker.class));
+        assertTrue(nativeSession.stage(Linker.class).succeeded(), () -> "stage=" + nativeSession.currentStage()
+                + ", preprocess=" + nativeSession.stage(Preprocessor.class).errors()
+                + ", lexer=" + nativeSession.stage(Lexer.class).errors()
+                + ", parser=" + nativeSession.stage(Parser.class).errors()
+                + ", semantic=" + nativeSession.stage(SemanticAnalyzer.class).errors()
+                + ", obj=" + nativeSession.stage(ObjBuilder.class).errors()
+                + ", link=" + nativeSession.stage(Linker.class).errors());
         var nativeExecutionStage = new ExecutableRunner();
         var nativeExecution = nativeExecutionStage.run(
                 sourceFile,
-                nativeSession.linker().result().executableArtifactOptional().orElseThrow()
+                nativeSession.stage(Linker.class).result().executableArtifactOptional().orElseThrow()
         );
         assertTrue(nativeExecutionStage.errors().isEmpty(), nativeExecutionStage.errors()::toString);
 

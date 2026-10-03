@@ -1,8 +1,13 @@
 package minic.compiler.link;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.obj.ObjBuilder;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -26,16 +31,16 @@ final class StringC23NativeTest {
     @MethodSource("stringCases")
     void runsC23StringFunctionsAndImportsOnlyReachableDependencies(StringCase testCase) {
         SourceFile sourceFile = new SourceFile("stdlib-native-string-c23-" + testCase.name() + ".mc", testCase.source());
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
-        session.compilerApi().runThrough(session.linker());
+        CompilerApi session = new CompilerApi(sourceFile);
+        session.runThrough(session.stage(Linker.class));
 
-        assertTrue(session.linker().succeeded(), () -> testCase.name() + ": pre="
-                + session.preprocessor().errors() + ", lex=" + session.lexer().errors()
-                + ", parse=" + session.parser().errors() + ", semantic="
-                + session.semanticAnalyzer().errors() + ", obj=" + session.objBuilder().errors()
-                + ", link=" + session.linker().errors());
+        assertTrue(session.stage(Linker.class).succeeded(), () -> testCase.name() + ": pre="
+                + session.stage(Preprocessor.class).errors() + ", lex=" + session.stage(Lexer.class).errors()
+                + ", parse=" + session.stage(Parser.class).errors() + ", semantic="
+                + session.stage(SemanticAnalyzer.class).errors() + ", obj=" + session.stage(ObjBuilder.class).errors()
+                + ", link=" + session.stage(Linker.class).errors());
         Map<String, Set<String>> imports = PeImportIntegrationTest.readImports(
-                session.linker().peImage().orElseThrow().bytes()
+                session.stage(Linker.class).peImage().orElseThrow().bytes()
         );
         if (testCase.msvcrtExports().isEmpty()) {
             assertFalse(imports.containsKey("msvcrt.dll"), testCase.name());
@@ -46,7 +51,7 @@ final class StringC23NativeTest {
         }
         assertEquals(Set.of("ExitProcess"), imports.get("KERNEL32.dll"), testCase.name());
 
-        var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
+        var artifact = session.stage(Linker.class).result().executableArtifactOptional().orElseThrow();
         var executionStage = new ExecutableRunner(Duration.ofSeconds(3));
         var execution = executionStage.run(sourceFile, artifact);
         assertTrue(executionStage.errors().isEmpty(), executionStage.errors()::toString);

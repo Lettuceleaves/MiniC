@@ -1,7 +1,8 @@
 package minic.compiler.execute;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.link.Linker;
 import minic.compiler.SourceFile;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -16,11 +17,11 @@ final class ExecutableRunnerTimeoutTest {
     @Test
     void terminatesAProgramAndReportsADiagnosticWhenTheWallClockLimitExpires() {
         SourceFile sourceFile = new SourceFile("timeout.mc", "int main() { while (1) {} return 0; }");
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
-        session.compilerApi().runThrough(session.linker());
-        assertTrue(session.linker().succeeded(), () -> session.linker().errors().toString());
+        CompilerApi session = new CompilerApi(sourceFile);
+        session.runThrough(session.stage(Linker.class));
+        assertTrue(session.stage(Linker.class).succeeded(), () -> session.stage(Linker.class).errors().toString());
 
-        var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
+        var artifact = session.stage(Linker.class).result().executableArtifactOptional().orElseThrow();
         var resultStage = new ExecutableRunner(Duration.ofMillis(200));
         var result = resultStage.run(sourceFile, artifact, "");
 

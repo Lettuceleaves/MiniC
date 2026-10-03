@@ -1,8 +1,9 @@
 package minic.compiler.asm;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.link.Linker;
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
@@ -24,16 +25,16 @@ final class VariadicCallingConventionTest {
                 }
                 """;
         SourceFile sourceFile = new SourceFile("variadic-abi.mc", source);
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
+        CompilerApi session = new CompilerApi(sourceFile);
 
-        session.compilerApi().runThrough(session.linker());
+        session.runThrough(session.stage(Linker.class));
 
-        assertTrue(session.linker().succeeded(), () -> session.linker().errors().toString());
-        String assembly = session.assembler().result().text();
+        assertTrue(session.stage(Linker.class).succeeded(), () -> session.stage(Linker.class).errors().toString());
+        String assembly = session.stage(Assembler.class).result().text();
         assertTrue(assembly.contains("movq r8, xmm2"), assembly);
         var execution = new ExecutableRunner().run(
                 sourceFile,
-                session.linker().result().executableArtifactOptional().orElseThrow()
+                session.stage(Linker.class).result().executableArtifactOptional().orElseThrow()
         );
         assertEquals(0, execution.exitCode());
         assertEquals("5000000000 1.5 65 ok\r\n", execution.stdout());

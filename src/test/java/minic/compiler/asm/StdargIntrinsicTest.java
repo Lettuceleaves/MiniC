@@ -1,8 +1,13 @@
 package minic.compiler.asm;
 
+import minic.compiler.CompilerApi;
+import minic.compiler.lexer.Lexer;
+import minic.compiler.link.Linker;
+import minic.compiler.parser.Parser;
+import minic.compiler.preprocess.Preprocessor;
+import minic.compiler.semantic.SemanticAnalyzer;
 import minic.compiler.SourceFile;
 import minic.compiler.execute.ExecutableRunner;
-import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -101,14 +106,14 @@ final class StdargIntrinsicTest {
 
                 int main(void) { return 0; }
                 """;
-        CompilerFixture session = CompilerFixture.fromSource(
+        CompilerApi session = new CompilerApi(
                 new SourceFile("stdarg-diagnostics.mc", source));
 
-        session.compilerApi().runThrough(session.semanticAnalyzer());
-        String diagnostics = session.preprocessor().errors().toString()
-                + session.lexer().errors()
-                + session.parser().errors()
-                + session.semanticAnalyzer().errors();
+        session.runThrough(session.stage(SemanticAnalyzer.class));
+        String diagnostics = session.stage(Preprocessor.class).errors().toString()
+                + session.stage(Lexer.class).errors()
+                + session.stage(Parser.class).errors()
+                + session.stage(SemanticAnalyzer.class).errors();
         assertTrue(diagnostics.contains("variadic"), diagnostics);
         assertTrue(diagnostics.contains("last"), diagnostics);
         assertTrue(diagnostics.contains("float") || diagnostics.contains("默认提升"), diagnostics);
@@ -117,17 +122,17 @@ final class StdargIntrinsicTest {
 
     private void assertNativeExit(String source, int expectedExit) {
         SourceFile sourceFile = new SourceFile("stdarg-native.mc", source);
-        CompilerFixture session = CompilerFixture.fromSource(sourceFile);
-        session.compilerApi().runThrough(session.linker());
+        CompilerApi session = new CompilerApi(sourceFile);
+        session.runThrough(session.stage(Linker.class));
 
-        assertTrue(session.linker().succeeded(), () -> session.preprocessor().errors().toString()
-                + session.lexer().errors()
-                + session.parser().errors()
-                + session.semanticAnalyzer().errors()
-                + session.linker().errors());
+        assertTrue(session.stage(Linker.class).succeeded(), () -> session.stage(Preprocessor.class).errors().toString()
+                + session.stage(Lexer.class).errors()
+                + session.stage(Parser.class).errors()
+                + session.stage(SemanticAnalyzer.class).errors()
+                + session.stage(Linker.class).errors());
         var execution = new ExecutableRunner().run(
                 sourceFile,
-                session.linker().result().executableArtifactOptional().orElseThrow()
+                session.stage(Linker.class).result().executableArtifactOptional().orElseThrow()
         );
         assertEquals(expectedExit, execution.exitCode(), execution::stderr);
     }
