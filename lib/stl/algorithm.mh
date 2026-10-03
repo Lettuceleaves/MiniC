@@ -56,6 +56,11 @@ template<class I,class T> I find(I first,I last,const T& value) { while(first!=l
 template<class I,class P> I find_if(I first,I last,P pred) { while(first!=last && !pred(*first))++first;return first; }
 template<class I,class T> typename iterator_traits<I>::difference_type count(I first,I last,const T& value) { typename iterator_traits<I>::difference_type n=0;while(first!=last){if(*first==value)++n;++first;}return n; }
 template<class I,class P> typename iterator_traits<I>::difference_type count_if(I first,I last,P pred) { typename iterator_traits<I>::difference_type n=0;while(first!=last){if(pred(*first))++n;++first;}return n; }
+template<class I,class C> I max_element(I first,I last,C comp) { I best=first;if(first==last)return best;while(++first!=last)if(comp(*best,*first))best=first;return best; }
+template<class I> I max_element(I first,I last) { return std::max_element(first,last,less<void>()); }
+template<class I,class C> I min_element(I first,I last,C comp) { I best=first;if(first==last)return best;while(++first!=last)if(comp(*first,*best))best=first;return best; }
+template<class I> I min_element(I first,I last) { return std::min_element(first,last,less<void>()); }
+template<class T> T __gcd(T a,T b) { while(b!=0){T t=a%b;a=b;b=t;}return a; }
 template<class I,class J> void iter_swap(I a,J b) { using std::swap;swap(*a,*b); }
 template<class I,class J> J swap_ranges(I first,I last,J other) { while(first!=last){std::iter_swap(first,other);++first;++other;}return other; }
 template<class I> void reverse(I first,I last) { while(first!=last){--last;if(first==last)break;std::iter_swap(first,last);++first;} }

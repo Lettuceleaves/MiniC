@@ -197,6 +197,22 @@ final class EndToEndTest {
                             pair.value = 1.5;
                             return pair.value == 1.5f && pair.guard == 3.0f ? 0 : 4;
                         }
+                        """),
+                Arguments.of("stl-map-and-algorithms", """
+                        #include <map>
+                        #include <string>
+                        #include <vector>
+                        #include <algorithm>
+                        int main() {
+                            // pair<const std::string, int> copies its const class-type member.
+                            std::map<std::string, int> counts = {{"b", 2}, {"a", 1}};
+                            counts.insert(std::map<std::string, int>::value_type("c", 3));
+                            if (counts.size() != 3 || counts.begin()->first != "a" || counts["c"] != 3) return 1;
+                            std::vector<int> values = {4, 9, 1, 9};
+                            if (std::max_element(values.begin(), values.end()) - values.begin() != 1) return 2;
+                            if (*std::min_element(values.begin(), values.end()) != 1) return 3;
+                            return std::__gcd(12, 18) == 6 ? 0 : 4;
+                        }
                         """)
         );
     }
