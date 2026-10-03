@@ -7323,7 +7323,9 @@ public final class NameBinder {
                         && !hasVolatileSubobject(selected.owner.type, new HashSet<>()))
                     return new ExprStmt(new InitializeExpr(destination, source, range), range);
                 if (selected == selected.owner.implicitCopy) emitImplicitCopy(selected.owner);
-                var arguments=new ArrayList<Expression>();arguments.add(address(destination));arguments.add(address(source));
+                // cv-qualification does not apply while the member is under construction.
+                MiniType self=selected.owner.type.pointerTo();
+                var arguments=new ArrayList<Expression>();arguments.add(typed(new CastExpr(self,address(destination),range),self));arguments.add(address(source));
                 arguments.addAll(defaultArguments(selected.function,selected.parameterTypes,1));
                 Expression call = new CallExpr(new NameExpr(selected.function.coreName, range),arguments,range);
                 return new ExprStmt(call,range);
