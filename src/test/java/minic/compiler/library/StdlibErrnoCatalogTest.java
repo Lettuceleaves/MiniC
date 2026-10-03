@@ -25,7 +25,6 @@ final class StdlibErrnoCatalogTest {
             Map.entry("atoi", "atoi"),
             Map.entry("atol", "atol"),
             Map.entry("atoll", "_atoi64"),
-            Map.entry("strtod", "strtod"),
             Map.entry("strtol", "strtol"),
             Map.entry("strtoll", "_strtoi64"),
             Map.entry("strtoul", "strtoul"),
@@ -39,7 +38,7 @@ final class StdlibErrnoCatalogTest {
 
     private static final Set<String> STDLIB_DECLARATIONS = Set.of(
             "malloc", "calloc", "realloc", "free", "atof", "atoi", "atol", "atoll",
-            "strtod", "strtol", "strtoll", "strtoul", "strtoull", "abs", "labs", "llabs",
+            "strtol", "strtoll", "strtoul", "strtoull", "abs", "labs", "llabs",
             "rand", "srand", "abort", "exit", "minic_immediate_exit",
             "minic_ucrt_strtod", "minic_ucrt_strtof", "minic_ucrt_errno_location"
     );
@@ -116,12 +115,13 @@ final class StdlibErrnoCatalogTest {
     }
 
     @Test
-    void strtodAdapterUsesUcrtWithoutReplacingTheCBinding() {
+    void strtodUsesAHeaderAdapterToTheUcrtParser() {
         SystemLibraryCatalog catalog = SystemLibraryCatalog.defaults();
         String header = catalog.header("stdlib.mh").orElseThrow().content();
         assertTrue(header.contains("extern double minic_ucrt_strtod(const char *string, char **endPointer);"));
-        assertTrue(header.contains("#if defined(__cplusplus)\ndouble strtod(const char *string, char **endPointer)"));
-        assertTrue(header.contains("#else\nextern double strtod(const char *string, char **endPointer);\n#endif"));
+        assertFalse(declaredFunctions(header).contains("strtod"));
+        assertFalse(catalog.bindings().containsKey("strtod"));
+        assertTrue(header.contains("double strtod(const char *string, char **endPointer)"));
         LibraryBinding parser = catalog.binding("minic_ucrt_strtod").orElseThrow();
         assertEquals("minic_ucrt_strtod", parser.sourceName());
         assertEquals("strtod", parser.exportName());
@@ -134,8 +134,6 @@ final class StdlibErrnoCatalogTest {
         assertEquals("ucrtbase.dll", error.dllName());
         assertEquals("_errno", error.exportName());
         assertEquals(LibraryBinding.RuntimeFamily.UCRT, error.runtimeFamily());
-        // C mode still reaches its established locale-sensitive MSVCRT implementation.
-        assertEquals(MSVCRT, catalog.binding("strtod").orElseThrow().runtimeFamily());
     }
 
     private static Set<String> declaredFunctions(String header) {

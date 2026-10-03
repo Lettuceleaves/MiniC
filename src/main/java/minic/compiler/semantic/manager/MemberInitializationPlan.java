@@ -51,16 +51,16 @@ public final class MemberInitializationPlan {
         Objects.requireNonNull(record,"record");
         Objects.requireNonNull(constructor,"constructor");
         var diagnostics=new ArrayList<Diagnostic>();
-        if (!record.definition()) error(diagnostics,"CPP004","Member initialization requires a complete class definition",record.range());
-        if (constructor.body()==null) error(diagnostics,"CPP004","A constructor declaration has no member initialization execution plan",constructor.range());
-        if (record.union()) error(diagnostics,"CPP005","Union construction is not supported yet",record.range());
+        if (!record.definition()) error(diagnostics,"SEM003","Member initialization requires a complete class definition",record.range());
+        if (constructor.body()==null) error(diagnostics,"SEM003","A constructor declaration has no member initialization execution plan",constructor.range());
+        if (record.union()) error(diagnostics,"SEM004","Union construction is not supported yet",record.range());
 
         var fields=new LinkedHashMap<String,StructField>();
         for (var field:record.fields()) {
             if (field.anonymous()) {
-                error(diagnostics,"CPP005","Construction of anonymous aggregate members is not supported yet",field.range());
+                error(diagnostics,"SEM004","Construction of anonymous aggregate members is not supported yet",field.range());
             } else if (fields.putIfAbsent(field.name(),field)!=null) {
-                error(diagnostics,"CPP004","Duplicate data member '"+field.name()+"'",field.range());
+                error(diagnostics,"SEM003","Duplicate data member '"+field.name()+"'",field.range());
             }
         }
         Map<StructField,FieldMember> defaultMembers=new IdentityHashMap<>();
@@ -76,16 +76,16 @@ public final class MemberInitializationPlan {
         for (var initializer:constructor.initializers()) {
             var target=initializer.target();
             if (target.global() || target.segments().size()!=1) {
-                error(diagnostics,"CPP005","Qualified/base member initialization is not supported yet",target.range());
+                error(diagnostics,"SEM004","Qualified/base member initialization is not supported yet",target.range());
                 continue;
             }
             String name=target.segments().getFirst();
             if (name.equals(constructor.name())) {
-                error(diagnostics,"CPP005","Delegating constructors are not supported yet",target.range());
+                error(diagnostics,"SEM004","Delegating constructors are not supported yet",target.range());
             } else if (!fields.containsKey(name)) {
-                error(diagnostics,"CPP004","Unknown direct data member '"+name+"'",target.range());
+                error(diagnostics,"SEM003","Unknown direct data member '"+name+"'",target.range());
             } else if (explicit.putIfAbsent(name,initializer)!=null) {
-                error(diagnostics,"CPP004","Data member '"+name+"' is initialized more than once",target.range());
+                error(diagnostics,"SEM003","Data member '"+name+"' is initialized more than once",target.range());
             }
         }
         if (!diagnostics.isEmpty()) return new Result(List.of(),diagnostics);

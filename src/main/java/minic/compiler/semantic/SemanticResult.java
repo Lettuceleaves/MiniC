@@ -96,7 +96,13 @@ public record SemanticResult(
      */
     public Optional<StructLayout> structLayout(String name) {
         Objects.requireNonNull(name, "name");
-        return Optional.ofNullable(structLayouts.get(name));
+        StructLayout layout = structLayouts.get(name);
+        if (layout != null) return Optional.of(layout);
+        // Name binding gives records internal names; accept the source spelling too.
+        return displayNames.entrySet().stream()
+                .filter(entry -> entry.getValue().equals(name) && structLayouts.containsKey(entry.getKey()))
+                .map(entry -> structLayouts.get(entry.getKey()))
+                .findFirst();
     }
 
     /**

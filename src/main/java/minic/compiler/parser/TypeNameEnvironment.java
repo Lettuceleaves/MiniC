@@ -18,7 +18,7 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Declaration-point C++ name classification for the parser. Namespace scopes persist
+ * Declaration-point name classification for the parser. Namespace scopes persist
  * across reopenings; local scopes (including prototype parameters) are discarded on exit.
  * This environment does not validate value signatures or generate linker names.
  * Lookup never reports diagnostics, making it safe for declaration/expression lookahead.
@@ -51,7 +51,7 @@ public final class TypeNameEnvironment {
         }
     }
 
-    /** C++ permits an aggregate tag and a value with the same name in one scope. */
+    /** An aggregate tag and a value with the same name in one scope. */
     private static final class Slot {
         Entry tag;
         Entry ordinary;
@@ -300,12 +300,12 @@ public final class TypeNameEnvironment {
         Lookup found = classify(candidates);
         if (directive) {
             if (found.kind == Kind.NAMESPACE) scope().directives.add(candidates.iterator().next().namespace);
-            else report(found.kind == Kind.TYPE || found.kind == Kind.UNSUPPORTED_QUALIFIER ? "CPP005" : "CPP003",
+            else report(found.kind == Kind.TYPE || found.kind == Kind.UNSUPPORTED_QUALIFIER ? "SEM004" : "SEM002",
                     range, "using namespace 需要唯一的命名空间：" + spelling(target));
             return;
         }
         if (found.kind != Kind.TYPE && found.kind != Kind.VALUE) {
-            report(found.kind == Kind.UNSUPPORTED_QUALIFIER ? "CPP005" : "CPP003", range,
+            report(found.kind == Kind.UNSUPPORTED_QUALIFIER ? "SEM004" : "SEM002", range,
                     "using 声明需要唯一的类型或值：" + spelling(target));
             return;
         }
@@ -455,7 +455,7 @@ public final class TypeNameEnvironment {
     private static String spelling(QualifiedName name) {
         return (name.global() ? "::" : "") + String.join("::", name.segments());
     }
-    private void conflict(SourceRange range, String message) { report("CPP004", range, message); }
+    private void conflict(SourceRange range, String message) { report("SEM003", range, message); }
     private void report(String code, SourceRange range, String message) {
         diagnostics.add(new Diagnostic(code, Diagnostic.Severity.ERROR, message, range));
     }

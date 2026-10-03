@@ -84,7 +84,7 @@ public sealed interface MiniType permits
     /** Opaque Windows x64 variadic cursor exposed by {@code stdarg.mh}. */
     MiniType VA_LIST = new VaListType();
 
-    /** Source placeholders are resolved by C++ binding, never by layout or IR. */
+    /** Source placeholders are resolved by name binding, never by layout or IR. */
     MiniType AUTO = new AutoType(false);
     MiniType DECLTYPE_AUTO = new AutoType(true);
     record AutoType(boolean decltypeAuto) implements NamedType {
@@ -701,7 +701,7 @@ public sealed interface MiniType permits
     }
 
     enum ReferenceKind { LVALUE, RVALUE }
-    /** Source-only C++ reference, with standard alias/template reference collapsing. */
+    /** Source-only reference, with standard alias/template reference collapsing. */
     record ReferenceType(MiniType referent,ReferenceKind kind) implements CombinationType {
         public ReferenceType(MiniType referent){this(referent,ReferenceKind.LVALUE);}
         public ReferenceType {

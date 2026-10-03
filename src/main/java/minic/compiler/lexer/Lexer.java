@@ -1,7 +1,6 @@
 package minic.compiler.lexer;
 
 import minic.compiler.CompilerApi;
-import minic.compiler.LanguageMode;
 import minic.compiler.Stage;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.Token.IntegerLiteralKind;
@@ -26,7 +25,6 @@ import java.util.Objects;
  */
 public final class Lexer extends Stage {
     private final Preprocessor preprocessor;
-    private final LanguageMode languageMode;
     private SourceFile sourceFile;
     private SourceFile rangeSourceFile;
     private int[] sourceMap;
@@ -39,12 +37,7 @@ public final class Lexer extends Stage {
 
     /** 创建词法分析器。 */
     public Lexer(SourceFile sourceFile) {
-        this(sourceFile, LanguageMode.C);
-    }
-
-    public Lexer(SourceFile sourceFile, LanguageMode languageMode) {
         this.sourceFile = Objects.requireNonNull(sourceFile, "sourceFile");
-        this.languageMode = Objects.requireNonNull(languageMode, "languageMode");
         rangeSourceFile = sourceFile;
         preprocessor = null;
     }
@@ -54,16 +47,6 @@ public final class Lexer extends Stage {
      */
     public Lexer(Preprocessor preprocessor) {
         this.preprocessor = Objects.requireNonNull(preprocessor, "preprocessor");
-        languageMode = null; // Inherit after a deferred preprocessor has received its input.
-    }
-
-    public Lexer(Preprocessor preprocessor, LanguageMode languageMode) {
-        this.preprocessor = Objects.requireNonNull(preprocessor, "preprocessor");
-        this.languageMode = Objects.requireNonNull(languageMode, "languageMode");
-    }
-
-    public LanguageMode languageMode() {
-        return languageMode != null ? languageMode : preprocessor.languageMode();
     }
 
     @Override
@@ -174,7 +157,7 @@ public final class Lexer extends Stage {
                 }
             }
             case '?' -> addToken(TokenType.QUESTION, startOffset);
-            case ':' -> addToken(languageMode() == LanguageMode.CPP17_ALGORITHM && match(':')
+            case ':' -> addToken(match(':')
                     ? TokenType.SCOPE : TokenType.COLON, startOffset);
             case '"' -> lexStringLiteral(startOffset);
             case '\'' -> lexCharLiteral(startOffset);
@@ -394,8 +377,7 @@ public final class Lexer extends Stage {
             case "sizeof" -> TokenType.SIZEOF;
             case "true", "false" -> TokenType.BOOL_LITERAL;
             case "NULL" -> TokenType.NULL_LITERAL;
-            default -> languageMode() == LanguageMode.CPP17_ALGORITHM
-                    ? extendedKeyword(lexeme) : TokenType.IDENTIFIER;
+            default -> extendedKeyword(lexeme);
         };
         Object literalValue = switch (kind) {
             case BOOL_LITERAL -> Boolean.parseBoolean(lexeme);
@@ -426,27 +408,8 @@ public final class Lexer extends Stage {
             case "inline" -> TokenType.INLINE;
             case "static" -> TokenType.STATIC;
             case "explicit" -> TokenType.EXPLICIT;
-            case "friend" -> TokenType.FRIEND;
-            case "mutable" -> TokenType.MUTABLE;
-            case "virtual" -> TokenType.VIRTUAL;
-            case "try" -> TokenType.TRY;
-            case "catch" -> TokenType.CATCH;
-            case "throw" -> TokenType.THROW;
             case "static_assert" -> TokenType.STATIC_ASSERT;
-            case "static_cast" -> TokenType.STATIC_CAST;
-            case "reinterpret_cast" -> TokenType.REINTERPRET_CAST;
-            case "const_cast" -> TokenType.CONST_CAST;
-            case "dynamic_cast" -> TokenType.DYNAMIC_CAST;
-            case "typeid" -> TokenType.TYPEID;
-            case "thread_local" -> TokenType.THREAD_LOCAL;
-            case "wchar_t" -> TokenType.WCHAR_T;
-            case "char16_t" -> TokenType.CHAR16_T;
-            case "char32_t" -> TokenType.CHAR32_T;
-            case "asm" -> TokenType.ASM;
-            case "export" -> TokenType.EXPORT;
-            case "goto" -> TokenType.GOTO;
-            case "register" -> TokenType.REGISTER;
-            // C++ alternative operator spellings have exactly the symbolic token's semantics.
+            // Alternative operator spellings have exactly the symbolic token's semantics.
             case "and" -> TokenType.AMPERSAND_AMPERSAND;
             case "or" -> TokenType.PIPE_PIPE;
             case "not" -> TokenType.BANG;

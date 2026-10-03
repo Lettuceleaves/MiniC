@@ -43,20 +43,12 @@ public final class CompilerApi {
 
     /** 使用标准阶段顺序创建一条完整编译流水线。 */
     public CompilerApi(SourceFile sourceFile) {
-        this(sourceFile, LanguageMode.C);
-    }
-
-    public CompilerApi(SourceFile sourceFile, LanguageMode languageMode) {
-        this(sourceFile, languageMode, OptimizationLevel.BASELINE);
-    }
-
-    public CompilerApi(SourceFile sourceFile, OptimizationLevel optimizationLevel) {
-        this(sourceFile, LanguageMode.C, optimizationLevel);
+        this(sourceFile, OptimizationLevel.BASELINE);
     }
 
     /** Optimization changes only the native assembler input; runToIr retains source IR. */
-    public CompilerApi(SourceFile sourceFile, LanguageMode languageMode, OptimizationLevel optimizationLevel) {
-        this(sourceFile, languageMode, optimizationLevel, DEFAULT_OUTPUT_DIRECTORY, false);
+    public CompilerApi(SourceFile sourceFile, OptimizationLevel optimizationLevel) {
+        this(sourceFile, optimizationLevel, DEFAULT_OUTPUT_DIRECTORY, false);
     }
 
     /** 使用标准阶段顺序创建流水线，并将原生产物写入指定目录。 */
@@ -69,13 +61,13 @@ public final class CompilerApi {
      * 默认构造不改变程序所附控制台的代码页；此选项只应在独占控制台中使用。
      */
     public CompilerApi(SourceFile sourceFile, Path outputDirectory, boolean utf8Console) {
-        this(sourceFile, LanguageMode.C, OptimizationLevel.BASELINE, outputDirectory, utf8Console);
+        this(sourceFile, OptimizationLevel.BASELINE, outputDirectory, utf8Console);
     }
 
-    /** 完整配置：语言模式、优化级别、产物目录与 UTF-8 控制台入口初始化。 */
-    public CompilerApi(SourceFile sourceFile, LanguageMode languageMode, OptimizationLevel optimizationLevel,
+    /** 完整配置：优化级别、产物目录与 UTF-8 控制台入口初始化。 */
+    public CompilerApi(SourceFile sourceFile, OptimizationLevel optimizationLevel,
                        Path outputDirectory, boolean utf8Console) {
-        this(createPipeline(sourceFile, languageMode, optimizationLevel, outputDirectory, utf8Console));
+        this(createPipeline(sourceFile, optimizationLevel, outputDirectory, utf8Console));
     }
 
     public CompilerApi(List<? extends Stage> stages) {
@@ -298,15 +290,14 @@ public final class CompilerApi {
         return stage;
     }
 
-    private static List<Stage> createPipeline(SourceFile sourceFile, LanguageMode languageMode,
+    private static List<Stage> createPipeline(SourceFile sourceFile,
                                              OptimizationLevel optimizationLevel, Path outputDirectory,
                                              boolean utf8Console) {
         Objects.requireNonNull(sourceFile, "sourceFile");
-        Objects.requireNonNull(languageMode, "languageMode");
         Objects.requireNonNull(optimizationLevel, "optimizationLevel");
         Objects.requireNonNull(outputDirectory, "outputDirectory");
-        Preprocessor preprocessor = new Preprocessor(sourceFile, Preprocessor.Options.defaults(languageMode));
-        Lexer lexer = new Lexer(preprocessor, languageMode);
+        Preprocessor preprocessor = new Preprocessor(sourceFile, Preprocessor.Options.defaults());
+        Lexer lexer = new Lexer(preprocessor);
         Parser parser = new Parser(lexer, true);
         SemanticAnalyzer semantic = new SemanticAnalyzer(parser);
         IrLowerer ir = new IrLowerer(semantic);

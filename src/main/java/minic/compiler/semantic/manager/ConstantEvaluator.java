@@ -171,7 +171,7 @@ public final class ConstantEvaluator {
                 if(operand instanceof PointerValue pointer&&pointer.type.isPointer()&&n.targetType().isPointer()
                         &&!similarObjectType(pointer.type.pointee(),n.targetType().pointee())
                         &&!n.targetType().pointee().isVoid()&&!context.baseConversion(pointer.type.pointee(),n.targetType().pointee())&&!context.internalArrayDecay(n,pointer.type,n.targetType()))
-                    throw fail(n.range(),"A reinterpretation or void-pointer downcast is not a C++17 constant expression");
+                    throw fail(n.range(),"A reinterpretation or void-pointer downcast is not a constant expression");
                 yield convert(operand,n.targetType(),n.range());
             }
             case FieldAccessExpr n -> read(lvalue(n,frame),n.range());

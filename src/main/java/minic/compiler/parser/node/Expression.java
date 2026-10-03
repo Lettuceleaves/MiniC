@@ -282,7 +282,7 @@ public interface Expression extends AstNode {
         }
     }
 
-    /** Source C++ receiver expression; no implicit core variable is invented before binding. */
+    /** Source receiver expression; no implicit core variable is invented before binding. */
     record ThisExpr(SourceRange range) implements Expression {
         public ThisExpr { Objects.requireNonNull(range, "range"); }
     }
@@ -520,7 +520,7 @@ public interface Expression extends AstNode {
         }
     }
 
-    /** C++ source closure expression. Capture storage is assigned during lexical binding. */
+    /** Source closure expression. Capture storage is assigned during lexical binding. */
     record LambdaExpr(CaptureDefault captureDefault,List<Capture> captures,
                       List<Declaration.Parameter> parameters,boolean variadic,boolean mutable,
                       MiniType returnType,Statement.BlockStmt body,SourceRange range,

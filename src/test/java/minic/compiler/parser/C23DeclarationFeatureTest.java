@@ -158,7 +158,7 @@ final class C23DeclarationFeatureTest {
                 .flatMap(block -> block.instructions().stream())
                 .filter(IrDeclareLocalInstruction.class::isInstance)
                 .map(IrDeclareLocalInstruction.class::cast)
-                .filter(instruction -> instruction.local().sourceName().equals("local"))
+                .filter(instruction -> ir.displayName(instruction.local().sourceName()).equals("local"))
                 .findFirst().orElseThrow();
         assertEquals(8, local.local().alignmentBytes());
     }

@@ -2,7 +2,6 @@ package minic.compiler.semantic;
 
 import minic.compiler.CompilerApi;
 import minic.compiler.Stage;
-import minic.compiler.LanguageMode;
 import minic.compiler.SymbolNames;
 import minic.compiler.semantic.manager.NameBinder;
 import minic.compiler.parser.Parser;
@@ -65,6 +64,8 @@ public final class SemanticAnalyzer extends Stage {
     private Map<AstNode, AstNode> coreToSource = Map.of();
     private Map<String, String> displayNames = Map.of();
     private boolean bindingFailed;
+    /** The input was already core, so every node is its own source node. */
+    private boolean coreInput;
     private Scope globalScope;
     private Map<Expression, MiniType> expressionTypes;
     private StructRegistry structRegistry;
@@ -228,20 +229,15 @@ public final class SemanticAnalyzer extends Stage {
         sourceToCore = Map.of();
         coreToSource = new IdentityHashMap<>();
         displayNames = Map.of();
-        if (sourceProgram.languageMode() == LanguageMode.CPP17_ALGORITHM) {
+        // A program that already carries core lowering nodes was bound (or built) as core; analyze it directly.
+        coreInput = containsCoreLowering(sourceProgram);
+        if (!coreInput) {
             var binding = NameBinder.bind(sourceProgram);
             program = binding.program();
             sourceToCore = binding.sourceToCore();
             sourceToCore.forEach((original, core) -> coreToSource.put(core, original));
             displayNames = binding.displayNames();
             diagnostics.addAll(binding.diagnostics());
-        } else {
-            AstNode extendedNode = minic.compiler.parser.node.AstChildren.firstExtendedSyntax(program);
-            if (extendedNode != null) diagnostics.add(new Diagnostic("CPP002", Diagnostic.Severity.ERROR,
-                    "C 模式的 AST 不能包含 C++ 名称、类成员元数据、this 表达式或引用类型。",
-                    "请使用 CPP17_ALGORITHM 模式解析和分析源程序。",
-                    extendedNode instanceof minic.compiler.parser.node.Declaration.StructDecl record && record.recordInfo() != null
-                            ? record.recordInfo().keyRange() : extendedNode.range()));
         }
         bindingFailed = !diagnostics.isEmpty();
         globalScope = new Scope();
@@ -263,6 +259,20 @@ public final class SemanticAnalyzer extends Stage {
         stepCount = 0;
         completed = false;
         initialized = true;
+    }
+
+    /** Lowering-only nodes never come from the parser; their presence marks an already-bound core program. */
+    private static boolean containsCoreLowering(Program program) {
+        var pending = new java.util.ArrayDeque<AstNode>();
+        pending.add(program);
+        while (!pending.isEmpty()) {
+            AstNode node = pending.pop();
+            if (node instanceof Expression.InitializeExpr || node instanceof Expression.ObjectInitExpr
+                    || node instanceof Expression.MaterializeExpr || node instanceof Expression.LetExpr
+                    || node instanceof Expression.CleanupExpr || node instanceof Statement.CleanupScopeStmt) return true;
+            for (AstNode child : minic.compiler.parser.node.AstChildren.of(node)) if (child != null) pending.push(child);
+        }
+        return false;
     }
 
     private void ensureInitialized() {
@@ -343,8 +353,7 @@ public final class SemanticAnalyzer extends Stage {
                 yield SemanticAction.of(
                         SemanticActionKind.ANALYZE_STATEMENT,
                         statementSubject(action),
-                        sourceProgram.languageMode() == LanguageMode.CPP17_ALGORITHM
-                                && !coreToSource.containsKey(action.statement())
+                        !coreInput && !coreToSource.containsKey(action.statement())
                                 ? action.functionDecl().body() : action.statement(),
                         innermostScopeFor(action.statement().range(), statementAnalyzer.currentFunctionScope())
                 );
@@ -479,8 +488,8 @@ public final class SemanticAnalyzer extends Stage {
 
     private void appendVisitNode(Object node, ArrayList<Object> nodes) {
         // Normalization may insert value captures and address operations. Visit their
-        // children, but expose only original source nodes in C++ stepping actions.
-        if (sourceProgram.languageMode() != LanguageMode.CPP17_ALGORITHM || coreToSource.containsKey(node)) {
+        // children, but expose only original source nodes in stepping actions.
+        if (coreInput || coreToSource.containsKey(node)) {
             nodes.add(node);
         }
         appendChildNodes(node, nodes);

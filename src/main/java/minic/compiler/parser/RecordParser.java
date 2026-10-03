@@ -16,7 +16,7 @@ import minic.compiler.type.MiniType;
 import java.util.ArrayList;
 import java.util.List;
 
-/** C++ record syntax only; member binding and executable lowering remain separate stages. */
+/** Class/struct member syntax; member binding and executable lowering remain separate stages. */
 public final class RecordParser {
     private final Parser.Context state;
     private final Parser.TypeReader types;
@@ -37,11 +37,11 @@ public final class RecordParser {
         List<BaseSpecifier> bases=new ArrayList<>();
         if (state.match(TokenType.COLON)) do {
             Token start=state.peek();Access access=key.type()==TokenType.CLASS?Access.PRIVATE:Access.PUBLIC;
-            boolean virtualBase=state.match(TokenType.VIRTUAL);
+            boolean virtualBase=state.matchContextual("virtual");
             if(state.match(TokenType.PUBLIC))access=Access.PUBLIC;
             else if(state.match(TokenType.PROTECTED))access=Access.PROTECTED;
             else if(state.match(TokenType.PRIVATE))access=Access.PRIVATE;
-            virtualBase=state.match(TokenType.VIRTUAL)||virtualBase;
+            virtualBase=state.matchContextual("virtual")||virtualBase;
             var base=types.parseType("期望基类类型");if(base==null)return null;
             bases.add(new BaseSpecifier(base.type(),access,virtualBase,SourceRange.span(start.range(),state.previous().range())));
         } while(state.match(TokenType.COMMA));
@@ -175,7 +175,7 @@ public final class RecordParser {
                     state.report(start.range(), "构造函数和转换函数不能声明为 static");
                     recoverMember();
                 } else if (start.type() == TokenType.TILDE) {
-                    if(constexprSpecifier)state.report(declarationStart,"A destructor cannot be constexpr in C++17");
+                    if(constexprSpecifier)state.report(declarationStart,"A destructor cannot be constexpr");
                     state.advance();
                     Token name = state.consume(TokenType.IDENTIFIER, "析构函数期望类名称");
                     if (union) {
@@ -716,8 +716,11 @@ public final class RecordParser {
     private boolean unsupportedPrefix(Token token) {
         return token.type() == TokenType.TILDE
                 || token.type() == TokenType.TYPEDEF || token.type() == TokenType.USING
-                || token.type().isExtendedToken() && token.type() != TokenType.CLASS && token.type() != TokenType.SCOPE
-                    && token.type() != TokenType.TYPENAME && token.type() != TokenType.AUTO && token.type() != TokenType.DECLTYPE;
+                || switch (token.type()) {
+                    case NAMESPACE, TEMPLATE, PUBLIC, PRIVATE, PROTECTED, THIS, OPERATOR, CONSTEXPR, NOEXCEPT,
+                         NULLPTR, NEW, DELETE, INLINE, STATIC, EXPLICIT, STATIC_ASSERT -> true;
+                    default -> false;
+                };
     }
 
     /** An anonymous type can still have a named, array, or pointer field declarator. */

@@ -2,7 +2,6 @@ package minic.compiler.parser.node;
 
 import minic.compiler.parser.node.Statement.BlockStmt;
 import minic.compiler.type.MiniType;
-import minic.compiler.LanguageMode;
 import minic.SourceRange;
 import minic.compiler.type.TemplateArgument;
 import minic.compiler.parser.node.Expression.InitializerSyntax;
@@ -23,7 +22,6 @@ public interface Declaration extends AstNode {
             List<GlobalVarDecl> globals,
             List<FunctionDecl> functions,
             List<Declaration> declarations,
-            LanguageMode languageMode,
             String entryFunction,
             SourceRange range
     ) implements Declaration {
@@ -34,7 +32,6 @@ public interface Declaration extends AstNode {
             Objects.requireNonNull(globals, "globals");
             Objects.requireNonNull(functions, "functions");
             Objects.requireNonNull(range, "range");
-            Objects.requireNonNull(languageMode, "languageMode");
             if (Objects.requireNonNull(entryFunction, "entryFunction").isBlank()) throw new IllegalArgumentException("entryFunction is blank");
             structs = List.copyOf(structs);
             enums = List.copyOf(enums);
@@ -46,15 +43,8 @@ public interface Declaration extends AstNode {
 
         public Program(List<StructDecl> structs, List<EnumDecl> enums, List<TypedefDecl> typedefs,
                        List<GlobalVarDecl> globals, List<FunctionDecl> functions,
-                       List<Declaration> declarations, LanguageMode languageMode, SourceRange range) {
-            this(structs, enums, typedefs, globals, functions, declarations, languageMode, "main", range);
-        }
-
-        /** Compatibility for existing C AST producers; the parser supplies exact source order. */
-        public Program(List<StructDecl> structs, List<EnumDecl> enums, List<TypedefDecl> typedefs,
-                       List<GlobalVarDecl> globals, List<FunctionDecl> functions,
                        List<Declaration> declarations, SourceRange range) {
-            this(structs, enums, typedefs, globals, functions, declarations, LanguageMode.C, range);
+            this(structs, enums, typedefs, globals, functions, declarations, "main", range);
         }
 
         public Program(List<StructDecl> structs, List<EnumDecl> enums, List<TypedefDecl> typedefs,
@@ -137,7 +127,7 @@ public interface Declaration extends AstNode {
             if (name.isBlank()) throw new IllegalArgumentException("name must not be blank");
             alignmentSpecs = List.copyOf(alignmentSpecs);
             if (initializerSyntax != null && !initializerSyntax.isCompatibilityProjection(initializer)) {
-                throw new IllegalArgumentException("C++ initialization operands must match the compatibility projection");
+                throw new IllegalArgumentException("Initializer syntax operands must match the core initializer");
             }
         }
 
@@ -309,7 +299,7 @@ public interface Declaration extends AstNode {
 
     enum Access { PUBLIC, PROTECTED, PRIVATE }
 
-    /** Source-only C++ record information; member order determines effective access later. */
+    /** Source-only class information; member order determines effective access later. */
     record BaseSpecifier(MiniType type, Access access, boolean virtualBase, SourceRange range) implements AstNode {}
 
     record RecordInfo(RecordKey key, List<RecordMember> members, List<BaseSpecifier> bases, SourceRange keyRange) {
@@ -496,10 +486,10 @@ public interface Declaration extends AstNode {
                 for (RecordMember member : recordInfo.members()) {
                     if (!(member instanceof FieldMember field)) continue;
                     if (index >= fields.size() || fields.get(index++) != field.field()) {
-                        throw new IllegalArgumentException("C++ field projection must use the same field nodes in member order");
+                        throw new IllegalArgumentException("Record fields must be the field members in member order");
                     }
                 }
-                if (index != fields.size()) throw new IllegalArgumentException("C++ field projection is missing a field member");
+                if (index != fields.size()) throw new IllegalArgumentException("Record fields are missing a field member");
             }
         }
 
@@ -612,7 +602,7 @@ public interface Declaration extends AstNode {
         public StaticAssertDecl{Objects.requireNonNull(condition);Objects.requireNonNull(range);}
     }
 
-    /** Source declaration; the backing object and binding references are produced by C++ binding. */
+    /** Source declaration; the backing object and binding references are produced by name binding. */
     record StructuredBindingDecl(MiniType type, List<BindingName> names,
                                  InitializerSyntax initializer, SourceRange range)
                                  implements Declaration, Statement {

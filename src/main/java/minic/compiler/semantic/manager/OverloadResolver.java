@@ -43,7 +43,7 @@ public final class OverloadResolver {
     }
     /** A braced-init-list has no type or value category; its element shapes participate in selection. */
     public record Argument(MiniType type, ValueCategory category, boolean nullPointerConstant,
-                           List<Argument> listElements) {
+                           List<Argument> listElements, boolean stringLiteral) {
         public Argument {
             Objects.requireNonNull(category, "category");
             if (listElements != null) {
@@ -57,8 +57,15 @@ public final class OverloadResolver {
                     throw new IllegalArgumentException("null pointer constant must be integer literal zero or nullptr");
             }
         }
+        public Argument(MiniType type, ValueCategory category, boolean nullPointerConstant, List<Argument> listElements) {
+            this(type, category, nullPointerConstant, listElements, false);
+        }
         public Argument(MiniType type, ValueCategory category, boolean nullPointerConstant) {
             this(type, category, nullPointerConstant, null);
+        }
+        /** A string literal also accepts the C conversion to a pointer to its unqualified element type. */
+        public static Argument literal(MiniType type, ValueCategory category, boolean nullPointerConstant, boolean stringLiteral) {
+            return new Argument(type, category, nullPointerConstant, null, stringLiteral);
         }
         public static Argument braced(List<Argument> elements) {
             return new Argument(null, ValueCategory.PRVALUE, false, elements);
@@ -176,7 +183,7 @@ public final class OverloadResolver {
 
     private enum Rank { EXACT, PROMOTION, CONVERSION, USER_DEFINED, ELLIPSIS }
     // Lvalue/array/function transformations are deliberately excluded from subsequence ranking.
-    private enum Step { STATIC_OBJECT, NONE, NUMERIC, NULL_POINTER, POINTER_VOID, POINTER_BOOL, BASE, FUNCTION_POINTER, ELLIPSIS }
+    private enum Step { STATIC_OBJECT, NONE, NUMERIC, NULL_POINTER, POINTER_VOID, C_POINTER, POINTER_BOOL, BASE, FUNCTION_POINTER, ELLIPSIS }
     private record Conversion(Rank rank, Step step, boolean qualification, MiniType target, boolean reference,
                               Object userIdentity, Conversion trailing, boolean ambiguous, int listKind, int listBound,
                               MiniType.ReferenceKind referenceKind,int baseDistance) {
@@ -366,6 +373,15 @@ public final class OverloadResolver {
             boolean qualification = !cv(target.pointee()).equals(cv(source.pointee()));
             return new Conversion(Rank.CONVERSION, Step.POINTER_VOID, qualification, target, false);
         }
+        // C rules: void * converts implicitly to any object pointer that keeps its pointee cv,
+        // and a string literal initializes a pointer to its non-const element type.
+        if (source.pointee().isVoid() && !target.pointee().isFunction()
+                && cv(target.pointee()).containsAll(cv(source.pointee()))) {
+            boolean qualification = !cv(target.pointee()).equals(cv(source.pointee()));
+            return new Conversion(Rank.CONVERSION, Step.C_POINTER, qualification, target, false);
+        }
+        if (argument.stringLiteral && target.pointee().unqualified().equals(source.pointee().unqualified()))
+            return new Conversion(Rank.CONVERSION, Step.C_POINTER, false, target, false);
         return null;
     }
 
@@ -395,6 +411,9 @@ public final class OverloadResolver {
         }
         if (first.rank != second.rank) return first.rank.compareTo(second.rank);
         if (first.rank == Rank.ELLIPSIS) return 0;
+        // The C pointer conversions rank below every other standard conversion.
+        if ((first.step == Step.C_POINTER) != (second.step == Step.C_POINTER))
+            return first.step == Step.C_POINTER ? 1 : -1;
         if(first.step==Step.NONE&&second.step==Step.FUNCTION_POINTER)return -1;
         if(second.step==Step.NONE&&first.step==Step.FUNCTION_POINTER)return 1;
         if(first.step==Step.BASE&&second.step==Step.BASE&&first.baseDistance!=second.baseDistance)
@@ -491,7 +510,12 @@ public final class OverloadResolver {
         return type.unqualified();
     }
     private static Set<MiniType.TypeQualifier> cv(MiniType type) {
-        return type.isArray() ? cv(type.elementType()) : type.qualifiers();
+        if (type.isArray()) return cv(type.elementType());
+        // restrict is not a cv-qualifier; misplaced restrict is diagnosed by the semantic pass.
+        var qualifiers = java.util.EnumSet.noneOf(MiniType.TypeQualifier.class);
+        qualifiers.addAll(type.qualifiers());
+        qualifiers.remove(MiniType.TypeQualifier.RESTRICT);
+        return qualifiers;
     }
     private static MiniType expressionType(MiniType type) {
         return canonical(type.isReference() ? type.referent() : type);

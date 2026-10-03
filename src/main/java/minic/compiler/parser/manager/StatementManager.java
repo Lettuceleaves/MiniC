@@ -89,8 +89,8 @@ public final class StatementManager {
 
     public minic.compiler.parser.node.Declaration.StaticAssertDecl parseStaticAssert(){return minic.compiler.parser.StaticAssertParser.parse(state,expressionManager);}
     private Statement parseStatement() {
-        if(typeReader.extendedSyntax()&&state.check(TokenType.STATIC_ASSERT))return parseStaticAssert();
-        if (typeReader.extendedSyntax() && state.check(TokenType.USING)) {
+        if(state.check(TokenType.STATIC_ASSERT))return parseStaticAssert();
+        if (state.check(TokenType.USING)) {
             var declaration = minic.compiler.parser.QualifiedNameParser.parseUsing(state);
             if (declaration != null) typeReader.registerUsing(declaration);
             return declaration;
@@ -225,7 +225,7 @@ public final class StatementManager {
         state.consume(TokenType.LEFT_PAREN, "期望 '('");
         typeReader.enterScope(java.util.List.of());
         try {
-            if (typeReader.extendedSyntax() && rangeHeader()) return parseRangeFor(startToken);
+            if (rangeHeader()) return parseRangeFor(startToken);
             Statement initializer = parseForInitializer();
             Expression condition = null;
             if (!state.check(TokenType.SEMICOLON)) {
@@ -305,7 +305,7 @@ public final class StatementManager {
         Expression selector = expressionManager.parseExpression();
         state.consume(TokenType.RIGHT_PAREN, "期望 ')'");
         state.consume(TokenType.LEFT_BRACE, "期望 '{'");
-        if (typeReader.extendedSyntax()) typeReader.enterScope(java.util.List.of());
+        typeReader.enterScope(java.util.List.of());
         try {
             ArrayList<SwitchCase> cases = new ArrayList<>();
             while (!state.check(TokenType.RIGHT_BRACE) && !state.isAtEnd()) {
@@ -328,13 +328,13 @@ public final class StatementManager {
             state.build(switchStmt, "SwitchStmt", switchStmt.range());
             return switchStmt;
         } finally {
-            if (typeReader.extendedSyntax()) typeReader.exitScope();
+            typeReader.exitScope();
         }
     }
 
-    /** A C++ controlled declaration has block scope even without explicit braces. */
+    /** A controlled declaration has block scope even without explicit braces. */
     private Statement parseControlledStatement() {
-        if (!typeReader.extendedSyntax() || state.check(TokenType.LEFT_BRACE)) return parseStatement();
+        if (state.check(TokenType.LEFT_BRACE)) return parseStatement();
         typeReader.enterScope(java.util.List.of());
         try {
             return parseStatement();
@@ -394,13 +394,13 @@ public final class StatementManager {
 
     private Statement parseVarDeclStmt() {
         Token firstSpecifier=state.peek();Token storage=null;boolean constexpr=false;
-        while(typeReader.extendedSyntax()&&(state.check(TokenType.STATIC)||state.check(TokenType.CONSTEXPR))){
+        while((state.check(TokenType.STATIC)||state.check(TokenType.CONSTEXPR))){
             Token specifier=state.advance();if(specifier.type()==TokenType.STATIC){if(storage!=null)state.report(specifier,"Repeated static specifier");storage=specifier;}
             else {if(constexpr)state.report(specifier,"Repeated constexpr specifier");constexpr=true;}
         }
         if(typeReader.startsStructuredBinding()) {
-            if(storage!=null)state.report(storage,"Static structured bindings require C++20");
-            if(constexpr)state.report(state.peek(),"A structured binding cannot be constexpr in C++17");
+            if(storage!=null)state.report(storage,"Structured bindings cannot be static");
+            if(constexpr)state.report(state.peek(),"A structured binding cannot be constexpr");
             return parseStructuredBinding(false);
         }
         var specifiers=typeReader.parseDeclarationSpecifiers("期望变量类型");
@@ -411,9 +411,7 @@ public final class StatementManager {
             if(declaration==null)return null;
             // Each name enters the shared scope at its own declarator, before its initializer.
             typeReader.declareOrdinaryName(declaration.name(),declaration.range());
-            if(typeReader.extendedSyntax()){
-                if(declaration.type().isFunction())state.unsupportedSyntax(declaration.range(),"块作用域函数声明尚未实现；空括号或参数类型列表声明函数，不会默认构造变量");
-            }
+            if(declaration.type().isFunction())state.unsupportedSyntax(declaration.range(),"块作用域函数声明尚未实现；空括号或参数类型列表声明函数，不会默认构造变量");
             ParsedInitializer initialization=parseVariableInitializer(declaration.type(),declaration.range());
             SourceRange end=initialization.initializerSyntax()!=null&&initialization.initializerSyntax().kind()!=InitializerSyntax.Kind.DEFAULT
                     ?initialization.initializerSyntax().range():initialization.expression()!=null?initialization.expression().range():declaration.range();
@@ -480,9 +478,9 @@ public final class StatementManager {
 
     public record ParsedInitializer(Expression expression, InitializerSyntax initializerSyntax) { }
 
-    /** Retain C++ spelling while keeping existing executable operands and default-null behavior. */
+    /** Retain the initializer spelling while keeping existing executable operands and default-null behavior. */
     public ParsedInitializer parseVariableInitializer(minic.compiler.type.MiniType type, SourceRange declaratorRange) {
-        if (!typeReader.extendedSyntax() || type == null) return new ParsedInitializer(parseDeclarationInitializer(type), null);
+        if (type == null) return new ParsedInitializer(parseDeclarationInitializer(type), null);
         Token start = state.peek();
         if (state.match(TokenType.EQUAL)) {
             Expression value = parseInitializer();
@@ -545,10 +543,10 @@ public final class StatementManager {
         return new InitializerSyntax(kind, arguments, SourceRange.span(start.range(), end.range()));
     }
 
-    /** Reference-only C++ direct/list initialization shares the ordinary initializer AST. */
+    /** Reference-only direct/list initialization shares the ordinary initializer AST. */
     public Expression parseDeclarationInitializer(minic.compiler.type.MiniType type) {
         if (state.match(TokenType.EQUAL)) return parseInitializer();
-        if (!typeReader.extendedSyntax() || type == null || !type.isReference()) return null;
+        if (type == null || !type.isReference()) return null;
         if (state.check(TokenType.LEFT_BRACE)) return parseAggregateInitializer();
         if (!state.match(TokenType.LEFT_PAREN)) return null;
         Token start = state.previous();
@@ -616,7 +614,7 @@ public final class StatementManager {
         Token startToken = state.consume(TokenType.RETURN, "期望 return");
         Expression expression = null;
         if (!state.check(TokenType.SEMICOLON)) {
-            expression = state.languageMode() == minic.compiler.LanguageMode.CPP17_ALGORITHM && state.check(TokenType.LEFT_BRACE)
+            expression = state.check(TokenType.LEFT_BRACE)
                     ? expressionManager.parseInitializerClause() : expressionManager.parseExpression();
         }
         Token semicolonToken = state.consume(TokenType.SEMICOLON, "期望 ';'");
@@ -649,6 +647,6 @@ public final class StatementManager {
     }
 
     private boolean isDeclarationStart() {
-        return typeReader.extendedSyntax() && (state.check(TokenType.STATIC)||state.check(TokenType.CONSTEXPR)) || state.check(TokenType.ALIGNAS) || typeReader.canStartType() && !typeReader.startsConstructionStatement();
+        return (state.check(TokenType.STATIC)||state.check(TokenType.CONSTEXPR)) || state.check(TokenType.ALIGNAS) || typeReader.canStartType() && !typeReader.startsConstructionStatement();
     }
 }

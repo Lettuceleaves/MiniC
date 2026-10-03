@@ -7,7 +7,7 @@ import minic.compiler.ir.value.IrValue;
 import minic.compiler.ir.value.IrValue.*;
 import minic.compiler.type.MiniType;
 
-/** Typed zero stores shared by legacy aggregates and explicit C++ zero-initialization. */
+/** Typed zero stores shared by C aggregates and explicit value-initialization. */
 final class ObjectZeroInitializer {
     private ObjectZeroInitializer() { }
 
@@ -40,7 +40,7 @@ final class ObjectZeroInitializer {
                 emit(builder, member, field.type(), range, completeRepresentation, childVolatile);
                 if (completeRepresentation) covered.set(field.offset(), field.offset() + field.size());
             }
-            // C++ zero-initialization also zeroes class padding. Legacy C aggregate
+            // Value-initialization also zeroes class padding. Legacy C aggregate
             // initialization keeps its existing member-only stores and generated IR.
             if (completeRepresentation) {
                 for (int offset = covered.nextClearBit(0); offset < builder.sizeOf(type);

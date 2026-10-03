@@ -2,7 +2,6 @@ package minic.compiler.link;
 
 import minic.compiler.SourceFile;
 import minic.compiler.CompilerApi;
-import minic.compiler.LanguageMode;
 import minic.compiler.execute.ExecutableRunner;
 import minic.testing.CompilerFixture;
 import org.junit.jupiter.api.Tag;
@@ -22,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 final class StdlibErrnoNativeTest {
     @Test
     void strtodImportsUcrtAndPreservesBothCrtErrnoSlots() {
-        SourceFile source = new SourceFile("cpp-ucrt-strtod.cpp", """
+        SourceFile source = new SourceFile("ucrt-strtod.mc", """
                 #include <stdlib.h>
                 #include <errno.h>
                 int main() {
@@ -41,7 +40,7 @@ final class StdlibErrnoNativeTest {
                     return overflow > 0.0 && errno == ERANGE && end[0] == 0 && *foreign == 91 ? 0 : 4;
                 }
                 """);
-        var compiler = new CompilerApi(source, LanguageMode.CPP17_ALGORITHM);
+        var compiler = new CompilerApi(source);
         var linker = compiler.stages().stream().filter(Linker.class::isInstance).map(Linker.class::cast).findFirst().orElseThrow();
         compiler.runThrough(linker);
         assertTrue(linker.succeeded(), () -> compiler.stages().stream().flatMap(stage -> stage.errors().stream()).toList().toString());
@@ -82,9 +81,7 @@ final class StdlibErrnoNativeTest {
         Map<String, Set<String>> imports = PeImportIntegrationTest.readImports(
                 session.linker().peImage().orElseThrow().bytes()
         );
-        assertEquals(testCase.msvcrtExports(), imports.get("msvcrt.dll"), testCase.name());
-        assertEquals(Set.of("ExitProcess"), imports.get("KERNEL32.dll"), testCase.name());
-        assertEquals(Set.of("msvcrt.dll", "KERNEL32.dll"), imports.keySet(), testCase.name());
+        assertEquals(testCase.imports(), imports, testCase.name());
 
         var artifact = session.linker().result().executableArtifactOptional().orElseThrow();
         var executionStage = new ExecutableRunner();
@@ -121,7 +118,7 @@ final class StdlibErrnoNativeTest {
                         char *end = NULL;
                         double value = strtod("12.5tail", &end);
                         return value == 12.5 && end[0] == 't' ? 0 : 1;
-                        """), "strtod"),
+                        """), Map.of("ucrtbase.dll", Set.of("strtod", "_errno"), "msvcrt.dll", Set.of("_errno"))),
                 nativeCase("strtol", stdlib("""
                         char *end = NULL;
                         long value = strtol("-7f!", &end, 16);
@@ -175,7 +172,7 @@ final class StdlibErrnoNativeTest {
                         char *end = NULL;
                         double value = strtod("1e9999", &end);
                         return errno == ERANGE && end[0] == 0 && value > 0.0 ? 0 : 1;
-                        """), "_errno", "strtod"),
+                        """), Map.of("ucrtbase.dll", Set.of("strtod", "_errno"), "msvcrt.dll", Set.of("_errno"))),
                 nativeCase("strtol-erange", stdlibAndErrno("""
                         errno = 0;
                         char *end = NULL;
@@ -221,10 +218,17 @@ final class StdlibErrnoNativeTest {
     }
 
     private static Arguments nativeCase(String name, String source, String... msvcrtExports) {
-        return Arguments.of(new NativeCase(name, source, Set.of(msvcrtExports)));
+        return nativeCase(name, source, Map.of("msvcrt.dll", Set.of(msvcrtExports)));
     }
 
-    record NativeCase(String name, String source, Set<String> msvcrtExports) {
+    /** Header adapters may import from UCRT in addition to (or instead of) MSVCRT. */
+    private static Arguments nativeCase(String name, String source, Map<String, Set<String>> crtImports) {
+        var imports = new java.util.HashMap<>(crtImports);
+        imports.put("KERNEL32.dll", Set.of("ExitProcess"));
+        return Arguments.of(new NativeCase(name, source, Map.copyOf(imports)));
+    }
+
+    record NativeCase(String name, String source, Map<String, Set<String>> imports) {
         @Override
         public String toString() {
             return name;

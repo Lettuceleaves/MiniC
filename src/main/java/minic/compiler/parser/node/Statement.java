@@ -157,7 +157,7 @@ public interface Statement extends AstNode {
             }
             alignmentSpecs = List.copyOf(alignmentSpecs);
             if (initializerSyntax != null && !initializerSyntax.isCompatibilityProjection(initializer)) {
-                throw new IllegalArgumentException("C++ initialization operands must match the compatibility projection");
+                throw new IllegalArgumentException("Initializer syntax operands must match the core initializer");
             }
         }
 

@@ -1,7 +1,6 @@
 package minic.debug;
 
 import minic.compiler.SourceFile;
-import minic.compiler.LanguageMode;
 import minic.compiler.ir.IrResult;
 
 import java.util.ListIterator;
@@ -26,10 +25,6 @@ public final class DebugApi {
 
     public DebugApi(SourceFile source, String standardInput) {
         this(new Debugger(source, standardInput));
-    }
-
-    public DebugApi(SourceFile source, String standardInput, LanguageMode languageMode) {
-        this(new Debugger(source, standardInput, languageMode));
     }
 
     /** Reuses validated, uninstrumented IR for this source; each debugger owns its runtime and trace copy. */

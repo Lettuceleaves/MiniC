@@ -1,7 +1,6 @@
 package minic.compiler.preprocess;
 
 import minic.compiler.lexer.Lexer;
-import minic.compiler.LanguageMode;
 import minic.compiler.SourceFile;
 import minic.compiler.library.StlHeaderCatalog;
 import minic.compiler.library.SystemLibraryCatalog;
@@ -52,8 +51,7 @@ final class IncludeManager {
             if (systemHeader) {
                 if (requestedPath.matches("[A-Za-z0-9_.-]+\\.h")) {
                     resolvedName = requestedPath.substring(0, requestedPath.length() - 2) + ".mh";
-                } else if (work.options.languageMode() == LanguageMode.CPP17_ALGORITHM
-                        && StlHeaderCatalog.defaults().isKnown(requestedPath)) {
+                } else if (StlHeaderCatalog.defaults().isKnown(requestedPath)) {
                     stlHeader = true;
                 } else {
                     work.includes.add(new PreprocessResult.IncludeSummary(
@@ -66,9 +64,7 @@ final class IncludeManager {
                             sourceFile,
                             startOffset,
                             endOffset,
-                            (work.options.languageMode() == LanguageMode.CPP17_ALGORITHM
-                                    ? "未知或非法的 C++ 标准头文件："
-                                    : "尖括号 include 必须是 .h 标准头文件名：") + requestedPath
+                            "未知的标准头文件：" + requestedPath
                     ));
                     return true;
                 }
@@ -153,7 +149,7 @@ final class IncludeManager {
                     startOffset,
                     endOffset,
                     stlHeader
-                            ? "C++ 标准头文件尚未实现或未安装：<" + requestedPath + ">（预期 lib/stl/" + requestedPath + ".mh）"
+                            ? "标准头文件尚未安装：<" + requestedPath + ">（预期 lib/stl/" + requestedPath + ".mh）"
                             : "include 文件不存在：" + requestedPath
             ));
             return;
@@ -193,7 +189,7 @@ final class IncludeManager {
 
     private void validateHeader(SourceFile originalHeader, String content, Preprocessor.Work work) {
         SourceFile headerSource = new SourceFile(originalHeader.path(), content);
-        Lexer lexer = new Lexer(headerSource, work.options.languageMode());
+        Lexer lexer = new Lexer(headerSource);
         lexer.lex();
         if (!lexer.errors().isEmpty()) {
             work.diagnostics.add(Preprocessor.diagnostic(
@@ -227,7 +223,7 @@ final class IncludeManager {
                         })
                         .orElse(null);
             } catch (IllegalStateException exception) {
-                throw new IncludeReadException("读取 C++ include 文件失败：" + requestedPath, exception);
+                throw new IncludeReadException("读取标准头文件失败：" + requestedPath, exception);
             }
         }
         ArrayList<Path> candidates = new ArrayList<>();

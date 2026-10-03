@@ -1,7 +1,6 @@
 package minic.compiler.parser.manager;
 
 import minic.compiler.parser.Parser;
-import minic.compiler.LanguageMode;
 import minic.compiler.parser.node.Expression.AssignmentExpr;
 import minic.compiler.parser.node.Expression.BinaryExpr;
 import minic.compiler.parser.node.Expression.BoolLiteralExpr;
@@ -108,7 +107,7 @@ public final class ExpressionManager {
 
     /** initializer-clause: braces are allowed here, but are not general primary expressions. */
     public Expression parseInitializerClause() {
-        return state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.check(TokenType.LEFT_BRACE)
+        return state.check(TokenType.LEFT_BRACE)
                 ? parseConstructionInitializer() : parseAssignment();
     }
 
@@ -142,19 +141,9 @@ public final class ExpressionManager {
     }
 
     private boolean isAssignmentTarget(Expression expression) {
-        // C++ lvalue results (calls returning references, comma, conditional and
+        // Lvalue results (calls returning references, comma, conditional and
         // assignment expressions) are classified after name/type binding.
-        if (state.languageMode() == LanguageMode.CPP17_ALGORITHM) return expression != null;
-        if (expression instanceof GroupingExpr grouping) {
-            return isAssignmentTarget(grouping.expression());
-        }
-        if (expression instanceof NameExpr || expression instanceof Expression.QualifiedNameExpr) {
-            return true;
-        }
-        if (expression instanceof IndexExpr || expression instanceof FieldAccessExpr) {
-            return true;
-        }
-        return expression instanceof UnaryExpr unaryExpr && unaryExpr.operator() == TokenType.STAR;
+        return expression != null;
     }
 
     private Expression parseConditional() {
@@ -164,8 +153,7 @@ public final class ExpressionManager {
         }
         Expression thenExpression = parseExpression();
         state.consume(TokenType.COLON, "期望 ':'");
-        Expression elseExpression = state.languageMode() == LanguageMode.CPP17_ALGORITHM
-                ? parseAssignment() : parseConditional();
+        Expression elseExpression = parseAssignment();
         if (condition == null || thenExpression == null || elseExpression == null) {
             return condition;
         }
@@ -298,8 +286,7 @@ public final class ExpressionManager {
     }
 
     private Expression parseUnary() {
-        if (state.languageMode() == LanguageMode.CPP17_ALGORITHM
-                && (state.check(TokenType.NEW) || state.check(TokenType.SCOPE) && state.peekAt(1).type() == TokenType.NEW)) {
+        if (state.check(TokenType.NEW) || state.check(TokenType.SCOPE) && state.peekAt(1).type() == TokenType.NEW) {
             return parsePlacementNew();
         }
         if (state.match(TokenType.AMPERSAND)
@@ -311,11 +298,8 @@ public final class ExpressionManager {
                 || state.match(TokenType.MINUS)
                 || state.match(TokenType.PLUS)) {
             Token operator = state.previous();
-            // Unary operators accept a cast-expression. C prefix updates alone
-            // require a unary-expression; C++ prefix updates accept casts too.
-            boolean cPrefixUpdate = state.languageMode() == LanguageMode.C
-                    && (operator.type() == TokenType.PLUS_PLUS || operator.type() == TokenType.MINUS_MINUS);
-            Expression operand = cPrefixUpdate ? parseUnary() : parseCast();
+            // Unary operators, prefix updates included, accept a cast-expression.
+            Expression operand = parseCast();
             if (operand == null) {
                 return null;
             }
@@ -327,7 +311,7 @@ public final class ExpressionManager {
             state.build(unaryExpr, "UnaryExpr " + unaryExpr.operator(), unaryExpr.range());
             return unaryExpr;
         }
-        if (typeReader.extendedSyntax() && state.match(TokenType.NOEXCEPT)) {
+        if (state.match(TokenType.NOEXCEPT)) {
             Token start=state.previous();
             if (state.consume(TokenType.LEFT_PAREN,"noexcept 运算符后期望 '(' ")==null) return null;
             Expression operand=parseExpression();
@@ -401,7 +385,7 @@ public final class ExpressionManager {
     }
 
     private Expression parseSizeof(Token sizeofToken) {
-        if (state.languageMode()==minic.compiler.LanguageMode.CPP17_ALGORITHM && state.match(TokenType.ELLIPSIS)) {
+        if (state.match(TokenType.ELLIPSIS)) {
             if(state.consume(TokenType.LEFT_PAREN,"sizeof... 后期望 '('")==null)return null;
             Token name=state.consume(TokenType.IDENTIFIER,"sizeof... 需要参数包名称");
             Token end=state.consume(TokenType.RIGHT_PAREN,"sizeof... 后期望 ')'");
@@ -449,13 +433,13 @@ public final class ExpressionManager {
     private Expression parsePostfix() {
         Expression expression = parsePrimary();
         while (expression != null) {
-            if(typeReader.extendedSyntax()&&typeReader.beginsFunctionTemplateArguments(expression)) {
+            if(typeReader.beginsFunctionTemplateArguments(expression)) {
                 var arguments=typeReader.parseFunctionTemplateArguments();
                 if(arguments==null)return null;
                 expression=new minic.compiler.parser.node.Expression.TemplateIdExpr(expression,arguments,SourceRange.span(expression.range(),state.previous().range()));continue;
             }
             if (state.match(TokenType.LEFT_BRACKET)) {
-                Expression index = state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.check(TokenType.LEFT_BRACE)
+                Expression index = state.check(TokenType.LEFT_BRACE)
                         ? parseInitializerClause() : parseExpression();
                 Token endToken = state.consume(TokenType.RIGHT_BRACKET, "期望 ']'");
                 if (index == null || endToken == null) {
@@ -498,42 +482,40 @@ public final class ExpressionManager {
     }
 
     private Expression finishFieldAccess(Expression target, boolean viaPointer) {
-        if (state.languageMode() == LanguageMode.CPP17_ALGORITHM) {
-            if(state.match(TokenType.TEMPLATE)) {
-                Token name=state.consume(TokenType.IDENTIFIER,"template 后期望成员模板名称");if(name==null)return null;
-                Expression member=new FieldAccessExpr(target,name.lexeme(),viaPointer,SourceRange.span(target.range(),name.range()));
-                var arguments=typeReader.parseFunctionTemplateArguments();
-                return arguments==null?null:new minic.compiler.parser.node.Expression.TemplateIdExpr(member,arguments,SourceRange.span(target.range(),state.previous().range()));
-            }
-            if (state.match(TokenType.TILDE)) return finishDestructorCall(target, viaPointer, state.previous());
-            if (state.check(TokenType.OPERATOR)) {
-                if (typeReader.canStartTypeAt(1)) {
-                    Token keyword = state.advance();
-                    Parser.ParsedType type = typeReader.parseTypeWithoutFunctionSuffix("operator 后期望转换目标类型");
-                    if (type == null) return null;
-                    var name = new minic.compiler.parser.node.ConversionName(type.type(), false,
-                            SourceRange.span(keyword.range(), type.range()));
-                    var member = new FieldAccessExpr(target, name.spelling(), viaPointer,
-                            SourceRange.span(target.range(), name.range()));
-                    state.build(member, "FieldAccessExpr " + member.fieldName(), member.range());
-                    return member;
-                }
-                var operator = minic.compiler.parser.OperatorNameParser.parse(state);
-                if (operator == null) return null;
-                var member = new FieldAccessExpr(target, operator.spelling(), viaPointer,
-                        SourceRange.span(target.range(), operator.range()));
+        if(state.match(TokenType.TEMPLATE)) {
+            Token name=state.consume(TokenType.IDENTIFIER,"template 后期望成员模板名称");if(name==null)return null;
+            Expression member=new FieldAccessExpr(target,name.lexeme(),viaPointer,SourceRange.span(target.range(),name.range()));
+            var arguments=typeReader.parseFunctionTemplateArguments();
+            return arguments==null?null:new minic.compiler.parser.node.Expression.TemplateIdExpr(member,arguments,SourceRange.span(target.range(),state.previous().range()));
+        }
+        if (state.match(TokenType.TILDE)) return finishDestructorCall(target, viaPointer, state.previous());
+        if (state.check(TokenType.OPERATOR)) {
+            if (typeReader.canStartTypeAt(1)) {
+                Token keyword = state.advance();
+                Parser.ParsedType type = typeReader.parseTypeWithoutFunctionSuffix("operator 后期望转换目标类型");
+                if (type == null) return null;
+                var name = new minic.compiler.parser.node.ConversionName(type.type(), false,
+                        SourceRange.span(keyword.range(), type.range()));
+                var member = new FieldAccessExpr(target, name.spelling(), viaPointer,
+                        SourceRange.span(target.range(), name.range()));
                 state.build(member, "FieldAccessExpr " + member.fieldName(), member.range());
                 return member;
             }
-            int offset = state.check(TokenType.SCOPE) ? 1 : 0;
-            while (state.peekAt(offset).type() == TokenType.IDENTIFIER
-                    && state.peekAt(offset + 1).type() == TokenType.SCOPE) {
-                offset += 2;
-                if (state.peekAt(offset).type() == TokenType.TILDE) {
-                    state.unsupportedSyntax(SourceRange.span(state.peek().range(), state.peekAt(offset).range()),
-                            "显式析构调用的限定类型前缀尚未实现");
-                    return null;
-                }
+            var operator = minic.compiler.parser.OperatorNameParser.parse(state);
+            if (operator == null) return null;
+            var member = new FieldAccessExpr(target, operator.spelling(), viaPointer,
+                    SourceRange.span(target.range(), operator.range()));
+            state.build(member, "FieldAccessExpr " + member.fieldName(), member.range());
+            return member;
+        }
+        int offset = state.check(TokenType.SCOPE) ? 1 : 0;
+        while (state.peekAt(offset).type() == TokenType.IDENTIFIER
+                && state.peekAt(offset + 1).type() == TokenType.SCOPE) {
+            offset += 2;
+            if (state.peekAt(offset).type() == TokenType.TILDE) {
+                state.unsupportedSyntax(SourceRange.span(state.peek().range(), state.peekAt(offset).range()),
+                        "显式析构调用的限定类型前缀尚未实现");
+                return null;
             }
         }
         Token fieldToken = state.consume(TokenType.IDENTIFIER, "期望字段名");
@@ -609,18 +591,19 @@ public final class ExpressionManager {
                 if(state.consume(TokenType.RIGHT_PAREN,"lambda 形参期望 ')'")==null)return null;
             }
             boolean mutable=false;boolean constexpr=false;
-            while(state.check(TokenType.MUTABLE)||state.check(TokenType.CONSTEXPR)){
+            // mutable is a contextual keyword: it is an ordinary identifier everywhere else.
+            while(state.checkContextual("mutable")||state.check(TokenType.CONSTEXPR)){
                 Token specifier=state.advance();
-                if(specifier.type()==TokenType.MUTABLE){if(mutable)state.report(specifier,"Repeated mutable");mutable=true;}
+                if(specifier.type()==TokenType.IDENTIFIER){if(mutable)state.report(specifier,"Repeated mutable");mutable=true;}
                 else {if(constexpr)state.report(specifier,"Repeated constexpr");constexpr=true;}
             }
-            if((mutable||constexpr)&&!parameterClause)state.report(start,"C++17 lambda specifiers require a parameter clause");
+            if((mutable||constexpr)&&!parameterClause)state.report(start,"Lambda specifiers require a parameter clause");
             for(var parameter:parameters)if(!parameter.name().isEmpty())typeReader.declareOrdinaryName(parameter.name(),parameter.range());
             var exceptionSpecification=typeReader.parseExceptionSpecification();
-            if(exceptionSpecification.specified()&&!parameterClause)state.report(start,"C++17 noexcept lambda 需要形参括号");
+            if(exceptionSpecification.specified()&&!parameterClause)state.report(start,"noexcept lambda 需要形参括号");
             MiniType returnType=MiniType.AUTO;
             if(state.match(TokenType.ARROW)) {
-                if(!parameterClause)state.report(state.previous(),"C++17 lambda 尾置返回类型需要形参括号");
+                if(!parameterClause)state.report(state.previous(),"lambda 尾置返回类型需要形参括号");
                 var parsed=typeReader.parseType("lambda 尾置返回类型");if(parsed==null)return null;returnType=parsed.type();
             }
             var body=statements.parseFunctionBlock(parameters.stream().map(minic.compiler.parser.node.Declaration.Parameter::name).toList());
@@ -658,8 +641,8 @@ public final class ExpressionManager {
     }
 
     private Expression parsePrimary() {
-        if(typeReader.extendedSyntax() && state.check(TokenType.LEFT_BRACKET))return parseLambda();
-        if (state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.check(TokenType.IDENTIFIER)) {
+        if(state.check(TokenType.LEFT_BRACKET))return parseLambda();
+        if (state.check(TokenType.IDENTIFIER)) {
             var query = minic.compiler.parser.node.Expression.TypeQueryExpr.Kind.fromSpelling(state.peek().lexeme());
             if (query != null) return parseTypeQuery(query);
         }
@@ -682,14 +665,13 @@ public final class ExpressionManager {
             state.build(construction, "ConstructionExpr", construction.range());
             return construction;
         }
-        if (state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.match(TokenType.THIS)) {
+        if (state.match(TokenType.THIS)) {
             var expression = new Expression.ThisExpr(state.previous().range());
             state.build(expression, "ThisExpr", expression.range());
             return expression;
         }
-        if (state.languageMode() == minic.compiler.LanguageMode.CPP17_ALGORITHM
-                && (state.check(TokenType.OPERATOR) || state.check(TokenType.SCOPE) || state.check(TokenType.IDENTIFIER)
-                && state.peekAt(1).type() == TokenType.SCOPE)) {
+        if (state.check(TokenType.OPERATOR) || state.check(TokenType.SCOPE) || state.check(TokenType.IDENTIFIER)
+                && state.peekAt(1).type() == TokenType.SCOPE) {
             var name = minic.compiler.parser.OperatorNameParser.parseQualified(state);
             if (name == null) return null;
             var expression = new Expression.QualifiedNameExpr(name.qualifiedName());
@@ -797,7 +779,7 @@ public final class ExpressionManager {
             return expr;
         }
         if (state.match(TokenType.NULL_LITERAL)
-                || state.languageMode() == LanguageMode.CPP17_ALGORITHM && state.match(TokenType.NULLPTR)) {
+                || state.match(TokenType.NULLPTR)) {
             Token nullToken = state.previous();
             NullLiteralExpr expr = new NullLiteralExpr(nullToken.lexeme(), nullToken.range());
             state.build(expr, "NullLiteralExpr " + expr.lexeme(), expr.range());
@@ -843,7 +825,7 @@ public final class ExpressionManager {
             // Construction and qualified member access were handled above. A bare
             // known type is not an id-expression, including after a declaration
             // probe falls back to parsing a direct initializer.
-            if (typeReader.extendedSyntax() && typeReader.resolveTypedef(nameToken.lexeme()) != null) {
+            if (typeReader.resolveTypedef(nameToken.lexeme()) != null) {
                 state.report(nameToken, "类型名称不能单独作为表达式");
                 return null;
             }
@@ -950,7 +932,7 @@ public final class ExpressionManager {
     }
 
     public Expression finishPackExpansion(Expression value) {
-        if(value!=null && state.languageMode()==minic.compiler.LanguageMode.CPP17_ALGORITHM && state.match(TokenType.ELLIPSIS))
+        if(value!=null && state.match(TokenType.ELLIPSIS))
             return new minic.compiler.parser.node.Expression.PackExpansionExpr(value,SourceRange.span(value.range(),state.previous().range()));
         return value;
     }

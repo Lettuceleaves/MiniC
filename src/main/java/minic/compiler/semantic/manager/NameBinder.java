@@ -46,9 +46,9 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Binds the supported non-template C++ value names before the C semantic/IR passes.
+ * Binds namespace, class, template and overload names before the C semantic/IR passes.
  * The source AST remains unchanged. All generated names are ordinary core identifiers;
- * no downstream pass needs to interpret namespace syntax or repeat C++ lookup.
+ * no downstream pass needs to interpret namespace syntax or repeat name lookup.
  */
 public final class NameBinder {
     private NameBinder() {}
@@ -316,8 +316,8 @@ public final class NameBinder {
         }
         private void constexprFunction(Entity entity,boolean requested,BlockStmt body,SourceRange range){
             Boolean previous=constexprFunctions.putIfAbsent(entity,requested);
-            if(previous!=null&&previous!=requested)report("CPP004",range,"All declarations of a function must agree on constexpr");
-            if(requested&&body!=null&&!constexprBodyAllowed(body))constexprRequirementFailure(entity,range,"A C++17 constexpr function cannot contain non-literal, static or uninitialized local objects or variadic cursor operations");
+            if(previous!=null&&previous!=requested)report("SEM003",range,"All declarations of a function must agree on constexpr");
+            if(requested&&body!=null&&!constexprBodyAllowed(body))constexprRequirementFailure(entity,range,"A constexpr function cannot contain non-literal, static or uninitialized local objects or variadic cursor operations");
             if(requested&&body!=null&&entity.type instanceof MiniType.FunctionType function){
                 if(!function.returnType().containsPlaceholder()&&!literalType(function.returnType(),new HashSet<>()))constexprRequirementFailure(entity,range,"A constexpr function must return a literal type");
                 for(MiniType parameter:function.parameterTypes())if(!literalType(parameter,new HashSet<>()))constexprRequirementFailure(entity,range,"Constexpr function parameters must have literal types");
@@ -329,7 +329,7 @@ public final class NameBinder {
             boolean instantiated=!explicitFunctionSpecializations.containsKey(entity)
                     &&(functionTemplateInstances.containsKey(entity)||constexprInstantiatedMembers.contains(entity));
             if(instantiated)nonConstantSpecializations.add(entity);
-            else report("CPP004",range,message);
+            else report("SEM003",range,message);
         }
         private boolean literalType(MiniType type,Set<TypeEntity> active){
             if(type.isReference()||type.isPointer()||type.isIntegerScalar()||type.unqualified().equals(MiniType.VOID)||type.unqualified().equals(MiniType.FLOAT)||type.unqualified().equals(MiniType.DOUBLE)||type.isNullPointer())return true;
@@ -364,15 +364,15 @@ public final class NameBinder {
                     constantObjects.put(entity.coreName,new ConstantEvaluator.Global(coreType(type),folded,readable,true));return foldedConstant(initializer,folded);
                 }catch(IllegalArgumentException notConstant){return initializer;}
             }
-            if(initializer==null){report("CPP004",range,"A constexpr object requires an initializer");return null;}
-            if(type.isVolatileQualified()||!literalType(type,new HashSet<>())){report("CPP004",range,"A constexpr object requires a literal, non-volatile type");return initializer;}
+            if(initializer==null){report("SEM003",range,"A constexpr object requires an initializer");return null;}
+            if(type.isVolatileQualified()||!literalType(type,new HashSet<>())){report("SEM003",range,"A constexpr object requires a literal, non-volatile type");return initializer;}
             try{
                 var evaluator=constantEvaluator();var result=evaluator.initialize(entity.coreName,coreType(type),initializer,staticStorage);
                 // Local object addresses stay attached to their actual declaration. Globals can use data initializers.
                 Expression folded=evaluator.constantExpression(result,initializer.range());
                 constantObjects.put(entity.coreName,new ConstantEvaluator.Global(coreType(type),folded,true,staticStorage));
                 return staticStorage||type.isIntegerScalar()||type.unqualified().equals(MiniType.FLOAT)||type.unqualified().equals(MiniType.DOUBLE)?foldedConstant(initializer,folded):initializer;
-            }catch(IllegalArgumentException invalid){report("CPP004",range,"Initializer is not a constant expression: "+invalid.getMessage());return initializer;}
+            }catch(IllegalArgumentException invalid){report("SEM003",range,"Initializer is not a constant expression: "+invalid.getMessage());return initializer;}
         }
         private void staticAssertion(minic.compiler.parser.node.Declaration.StaticAssertDecl node,Namespace namespace,Local scope){
             try{
@@ -380,8 +380,8 @@ public final class NameBinder {
                 validateUnevaluatedCore(bound);
                 var result=constantEvaluator().evaluate(bound);
                 if(!(result instanceof ConstantEvaluator.IntegerValue value)||value.value()==0)
-                    report("CPP004",node.range(),"Static assertion failed"+(node.message()==null?"":": "+node.message().value()));
-            }catch(IllegalArgumentException invalid){report("CPP004",node.range(),"Static assertion requires a constant expression: "+invalid.getMessage());}
+                    report("SEM003",node.range(),"Static assertion failed"+(node.message()==null?"":": "+node.message().value()));
+            }catch(IllegalArgumentException invalid){report("SEM003",node.range(),"Static assertion requires a constant expression: "+invalid.getMessage());}
         }
 
         private final Namespace root = new Namespace(null, "");
@@ -502,10 +502,13 @@ public final class NameBinder {
         private final IdentityHashMap<Entity, Boolean> internalLinkages = new IdentityHashMap<>();
         private final Set<Entity> libraryExitFunctions = Collections.newSetFromMap(new IdentityHashMap<>());
         private final StaticLifetime staticLifetime;
+        /** Static cleanup can only run destructors, so programs without one call the CRT exit directly. */
+        private final boolean destructorsDeclared;
 
         Binding(Program source) {
             this.source = source;
             reserveNames(source);
+            destructorsDeclared = declaresDestructor(source);
             staticLifetime = new StaticLifetime(new StaticLifetime.Context() {
                 public String fresh(String display) { return freshName(display); }
                 public void global(GlobalVarDecl variable) { addStaticGlobal(variable); }
@@ -539,7 +542,7 @@ public final class NameBinder {
                 int before=emittedFunctionTemplates.size();
                 for(Entity entity:pending)instantiateFunctionTemplate(entity);
                 if(before==emittedFunctionTemplates.size()) {
-                    for(Entity entity:pending)report("CPP004",explicitFunctionSpecializations.containsKey(entity)?explicitFunctionSpecializations.get(entity).range():functionTemplateInstances.get(entity).definition.source.range(),"Used function template has no definition: "+entity.name);
+                    for(Entity entity:pending)report("SEM003",explicitFunctionSpecializations.containsKey(entity)?explicitFunctionSpecializations.get(entity).range():functionTemplateInstances.get(entity).definition.source.range(),"Used function template has no definition: "+entity.name);
                     break;
                 }
             }
@@ -548,7 +551,7 @@ public final class NameBinder {
             // declaration and definition. Unused dependent members stay lazy.
             for (Entity function : List.copyOf(requestedTemplateMembers)) functionNonThrowing(function);
             for (StaticField field : staticFields.values()) if (!field.entity.defined)
-                for (SourceRange use : field.uses) report("CPP004", use,
+                for (SourceRange use : field.uses) report("SEM003", use,
                         "ODR-used static data member has no definition: " + field.owner.canonicalName + "::" + field.entity.name);
             // Earlier incomplete extern declarations use the final storage type in core only;
             // source-point completeness was already checked while binding each expression.
@@ -560,9 +563,9 @@ public final class NameBinder {
                     origins.replaceAll((source,core)->core==previous?complete:core);
                 }
             }
-            // The compatibility constructor deliberately produces a core C Program.
+            // The binder lowers to a core Program whose entry is the static-lifetime wrapper.
             Program core = mapped(source, new Program(structs, enums, typedefs, globals, functions,
-                    declarations, minic.compiler.LanguageMode.C, staticLifetime.finish(), source.range()));
+                    declarations, staticLifetime.finish(), source.range()));
             return new Result(core, diagnostics, origins, displayNames);
         }
 
@@ -577,7 +580,7 @@ public final class NameBinder {
                             if(value instanceof GlobalVarDecl variable&&variable.type().containsAuto()
                                     &&namespace.values.get(variable.name()) instanceof Entity entity){
                                 MiniType deduced=autoGroupType(variable.type(),entity.type);
-                                if(commonAuto!=null&&!commonAuto.equals(deduced))report("CPP004",variable.range(),"All declarators sharing auto must deduce the same placeholder type");
+                                if(commonAuto!=null&&!commonAuto.equals(deduced))report("SEM003",variable.range(),"All declarators sharing auto must deduce the same placeholder type");
                                 else commonAuto=deduced;
                             }
                         }
@@ -596,7 +599,7 @@ public final class NameBinder {
                         Namespace target = namespace;
                         for (String name : node.name().segments()) {
                             if (target.values.containsKey(name) || target.typedefs.containsKey(name) || target.tags.containsKey(name)) {
-                                report("CPP004", node.range(), "命名空间与已有声明冲突：" + name);
+                                report("SEM003", node.range(), "命名空间与已有声明冲突：" + name);
                             }
                             Namespace parent = target;
                             target = target.children.computeIfAbsent(name, ignored -> new Namespace(parent, name));
@@ -622,14 +625,14 @@ public final class NameBinder {
                     }
                     case EnumDecl node -> {
                         if (rejectNamespaceType(namespace, node)) continue;
-                        if (namespace.children.containsKey(node.name())) report("CPP004", node.range(),
+                        if (namespace.children.containsKey(node.name())) report("SEM003", node.range(),
                                 "类型声明与命名空间冲突：" + node.name());
                         // Existing unscoped root enums keep their C representation in this slice.
                         namespace.tags.put(node.name(), new TypeEntity(node.name(), "::" + namespace.qualify(node.name()),
                                 MiniType.INT, false, false, namespace, true));
                         for (Enumerator item : node.enumerators()) {
                             if (namespace.values.containsKey(item.name()) || namespace.children.containsKey(item.name())) {
-                                report("CPP004", item.range(), "枚举名称重复或冲突：" + item.name());
+                                report("SEM003", item.range(), "枚举名称重复或冲突：" + item.name());
                             } else {
                                 namespace.values.put(item.name(), new Entity(item.name(), item.name(), Kind.ENUM_CONSTANT,
                                         namespace, MiniType.INT, item.value(), true));
@@ -638,14 +641,14 @@ public final class NameBinder {
                         }
                         enums.add(node); declarations.add(node); mapped(node, node);
                     }
-                    default -> report("CPP005", declaration.range(), "尚未支持此 C++ 声明：" + declaration.getClass().getSimpleName());
+                    default -> report("SEM004", declaration.range(), "尚未支持此声明：" + declaration.getClass().getSimpleName());
                 }
             }
         }
 
         private boolean rejectNamespaceType(Namespace namespace, Declaration node) {
             if (namespace == root) return false;
-            report("CPP005", node.range(), "尚未支持命名空间内的类型声明；类型名称绑定将在后续实现。");
+            report("SEM004", node.range(), "尚未支持命名空间内的类型声明；类型名称绑定将在后续实现。");
             return true;
         }
 
@@ -655,15 +658,15 @@ public final class NameBinder {
             if(declaration.specialization()){declareFunctionSpecialization(declaration,namespace);return;}
             Candidate prior=namespace.values.get(function.name());
             if(namespace.children.containsKey(function.name())||namespace.typedefs.containsKey(function.name())) {
-                report("CPP004",declaration.range(),"Function template conflicts with a namespace or type name");return;
+                report("SEM003",declaration.range(),"Function template conflicts with a namespace or type name");return;
             }
-            if(prior!=null&&!(prior instanceof OverloadSet)) {report("CPP004",declaration.range(),"Function template conflicts with a non-function declaration");return;}
+            if(prior!=null&&!(prior instanceof OverloadSet)) {report("SEM003",declaration.range(),"Function template conflicts with a non-function declaration");return;}
             var visible=new ArrayList<Entity>(prior instanceof OverloadSet set?set.functions:List.of());
             var signature=MiniType.function(function.returnType(),function.parameters().stream().map(Parameter::type).toList(),function.variadic());
             for(Entity previous:visible) {
                 FunctionTemplateDefinition old=functionTemplates.get(previous);
                 if(old==null||!sameFunctionTemplate(old,declaration.parameters(),function))continue;
-                if(old.source.hasDefinition()&&function.hasDefinition())report("CPP004",declaration.range(),"Function template is defined more than once");
+                if(old.source.hasDefinition()&&function.hasDefinition())report("SEM003",declaration.range(),"Function template is defined more than once");
                 else if(function.hasDefinition())functionTemplates.put(previous,new FunctionTemplateDefinition(declaration.parameters(),function,namespace,null,null,null,null,snapshotLookup()));
                 return;
             }
@@ -701,7 +704,7 @@ public final class NameBinder {
                                            MethodMember method,ConstructorMember constructor,Access access) {
             FunctionDecl source=method!=null?method.method():new FunctionDecl(owner.name,MiniType.VOID,constructor.parameters(),constructor.variadic(),constructor.body(),false,constructor.range())
                     .withDefinitionKind(constructor.definitionKind()).withExceptionSpecification(constructor.exceptionSpecification()).withConstexprSpecifier(constructor.constexprSpecifier());
-            if(source.definitionKind()==DefinitionKind.DEFAULTED){report("CPP004",source.range(),"A function template cannot be a defaulted special member");return;}
+            if(source.definitionKind()==DefinitionKind.DEFAULTED){report("SEM003",source.range(),"A function template cannot be a defaulted special member");return;}
             List<MiniType> argumentTypes=source.parameters().stream().map(Parameter::type).toList();
             var abi=new ArrayList<MiniType>();
             if(method==null||!method.staticMember())abi.add(method==null?owner.type.pointerTo():methodThisType(owner,method));
@@ -729,11 +732,11 @@ public final class NameBinder {
                 if(namespace==null)return;
             }
             boolean enclosing=false;for(Namespace at=namespace;at!=null;at=at.parent)enclosing|=at==lexicalNamespace;
-            if(!enclosing){report("CPP004",declaration.range(),"Explicit specialization must be declared in an enclosing namespace");return;}
-            if(function.parameters().stream().anyMatch(p->p.defaultValue()!=null)){report("CPP004",function.range(),"An explicit specialization cannot add default function arguments");return;}
-            if(function.definitionKind()==DefinitionKind.DEFAULTED){report("CPP004",function.range(),"A free function specialization cannot be defaulted");return;}
+            if(!enclosing){report("SEM003",declaration.range(),"Explicit specialization must be declared in an enclosing namespace");return;}
+            if(function.parameters().stream().anyMatch(p->p.defaultValue()!=null)){report("SEM003",function.range(),"An explicit specialization cannot add default function arguments");return;}
+            if(function.definitionKind()==DefinitionKind.DEFAULTED){report("SEM003",function.range(),"A free function specialization cannot be defaulted");return;}
             Candidate visible=namespace.values.get(function.name());
-            if(!(visible instanceof OverloadSet set)){report("CPP003",function.range(),"Explicit specialization requires a declared function template");return;}
+            if(!(visible instanceof OverloadSet set)){report("SEM002",function.range(),"Explicit specialization requires a declared function template");return;}
             final Namespace owner=namespace;
             List<MiniType> parameters=function.parameters().stream().map(p->normalizeType(p.type(),owner,null,p.range())).toList();
             MiniType result=normalizeReturnType(function.returnType(),function.parameters(),parameters,namespace,null,null,function.range());
@@ -750,13 +753,13 @@ public final class NameBinder {
             for(Entity candidate:matches)if(matches.stream().allMatch(other->other==candidate||betterTemplateCandidate(candidate,other))) {
                 if(selected!=null){selected=null;break;}selected=candidate;
             }
-            if(selected==null){report("CPP004",function.range(),matches.isEmpty()?"No function template matches this explicit specialization":"Ambiguous function template specialization");return;}
+            if(selected==null){report("SEM003",function.range(),matches.isEmpty()?"No function template matches this explicit specialization":"Ambiguous function template specialization");return;}
             FunctionDecl previous=explicitFunctionSpecializations.get(selected);
             if(previous==null && (requestedFunctionTemplates.contains(selected)||emittedFunctionTemplates.contains(selected))) {
-                report("CPP004",function.range(),"Explicit specialization follows an instantiation");return;
+                report("SEM003",function.range(),"Explicit specialization follows an instantiation");return;
             }
-            if(previous!=null && previous.hasDefinition() && function.hasDefinition()) {report("CPP004",function.range(),"Explicit specialization is defined more than once");return;}
-            if(previous!=null && function.definitionKind()==DefinitionKind.DELETED){report("CPP004",function.range(),"A deleted specialization must be its first declaration");return;}
+            if(previous!=null && previous.hasDefinition() && function.hasDefinition()) {report("SEM003",function.range(),"Explicit specialization is defined more than once");return;}
+            if(previous!=null && function.definitionKind()==DefinitionKind.DELETED){report("SEM003",function.range(),"A deleted specialization must be its first declaration");return;}
             // A full specialization owns its constexpr specifier; primary-template qualification is not inherited.
             if(previous==null)constexprFunctions.remove(selected);
             constexprFunction(selected,function.constexprSpecifier(),null,function.range());
@@ -878,7 +881,7 @@ public final class NameBinder {
             var definition=functionTemplates.getOrDefault(functionTemplateDeclarations.get(entity),instance.definition);
             if(definition.source.definitionKind()==DefinitionKind.DELETED){deletedFunctions.add(entity);return;}
             if(!definition.source.hasBody())return;
-            if(functionTemplateDepth>=128){report("CPP004",definition.source.range(),"Function template instantiation depth exceeds 128");emittedFunctionTemplates.add(entity);return;}
+            if(functionTemplateDepth>=128){report("SEM003",definition.source.range(),"Function template instantiation depth exceeds 128");emittedFunctionTemplates.add(entity);return;}
             var bindings=instance.bindings;
             if(definition!=instance.definition) {
                 var types=new LinkedHashMap<MiniType.TemplateParameterType,MiniType>();var values=new LinkedHashMap<MiniType.TemplateParameterType,TemplateArgument>();
@@ -910,7 +913,7 @@ public final class NameBinder {
                             definition.access,entity,instance.method.returnType,instance.method.parameterTypes),definition.owner);
                     else bindFunction(source,definition.owner,entity);
                 }
-            } catch(IllegalArgumentException error){report("CPP004",definition.source.range(),"Cannot instantiate selected function template: "+error.getMessage());}
+            } catch(IllegalArgumentException error){report("SEM003",definition.source.range(),"Cannot instantiate selected function template: "+error.getMessage());}
             finally {preserveInstantiationDiagnostics(bodyDiagnostics);currentTemplateLookup=savedLookup;currentClass=savedClass;currentThis=savedThis;functionTemplateDepth--;unevaluatedDepth=savedUnevaluatedDepth;}
         }
         private Entity deduceFunctionTemplateForTarget(Entity declaration,MiniType.FunctionType target,List<TemplateArgument> explicit,SourceRange range) {
@@ -969,37 +972,37 @@ public final class NameBinder {
 
         private void declareTemplate(ClassTemplateDecl node, Namespace namespace) {
             if(node.specialization()) {
-                if(!templates.containsKey(node.record().name())){report("CPP003",node.range(),"Template specialization needs a primary declaration");return;}
+                if(!templates.containsKey(node.record().name())){report("SEM002",node.range(),"Template specialization needs a primary declaration");return;}
                 var specializations=templateSpecializations.computeIfAbsent(node.record().name(),ignored->new ArrayList<>());
                 var definition=new TemplateDefinition(node,namespace,snapshotLookup());
                 var pattern=templatePattern(definition);
                 var primary=templates.get(node.record().name());
                 if(!node.parameters().isEmpty() && TemplateDeduction.match(templatePattern(primary),pattern,primary.source.parameters(),this::expandTemplateType)!=null
                         && TemplateDeduction.match(pattern,templatePattern(primary),node.parameters(),this::expandTemplateType)!=null) {
-                    report("CPP004",node.range(),"Partial specialization must specialize the primary arguments");return;
+                    report("SEM003",node.range(),"Partial specialization must specialize the primary arguments");return;
                 }
                 if(!node.parameters().isEmpty() && TemplateDeduction.match(pattern,pattern,node.parameters(),this::expandTemplateType)==null) {
-                    report("CPP004",node.range(),"Partial specialization has undeducible parameters");return;
+                    report("SEM003",node.range(),"Partial specialization has undeducible parameters");return;
                 }
                 for(int index=0;index<specializations.size();index++) {
                     var old=specializations.get(index);
                     if(TemplateDeduction.match(templatePattern(old),pattern,old.source.parameters(),this::expandTemplateType)!=null
                             &&TemplateDeduction.match(pattern,templatePattern(old),node.parameters(),this::expandTemplateType)!=null) {
-                        if(old.source.record().definition()&&node.record().definition())report("CPP004",node.range(),"Duplicate template specialization");
+                        if(old.source.record().definition()&&node.record().definition())report("SEM003",node.range(),"Duplicate template specialization");
                         else if(node.record().definition())specializations.set(index,definition);
                         return;
                     }
                 }
                 for(var entry:templateInstances.entrySet())if(entry.getKey().templateName().equals(node.record().name())&&entry.getValue().complete
                         &&TemplateDeduction.match(pattern,entry.getKey().arguments(),node.parameters(),this::expandTemplateType)!=null)
-                    report("CPP004",node.range(),"Template specialization appears after instantiation");
+                    report("SEM003",node.range(),"Template specialization appears after instantiation");
                 specializations.add(definition);
                 if(node.record().definition())validateTemplateNames(node.record(),namespace);
                 return;
             }
             TemplateDefinition previous = templates.get(node.record().name());
             if (previous != null && previous.source.record().definition() && node.record().definition()) {
-                report("CPP004", node.range(), "Duplicate class template definition: " + node.record().name());
+                report("SEM003", node.range(), "Duplicate class template definition: " + node.record().name());
                 return;
             }
             if (previous == null || node.record().definition())
@@ -1134,7 +1137,7 @@ public final class NameBinder {
         private MiniType templateType(MiniType.TemplateIdType source, Namespace namespace, Local local, SourceRange range) {
             TemplateDefinition template = templates.get(source.templateName());
             if (template == null) {
-                report("CPP003", range, "Class template is not declared: " + source.templateName());
+                report("SEM002", range, "Class template is not declared: " + source.templateName());
                 return MiniType.INT;
             }
             var arguments = new ArrayList<TemplateArgument>();
@@ -1142,7 +1145,7 @@ public final class NameBinder {
             boolean hasPack=!template.source.parameters().isEmpty()&&template.source.parameters().getLast().pack();
             int fixedCount=template.source.parameters().size()-(hasPack?1:0);
             if(source.arguments().size()<fixedCount || !hasPack&&source.arguments().size()!=fixedCount) {
-                report("CPP004",range,"Class template argument count mismatch");return MiniType.INT;
+                report("SEM003",range,"Class template argument count mismatch");return MiniType.INT;
             }
             try {
                 for(int index=0;index<source.arguments().size();index++) {
@@ -1163,7 +1166,7 @@ public final class NameBinder {
                     }
                 }
             } catch(IllegalArgumentException error) {
-                report("CPP004",range,"Invalid template argument: "+error.getMessage());return MiniType.INT;
+                report("SEM003",range,"Invalid template argument: "+error.getMessage());return MiniType.INT;
             }
             var key = new MiniType.TemplateIdType(source.templateName(), arguments);
             TypeEntity existing = templateInstances.get(key);
@@ -1230,12 +1233,12 @@ public final class NameBinder {
             if(matches.isEmpty()) {
                 var primary=templates.get(key.templateName());
                 var bindings=TemplateDeduction.match(templatePattern(primary),key.arguments(),primary.source.parameters(),this::expandTemplateType);
-                if(bindings==null){report("CPP004",range,"Template parameters could not be deduced");return null;}
+                if(bindings==null){report("SEM003",range,"Template parameters could not be deduced");return null;}
                 return new TemplateSelection(primary,bindings);
             }
             var full=matches.stream().filter(m->m.definition.source.parameters().isEmpty()).toList();
             if(full.size()==1)return full.getFirst();
-            if(full.size()>1){report("CPP004",range,"Ambiguous explicit class specialization");return null;}
+            if(full.size()>1){report("SEM003",range,"Ambiguous explicit class specialization");return null;}
             TemplateSelection best=null;
             for(var candidate:matches) {
                 boolean dominates=true;
@@ -1246,7 +1249,7 @@ public final class NameBinder {
                 }
                 if(dominates){best=candidate;break;}
             }
-            if(best==null)report("CPP004",range,"Ambiguous class template partial specializations");
+            if(best==null)report("SEM003",range,"Ambiguous class template partial specializations");
             return best;
         }
 
@@ -1276,7 +1279,7 @@ public final class NameBinder {
                 templateOrigins.putAll(substitution.origins());
                 bindStruct(instantiated, definition.owner);
             } catch (IllegalArgumentException error) {
-                report("CPP004", range, "Cannot instantiate " + templateTypeDisplay(entity.type) + ": " + error.getMessage());
+                report("SEM003", range, "Cannot instantiate " + templateTypeDisplay(entity.type) + ": " + error.getMessage());
             } finally {
                 preserveInstantiationDiagnostics(bodyDiagnostics);
                 currentTemplateLookup = saved;
@@ -1287,18 +1290,18 @@ public final class NameBinder {
 
         private void declareTemplateMemberDefinition(TemplateMemberDefinitionDecl node,Namespace namespace) {
             TemplateDefinition primary=templates.get(node.ownerType().templateName());
-            if(primary==null){report("CPP003",node.range(),"Member definition requires an existing class template");return;}
+            if(primary==null){report("SEM002",node.range(),"Member definition requires an existing class template");return;}
             boolean enclosing=false;for(Namespace at=primary.owner;at!=null;at=at.parent)enclosing|=at==namespace;
-            if(!enclosing){report("CPP004",node.range(),"Member definition must be in an enclosing namespace");return;}
+            if(!enclosing){report("SEM003",node.range(),"Member definition must be in an enclosing namespace");return;}
             if(!(node.declaration() instanceof OutOfLineMethodDecl || node.declaration() instanceof OutOfLineStaticFieldDecl
                     || node.declaration() instanceof OutOfLineConstructorDecl || node.declaration() instanceof OutOfLineDestructorDecl)) {
-                report("CPP004",node.range(),"Expected a qualified class template member definition");return;
+                report("SEM003",node.range(),"Expected a qualified class template member definition");return;
             }
             var owners=new ArrayList<TemplateDefinition>();owners.add(primary);owners.addAll(templateSpecializations.getOrDefault(node.ownerType().templateName(),List.of()));
             TemplateDefinition sourceOwner=owners.stream().filter(candidate->
                     TemplateDeduction.match(node.ownerType().arguments(),templatePattern(candidate),node.parameters(),this::expandTemplateType)!=null
                     &&TemplateDeduction.match(templatePattern(candidate),node.ownerType().arguments(),candidate.source.parameters(),this::expandTemplateType)!=null).findFirst().orElse(null);
-            if(sourceOwner==null){report("CPP004",node.range(),"Member definition template header does not match a declared class template");return;}
+            if(sourceOwner==null){report("SEM003",node.range(),"Member definition template header does not match a declared class template");return;}
             validateTemplateMemberNames(node,sourceOwner);
             var definition=new TemplateMemberDefinition(node,namespace,snapshotLookup());
             templateMemberDefinitions.computeIfAbsent(node.ownerType().templateName(),key->new ArrayList<>()).add(definition);
@@ -1352,13 +1355,13 @@ public final class NameBinder {
                 Declaration declaration=substitution.instantiate(definition.source.declaration());templateOrigins.putAll(substitution.origins());
                 if(declaration instanceof OutOfLineStaticFieldDecl field) {
                     StaticField member=instance.staticFields.get(field.declaration().name());
-                    if(member==null)report("CPP004",field.nameRange(),"No matching static data member declaration");
+                    if(member==null)report("SEM003",field.nameRange(),"No matching static data member declaration");
                     else if(member.source.constexprSpecifier()&&field.declaration().constexprSpecifier()&&field.declaration().initializer()==null)
                         bindStaticFieldDefinition(field,definition.namespace);
-                    else if(member.entity.defined || pendingTemplateStatics.containsKey(member.entity))report("CPP004",field.nameRange(),"Duplicate static data member definition");
+                    else if(member.entity.defined || pendingTemplateStatics.containsKey(member.entity))report("SEM003",field.nameRange(),"Duplicate static data member definition");
                     else pendingTemplateStatics.put(member.entity,new PendingTemplateStatic(field,instance,definition.namespace,definition.lookup));
                 } else bindDeclarations(List.of(declaration),definition.namespace);
-            } catch(IllegalArgumentException error) {report("CPP004",definition.source.range(),"Cannot instantiate member definition: "+error.getMessage());}
+            } catch(IllegalArgumentException error) {report("SEM003",definition.source.range(),"Cannot instantiate member definition: "+error.getMessage());}
             finally {preserveInstantiationDiagnostics(checkpoint);templateDefinitionOwner=savedOwner;currentTemplateLookup=savedLookup;templateDefinitionLookup=savedDefinitionLookup;}
         }
 
@@ -1396,18 +1399,18 @@ public final class NameBinder {
         private void bindMarkerBase(TypeEntity entity,StructDecl node,Namespace namespace) {
             if(node.recordInfo()==null||node.recordInfo().bases().isEmpty())return;
             if(node.recordInfo().bases().size()!=1||!markerRecord(node)) {
-                report("CPP005",node.range(),"Inheritance currently requires a single public base and classes without instance data or user-declared special members.");return;
+                report("SEM004",node.range(),"Inheritance currently requires a single public base and classes without instance data or user-declared special members.");return;
             }
             BaseSpecifier base=node.recordInfo().bases().getFirst();
             if(base.virtualBase()||base.access()!=Access.PUBLIC) {
-                report("CPP005",base.range(),"Only public non-virtual stateless inheritance is supported.");return;
+                report("SEM004",base.range(),"Only public non-virtual stateless inheritance is supported.");return;
             }
             MiniType type=normalizeType(base.type(),namespace,null,base.range());
             TypeEntity parent=objectType(type);
-            if(parent==null||parent==entity) {report("CPP004",base.range(),"A base must be a distinct complete class.");return;}
+            if(parent==null||parent==entity) {report("SEM003",base.range(),"A base must be a distinct complete class.");return;}
             completeTemplate(parent,base.range());
-            if(!parent.complete){report("CPP004",base.range(),"A base class must be complete.");return;}
-            if(!markerRecord(parent.sourceRecord)){report("CPP005",base.range(),"A stateless base cannot contain instance data or user-declared constructors, destructors, or assignment operators.");return;}
+            if(!parent.complete){report("SEM003",base.range(),"A base class must be complete.");return;}
+            if(!markerRecord(parent.sourceRecord)){report("SEM004",base.range(),"A stateless base cannot contain instance data or user-declared constructors, destructors, or assignment operators.");return;}
             entity.markerBase=parent;
         }
         private int baseDistance(MiniType source,MiniType target) {
@@ -1500,13 +1503,17 @@ public final class NameBinder {
 
         private void bindStruct(StructDecl node, Namespace namespace) {
             String sourceName = simpleTagName(node.name());
+            TypeEntity entity;
             if (node.name().contains("<block")) {
-                report("CPP005", node.range(), "尚未支持具名局部类型声明的作用域保存。");
-                return;
-            }
-            TypeEntity entity = declareClass(sourceName, node.union(), namespace, node.range());
+                // Block-scope aggregates are hoisted with a unique block-qualified identity;
+                // the parser already resolved every use inside the block to that identity.
+                String qualified = node.name().startsWith("$union$") ? node.name().substring("$union$".length()) : node.name();
+                entity = canonicalTypes.get(qualified);
+                if (entity == null) entity = declareClass(qualified.substring(2), node.union(), root, node.range());
+                displayNames.put(((MiniType.StructType) entity.type).name(), sourceName);
+            } else entity = declareClass(sourceName, node.union(), namespace, node.range());
             if (node.definition() && entity.complete) {
-                report("CPP004", node.range(), "重复类型定义：" + entity.canonicalName);
+                report("SEM003", node.range(), "重复类型定义：" + entity.canonicalName);
                 return;
             }
             TypeEntity savedDeclarationClass=currentClass;Entity savedDeclarationThis=currentThis;
@@ -1537,7 +1544,7 @@ public final class NameBinder {
                     else if (member instanceof DestructorMember destructor) destructorAccess.put(destructor, current);
                     else if(member instanceof TemplateMethodMember || member instanceof TemplateConstructorMember)templateAccess.put(member,current);
                     else if(member instanceof minic.compiler.parser.node.Declaration.StaticAssertDecl){}
-                    else report("CPP005", member.range(), "This C++ record member is not supported yet: " + member.getClass().getSimpleName());
+                    else report("SEM004", member.range(), "This record member is not supported yet: " + member.getClass().getSimpleName());
                 }
             }
             List<StructField> fields = new ArrayList<>();
@@ -1650,7 +1657,7 @@ public final class NameBinder {
 
         private Destructor declareDestructor(TypeEntity owner, DestructorMember member, Access access, boolean implicit) {
             if (owner.destructor != null) {
-                report("CPP004", member.nameRange(), "Duplicate destructor declaration: " + owner.canonicalName);
+                report("SEM003", member.nameRange(), "Duplicate destructor declaration: " + owner.canonicalName);
                 return null;
             }
             Entity function = new Entity("~" + owner.name, freshName(owner.canonicalName.substring(2) + "::~" + owner.name),
@@ -1673,13 +1680,13 @@ public final class NameBinder {
             for (Namespace at = owner.owner; at != null; at = at.parent) enclosing |= at == namespace;
             Destructor previous = owner.destructor;
             if (!enclosing || !node.destructor().hasDefinition()) {
-                report("CPP004", node.nameRange(), "A destructor definition must be in its enclosing namespace and have a body.");
+                report("SEM003", node.nameRange(), "A destructor definition must be in its enclosing namespace and have a body.");
             } else if (previous == null || previous.implicit) {
-                report("CPP004", node.nameRange(), "No matching user-declared destructor: " + owner.canonicalName);
+                report("SEM003", node.nameRange(), "No matching user-declared destructor: " + owner.canonicalName);
             } else if (previous.function.defined) {
-                report("CPP004", node.nameRange(), "Duplicate destructor definition: " + owner.canonicalName);
+                report("SEM003", node.nameRange(), "Duplicate destructor definition: " + owner.canonicalName);
             } else {
-                if(node.destructor().definitionKind()==DefinitionKind.DELETED){report("CPP004",node.range(),"A deleted definition must be the first declaration");return;}
+                if(node.destructor().definitionKind()==DefinitionKind.DELETED){report("SEM003",node.range(),"A deleted definition must be the first declaration");return;}
                 previous.function.defined = true;
                 Destructor replacement=new Destructor(owner,node.destructor(),previous.access,previous.function,false);owner.destructor=replacement;
                 if(node.destructor().definitionKind()==DefinitionKind.DEFAULTED)userProvidedDefaulted.add(replacement.function);
@@ -1711,7 +1718,7 @@ public final class NameBinder {
             try {
                 BlockStmt body = null;
                 if (original.body() != null) {
-                    if (owner.union && destructor.implicit) report("CPP004", original.nameRange(),
+                    if (owner.union && destructor.implicit) report("SEM003", original.nameRange(),
                             "A union with a nontrivial variant member has a deleted implicit destructor.");
                     body = block(original.body(), new Local(null, owner.owner), false);
                     List<Expression> memberCleanups = new ArrayList<>();
@@ -1766,11 +1773,11 @@ public final class NameBinder {
             TypeEntity owner = objectType(type);
             Destructor destructor = owner.destructor;
             if (destructor.access != Access.PUBLIC && !classAccess(owner)) {
-                report("CPP004", range, "Destructor is not accessible: " + owner.canonicalName);
+                report("SEM003", range, "Destructor is not accessible: " + owner.canonicalName);
             }
             if (deletedDestructors.containsKey(destructor.function)) {
                 Diagnostic reason = deletedDestructors.get(destructor.function).getFirst();
-                report(reason.code().equals("CPP005") ? "CPP005" : "CPP004", range,
+                report(reason.code().equals("SEM004") ? "SEM004" : "SEM003", range,
                         "The implicit destructor is unavailable: " + reason.message());
             }
             return destructor;
@@ -1781,7 +1788,7 @@ public final class NameBinder {
             // Array-valued parameters/results are outside the supported object ABI.
             if (returnType != null && returnType.isArray() && needsDestruction(returnType)
                     || parameters.stream().anyMatch(type -> type.isArray() && needsDestruction(type))) {
-                report("CPP005", range, "Array parameter/result lifetimes require array object support.");
+                report("SEM004", range, "Array parameter/result lifetimes require array object support.");
             }
         }
 
@@ -1806,7 +1813,7 @@ public final class NameBinder {
         }
 
         private List<Diagnostic> deletedReason(SourceRange range) {
-            return List.of(new Diagnostic("CPP004",Diagnostic.Severity.ERROR,"Explicitly deleted function",range));
+            return List.of(new Diagnostic("SEM003",Diagnostic.Severity.ERROR,"Explicitly deleted function",range));
         }
         private void registerSpecialDefinition(Entity function,DefinitionKind kind,SourceRange range) {
             if(kind==DefinitionKind.ORDINARY)return;
@@ -1845,7 +1852,7 @@ public final class NameBinder {
                 return evaluateTemplateConstant(operand).value()!=0?MiniType.ExceptionSpecification.NON_THROWING
                         :MiniType.ExceptionSpecification.UNSPECIFIED;
             } catch(IllegalArgumentException failure) {
-                report("CPP004",specification.condition().range(),"noexcept requires a constant expression convertible to bool: "+failure.getMessage());
+                report("SEM003",specification.condition().range(),"noexcept requires a constant expression convertible to bool: "+failure.getMessage());
                 return MiniType.ExceptionSpecification.UNSPECIFIED;
             } finally {unevaluatedDepth--;preserveInstantiationDiagnostics(checkpoint);}
         }
@@ -1871,14 +1878,14 @@ public final class NameBinder {
             if(resolvedExceptions.contains(entity))return signature.exceptionSpecification().nonThrowing();
             if(!resolvingExceptions.add(entity)) {
                 var sources=exceptionSources.get(entity);
-                report("CPP004",sources==null?source.range():sources.getFirst().range,"Recursive exception specification is not yet defined: "+entity.name);
+                report("SEM003",sources==null?source.range():sources.getFirst().range,"Recursive exception specification is not yet defined: "+entity.name);
                 return false;
             }
             try {
                 var contexts=exceptionSources.get(entity);
                 boolean value=contexts==null?implicitException(entity):exceptionValue(entity,contexts.getFirst());
                 if(contexts!=null)for(int i=1;i<contexts.size();i++)
-                    if(value!=exceptionValue(entity,contexts.get(i)))report("CPP004",contexts.get(i).range,"Function redeclarations have different exception specifications: "+entity.name);
+                    if(value!=exceptionValue(entity,contexts.get(i)))report("SEM003",contexts.get(i).range,"Function redeclarations have different exception specifications: "+entity.name);
                 entity.type=((MiniType.FunctionType)entity.type).withExceptionSpecification(value
                         ?MiniType.ExceptionSpecification.NON_THROWING:MiniType.ExceptionSpecification.UNSPECIFIED);
                 resolvedExceptions.add(entity);return value;
@@ -2020,7 +2027,7 @@ public final class NameBinder {
                 valid=isMoveConstructor(constructor)?parameter.equals(constructor.owner.type.rvalueReferenceTo())
                         :parameter.isLvalueReference()&&!parameter.referent().isVolatileQualified();
             }
-            if(!valid)report("CPP004",constructor.source.range(),"A defaulted constructor must match its implicit special-member signature and have no default arguments");
+            if(!valid)report("SEM003",constructor.source.range(),"A defaulted constructor must match its implicit special-member signature and have no default arguments");
             return valid;
         }
         private boolean validDefaultedAssignment(Method method) {
@@ -2029,7 +2036,7 @@ public final class NameBinder {
                     &&method.returnType.equals(method.owner.type.referenceTo())&&(isCopyAssignment(method)||isMoveAssignment(method));
             if(valid){MiniType parameter=method.parameterTypes.getFirst();valid=parameter.isReference()&&!parameter.referent().isVolatileQualified()
                     &&(!isMoveAssignment(method)||parameter.equals(method.owner.type.rvalueReferenceTo()));}
-            if(!valid)report("CPP004",method.source.range(),"Defaulted assignment must match its implicit special-member signature");
+            if(!valid)report("SEM003",method.source.range(),"Defaulted assignment must match its implicit special-member signature");
             return valid;
         }
         private boolean defaulted(Constructor constructor){return constructor!=null&&constructor.source.definitionKind()==DefinitionKind.DEFAULTED;}
@@ -2037,13 +2044,13 @@ public final class NameBinder {
 
         private Constructor declareConstructor(TypeEntity owner, ConstructorMember member, Access access, boolean implicit) {
             if (owner.union) {
-                report("CPP005", member.nameRange(), "Union construction is not supported yet.");
+                report("SEM004", member.nameRange(), "Union construction is not supported yet.");
                 return null;
             }
             List<MiniType> parameters = member.parameters().stream()
                     .map(p -> normalizeType(p.type(), owner.owner, null, p.range())).toList();
             if (parameters.size() == 1 && parameters.getFirst().unqualified().equals(owner.type)) {
-                report("CPP004", member.nameRange(), "A constructor cannot take its own class as its only by-value parameter.");
+                report("SEM003", member.nameRange(), "A constructor cannot take its own class as its only by-value parameter.");
                 return null;
             }
             List<MiniType> signatureParameters = new ArrayList<>();
@@ -2053,7 +2060,7 @@ public final class NameBinder {
             for (Constructor previous : owner.constructors) {
                 if (previous.function.type instanceof MiniType.FunctionType prior
                         && prior.parameterTypes().equals(((MiniType.FunctionType)signature).parameterTypes()) && prior.variadic()==member.variadic()) {
-                    report("CPP004", member.nameRange(), "Duplicate constructor declaration: " + owner.canonicalName);
+                    report("SEM003", member.nameRange(), "Duplicate constructor declaration: " + owner.canonicalName);
                     return null;
                 }
             }
@@ -2079,7 +2086,7 @@ public final class NameBinder {
             boolean enclosing = false;
             for (Namespace at = owner.owner; at != null; at = at.parent) enclosing |= at == namespace;
             if (!enclosing || !node.constructor().hasDefinition()) {
-                report("CPP004", node.nameRange(), "A constructor definition must be in its enclosing namespace and have a body.");
+                report("SEM003", node.nameRange(), "A constructor definition must be in its enclosing namespace and have a body.");
                 return;
             }
             List<MiniType> parameters = node.constructor().parameters().stream()
@@ -2088,12 +2095,12 @@ public final class NameBinder {
                     && c.parameterTypes.stream().map(MiniType::unqualified).toList()
                     .equals(parameters.stream().map(MiniType::unqualified).toList())).findFirst().orElse(null);
             if (previous == null || previous.function.defined) {
-                report("CPP004", node.nameRange(), previous == null ? "No matching constructor declaration." : "Duplicate constructor definition.");
+                report("SEM003", node.nameRange(), previous == null ? "No matching constructor declaration." : "Duplicate constructor definition.");
                 return;
             }
-            if(node.constructor().definitionKind()==DefinitionKind.DELETED){report("CPP004",node.range(),"A deleted definition must be the first declaration");return;}
+            if(node.constructor().definitionKind()==DefinitionKind.DELETED){report("SEM003",node.range(),"A deleted definition must be the first declaration");return;}
             previous.function.defined = true;
-            if(previous.source.constexprSpecifier()!=node.constructor().constexprSpecifier())report("CPP004",node.range(),"All constructor declarations must agree on constexpr");
+            if(previous.source.constexprSpecifier()!=node.constructor().constexprSpecifier())report("SEM003",node.range(),"All constructor declarations must agree on constexpr");
             Constructor replacement=new Constructor(owner,node.constructor(),previous.access,previous.function,parameters,false);
             if(defaulted(replacement)&&!validDefaultedConstructor(replacement))return;
             owner.constructors.set(owner.constructors.indexOf(previous),replacement);
@@ -2108,7 +2115,7 @@ public final class NameBinder {
             } else bindConstructor(replacement);
             if(defaulted(replacement)){
                 ensureImplicitCopy(owner);ensureImplicitMove(owner);
-                if(isDeleted(replacement.function))report("CPP004",node.range(),"A defaulted definition after the first declaration cannot be deleted");
+                if(isDeleted(replacement.function))report("SEM003",node.range(),"A defaulted definition after the first declaration cannot be deleted");
                 else if(replacement==owner.implicitCopy)emitImplicitCopy(owner);else if(replacement==owner.implicitMove)emitImplicitMove(owner);
             }
         }
@@ -2205,7 +2212,7 @@ public final class NameBinder {
                             action = initializeField(owner, field, syntax, scope, range);
                             if (action != null && entry.origin() == MemberInitializationPlan.Origin.EXPLICIT) mapped(entry.source(), action);
                         }
-                        if(action==null&&original.constexprSpecifier())constexprInitializationErrors.add(new Diagnostic("CPP004",Diagnostic.Severity.ERROR,
+                        if(action==null&&original.constexprSpecifier())constexprInitializationErrors.add(new Diagnostic("SEM003",Diagnostic.Severity.ERROR,
                                 "A constexpr constructor must initialize every subobject",entry.source().range()));
                         if (action != null) statements.add(new ExprStmt(action, action.range()));
                     }
@@ -2232,9 +2239,9 @@ public final class NameBinder {
             Expression value = variableInitializer(field.type(), initialization, null, owner.owner, scope, range);
             if (value == null) return null;
             if (initializerListElement(field.type()) != null && hasListStorage(value))
-                report("CPP004", range, "An initializer_list member cannot retain a temporary backing array from its constructor initializer.");
+                report("SEM003", range, "An initializer_list member cannot retain a temporary backing array from its constructor initializer.");
             if (field.type().isReference() && refersToTemporaryStorage(value)) {
-                report("CPP004", range, "A reference data member cannot bind to a temporary in a constructor initializer.");
+                report("SEM003", range, "A reference data member cannot bind to a temporary in a constructor initializer.");
             }
             Expression slot = typed(new FieldAccessExpr(thisValue(range), field.name(), true, range), coreType(field.type()));
             return fullExpression(typed(new InitializeExpr(slot, value, range), MiniType.VOID), false, initialization);
@@ -2261,7 +2268,7 @@ public final class NameBinder {
             GlobalVarDecl node = member.declaration();
             if (owner.staticFields.containsKey(node.name()) || owner.methods.containsKey(node.name())
                     || fieldPath(owner.type, node.name(), new HashSet<>()) != null || node.name().equals(owner.name)) {
-                report("CPP004", node.range(), "Duplicate or conflicting static data member: " + node.name());
+                report("SEM003", node.range(), "Duplicate or conflicting static data member: " + node.name());
                 return;
             }
             MiniType type = normalizeType(node.type(), namespace, null, node.range());
@@ -2272,7 +2279,7 @@ public final class NameBinder {
             Expression initial=null;
             if(node.constexprSpecifier()||node.initializer()!=null){
                 if(!node.constexprSpecifier()&&(!type.isConstQualified()||type.isVolatileQualified()||!type.isIntegerScalar()))
-                    report("CPP004",node.range(),"Only a const integral or constexpr static member may have an in-class initializer");
+                    report("SEM003",node.range(),"Only a const integral or constexpr static member may have an in-class initializer");
                 TypeEntity savedClass=currentClass;Entity savedThis=currentThis;boolean complete=owner.complete;
                 currentClass=owner;currentThis=null;owner.complete=false;
                 try{
@@ -2293,18 +2300,18 @@ public final class NameBinder {
                     path.segments().subList(0, path.segments().size() - 1), path.range()), namespace);
             if (owner == null) return;
             StaticField field = owner.staticFields.get(node.declaration().name());
-            if (field == null) { report("CPP004", node.nameRange(), "No matching static data member declaration."); return; }
+            if (field == null) { report("SEM003", node.nameRange(), "No matching static data member declaration."); return; }
             boolean enclosing = false;
             for (Namespace at = owner.owner; at != null; at = at.parent) enclosing |= at == namespace;
-            if (!enclosing) report("CPP004", node.nameRange(), "Static data definition must be in an enclosing namespace.");
+            if (!enclosing) report("SEM003", node.nameRange(), "Static data definition must be in an enclosing namespace.");
             GlobalVarDecl source = node.declaration();
             MiniType type = normalizeMemberType(source.type(),owner,source.range());
-            if (!type.equals(field.entity.type)) report("CPP004", node.nameRange(), "Static data member definition has a different type.");
+            if (!type.equals(field.entity.type)) report("SEM003", node.nameRange(), "Static data member definition has a different type.");
             if(field.entity.defined&&field.source.constexprSpecifier()&&source.initializer()==null){mapped(node,globals.stream().filter(g->g.name().equals(field.entity.coreName)).findFirst().orElseThrow());return;}
-            if (field.entity.defined) { report("CPP004", node.nameRange(), "Duplicate static data member definition."); return; }
+            if (field.entity.defined) { report("SEM003", node.nameRange(), "Duplicate static data member definition."); return; }
             field.entity.defined = true;
             if (field.constant != null && source.initializer() != null)
-                report("CPP004", source.range(), "A static member initializer cannot be specified twice.");
+                report("SEM003", source.range(), "A static member initializer cannot be specified twice.");
             TypeEntity savedClass = currentClass; Entity savedThis = currentThis;
             currentClass = owner; currentThis = null; field.defining = true;
             try {
@@ -2321,7 +2328,7 @@ public final class NameBinder {
 
         private void requireStaticAccess(StaticField field, SourceRange range) {
             if (!memberAccess(field.owner,field.access,null))
-                report("CPP004", range, "Cannot access " + field.access.name().toLowerCase(java.util.Locale.ROOT)
+                report("SEM003", range, "Cannot access " + field.access.name().toLowerCase(java.util.Locale.ROOT)
                         + " static data member: " + field.owner.canonicalName + "::" + field.entity.name);
         }
 
@@ -2353,14 +2360,14 @@ public final class NameBinder {
             FunctionDecl sourceMethod = member.method();
             String name = sourceMethod.name();
             if (fieldPath(owner.type, name, new HashSet<>()) != null || owner.staticFields.containsKey(name)) {
-                report("CPP004", member.nameRange(), "成员函数与数据成员名称冲突：" + name);
+                report("SEM003", member.nameRange(), "成员函数与数据成员名称冲突：" + name);
                 return null;
             }
             List<MiniType> parameterTypes = sourceMethod.parameters().stream()
                     .map(parameter -> normalizeType(parameter.type(), namespace, null, parameter.range())).toList();
             MiniType returnType = normalizeReturnType(sourceMethod.returnType(),sourceMethod.parameters(),parameterTypes,namespace,owner,member,sourceMethod.range());
             if (member.staticMember() && (member.constQualified() || sourceMethod.operatorName() != null)) {
-                report("CPP004", member.nameRange(), "C++17 static member functions cannot have cv qualifiers or overloaded operator names.");
+                report("SEM003", member.nameRange(), "Static member functions cannot have cv qualifiers or overloaded operator names.");
                 return null;
             }
             if (!validOperator(sourceMethod, parameterTypes, true)) return null;
@@ -2376,7 +2383,7 @@ public final class NameBinder {
                         .equals(parameterTypes.stream().map(MiniType::unqualified).toList());
                 if (sameArguments && (member.staticMember() || method.source.staticMember())
                         || earlier.parameterTypes().equals(declared.parameterTypes()) && earlier.variadic() == declared.variadic()) {
-                    report("CPP004", member.nameRange(), "类内成员函数重复声明或返回类型冲突：" + name);
+                    report("SEM003", member.nameRange(), "类内成员函数重复声明或返回类型冲突：" + name);
                     return null;
                 }
             }
@@ -2408,9 +2415,9 @@ public final class NameBinder {
             MiniType deduced;
             if (node.expression() == null) deduced = MiniType.VOID;
             else if (isBraced(node.expression())) {
-                report("CPP004", node.range(), "An auto return type cannot be deduced from a braced-init-list."); deduced=MiniType.INT;
+                report("SEM003", node.range(), "An auto return type cannot be deduced from a braced-init-list."); deduced=MiniType.INT;
             } else if (autoPlaceholder(currentAutoReturn.pattern).decltypeAuto()) {
-                if (!currentAutoReturn.pattern.equals(MiniType.DECLTYPE_AUTO)) report("CPP004", node.range(), "decltype(auto) must stand alone.");
+                if (!currentAutoReturn.pattern.equals(MiniType.DECLTYPE_AUTO)) report("SEM003", node.range(), "decltype(auto) must stand alone.");
                 deduced=decltypeType(node.expression(),namespace,scope);
             } else {
                 Expression value=unevaluatedExpression(node.expression(),namespace,scope);
@@ -2418,17 +2425,17 @@ public final class NameBinder {
                 MiniType adjusted=currentAutoReturn.pattern.isReference()?actual:TypeCompatibility.decay(actual).unqualified();
                 if(isForwardingAuto(currentAutoReturn.pattern)&&valueCategory(value)==ValueCategory.LVALUE)adjusted=adjusted.referenceTo();
                 deduced=deducePattern(currentAutoReturn.pattern,adjusted);
-                if(deduced==null){report("CPP004",node.range(),"Return expression does not match the auto return declarator.");deduced=MiniType.INT;}
+                if(deduced==null){report("SEM003",node.range(),"Return expression does not match the auto return declarator.");deduced=MiniType.INT;}
             }
             if (deduced.isVoid() && !(currentAutoReturn.pattern.unqualified() instanceof MiniType.AutoType))
-                report("CPP004",node.range(),"This auto return declarator cannot deduce void.");
+                report("SEM003",node.range(),"This auto return declarator cannot deduce void.");
             if(currentAutoReturn.deduced!=null&&!currentAutoReturn.deduced.equals(deduced))
-                report("CPP004",node.range(),"All non-discarded returns must deduce the same type.");
+                report("SEM003",node.range(),"All non-discarded returns must deduce the same type.");
             else publishAutoReturn(currentAutoReturn,deduced);
         }
         private MiniType finishAutoReturn(AutoReturnContext context,SourceRange range) {
             if(context.deduced==null){
-                if(!(context.pattern.unqualified() instanceof MiniType.AutoType))report("CPP004",range,"An auto reference/pointer return requires a return expression.");
+                if(!(context.pattern.unqualified() instanceof MiniType.AutoType))report("SEM003",range,"An auto reference/pointer return requires a return expression.");
                 publishAutoReturn(context,MiniType.VOID);
             }
             return context.deduced;
@@ -2454,7 +2461,7 @@ public final class NameBinder {
                     defaulted(method)&&!userProvidedDefaulted.contains(method.function),method.source.method().range());
             if(method.source.method().definitionKind()==DefinitionKind.DELETED)return;
             if(method.source.method().definitionKind()==DefinitionKind.DEFAULTED){
-                if(!isCopyAssignment(method)&&!isMoveAssignment(method))report("CPP004",method.source.range(),"Only a special member function can be defaulted");
+                if(!isCopyAssignment(method)&&!isMoveAssignment(method))report("SEM003",method.source.range(),"Only a special member function can be defaulted");
                 return;
             }
             FunctionDecl original = method.source.method();
@@ -2523,17 +2530,17 @@ public final class NameBinder {
             boolean enclosing = false;
             for (Namespace at = owner.owner; at != null; at = at.parent) enclosing |= at == namespace;
             if (!enclosing) {
-                report("CPP004", node.nameRange(), "成员定义必须位于所属类的外围命名空间：" + spelling(path));
+                report("SEM003", node.nameRange(), "成员定义必须位于所属类的外围命名空间：" + spelling(path));
                 return;
             }
             FunctionDecl definition = node.method();
             MethodSet overloads = owner.methods.get(definition.name());
             if (!owner.complete || overloads == null) {
-                report("CPP004", node.nameRange(), "类中尚未声明此成员函数：" + spelling(path));
+                report("SEM003", node.nameRange(), "类中尚未声明此成员函数：" + spelling(path));
                 return;
             }
             if (!definition.hasDefinition()) {
-                report("CPP004", node.nameRange(), "类外成员声明必须提供函数定义：" + spelling(path));
+                report("SEM003", node.nameRange(), "类外成员声明必须提供函数定义：" + spelling(path));
                 return;
             }
             List<MiniType> parameterTypes = definition.parameters().stream()
@@ -2547,16 +2554,16 @@ public final class NameBinder {
                     && method.source.constQualified() == node.constQualified()
                     && methodReturnType(method).equals(returnType)).findFirst().orElse(null);
             if (previous == null) {
-                report("CPP004", node.nameRange(), "类外定义与成员函数声明的签名不匹配：" + spelling(path));
+                report("SEM003", node.nameRange(), "类外定义与成员函数声明的签名不匹配：" + spelling(path));
                 return;
             }
             if(previous.source.method().constexprSpecifier()!=definition.constexprSpecifier())
-                report("CPP004",definition.range(),"All declarations of a member function must agree on constexpr");
+                report("SEM003",definition.range(),"All declarations of a member function must agree on constexpr");
             if (previous.function.defined) {
-                report("CPP004", node.nameRange(), "成员函数重复定义：" + spelling(path));
+                report("SEM003", node.nameRange(), "成员函数重复定义：" + spelling(path));
                 return;
             }
-            if(definition.definitionKind()==DefinitionKind.DELETED){report("CPP004",node.range(),"A deleted definition must be the first declaration");return;}
+            if(definition.definitionKind()==DefinitionKind.DELETED){report("SEM003",node.range(),"A deleted definition must be the first declaration");return;}
             previous.function.defined = true;
             MethodMember member = new MethodMember(definition, node.constQualified(), previous.source.staticMember(), node.nameRange());
             Method replacement=new Method(owner,member,previous.access,previous.function,returnType,parameterTypes);
@@ -2567,7 +2574,7 @@ public final class NameBinder {
             if(defaulted(replacement)){
                 userProvidedDefaulted.add(replacement.function);registerSpecialDefinition(replacement.function,DefinitionKind.DEFAULTED,node.range());
                 owner.assignmentPlanned=false;owner.movePlanned=false;ensureImplicitAssignment(owner);ensureImplicitMove(owner);
-                if(isDeleted(replacement.function))report("CPP004",node.range(),"A defaulted definition after the first declaration cannot be deleted");
+                if(isDeleted(replacement.function))report("SEM003",node.range(),"A defaulted definition after the first declaration cannot be deleted");
                 else if(replacement==owner.implicitAssignment)emitImplicitAssignment(owner);else if(replacement==owner.implicitMoveAssignment)emitImplicitMoveAssignment(owner);
             } else if(templateDefinitionOwner==owner) {
                 pendingTemplateMethods.put(replacement.function,replacement);templateMemberLookups.put(replacement.function,templateDefinitionLookup);
@@ -2596,11 +2603,11 @@ public final class NameBinder {
             }
             Candidate candidate = candidates.isEmpty() ? null : selectCandidate(candidates, spelling(name), name.range());
             if (candidate instanceof Namespace) {
-                report("CPP005", name.range(), "尚未支持命名空间自由函数的类外限定定义：" + spelling(name));
+                report("SEM004", name.range(), "尚未支持命名空间自由函数的类外限定定义：" + spelling(name));
                 return null;
             }
             TypeEntity owner = candidate instanceof TypeEntity type ? objectType(type.type) : null;
-            if (owner == null) report("CPP003", name.range(), "成员定义需要已声明的类类型：" + spelling(name));
+            if (owner == null) report("SEM002", name.range(), "成员定义需要已声明的类类型：" + spelling(name));
             return owner;
         }
 
@@ -2628,17 +2635,17 @@ public final class NameBinder {
         }
 
         private TypeEntity declareClass(String name, boolean union, Namespace namespace, SourceRange range) {
-            if (namespace.children.containsKey(name)) report("CPP004", range, "类型声明与命名空间冲突：" + name);
+            if (namespace.children.containsKey(name)) report("SEM003", range, "类型声明与命名空间冲突：" + name);
             TypeEntity existing = namespace.tags.get(name);
             if (existing == null && namespace.typedefs.containsKey(name) && namespace.typedefs.get(name).classType) {
                 existing = namespace.typedefs.get(name);
             }
             if (existing != null && existing.classType) {
-                if (existing.union != union) report("CPP004", range, "struct/union 类型声明不一致：" + name);
+                if (existing.union != union) report("SEM003", range, "struct/union 类型声明不一致：" + name);
                 return existing;
             }
             if (existing != null || namespace.typedefs.containsKey(name)) {
-                report("CPP004", range, "类型声明与已有类型别名冲突：" + name);
+                report("SEM003", range, "类型声明与已有类型别名冲突：" + name);
             }
             String canonical = "::" + namespace.qualify(name);
             String coreName = freshName(namespace.qualify(name));
@@ -2677,7 +2684,7 @@ public final class NameBinder {
                 return value;
             } finally {decltypeOperand=saved;}
         }
-        /** Reuses builtin rules after C++ overload/access binding without executing or requiring bodies. */
+        /** Reuses builtin rules after overload/access binding without executing or requiring bodies. */
         private void validateUnevaluatedCore(Expression value) {
             var symbols=new LinkedHashMap<String,MiniType>();
             for(var entry:coreValues.entrySet()) {
@@ -2718,7 +2725,7 @@ public final class NameBinder {
         }
         private MiniType checkedDeduced(MiniType type, SourceRange range) {
             if (type == null || type.containsPlaceholder()) {
-                report("CPP004", range, "The expression has no deduced type at this point."); return MiniType.INT;
+                report("SEM003", range, "The expression has no deduced type at this point."); return MiniType.INT;
             }
             return type;
         }
@@ -2736,12 +2743,12 @@ public final class NameBinder {
                                             Namespace namespace, Local local, SourceRange range) {
             List<Expression> arguments = syntax == null ? legacy == null ? List.of() : List.of(legacy) : syntax.arguments();
             MiniType.AutoType placeholder = autoPlaceholder(pattern);
-            if (arguments.isEmpty()) { report("CPP004", range, "An auto declaration requires an initializer."); return MiniType.INT; }
+            if (arguments.isEmpty()) { report("SEM003", range, "An auto declaration requires an initializer."); return MiniType.INT; }
             boolean copyList = syntax != null && syntax.kind() == InitializerSyntax.Kind.COPY_LIST;
             if (placeholder != null && placeholder.decltypeAuto()) {
-                if (!pattern.equals(MiniType.DECLTYPE_AUTO)) report("CPP004", range, "decltype(auto) cannot have additional declarator or cv qualifiers.");
+                if (!pattern.equals(MiniType.DECLTYPE_AUTO)) report("SEM003", range, "decltype(auto) cannot have additional declarator or cv qualifiers.");
                 if (copyList || arguments.size() != 1 || isBraced(arguments.getFirst())) {
-                    report("CPP004", range, "decltype(auto) requires one expression, not a braced list."); return MiniType.INT;
+                    report("SEM003", range, "decltype(auto) requires one expression, not a braced list."); return MiniType.INT;
                 }
                 return decltypeType(arguments.getFirst(), namespace, local);
             }
@@ -2749,26 +2756,26 @@ public final class NameBinder {
             if (copyList) {
                 MiniType element = null;
                 for (Expression item : arguments) {
-                    if (isBraced(item)) { report("CPP004", item.range(), "auto cannot deduce an element type from nested braces."); return MiniType.INT; }
+                    if (isBraced(item)) { report("SEM003", item.range(), "auto cannot deduce an element type from nested braces."); return MiniType.INT; }
                     MiniType candidate = TypeCompatibility.decay(checkedDeduced(declaredExpressionType(unevaluatedExpression(item, namespace, local)), item.range())).unqualified();
-                    if (element != null && !element.equals(candidate)) report("CPP004", item.range(), "All elements of an auto initializer_list must deduce the same type.");
+                    if (element != null && !element.equals(candidate)) report("SEM003", item.range(), "All elements of an auto initializer_list must deduce the same type.");
                     element = candidate;
                 }
-                if (element == null) { report("CPP004", range, "auto cannot deduce an empty initializer_list."); return MiniType.INT; }
+                if (element == null) { report("SEM003", range, "auto cannot deduce an empty initializer_list."); return MiniType.INT; }
                 actual = templateType(new MiniType.TemplateIdType("::std::initializer_list", List.of(new TemplateArgument.Type(element))), namespace, local, range);
             } else {
                 if (arguments.size() != 1 || isBraced(arguments.getFirst())) {
-                    report("CPP004", range, "Direct-list auto deduction requires exactly one expression."); return MiniType.INT;
+                    report("SEM003", range, "Direct-list auto deduction requires exactly one expression."); return MiniType.INT;
                 }
                 Expression value = unevaluatedExpression(arguments.getFirst(), namespace, local);
                 actual = checkedDeduced(declaredExpressionType(value), arguments.getFirst().range());
                 category=valueCategory(value);
             }
-            if (actual.isVoid()) { report("CPP004", range, "An auto object cannot have void type."); return MiniType.INT; }
+            if (actual.isVoid()) { report("SEM003", range, "An auto object cannot have void type."); return MiniType.INT; }
             MiniType adjusted = pattern.isReference() ? actual : TypeCompatibility.decay(actual).unqualified();
             if(isForwardingAuto(pattern)&&category==ValueCategory.LVALUE)adjusted=adjusted.referenceTo();
             MiniType result = deducePattern(pattern, adjusted);
-            if (result == null) { report("CPP004", range, "The initializer does not match the auto declarator pattern."); return MiniType.INT; }
+            if (result == null) { report("SEM003", range, "The initializer does not match the auto declarator pattern."); return MiniType.INT; }
             return result;
         }
         private boolean isForwardingAuto(MiniType pattern) {
@@ -2833,14 +2840,14 @@ public final class NameBinder {
 
         private MiniType normalizeType(MiniType type, Namespace namespace, Local local, SourceRange range) {
             if (type == null) return null;
-            if(type instanceof MiniType.PackExpansionType) {report("CPP004",range,"Unexpanded function parameter pack");return MiniType.INT;}
+            if(type instanceof MiniType.PackExpansionType) {report("SEM003",range,"Unexpanded function parameter pack");return MiniType.INT;}
             if(type instanceof MiniType.DependentArrayType array) {
                 MiniType element=normalizeType(array.elementType(),namespace,local,range);
                 try {
                     long length=evaluateTemplateConstant(expression(array.bound(),namespace,local)).value();
                     if(length<=0||length>Integer.MAX_VALUE)throw new IllegalArgumentException("Array bound must be in 1..2147483647");
                     return element.arrayOf((int)length);
-                } catch(IllegalArgumentException error){report("CPP004",range,error.getMessage());return element.arrayOf(1);}
+                } catch(IllegalArgumentException error){report("SEM003",range,error.getMessage());return element.arrayOf(1);}
             }
             if (type instanceof MiniType.DecltypeType query) return decltypeType(query.expression(), namespace, local);
             if (type instanceof MiniType.MemberType member) {
@@ -2849,30 +2856,30 @@ public final class NameBinder {
                 if(owner!=null)completeTemplate(owner,range);
                 owner=declaringMember(owner,member.name());
                 MiniType result=owner==null?null:isInjectedClassName(owner,member.name())?owner.type:owner.memberTypes.get(member.name());
-                if(result==null) {report("CPP003",range,"No member type "+member.name()+" in "+ownerType);return MiniType.INT;}
+                if(result==null) {report("SEM002",range,"No member type "+member.name()+" in "+ownerType);return MiniType.INT;}
                 if(!memberAccess(owner,owner.memberTypeAccess.getOrDefault(member.name(),Access.PUBLIC),null))
-                    report("CPP004",range,"Member type is inaccessible: "+member.name());
+                    report("SEM003",range,"Member type is inaccessible: "+member.name());
                 return result;
             }
             if (type instanceof MiniType.TemplateIdType id) return templateType(id, namespace, local, range);
             if (type instanceof MiniType.TemplateParameterType parameter) {
-                report("CPP004", range, "Unsubstituted template parameter: " + parameter);
+                report("SEM003", range, "Unsubstituted template parameter: " + parameter);
                 return MiniType.INT;
             }
             if (type instanceof MiniType.ReferenceType reference) {
                 MiniType referent = normalizeType(reference.referent(), namespace, local, range);
-                if (referent.isVoid()) report("CPP004", range, "引用不能指向 void。");
+                if (referent.isVoid()) report("SEM003", range, "引用不能指向 void。");
                 return referent.referenceTo(reference.kind());
             }
             if (type instanceof MiniType.QualifiedType qualified) {
                 return MiniType.qualified(normalizeType(qualified.baseType(), namespace, local, range), qualified.qualifiers());
             }
             if (type instanceof MiniType.PointerType pointer) {
-                if (pointer.pointee().isReference()) report("CPP004", range, "不能声明指向引用的指针。");
+                if (pointer.pointee().isReference()) report("SEM003", range, "不能声明指向引用的指针。");
                 return normalizeType(pointer.pointee(), namespace, local, range).pointerTo();
             }
             if (type instanceof MiniType.ArrayType array) {
-                if (array.elementType().isReference()) report("CPP004", range, "数组元素不能是引用。");
+                if (array.elementType().isReference()) report("SEM003", range, "数组元素不能是引用。");
                 return normalizeType(array.elementType(), namespace, local, range).arrayOf(array.length());
             }
             if (type instanceof MiniType.FunctionType function) return MiniType.function(
@@ -2891,7 +2898,7 @@ public final class NameBinder {
                 entity = lookupLegacyTag(name, namespace, local, range);
                 if (entity == null && diagnostics.size() == beforeLookup && !name.contains("::")) {
                     if (local != null) {
-                        report("CPP005", range, "尚未支持具名局部类型声明的作用域保存。");
+                        report("SEM004", range, "尚未支持具名局部类型声明的作用域保存。");
                         return type;
                     }
                     // An unqualified elaborated specifier can introduce an incomplete class.
@@ -2901,11 +2908,11 @@ public final class NameBinder {
                 }
             }
             if (entity == null) {
-                report("CPP003", range, "此位置尚未声明类型：" + name);
+                report("SEM002", range, "此位置尚未声明类型：" + name);
                 return type;
             }
             if (!entity.classType || entity.union != union) {
-                report("CPP004", range, "struct/union 类型名称不匹配：" + name);
+                report("SEM003", range, "struct/union 类型名称不匹配：" + name);
                 return type;
             }
             return entity.type;
@@ -2914,7 +2921,7 @@ public final class NameBinder {
         /** Source callable signatures retain references; only emitted core nodes use pointer ABI. */
         private MiniType coreType(MiniType type) {
             if (type == null) return null;
-            if (type.containsPlaceholder()) { report("CPP004", source.range(), "A source placeholder has not been deduced in this declaration."); return MiniType.INT; }
+            if (type.containsPlaceholder()) { report("SEM003", source.range(), "A source placeholder has not been deduced in this declaration."); return MiniType.INT; }
             return switch (type) {
                 case MiniType.NullPointerType ignored -> MiniType.VOID.pointerTo();
                 case MiniType.ReferenceType reference -> coreType(reference.referent()).pointerTo();
@@ -2966,10 +2973,10 @@ public final class NameBinder {
 
         private boolean requireComplete(MiniType type, SourceRange range) {
             if (type == null) return true; // Unknown scalar expression types are checked by the core semantic pass.
-            if (type.containsPlaceholder()) { report("CPP004", range, "The type must be deduced before it is used."); return false; }
+            if (type.containsPlaceholder()) { report("SEM003", range, "The type must be deduced before it is used."); return false; }
             type = type.unqualified();
             if (type instanceof MiniType.ArrayType array) {
-                if(array.length()<0)report("CPP004",range,"This use requires a complete array bound.");
+                if(array.length()<0)report("SEM003",range,"This use requires a complete array bound.");
                 boolean completeElement = requireComplete(array.elementType(), range);
                 return array.length() >= 0 && completeElement;
             }
@@ -2977,7 +2984,7 @@ public final class NameBinder {
                 TypeEntity entity = coreTypes.get(struct.name());
                 if (entity != null) completeTemplate(entity, range);
                 if (entity != null && !entity.complete) {
-                    report("CPP005", range, "此位置需要完整对象类型，但类型仍不完整：" + entity.canonicalName);
+                    report("SEM004", range, "此位置需要完整对象类型，但类型仍不完整：" + entity.canonicalName);
                     return false;
                 }
             }
@@ -2991,7 +2998,7 @@ public final class NameBinder {
         }
 
         private void bindGlobal(GlobalVarDecl node, Namespace namespace) {
-            if (namespace != root && node.external() && !existingInternal(namespace, node.name())) report("CPP005", node.range(),
+            if (namespace != root && node.external() && !existingInternal(namespace, node.name())) report("SEM004", node.range(),
                     "尚未支持命名空间中的外部对象链接：" + namespace.qualify(node.name()));
             MiniType type = normalizeType(node.type(), namespace, null, node.range());
             boolean defined = !node.external() || node.initializer() != null;
@@ -3022,7 +3029,7 @@ public final class NameBinder {
                 while(index<values.size()) {index=skipArrayInitializer(elementType(type),values,index,namespace,scope);count++;}
             }
             if(count<=0) {
-                report("CPP004",range,"An array definition of unknown bound needs a non-empty initializer from which to deduce its extent.");
+                report("SEM003",range,"An array definition of unknown bound needs a non-empty initializer from which to deduce its extent.");
                 return MiniType.qualified(type.elementType().arrayOf(1),type.qualifiers());
             }
             return MiniType.qualified(type.elementType().arrayOf(count),type.qualifiers());
@@ -3034,7 +3041,7 @@ public final class NameBinder {
             Expression source=values.get(index);
             if(isBraced(source)||type.isArray()&&source instanceof StringLiteralExpr)return index+1;
             if(type.isArray()) {
-                if(type.arrayLength()<0){report("CPP004",source.range(),"Only the outermost array extent may be omitted.");return index+1;}
+                if(type.arrayLength()<0){report("SEM003",source.range(),"Only the outermost array extent may be omitted.");return index+1;}
                 for(int element=0;element<type.arrayLength()&&index<values.size();element++)index=skipArrayInitializer(elementType(type),values,index,namespace,scope);
                 return index;
             }
@@ -3125,7 +3132,7 @@ public final class NameBinder {
                         OR_ASSIGN, SHIFT_LEFT_ASSIGN, SHIFT_RIGHT_ASSIGN -> true;
                 default -> false;
             }) return false;
-            report("CPP005", node.operatorName().range(), "运算符重载声明已解析；重载选择和执行语义尚未实现。");
+            report("SEM004", node.operatorName().range(), "运算符重载声明已解析；重载选择和执行语义尚未实现。");
             return true;
         }
 
@@ -3145,7 +3152,7 @@ public final class NameBinder {
             };
             valid &= !node.variadic() || kind == OperatorName.Kind.CALL;
             if (!member) valid &= parameters.stream().anyMatch(type -> objectType(objectTypeOfReference(type)) != null);
-            if (!valid) report("CPP004", node.operatorName().range(), "运算符声明的成员形式、参数个数或参数类型不合法。");
+            if (!valid) report("SEM003", node.operatorName().range(), "运算符声明的成员形式、参数个数或参数类型不合法。");
             return valid;
         }
 
@@ -3156,12 +3163,12 @@ public final class NameBinder {
                     || kind == minic.compiler.parser.node.OperatorName.Kind.NEW_ARRAY;
             MiniType expectedReturn = allocating ? MiniType.VOID.pointerTo() : MiniType.VOID;
             MiniType expectedFirst = allocating ? MiniType.UNSIGNED_LONG_LONG : MiniType.VOID.pointerTo();
-            if (namespace != root) report("CPP004", node.operatorName().range(),
+            if (namespace != root) report("SEM003", node.operatorName().range(),
                     "A nonmember allocation or deallocation function must be declared in global scope.");
-            if (!returnType.unqualified().equals(expectedReturn)) report("CPP004", node.range(),
+            if (!returnType.unqualified().equals(expectedReturn)) report("SEM003", node.range(),
                     "Invalid allocation or deallocation function return type.");
             if (parameters.isEmpty() || !parameters.getFirst().unqualified().equals(expectedFirst))
-                report("CPP004", node.range(), "Invalid first allocation or deallocation parameter type.");
+                report("SEM003", node.range(), "Invalid first allocation or deallocation parameter type.");
         }
 
         private void recordDefaultArguments(Entity function,List<Parameter> parameters,Namespace namespace,TypeEntity record) {
@@ -3171,7 +3178,7 @@ public final class NameBinder {
                 Parameter parameter=parameters.get(index);
                 DefaultArgument old=index<prior.size()?prior.get(index):null;
                 if(parameter.defaultValue()!=null) {
-                    if(old!=null)report("CPP004",parameter.range(),"Default argument is declared more than once");
+                    if(old!=null)report("SEM003",parameter.range(),"Default argument is declared more than once");
                     old=new DefaultArgument(parameter.defaultValue(),namespace,record,currentTemplateLookup==null?snapshotLookup():currentTemplateLookup);
                 }
                 merged.add(old);
@@ -3197,7 +3204,7 @@ public final class NameBinder {
             var result=new ArrayList<Expression>();var defaults=functionDefaults.getOrDefault(function,List.of());
             for(int index=supplied;index<parameters.size();index++) {
                 DefaultArgument argument=index<defaults.size()?defaults.get(index):null;
-                if(argument==null){report("CPP004",source.range(),"Missing required function argument");break;}
+                if(argument==null){report("SEM003",source.range(),"Missing required function argument");break;}
                 var savedLookup=currentTemplateLookup;var savedClass=currentClass;var savedThis=currentThis;
                 currentTemplateLookup=argument.lookup;currentClass=argument.record;currentThis=null;
                 try {
@@ -3216,13 +3223,13 @@ public final class NameBinder {
         private void bindFunction(FunctionDecl node, Namespace namespace) { bindFunction(node,namespace,null); }
 
         private void bindFunction(FunctionDecl node, Namespace namespace,Entity instantiated) {
-            if(node.definitionKind()==DefinitionKind.DEFAULTED){report("CPP004",node.range(),"Only a special member function can be defaulted");return;}
+            if(node.definitionKind()==DefinitionKind.DEFAULTED){report("SEM003",node.range(),"Only a special member function can be defaulted");return;}
             if (node.conversionName() != null) {
-                report("CPP004", node.range(), "转换函数必须是非静态类成员。"); return;
+                report("SEM003", node.range(), "转换函数必须是非静态类成员。"); return;
             }
             boolean allocation = node.operatorName() != null && node.operatorName().kind().allocation();
             if (!allocation && unsupportedOperator(node)) return;
-            if (namespace != root && node.external() && !existingInternal(namespace, node.name())) report("CPP005", node.range(),
+            if (namespace != root && node.external() && !existingInternal(namespace, node.name())) report("SEM004", node.range(),
                     "尚未支持命名空间中的外部函数链接：" + namespace.qualify(node.name()));
             List<MiniType> parameterTypes = node.parameters().stream()
                     .map(p -> normalizeType(p.type(), namespace, null, p.range())).toList();
@@ -3239,7 +3246,7 @@ public final class NameBinder {
             if(instantiated==null&&node.definitionKind()==DefinitionKind.DELETED&&namespace.values.get(node.name()) instanceof OverloadSet previous
                     &&previous.functions.stream().anyMatch(f->!functionTemplates.containsKey(f)&&f.type instanceof MiniType.FunctionType type
                             &&type.parameterTypes().equals(signature.parameterTypes())&&type.variadic()==signature.variadic()))
-                report("CPP004",node.range(),"A deleted definition must be the first declaration");
+                report("SEM003",node.range(),"A deleted definition must be the first declaration");
             Entity entity = instantiated!=null?instantiated:declareNamespaceFunction(node.name(), signature, node.hasDefinition(), namespace, node.range(), node.operatorName() != null);
             constexprFunction(entity,node.constexprSpecifier(),node.body(),node.range());
             exceptionSource(entity,node.exceptionSpecification(),node.parameters(),parameterTypes,namespace,null,null,false,node.range());
@@ -3304,24 +3311,24 @@ public final class NameBinder {
         private Entity declareNamespaceValue(String name, Kind kind, MiniType type, boolean definition,
                                              Namespace namespace, SourceRange range) {
             if (namespace.children.containsKey(name) || namespace.typedefs.containsKey(name) && !namespace.typedefs.get(name).classType) {
-                report("CPP004", range, "名称与命名空间或类型别名冲突：" + name);
+                report("SEM003", range, "名称与命名空间或类型别名冲突：" + name);
             }
             Candidate previous = namespace.values.get(name);
             Entity existing = previous instanceof Entity entity ? entity : null;
-            if (previous != null && existing == null) report("CPP004", range, "名称与已有函数声明冲突：" + name);
+            if (previous != null && existing == null) report("SEM003", range, "名称与已有函数声明冲突：" + name);
             if (existing != null) {
                 if (existing.owner != namespace || existing.kind != kind) {
-                    report("CPP004", range, "名称与已有声明或 using 声明冲突：" + name);
+                    report("SEM003", range, "名称与已有声明或 using 声明冲突：" + name);
                 } else if (existing.type.isArray()&&type.isArray()&&existing.type.elementType().equals(type.elementType())
                         && existing.type.qualifiers().equals(type.qualifiers())&&(existing.type.arrayLength()<0||type.arrayLength()<0)) {
                     if(type.arrayLength()>0)existing.type=type;
-                    if(definition&&existing.defined)report("CPP004",range,"重复定义："+name);
+                    if(definition&&existing.defined)report("SEM003",range,"重复定义："+name);
                 } else if (!existing.type.equals(type)) {
-                    report(kind == Kind.FUNCTION ? "CPP005" : "CPP004", range,
+                    report(kind == Kind.FUNCTION ? "SEM004" : "SEM003", range,
                             kind == Kind.FUNCTION ? "尚未支持函数重载或不同签名的重声明：" + name
                                     : "重复声明的类型不一致：" + name);
                 } else if (definition && existing.defined) {
-                    report("CPP004", range, "重复定义：" + name);
+                    report("SEM003", range, "重复定义：" + name);
                 }
                 existing.defined |= definition;
                 return existing;
@@ -3340,21 +3347,21 @@ public final class NameBinder {
             Candidate previous = namespace.values.get(name);
             if (namespace.children.containsKey(name) || namespace.typedefs.containsKey(name)
                     && !namespace.typedefs.get(name).classType || previous != null && !(previous instanceof OverloadSet)) {
-                report("CPP004", range, "函数名称与已有声明冲突：" + name);
+                report("SEM003", range, "函数名称与已有声明冲突：" + name);
             }
             List<Entity> visible = previous instanceof OverloadSet set ? set.functions : List.of();
             for (Entity function : visible) {
                 if(functionTemplates.containsKey(function))continue;
                 MiniType.FunctionType signature = (MiniType.FunctionType) function.type;
                 if (!signature.parameterTypes().equals(type.parameterTypes()) || signature.variadic() != type.variadic()) continue;
-                if (function.owner != namespace) report("CPP004", range, "函数声明与 using 引入的函数冲突：" + name);
+                if (function.owner != namespace) report("SEM003", range, "函数声明与 using 引入的函数冲突：" + name);
                 if (!signature.returnType().equals(type.returnType())
-                        && !Objects.equals(autoReturnPatterns.get(function),type.returnType())) report("CPP004", range, "函数重声明的返回类型不一致：" + name);
-                if (definition && function.defined) report("CPP004", range, "重复函数定义：" + name);
+                        && !Objects.equals(autoReturnPatterns.get(function),type.returnType())) report("SEM003", range, "函数重声明的返回类型不一致：" + name);
+                if (definition && function.defined) report("SEM003", range, "重复函数定义：" + name);
                 function.defined |= definition;
                 return function;
             }
-            if (namespace == root && name.equals("main") && !visible.isEmpty()) report("CPP004", range, "main 不能重载。");
+            if (namespace == root && name.equals("main") && !visible.isEmpty()) report("SEM003", range, "main 不能重载。");
             String coreName = namespace == root && visible.isEmpty() && !operator ? name : freshName(namespace.qualify(name));
             displayNames.put(coreName, namespace.qualify(name));
             Entity entity = new Entity(name, coreName, Kind.FUNCTION, namespace, type, null, definition);
@@ -3367,7 +3374,7 @@ public final class NameBinder {
 
         private Entity declareLocal(String name, MiniType type, Local scope, SourceRange range) {
             if (scope.values.containsKey(name) || scope.typedefs.containsKey(name) && !scope.typedefs.get(name).classType) {
-                report("CPP004", range, "局部名称重复或与 using 声明冲突：" + name);
+                report("SEM003", range, "局部名称重复或与 using 声明冲突：" + name);
             }
             Entity entity = new Entity(name, freshName(name), Kind.VARIABLE, null, type, null, true);
             scope.values.put(name, entity);
@@ -3378,13 +3385,13 @@ public final class NameBinder {
         private void declareTypedef(String name, MiniType type, Namespace namespace, Local local, SourceRange range) {
             Map<String, Candidate> values = local == null ? namespace.values : local.values;
             if (values.containsKey(name) || (local == null && namespace.children.containsKey(name))) {
-                report("CPP004", range, "类型别名与已有名称冲突：" + name);
+                report("SEM003", range, "类型别名与已有名称冲突：" + name);
             }
             Map<String, TypeEntity> aliases = local == null ? namespace.typedefs : local.typedefs;
             TypeEntity previous = aliases.get(name);
             TypeEntity tag = local == null ? namespace.tags.get(name) : null;
             if (previous != null && !previous.type.equals(type) || tag != null && !tag.type.equals(type)) {
-                report("CPP004", range, "类型别名与已有类型声明冲突：" + name);
+                report("SEM003", range, "类型别名与已有类型声明冲突：" + name);
             }
             aliases.put(name, new TypeEntity(name, "::" + namespace.qualify(name), type, false, false, namespace, true));
         }
@@ -3404,7 +3411,7 @@ public final class NameBinder {
                             || tag != null && !tag.type.equals(type.type)
                             || !type.classType && (local == null ? namespace.values : local.values).containsKey(name)
                             || local == null && namespace.children.containsKey(name)) {
-                        report("CPP004", node.range(), "using 类型声明与已有名称冲突：" + name);
+                        report("SEM003", node.range(), "using 类型声明与已有名称冲突：" + name);
                     }
                     return;
                 }
@@ -3423,7 +3430,7 @@ public final class NameBinder {
                 if (previous != null && previous != target
                         || type != null && !type.classType
                         || (local == null && namespace.children.containsKey(name))) {
-                    report("CPP004", node.range(), "using 声明与已有名称冲突：" + name);
+                    report("SEM003", node.range(), "using 声明与已有名称冲突：" + name);
                 }
             }
         }
@@ -3499,7 +3506,7 @@ public final class NameBinder {
                         result.addAll(localPreludes.getOrDefault(bound,List.of()));result.addAll(transparentStatements(bound));
                         if(declaration instanceof VarDeclStmt variable&&variable.type().containsAuto()&&scope.values.get(variable.name()) instanceof Entity entity){
                             MiniType deduced=autoGroupType(variable.type(),entity.type);
-                            if(commonAuto!=null&&!commonAuto.equals(deduced))report("CPP004",variable.range(),"All declarators sharing auto must deduce the same placeholder type");
+                            if(commonAuto!=null&&!commonAuto.equals(deduced))report("SEM003",variable.range(),"All declarators sharing auto must deduce the same placeholder type");
                             else commonAuto=deduced;
                         }
                     }
@@ -3564,7 +3571,7 @@ public final class NameBinder {
                     Statement initializer = statement(n.initializer(), loop);
                     Expression condition = fullExpression(contextualBool(expression(n.condition(), namespace, loop)), false, n);
                     Expression step = fullExpression(expression(n.step(), namespace, loop), false, n);
-                    // C++ forbids redeclaring the for-init name in the body's outermost block.
+                    // Redeclaring the for-init name is forbidden in the body's outermost block.
                     Statement loopBody = n.body() instanceof BlockStmt b ? block(b, loop, false) : body(n.body(), loop);
                     if (transparentStatements(initializer).stream().anyMatch(item->localCleanups.containsKey(item)||localPreludes.containsKey(item))) {
                         ForStmt loopStatement = new ForStmt(null, condition, step, loopBody, n.range());
@@ -3580,11 +3587,11 @@ public final class NameBinder {
                     List<SwitchCase> cases = new ArrayList<>();
                     boolean crossesInitialization = false;
                     for (SwitchCase item : n.cases()) {
-                        if (crossesInitialization) report("CPP005", item.range(),
+                        if (crossesInitialization) report("SEM004", item.range(),
                                 "case/default 跳转会跳过同一 switch 作用域的局部初始化；请用显式块限制变量作用域。");
                         Expression value = expression(item.value(), namespace, casesScope);
                         if(value!=null)try{var number=evaluateTemplateConstant(value);value=new IntegerConstantExpr(number.value(),number.type(),Long.toString(number.value()),value.range());}
-                        catch(IllegalArgumentException invalid){report("CPP004",item.range(),"Case label is not an integral constant expression: "+invalid.getMessage());}
+                        catch(IllegalArgumentException invalid){report("SEM003",item.range(),"Case label is not an integral constant expression: "+invalid.getMessage());}
                         cases.add(mapped(item, new SwitchCase(value, statements(item.statements(), casesScope), item.range())));
                         crossesInitialization |= item.statements().stream()
                                 .anyMatch(this::crossesLocalInitialization);
@@ -3594,7 +3601,7 @@ public final class NameBinder {
                 case BreakStmt n -> n;
                 case ContinueStmt n -> n;
                 default -> {
-                    report("CPP005", node.range(), "尚未支持此 C++ 语句：" + node.getClass().getSimpleName());
+                    report("SEM004", node.range(), "尚未支持此语句：" + node.getClass().getSimpleName());
                     yield node;
                 }
             };
@@ -3603,7 +3610,7 @@ public final class NameBinder {
 
         private void rejectUnevaluatedLambdas(AstNode source) {
             if(source==null)return;
-            if(source instanceof LambdaExpr) {report("CPP004",source.range(),"Lambda expressions in unevaluated operands require C++20.");return;}
+            if(source instanceof LambdaExpr) {report("SEM003",source.range(),"Lambda expressions cannot appear in unevaluated operands.");return;}
             for(AstNode child:AstChildren.of(source))rejectUnevaluatedLambdas(child);
         }
 
@@ -3665,14 +3672,14 @@ public final class NameBinder {
             if(explicit==null||explicit.initializer()==null) {
                 Candidate original=lambdaOuter(lambda,()->lookupName(name,lambda.namespace,lambda.lexicalScope,range));
                 if(original instanceof Entity entity&&structuredBindingTypes.containsKey(entity))
-                    report("CPP004",range,"Capturing a structured binding requires C++20; use an init-capture in C++17.");
+                    report("SEM003",range,"A structured binding cannot be captured; use an init-capture.");
             }
             if(explicit==null && lambda.source.captureDefault()==LambdaExpr.CaptureDefault.NONE) {
-                report("CPP004",range,"An automatic variable must be captured before it is used in a lambda: "+name);
+                report("SEM003",range,"An automatic variable must be captured before it is used in a lambda: "+name);
                 Candidate candidate=lambdaOuter(lambda,()->lookupName(name,lambda.namespace,lambda.lexicalScope,range));
                 return candidate instanceof Entity entity?new UnevaluatedLambdaLocal(entity):candidate;
             }
-            if(lambda.complete) {report("CPP004",range,"A lambda cannot acquire captures after its closure type is complete.");return null;}
+            if(lambda.complete) {report("SEM003",range,"A lambda cannot acquire captures after its closure type is complete.");return null;}
             boolean byReference=explicit!=null?explicit.kind()==LambdaExpr.CaptureKind.REFERENCE
                     :lambda.source.captureDefault()==LambdaExpr.CaptureDefault.REFERENCE;
             Expression source=explicit!=null&&explicit.initializer()!=null?explicit.initializer():new NameExpr(name,range);
@@ -3698,7 +3705,7 @@ public final class NameBinder {
             LambdaCapture capture=lambda.captures.get(captureName);
             if(capture==null) {
                 if(lambda.source.captureDefault()==LambdaExpr.CaptureDefault.NONE) {
-                    report("CPP004",range,"The enclosing this object is not captured by this lambda.");
+                    report("SEM003",range,"The enclosing this object is not captured by this lambda.");
                     return typed(new CastExpr(MiniType.VOID.pointerTo(),new IntegerLiteralExpr(0,"0",range),range),MiniType.VOID.pointerTo());
                 }
                 captureLambdaThis(lambda,false,null,range);capture=lambda.captures.get(captureName);
@@ -3709,10 +3716,10 @@ public final class NameBinder {
         }
 
         private void captureLambdaThis(LambdaInfo lambda,boolean copy,LambdaExpr.Capture source,SourceRange range) {
-            if(lambda.captures.containsKey(lambda.thisCaptureName)) {if(source!=null)report("CPP004",range,"Duplicate this capture.");return;}
+            if(lambda.captures.containsKey(lambda.thisCaptureName)) {if(source!=null)report("SEM003",range,"Duplicate this capture.");return;}
             Expression value=lambdaOuter(lambda,()->lambdaTypes.containsKey(currentClass)
                     ?lambdaThis(lambdaTypes.get(currentClass),range):currentThis==null?null:thisValue(range));
-            if(value==null) {report("CPP004",range,"There is no enclosing this object to capture.");return;}
+            if(value==null) {report("SEM003",range,"There is no enclosing this object to capture.");return;}
             MiniType type=declaredExpressionType(value);
             if(copy)type=type.pointee();
             var capture=new LambdaCapture(lambda.thisCaptureName,type,new ThisExpr(range),false,source);
@@ -3729,28 +3736,28 @@ public final class NameBinder {
                 info=new LambdaInfo(source,type,scope,currentClass,currentThis,namespace,freshName("captured_this"));
                 lambdaExpressions.put(source,info);lambdaTypes.put(type,info);
                 if(scope==null && (source.captureDefault()!=LambdaExpr.CaptureDefault.NONE||source.captures().stream().anyMatch(capture->capture.initializer()==null)))
-                    report("CPP004",source.range(),"A non-local lambda cannot have a capture-default or simple capture.");
+                    report("SEM003",source.range(),"A non-local lambda cannot have a capture-default or simple capture.");
                 Set<String> names=new HashSet<>();
                 for(var capture:source.captures()) {
-                    if(!names.add(capture.name()))report("CPP004",capture.range(),"Duplicate lambda capture: "+capture.name());
+                    if(!names.add(capture.name()))report("SEM003",capture.range(),"Duplicate lambda capture: "+capture.name());
                     if(capture.kind()==LambdaExpr.CaptureKind.THIS||capture.kind()==LambdaExpr.CaptureKind.THIS_COPY) {
-                        if(capture.initializer()!=null)report("CPP004",capture.range(),"A this capture cannot have an initializer.");
+                        if(capture.initializer()!=null)report("SEM003",capture.range(),"A this capture cannot have an initializer.");
                         if(capture.kind()==LambdaExpr.CaptureKind.THIS && source.captureDefault()==LambdaExpr.CaptureDefault.COPY)
-                            report("CPP004",capture.range(),"[=, this] requires a later C++ language version.");
+                            report("SEM003",capture.range(),"[=, this] is not supported; [=] already captures this.");
                         captureLambdaThis(info,capture.kind()==LambdaExpr.CaptureKind.THIS_COPY,capture,capture.range());continue;
                     }
                     if(capture.initializer()==null) {
                         Candidate candidate=lookupName(capture.name(),namespace,scope,capture.range());
                         if(!(candidate instanceof Entity entity&&entity.kind==Kind.VARIABLE&&entity.owner==null&&!staticLocalEntities.contains(entity))
                                 && !(candidate instanceof ImplicitField field&&lambdaTypes.containsKey(field.owner)))
-                            report("CPP004",capture.range(),"A simple capture must name an automatic variable.");
+                            report("SEM003",capture.range(),"A simple capture must name an automatic variable.");
                         if(source.captureDefault()==LambdaExpr.CaptureDefault.COPY&&capture.kind()==LambdaExpr.CaptureKind.COPY
                                 ||source.captureDefault()==LambdaExpr.CaptureDefault.REFERENCE&&capture.kind()==LambdaExpr.CaptureKind.REFERENCE)
-                            report("CPP004",capture.range(),"The simple capture duplicates the capture-default.");
+                            report("SEM003",capture.range(),"The simple capture duplicates the capture-default.");
                     }
                     ensureLambdaCapture(info,capture.name(),capture,capture.range());
                 }
-                for(var parameter:source.parameters())if(names.contains(parameter.name()))report("CPP004",parameter.range(),"A lambda parameter cannot redeclare a capture name.");
+                for(var parameter:source.parameters())if(names.contains(parameter.name()))report("SEM003",parameter.range(),"A lambda parameter cannot redeclare a capture name.");
                 boolean generic=source.parameters().stream().anyMatch(parameter->parameter.type().containsAuto());
                 info.generic=generic;
                 List<ClassTemplateDecl.Parameter> templateParameters=new ArrayList<>();
@@ -3758,7 +3765,7 @@ public final class NameBinder {
                 for(Parameter parameter:source.parameters()) {
                     MiniType parameterType=parameter.type();
                     if(parameterType.containsAuto()) {
-                        if(autoPlaceholder(parameterType).decltypeAuto())report("CPP004",parameter.range(),"decltype(auto) cannot be a lambda parameter type.");
+                        if(autoPlaceholder(parameterType).decltypeAuto())report("SEM003",parameter.range(),"decltype(auto) cannot be a lambda parameter type.");
                         var identity=new MiniType.TemplateParameterType(type.canonicalName+"::operator()",templateParameters.size());
                         templateParameters.add(new ClassTemplateDecl.TypeParameter(freshName("lambda_type"),identity,parameter.range()));
                         parameterType=lambdaParameterType(parameterType,identity);
@@ -3792,10 +3799,10 @@ public final class NameBinder {
                     if(destructor!=null)bindDestructor(destructor);
                 }
                 var defaultConstructor=declareConstructor(type,new ConstructorMember(type.name,List.of(),false,List.of(),null,source.range(),source.range()),Access.PUBLIC,true);
-                if(defaultConstructor!=null)deletedConstructors.put(defaultConstructor.function,List.of(lambdaDiagnostic(source.range(),"C++17 closure types have no default constructor.")));
+                if(defaultConstructor!=null)deletedConstructors.put(defaultConstructor.function,List.of(lambdaDiagnostic(source.range(),"Closure types have no default constructor.")));
                 ensureImplicitCopy(type);ensureImplicitAssignment(type);
                 if(type.assignmentPlan!=null)type.assignmentPlan=new AssignmentPlan(type.assignmentPlan.parameterType,type.assignmentPlan.entries,
-                        List.of("C++17 closure copy assignment is deleted"),false);
+                        List.of("Closure copy assignment is deleted"),false);
                 if(source.captureDefault()==LambdaExpr.CaptureDefault.NONE&&source.captures().isEmpty()&&method!=null)
                     lambdaFunctionPointer(info,method);
             }
@@ -3910,7 +3917,7 @@ public final class NameBinder {
 
         private void prepareGenericThisCapture(LambdaInfo lambda,SourceRange range) {
             if(lambda.captures.containsKey(lambda.thisCaptureName))return;
-            if(lambda.source.captureDefault()==LambdaExpr.CaptureDefault.NONE)report("CPP004",range,"The enclosing this object is not captured by this generic lambda.");
+            if(lambda.source.captureDefault()==LambdaExpr.CaptureDefault.NONE)report("SEM003",range,"The enclosing this object is not captured by this generic lambda.");
             else captureLambdaThis(lambda,false,null,range);
         }
 
@@ -3934,7 +3941,7 @@ public final class NameBinder {
         }
 
         private Diagnostic lambdaDiagnostic(SourceRange range,String message) {
-            return new Diagnostic("CPP004",Diagnostic.Severity.ERROR,message,"Use a directly initialized lambda or copy an existing closure.",range);
+            return new Diagnostic("SEM003",Diagnostic.Severity.ERROR,message,"Use a directly initialized lambda or copy an existing closure.",range);
         }
 
         private Expression lambdaInitialize(Expression target,MiniType type,Expression value,SourceRange range) {
@@ -3980,13 +3987,13 @@ public final class NameBinder {
         private Statement structuredBinding(StructuredBindingDecl node,Namespace namespace,Local scope) {
             InitializerSyntax syntax=node.initializer();
             if(syntax==null||syntax.kind()==InitializerSyntax.Kind.DEFAULT) {
-                report("CPP004",node.range(),"A structured binding requires an initializer.");
+                report("SEM003",node.range(),"A structured binding requires an initializer.");
                 return new BlockStmt(List.of(),node.range());
             }
             MiniType pattern=normalizeType(node.type(),namespace,scope,node.range());
             if(autoPlaceholder(pattern)==null||autoPlaceholder(pattern).decltypeAuto()
                     ||!(pattern.unqualified() instanceof MiniType.AutoType||pattern.isReference()&&pattern.referent().unqualified() instanceof MiniType.AutoType)) {
-                report("CPP004",node.range(),"A structured binding requires cv auto with an optional reference qualifier.");
+                report("SEM003",node.range(),"A structured binding requires cv auto with an optional reference qualifier.");
                 return new BlockStmt(List.of(),node.range());
             }
             // Every binding name reaches its point of declaration before the initializer.
@@ -3994,7 +4001,7 @@ public final class NameBinder {
             List<Entity> aliases=new ArrayList<>();
             Set<String> uniqueNames=new HashSet<>();
             for(var name:node.names()) {
-                if(!uniqueNames.add(name.name()))report("CPP004",name.range(),"Duplicate structured binding name: "+name.name());
+                if(!uniqueNames.add(name.name()))report("SEM003",name.range(),"Duplicate structured binding name: "+name.name());
                 aliases.add(scope==null?declareNamespaceValue(name.name(),Kind.VARIABLE,MiniType.AUTO,true,namespace,name.range())
                         :declareLocal(name.name(),MiniType.AUTO,scope,name.range()));
             }
@@ -4007,7 +4014,7 @@ public final class NameBinder {
             MiniType objectType=objectTypeOfReference(storageType);
             requireComplete(objectType,node.range());
             if(!objectType.isArray()&&!objectType.isStruct()) {
-                report("CPP004",node.range(),"Only arrays and class objects can be decomposed.");
+                report("SEM003",node.range(),"Only arrays and class objects can be decomposed.");
                 return new BlockStmt(List.of(),node.range());
             }
             String hiddenName=freshName("structured_object");
@@ -4039,14 +4046,14 @@ public final class NameBinder {
                         if(number.value()<0||number.value()>Integer.MAX_VALUE)throw new IllegalArgumentException("tuple_size::value is out of range");
                         count=(int)number.value();
                     } catch(IllegalArgumentException invalid) {
-                        report("CPP004",node.range(),"Invalid structured binding tuple size: "+invalid.getMessage());count=-1;
+                        report("SEM003",node.range(),"Invalid structured binding tuple size: "+invalid.getMessage());count=-1;
                     }
                 } else {
                     if(owner==null||owner.union||owner.fields.stream().anyMatch(StructField::anonymous)) {
-                        report("CPP004",node.range(),"A class decomposition cannot contain an anonymous union or decompose a union.");count=-1;
+                        report("SEM003",node.range(),"A class decomposition cannot contain an anonymous union or decompose a union.");count=-1;
                     } else count=owner.fields.size();
                 }
-                if(count!=node.names().size())report("CPP004",node.range(),"The structured binding name count must match the number of elements ("+count+").");
+                if(count!=node.names().size())report("SEM003",node.range(),"The structured binding name count must match the number of elements ("+count+").");
                 for(int index=0;index<node.names().size();index++) {
                     var name=node.names().get(index);
                     if(index>=count)continue;
@@ -4057,7 +4064,7 @@ public final class NameBinder {
                         element=typed(new IndexExpr(object,new IntegerLiteralExpr(index,Integer.toString(index),name.range()),name.range()),referenced);
                     } else if(tupleSize!=null) {
                         if(!templates.containsKey("::std::tuple_element")) {
-                            report("CPP004",name.range(),"Tuple decomposition requires std::tuple_element<I, E>::type.");continue;
+                            report("SEM003",name.range(),"Tuple decomposition requires std::tuple_element<I, E>::type.");continue;
                         }
                         MiniType trait=templateType(new MiniType.TemplateIdType("::std::tuple_element",List.of(
                                 new TemplateArgument.Integral(index,MiniType.UNSIGNED_LONG_LONG),new TemplateArgument.Type(objectType))),namespace,scope,name.range());
@@ -4151,7 +4158,7 @@ public final class NameBinder {
             Set<Entity> candidates=new LinkedHashSet<>();
             for(Namespace target:associated)if(target.values.get("get") instanceof OverloadSet set)candidates.addAll(set.functions);
             if(candidates.isEmpty()) {
-                report("CPP004",range,"No ADL-only get<I> customization exists for this tuple-like object.");
+                report("SEM003",range,"No ADL-only get<I> customization exists for this tuple-like object.");
                 return typed(new IntegerLiteralExpr(0,"0",range),MiniType.INT);
             }
             Expression callee=new NameExpr("get",range);
@@ -4173,7 +4180,7 @@ public final class NameBinder {
             } else range=expression(node.initializer(),namespace,parent,true);
             MiniType type=declaredExpressionType(range);
             if(type==null || !(type.isArray()||type.isStruct())) {
-                report("CPP004",node.initializer().range(),"A range-for initializer must provide an array or begin/end customization.");
+                report("SEM003",node.initializer().range(),"A range-for initializer must provide an array or begin/end customization.");
                 return new BlockStmt(List.of(),node.range());
             }
             requireComplete(type,node.initializer().range());
@@ -4256,7 +4263,7 @@ public final class NameBinder {
             Set<Entity> candidates=new LinkedHashSet<>();
             for(Namespace owner:associated)if(owner.values.get(name) instanceof OverloadSet set)candidates.addAll(set.functions);
             if(candidates.isEmpty()) {
-                report("CPP004",range.range(),"No ADL-only "+name+" customization exists for this range.");
+                report("SEM003",range.range(),"No ADL-only "+name+" customization exists for this range.");
                 return typed(new IntegerLiteralExpr(0,"0",range.range()),MiniType.INT);
             }
             var callee=new NameExpr(name,range.range());
@@ -4276,7 +4283,7 @@ public final class NameBinder {
 
         private Expression fullExpression(Expression value, boolean resultOwned, AstNode owner) {
             var result = lowerLifetime(value, resultOwned, owner);
-            if (!result.declarations().isEmpty()) report("CPP005", owner.range(),
+            if (!result.declarations().isEmpty()) report("SEM004", owner.range(),
                     "This reference temporary cannot be extended outside a local declaration.");
             return result.expression();
         }
@@ -4317,7 +4324,7 @@ public final class NameBinder {
             return expression(node, namespace, local, false);
         }
 
-        /** Address-demand contexts preserve C++ object identity without an extra value read. */
+        /** Address-demand contexts preserve object identity without an extra value read. */
         private Expression expression(Expression node, Namespace namespace, Local local, boolean addressDemand) {
             if (node == null) return null;
             Expression savedOwner = fullExpressionOwner;
@@ -4330,7 +4337,7 @@ public final class NameBinder {
             Expression core = switch (node) {
                 case LambdaExpr n -> lambdaExpression(n,namespace,local);
                 case InitializerSyntax n -> {
-                    if (!isList(n)) report("CPP004", n.range(), "A naked initializer clause must use braces.");
+                    if (!isList(n)) report("SEM003", n.range(), "A naked initializer clause must use braces.");
                     bracedArguments.computeIfAbsent(n, key -> prepareArguments(n.arguments(), namespace, local));
                     yield n;
                 }
@@ -4343,7 +4350,7 @@ public final class NameBinder {
                 case ThisExpr n -> {
                     if(lambdaTypes.containsKey(currentClass))yield lambdaThis(lambdaTypes.get(currentClass),n.range());
                     if (currentThis == null) {
-                        report("CPP004", n.range(), "this 只能用于非静态成员函数体内。");
+                        report("SEM003", n.range(), "this 只能用于非静态成员函数体内。");
                         yield n;
                     }
                     yield thisValue(n.range());
@@ -4355,7 +4362,7 @@ public final class NameBinder {
                     Expression target = expression(n.target(), namespace, local, true);
                     MiniType targetType = declaredExpressionType(target);
                     if (valueCategory(target) != ValueCategory.LVALUE && (targetType == null || !targetType.isStruct())) {
-                        report("CPP004", n.target().range(), "内置赋值要求可修改的左值，临时对象的标量子对象不是左值。");
+                        report("SEM003", n.target().range(), "内置赋值要求可修改的左值，临时对象的标量子对象不是左值。");
                     }
                     requireComplete(targetType, n.range());
                     if (n.operator() == TokenType.PLUS_EQUAL || n.operator() == TokenType.MINUS_EQUAL) {
@@ -4391,7 +4398,7 @@ public final class NameBinder {
                     if((n.operator()==TokenType.EQUAL_EQUAL||n.operator()==TokenType.BANG_EQUAL)
                             &&declaredExpressionType(left)!=null&&declaredExpressionType(left).isNullPointer()
                             &&declaredExpressionType(right)!=null&&declaredExpressionType(right).isNullPointer()) {
-                        // C++ nullptr_t equality is valid; the C core represents it with pointers.
+                        // nullptr_t equality is valid; the core represents it with pointers.
                         left=typed(new CastExpr(MiniType.VOID.pointerTo(),left,left.range()),MiniType.VOID.pointerTo());
                         right=typed(new CastExpr(MiniType.VOID.pointerTo(),right,right.range()),MiniType.VOID.pointerTo());
                     }
@@ -4434,7 +4441,7 @@ public final class NameBinder {
                         }
                     }
                     // Once no common glvalue exists, arrays and function designators decay;
-                    // pointer/nullptr arms then use the C++ composite pointer type.
+                    // pointer/nullptr arms then use the composite pointer type.
                     Expression pointerResult=conditionalPointerResult(condition,first,second,n);
                     if(pointerResult!=null)yield pointerResult;
                     Expression selected = new ConditionalExpr(condition, first, second, n.range());
@@ -4448,9 +4455,9 @@ public final class NameBinder {
                 }
                 case CallExpr n -> {
                     if(n.callee() instanceof NameExpr builtin&&builtin.name().equals("__builtin_addressof")){
-                        if(n.arguments().size()!=1){report("CPP004",n.range(),"__builtin_addressof requires one argument");yield new IntegerLiteralExpr(0,"0",n.range());}
+                        if(n.arguments().size()!=1){report("SEM003",n.range(),"__builtin_addressof requires one argument");yield new IntegerLiteralExpr(0,"0",n.range());}
                         Expression operand=expression(n.arguments().getFirst(),namespace,local,true);
-                        if(valueCategory(operand)!=ValueCategory.LVALUE){report("CPP004",n.range(),"__builtin_addressof requires an lvalue");yield new IntegerLiteralExpr(0,"0",n.range());}
+                        if(valueCategory(operand)!=ValueCategory.LVALUE){report("SEM003",n.range(),"__builtin_addressof requires an lvalue");yield new IntegerLiteralExpr(0,"0",n.range());}
                         yield typed(address(operand),declaredExpressionType(operand).pointerTo());
                     }
                     yield bindCallExpression(n,bindCallee(n.callee(),n.arguments(),namespace,local),namespace,local);
@@ -4518,7 +4525,7 @@ public final class NameBinder {
                         yield overloaded;
                     }
                     if (n.operator() == TokenType.AMPERSAND && valueCategory(operand) != ValueCategory.LVALUE) {
-                        report("CPP004", n.range(), "内置取址要求左值或函数，不能对临时对象的子对象取址。");
+                        report("SEM003", n.range(), "内置取址要求左值或函数，不能对临时对象的子对象取址。");
                     }
                     if (n.operator() == TokenType.PLUS_PLUS || n.operator() == TokenType.MINUS_MINUS) {
                         requireUpdateOperand(operand, n.range());
@@ -4547,18 +4554,18 @@ public final class NameBinder {
                     requireUpdateOperand(target, n.range());
                     yield new PostfixUpdateExpr(target, n.operator(), n.range());
                 }
-                case minic.compiler.parser.node.Expression.PackExpansionExpr n -> { report("CPP004",n.range(),"Parameter pack expansion requires a template expansion context"); yield new IntegerLiteralExpr(0,"0",n.range()); }
-                case minic.compiler.parser.node.Expression.SizeofPackExpr n -> { report("CPP004",n.range(),"sizeof... requires a substituted parameter pack"); yield new IntegerLiteralExpr(0,"0",n.range()); }
+                case minic.compiler.parser.node.Expression.PackExpansionExpr n -> { report("SEM003",n.range(),"Parameter pack expansion requires a template expansion context"); yield new IntegerLiteralExpr(0,"0",n.range()); }
+                case minic.compiler.parser.node.Expression.SizeofPackExpr n -> { report("SEM003",n.range(),"sizeof... requires a substituted parameter pack"); yield new IntegerLiteralExpr(0,"0",n.range()); }
                 case TemplateIdExpr n -> {
                     OverloadDesignator designator=overloadDesignator(n,namespace,local);
-                    if(designator==null){report("CPP004",n.range(),"Template-id does not denote a function template");yield new IntegerLiteralExpr(0,"0",n.range());}
+                    if(designator==null){report("SEM003",n.range(),"Template-id does not denote a function template");yield new IntegerLiteralExpr(0,"0",n.range());}
                     var matches=new ArrayList<Entity>();
                     for(Entity candidate:designator.set.functions) {
                         var definition=functionTemplates.get(candidate);if(definition==null)continue;
                         List<MiniType> unknown=new ArrayList<>();for(int i=0;i<definition.source.parameters().size();i++)unknown.add(null);
                         Entity instance=deduceFunctionTemplate(candidate,unknown,designator.explicit,n.range());if(instance!=null)matches.add(instance);
                     }
-                    if(matches.size()!=1){report("CPP004",n.range(),"Function template-id needs a unique specialization or target function type");yield new IntegerLiteralExpr(0,"0",n.range());}
+                    if(matches.size()!=1){report("SEM003",n.range(),"Function template-id needs a unique specialization or target function type");yield new IntegerLiteralExpr(0,"0",n.range());}
                     yield new NameExpr(functionReferenceName(matches.getFirst()),n.range());
                 }
                 case SizeofExpr n -> {
@@ -4580,7 +4587,7 @@ public final class NameBinder {
                 case VaStartExpr n -> new VaStartExpr(expression(n.list(), namespace, local), expression(n.lastParameter(), namespace, local), n.range());
                 case VaArgExpr n -> {
                     MiniType type = normalizeType(n.requestedType(), namespace, local, n.range());
-                    if (type.containsReference()) report("CPP005", n.range(), "可变参数中的引用类型尚未实现。");
+                    if (type.containsReference()) report("SEM004", n.range(), "可变参数中的引用类型尚未实现。");
                     requireComplete(type, n.range());
                     yield new VaArgExpr(expression(n.list(), namespace, local), coreType(type), n.range());
                 }
@@ -4589,7 +4596,7 @@ public final class NameBinder {
                 case AggregateInitExpr n -> new AggregateInitExpr(expressions(n.values(), namespace, local), n.range());
                 case DesignatedInitExpr n -> new DesignatedInitExpr(n.designators(), expression(n.value(), namespace, local), n.range());
                 case IntegerConstantExpr n -> {
-                    // The C parser substitutes enum identifiers early. Restore lexical shadowing in C++.
+                    // The parser substitutes enum identifiers early. Restore lexical shadowing here.
                     if (n.lexeme().matches("[A-Za-z_][A-Za-z0-9_]*")) {
                         yield simpleReference(n.lexeme(), n.range(), namespace, local);
                     }
@@ -4613,7 +4620,7 @@ public final class NameBinder {
                     yield typed(new UnaryExpr(TokenType.STAR, storage, n.range()), array);
                 }
                 default -> {
-                    report("CPP005", node.range(), "尚未支持此 C++ 表达式：" + node.getClass().getSimpleName());
+                    report("SEM004", node.range(), "尚未支持此表达式：" + node.getClass().getSimpleName());
                     yield node;
                 }
             };
@@ -4731,7 +4738,7 @@ public final class NameBinder {
             MiniType object = source.viaPointer() ? elementType(receiverType) : receiverType;
             if (object == null || object.isVoid() || object.isArray() || object.isFunction()
                     || !(object.isStruct() || object.isScalar() || object.isPointer() || object.isNullPointer())) {
-                report("CPP004", source.nameRange(), "A destructor call requires an object or a pointer to an object.");
+                report("SEM003", source.nameRange(), "A destructor call requires an object or a pointer to an object.");
                 return typed(new CastExpr(MiniType.VOID, receiver, source.range()), MiniType.VOID);
             }
             TypeEntity owner = objectType(object);
@@ -4741,10 +4748,10 @@ public final class NameBinder {
                     && owner.name.equals(source.destructorName().segments().getFirst());
             MiniType named = injected ? object : normalizeType(source.ownerType(), namespace, local, source.nameRange());
             if (named == null || !named.unqualified().equals(object.unqualified())) {
-                report("CPP004", source.nameRange(), "The destructor name must denote the receiver object's type.");
+                report("SEM003", source.nameRange(), "The destructor name must denote the receiver object's type.");
             }
             if (object.isStruct() && (owner == null || !owner.complete)) {
-                report("CPP004", source.nameRange(), "An explicit destructor call requires a complete class type.");
+                report("SEM003", source.nameRange(), "An explicit destructor call requires a complete class type.");
             }
             Expression evaluated;
             if (source.viaPointer()) evaluated = receiver;
@@ -4809,7 +4816,7 @@ public final class NameBinder {
             if (candidate instanceof ImplicitField field) {
                 Expression receiver=implicitReceiver(field.owner,range);
                 if (receiver == null) {
-                    report("CPP004", range, "A non-static data member requires an object: " + name);
+                    report("SEM003", range, "A non-static data member requires an object: " + name);
                     return new IntegerLiteralExpr(0, "0", range);
                 }
                 requireAccessible(declaredExpressionType(receiver).pointee(), name, range, "数据成员访问");
@@ -4822,7 +4829,7 @@ public final class NameBinder {
         private Expression methodReference(MethodSet methods, String name, SourceRange range) {
             List<Method> statics = methods.methods.stream().filter(method -> method.source.staticMember()).toList();
             if (statics.size() != 1 || methods.methods.size() != 1) {
-                report("CPP005", range, "A non-static or overloaded method requires a call or contextual function type: " + name);
+                report("SEM004", range, "A non-static or overloaded method requires a call or contextual function type: " + name);
                 return new NameExpr(methods.methods.getFirst().function.coreName, range);
             }
             Method method = statics.getFirst(); requireMethodAccess(method, range); instantiateMethod(method);
@@ -4883,7 +4890,7 @@ public final class NameBinder {
             while (objectType(declaredExpressionType(receiver)) != null) {
                 ArrowStep step = new ArrowStep(declaredExpressionType(receiver), valueCategory(receiver));
                 if (!visited.add(step)) {
-                    report("CPP004", source.range(), "Recursive operator-> does not reach a pointer type.");
+                    report("SEM003", source.range(), "Recursive operator-> does not reach a pointer type.");
                     return receiver;
                 }
                 Expression next = operatorExpression("operator->", source, List.of(source),
@@ -4893,7 +4900,7 @@ public final class NameBinder {
             }
             MiniType result = declaredExpressionType(receiver);
             if (result == null || !result.isPointer())
-                report("CPP004", source.range(), "Arrow member access requires a pointer or a class operator-> returning one.");
+                report("SEM003", source.range(), "Arrow member access requires a pointer or a class operator-> returning one.");
             return receiver;
         }
 
@@ -4918,21 +4925,26 @@ public final class NameBinder {
             for (int index = 0; index < values.size(); index++) {
                 Expression value = values.get(index);
                 OverloadResolver.Argument shape = argumentShape(value, sources.get(index));
-                if (shape == null) { report("CPP004", sources.get(index).range(), "无法确定运算符实参类型。");
+                if (shape == null) { report("SEM003", sources.get(index).range(), "无法确定运算符实参类型。");
                     return new IntegerLiteralExpr(0, "0", original.range()); }
                 arguments.add(shape);
             }
             var resolution = OverloadResolver.resolveOperators(candidates, arguments, conversions, this::betterTemplateCandidate);
             if (resolution.status() != OverloadResolver.Status.SELECTED) {
-                // C++ unary & falls back to builtin address-of only when no candidate is viable.
+                // Unary & falls back to builtin address-of only when no candidate is viable.
                 if ((name.equals("operator&") && values.size() == 1 || name.equals("operator,"))
                         && resolution.status() == OverloadResolver.Status.NO_VIABLE) return null;
-                report("CPP004", original.range(), resolution.status() == OverloadResolver.Status.AMBIGUOUS
+                report("SEM003", original.range(), resolution.status() == OverloadResolver.Status.AMBIGUOUS
                         ? "运算符重载具有二义性：" + name : "没有匹配的运算符重载：" + name);
                 return new IntegerLiteralExpr(0, "0", original.range());
             }
             OperatorCandidate selected = resolution.winner().identity();
             if (selected.builtin != null) return lowerBuiltinOperator(selected, original, values);
+            if (original instanceof AssignmentExpr assignment && trivialAssignment(selected.method, values)) {
+                // A trivial implicit assignment is a representation copy; keep it a core aggregate store.
+                requireMethodAccess(selected.method, original.range(), declaredExpressionType(values.getFirst()));
+                return normalizedAssignment(new AssignmentExpr(values.get(0), assignment.operator(), values.get(1), original.range()), true);
+            }
             List<Expression> lowered = new ArrayList<>();
             int offset = selected.method == null ? 0 : 1;
             if (selected.method != null) {
@@ -4940,7 +4952,7 @@ public final class NameBinder {
                 requireMethodAccess(selected.method, original.range(),declaredExpressionType(values.getFirst()));
                 Expression receiver = materializedReceiver(values.getFirst());
                 if (!addressableObject(receiver)) {
-                    report("CPP005", sources.getFirst().range(), "尚未支持此运算符接收者值类别。");
+                    report("SEM004", sources.getFirst().range(), "尚未支持此运算符接收者值类别。");
                     return new IntegerLiteralExpr(0, "0", original.range());
                 }
                 lowered.add(methodReceiver(selected.method,address(receiver)));
@@ -4960,6 +4972,21 @@ public final class NameBinder {
             if (signature.returnType().isReference())
                 return referenceResult(signature.returnType(),call,original.range());
             return signature.returnType().isStruct() ? recordPrvalue(signature.returnType(), call, original.range()) : call;
+        }
+
+        /** Implicit copy or move assignment of a same-type, non-volatile, non-union lvalue whose members are all trivial. */
+        private boolean trivialAssignment(Method method, List<Expression> values) {
+            if (method == null || values.size() != 2) return false;
+            TypeEntity owner = method.owner;
+            AssignmentPlan plan = method == owner.implicitAssignment ? owner.assignmentPlan
+                    : method == owner.implicitMoveAssignment ? owner.moveAssignmentPlan : null;
+            if (plan == null || !plan.trivial || !plan.problems.isEmpty() || owner.union) return false;
+            if (userProvidedDefaulted.contains(method.function) || isDeleted(method.function)) return false;
+            if (owner.fields.stream().anyMatch(StructField::anonymous) || hasVolatileSubobject(owner.type, new HashSet<>())) return false;
+            MiniType target = declaredExpressionType(values.get(0)), source = declaredExpressionType(values.get(1));
+            return target != null && source != null && valueCategory(values.get(0)) == ValueCategory.LVALUE
+                    && !target.isConstQualified() && objectType(target) == owner && objectType(source) == owner
+                    && addressableObject(values.get(0));
         }
 
         private static final List<MiniType> PROMOTED_ARITHMETIC = List.of(MiniType.INT, MiniType.UNSIGNED_INT,
@@ -5237,7 +5264,7 @@ public final class NameBinder {
             if (designator == null) return null;
             Entity selected = functionForTarget(designator, target);
             if (selected == null) {
-                report("CPP004", source.range(), "重载函数名称没有唯一匹配的目标函数类型。");
+                report("SEM003", source.range(), "重载函数名称没有唯一匹配的目标函数类型。");
                 return mapped(source, new NameExpr(designator.set.functions.getFirst().coreName, source.range()));
             }
             return rebuildFunctionDesignator(source, designator.name, selected,
@@ -5286,7 +5313,7 @@ public final class NameBinder {
                         ? resolveQualifiedName(qualified.name(), namespace, local)
                         : lookupName(sourceName, namespace, local, designator.range());
                 if (candidate instanceof TypeEntity type && type.classType) {
-                    report("CPP005", designator.range(), "Functional construction expressions are not supported in this slice.");
+                    report("SEM004", designator.range(), "Functional construction expressions are not supported in this slice.");
                     return new BoundCallee(new NameExpr(fallbackName, designator.range()), null);
                 }
                 if(sourceName!=null && (candidate==null||candidate instanceof OverloadSet)) {
@@ -5294,7 +5321,7 @@ public final class NameBinder {
                     PreparedArguments prepared=prepareArguments(sourceArguments,namespace,local);
                     var candidates=operatorFunctions(sourceName,prepared.values,namespace,local);
                     if(!candidates.isEmpty())return bindOverloadedCall(new OverloadSet(new ArrayList<>(candidates)),sourceCallee,designator,sourceArguments,namespace,local,explicit,prepared);
-                    report("CPP003",designator.range(),"No visible function or associated function named "+sourceName);
+                    report("SEM002",designator.range(),"No visible function or associated function named "+sourceName);
                     return new BoundCallee(new NameExpr(sourceName,designator.range()),null,recoveryArguments(sourceArguments,prepared.values));
                 }
                 if (candidate instanceof OverloadSet set) {
@@ -5304,7 +5331,7 @@ public final class NameBinder {
                     methods = members;
                     receiver = implicitReceiver(members.methods.getFirst().owner,designator.range());
                 } else {
-                    if(explicit!=null)report("CPP004",designator.range(),"Explicit template arguments require a function template");
+                    if(explicit!=null)report("SEM003",designator.range(),"Explicit template arguments require a function template");
                     Expression core;
                     core = memberReference(candidate, fallbackName, designator.range(), false);
                     return new BoundCallee(rebuildCalleeGroups(sourceCallee, designator, core), null);
@@ -5327,7 +5354,7 @@ public final class NameBinder {
                 }
                 if (field.viaPointer()) receiver = target;
                 else {
-                    if (!addressableObject(target)) report("CPP005", field.range(), "尚未支持此值类别作为成员函数接收者。");
+                    if (!addressableObject(target)) report("SEM004", field.range(), "尚未支持此值类别作为成员函数接收者。");
                     receiver = new UnaryExpr(TokenType.AMPERSAND, target, field.target().range());
                 }
             }
@@ -5362,7 +5389,7 @@ public final class NameBinder {
                             method.source.staticMember(),requiredParameters(method.function,method.parameterTypes.size()))).toList();
             MiniType object = elementType(declaredExpressionType(receiver));
             if (object == null && receiver != null) {
-                report("CPP004", sourceCallee.range(), "无法确定成员函数接收者的类型。");
+                report("SEM003", sourceCallee.range(), "无法确定成员函数接收者的类型。");
                 return new BoundCallee(new NameExpr(set.methods.getFirst().function.coreName, sourceCallee.range()), receiver, recoveryArguments(sourceArguments, values));
             }
             Method selected = selectOverload(candidates, sourceCallee, sourceArguments, prepared,
@@ -5400,7 +5427,7 @@ public final class NameBinder {
                 return OverloadResolver.Argument.braced(shapes);
             }
             MiniType type = declaredExpressionType(value);
-            return type == null ? null : new OverloadResolver.Argument(type, valueCategory(value), isNullIntegerLiteral(source));
+            return type == null ? null : valueArgument(type, valueCategory(value), source);
         }
         private MiniType initializerListElementPattern(MiniType type) {
             if(type.isReference())type=type.referent();
@@ -5465,7 +5492,7 @@ public final class NameBinder {
         private Expression bindListValue(MiniType target, Expression source, Namespace namespace, Local local) {
             InitializerSyntax syntax = new InitializerSyntax(InitializerSyntax.Kind.COPY_LIST, listItems(source), source.range());
             if (target.isVoid() || target.isFunction()) {
-                report("CPP004", source.range(), "A braced list requires an object or reference target.");
+                report("SEM003", source.range(), "A braced list requires an object or reference target.");
                 return new IntegerLiteralExpr(0, "0", source.range());
             }
             if (target.isReference()) return bindReference(target, source, namespace, local, source.range());
@@ -5491,7 +5518,7 @@ public final class NameBinder {
             Expression characters=characterArrayInitializer(target,new AggregateInitExpr(sources,range));
             if(characters!=null)return characters;
             if (target.arrayLength() < 0 || sources.size() > target.arrayLength()) {
-                report("CPP004", range, "An array list requires a complete bound and no excess elements.");
+                report("SEM003", range, "An array list requires a complete bound and no excess elements.");
                 return new AggregateInitExpr(List.of(), range);
             }
             MiniType element = MiniType.qualified(target.elementType(), target.qualifiers());
@@ -5521,7 +5548,7 @@ public final class NameBinder {
             MiniType constantElement = MiniType.qualified(element, Set.of(MiniType.TypeQualifier.CONST));
             if (owner == null || owner.fields.size() != 2 || !owner.fields.getFirst().type().equals(constantElement.pointerTo())
                     || !owner.fields.get(1).type().isIntegerScalar()) {
-                report("CPP004", range, "std::initializer_list must have its library pointer/size representation.");
+                report("SEM003", range, "std::initializer_list must have its library pointer/size representation.");
                 return new IntegerLiteralExpr(0, "0", range);
             }
             List<Expression> values = new ArrayList<>();
@@ -5628,7 +5655,7 @@ public final class NameBinder {
                 }
                 Expression value = prepared.values.get(index);
                 OverloadResolver.Argument shape = argumentShape(value, sourceArguments.get(index));
-                if (shape == null) { report("CPP004", sourceArguments.get(index).range(), "无法确定重载实参的类型。"); return null; }
+                if (shape == null) { report("SEM003", sourceArguments.get(index).range(), "无法确定重载实参的类型。"); return null; }
                 arguments.add(shape);
             }
             List<OverloadResolver.Candidate<T>> contextual = new ArrayList<>();
@@ -5656,7 +5683,7 @@ public final class NameBinder {
             }
             var resolution = OverloadResolver.resolve(contextual, arguments, receiver, conversions, this::betterTemplateCandidate);
             if (resolution.status() == OverloadResolver.Status.SELECTED) return resolution.winner().identity();
-            report("CPP004", sourceCallee.range(), resolution.status() == OverloadResolver.Status.AMBIGUOUS
+            report("SEM003", sourceCallee.range(), resolution.status() == OverloadResolver.Status.AMBIGUOUS
                     ? "重载函数调用具有二义性。" : "没有与实参匹配的重载函数。");
             return null;
         }
@@ -5686,7 +5713,7 @@ public final class NameBinder {
             return List.copyOf(lowered);
         }
 
-        /** Single candidates and indirect calls obey the same C++ conversions as overload sets. */
+        /** Single candidates and indirect calls obey the same conversions as overload sets. */
         private Expression convertCallValue(MiniType parameter, Expression value, Expression source) {
             return convertCallValue(parameter, value, source, null);
         }
@@ -5696,7 +5723,7 @@ public final class NameBinder {
             MiniType actual = declaredExpressionType(value);
             if (actual == null) return value; // unsupported initializer forms retain their existing diagnostics
             if (parameter.isVoid() && actual.isVoid()) return value; // void return with a void expression
-            var argument = new OverloadResolver.Argument(actual, valueCategory(value), isNullIntegerLiteral(source));
+            var argument = valueArgument(actual, valueCategory(value), source);
             if (!standardViable(argument, parameter)) {
                 Expression converted = userConversion(parameter, value, ConversionContext.IMPLICIT, source.range());
                 if (converted != null) {
@@ -5705,9 +5732,9 @@ public final class NameBinder {
                 }
             }
             if (!standardViable(argument,parameter)) {
-                report("CPP004", source.range(), initializedVariable == null
-                        ? "实参不能按 C++ 标准转换为参数类型。"
-                        : "变量“" + initializedVariable + "”的初始化值不能按 C++ 标准转换为目标类型。");
+                report("SEM003", source.range(), initializedVariable == null
+                        ? "实参不能隐式转换为参数类型。"
+                        : "变量“" + initializedVariable + "”的初始化值不能隐式转换为目标类型。");
                 return value;
             }
             MiniType target = TypeCompatibility.decay(parameter).unqualified();
@@ -5798,15 +5825,15 @@ public final class NameBinder {
 
         private void requireMethodAccess(Method method, SourceRange range) {requireMethodAccess(method,range,null);}
         private void requireMethodAccess(Method method, SourceRange range,MiniType receiver) {
-            if(isDeleted(method.function))report("CPP004",range,"Selected member function is deleted: "+method.source.method().name());
+            if(isDeleted(method.function))report("SEM003",range,"Selected member function is deleted: "+method.source.method().name());
             if(method==method.owner.implicitMoveAssignment)emitImplicitMoveAssignment(method.owner);
             if (method == method.owner.implicitAssignment) {
                 if (!method.owner.assignmentPlan.problems.isEmpty())
-                    report("CPP004", range, "隐式复制赋值已被删除：" + method.owner.assignmentPlan.problems.getFirst());
+                    report("SEM003", range, "隐式复制赋值已被删除：" + method.owner.assignmentPlan.problems.getFirst());
                 else emitImplicitAssignment(method.owner);
             }
             if (!memberAccess(method.owner,method.access,method.source.staticMember()?null:receiver)) {
-                report("CPP004", range, "不能访问 " + method.access.name().toLowerCase(java.util.Locale.ROOT)
+                report("SEM003", range, "不能访问 " + method.access.name().toLowerCase(java.util.Locale.ROOT)
                         + " 成员函数 " + method.owner.canonicalName + "::" + method.source.method().name());
             }
         }
@@ -5814,11 +5841,9 @@ public final class NameBinder {
         private void requireUpdateOperand(Expression operand, SourceRange range) {
             MiniType type = declaredExpressionType(operand);
             if (valueCategory(operand) != ValueCategory.LVALUE) {
-                report("CPP004", range, "自增或自减要求可修改的左值。");
+                report("SEM003", range, "自增或自减要求可修改的左值。");
             }
-            if (type != null && type.unqualified().equals(MiniType.BOOL)) {
-                report("CPP004", range, "C++17 不允许对 bool 进行自增或自减");
-            }
+            // bool keeps C's update semantics: ++ stores true and -- stores the converted difference.
             requireComplete(elementType(type), range);
         }
 
@@ -5924,7 +5949,7 @@ public final class NameBinder {
                         &&standardViable(new OverloadResolver.Argument(declaredExpressionType(second),valueCategory(second),isNullIntegerLiteral(source.elseExpression())),target);
             }
             if(!valid){
-                report("CPP004",source.range(),"Conditional branches have no common C++ pointer type.");
+                report("SEM003",source.range(),"Conditional branches have no common pointer type.");
                 return new ConditionalExpr(condition,first,second,source.range());
             }
             // Explicit core casts encode only the standard conversions validated above. Their
@@ -6020,7 +6045,7 @@ public final class NameBinder {
 
         private FieldPath requireAccessible(MiniType owner, String name, SourceRange range, String operation) {
             if (owner == null) {
-                report("CPP005", range, "无法确定" + operation + "的接收者类型：" + name);
+                report("SEM004", range, "无法确定" + operation + "的接收者类型：" + name);
                 return null;
             }
             FieldPath path = fieldPath(owner, name, new HashSet<>());
@@ -6028,7 +6053,7 @@ public final class NameBinder {
             if (path != null) {
                 for (FieldStep step : path.steps()) {
                     if (step.access() != Access.PUBLIC && !classAccess(step.owner())) {
-                        report("CPP004", range, operation + "不能访问 " + step.access().name().toLowerCase(java.util.Locale.ROOT)
+                        report("SEM003", range, operation + "不能访问 " + step.access().name().toLowerCase(java.util.Locale.ROOT)
                                 + " 成员 " + step.owner().canonicalName + "::" + name);
                         break;
                     }
@@ -6071,17 +6096,17 @@ public final class NameBinder {
         private Expression arrayInitialization(MiniType type, InitializerSyntax syntax, Namespace namespace,
                                                Local local, SourceRange range) {
             if (type.arrayLength() < 0) {
-                report("CPP004", range, "An array object requires a complete bound before construction.");
+                report("SEM003", range, "An array object requires a complete bound before construction.");
                 return null;
             }
             if (syntax.kind() == InitializerSyntax.Kind.COPY
                     || syntax.kind() == InitializerSyntax.Kind.DIRECT_PAREN && !syntax.arguments().isEmpty()) {
-                report("CPP004", syntax.range(), "C++17 arrays require a braced initializer list.");
+                report("SEM003", syntax.range(), "Arrays require a braced initializer list.");
             }
             var cursor = syntax.arguments().listIterator();
             Expression result = arrayValue(type, cursor, syntax.kind() == InitializerSyntax.Kind.DEFAULT,
                     namespace, local, range);
-            if (cursor.hasNext()) report("CPP004", cursor.next().range(), "Too many array initializer elements.");
+            if (cursor.hasNext()) report("SEM003", cursor.next().range(), "Too many array initializer elements.");
             return initializerMapping(syntax, result);
         }
 
@@ -6153,7 +6178,7 @@ public final class NameBinder {
 
         private Expression arrayDestruction(MiniType type, Expression address, SourceRange range) {
             if (type.arrayLength() < 0) {
-                report("CPP004", range, "Array destruction requires a complete bound.");
+                report("SEM003", range, "Array destruction requires a complete bound.");
                 return null;
             }
             MiniType element = elementType(type);
@@ -6225,7 +6250,7 @@ public final class NameBinder {
                             return initializerMapping(syntax, copyInitialize(target, value, syntax.range(), syntax.kind()));
                         return initializerMapping(syntax, directClassConversion(target, value, syntax.range()));
                     }
-                    report("CPP005", syntax.range(), "Parenthesized aggregate initialization requires a constructor in C++17.");
+                    report("SEM004", syntax.range(), "Parenthesized aggregate initialization requires a constructor.");
                     return arguments.isEmpty() ? null : expression(arguments.getFirst(), namespace, local);
                 }
                 Expression source = syntax.kind() == InitializerSyntax.Kind.DEFAULT ? null
@@ -6233,7 +6258,7 @@ public final class NameBinder {
                 return initializer(target, source, namespace, local, range);
             }
             if (syntax.kind() == InitializerSyntax.Kind.DEFAULT) {
-                if (target.isConstQualified()) report("CPP004", range, "A const scalar data member requires initialization.");
+                if (target.isConstQualified()) report("SEM003", range, "A const scalar data member requires initialization.");
                 return null;
             }
             if (arguments.isEmpty() && target.isNullPointer())
@@ -6241,7 +6266,7 @@ public final class NameBinder {
             if (arguments.isEmpty()) return typed(new CastExpr(coreType(target.unqualified()),
                     new IntegerLiteralExpr(0, "0", syntax.range()), syntax.range()), target.unqualified());
             if (arguments.size() != 1) {
-                report("CPP004", syntax.range(), "Scalar initialization requires exactly one value.");
+                report("SEM003", syntax.range(), "Scalar initialization requires exactly one value.");
                 return expression(arguments.getFirst(), namespace, local);
             }
             Expression value = expressionForTarget(target, arguments.getFirst(), namespace, local);
@@ -6258,7 +6283,7 @@ public final class NameBinder {
         private Expression placementConstruction(PlacementNewExpr source, Namespace namespace, Local local) {
             MiniType type = normalizeType(source.type(), namespace, local, source.typeRange());
             if (type.isVoid() || type.isReference() || type.isFunction() || type.isArray()) {
-                report("CPP004", source.typeRange(), "Placement construction requires a complete non-array object type.");
+                report("SEM003", source.typeRange(), "Placement construction requires a complete non-array object type.");
                 return new NullLiteralExpr("nullptr", source.range());
             }
             requireComplete(type, source.typeRange());
@@ -6294,7 +6319,7 @@ public final class NameBinder {
         /** Type-only immediate-context checks: no invented variables, calls, ODR uses, or body emission. */
         private Expression typeQuery(TypeQueryExpr query, Namespace namespace, Local local) {
             if (query.arguments().stream().anyMatch(TypeQueryExpr.TypeArgument::packExpansion)) {
-                report("CPP005", query.range(), "类型查询中的类型参数包尚未展开。");
+                report("SEM004", query.range(), "类型查询中的类型参数包尚未展开。");
                 return typed(new BoolLiteralExpr(false, "false", query.range()), MiniType.BOOL);
             }
             List<MiniType> types = new ArrayList<>();
@@ -6335,12 +6360,12 @@ public final class NameBinder {
             if (owner != null) {
                 completeTemplate(owner, range);
                 if (!owner.complete) {
-                    report("CPP004", range, "类型查询要求完整对象类型；不能查询尚未定义的 " + owner.canonicalName);
+                    report("SEM003", range, "类型查询要求完整对象类型；不能查询尚未定义的 " + owner.canonicalName);
                     return false;
                 }
             }
             if (type.containsTemplateType() || type.containsPlaceholder()) {
-                report("CPP005", range, "类型查询的类型实参尚未完成替换。");
+                report("SEM004", range, "类型查询的类型实参尚未完成替换。");
                 return false;
             }
             return true;
@@ -6503,7 +6528,7 @@ public final class NameBinder {
             if (type.isArray()) return arrayInitialization(type, syntax, namespace, local, source.range());
             List<Expression> arguments = syntax.arguments();
             if (type.isVoid() && syntax.kind() == InitializerSyntax.Kind.DIRECT_LIST) {
-                report("CPP004", source.range(), "Braced construction requires an object type; void has no object.");
+                report("SEM003", source.range(), "Braced construction requires an object type; void has no object.");
                 return new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", source.range()), source.range());
             }
             if (type.isReference() && arguments.size() == 1) {
@@ -6511,7 +6536,7 @@ public final class NameBinder {
                 return explicitConversion(type, value, source.range());
             }
             if (type.isReference() || type.isArray() || type.isFunction()) {
-                report("CPP005", source.typeRange(), "Functional construction requires a single argument for a reference and an object result otherwise.");
+                report("SEM004", source.typeRange(), "Functional construction requires a single argument for a reference and an object result otherwise.");
                 return new NullLiteralExpr("nullptr", source.range());
             }
             TypeEntity owner = objectType(type);
@@ -6522,7 +6547,7 @@ public final class NameBinder {
             }
             if (owner != null) {
                 if (syntax.kind()==InitializerSyntax.Kind.DIRECT_LIST || arguments.isEmpty()) {
-                    if(nonAggregate(owner)) report("CPP004",source.range(),"A non-aggregate class requires a viable constructor.");
+                    if(nonAggregate(owner)) report("SEM003",source.range(),"A non-aggregate class requires a viable constructor.");
                     Expression value=aggregateObject(type,syntax,namespace,local,source.range());
                     // Trivial same-type copying may return the source lvalue as an
                     // initializer, but a construction expression has its own result object.
@@ -6537,13 +6562,13 @@ public final class NameBinder {
                     }
                     return directClassConversion(type,value,source.range());
                 }
-                report("CPP004",source.range(),"A C++17 aggregate has no matching parenthesized constructor.");
+                report("SEM003",source.range(),"An aggregate has no matching parenthesized constructor.");
                 return recordPrvalue(type,new AggregateInitExpr(List.of(),source.range()),source.range());
             }
             if (syntax.kind() == InitializerSyntax.Kind.DIRECT_LIST) {
                 return variableInitializer(type, syntax, null, namespace, local, source.range());
             }
-            if (arguments.size() > 1) report("CPP004", syntax.range(), "A scalar functional conversion requires at most one argument.");
+            if (arguments.size() > 1) report("SEM003", syntax.range(), "A scalar functional conversion requires at most one argument.");
             if (arguments.isEmpty() && type.isNullPointer()) return typed(new NullLiteralExpr("nullptr", source.range()), type);
             Expression value = arguments.isEmpty() ? new IntegerLiteralExpr(0, "0", source.range())
                     : expression(arguments.getFirst(), namespace, local);
@@ -6638,10 +6663,10 @@ public final class NameBinder {
         private Expression userConversion(MiniType target, Expression value, ConversionContext mode, SourceRange range) {
             MiniType actual = declaredExpressionType(value);
             if (actual == null) return null;
-            var argument = new OverloadResolver.Argument(actual, valueCategory(value), isNullIntegerLiteral(value));
+            var argument = valueArgument(actual, valueCategory(value), value);
             UserSelection selection = selectUserConversion(target, argument, mode);
             if (selection.viable.isEmpty()) return null;
-            if (selection.ambiguous()) { report("CPP004", range, "用户定义转换具有二义性。"); return value; }
+            if (selection.ambiguous()) { report("SEM003", range, "用户定义转换具有二义性。"); return value; }
             return emitUserConversion(selection.selected, value, range);
         }
 
@@ -6652,7 +6677,7 @@ public final class NameBinder {
                 requireMethodAccess(method, range,declaredExpressionType(value));
                 Expression receiver = materializedReceiver(value);
                 if (!addressableObject(receiver)) {
-                    report("CPP005", range, "此转换函数接收者尚无可用的对象存储。"); return value;
+                    report("SEM004", range, "此转换函数接收者尚无可用的对象存储。"); return value;
                 }
                 destructorForUse(methodReturnType(method), range);
                 Expression call = typed(new CallExpr(new NameExpr(method.function.coreName, range), List.of(methodReceiver(method,address(receiver))), range),
@@ -6664,9 +6689,9 @@ public final class NameBinder {
             instantiateConstructor(constructor);
             if (constructor == constructor.owner.implicitCopy) emitImplicitCopy(constructor.owner);
             if (constructor.access != Access.PUBLIC && !classAccess(constructor.owner))
-                report("CPP004", range, "转换构造函数不可访问。");
+                report("SEM003", range, "转换构造函数不可访问。");
             if (isDeleted(constructor.function)) {
-                report("CPP004", range, "转换构造函数已删除或不可用。"); return value;
+                report("SEM003", range, "转换构造函数已删除或不可用。"); return value;
             }
             MiniType parameter = constructor.parameterTypes.getFirst();
             Expression lowered = parameter.isReference() ? bindReferenceValue(parameter, value, value, range)
@@ -6683,7 +6708,7 @@ public final class NameBinder {
             MiniType type = declaredExpressionType(value);
             if (objectType(type) == null) return value;
             Expression converted = userConversion(MiniType.BOOL, value, ConversionContext.BOOLEAN, value.range());
-            if (converted == null) { report("CPP004", value.range(), "条件没有可行的布尔转换。"); return value; }
+            if (converted == null) { report("SEM003", value.range(), "条件没有可行的布尔转换。"); return value; }
             return typed(new CastExpr(MiniType.BOOL, converted, value.range()), MiniType.BOOL);
         }
 
@@ -6703,13 +6728,13 @@ public final class NameBinder {
             List<OverloadResolver.Candidate<Constructor>> candidates = expandConstructorTemplates(allConstructors(owner),List.of(value),range).stream()
                     .map(constructor -> new OverloadResolver.Candidate<>(constructor, constructor.parameterTypes, constructor.source.variadic(),null,false,requiredParameters(constructor.function,constructor.parameterTypes.size()))).toList();
             var resolution = OverloadResolver.resolve(candidates,
-                    List.of(new OverloadResolver.Argument(declaredExpressionType(value), valueCategory(value), isNullIntegerLiteral(value))),
+                    List.of(valueArgument(declaredExpressionType(value), valueCategory(value), value)),
                     null, conversions, this::betterTemplateCandidate);
             if (resolution.status() != OverloadResolver.Status.SELECTED) {
-                report("CPP004", range, "直接初始化没有唯一的可行构造函数。"); return value;
+                report("SEM003", range, "直接初始化没有唯一的可行构造函数。"); return value;
             }
             Constructor selected = resolution.winner().identity();
-            var source = new OverloadResolver.Argument(declaredExpressionType(value), valueCategory(value), isNullIntegerLiteral(value));
+            var source = valueArgument(declaredExpressionType(value), valueCategory(value), value);
             var output = new OverloadResolver.Argument(owner.type, ValueCategory.PRVALUE, false);
             return emitUserConversion(new UserChoice(null, selected, output, source, selected.parameterTypes.getFirst()), value, range);
         }
@@ -6725,7 +6750,7 @@ public final class NameBinder {
                 }
                 // C-style notation tries static_cast before reinterpret_cast. A const
                 // reference can bind a converted scalar temporary even when the source is an lvalue.
-                if (standardViable(new OverloadResolver.Argument(actual,valueCategory(value),isNullIntegerLiteral(value)),target)) {
+                if (standardViable(valueArgument(actual,valueCategory(value), value),target)) {
                     Expression pointer=bindReferenceValue(target,value,value,range,ConversionContext.EXPLICIT);
                     Expression result=referenceResult(target,pointer,range);
                     temporaryAddressPaths.add(result);
@@ -6748,7 +6773,7 @@ public final class NameBinder {
             }
             if (objectType(actual) != null) {
                 Expression converted = userConversion(target, value, ConversionContext.EXPLICIT, range);
-                if (converted == null) { report("CPP004", range, "没有可行的显式用户定义转换。"); return value; }
+                if (converted == null) { report("SEM003", range, "没有可行的显式用户定义转换。"); return value; }
                 value = converted;
                 if (target.isStruct()) return convertCallValue(target, value, value);
             }
@@ -6763,16 +6788,16 @@ public final class NameBinder {
                 if (!method.source.method().conversionName().explicitSpecifier()
                         && objectTypeOfReference(methodReturnType(method)).isIntegerScalar())
                     targets.add(objectTypeOfReference(methodReturnType(method)).unqualified());
-            if (targets.size() != 1) { report("CPP004", value.range(), "switch 要求唯一的整型转换目标。"); return value; }
+            if (targets.size() != 1) { report("SEM003", value.range(), "switch 要求唯一的整型转换目标。"); return value; }
             Expression result = userConversion(targets.iterator().next(), value, ConversionContext.IMPLICIT, value.range());
-            if (result == null) { report("CPP004", value.range(), "switch 没有可行的整型转换。"); return value; }
+            if (result == null) { report("SEM003", value.range(), "switch 没有可行的整型转换。"); return value; }
             return result;
         }
 
         private UserSelection conditionalSelection(Expression from, Expression to) {
             MiniType type = declaredExpressionType(to), actual = declaredExpressionType(from);
             if (type == null || actual == null) return new UserSelection(List.of(), null);
-            var source = new OverloadResolver.Argument(actual, valueCategory(from), isNullIntegerLiteral(from));
+            var source = valueArgument(actual, valueCategory(from), from);
             if (valueCategory(to) == ValueCategory.LVALUE) {
                 UserSelection reference = selectUserConversion(type.referenceTo(), source, ConversionContext.IMPLICIT);
                 if (reference.ambiguous() || reference.selected != null && reference.selected.output.category() == ValueCategory.LVALUE)
@@ -6797,7 +6822,7 @@ public final class NameBinder {
                     || a.unqualified().equals(b.unqualified())) return List.of(first, second);
             UserSelection toSecond = conditionalSelection(first, second), toFirst = conditionalSelection(second, first);
             if (toSecond.ambiguous() || toFirst.ambiguous() || toSecond.selected != null && toFirst.selected != null) {
-                report("CPP004", range, "条件运算符两分支的用户转换具有二义性。"); return List.of(first, second);
+                report("SEM003", range, "条件运算符两分支的用户转换具有二义性。"); return List.of(first, second);
             }
             if (toSecond.selected != null) return List.of(conditionalConversion(toSecond.selected, first, second, range), second);
             if (toFirst.selected != null) return List.of(first, conditionalConversion(toFirst.selected, second, first, range));
@@ -6805,10 +6830,10 @@ public final class NameBinder {
             List<OverloadResolver.Candidate<OperatorCandidate>> candidates = new ArrayList<>();
             addBuiltinOperators("operator?:", null, List.of(first, second), candidates);
             var resolution = OverloadResolver.resolveOperators(candidates,
-                    List.of(new OverloadResolver.Argument(a, valueCategory(first), isNullIntegerLiteral(first)),
-                            new OverloadResolver.Argument(b, valueCategory(second), isNullIntegerLiteral(second))), conversions);
+                    List.of(valueArgument(a, valueCategory(first), first),
+                            valueArgument(b, valueCategory(second), second)), conversions);
             if (resolution.status() != OverloadResolver.Status.SELECTED) {
-                report("CPP004", range, "条件运算符没有唯一的共同类型。"); return List.of(first, second);
+                report("SEM003", range, "条件运算符没有唯一的共同类型。"); return List.of(first, second);
             }
             List<MiniType> types = resolution.winner().identity().parameters;
             return List.of(convertCallValue(types.get(0), first, first), convertCallValue(types.get(1), second, second));
@@ -6818,8 +6843,8 @@ public final class NameBinder {
             MiniType source = declaredExpressionType(value);
             if (source == null) return;
             switch (ExplicitConversion.check(source, target)) {
-                case INVALID -> report("CPP004", range, "This explicit conversion is not permitted by the C++17 scalar and pointer rules.");
-                case OUTSIDE_SUBSET -> report("CPP005", range, "This explicit conversion requires class or reference conversion rules not supported yet.");
+                case INVALID -> report("SEM003", range, "This explicit conversion is not permitted by the scalar and pointer rules.");
+                case OUTSIDE_SUBSET -> report("SEM004", range, "This explicit conversion requires class or reference conversion rules not supported yet.");
                 case ALLOWED -> { }
             }
         }
@@ -6925,7 +6950,7 @@ public final class NameBinder {
             boolean representationCopy = owner.union || anonymous && plan.trivial
                     && !hasVolatileSubobject(owner.type, new HashSet<>());
             if (anonymous && !representationCopy) {
-                report("CPP005", range, "Nontrivial assignment of anonymous aggregate storage requires subobject addressing support.");
+                report("SEM004", range, "Nontrivial assignment of anonymous aggregate storage requires subobject addressing support.");
                 return;
             }
             if (unevaluatedDepth > 0 && assignmentPrototypes.contains(operation.function)) return;
@@ -7051,7 +7076,7 @@ public final class NameBinder {
             owner.implicitMove=explicitMove!=null?explicitMove:new Constructor(owner,source,Access.PUBLIC,function,List.of(parameter),true);
             if(explicitMove!=null)function=explicitMove.function;
             if(owner.movePlan.status()==CopyConstructorPlan.Status.DELETED)deletedConstructors.put(function,owner.movePlan.problems().stream()
-                    .map(problem->new Diagnostic("CPP004",Diagnostic.Severity.ERROR,"Implicit move of member '"+problem.field().name()+"' is unavailable: "+problem.reason(),problem.field().range())).toList());
+                    .map(problem->new Diagnostic("SEM003",Diagnostic.Severity.ERROR,"Implicit move of member '"+problem.field().name()+"' is unavailable: "+problem.reason(),problem.field().range())).toList());
             if(!suppressed||explicitAssignment!=null)planImplicitMoveAssignment(owner);
         }
         private void planImplicitMoveAssignment(TypeEntity owner) {
@@ -7119,7 +7144,7 @@ public final class NameBinder {
             for(Constructor candidate:owner.constructors)if(isCopyConstructor(candidate)&&defaulted(candidate)) {
                 var plan=CopyConstructorPlan.planCopy(owner.type,owner.fields,owner.union,candidate.parameterTypes.getFirst().referent().isConstQualified(),operations);
                 defaultedCopyPlans.put(candidate,plan);
-                if(plan.status()==CopyConstructorPlan.Status.DELETED)deletedConstructors.put(candidate.function,plan.problems().stream().map(problem->new Diagnostic("CPP004",Diagnostic.Severity.ERROR,
+                if(plan.status()==CopyConstructorPlan.Status.DELETED)deletedConstructors.put(candidate.function,plan.problems().stream().map(problem->new Diagnostic("SEM003",Diagnostic.Severity.ERROR,
                         "Defaulted copy of member '"+problem.field().name()+"' is unavailable: "+problem.reason(),problem.field().range())).toList());
             }
             if (owner.copyPlan.status() == CopyConstructorPlan.Status.SUPPRESSED) return;
@@ -7133,10 +7158,10 @@ public final class NameBinder {
             coreValues.put(function.coreName, function);
             owner.implicitCopy = explicitCopy!=null?explicitCopy:new Constructor(owner, source, Access.PUBLIC, function, List.of(parameter), true);
             if(explicitCopy!=null)function=explicitCopy.function;
-            if(explicitCopy==null&&userDeclaredMove(owner))deletedConstructors.put(function,List.of(new Diagnostic("CPP004",Diagnostic.Severity.ERROR,
+            if(explicitCopy==null&&userDeclaredMove(owner))deletedConstructors.put(function,List.of(new Diagnostic("SEM003",Diagnostic.Severity.ERROR,
                     "A user-declared move operation deletes the implicit copy constructor",range)));
             else if (owner.copyPlan.status() == CopyConstructorPlan.Status.DELETED) {
-                deletedConstructors.put(function, owner.copyPlan.problems().stream().map(problem -> new Diagnostic("CPP004",
+                deletedConstructors.put(function, owner.copyPlan.problems().stream().map(problem -> new Diagnostic("SEM003",
                         Diagnostic.Severity.ERROR, "Implicit copy of member '" + problem.field().name() + "' is unavailable: "
                                 + problem.reason(), problem.field().range())).toList());
             }
@@ -7165,18 +7190,18 @@ public final class NameBinder {
                 }
             }
             if (resolution.status() != OverloadResolver.Status.SELECTED) {
-                report("CPP004", range, resolution.status() == OverloadResolver.Status.AMBIGUOUS
+                report("SEM003", range, resolution.status() == OverloadResolver.Status.AMBIGUOUS
                         ? "Copy constructor selection is ambiguous." : "No viable copy constructor for this source object.");
                 return value;
             }
             Constructor selected = resolution.winner().identity();
             instantiateConstructor(selected);
             if (kind == InitializerSyntax.Kind.COPY_LIST && selected.source.explicitSpecifier())
-                report("CPP004", range, "Copy-list initialization cannot select an explicit copy constructor.");
+                report("SEM003", range, "Copy-list initialization cannot select an explicit copy constructor.");
             if (selected.access != Access.PUBLIC && !classAccess(owner))
-                report("CPP004", range, "Copy constructor is not accessible: " + owner.canonicalName);
+                report("SEM003", range, "Copy constructor is not accessible: " + owner.canonicalName);
             if (isDeleted(selected.function)) {
-                report("CPP004", range, "Copy constructor is deleted: " + deletedConstructors.getOrDefault(selected.function,deletedReason(range)).getFirst().message());
+                report("SEM003", range, "Copy constructor is deleted: " + deletedConstructors.getOrDefault(selected.function,deletedReason(range)).getFirst().message());
                 return value;
             }
             if (trivialTransfer(selected) && !hasVolatileSubobject(owner.type, new HashSet<>())) return value;
@@ -7235,7 +7260,7 @@ public final class NameBinder {
             TypeEntity owner=constructor.owner;
             if(emittedTransfers.contains(constructor.function)||plan.status()!=CopyConstructorPlan.Status.AVAILABLE)return;
             if (!plan.objectRepresentation() && owner.fields.stream().anyMatch(StructField::anonymous)) {
-                report("CPP005", owner.sourceRecord.range(), "Nontrivial copying of anonymous aggregate storage requires subobject initialization support.");
+                report("SEM004", owner.sourceRecord.range(), "Nontrivial copying of anonymous aggregate storage requires subobject initialization support.");
                 return;
             }
             if (unevaluatedDepth > 0) {
@@ -7322,13 +7347,13 @@ public final class NameBinder {
             if (actual == null) return;
             if (target.isReference()) target = target.referent();
             if (target.unqualified().equals(MiniType.BOOL) && (actual.isPointer() || actual.isArray())) {
-                report("CPP004", range, "List initialization cannot narrow a pointer to bool.");
+                report("SEM003", range, "List initialization cannot narrow a pointer to bool.");
                 return;
             }
             if (!target.isScalar() || !actual.isScalar()) return;
             switch (ListNarrowing.check(actual, target, literalNumericValue(value))) {
-                case NARROWING -> report("CPP004", range, "List initialization requires a non-narrowing conversion.");
-                case NEEDS_CONSTANT -> report("CPP004", range, "This list conversion requires a representable constant expression.");
+                case NARROWING -> report("SEM003", range, "List initialization requires a non-narrowing conversion.");
+                case NEEDS_CONSTANT -> report("SEM003", range, "This list conversion requires a representable constant expression.");
                 default -> { }
             }
         }
@@ -7377,7 +7402,7 @@ public final class NameBinder {
                     actions.add(typed(new InitializeExpr(slot,value,at),MiniType.VOID));
                 }
             }
-            if(clauses.hasNext()) report("CPP004",clauses.next().range(),"Too many aggregate initializer elements.");
+            if(clauses.hasNext()) report("SEM003",clauses.next().range(),"Too many aggregate initializer elements.");
             Expression body=actions.isEmpty()?new CastExpr(MiniType.VOID,new IntegerLiteralExpr(0,"0",range),range)
                     :actions.size()==1?actions.getFirst():new CommaExpr(actions,range);
             return typed(new ObjectInitExpr(coreType(target),destination,body,range),target);
@@ -7395,7 +7420,7 @@ public final class NameBinder {
                 Expression bound=expression(source,namespace,local);
                 MiniType actual=declaredExpressionType(bound);
                 if(actual!=null) {
-                    var argument=new OverloadResolver.Argument(actual,valueCategory(bound),isNullIntegerLiteral(bound));
+                    var argument=valueArgument(actual,valueCategory(bound), bound);
                     if(standardViable(argument,target) || implicitUserConversion(null,argument,target)!=null) return source;
                 }
             }
@@ -7423,7 +7448,7 @@ public final class NameBinder {
                 if (actual != null && !actual.unqualified().equals(target.unqualified())) {
                     Expression converted = userConversion(target, value, ConversionContext.IMPLICIT, range);
                     if (converted != null) return convertCallValue(target, converted, arguments.getFirst());
-                    report("CPP004", range, "复制初始化没有唯一可行的单次用户定义转换。");
+                    report("SEM003", range, "复制初始化没有唯一可行的单次用户定义转换。");
                     return value;
                 }
             }
@@ -7435,7 +7460,7 @@ public final class NameBinder {
             if (list && !(arguments.isEmpty() && expandConstructorTemplates(allConstructors(owner),List.of(),range).stream()
                     .anyMatch(c -> requiredParameters(c.function,c.parameterTypes.size())==0))) {
                 OverloadResolver.Argument shape = argumentShape(syntax, syntax);
-                if (shape == null) { report("CPP004", syntax.range(), "Cannot determine initializer-list element types.");
+                if (shape == null) { report("SEM003", syntax.range(), "Cannot determine initializer-list element types.");
                     return new IntegerLiteralExpr(0, "0", syntax.range()); }
                 var probe = OverloadResolver.resolve(listCandidates, List.of(shape), null, conversions,this::betterTemplateCandidate);
                 if (probe.status() != OverloadResolver.Status.NO_VIABLE) {
@@ -7462,14 +7487,14 @@ public final class NameBinder {
                     new CastExpr(MiniType.VOID, new IntegerLiteralExpr(0, "0", range), range), range), target);
             if (list && arguments.isEmpty() && selected.implicit && owner.aggregateInitializer != null) selected = owner.aggregateInitializer;
             if (syntax.kind() == InitializerSyntax.Kind.COPY_LIST && selected.source.explicitSpecifier()) {
-                report("CPP004", range, "Copy-list-initialization cannot select an explicit constructor: " + owner.canonicalName);
+                report("SEM003", range, "Copy-list-initialization cannot select an explicit constructor: " + owner.canonicalName);
             }
             if (selected.access != Access.PUBLIC && !classAccess(owner)) {
-                report("CPP004", range, "Constructor is not accessible: " + owner.canonicalName);
+                report("SEM003", range, "Constructor is not accessible: " + owner.canonicalName);
             }
             if (isDeleted(selected.function)) {
                 Diagnostic reason = deletedConstructors.getOrDefault(selected.function,deletedReason(range)).getFirst();
-                report(reason.code().equals("CPP005") ? "CPP005" : "CPP004", range, "The implicit default constructor is unavailable: " + reason.message());
+                report(reason.code().equals("SEM004") ? "SEM004" : "SEM003", range, "The implicit default constructor is unavailable: " + reason.message());
             }
             if (list) for (int index = 0; index < arguments.size() && index < selected.parameterTypes.size(); index++) {
                 if (prepared.values.get(index) != null) requireNonNarrowing(selected.parameterTypes.get(index), prepared.values.get(index), arguments.get(index).range());
@@ -7506,7 +7531,7 @@ public final class NameBinder {
         private Expression bindReference(MiniType reference, Expression sourceNode, Namespace namespace, Local local,
                                          SourceRange range, ConversionContext mode) {
             if (sourceNode == null) {
-                report("CPP004", range, "引用必须绑定到初始化表达式。");
+                report("SEM003", range, "引用必须绑定到初始化表达式。");
                 return new NullLiteralExpr("nullptr", range);
             }
             if (isBraced(sourceNode)) {
@@ -7547,19 +7572,19 @@ public final class NameBinder {
                 MiniType target = reference.referent();
                 MiniType actual = declaredExpressionType(value);
                 if (actual != null && !standardViable(
-                        new OverloadResolver.Argument(actual, valueCategory(value), isNullIntegerLiteral(sourceNode)), reference)) {
+                        valueArgument(actual, valueCategory(value), sourceNode), reference)) {
                     Expression converted = userConversion(reference, value, mode, range);
                     if (converted != null) { value = converted; actual = declaredExpressionType(value); }
                 }
                 ValueCategory category = valueCategory(value);
                 boolean compatible = actual != null && referenceCompatible(target, actual);
                 boolean direct = compatible && addressableObject(value) && standardViable(
-                        new OverloadResolver.Argument(actual,category,isNullIntegerLiteral(sourceNode)),reference);
+                        valueArgument(actual,category, sourceNode),reference);
                 if (!direct) {
                     boolean viable = actual != null && standardViable(
-                            new OverloadResolver.Argument(actual, category, isNullIntegerLiteral(sourceNode)),reference);
+                            valueArgument(actual, category, sourceNode),reference);
                     if (!viable) {
-                        report("CPP004", sourceNode.range(), "引用不能绑定到此类型或值类别，或绑定会丢弃 const/volatile 限定符。");
+                        report("SEM003", sourceNode.range(), "引用不能绑定到此类型或值类别，或绑定会丢弃 const/volatile 限定符。");
                         return address(value);
                     }
                     // A materialized class subobject already has storage; binding extends its
@@ -7571,7 +7596,7 @@ public final class NameBinder {
                         }
                         requireComplete(target, sourceNode.range());
                         if (!target.unqualified().equals(actual.unqualified()) && !(compatible && target.isArray())) {
-                            // Viability above validates C++ implicit conversion rules. Spell the
+                            // Viability above validates the implicit conversion rules. Spell the
                             // approved conversion explicitly where core C is more restrictive.
                             value = typed(new CastExpr(coreType(target.unqualified()), value, value.range()), target.unqualified());
                         }
@@ -7579,12 +7604,24 @@ public final class NameBinder {
                     }
                 }
                 Expression address = address(value);
-                // Array CV resides on elements; the checked C++ qualification conversion is
+                // Array CV resides on elements; the checked qualification conversion is
                 // represented explicitly for the core pointer-to-array ABI.
                 if (actual != null && compatible && (target.isArray()&&!target.equals(actual)||baseDistance(actual,target)>0)) {
                     address = typed(new CastExpr(coreType(target).pointerTo(), address, sourceNode.range()), target.pointerTo());
                 }
                 return address;
+        }
+
+        private OverloadResolver.Argument valueArgument(MiniType type, ValueCategory category, Expression source) {
+            return OverloadResolver.Argument.literal(type, category, isNullIntegerLiteral(source), isStringLiteral(source));
+        }
+
+        /** Source literals and their bound storage form, (*(T(*)[N])"..."). */
+        private static boolean isStringLiteral(Expression source) {
+            while (source instanceof GroupingExpr group) source = group.expression();
+            return source instanceof StringLiteralExpr
+                    || source instanceof UnaryExpr unary && unary.operator() == TokenType.STAR
+                    && unary.operand() instanceof CastExpr cast && cast.operand() instanceof StringLiteralExpr;
         }
 
         private boolean isNullIntegerLiteral(Expression source) {
@@ -7609,13 +7646,13 @@ public final class NameBinder {
             MiniType source = declaredExpressionType(cast.operand());
             if (!(target.unqualified() instanceof MiniType.ScalarType to) || source == null) return;
             if (!(source.unqualified() instanceof MiniType.ScalarType from)) {
-                if (to.kind() == MiniType.ScalarKind.BOOL) report("CPP004", range, "列表初始化不能将指针窄化为 bool。");
+                if (to.kind() == MiniType.ScalarKind.BOOL) report("SEM003", range, "列表初始化不能将指针窄化为 bool。");
                 return;
             }
             var a = from.kind();
             var b = to.kind();
             if (a.floating() && b.integer()) {
-                report("CPP004", range, "列表初始化不能将浮点数窄化为整数。");
+                report("SEM003", range, "列表初始化不能将浮点数窄化为整数。");
                 return;
             }
             if (a == b || a.floating() && b.floating() && b.sizeBytes() >= a.sizeBytes()) return;
@@ -7624,7 +7661,7 @@ public final class NameBinder {
                     || b.sizeBytes() == a.sizeBytes() && b.signed() == a.signed())) return;
             java.math.BigDecimal constant = literalNumericValue(cast.operand());
             if (constant == null) {
-                report("CPP004", range, "此列表引用转换需要可表示的常量表达式，不能使用运行时值窄化。");
+                report("SEM003", range, "此列表引用转换需要可表示的常量表达式，不能使用运行时值窄化。");
                 return;
             }
             boolean representable;
@@ -7641,7 +7678,7 @@ public final class NameBinder {
                 representable = Double.isFinite(converted)
                         && (a.floating() || new java.math.BigDecimal(converted).compareTo(constant) == 0);
             }
-            if (!representable) report("CPP004", range, "列表初始化的值不能由引用临时对象类型精确表示。");
+            if (!representable) report("SEM003", range, "列表初始化的值不能由引用临时对象类型精确表示。");
         }
 
         private java.math.BigDecimal literalNumericValue(Expression expression) {
@@ -7689,7 +7726,7 @@ public final class NameBinder {
             if (type == null || !type.isStruct() || addressableObject(value)) return value;
             Expression object = typed(new UnaryExpr(TokenType.STAR, materialize(type, value), value.range()), type);
             temporaryAddressPaths.add(object);
-            // Core storage is addressable, but a temporary is not a C++ lvalue.
+            // Core storage is addressable, but a temporary is not an lvalue.
             valueCategories.put(object, ValueCategory.PRVALUE);
             return object;
         }
@@ -7818,10 +7855,10 @@ public final class NameBinder {
 
         private void requireImplicitInitialization(MiniType target, boolean valueInitialization, SourceRange range) {
             if (hasReferenceSubobject(target, new HashSet<>()) && !needsConstructedType(target)) {
-                report("CPP004", range, "A reference data member requires an initializer.");
+                report("SEM003", range, "A reference data member requires an initializer.");
             }
             if (needsConstConstructionRules(target, valueInitialization, new HashSet<>())) {
-                report("CPP005", range, "尚未支持含 const 子对象的隐式构造初始化规则；不能直接按 C 聚合零填。");
+                report("SEM004", range, "尚未支持含 const 子对象的隐式构造初始化规则；不能直接按 C 聚合零填。");
             }
         }
 
@@ -7856,7 +7893,7 @@ public final class NameBinder {
                     && object.fields.stream().anyMatch(field -> hasReferenceSubobject(field.type(), visited));
         }
 
-        /** Validates C++ list initialization before the C aggregate initializer can write fields. */
+        /** Validates list initialization before the core aggregate initializer can write fields. */
         private Expression checkInitializer(MiniType target, Expression sourceNode, Expression bound, boolean listElement,
                                             Namespace namespace, Local local) {
             if (target == null) return bound;
@@ -7880,7 +7917,7 @@ public final class NameBinder {
                 int[] cursor = {0};
                 Expression initialized = checkElidedArray(target, original.values(), list.values(), cursor, list.range(), namespace, local);
                 if (cursor[0] < list.values().size())
-                    report("CPP004", original.values().get(cursor[0]).range(), "Too many array initializer elements.");
+                    report("SEM003", original.values().get(cursor[0]).range(), "Too many array initializer elements.");
                 return mapped(sourceNode, initialized);
             }
             if (object != null && list.values().size() == 1) {
@@ -7894,7 +7931,7 @@ public final class NameBinder {
                 }
             }
             if (nonAggregate(object) && !list.values().isEmpty()) {
-                report("CPP004", sourceNode.range(), "含有非 public 数据成员的类型不能使用成员值列表进行聚合初始化：" + object.canonicalName);
+                report("SEM003", sourceNode.range(), "含有非 public 数据成员的类型不能使用成员值列表进行聚合初始化：" + object.canonicalName);
                 return bound;
             }
             List<Expression> values = new ArrayList<>();
@@ -7906,7 +7943,7 @@ public final class NameBinder {
                 if (value instanceof DesignatedInitExpr designated) {
                     var sourceDesignated = (DesignatedInitExpr) originalValue;
                     if (designated.designators().size() > 1) {
-                        report("CPP005", designated.range(), "C++17 模式尚未支持多层路径指定初始化。");
+                        report("SEM004", designated.range(), "尚未支持多层路径指定初始化。");
                     }
                     element = designatedTarget(target, designated.designators());
                     if (designated.designators().getFirst() instanceof Designator.Index index) position = index.index();
@@ -7966,7 +8003,7 @@ public final class NameBinder {
             while(source instanceof GroupingExpr group)source=group.expression();
             if(!(source instanceof StringLiteralExpr literal))return null;
             if(!characterArrayElement(target,literal)) {
-                report("CPP004",literal.range(),"String literal encoding does not match the character array element type.");
+                report("SEM003",literal.range(),"String literal encoding does not match the character array element type.");
                 return typed(new AggregateInitExpr(List.of(),sourceNode.range()),target);
             }
             int[] units=switch(literal.encoding()) {
@@ -7980,7 +8017,7 @@ public final class NameBinder {
                 case UTF32 -> literal.value().codePoints().toArray();
             };
             if(target.arrayLength()<units.length+1) {
-                report("CPP004",literal.range(),"The character array must have room for every string code unit and its terminating zero.");
+                report("SEM003",literal.range(),"The character array must have room for every string code unit and its terminating zero.");
                 return typed(new AggregateInitExpr(List.of(),sourceNode.range()),target);
             }
             MiniType element=elementType(target).unqualified();
@@ -8010,7 +8047,7 @@ public final class NameBinder {
             for (Designator designator : designators) {
                 if (current == null) return null;
                 if (nonAggregate(objectType(current))) {
-                    report("CPP004", designator.range(), "非聚合类型不能通过指定初始化展开其数据成员。");
+                    report("SEM003", designator.range(), "非聚合类型不能通过指定初始化展开其数据成员。");
                     return null;
                 }
                 if (designator instanceof Designator.Index && current.unqualified() instanceof MiniType.ArrayType array) {
@@ -8036,17 +8073,17 @@ public final class NameBinder {
 
         private void recordLinkage(Entity entity, SourceRange range) {
             if (internalDeclaration && entity.kind == Kind.FUNCTION && entity.owner == root && entity.name.equals("main"))
-                report("CPP004", range, "main 不能具有内部链接。");
+                report("SEM003", range, "main 不能具有内部链接。");
             Boolean previous = internalLinkages.putIfAbsent(entity, internalDeclaration);
             if (internalDeclaration && Boolean.FALSE.equals(previous))
-                report("CPP004", range, "static 声明不能改变先前声明的外部链接：" + entity.name);
+                report("SEM003", range, "static 声明不能改变先前声明的外部链接：" + entity.name);
         }
 
         private String functionReferenceName(Entity entity) {
             if(entity.kind==Kind.FUNCTION&&!functionTemplates.containsKey(entity))functionNonThrowing(entity);
             instantiateFunctionTemplate(entity);
-            if(isDeleted(entity))report("CPP004",specialDefinitionRanges.getOrDefault(entity,source.range()),"Use of deleted function: "+entity.name);
-            if (libraryExitFunctions.contains(entity)) {
+            if(isDeleted(entity))report("SEM003",specialDefinitionRanges.getOrDefault(entity,source.range()),"Use of deleted function: "+entity.name);
+            if (destructorsDeclared && libraryExitFunctions.contains(entity)) {
                 String name = staticLifetime.exitFunction();
                 coreValues.putIfAbsent(name, new Entity("exit", name, Kind.FUNCTION, root, entity.type, null, true));
                 return name;
@@ -8108,7 +8145,7 @@ public final class NameBinder {
                 }
                 if (!candidates.isEmpty()) return selectCandidate(candidates, name, range);
             }
-            report("CPP003", range, "此位置尚未声明名称：" + name);
+            report("SEM002", range, "此位置尚未声明名称：" + name);
             return null;
         }
 
@@ -8153,7 +8190,7 @@ public final class NameBinder {
         }
 
         private Candidate classMember(TypeEntity owner, String name, SourceRange range) {
-            if (owner == null) { report("CPP004", range, "Member qualifier must denote a class type."); return null; }
+            if (owner == null) { report("SEM003", range, "Member qualifier must denote a class type."); return null; }
             completeTemplate(owner,range);
             TypeEntity declaring=declaringMember(owner,name);
             StaticField field = declaring==null?null:declaring.staticFields.get(name);
@@ -8161,7 +8198,7 @@ public final class NameBinder {
             MethodSet method = declaring==null?null:declaring.methods.get(name);
             if (method != null) return method;
             if (fieldPath(owner.type, name, new HashSet<>()) != null) return new ImplicitField(owner, name);
-            report("CPP003", range, "Class member is not declared: " + owner.canonicalName + "::" + name);
+            report("SEM002", range, "Class member is not declared: " + owner.canonicalName + "::" + name);
             return null;
         }
 
@@ -8202,7 +8239,7 @@ public final class NameBinder {
             if (owner == null) return null;
             Set<Candidate> values = qualifiedValues(owner, segments.getLast(), new HashSet<>());
             if (values.isEmpty()) {
-                report("CPP003", name.range(), "此位置尚未声明限定名称：" + spelling(name));
+                report("SEM002", name.range(), "此位置尚未声明限定名称：" + spelling(name));
                 return null;
             }
             return selectCandidate(values, spelling(name), name.range());
@@ -8230,7 +8267,7 @@ public final class NameBinder {
         private Namespace lookupNamespace(String name, Namespace namespace, Local local, QualifiedName sourceName) {
             for (Local scope = local; scope != null; scope = scope.parent) {
                 if (scope.typedefs.containsKey(name) && scope.typedefs.get(name).type.unqualified().isStruct()) {
-                    report("CPP005", sourceName.range(), "尚未支持类型限定名称：" + name);
+                    report("SEM004", sourceName.range(), "尚未支持类型限定名称：" + name);
                     return null;
                 }
             }
@@ -8251,7 +8288,7 @@ public final class NameBinder {
             TypeEntity type = visible(namespace).typedefs.get(name);
             if (type == null) type = visible(namespace).tags.get(name);
             if (type == null || !type.type.unqualified().isStruct()) return false;
-            report("CPP005", range, "尚未支持类型限定名称：" + name);
+            report("SEM004", range, "尚未支持类型限定名称：" + name);
             return true;
         }
 
@@ -8266,7 +8303,7 @@ public final class NameBinder {
 
         private Namespace selectNamespace(Set<Namespace> values, QualifiedName name) {
             if (values.size() == 1) return values.iterator().next();
-            report("CPP003", name.range(), values.isEmpty() ? "此位置尚未声明命名空间：" + spelling(name)
+            report("SEM002", name.range(), values.isEmpty() ? "此位置尚未声明命名空间：" + spelling(name)
                     : "命名空间查找具有二义性：" + spelling(name));
             return null;
         }
@@ -8282,22 +8319,22 @@ public final class NameBinder {
                 TypeEntity first = (TypeEntity) candidates.iterator().next();
                 if (candidates.stream().map(TypeEntity.class::cast).allMatch(t -> t.type.equals(first.type))) return first;
             }
-            report("CPP003", range, "名称查找具有二义性：" + name);
+            report("SEM002", range, "名称查找具有二义性：" + name);
             return null;
         }
 
         private Entity requireValue(Candidate candidate, String name, SourceRange range) {
             if(candidate instanceof OverloadSet set && set.functions.size()==1 && functionTemplates.containsKey(set.functions.getFirst())) {
-                report("CPP004",range,"Function template requires deduction or explicit template arguments: "+name);return null;
+                report("SEM003",range,"Function template requires deduction or explicit template arguments: "+name);return null;
             }
             if (candidate == null) return null;
             if (candidate instanceof Entity entity) return entity;
             if (candidate instanceof OverloadSet set) {
                 if (set.functions.size() == 1) return set.functions.getFirst();
-                report("CPP003", range, "重载函数名称需要调用实参或目标函数类型：" + name);
+                report("SEM002", range, "重载函数名称需要调用实参或目标函数类型：" + name);
                 return null;
             }
-            report("CPP003", range, (candidate instanceof TypeEntity ? "类型" : "命名空间") + "不能作为值使用：" + name);
+            report("SEM002", range, (candidate instanceof TypeEntity ? "类型" : "命名空间") + "不能作为值使用：" + name);
             return null;
         }
 
@@ -8364,6 +8401,16 @@ public final class NameBinder {
                 default -> { }
             }
             AstChildren.of(node).forEach(this::reserveNames);
+        }
+
+        private static boolean declaresDestructor(AstNode root) {
+            var pending = new java.util.ArrayDeque<AstNode>(List.of(root));
+            while (!pending.isEmpty()) {
+                AstNode node = pending.removeFirst();
+                if (node instanceof DestructorMember || node instanceof OutOfLineDestructorDecl) return true;
+                pending.addAll(AstChildren.of(node));
+            }
+            return false;
         }
 
         private String freshName(String displayName) {

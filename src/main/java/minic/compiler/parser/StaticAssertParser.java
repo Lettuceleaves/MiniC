@@ -16,7 +16,7 @@ public final class StaticAssertParser {
         if(state.match(TokenType.COMMA)){
             Expression argument=expressions.parseAssignmentExpression();
             if(argument instanceof StringLiteralExpr text&&text.encoding()==LiteralEncoding.ORDINARY)message=text;
-            else state.report(argument==null?state.peek().range():argument.range(),"A C++17 static assertion message must be an ordinary string literal");
+            else state.report(argument==null?state.peek().range():argument.range(),"A static assertion message must be an ordinary string literal");
         }
         if(state.consume(TokenType.RIGHT_PAREN,"Expected ')' after assertion")==null)return null;
         Token end=state.consume(TokenType.SEMICOLON,"Expected ';' after static_assert");

@@ -1,7 +1,6 @@
 package minic.compiler.parser;
 
 import minic.compiler.CompilerApi;
-import minic.compiler.LanguageMode;
 import minic.compiler.Stage;
 import minic.compiler.lexer.Lexer;
 import minic.compiler.lexer.token.Token;
@@ -44,7 +43,6 @@ import java.util.Optional;
  */
 public final class Parser extends Stage {
     private final Lexer lexer;
-    private final LanguageMode languageMode;
     private final boolean traceEnabled;
     private List<Token> tokens;
     private Context context;
@@ -73,12 +71,7 @@ public final class Parser extends Stage {
 
     /** 创建 Parser，并可选择记录递归下降 trace。 */
     public Parser(List<Token> tokens, boolean traceEnabled) {
-        this(tokens, LanguageMode.C, traceEnabled);
-    }
-
-    public Parser(List<Token> tokens, LanguageMode languageMode, boolean traceEnabled) {
         lexer = null;
-        this.languageMode = Objects.requireNonNull(languageMode, "languageMode");
         this.traceEnabled = traceEnabled;
         initialize(tokens);
     }
@@ -91,17 +84,12 @@ public final class Parser extends Stage {
     /** 创建由 Lexer 提供输入的 Parser，并可选择记录递归下降 trace。 */
     public Parser(Lexer lexer, boolean traceEnabled) {
         this.lexer = Objects.requireNonNull(lexer, "lexer");
-        languageMode = null; // Inherit after a standalone preprocessor has received its source/options.
         this.traceEnabled = traceEnabled;
-    }
-
-    public LanguageMode languageMode() {
-        return languageMode != null ? languageMode : lexer.languageMode();
     }
 
     private void initialize(List<Token> sourceTokens) {
         tokens = List.copyOf(Objects.requireNonNull(sourceTokens, "tokens"));
-        context = new Context(tokens, languageMode(), traceEnabled);
+        context = new Context(tokens, traceEnabled);
         typeReader = new TypeReader(context, aggregate -> {
             if (namespaceMembers.isEmpty()) {
                 structs.add(aggregate);
@@ -229,9 +217,8 @@ public final class Parser extends Stage {
         if (context.peekAt(1).type() != TokenType.IDENTIFIER) return false;
         TokenType following = context.peekAt(2).type();
         if (following == TokenType.SEMICOLON) return true;
-        if (languageMode() == LanguageMode.CPP17_ALGORITHM && following == TokenType.COLON) return true;
+        if (following == TokenType.COLON) return true;
         if (following != TokenType.LEFT_BRACE) return false;
-        if (languageMode() != LanguageMode.CPP17_ALGORITHM) return true;
         int depth = 0;
         for (int offset = 2; context.peekAt(offset).type() != TokenType.EOF; offset++) {
             TokenType token = context.peekAt(offset).type();
@@ -244,21 +231,19 @@ public final class Parser extends Stage {
     }
 
     private Declaration parseDeclaration() {
-        if (languageMode() == LanguageMode.CPP17_ALGORITHM) {
-            if (context.check(TokenType.STATIC_ASSERT)) return declarationManager.parseStaticAssert();
-            if (context.check(TokenType.TEMPLATE)) return parseClassTemplate();
-            if (context.check(TokenType.NAMESPACE)) return parseNamespace();
-            if (context.check(TokenType.USING)) {
-                var using = QualifiedNameParser.parseUsing(context);
-                if (using != null) typeReader.registerUsing(using);
-                return using;
-            }
+        if (context.check(TokenType.STATIC_ASSERT)) return declarationManager.parseStaticAssert();
+        if (context.check(TokenType.TEMPLATE)) return parseClassTemplate();
+        if (context.check(TokenType.NAMESPACE)) return parseNamespace();
+        if (context.check(TokenType.USING)) {
+            var using = QualifiedNameParser.parseUsing(context);
+            if (using != null) typeReader.registerUsing(using);
+            return using;
         }
         if (context.check(TokenType.TYPEDEF)) return declarationManager.parseTypedefDecl();
         if (context.check(TokenType.ENUM) && context.peekAt(1).type() == TokenType.IDENTIFIER
                 && context.peekAt(2).type() == TokenType.LEFT_BRACE) return declarationManager.parseEnumDecl();
         if ((context.check(TokenType.STRUCT) || context.check(TokenType.UNION)
-                || languageMode() == LanguageMode.CPP17_ALGORITHM && context.check(TokenType.CLASS)) && isStructDeclaration()) {
+                || context.check(TokenType.CLASS)) && isStructDeclaration()) {
             return declarationManager.parseStructDecl();
         }
         return declarationManager.parseFunctionOrGlobalDecl();
@@ -401,7 +386,7 @@ public final class Parser extends Stage {
     }
 
     private ParserResult buildResult() {
-        return new ParserResult(new Program(structs, enums, typedefs, globals, functions, declarations, languageMode(), programRange()));
+        return new ParserResult(new Program(structs, enums, typedefs, globals, functions, declarations, programRange()));
     }
 
     private SourceRange programRange() {
@@ -433,7 +418,6 @@ public final class Parser extends Stage {
     /** 三个 Manager 共享的 token 游标、诊断和 trace 上下文。 */
     public static final class Context {
         private final List<Token> tokens;
-        private final LanguageMode languageMode;
         private final ArrayList<Diagnostic> reportedErrors = new ArrayList<>();
         private final ArrayList<TraceEvent> traceEvents;
         private int currentIndex;
@@ -443,12 +427,11 @@ public final class Parser extends Stage {
         private Token pendingTemplateGreater;
         private Token previousOverride;
 
-        private Context(List<Token> tokens, LanguageMode languageMode, boolean traceEnabled) {
+        private Context(List<Token> tokens, boolean traceEnabled) {
             if (tokens.isEmpty()) {
                 throw new IllegalArgumentException("tokens must contain EOF");
             }
             this.tokens = tokens;
-            this.languageMode = languageMode;
             tokenLimit = tokens.size();
             traceEvents = traceEnabled ? new ArrayList<>() : null;
         }
@@ -461,11 +444,10 @@ public final class Parser extends Stage {
             return currentIndex;
         }
 
-        public LanguageMode languageMode() { return languageMode; }
 
         public void unsupportedSyntax(SourceRange range, String message) {
-            reportedErrors.add(new Diagnostic("CPP001", Diagnostic.Severity.ERROR, message,
-                    "此语法需要后续 C++ 名称查找支持；请参照兼容能力清单。", range));
+            reportedErrors.add(new Diagnostic("PAR002", Diagnostic.Severity.ERROR, message,
+                    "该语法尚未实现；请改用已支持的写法。", range));
         }
 
         public boolean match(TokenType type) {
@@ -481,9 +463,6 @@ public final class Parser extends Stage {
                 return advance();
             }
             Token actual = peek();
-            if (reportUnsupportedSyntax(actual)) {
-                return null;
-            }
             reportedErrors.add(new Diagnostic(
                     "PAR001",
                     Diagnostic.Severity.ERROR,
@@ -492,6 +471,17 @@ public final class Parser extends Stage {
                     actual.range()
             ));
             return null;
+        }
+
+        /** An identifier that is a keyword only in one grammar position. */
+        public boolean checkContextual(String keyword) {
+            return check(TokenType.IDENTIFIER) && peek().lexeme().equals(keyword);
+        }
+
+        public boolean matchContextual(String keyword) {
+            if (!checkContextual(keyword)) return false;
+            advance();
+            return true;
         }
 
         public boolean check(TokenType type) {
@@ -630,9 +620,6 @@ public final class Parser extends Stage {
         }
 
         public void report(Token token, String message) {
-            if (reportUnsupportedSyntax(token)) {
-                return;
-            }
             reportedErrors.add(new Diagnostic(
                     "PAR001",
                     Diagnostic.Severity.ERROR,
@@ -652,15 +639,6 @@ public final class Parser extends Stage {
             ));
         }
 
-        private boolean reportUnsupportedSyntax(Token token) {
-            if (languageMode != LanguageMode.CPP17_ALGORITHM || !token.type().isExtendedToken()) {
-                return false;
-            }
-            reportedErrors.add(new Diagnostic("CPP001", Diagnostic.Severity.ERROR,
-                    "C++ 算法兼容模式尚未支持此处的语法：" + token.lexeme(),
-                    "该语法需要后续编译器支持；请参照 C++ 能力清单。", token.range()));
-            return true;
-        }
 
         private static String describeToken(Token token) {
             String lexeme = token.lexeme().replace("\n", "\\n").replace("\r", "\\r");
@@ -774,8 +752,7 @@ public final class Parser extends Stage {
                 return false;
             }
             while (peekAt(offset).type() == TokenType.STAR
-                    || languageMode == LanguageMode.CPP17_ALGORITHM
-                    && (peekAt(offset).type() == TokenType.AMPERSAND || peekAt(offset).type() == TokenType.AMPERSAND_AMPERSAND)) {
+                    || peekAt(offset).type() == TokenType.AMPERSAND || peekAt(offset).type() == TokenType.AMPERSAND_AMPERSAND) {
                 offset++;
             }
             return peekAt(offset).type() == TokenType.IDENTIFIER
@@ -806,8 +783,6 @@ public final class Parser extends Stage {
     /** Manager 共用的类型语法读取器，不单独形成第四个 Manager。 */
     public static final class TypeReader {
         private final Context context;
-        private final java.util.Deque<java.util.Map<String, MiniType>> typedefScopes = new java.util.ArrayDeque<>();
-        private final java.util.Deque<java.util.Set<String>> ordinaryNameScopes = new java.util.ArrayDeque<>();
         private final java.util.function.Consumer<StructDecl> aggregateSink;
         private final TypeNameEnvironment typeNames;
         private final java.util.Map<String, List<Declaration.StructField>> aggregateFields = new java.util.LinkedHashMap<>();
@@ -849,12 +824,9 @@ public final class Parser extends Stage {
             this.context = Objects.requireNonNull(context, "context");
             Objects.requireNonNull(aggregateSink, "aggregateSink");
             this.aggregateSink = declaration -> { if (!probingParameterClause) aggregateSink.accept(declaration); };
-            typeNames = extendedSyntax() ? new TypeNameEnvironment() : null;
-            typedefScopes.push(new java.util.LinkedHashMap<>());
-            ordinaryNameScopes.push(new java.util.LinkedHashSet<>());
+            typeNames = new TypeNameEnvironment();
         }
 
-        public boolean extendedSyntax() { return context.languageMode() == LanguageMode.CPP17_ALGORITHM; }
 
         public String beginFunctionTemplate(Token anchor) {
             typeNames.enterTemplateScope();templateValues.push(new java.util.LinkedHashMap<>());
@@ -1050,11 +1022,11 @@ public final class Parser extends Stage {
         }
 
         public void enterMemberScope(MiniType selfType) {
-            if (extendedSyntax()) { typeNames.enterMemberScope(selfType); memberScopeDepth++; }
+            typeNames.enterMemberScope(selfType); memberScopeDepth++;
         }
 
         public void exitMemberScope() {
-            if (extendedSyntax()) { typeNames.exitMemberScope(); memberScopeDepth--; }
+            typeNames.exitMemberScope(); memberScopeDepth--;
         }
 
         /** Nondependent base aliases participate in parsing; dependent bases are resolved by binding. */
@@ -1148,10 +1120,8 @@ public final class Parser extends Stage {
 
         /** Retain anonymous aggregate members so a containing class can promote their names. */
         public void recordAggregateFields(StructDecl declaration) {
-            if (extendedSyntax()) {
-                aggregateFields.put(declaration.name(), declaration.fields());
-                if (declaration.definition()) aggregateDeclarations.put(declaration.name(), declaration);
-            }
+            aggregateFields.put(declaration.name(), declaration.fields());
+            if (declaration.definition()) aggregateDeclarations.put(declaration.name(), declaration);
         }
 
         public void enterMemberDefinitionScope(QualifiedName qualifiedName) {
@@ -1202,7 +1172,7 @@ public final class Parser extends Stage {
 
         /** Pure disambiguation: a namespace-qualified type may also precede a parenthesized variable. */
         public boolean namesConstructor(QualifiedName name) {
-            if (!extendedSyntax() || name.segments().size() < 2) return false;
+            if (name.segments().size() < 2) return false;
             var owner = new QualifiedName(name.global(), name.segments().subList(0, name.segments().size() - 1), name.range());
             var lookup = typeNames.lookupQualifier(owner);
             if (lookup.kind() != TypeNameEnvironment.Kind.TYPE || !(lookup.type().unqualified() instanceof MiniType.StructType record)) return false;
@@ -1216,7 +1186,6 @@ public final class Parser extends Stage {
         }
 
         public void declareMemberField(Declaration.StructField field) {
-            if (!extendedSyntax()) return;
             if (field.anonymous()) {
                 promoteAnonymousMemberNames(field.type(), new java.util.HashSet<>());
             } else {
@@ -1233,18 +1202,17 @@ public final class Parser extends Stage {
         }
 
         public void registerUsing(Declaration.UsingDecl declaration) {
-            if (extendedSyntax()) typeNames.registerUsing(declaration.target(), declaration.namespaceDirective(), declaration.range());
+            typeNames.registerUsing(declaration.target(), declaration.namespaceDirective(), declaration.range());
             // Value lookup and invalid using declarations are diagnosed by the binder.
         }
 
         public MiniType declareAggregate(String name, boolean union, boolean definition, SourceRange range) {
-            if (!extendedSyntax()) return MiniType.struct(union ? "$union$" + name : name);
             if(inClassSpecialization() && activeClassTemplates.peek().equals(typeNames.namespaceIdentity(name)))
                 return MiniType.struct(activeClassTemplates.peek());
             if (!activeClassTemplates.isEmpty() && name.startsWith("$anonymous$"))
                 context.unsupportedSyntax(range, "类模板内部的匿名聚合声明尚未实现");
-            if ((localScopeDepth > 0 || memberScopeDepth > 0) && !name.startsWith("$anonymous$")) {
-                context.unsupportedSyntax(range, "局部或成员命名结构体声明尚未实现");
+            if (memberScopeDepth > 0 && !name.startsWith("$anonymous$")) {
+                context.unsupportedSyntax(range, "成员命名结构体声明尚未实现");
             }
             int before = typeNames.diagnostics().size();
             MiniType result = typeNames.declareStruct(name, union, definition, range);
@@ -1261,83 +1229,37 @@ public final class Parser extends Stage {
         }
 
         public void enterScope(java.util.Collection<String> ordinaryNames) {
-            if (extendedSyntax()) {
-                typeNames.enterLocalScope();
-                localScopeDepth++;
-                for (String name : ordinaryNames) declareOrdinaryName(name, context.peek().range());
-                return;
-            }
-            typedefScopes.push(new java.util.LinkedHashMap<>());
-            ordinaryNameScopes.push(new java.util.LinkedHashSet<>(ordinaryNames));
+            typeNames.enterLocalScope();
+            localScopeDepth++;
+            for (String name : ordinaryNames) declareOrdinaryName(name, context.peek().range());
         }
 
         public void exitScope() {
-            if (extendedSyntax()) {
-                typeNames.exitLocalScope();
-                localScopeDepth--;
-                return;
-            }
-            if (typedefScopes.size() <= 1) {
-                throw new IllegalStateException("cannot exit parser global type scope");
-            }
-            typedefScopes.pop();
-            ordinaryNameScopes.pop();
+            typeNames.exitLocalScope();
+            localScopeDepth--;
         }
 
         public boolean defineTypedef(String name, MiniType type, SourceRange range) {
-            if (extendedSyntax()) {
-                int before = typeNames.diagnostics().size();
-                typeNames.declareTypedef(name, type, range);
-                copyTypeDiagnostics(before);
-                return before == typeNames.diagnostics().size();
-            }
-            if (typedefScopes.peek().containsKey(name) || ordinaryNameScopes.peek().contains(name)) {
-                context.report(range, "同一作用域中的 typedef 名称重复或与普通标识符冲突：" + name);
-                return false;
-            }
-            typedefScopes.peek().put(name, type);
-            return true;
+            int before = typeNames.diagnostics().size();
+            typeNames.declareTypedef(name, type, range);
+            copyTypeDiagnostics(before);
+            return before == typeNames.diagnostics().size();
         }
 
         public void declareOrdinaryName(String name, SourceRange range) {
-            if (extendedSyntax()) {
-                int before = typeNames.diagnostics().size();
-                boolean templateParameter = typeNames.isTemplateParameter(name);
-                typeNames.declareValue(name, range);
-                if (templateParameter) copyTypeDiagnostics(before);
-                return;
-            }
-            if (typedefScopes.peek().containsKey(name)) {
-                context.report(range, "普通标识符与同一作用域的 typedef 名称冲突：" + name);
-                return;
-            }
-            ordinaryNameScopes.peek().add(name);
+            int before = typeNames.diagnostics().size();
+            boolean templateParameter = typeNames.isTemplateParameter(name);
+            typeNames.declareValue(name, range);
+            if (templateParameter) copyTypeDiagnostics(before);
         }
 
         public MiniType resolveTypedef(String name) {
-            if (extendedSyntax()) {
-                var result = typeNames.lookup(new minic.compiler.parser.node.QualifiedName(false, List.of(name), context.peek().range()));
-                return result.kind() == TypeNameEnvironment.Kind.TYPE ? result.type() : null;
-            }
-            var typeIterator = typedefScopes.iterator();
-            var ordinaryIterator = ordinaryNameScopes.iterator();
-            while (typeIterator.hasNext() && ordinaryIterator.hasNext()) {
-                java.util.Map<String, MiniType> types = typeIterator.next();
-                java.util.Set<String> ordinary = ordinaryIterator.next();
-                if (ordinary.contains(name)) {
-                    return null;
-                }
-                MiniType type = types.get(name);
-                if (type != null) {
-                    return type;
-                }
-            }
-            return null;
+            var result = typeNames.lookup(new minic.compiler.parser.node.QualifiedName(false, List.of(name), context.peek().range()));
+            return result.kind() == TypeNameEnvironment.Kind.TYPE ? result.type() : null;
         }
 
-        /** Reads a C++ type prefix without consuming a following function/initializer suffix. */
+        /** Reads a type prefix without consuming a following function/initializer suffix. */
         public ParsedType parseTypeWithoutFunctionSuffix(String expectedMessage) {
-            if (!extendedSyntax()) throw new IllegalStateException("C++ type prefix requires C++ mode");
             int offset = 0;
             while (isTypeQualifier(context.peekAt(offset).type())) offset++;
             Token key = context.peekAt(offset);
@@ -1433,7 +1355,7 @@ public final class Parser extends Stage {
             return parseNamedDeclarator(specifiers,expectedNameMessage,false,false,first?specifiers.range():context.peek().range());
         }
         public ParsedNamedType parseGlobalDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
-            return parseNamedDeclarator(specifiers,expectedNameMessage,extendedSyntax(),extendedSyntax(),first?specifiers.range():context.peek().range());
+            return parseNamedDeclarator(specifiers,expectedNameMessage,true,true,first?specifiers.range():context.peek().range());
         }
         public ParsedNamedType parseMemberDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
             return parseNamedDeclarator(specifiers,expectedNameMessage,false,true,first?specifiers.range():context.peek().range());
@@ -1454,7 +1376,7 @@ public final class Parser extends Stage {
                 context.report(declarator.operatorName().range(), "运算符名称必须声明函数");
                 return null;
             }
-            if (resolvedType instanceof MiniType.FunctionType function && extendedSyntax() && context.check(TokenType.ARROW))
+            if (resolvedType instanceof MiniType.FunctionType function && context.check(TokenType.ARROW))
                 resolvedType = parseTrailingReturn(function);
             FunctionModifier topFunction = declarator.topFunction();
             List<ParsedParameter> resolvedParameters;
@@ -1486,7 +1408,7 @@ public final class Parser extends Stage {
         }
 
         public MiniType.ExceptionSpecification parseExceptionSpecification() {
-            if (!extendedSyntax() || !context.match(TokenType.NOEXCEPT)) return MiniType.ExceptionSpecification.UNSPECIFIED;
+            if (!context.match(TokenType.NOEXCEPT)) return MiniType.ExceptionSpecification.UNSPECIFIED;
             if (!context.match(TokenType.LEFT_PAREN)) return MiniType.ExceptionSpecification.NON_THROWING;
             var expression = new minic.compiler.parser.manager.ExpressionManager(context,this).parseExpression();
             context.consume(TokenType.RIGHT_PAREN,"noexcept 条件后期望 ')' ");
@@ -1495,13 +1417,13 @@ public final class Parser extends Stage {
         }
 
         public MiniType.FunctionType parseFunctionException(MiniType.FunctionType function) {
-            if (!extendedSyntax() || !context.check(TokenType.NOEXCEPT)) return function;
+            if (!context.check(TokenType.NOEXCEPT)) return function;
             if (function.exceptionSpecification().specified()) context.report(context.peek(),"noexcept 说明符重复");
             return function.withExceptionSpecification(parseExceptionSpecification());
         }
 
         public MiniType.FunctionType parseTrailingReturn(MiniType.FunctionType function) {
-            if (!extendedSyntax() || !context.match(TokenType.ARROW)) return function;
+            if (!context.match(TokenType.ARROW)) return function;
             if (!function.returnType().equals(MiniType.AUTO)) context.report(context.previous(), "尾置返回类型要求前置 auto");
             ParsedType result = parseType("期望尾置返回类型");
             return result == null ? function : (MiniType.FunctionType) MiniType.function(
@@ -1514,7 +1436,6 @@ public final class Parser extends Stage {
 
         /** Functional notation accepts a simple-type-specifier, not an arbitrary declarator. */
         public int constructionDelimiterAt(int offset) {
-            if (!extendedSyntax()) return -1;
             int member = typeMemberDelimiterAt(offset);
             if (member >= 0) {
                 int end = member + 2;
@@ -1583,7 +1504,6 @@ public final class Parser extends Stage {
         }
         /** The type prefix has a token boundary; it must not consume the following value member. */
         public int typeMemberDelimiterAt(int offset) {
-            if(!extendedSyntax())return -1;
             int end=decltypeEndAt(offset);
             if(end<0) {
                 boolean global=context.peekAt(offset).type()==TokenType.SCOPE;
@@ -1758,8 +1678,8 @@ public final class Parser extends Stage {
                 offset++;
             }
             TokenType type = context.peekAt(offset).type();
-            if (extendedSyntax() && (type == TokenType.TYPENAME || type == TokenType.AUTO || type == TokenType.DECLTYPE)) return true;
-            if (extendedSyntax() && (type == TokenType.IDENTIFIER || type == TokenType.SCOPE)) {
+            if ((type == TokenType.TYPENAME || type == TokenType.AUTO || type == TokenType.DECLTYPE)) return true;
+            if ((type == TokenType.IDENTIFIER || type == TokenType.SCOPE)) {
                 var name = QualifiedNameParser.peekName(context, offset);
                 if(name==null)return false;
                 for(int count=1;count<=name.segments().size();count++) {
@@ -1780,7 +1700,7 @@ public final class Parser extends Stage {
                     || type == TokenType.DOUBLE
                     || type == TokenType.VOID
                     || type == TokenType.STRUCT
-                    || extendedSyntax() && type == TokenType.CLASS
+                    || type == TokenType.CLASS
                     || type == TokenType.UNION
                     || type == TokenType.ENUM
                     || type == TokenType.BUILTIN_VA_LIST
@@ -1839,8 +1759,8 @@ public final class Parser extends Stage {
         private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired,
                                            boolean allowQualifiedName, boolean referenceBase) {
             ArrayList<PointerLayer> pointerLayers = new ArrayList<>();
-            while (context.check(TokenType.STAR) || extendedSyntax()
-                    && (context.check(TokenType.AMPERSAND) || context.check(TokenType.AMPERSAND_AMPERSAND))) {
+            while (context.check(TokenType.STAR)
+                    || context.check(TokenType.AMPERSAND) || context.check(TokenType.AMPERSAND_AMPERSAND)) {
                 Token operator = context.advance();
                 boolean reference = operator.type() != TokenType.STAR;
 
@@ -1849,9 +1769,9 @@ public final class Parser extends Stage {
                 pointerLayers.add(new PointerLayer(operator, qualifiers, reference));
             }
 
-            boolean pack = extendedSyntax() && context.match(TokenType.ELLIPSIS);
+            boolean pack = context.match(TokenType.ELLIPSIS);
             Declarator direct;
-            if(extendedSyntax() && allowQualifiedName && templateMemberDelimiter()>=0) {
+            if(allowQualifiedName && templateMemberDelimiter()>=0) {
                 Token first=context.peek();QualifiedName owner=parseTemplateMemberOwner();if(owner==null)return null;
                 OperatorName operator=null;Token name;
                 if(context.check(TokenType.OPERATOR)) {
@@ -1862,12 +1782,12 @@ public final class Parser extends Stage {
                 var segments=new ArrayList<>(owner.segments());segments.add(name.lexeme());
                 QualifiedName qualified=new QualifiedName(true,segments,SourceRange.span(first.range(),name.range()));
                 direct=new Declarator(name.lexeme(),new ArrayList<>(),first,name,name,qualified,operator);
-            } else if (extendedSyntax() && context.check(TokenType.OPERATOR)) {
+            } else if (context.check(TokenType.OPERATOR)) {
                 OperatorName operator = OperatorNameParser.parse(context);
                 if (operator == null) return null;
                 Token name = new Token(TokenType.IDENTIFIER, operator.spelling(), operator.range());
                 direct = new Declarator(name.lexeme(), new ArrayList<>(), name, name, name, null, operator);
-            } else if (extendedSyntax() && allowQualifiedName && (context.check(TokenType.SCOPE)
+            } else if (allowQualifiedName && (context.check(TokenType.SCOPE)
                     || context.check(TokenType.IDENTIFIER) && context.peekAt(1).type() == TokenType.SCOPE)) {
                 Token first = context.peek();
                 var parsed = OperatorNameParser.parseQualified(context);
@@ -1898,7 +1818,7 @@ public final class Parser extends Stage {
                 return null;
             }
 
-            if(extendedSyntax() && definitionTemplateParameters!=null && templateDefinitionOwner==null && context.check(TokenType.LESS)) {
+            if(definitionTemplateParameters!=null && templateDefinitionOwner==null && context.check(TokenType.LESS)) {
                 functionSpecializationArguments=parseFunctionTemplateArguments();if(functionSpecializationArguments==null)return null;
             }
             boolean memberScope = direct.qualifiedName() != null && direct.qualifiedName().segments().size() > 1;
@@ -1916,53 +1836,27 @@ public final class Parser extends Stage {
             while (context.check(TokenType.LEFT_BRACKET) || context.check(TokenType.LEFT_PAREN)) {
                 // A named declarator followed by an expression is direct initialization. A
                 // type (or empty list) still begins a function declarator, including reference returns.
-                if (extendedSyntax() && context.check(TokenType.LEFT_PAREN) && !direct.name().isEmpty()
+                if (context.check(TokenType.LEFT_PAREN) && !direct.name().isEmpty()
                         && !canStartTypeAt(1) && context.peekAt(1).type() != TokenType.RIGHT_PAREN
                         && context.peekAt(1).type() != TokenType.ELLIPSIS) break;
-                if (extendedSyntax() && !probingParameterClause && context.check(TokenType.LEFT_PAREN)
+                if (!probingParameterClause && context.check(TokenType.LEFT_PAREN)
                         && !direct.name().isEmpty() && !parameterClauseIsDeclaration()) break;
                 if (context.match(TokenType.LEFT_BRACKET)) {
-                    if(extendedSyntax()) {
-                        if(context.match(TokenType.RIGHT_BRACKET)) {
-                            direct.modifiers().add(new ArrayModifier(-1));direct=direct.withEnd(context.previous());continue;
-                        }
-                        Expression bound=expressionManager.parseAssignmentExpression();
-                        Token close=context.consume(TokenType.RIGHT_BRACKET,"期望 ']'");
-                        if(bound==null||close==null)return null;
-                        if(TemplateValues.dependent(bound) || TemplateValues.requiresSemanticContext(bound))direct.modifiers().add(new DependentArrayModifier(bound));
-                        else {
-                            try {
-                                long length=TemplateValues.evaluate(bound).value();
-                                if(length<=0||length>Integer.MAX_VALUE)throw new IllegalArgumentException("数组长度必须位于 1..2147483647");
-                                direct.modifiers().add(new ArrayModifier((int)length));
-                            } catch(IllegalArgumentException error){context.report(bound.range(),error.getMessage());return null;}
-                        }
-                        direct=direct.withEnd(close);continue;
+                    if(context.match(TokenType.RIGHT_BRACKET)) {
+                        direct.modifiers().add(new ArrayModifier(-1));direct=direct.withEnd(context.previous());continue;
                     }
-                    Token lengthToken;
-                    if (context.check(TokenType.INTEGER_LITERAL) || context.check(TokenType.LONG_LITERAL)) {
-                        lengthToken = context.advance();
-                    } else {
-                        context.report(context.peek(), "期望数组长度");
-                        lengthToken = null;
+                    Expression bound=expressionManager.parseAssignmentExpression();
+                    Token close=context.consume(TokenType.RIGHT_BRACKET,"期望 ']'");
+                    if(bound==null||close==null)return null;
+                    if(TemplateValues.dependent(bound) || TemplateValues.requiresSemanticContext(bound))direct.modifiers().add(new DependentArrayModifier(bound));
+                    else {
+                        try {
+                            long length=TemplateValues.evaluate(bound).value();
+                            if(length<=0||length>Integer.MAX_VALUE)throw new IllegalArgumentException("数组长度必须位于 1..2147483647");
+                            direct.modifiers().add(new ArrayModifier((int)length));
+                        } catch(IllegalArgumentException error){context.report(bound.range(),error.getMessage());return null;}
                     }
-                    Token endToken = context.consume(TokenType.RIGHT_BRACKET, "期望 ']'");
-                    if (lengthToken == null || endToken == null) {
-                        return null;
-                    }
-                    long parsedLength = lengthToken.literalValue() instanceof Integer integer
-                            ? integer.longValue()
-                            : ((Token.IntegerLiteralValue) lengthToken.literalValue()).value();
-                    int length;
-                    if (parsedLength <= 0 || parsedLength > Integer.MAX_VALUE) {
-                        context.report(lengthToken, "数组长度必须位于 1..2147483647");
-                        length = 1;
-                    } else {
-                        length = (int) parsedLength;
-                    }
-                    direct.modifiers().add(new ArrayModifier(length));
-                    direct = direct.withEnd(endToken);
-                    continue;
+                    direct=direct.withEnd(close);continue;
                 }
 
                 context.advance();
@@ -1974,7 +1868,7 @@ public final class Parser extends Stage {
                 direct.modifiers().add(new FunctionModifier(
                         parameterList.parameters(),
                         parameterList.variadic(),
-                        extendedSyntax(), parseExceptionSpecification()
+                        true, parseExceptionSpecification()
                 ));
                 direct = direct.withEnd(endToken);
             }
@@ -1992,7 +1886,7 @@ public final class Parser extends Stage {
             return direct;
         }
 
-        /** C++ declaration priority applies only when the entire parameter clause is grammatical. */
+        /** Declaration priority applies only when the entire parameter clause is grammatical. */
         private boolean parameterClauseIsDeclaration() {
             int end = 0, depth = 0;
             do {
@@ -2031,7 +1925,6 @@ public final class Parser extends Stage {
 
         /** The caller owns the surrounding parentheses; shared by functions and constructors. */
         public ParameterList parseParameterList() {
-            if (!extendedSyntax()) return parseParameterListContents();
             enterScope(List.of());
             try { return parseParameterListContents(); }
             finally { exitScope(); }
@@ -2076,18 +1969,18 @@ public final class Parser extends Stage {
                 MiniType parameterType = adjustParameterType(resolveDeclarator(declarator, baseType.type()));
                 SourceRange range = SourceRange.span(baseType.startToken().range(), declarator.endToken().range());
                 Expression defaultValue=null;
-                if(extendedSyntax()&&context.match(TokenType.EQUAL))defaultValue=expressionManager.parseInitializerClause();
-                if(extendedSyntax()&&defaultValue==null&&!(parameterType instanceof MiniType.PackExpansionType)&&parameters.stream().anyMatch(p->p.defaultValue()!=null))context.report(range,"默认函数实参之后的参数也需要默认实参");
+                if(context.match(TokenType.EQUAL))defaultValue=expressionManager.parseInitializerClause();
+                if(defaultValue==null&&!(parameterType instanceof MiniType.PackExpansionType)&&parameters.stream().anyMatch(p->p.defaultValue()!=null))context.report(range,"默认函数实参之后的参数也需要默认实参");
                 if(parameterType instanceof MiniType.PackExpansionType && defaultValue!=null)context.report(range,"函数参数包不能有默认实参");
                 parameters.add(new ParsedParameter(declarator.name(), parameterType, defaultValue, range));
-                if (extendedSyntax() && !declarator.name().isEmpty()) declareOrdinaryName(declarator.name(), range);
+                if (!declarator.name().isEmpty()) declareOrdinaryName(declarator.name(), range);
             } while (context.match(TokenType.COMMA));
             return new ParameterList(parameters, variadic);
         }
 
         private boolean canStartDeclarator(boolean allowIdentifier) {
             return context.check(TokenType.STAR)
-                    || extendedSyntax() && (context.check(TokenType.ELLIPSIS) || context.check(TokenType.AMPERSAND) || context.check(TokenType.AMPERSAND_AMPERSAND))
+                    || (context.check(TokenType.ELLIPSIS) || context.check(TokenType.AMPERSAND) || context.check(TokenType.AMPERSAND_AMPERSAND))
                     || context.check(TokenType.LEFT_PAREN)
                     || context.check(TokenType.LEFT_BRACKET)
                     || (allowIdentifier && context.check(TokenType.IDENTIFIER));
@@ -2112,7 +2005,6 @@ public final class Parser extends Stage {
         }
 
         public boolean startsStructuredBinding() {
-            if(!extendedSyntax())return false;
             int offset=0;
             while(context.peekAt(offset).type()==TokenType.CONST || context.peekAt(offset).type()==TokenType.VOLATILE)offset++;
             if(context.peekAt(offset++).type()!=TokenType.AUTO)return false;
@@ -2141,9 +2033,9 @@ public final class Parser extends Stage {
 
             MiniType type;
             Token end;
-            if (extendedSyntax() && context.check(TokenType.AUTO)) {
+            if (context.check(TokenType.AUTO)) {
                 end = context.advance(); type = MiniType.AUTO;
-            } else if (extendedSyntax() && context.match(TokenType.DECLTYPE)) {
+            } else if (context.match(TokenType.DECLTYPE)) {
                 context.consume(TokenType.LEFT_PAREN, "decltype 需要 '('");
                 if (context.match(TokenType.AUTO)) type = MiniType.DECLTYPE_AUTO;
                 else {
@@ -2172,7 +2064,7 @@ public final class Parser extends Stage {
             } else if (context.check(TokenType.BUILTIN_VA_LIST)) {
                 end = context.advance();
                 type = MiniType.VA_LIST;
-            } else if (context.check(TokenType.STRUCT) || extendedSyntax() && context.check(TokenType.CLASS)) {
+            } else if (context.check(TokenType.STRUCT) || context.check(TokenType.CLASS)) {
                 BaseType struct = parseStructType();
                 if (struct == null) return null;
                 type = struct.type();
@@ -2188,7 +2080,7 @@ public final class Parser extends Stage {
                 if (nameToken == null) return null;
                 type = MiniType.INT;
                 end = nameToken;
-            } else if (extendedSyntax() && (context.check(TokenType.TYPENAME) || context.check(TokenType.IDENTIFIER) || context.check(TokenType.SCOPE))) {
+            } else if ((context.check(TokenType.TYPENAME) || context.check(TokenType.IDENTIFIER) || context.check(TokenType.SCOPE))) {
                 boolean typename=context.match(TokenType.TYPENAME);
                 type=parseQualifiedNamedType(typename);
                 if(type==null)return null;
@@ -2384,19 +2276,7 @@ public final class Parser extends Stage {
 
         private BaseType parseAggregateType(boolean union) {
             Token startToken = context.advance();
-            if (extendedSyntax()) return parseRecordAggregateType(union, startToken);
-            Token nameToken = context.check(TokenType.IDENTIFIER) ? context.advance() : null;
-            if (!context.match(TokenType.LEFT_BRACE)) {
-                if (nameToken == null) {
-                    context.report(context.peek(), union ? "期望联合体名称或定义" : "期望结构体名称或定义");
-                    return null;
-                }
-                String name = union ? "$union$" + nameToken.lexeme() : nameToken.lexeme();
-                return new BaseType(MiniType.struct(name), startToken, nameToken);
-            }
-            String sourceName = nameToken == null ? "$anonymous$" + anonymousAggregateIndex++ : nameToken.lexeme();
-            String internalName = union ? "$union$" + sourceName : sourceName;
-            return parseAggregateDefinition(MiniType.struct(internalName), union, startToken);
+            return parseRecordAggregateType(union, startToken);
         }
 
         private BaseType parseRecordAggregateType(boolean union, Token startToken) {
@@ -2441,7 +2321,7 @@ public final class Parser extends Stage {
         }
 
         private BaseType parseAggregateDefinition(MiniType type, boolean union, Token startToken) {
-            if (extendedSyntax() && recordParser != null) {
+            if (recordParser != null) {
                 StructDecl declaration = recordParser.parseDefinition(type, union, startToken);
                 if (declaration == null) return null;
                 recordAggregateFields(declaration);
@@ -2523,7 +2403,7 @@ public final class Parser extends Stage {
             boolean directReference = false;
             for (int index = declarator.modifiers().size() - 1; index >= 0; index--) {
                 DeclaratorModifier modifier = declarator.modifiers().get(index);
-                if (extendedSyntax() && modifier instanceof ReferenceModifier && directReference) {
+                if (modifier instanceof ReferenceModifier && directReference) {
                     context.report(range, "不能直接声明引用的引用；引用折叠仅适用于类型别名");
                 }
                 type = modifier.apply(type);
@@ -2531,7 +2411,7 @@ public final class Parser extends Stage {
                 // present in baseType came through an alias and is allowed to collapse.
                 directReference = modifier instanceof ReferenceModifier;
             }
-            if (extendedSyntax()) validateReferenceShape(type, range);
+            validateReferenceShape(type, range);
             return type;
         }
 

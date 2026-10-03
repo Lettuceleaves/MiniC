@@ -1,7 +1,6 @@
 package minic.debug;
 
 import minic.compiler.SourceFile;
-import minic.compiler.LanguageMode;
 import minic.compiler.ir.IrResult;
 import minic.compiler.CompilerApi;
 import minic.compiler.ir.instruction.IrInstruction;
@@ -38,21 +37,12 @@ public final class Debugger {
         this(source, standardInput, DebugTimeSource.system());
     }
 
-    public Debugger(SourceFile source, String standardInput, LanguageMode languageMode) {
-        this(source, standardInput, DebugTimeSource.system(), DebugRuntime.DEFAULT_HEAP_CAPACITY, languageMode);
-    }
-
     Debugger(SourceFile source, String standardInput, DebugTimeSource timeSource) {
         this(source, standardInput, timeSource, DebugRuntime.DEFAULT_HEAP_CAPACITY);
     }
 
     Debugger(SourceFile source, String standardInput, DebugTimeSource timeSource, int heapCapacity) {
-        this(source, standardInput, timeSource, heapCapacity, LanguageMode.C);
-    }
-
-    private Debugger(SourceFile source, String standardInput, DebugTimeSource timeSource, int heapCapacity,
-                     LanguageMode languageMode) {
-        this(source, new CompilerApi(source, languageMode).runToIr(), standardInput, timeSource, heapCapacity);
+        this(source, new CompilerApi(source).runToIr(), standardInput, timeSource, heapCapacity);
     }
 
     static Debugger fromIr(SourceFile source, IrResult ir, String standardInput) {
