@@ -501,7 +501,7 @@ public final class ExpressionManager {
                 state.build(member, "FieldAccessExpr " + member.fieldName(), member.range());
                 return member;
             }
-            var operator = minic.compiler.parser.OperatorNameParser.parse(state);
+            var operator = typeReader.parseOperatorName();
             if (operator == null) return null;
             var member = new FieldAccessExpr(target, operator.spelling(), viaPointer,
                     SourceRange.span(target.range(), operator.range()));
@@ -672,7 +672,7 @@ public final class ExpressionManager {
         }
         if (state.check(TokenType.OPERATOR) || state.check(TokenType.SCOPE) || state.check(TokenType.IDENTIFIER)
                 && state.peekAt(1).type() == TokenType.SCOPE) {
-            var name = minic.compiler.parser.OperatorNameParser.parseQualified(state);
+            var name = typeReader.parseQualifiedDeclarationName();
             if (name == null) return null;
             var expression = new Expression.QualifiedNameExpr(name.qualifiedName());
             state.build(expression, "QualifiedNameExpr", expression.range());

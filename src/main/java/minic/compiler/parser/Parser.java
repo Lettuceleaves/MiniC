@@ -7,7 +7,9 @@ import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
 import minic.compiler.parser.manager.DeclarationManager;
 import minic.compiler.parser.manager.ExpressionManager;
+import minic.compiler.parser.manager.RecordManager;
 import minic.compiler.parser.manager.StatementManager;
+import minic.compiler.parser.manager.TypeNameManager;
 import minic.compiler.parser.node.AstNode;
 import minic.compiler.parser.node.Declaration.FunctionDecl;
 import minic.compiler.parser.node.Declaration.Program;
@@ -18,6 +20,7 @@ import minic.compiler.parser.node.Declaration.GlobalVarDecl;
 import minic.compiler.parser.node.Declaration;
 import minic.compiler.parser.node.QualifiedName;
 import minic.compiler.parser.node.OperatorName;
+import minic.compiler.parser.node.OperatorName.Kind;
 import minic.compiler.parser.node.Declaration.ClassTemplateDecl;
 import minic.compiler.parser.node.Declaration.FunctionTemplateDecl;
 import minic.compiler.type.MiniType;
@@ -38,8 +41,9 @@ import java.util.Optional;
 /**
  * MiniC 递归下降语法分析器。
  *
- * <p>Parser 负责 token 游标、单步生命周期和三个 Manager 的调度；声明、
- * 语句和表达式的具体语法规则分别由对应 Manager 处理。</p>
+ * <p>Parser 负责 token 游标、单步生命周期和各 Manager 的调度；声明、
+ * 语句、表达式和类成员的具体语法规则分别由对应 Manager 处理，
+ * 类型名称的声明点分类由 TypeNameManager 维护。</p>
  */
 public final class Parser extends Stage {
     private final Lexer lexer;
@@ -235,7 +239,7 @@ public final class Parser extends Stage {
         if (context.check(TokenType.TEMPLATE)) return parseClassTemplate();
         if (context.check(TokenType.NAMESPACE)) return parseNamespace();
         if (context.check(TokenType.USING)) {
-            var using = QualifiedNameParser.parseUsing(context);
+            var using = declarationManager.parseUsing();
             if (using != null) typeReader.registerUsing(using);
             return using;
         }
@@ -342,7 +346,7 @@ public final class Parser extends Stage {
             context.unsupportedSyntax(context.peek().range(), "匿名命名空间尚未实现");
             return null;
         }
-        var name = QualifiedNameParser.parseName(context);
+        var name = context.parseQualifiedName();
         if (name == null) return null;
         if (name.global()) {
             context.report(name.range(), "命名空间定义不能以 :: 开头");
@@ -415,7 +419,7 @@ public final class Parser extends Stage {
         return line != 0 ? line : Integer.compare(left.endByte(), right.endByte());
     }
 
-    /** 三个 Manager 共享的 token 游标、诊断和 trace 上下文。 */
+    /** 各 Manager 共享的 token 游标、诊断和 trace 上下文。 */
     public static final class Context {
         private final List<Token> tokens;
         private final ArrayList<Diagnostic> reportedErrors = new ArrayList<>();
@@ -768,6 +772,55 @@ public final class Parser extends Stage {
                     || type == TokenType.UNSIGNED;
         }
 
+        /** Lookahead for declaration/cast disambiguation; never consumes tokens or emits diagnostics. */
+        public QualifiedName peekQualifiedName(int offset) {
+            var start = peekAt(offset);
+            boolean global = start.type() == TokenType.SCOPE;
+            if (global) offset++;
+            if (peekAt(offset).type() != TokenType.IDENTIFIER) return null;
+            var segments = new ArrayList<String>();
+            var end = peekAt(offset++);
+            segments.add(end.lexeme());
+            while (peekAt(offset).type() == TokenType.SCOPE) {
+                offset++;
+                if (peekAt(offset).type() != TokenType.IDENTIFIER) return null;
+                end = peekAt(offset++);
+                segments.add(end.lexeme());
+            }
+            return new QualifiedName(global, segments, SourceRange.span(start.range(), end.range()));
+        }
+
+        /** Reads qualified-name syntax only; name lookup remains a separate semantic operation. */
+        public QualifiedName parseQualifiedName() {
+            var start = peek();
+            boolean global = match(TokenType.SCOPE);
+            var first = consume(TokenType.IDENTIFIER, "期望限定名称标识符");
+            if (first == null) return null;
+            var segments = new ArrayList<String>();
+            segments.add(first.lexeme());
+            var end = first;
+            while (match(TokenType.SCOPE)) {
+                end = consume(TokenType.IDENTIFIER, "期望 :: 后的标识符");
+                if (end == null) return null;
+                segments.add(end.lexeme());
+            }
+            return new QualifiedName(global, segments, SourceRange.span(start.range(), end.range()));
+        }
+
+        /** Consumes a source definition marker, preserving the declaration's candidate identity. */
+        public Declaration.DefinitionKind parseDefinitionKind() {
+            if (!match(TokenType.EQUAL)) return Declaration.DefinitionKind.ORDINARY;
+            Declaration.DefinitionKind kind;
+            if (match(TokenType.DEFAULT)) kind = Declaration.DefinitionKind.DEFAULTED;
+            else if (match(TokenType.DELETE)) kind = Declaration.DefinitionKind.DELETED;
+            else {
+                report(peek(), "Expected 'default' or 'delete' after '=' in a function definition");
+                kind = Declaration.DefinitionKind.ORDINARY;
+            }
+            consume(TokenType.SEMICOLON, "Expected ';' after the function definition marker");
+            return kind;
+        }
+
         public void synchronizeStatement() {
             while (!isAtEnd() && !check(TokenType.SEMICOLON) && !check(TokenType.RIGHT_BRACE)) {
                 advance();
@@ -780,17 +833,17 @@ public final class Parser extends Stage {
         }
     }
 
-    /** Manager 共用的类型语法读取器，不单独形成第四个 Manager。 */
+    /** Manager 共用的类型语法读取器。 */
     public static final class TypeReader {
         private final Context context;
         private final java.util.function.Consumer<StructDecl> aggregateSink;
-        private final TypeNameEnvironment typeNames;
+        private final TypeNameManager typeNames;
         private final java.util.Map<String, List<Declaration.StructField>> aggregateFields = new java.util.LinkedHashMap<>();
         private final java.util.Map<String, StructDecl> aggregateDeclarations = new java.util.LinkedHashMap<>();
         private int localScopeDepth;
         private int memberScopeDepth;
         private int anonymousAggregateIndex;
-        private RecordParser recordParser;
+        private RecordManager recordManager;
         private final java.util.Map<String, List<ClassTemplateDecl.Parameter>> classTemplates = new java.util.LinkedHashMap<>();
         private final java.util.Map<String, List<Optional<TemplateArgument>>> classTemplateDefaults = new java.util.LinkedHashMap<>();
         private ExpressionManager expressionManager;
@@ -824,7 +877,7 @@ public final class Parser extends Stage {
             this.context = Objects.requireNonNull(context, "context");
             Objects.requireNonNull(aggregateSink, "aggregateSink");
             this.aggregateSink = declaration -> { if (!probingParameterClause) aggregateSink.accept(declaration); };
-            typeNames = new TypeNameEnvironment();
+            typeNames = new TypeNameManager();
         }
 
 
@@ -962,7 +1015,7 @@ public final class Parser extends Stage {
             var existing = typeNames.lookupElaborated(new QualifiedName(false, List.of(name.lexeme()), name.range()));
             var owner = (MiniType.StructType) typeNames.declareStruct(name.lexeme(), false, false, name.range());
             copyTypeDiagnostics(before);
-            if (existing.kind() == TypeNameEnvironment.Kind.TYPE && owner.name().equals(existing.canonicalName())
+            if (existing.kind() == TypeNameManager.Kind.TYPE && owner.name().equals(existing.canonicalName())
                     && !classTemplates.containsKey(owner.name()))
                 context.report(name.range(), "类模板与普通类型声明冲突");
             List<ClassTemplateDecl.Parameter> previous = classTemplates.get(owner.name());
@@ -1009,7 +1062,76 @@ public final class Parser extends Stage {
             templateValues.pop();
         }
 
-        public void setRecordParser(RecordParser parser) { recordParser = Objects.requireNonNull(parser); }
+        public void setRecordManager(RecordManager manager) { recordManager = Objects.requireNonNull(manager); }
+
+        /** Declaration-name syntax only: this does not perform operator lookup or overload selection. */
+        public OperatorName parseOperatorName() {
+            Token start = context.consume(TokenType.OPERATOR, "期望 operator");
+            if (start == null) return null;
+            Token token = context.peek();
+            if (!context.isAtEnd()) context.advance();
+            Kind kind = switch (token.type()) {
+                case PLUS -> Kind.ADD; case MINUS -> Kind.SUBTRACT; case STAR -> Kind.MULTIPLY;
+                case SLASH -> Kind.DIVIDE; case PERCENT -> Kind.REMAINDER; case CARET -> Kind.BIT_XOR;
+                case AMPERSAND -> Kind.BIT_AND; case PIPE -> Kind.BIT_OR; case TILDE -> Kind.BIT_NOT;
+                case BANG -> Kind.LOGICAL_NOT; case EQUAL -> Kind.ASSIGN; case LESS -> Kind.LESS;
+                case GREATER -> Kind.GREATER; case PLUS_EQUAL -> Kind.ADD_ASSIGN; case MINUS_EQUAL -> Kind.SUBTRACT_ASSIGN;
+                case STAR_EQUAL -> Kind.MULTIPLY_ASSIGN; case SLASH_EQUAL -> Kind.DIVIDE_ASSIGN; case PERCENT_EQUAL -> Kind.REMAINDER_ASSIGN;
+                case CARET_EQUAL -> Kind.XOR_ASSIGN; case AMPERSAND_EQUAL -> Kind.AND_ASSIGN; case PIPE_EQUAL -> Kind.OR_ASSIGN;
+                case LESS_LESS -> Kind.SHIFT_LEFT; case GREATER_GREATER -> Kind.SHIFT_RIGHT;
+                case LESS_LESS_EQUAL -> Kind.SHIFT_LEFT_ASSIGN; case GREATER_GREATER_EQUAL -> Kind.SHIFT_RIGHT_ASSIGN;
+                case EQUAL_EQUAL -> Kind.EQUAL; case BANG_EQUAL -> Kind.NOT_EQUAL; case LESS_EQUAL -> Kind.LESS_EQUAL;
+                case GREATER_EQUAL -> Kind.GREATER_EQUAL; case AMPERSAND_AMPERSAND -> Kind.LOGICAL_AND;
+                case PIPE_PIPE -> Kind.LOGICAL_OR; case PLUS_PLUS -> Kind.INCREMENT; case MINUS_MINUS -> Kind.DECREMENT;
+                case COMMA -> Kind.COMMA; case ARROW -> Kind.MEMBER_ACCESS;
+                case LEFT_PAREN -> Kind.CALL; case LEFT_BRACKET -> Kind.SUBSCRIPT;
+                case NEW -> Kind.NEW; case DELETE -> Kind.DELETE;
+                default -> null;
+            };
+            if (kind == null) {
+                if (token.type() == TokenType.STRING_LITERAL)
+                    context.unsupportedSyntax(SourceRange.span(start.range(), token.range()), "字面量运算符声明尚未实现");
+                else context.report(token.range(), "期望可重载的运算符名称");
+                return null;
+            }
+            Token end = token;
+            if (kind == Kind.CALL || kind == Kind.SUBSCRIPT) {
+                end = context.consume(kind == Kind.CALL ? TokenType.RIGHT_PAREN : TokenType.RIGHT_BRACKET, "运算符名称需要完整的 () 或 []");
+                if (end == null) return null;
+            } else if ((kind == Kind.NEW || kind == Kind.DELETE) && context.match(TokenType.LEFT_BRACKET)) {
+                end = context.consume(TokenType.RIGHT_BRACKET, "分配运算符名称需要完整的 []");
+                if (end == null) return null;
+                kind = kind == Kind.NEW ? Kind.NEW_ARRAY : Kind.DELETE_ARRAY;
+            } else if (kind == Kind.MEMBER_ACCESS && context.check(TokenType.STAR)
+                    && token.range().endLine() == context.peek().range().startLine()
+                    && token.range().endByte() == context.peek().range().startByte()) {
+                // The core lexer uses ARROW and STAR; only adjacent spelling forms the ->* token.
+                end = context.advance(); kind = Kind.POINTER_TO_MEMBER;
+            }
+            return new OperatorName(kind, SourceRange.span(start.range(), end.range()));
+        }
+
+        /** Keep the existing qualified identifier path, permitting an operator-function-id at its end. */
+        public ParsedName parseQualifiedDeclarationName() {
+            Token start = context.peek();
+            boolean global = context.match(TokenType.SCOPE);
+            var segments = new ArrayList<String>();
+            Token name;
+            OperatorName operator = null;
+            while (true) {
+                if (context.check(TokenType.OPERATOR)) {
+                    operator = parseOperatorName();
+                    if (operator == null) return null;
+                    name = new Token(TokenType.IDENTIFIER, operator.spelling(), operator.range());
+                } else {
+                    name = context.consume(TokenType.IDENTIFIER, "期望限定声明名称");
+                    if (name == null) return null;
+                }
+                segments.add(name.lexeme());
+                if (operator != null || !context.match(TokenType.SCOPE)) break;
+            }
+            return new ParsedName(new QualifiedName(global, segments, SourceRange.span(start.range(), name.range())), name, operator);
+        }
 
         public void enterNamespace(minic.compiler.parser.node.QualifiedName name) {
             typeNames.enterNamespace(name.segments(), name.range());
@@ -1175,7 +1297,7 @@ public final class Parser extends Stage {
             if (name.segments().size() < 2) return false;
             var owner = new QualifiedName(name.global(), name.segments().subList(0, name.segments().size() - 1), name.range());
             var lookup = typeNames.lookupQualifier(owner);
-            if (lookup.kind() != TypeNameEnvironment.Kind.TYPE || !(lookup.type().unqualified() instanceof MiniType.StructType record)) return false;
+            if (lookup.kind() != TypeNameManager.Kind.TYPE || !(lookup.type().unqualified() instanceof MiniType.StructType record)) return false;
             String injectedName = record.name().substring(record.name().lastIndexOf("::") + 2);
             return injectedName.equals(name.segments().getLast());
         }
@@ -1255,7 +1377,7 @@ public final class Parser extends Stage {
 
         public MiniType resolveTypedef(String name) {
             var result = typeNames.lookup(new minic.compiler.parser.node.QualifiedName(false, List.of(name), context.peek().range()));
-            return result.kind() == TypeNameEnvironment.Kind.TYPE ? result.type() : null;
+            return result.kind() == TypeNameManager.Kind.TYPE ? result.type() : null;
         }
 
         /** Reads a type prefix without consuming a following function/initializer suffix. */
@@ -1455,8 +1577,8 @@ public final class Parser extends Stage {
                     if(context.peekAt(end).type()!=TokenType.SCOPE)break;end++;
                 }
             } else if (token == TokenType.IDENTIFIER || token == TokenType.SCOPE) {
-                var name = QualifiedNameParser.peekName(context, offset);
-                if (name == null || typeNames.lookup(name).kind() != TypeNameEnvironment.Kind.TYPE) return -1;
+                var name = context.peekQualifiedName(offset);
+                if (name == null || typeNames.lookup(name).kind() != TypeNameManager.Kind.TYPE) return -1;
                 end = offset + name.segments().size() * 2 - 1 + (name.global() ? 1 : 0);
                 if (context.peekAt(end).type() == TokenType.LESS) {
                     int depth = 1;
@@ -1513,7 +1635,7 @@ public final class Parser extends Stage {
                     var prefix=new QualifiedName(global,segments,name.range());
                     var lookup=context.peekAt(cursor).type()==TokenType.SCOPE
                             ?typeNames.lookupQualifier(prefix):typeNames.lookup(prefix);
-                    if(lookup.kind()==TypeNameEnvironment.Kind.TYPE){end=templateArgumentsEndAt(cursor);break;}
+                    if(lookup.kind()==TypeNameManager.Kind.TYPE){end=templateArgumentsEndAt(cursor);break;}
                     if(context.peekAt(cursor).type()!=TokenType.SCOPE)return -1;cursor++;
                 }
             }
@@ -1680,12 +1802,12 @@ public final class Parser extends Stage {
             TokenType type = context.peekAt(offset).type();
             if ((type == TokenType.TYPENAME || type == TokenType.AUTO || type == TokenType.DECLTYPE)) return true;
             if ((type == TokenType.IDENTIFIER || type == TokenType.SCOPE)) {
-                var name = QualifiedNameParser.peekName(context, offset);
+                var name = context.peekQualifiedName(offset);
                 if(name==null)return false;
                 for(int count=1;count<=name.segments().size();count++) {
                     var prefix=new QualifiedName(name.global(),name.segments().subList(0,count),name.range());
                     var found=count<name.segments().size()?typeNames.lookupQualifier(prefix):typeNames.lookup(prefix);
-                    if(found.kind()==TypeNameEnvironment.Kind.TYPE)return true;
+                    if(found.kind()==TypeNameManager.Kind.TYPE)return true;
                 }
                 return false;
             }
@@ -1775,7 +1897,7 @@ public final class Parser extends Stage {
                 Token first=context.peek();QualifiedName owner=parseTemplateMemberOwner();if(owner==null)return null;
                 OperatorName operator=null;Token name;
                 if(context.check(TokenType.OPERATOR)) {
-                    operator=OperatorNameParser.parse(context);if(operator==null)return null;
+                    operator=parseOperatorName();if(operator==null)return null;
                     name=new Token(TokenType.IDENTIFIER,operator.spelling(),operator.range());
                 } else name=context.consume(TokenType.IDENTIFIER,expectedNameMessage);
                 if(name==null)return null;
@@ -1783,14 +1905,14 @@ public final class Parser extends Stage {
                 QualifiedName qualified=new QualifiedName(true,segments,SourceRange.span(first.range(),name.range()));
                 direct=new Declarator(name.lexeme(),new ArrayList<>(),first,name,name,qualified,operator);
             } else if (context.check(TokenType.OPERATOR)) {
-                OperatorName operator = OperatorNameParser.parse(context);
+                OperatorName operator = parseOperatorName();
                 if (operator == null) return null;
                 Token name = new Token(TokenType.IDENTIFIER, operator.spelling(), operator.range());
                 direct = new Declarator(name.lexeme(), new ArrayList<>(), name, name, name, null, operator);
             } else if (allowQualifiedName && (context.check(TokenType.SCOPE)
                     || context.check(TokenType.IDENTIFIER) && context.peekAt(1).type() == TokenType.SCOPE)) {
                 Token first = context.peek();
-                var parsed = OperatorNameParser.parseQualified(context);
+                var parsed = parseQualifiedDeclarationName();
                 if (parsed == null) return null;
                 Token last = parsed.nameToken();
                 direct = new Declarator(last.lexeme(), new ArrayList<>(), first, last, last, parsed.qualifiedName(), parsed.operatorName());
@@ -2114,8 +2236,8 @@ public final class Parser extends Stage {
                 var name=new QualifiedName(global,segments,SourceRange.span(first.range(),identifier.range()));
                 var found=context.check(TokenType.SCOPE)||typeOwnerDepth>0&&context.check(TokenType.EOF)
                         ?typeNames.lookupQualifier(name):typeNames.lookup(name);
-                if(found.kind()==TypeNameEnvironment.Kind.TYPE)type=parseTemplateId(found.type(),name.range());
-                else if(found.kind()==TypeNameEnvironment.Kind.NAMESPACE && context.match(TokenType.SCOPE))continue;
+                if(found.kind()==TypeNameManager.Kind.TYPE)type=parseTemplateId(found.type(),name.range());
+                else if(found.kind()==TypeNameManager.Kind.NAMESPACE && context.match(TokenType.SCOPE))continue;
                 else {context.report(name.range(),"此位置不能将名称作为类型使用："+name+" ("+found.kind()+")");return null;}
                 if(type==null)return null;
             }
@@ -2280,8 +2402,8 @@ public final class Parser extends Stage {
         }
 
         private BaseType parseRecordAggregateType(boolean union, Token startToken) {
-            var name = QualifiedNameParser.peekName(context, 0);
-            if (name != null) name = QualifiedNameParser.parseName(context);
+            var name = context.peekQualifiedName(0);
+            if (name != null) name = context.parseQualifiedName();
             Token end = name == null ? startToken : context.previous();
             if (context.match(TokenType.LEFT_BRACE)) {
                 if (name != null && (name.global() || name.segments().size() != 1)) {
@@ -2298,7 +2420,7 @@ public final class Parser extends Stage {
             }
             var lookup = typeNames.lookupElaborated(name);
             MiniType type;
-            if (lookup.kind() == TypeNameEnvironment.Kind.MISSING && !name.global() && name.segments().size() == 1) {
+            if (lookup.kind() == TypeNameManager.Kind.MISSING && !name.global() && name.segments().size() == 1) {
                 type = declareAggregate(name.segments().getFirst(), union, false, name.range());
                 String identity = ((MiniType.StructType) type.unqualified()).name();
                 var info = union ? null : new Declaration.RecordInfo(
@@ -2306,7 +2428,7 @@ public final class Parser extends Stage {
                         List.of(), startToken.range());
                 aggregateSink.accept(new StructDecl(identity, List.of(), false, union, info,
                         SourceRange.span(startToken.range(), end.range())));
-            } else if (lookup.kind() == TypeNameEnvironment.Kind.TYPE && lookup.type().unqualified() instanceof MiniType.StructType tag) {
+            } else if (lookup.kind() == TypeNameManager.Kind.TYPE && lookup.type().unqualified() instanceof MiniType.StructType tag) {
                 type = lookup.type();
                 if (union != tag.name().startsWith("$union$")) {
                     context.report(name.range(), "struct/union 种类与已声明类型不一致");
@@ -2321,8 +2443,8 @@ public final class Parser extends Stage {
         }
 
         private BaseType parseAggregateDefinition(MiniType type, boolean union, Token startToken) {
-            if (recordParser != null) {
-                StructDecl declaration = recordParser.parseDefinition(type, union, startToken);
+            if (recordManager != null) {
+                StructDecl declaration = recordManager.parseDefinition(type, union, startToken);
                 if (declaration == null) return null;
                 recordAggregateFields(declaration);
                 aggregateSink.accept(declaration);
@@ -2509,6 +2631,9 @@ public final class Parser extends Stage {
     }
 
     public record ParsedType(MiniType type, Token startToken, SourceRange range) {
+    }
+
+    public record ParsedName(QualifiedName qualifiedName, Token nameToken, OperatorName operatorName) {
     }
 
     public record ParsedNamedType(

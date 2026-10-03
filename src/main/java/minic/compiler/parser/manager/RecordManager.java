@@ -1,10 +1,11 @@
-package minic.compiler.parser;
+package minic.compiler.parser.manager;
+
+import minic.compiler.parser.Parser;
 
 import minic.compiler.parser.node.Declaration;
 import minic.SourceRange;
 import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
-import minic.compiler.parser.manager.StatementManager;
 import minic.compiler.parser.node.Declaration.*;
 import minic.compiler.parser.node.Expression.InitializerSyntax;
 import minic.compiler.parser.node.ConversionName;
@@ -17,12 +18,12 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** Class/struct member syntax; member binding and executable lowering remain separate stages. */
-public final class RecordParser {
+public final class RecordManager {
     private final Parser.Context state;
     private final Parser.TypeReader types;
     private final StatementManager statements;
 
-    public RecordParser(Parser.Context state, Parser.TypeReader types, StatementManager statements) {
+    public RecordManager(Parser.Context state, Parser.TypeReader types, StatementManager statements) {
         this.state = state;
         this.types = types;
         this.statements = statements;
@@ -231,7 +232,7 @@ public final class RecordParser {
                         } else {
                             Parser.Context.TokenWindow body = state.check(TokenType.LEFT_BRACE) ? state.deferBlock() : null;
                             DefinitionKind kind=DefinitionKind.ORDINARY;
-                            if(body==null){if(state.check(TokenType.EQUAL))kind=FunctionDefinitionParser.parse(state);else state.advance();}
+                            if(body==null){if(state.check(TokenType.EQUAL))kind=state.parseDefinitionKind();else state.advance();}
                             var method = makeMethod(declaration, function, null, state.previous().range()).withDefinitionKind(kind).withConstexprSpecifier(constexprSpecifier);
                             int index = members.size();
                             members.add(new MethodMember(method, constQualified, staticMember, declaration.nameRange()));
@@ -360,7 +361,7 @@ public final class RecordParser {
             if(statik&&constant)state.report(start,"static 成员模板不能 cv 限定");
             Parser.Context.TokenWindow body=state.check(TokenType.LEFT_BRACE)?state.deferBlock():null;
             DefinitionKind kind=DefinitionKind.ORDINARY;
-            if(body==null){if(state.check(TokenType.EQUAL))kind=FunctionDefinitionParser.parse(state);
+            if(body==null){if(state.check(TokenType.EQUAL))kind=state.parseDefinitionKind();
                 else if(state.consume(TokenType.SEMICOLON,"期望成员模板函数体或 ';'")==null)return null;}
             FunctionDecl method=makeMethod(declaration,function,null,state.previous().range()).withDefinitionKind(kind).withConstexprSpecifier(constexpr);
             return new DeferredMemberTemplate(index,parameters,method,null,body,constant,statik,declaration.nameRange());
@@ -425,7 +426,7 @@ public final class RecordParser {
 
     /** Lookup distinguishes injected constructor names from namespace-qualified ordinary types. */
     public boolean startsOutOfLineConstructor() {
-        QualifiedName name = QualifiedNameParser.peekName(state, 0);
+        QualifiedName name = state.peekQualifiedName(0);
         if (name == null || !types.namesConstructor(name)) return false;
         var parts = name.segments();
         int after = parts.size() * 2 - 1 + (name.global() ? 1 : 0);
@@ -433,7 +434,7 @@ public final class RecordParser {
     }
 
     public OutOfLineConstructorDecl parseOutOfLineConstructor() {
-        QualifiedName name = QualifiedNameParser.parseName(state);
+        QualifiedName name = state.parseQualifiedName();
         if (name == null) return null;
         SourceRange nameRange = state.previous().range();
         types.enterMemberDefinitionScope(name);
@@ -527,7 +528,7 @@ public final class RecordParser {
         Parser.Context.TokenWindow body = null;
         DefinitionKind kind=DefinitionKind.ORDINARY;
         if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
-        else if(state.check(TokenType.EQUAL))kind=FunctionDefinitionParser.parse(state);
+        else if(state.check(TokenType.EQUAL))kind=state.parseDefinitionKind();
         else if (!state.match(TokenType.SEMICOLON)) {
             state.unsupportedSyntax(state.peek().range(), "转换函数限定符或说明符尚未实现");
             return null;
@@ -600,7 +601,7 @@ public final class RecordParser {
         Parser.Context.TokenWindow body = null;
         DefinitionKind kind=DefinitionKind.ORDINARY;
         if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
-        else if(state.check(TokenType.EQUAL))kind=FunctionDefinitionParser.parse(state);
+        else if(state.check(TokenType.EQUAL))kind=state.parseDefinitionKind();
         else if (!state.match(TokenType.SEMICOLON)) {
             state.unsupportedSyntax(state.peek().range(), "析构函数限定符、说明符或成员初始化列表尚未支持或不合法");
             return null;
@@ -626,7 +627,7 @@ public final class RecordParser {
         List<DeferredInitializer> initializers = new ArrayList<>();
         if (state.match(TokenType.COLON)) {
             do {
-                QualifiedName target = QualifiedNameParser.parseName(state);
+                QualifiedName target = state.parseQualifiedName();
                 if (target == null) return null;
                 if (target.segments().size() == 1 && target.segments().getFirst().equals(name))
                     state.unsupportedSyntax(target.range(), "委托构造函数尚未实现");
@@ -643,7 +644,7 @@ public final class RecordParser {
         if (state.check(TokenType.LEFT_BRACE)) body = state.deferBlock();
         else if(state.check(TokenType.EQUAL)) {
             if(!initializers.isEmpty())state.report(nameRange,"A defaulted/deleted constructor cannot have member initializers");
-            kind=FunctionDefinitionParser.parse(state);
+            kind=state.parseDefinitionKind();
         }
         else if (state.match(TokenType.SEMICOLON)) {
             if (!initializers.isEmpty()) state.report(state.previous(), "成员初始化列表必须具有构造函数体");

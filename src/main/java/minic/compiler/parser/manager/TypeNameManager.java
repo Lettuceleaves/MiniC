@@ -1,4 +1,4 @@
-package minic.compiler.parser;
+package minic.compiler.parser.manager;
 
 import minic.SourceRange;
 import minic.compiler.Diagnostic;
@@ -23,7 +23,7 @@ import java.util.Set;
  * This environment does not validate value signatures or generate linker names.
  * Lookup never reports diagnostics, making it safe for declaration/expression lookahead.
  */
-public final class TypeNameEnvironment {
+public final class TypeNameManager {
     public enum Kind { TYPE, VALUE, NAMESPACE, MISSING, AMBIGUOUS, UNSUPPORTED_QUALIFIER }
     public record Lookup(Kind kind, MiniType type, String canonicalName) {}
     private enum Search { ORDINARY, QUALIFIER, ELABORATED }
@@ -103,7 +103,7 @@ public final class TypeNameEnvironment {
         Objects.requireNonNull(range, "range");
         if (local != null) throw new IllegalStateException("namespace definition inside a local scope");
         if (path.isEmpty()) throw new IllegalArgumentException("namespace path must not be empty");
-        path.forEach(TypeNameEnvironment::requireName);
+        path.forEach(TypeNameManager::requireName);
         namespaceStack.push(namespace);
         for (String name : path) {
             Namespace parent = namespace;
@@ -128,7 +128,7 @@ public final class TypeNameEnvironment {
     public void enterLocalScope() { local = new Local(local, namespace, ++nextLocalId, false); }
 
     /** A parameter-clause syntax probe may declare names, but must leave no visible scope state. */
-    <T> T probeLocalDeclarations(java.util.function.Supplier<T> parse) {
+    public <T> T probeLocalDeclarations(java.util.function.Supplier<T> parse) {
         Local saved = local;
         int savedId = nextLocalId, errors = diagnostics.size();
         enterLocalScope();

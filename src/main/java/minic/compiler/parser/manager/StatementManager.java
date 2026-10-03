@@ -26,6 +26,7 @@ import minic.compiler.lexer.token.Token;
 import minic.compiler.lexer.token.TokenType;
 import minic.SourceRange;
 import minic.compiler.parser.node.Declaration.StaticAssertDecl;
+import minic.compiler.parser.node.Declaration.UsingDecl;
 
 import java.util.ArrayList;
 
@@ -87,11 +88,43 @@ public final class StatementManager {
         }
     }
 
-    public minic.compiler.parser.node.Declaration.StaticAssertDecl parseStaticAssert(){return minic.compiler.parser.StaticAssertParser.parse(state,expressionManager);}
+    public StaticAssertDecl parseStaticAssert(){
+        Token start=state.consume(TokenType.STATIC_ASSERT,"Expected static_assert");
+        if(state.consume(TokenType.LEFT_PAREN,"Expected '(' after static_assert")==null)return null;
+        Expression condition=expressionManager.parseAssignmentExpression();Expression.StringLiteralExpr message=null;
+        if(state.match(TokenType.COMMA)){
+            Expression argument=expressionManager.parseAssignmentExpression();
+            if(argument instanceof Expression.StringLiteralExpr text&&text.encoding()==Expression.LiteralEncoding.ORDINARY)message=text;
+            else state.report(argument==null?state.peek().range():argument.range(),"A static assertion message must be an ordinary string literal");
+        }
+        if(state.consume(TokenType.RIGHT_PAREN,"Expected ')' after assertion")==null)return null;
+        Token end=state.consume(TokenType.SEMICOLON,"Expected ';' after static_assert");
+        return start==null||condition==null||end==null?null:new StaticAssertDecl(condition,message,SourceRange.span(start.range(),end.range()));
+    }
+
+    public UsingDecl parseUsing() {
+        var start = state.consume(TokenType.USING, "期望 using");
+        boolean directive = state.match(TokenType.NAMESPACE);
+        var target = state.parseQualifiedName();
+        if (state.check(TokenType.EQUAL)) {
+            state.unsupportedSyntax(state.peek().range(), "using 类型别名尚未实现");
+            return null;
+        }
+        var end = state.consume(TokenType.SEMICOLON, "期望 ';'");
+        if (start == null || target == null || end == null) return null;
+        if (!directive && !target.global() && target.segments().size() < 2) {
+            state.report(target.range(), "using 声明必须包含限定名称");
+            return null;
+        }
+        var declaration = new UsingDecl(target, directive, SourceRange.span(start.range(), end.range()));
+        state.build(declaration, "UsingDecl", declaration.range());
+        return declaration;
+    }
+
     private Statement parseStatement() {
         if(state.check(TokenType.STATIC_ASSERT))return parseStaticAssert();
         if (state.check(TokenType.USING)) {
-            var declaration = minic.compiler.parser.QualifiedNameParser.parseUsing(state);
+            var declaration = parseUsing();
             if (declaration != null) typeReader.registerUsing(declaration);
             return declaration;
         }

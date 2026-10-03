@@ -26,7 +26,7 @@ public final class DeclarationManager {
     private final ExpressionManager expressionManager;
     private final Parser.TypeReader typeReader;
     private final java.util.Map<String, Long> enumConstants;
-    private final minic.compiler.parser.RecordParser recordParser;
+    private final RecordManager recordManager;
 
     public DeclarationManager(Parser.Context state, StatementManager statementManager,
                               ExpressionManager expressionManager, Parser.TypeReader typeReader) {
@@ -41,8 +41,8 @@ public final class DeclarationManager {
         this.expressionManager = expressionManager;
         this.typeReader = typeReader;
         this.enumConstants = enumConstants;
-        recordParser = new minic.compiler.parser.RecordParser(state, typeReader, statementManager);
-        typeReader.setRecordParser(recordParser);
+        recordManager = new RecordManager(state, typeReader, statementManager);
+        typeReader.setRecordManager(recordManager);
     }
 
     public EnumDecl parseEnumDecl() {
@@ -141,7 +141,9 @@ public final class DeclarationManager {
         state.build(group,"DeclGroupDecl",group.range());return group;
     }
 
-    public minic.compiler.parser.node.Declaration.StaticAssertDecl parseStaticAssert(){return statementManager.parseStaticAssert();}
+    public StaticAssertDecl parseStaticAssert(){return statementManager.parseStaticAssert();}
+
+    public Declaration.UsingDecl parseUsing(){return statementManager.parseUsing();}
     private Declaration constexprDeclaration(Declaration declaration,boolean enabled){
         if(!enabled||declaration==null)return declaration;
         if(declaration instanceof Declaration.OutOfLineConstructorDecl ctor)return new Declaration.OutOfLineConstructorDecl(ctor.qualifiedName(),ctor.constructor().withConstexprSpecifier(true),ctor.nameRange());
@@ -155,14 +157,14 @@ public final class DeclarationManager {
         }
         if (state.match(TokenType.EXPLICIT))
             state.report(state.previous().range(), "explicit 只能用于类内构造函数或转换函数声明");
-        if(recordParser!=null && recordParser.startsTemplateSpecialMember())
-            return constexprDeclaration(recordParser.parseTemplateSpecialMember(),constexpr);
-        if (recordParser != null && recordParser.startsOutOfLineConversion())
-            return constexprDeclaration(recordParser.parseOutOfLineConversion(),constexpr);
-        if (recordParser != null && recordParser.startsOutOfLineDestructor())
-            return constexprDeclaration(recordParser.parseOutOfLineDestructor(),constexpr);
-        if (recordParser != null && recordParser.startsOutOfLineConstructor())
-            return constexprDeclaration(recordParser.parseOutOfLineConstructor(),constexpr);
+        if(recordManager!=null && recordManager.startsTemplateSpecialMember())
+            return constexprDeclaration(recordManager.parseTemplateSpecialMember(),constexpr);
+        if (recordManager != null && recordManager.startsOutOfLineConversion())
+            return constexprDeclaration(recordManager.parseOutOfLineConversion(),constexpr);
+        if (recordManager != null && recordManager.startsOutOfLineDestructor())
+            return constexprDeclaration(recordManager.parseOutOfLineDestructor(),constexpr);
+        if (recordManager != null && recordManager.startsOutOfLineConstructor())
+            return constexprDeclaration(recordManager.parseOutOfLineConstructor(),constexpr);
         state.enter("functionDecl");
         Token startToken = firstSpecifier;
         boolean external = false;
@@ -261,7 +263,7 @@ public final class DeclarationManager {
         Declaration.DefinitionKind definitionKind=Declaration.DefinitionKind.ORDINARY;
         BlockStmt body = null;
         if(state.check(TokenType.EQUAL)) {
-            definitionKind=minic.compiler.parser.FunctionDefinitionParser.parse(state);semicolonToken=state.previous();
+            definitionKind=state.parseDefinitionKind();semicolonToken=state.previous();
         } else if (state.match(TokenType.SEMICOLON)) {
             semicolonToken = state.previous();
         } else if(state.check(TokenType.COMMA)) {
@@ -320,7 +322,7 @@ public final class DeclarationManager {
     }
 
     public StructDecl parseStructDecl() {
-        if (recordParser != null) return recordParser.parseDeclaration();
+        if (recordManager != null) return recordManager.parseDeclaration();
         state.enter("structDecl");
         boolean union = state.check(TokenType.UNION);
         Token startToken = state.advance();
