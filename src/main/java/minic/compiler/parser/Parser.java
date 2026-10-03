@@ -945,6 +945,12 @@ public final class Parser extends Stage {
             if(!context.check(TokenType.LESS))return false;
             String name=target instanceof Expression.NameExpr n?n.name():target instanceof Expression.QualifiedNameExpr q?q.name().segments().getLast():target instanceof Expression.FieldAccessExpr f?f.fieldName():target instanceof minic.compiler.parser.node.Expression.TypeMemberExpr m?m.memberName():null;
             if(name==null||!functionTemplateNames.containsKey(name))return false;
+            // An unqualified name shadowed by an ordinary (non-template) declaration, such as a
+            // local variable sharing a std:: algorithm's name, cannot start a template-argument-list.
+            if(target instanceof Expression.NameExpr) {
+                var lookup=typeNames.lookup(new QualifiedName(false,List.of(name),target.range()));
+                if(lookup.kind()==TypeNameManager.Kind.VALUE)return false;
+            }
             int depth=1,parens=0;
             for(int offset=1;;offset++){
                 TokenType token=context.peekAt(offset).type();
@@ -2149,7 +2155,10 @@ public final class Parser extends Stage {
             java.util.EnumSet<MiniType.TypeQualifier> qualifiers = java.util.EnumSet.noneOf(
                     MiniType.TypeQualifier.class);
             qualifiers.addAll(parseTypeQualifiers());
-            if (isIntegerTypeSpecifier(context.peek().type())) {
+            int afterLong = 1;
+            while (context.peekAt(afterLong).type() == TokenType.CONST || context.peekAt(afterLong).type() == TokenType.VOLATILE) afterLong++;
+            boolean longDouble = context.check(TokenType.LONG) && context.peekAt(afterLong).type() == TokenType.DOUBLE;
+            if (isIntegerTypeSpecifier(context.peek().type()) && !longDouble) {
                 return parseIntegerBaseType(start, qualifiers);
             }
 
@@ -2177,9 +2186,14 @@ public final class Parser extends Stage {
             } else if (context.check(TokenType.FLOAT)) {
                 end = context.advance();
                 type = MiniType.FLOAT;
+            } else if (longDouble) {
+                context.advance(); qualifiers.addAll(parseTypeQualifiers());
+                end = context.advance(); type = MiniType.LONG_DOUBLE;
             } else if (context.check(TokenType.DOUBLE)) {
                 end = context.advance();
-                type = MiniType.DOUBLE;
+                qualifiers.addAll(parseTypeQualifiers());
+                type = context.match(TokenType.LONG) ? MiniType.LONG_DOUBLE : MiniType.DOUBLE;
+                end = context.previous();
             } else if (context.check(TokenType.VOID)) {
                 end = context.advance();
                 type = MiniType.VOID;

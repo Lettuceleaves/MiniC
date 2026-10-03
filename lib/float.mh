@@ -40,7 +40,7 @@
 /*
  * MiniC has no wider floating representation: an L-suffixed literal is
  * represented and evaluated exactly as double. Keep every LDBL property an
- * explicit alias so this limitation cannot drift into a fictitious format.
+ * representation alias; value macros retain their distinct long double type.
  */
 #define LDBL_IS_IEC_60559 DBL_IS_IEC_60559
 #define LDBL_MANT_DIG DBL_MANT_DIG
@@ -50,11 +50,11 @@
 #define LDBL_MIN_10_EXP DBL_MIN_10_EXP
 #define LDBL_MAX_EXP DBL_MAX_EXP
 #define LDBL_MAX_10_EXP DBL_MAX_10_EXP
-#define LDBL_MAX DBL_MAX
-#define LDBL_NORM_MAX DBL_NORM_MAX
-#define LDBL_EPSILON DBL_EPSILON
-#define LDBL_MIN DBL_MIN
-#define LDBL_TRUE_MIN DBL_TRUE_MIN
+#define LDBL_MAX 1.7976931348623158e+308L
+#define LDBL_NORM_MAX LDBL_MAX
+#define LDBL_EPSILON 2.2204460492503131e-16L
+#define LDBL_MIN 2.2250738585072014e-308L
+#define LDBL_TRUE_MIN 4.9406564584124654e-324L
 #define LDBL_HAS_SUBNORM DBL_HAS_SUBNORM
 
 /*

@@ -1,6 +1,7 @@
 #ifndef MINIC_STL_STRING_MH
 #define MINIC_STL_STRING_MH
 #include "memory.mh"
+#include "functional.mh"
 #include "iterator.mh"
 #include "initializer_list.mh"
 #include <stdio.h>
@@ -353,5 +354,7 @@ string to_string(long value) { return to_string((long long)value); }
 string to_string(unsigned long value) { return to_string((unsigned long long)value); }
 string to_string(double value) { char buffer[512];int length=::sprintf(buffer,"%f",value);if(length<0 || length>=512)::abort();return string(buffer,(string::size_type)length); }
 string to_string(float value) { return to_string((double)value); }
+template<> struct hash<string> {unsigned long long operator()(const string& s) const noexcept{unsigned long long value=14695981039346656037ULL;for(unsigned long long i=0;i<s.size();++i){value^=(unsigned char)s[i];value*=1099511628211ULL;}return value;}};
+
 }
 #endif

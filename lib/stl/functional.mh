@@ -1,7 +1,14 @@
 #ifndef MINIC_STL_FUNCTIONAL_MH
 #define MINIC_STL_FUNCTIONAL_MH
 #include "utility.mh"
+#include <string.h>
 namespace std {
+template<class T> struct hash {unsigned long long operator()(const T& v) const noexcept{return (unsigned long long)v;}};
+template<class T> struct hash<T*> {unsigned long long operator()(T* v) const noexcept{return (unsigned long long)v;}};
+template<> struct hash<float> {unsigned long long operator()(float v) const noexcept{if(v==0)return 0;unsigned int bits=0;::memcpy(&bits,&v,sizeof(v));return bits;}};
+template<> struct hash<double> {unsigned long long operator()(double v) const noexcept{if(v==0)return 0;unsigned long long bits=0;::memcpy(&bits,&v,sizeof(v));return bits;}};
+template<> struct hash<long double> {unsigned long long operator()(long double v) const noexcept{return hash<double>()((double)v);}};
+
 template<class T = void> struct less {
     typedef T first_argument_type;
     typedef T second_argument_type;

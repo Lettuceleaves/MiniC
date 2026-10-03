@@ -1,0 +1,36 @@
+#ifndef MINIC_STL_UNORDERED_SET_MH
+#define MINIC_STL_UNORDERED_SET_MH
+#include "__hash_table.mh"
+namespace std {
+template<class K,class Hash=hash<K>,class Equal=equal_to<K>> class unordered_set {
+    typedef __minic_hash_table<K,K,__minic_set_key<K>,Hash,Equal> table_type;table_type table_;
+public:
+    typedef K key_type;typedef K value_type;typedef Hash hasher;typedef Equal key_equal;typedef unsigned long long size_type;typedef long long difference_type;
+    typedef const K& reference;typedef const K& const_reference;typedef typename table_type::const_iterator iterator;typedef iterator const_iterator;
+    unordered_set()=default;explicit unordered_set(size_type n,const Hash& h=Hash(),const Equal& e=Equal()):table_(n,h,e){}
+    template<class I> unordered_set(I a,I b,size_type n=0,const Hash& h=Hash(),const Equal& e=Equal()):table_(n,h,e){insert(a,b);}
+    unordered_set(initializer_list<K> v,size_type n=0,const Hash& h=Hash(),const Equal& e=Equal()):table_(n,h,e){insert(v.begin(),v.end());}
+    unordered_set(const unordered_set&)=default;unordered_set(unordered_set&&)=default;unordered_set& operator=(const unordered_set&)=default;unordered_set& operator=(unordered_set&&)=default;
+    unordered_set& operator=(initializer_list<K> v){clear();insert(v.begin(),v.end());return *this;}
+    size_type size() const noexcept{return table_.size();}bool empty() const noexcept{return table_.empty();}
+    iterator begin() const{return table_.begin();}iterator end() const{return table_.end();}iterator cbegin() const{return begin();}iterator cend() const{return end();}
+    iterator find(const K& k) const{return table_.find(k);}size_type count(const K& k) const{return table_.count(k);}
+    pair<iterator,iterator> equal_range(const K& k) const{auto a=find(k);auto b=a;if(b!=end())++b;return pair<iterator,iterator>(a,b);}
+    pair<iterator,bool> insert(const K& k){auto r=table_.insert(k);return pair<iterator,bool>(iterator(r.first),r.second);}
+    pair<iterator,bool> insert(K&& k){auto r=table_.insert(std::move(k));return pair<iterator,bool>(iterator(r.first),r.second);}
+    template<class I> void insert(I a,I b){for(;a!=b;++a)insert(*a);}void insert(initializer_list<K> v){insert(v.begin(),v.end());}
+    iterator insert(const_iterator,const K& k){return insert(k).first;}
+    template<class... A> pair<iterator,bool> emplace(A&&... a){auto r=table_.emplace(std::forward<A>(a)...);return pair<iterator,bool>(iterator(r.first),r.second);}
+    template<class... A> iterator emplace_hint(const_iterator,A&&... a){return emplace(std::forward<A>(a)...).first;}
+    iterator erase(const_iterator i){return table_.erase(i);}iterator erase(const_iterator a,const_iterator b){return table_.erase(a,b);}size_type erase(const K& k){return table_.erase(k);}
+    void clear() noexcept{table_.clear();}void swap(unordered_set& b) noexcept{table_.swap(b.table_);}
+    void reserve(size_type n){table_.reserve(n);}void rehash(size_type n){table_.rehash(n);}
+    size_type bucket_count() const{return table_.bucket_count();}size_type bucket(const K& k) const{return table_.bucket(k);}size_type bucket_size(size_type i) const{return table_.bucket_size(i);}
+    float load_factor() const{return table_.load_factor();}float max_load_factor() const{return table_.max_load_factor();}void max_load_factor(float f){table_.max_load_factor(f);}
+    Hash hash_function() const{return table_.hash_function();}Equal key_eq() const{return table_.key_eq();}
+};
+template<class K,class H,class E> void swap(unordered_set<K,H,E>& a,unordered_set<K,H,E>& b) noexcept{a.swap(b);}
+template<class K,class H,class E> bool operator==(const unordered_set<K,H,E>& a,const unordered_set<K,H,E>& b){if(a.size()!=b.size())return false;for(auto i=a.begin();i!=a.end();++i)if(!b.count(*i))return false;return true;}
+template<class K,class H,class E> bool operator!=(const unordered_set<K,H,E>& a,const unordered_set<K,H,E>& b){return !(a==b);}
+}
+#endif

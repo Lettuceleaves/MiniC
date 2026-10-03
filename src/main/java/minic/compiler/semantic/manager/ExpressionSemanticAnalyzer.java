@@ -103,7 +103,7 @@ final class ExpressionSemanticAnalyzer {
             case IntegerConstantExpr integerConstantExpr -> integerConstantExpr.type();
             case LongLiteralExpr ignored -> MiniType.LONG;
             case FloatLiteralExpr ignored -> MiniType.FLOAT;
-            case DoubleLiteralExpr ignored -> MiniType.DOUBLE;
+            case DoubleLiteralExpr literal -> literal.literalType();
             case NullLiteralExpr ignored -> MiniType.NULL;
             case StringLiteralExpr value -> switch (value.encoding()) {
                 case ORDINARY, UTF8 -> MiniType.CHAR.pointerTo();
@@ -563,7 +563,7 @@ final class ExpressionSemanticAnalyzer {
                 || type.equals(MiniType.UNSIGNED_LONG)
                 || type.equals(MiniType.LONG_LONG)
                 || type.equals(MiniType.UNSIGNED_LONG_LONG)
-                || type.equals(MiniType.DOUBLE);
+                || type.equals(MiniType.DOUBLE) || type.equals(MiniType.LONG_DOUBLE);
     }
 
     private boolean hasStructLayout(MiniType type) {

@@ -1,0 +1,41 @@
+#ifndef MINIC_STL_ARRAY_MH
+#define MINIC_STL_ARRAY_MH
+#include "iterator.mh"
+#include "tuple.mh"
+#include <stdlib.h>
+namespace std {
+template<class T,unsigned long long N> struct array {
+    typename conditional<(N>0),T,unsigned char>::type elements[N?N:1];
+    typedef T value_type;typedef unsigned long long size_type;typedef long long difference_type;
+    typedef T& reference;typedef const T& const_reference;typedef T* pointer;typedef const T* const_pointer;
+    typedef T* iterator;typedef const T* const_iterator;
+    typedef std::reverse_iterator<iterator> reverse_iterator;typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+    constexpr size_type size() const noexcept{return N;}constexpr size_type max_size() const noexcept{return N;}constexpr bool empty() const noexcept{return N==0;}
+    constexpr T* data() noexcept{return (T*)elements;}constexpr const T* data() const noexcept{return (const T*)elements;}
+    constexpr T& operator[](size_type i){return data()[i];}constexpr const T& operator[](size_type i) const{return data()[i];}
+    T& at(size_type i){if(i>=N)::abort();return data()[i];}const T& at(size_type i) const{if(i>=N)::abort();return data()[i];}
+    constexpr T& front(){return data()[0];}constexpr const T& front() const{return data()[0];}
+    constexpr T& back(){return data()[N-1];}constexpr const T& back() const{return data()[N-1];}
+    constexpr iterator begin() noexcept{return data();}constexpr const_iterator begin() const noexcept{return data();}constexpr const_iterator cbegin() const noexcept{return data();}
+    constexpr iterator end() noexcept{return data()+N;}constexpr const_iterator end() const noexcept{return data()+N;}constexpr const_iterator cend() const noexcept{return data()+N;}
+    reverse_iterator rbegin(){return reverse_iterator(end());}const_reverse_iterator rbegin() const{return const_reverse_iterator(end());}
+    reverse_iterator rend(){return reverse_iterator(begin());}const_reverse_iterator rend() const{return const_reverse_iterator(begin());}
+    const_reverse_iterator crbegin() const{return const_reverse_iterator(end());}const_reverse_iterator crend() const{return const_reverse_iterator(begin());}
+    void fill(const T& value){for(size_type i=0;i<N;++i)data()[i]=value;}
+    void swap(array& other){for(size_type i=0;i<N;++i){using std::swap;swap(data()[i],other.data()[i]);}}
+};
+template<class T,unsigned long long N> struct tuple_size<array<T,N>> : integral_constant<unsigned long long,N> {};
+template<unsigned long long I,class T,unsigned long long N> struct tuple_element<I,array<T,N>> {static_assert(I<N,"array index out of bounds");typedef T type;};
+template<unsigned long long I,class T,unsigned long long N> constexpr T& get(array<T,N>& a){static_assert(I<N,"array index out of bounds");return a[I];}
+template<unsigned long long I,class T,unsigned long long N> constexpr const T& get(const array<T,N>& a){static_assert(I<N,"array index out of bounds");return a[I];}
+template<unsigned long long I,class T,unsigned long long N> constexpr T&& get(array<T,N>&& a){static_assert(I<N,"array index out of bounds");return std::move(a[I]);}
+template<unsigned long long I,class T,unsigned long long N> constexpr const T&& get(const array<T,N>&& a){static_assert(I<N,"array index out of bounds");return std::move(a[I]);}
+template<class T,unsigned long long N> bool operator==(const array<T,N>& a,const array<T,N>& b){for(unsigned long long i=0;i<N;++i)if(!(a[i]==b[i]))return false;return true;}
+template<class T,unsigned long long N> bool operator<(const array<T,N>& a,const array<T,N>& b){for(unsigned long long i=0;i<N;++i){if(a[i]<b[i])return true;if(b[i]<a[i])return false;}return false;}
+template<class T,unsigned long long N> bool operator!=(const array<T,N>& a,const array<T,N>& b){return !(a==b);}
+template<class T,unsigned long long N> bool operator>(const array<T,N>& a,const array<T,N>& b){return b<a;}
+template<class T,unsigned long long N> bool operator<=(const array<T,N>& a,const array<T,N>& b){return !(b<a);}
+template<class T,unsigned long long N> bool operator>=(const array<T,N>& a,const array<T,N>& b){return !(a<b);}
+template<class T,unsigned long long N> void swap(array<T,N>& a,array<T,N>& b){a.swap(b);}
+}
+#endif

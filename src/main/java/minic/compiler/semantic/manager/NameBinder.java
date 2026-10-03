@@ -332,7 +332,7 @@ public final class NameBinder {
             else report("SEM003",range,message);
         }
         private boolean literalType(MiniType type,Set<TypeEntity> active){
-            if(type.isReference()||type.isPointer()||type.isIntegerScalar()||type.unqualified().equals(MiniType.VOID)||type.unqualified().equals(MiniType.FLOAT)||type.unqualified().equals(MiniType.DOUBLE)||type.isNullPointer())return true;
+            if(type.isReference()||type.isPointer()||type.isIntegerScalar()||type.unqualified().equals(MiniType.VOID)||type.isFloatingScalar()||type.isNullPointer())return true;
             if(type.isArray())return type.arrayLength()>0&&literalType(elementType(type),active);
             TypeEntity owner=objectType(type);if(owner==null&&type.unqualified() instanceof MiniType.StructType record)owner=canonicalTypes.get(record.name());
             if(owner==null||!active.add(owner))return false;
@@ -371,7 +371,7 @@ public final class NameBinder {
                 // Local object addresses stay attached to their actual declaration. Globals can use data initializers.
                 Expression folded=evaluator.constantExpression(result,initializer.range());
                 constantObjects.put(entity.coreName,new ConstantEvaluator.Global(coreType(type),folded,true,staticStorage));
-                return staticStorage||type.isIntegerScalar()||type.unqualified().equals(MiniType.FLOAT)||type.unqualified().equals(MiniType.DOUBLE)?foldedConstant(initializer,folded):initializer;
+                return staticStorage||type.isIntegerScalar()||type.isFloatingScalar()?foldedConstant(initializer,folded):initializer;
             }catch(IllegalArgumentException invalid){report("SEM003",range,"Initializer is not a constant expression: "+invalid.getMessage());return initializer;}
         }
         private void staticAssertion(minic.compiler.parser.node.Declaration.StaticAssertDecl node,Namespace namespace,Local scope){
@@ -502,11 +502,17 @@ public final class NameBinder {
         private final IdentityHashMap<Entity, Boolean> internalLinkages = new IdentityHashMap<>();
         private final Set<Entity> libraryExitFunctions = Collections.newSetFromMap(new IdentityHashMap<>());
         private final StaticLifetime staticLifetime;
+        private final AllocationSupport allocations;
+        private final Set<Expression> nonThrowingDeallocations=Collections.newSetFromMap(new IdentityHashMap<>());
         /** Static cleanup can only run destructors, so programs without one call the CRT exit directly. */
         private final boolean destructorsDeclared;
 
         Binding(Program source) {
             this.source = source;
+            allocations = new AllocationSupport(new AllocationSupport.Context() {
+                public String fresh(String label) { return freshName(label); }
+                public void function(FunctionDecl function) { addStaticFunction(function); }
+            });
             reserveNames(source);
             destructorsDeclared = declaresDestructor(source);
             staticLifetime = new StaticLifetime(new StaticLifetime.Context() {
@@ -1618,7 +1624,12 @@ public final class NameBinder {
                     }
                 // Complete-class lookup applies to bodies, without exposing later namespace declarations.
                 for (Constructor constructor : constructors) {
-                    if (instanceKeys.containsKey(entity) && !constructor.implicit && constructor.source.definitionKind()==DefinitionKind.ORDINARY) {
+                    // A defaulted template default constructor is defined when used, too.
+                    // Eagerly binding it can leak ill-formed member constructor bodies even
+                    // when a different, explicitly supplied constructor is selected.
+                    if (instanceKeys.containsKey(entity) && !constructor.implicit
+                            && (constructor.source.definitionKind()==DefinitionKind.ORDINARY
+                            || defaulted(constructor) && constructor.parameterTypes.isEmpty())) {
                         pendingTemplateConstructors.put(constructor.function, constructor);
                         declareTemplatePrototype(constructor.function, constructor.source.range());
                     } else bindConstructor(constructor);
@@ -1983,7 +1994,7 @@ public final class NameBinder {
 
         private boolean potentiallyThrowing(AstNode node) {
             if(node==null||node instanceof SizeofExpr||node instanceof AlignofExpr||node instanceof minic.compiler.parser.node.Expression.NoexceptExpr)return false;
-            if(node instanceof CallExpr call) {
+            if(node instanceof CallExpr call && !nonThrowingDeallocations.contains(node)) {
                 Expression callee=call.callee();while(callee instanceof GroupingExpr group)callee=group.expression();
                 Entity entity=callee instanceof NameExpr name?coreValues.get(name.name()):null;
                 if(entity!=null&&entity.kind==Kind.FUNCTION) {if(!functionNonThrowing(entity))return true;}
@@ -3002,8 +3013,12 @@ public final class NameBinder {
                     "尚未支持命名空间中的外部对象链接：" + namespace.qualify(node.name()));
             MiniType type = normalizeType(node.type(), namespace, null, node.range());
             boolean defined = !node.external() || node.initializer() != null;
+            // A non-extern global without an initializer is only a tentative definition in C: it
+            // allocates storage but does not itself conflict with the one later declaration that
+            // does carry an initializer (or with another tentative definition of the same name).
+            boolean isDefinition = node.initializer() != null;
             if(defined)type=inferArrayBound(type,node.initializerSyntax(),node.initializer(),namespace,null,node.range());
-            Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, type, defined, namespace, node.range());
+            Entity entity = declareNamespaceValue(node.name(), Kind.VARIABLE, type, isDefinition, namespace, node.range());
             if (type.containsAuto()) { type = deduceVariableType(type, node.initializerSyntax(), node.initializer(), namespace, null, node.range()); entity.type = type; }
             if (defined) requireComplete(type, node.range());
             recordLinkage(entity, node.range());
@@ -4347,6 +4362,7 @@ public final class NameBinder {
                 case TypeMemberExpr n -> memberReference(typeMember(n, namespace, local), n.memberName(), n.range(), addressDemand);
                 case DestructorCallExpr n -> explicitDestruction(n, namespace, local);
                 case PlacementNewExpr n -> placementConstruction(n, namespace, local);
+                case DeleteExpr n -> deleteExpression(n, namespace, local);
                 case ThisExpr n -> {
                     if(lambdaTypes.containsKey(currentClass))yield lambdaThis(lambdaTypes.get(currentClass),n.range());
                     if (currentThis == null) {
@@ -4990,7 +5006,7 @@ public final class NameBinder {
         }
 
         private static final List<MiniType> PROMOTED_ARITHMETIC = List.of(MiniType.INT, MiniType.UNSIGNED_INT,
-                MiniType.LONG, MiniType.UNSIGNED_LONG, MiniType.LONG_LONG, MiniType.UNSIGNED_LONG_LONG, MiniType.FLOAT, MiniType.DOUBLE);
+                MiniType.LONG, MiniType.UNSIGNED_LONG, MiniType.LONG_LONG, MiniType.UNSIGNED_LONG_LONG, MiniType.FLOAT, MiniType.DOUBLE, MiniType.LONG_DOUBLE);
 
         private boolean contextualOperator(String name) {
             return "operator!".equals(name) || "operator&&".equals(name) || "operator||".equals(name);
@@ -5867,7 +5883,7 @@ public final class NameBinder {
                 case IntegerConstantExpr integer -> integer.type();
                 case LongLiteralExpr ignored -> MiniType.LONG;
                 case FloatLiteralExpr ignored -> MiniType.FLOAT;
-                case DoubleLiteralExpr ignored -> MiniType.DOUBLE;
+                case DoubleLiteralExpr literal -> literal.literalType();
                 case NullLiteralExpr ignored -> MiniType.NULL;
                 case StringLiteralExpr string -> stringLiteralType(string);
                 case SizeofExpr ignored -> MiniType.UNSIGNED_LONG_LONG;
@@ -6280,22 +6296,35 @@ public final class NameBinder {
             return initializerMapping(syntax, convertCallValue(target.unqualified(), value, arguments.getFirst(), sourceName));
         }
 
+        private StructRegistry registry() {
+            var errors=new ArrayList<Diagnostic>();
+            var result=new StructRegistry(new minic.compiler.semantic.model.Scope(),errors);
+            result.defineStructs(new Program(structs,List.of(),source.range()));
+            if(!errors.isEmpty())throw new IllegalArgumentException(errors.getFirst().message());
+            return result;
+        }
+
         private Expression placementConstruction(PlacementNewExpr source, Namespace namespace, Local local) {
             MiniType type = normalizeType(source.type(), namespace, local, source.typeRange());
-            if (type.isVoid() || type.isReference() || type.isFunction() || type.isArray()) {
-                report("SEM003", source.typeRange(), "Placement construction requires a complete non-array object type.");
+            if (type.isVoid() || type.isReference() || type.isFunction()) {
+                report("SEM003", source.typeRange(), "new requires a complete object type.");
                 return new NullLiteralExpr("nullptr", source.range());
             }
-            requireComplete(type, source.typeRange());
+            if (!requireComplete(type, source.typeRange())) return new NullLiteralExpr("nullptr", source.range());
             TypeEntity owner = objectType(type);
-            if (owner != null && !owner.complete) return new NullLiteralExpr("nullptr", source.range());
+            if (source.arrayBound() != null) return newArray(source, type, namespace, local);
+            if (type.isArray()) return newArray(new PlacementNewExpr(elementType(type),source.placementArguments(),source.initializer(),
+                    source.global(),new IntegerLiteralExpr(type.arrayLength(),"length",source.typeRange()),source.typeRange(),source.range()),elementType(type),namespace,local);
             // Class allocation functions remain explicitly rejected at their declarations until
             // their implicit-static lookup and access rules are available. Global lookup never uses ADL.
             List<Expression> arguments = new ArrayList<>();
             arguments.add(new SizeofExpr(null, source.type(), source.typeRange()));
             arguments.addAll(source.placementArguments());
             Expression designator = new QualifiedNameExpr(new QualifiedName(true, List.of("operator new"), source.range()));
-            Expression allocation = expression(new CallExpr(designator, arguments, source.range()), namespace, local);
+            Expression allocation = source.placementArguments().isEmpty()
+                    ? allocations.allocate(new IntegerLiteralExpr(1,"1",source.range()), registry().completeObjectSize(coreType(type)),
+                            registry().completeObjectAlignment(coreType(type)), false, allocationFunction("operator new",1), source.range())
+                    : expression(new CallExpr(designator, arguments, source.range()), namespace, local);
             String storage = freshName("new_storage");
             MiniType pointer = type.pointerTo();
             Expression address = typed(new CastExpr(coreType(pointer),
@@ -6314,6 +6343,131 @@ public final class NameBinder {
                 result = typed(new CommaExpr(List.of(initialize, address), source.range()), pointer);
             }
             return typed(new LetExpr(storage, MiniType.VOID.pointerTo(), allocation, result, source.range()), pointer);
+        }
+
+        private Expression newArray(PlacementNewExpr source, MiniType element, Namespace namespace, Local local) {
+            SourceRange r=source.range();
+            Expression bound=expression(source.arrayBound(),namespace,local);
+            MiniType boundType=declaredExpressionType(bound);
+            if(boundType==null || !boundType.isIntegerScalar())report("SEM003",source.arrayBound().range(),"new[] requires an integral bound");
+            TemplateArgument.Integral constantBound=null;
+            try { constantBound=evaluateTemplateConstant(bound); }
+            catch(IllegalArgumentException notConstant) { /* Dynamic bounds retain runtime validation. */ }
+            if(constantBound!=null && constantBound.value()<0 && !constantBound.type().isUnsignedIntegerScalar()) {
+                report("SEM003",source.arrayBound().range(),"new[] array bound cannot be a negative constant");
+                return new NullLiteralExpr("nullptr",r);
+            }
+            String countName=freshName("new_count"), storage=freshName("new_array");
+            MiniType sizeType=MiniType.UNSIGNED_LONG_LONG, pointerType=element.pointerTo();
+            Expression count=typed(new NameExpr(countName,r),sizeType);
+            Expression pointer=typed(new CastExpr(coreType(pointerType),typed(new NameExpr(storage,r),MiniType.VOID.pointerTo()),r),pointerType);
+            Expression allocation;
+            if(source.placementArguments().isEmpty()) {
+                allocation=allocations.allocate(count,registry().completeObjectSize(coreType(element)),
+                        registry().completeObjectAlignment(coreType(element)),true,allocationFunction("operator new[]",1),r);
+            } else {
+                var arguments=new ArrayList<Expression>();
+                arguments.add(new BinaryExpr(count,TokenType.STAR,new SizeofExpr(null,source.type(),source.typeRange()),r));
+                arguments.addAll(source.placementArguments());
+                allocation=expression(new CallExpr(new QualifiedNameExpr(new QualifiedName(true,List.of("operator new[]"),r)),arguments,r),namespace,local);
+            }
+            InitializerSyntax syntax=source.initializer();
+            List<Expression> items=syntax.arguments();
+            if(element.isArray()) {
+                var cursor=items.listIterator();var rows=new ArrayList<Expression>();
+                while(cursor.hasNext())rows.add(aggregateElementSource(element,cursor,namespace,local));
+                items=rows;
+            }
+            if(syntax.kind()==InitializerSyntax.Kind.DIRECT_PAREN && !items.isEmpty())
+                report("SEM003",syntax.range(),"C++17 array new permits empty parentheses or a braced initializer list");
+            if(constantBound!=null && Long.compareUnsigned(constantBound.value(),items.size())<0) {
+                report("SEM003",syntax.range(),"Too many initializers for the constant new[] array bound");
+                return new NullLiteralExpr("nullptr",r);
+            }
+            var actions=new ArrayList<Expression>();
+            if(!items.isEmpty())actions.add(allocations.invalidBound(count,items.size(),r));
+            for(int i=0;i<items.size();i++) {
+                Expression item=items.get(i);
+                InitializerSyntax init=new InitializerSyntax(isBraced(item)?InitializerSyntax.Kind.COPY_LIST:InitializerSyntax.Kind.COPY,
+                        isBraced(item)?listItems(item):List.of(item),item.range());
+                Expression value=element.isArray()?arrayInitialization(element,init,namespace,local,item.range()):variableInitializer(element,init,null,namespace,local,item.range());
+                if(value!=null)actions.add(typed(new InitializeExpr(typed(new IndexExpr(pointer,new IntegerLiteralExpr(i,"index",r),r),element),value,r),MiniType.VOID));
+            }
+            InitializerSyntax rest=new InitializerSyntax(syntax.kind()==InitializerSyntax.Kind.DEFAULT?InitializerSyntax.Kind.DEFAULT:InitializerSyntax.Kind.COPY_LIST,List.of(),r);
+            // A constant bound completely filled by explicit clauses has no remaining
+            // elements. Its element type need not supply a default constructor.
+            boolean fullyInitialized=constantBound!=null && !items.isEmpty() && constantBound.value()==items.size();
+            Expression value=fullyInitialized?null:element.isArray()?arrayInitialization(element,rest,namespace,local,r):variableInitializer(element,rest,null,namespace,local,r);
+            if(value!=null) {
+                String p=freshName("elements"), n=freshName("length"), index=freshName("index");
+                Expression i=typed(new NameExpr(index,r),sizeType);
+                Expression slot=typed(new IndexExpr(typed(new NameExpr(p,r),pointerType),i,r),element);
+                Expression action=fullExpression(typed(new InitializeExpr(slot,value,r),MiniType.VOID),false,syntax);
+                Statement loop=new ForStmt(new VarDeclStmt(index,sizeType,new IntegerLiteralExpr(items.size(),"begin",r),r),
+                        new BinaryExpr(i,TokenType.LESS,new NameExpr(n,r),r),new PostfixUpdateExpr(i,TokenType.PLUS_PLUS,r),new ExprStmt(action,r),r);
+                String helper=dynamicArrayHelper("new_array_initialize",pointerType,p,n,loop,r);
+                actions.add(typed(new CallExpr(new NameExpr(helper,r),List.of(pointer,count),r),MiniType.VOID));
+            }
+            actions.add(pointer);
+            Expression initialized=typed(actions.size()==1?actions.getFirst():new CommaExpr(actions,r),pointerType);
+            Expression result=typed(new LetExpr(storage,MiniType.VOID.pointerTo(),allocation,initialized,r),pointerType);
+            return typed(new LetExpr(countName,sizeType,new CastExpr(sizeType,bound,r),result,r),pointerType);
+        }
+
+        private String dynamicArrayHelper(String label,MiniType pointer,String p,String n,Statement loop,SourceRange r) {
+            String helper=freshName(label);
+            addStaticFunction(new FunctionDecl(helper,MiniType.VOID,List.of(new Parameter(p,coreType(pointer),r),
+                    new Parameter(n,MiniType.UNSIGNED_LONG_LONG,r)),false,new BlockStmt(List.of(loop),r),false,r));
+            inferredExceptionBodies.put(coreValues.get(helper),new BlockStmt(List.of(loop),r));
+            return helper;
+        }
+
+        private Expression deleteExpression(DeleteExpr source,Namespace namespace,Local local) {
+            SourceRange r=source.range();
+            Expression operand=expression(source.operand(),namespace,local);
+            MiniType pointerType=declaredExpressionType(operand);
+            if(pointerType!=null && pointerType.isNullPointer())return typed(new CastExpr(MiniType.VOID,operand,r),MiniType.VOID);
+            MiniType element=pointerType==null?null:elementType(pointerType);
+            if(pointerType==null || !pointerType.isPointer() || element==null || element.isVoid() || element.isFunction()) {
+                report("SEM003",r,"delete requires a pointer to a complete object type");
+                return typed(new CastExpr(MiniType.VOID,operand,r),MiniType.VOID);
+            }
+            if (!requireComplete(element,r)) return typed(new CastExpr(MiniType.VOID,operand,r),MiniType.VOID);
+            String storage=freshName("delete_pointer");
+            Expression pointer=typed(new NameExpr(storage,r),pointerType);
+            List<Expression> actions=new ArrayList<>();
+            if(source.array()) {
+                String p=freshName("elements"), n=freshName("remaining");
+                Expression remaining=typed(new NameExpr(n,r),MiniType.UNSIGNED_LONG_LONG);
+                Expression slot=typed(new IndexExpr(typed(new NameExpr(p,r),pointerType),
+                        new UnaryExpr(TokenType.MINUS_MINUS,remaining,r),r),element);
+                Expression cleanup=destruction(element,address(slot),r);
+                if(cleanup!=null) {
+                    Statement loop=new ForStmt(null,new BinaryExpr(remaining,TokenType.GREATER,new IntegerLiteralExpr(0,"0",r),r),null,new ExprStmt(cleanup,r),r);
+                    String helper=dynamicArrayHelper("delete_array",pointerType,p,n,loop,r);
+                    actions.add(typed(new CallExpr(new NameExpr(helper,r),List.of(pointer,allocations.count(pointer,r)),r),MiniType.VOID));
+                }
+            } else {
+                Expression cleanup=destruction(element,pointer,r);
+                if(cleanup!=null)actions.add(cleanup);
+            }
+            String deallocator=allocationFunction(source.array()?"operator delete[]":"operator delete",1);
+            boolean sized=false;
+            if(deallocator==null){deallocator=allocationFunction(source.array()?"operator delete[]":"operator delete",2);sized=deallocator!=null;}
+            Expression release=allocations.release(pointer,registry().completeObjectSize(coreType(element)),registry().completeObjectAlignment(coreType(element)),source.array(),deallocator,sized,r);
+            if(deallocator==null)nonThrowingDeallocations.add(release);
+            actions.add(release);
+            Expression cleanup=new ConditionalExpr(pointer,actions.size()==1?actions.getFirst():new CommaExpr(actions,r),new CastExpr(MiniType.VOID,new IntegerLiteralExpr(0,"0",r),r),r);
+            return typed(new LetExpr(storage,coreType(pointerType),operand,cleanup,r),MiniType.VOID);
+        }
+
+        /** Global replaceable allocation functions are looked up without ADL. */
+        private String allocationFunction(String name,int arity) {
+            Candidate candidate=root.values.get(name);
+            List<Entity> functions=candidate instanceof OverloadSet set?set.functions:candidate instanceof Entity e?List.of(e):List.of();
+            for(Entity function:functions)if(function.type instanceof MiniType.FunctionType type && type.parameterTypes().size()==arity
+                    && (arity==1 || type.parameterTypes().get(1).unqualified().equals(MiniType.UNSIGNED_LONG_LONG)))return function.coreName;
+            return null;
         }
 
         /** Type-only immediate-context checks: no invented variables, calls, ODR uses, or body emission. */
@@ -6407,6 +6561,7 @@ public final class NameBinder {
             if (resolution.status() != OverloadResolver.Status.SELECTED) return false;
             Constructor selected = resolution.winner().identity();
             return selected.access == Access.PUBLIC && !isDeleted(selected.function)
+                    && (!defaulted(selected) || !selected.parameterTypes.isEmpty() || typeQueryImplicitDefault(owner,range))
                     && typeQueryParameters(selected.parameterTypes, arguments, range);
         }
 
@@ -7061,13 +7216,14 @@ public final class NameBinder {
                 valueCategories.put(source,ValueCategory.XVALUE);
                 var candidates=expandConstructorTemplates(allConstructors(member),List.of(source),range).stream()
                         .filter(c->!c.parameterTypes.isEmpty()&&c.parameterTypes.getFirst().isReference()&&requiredParameters(c.function,c.parameterTypes.size())<=1)
+                        .filter(c->c.parameterTypes.getFirst().referent().unqualified().equals(memberType.unqualified()))
                         .map(c->new CopyConstructorPlan.Constructor<>(c,c.parameterTypes.getFirst(),c.access==Access.PUBLIC||c.owner==owner,
                                 isDeleted(c.function),trivialTransfer(c))).toList();
                 var destructor=member.destructor==null?CopyConstructorPlan.Destructor.AVAILABLE
                         :deletedDestructors.containsKey(member.destructor.function)?CopyConstructorPlan.Destructor.DELETED
                         :member.destructor.access==Access.PUBLIC||member==owner?CopyConstructorPlan.Destructor.AVAILABLE:CopyConstructorPlan.Destructor.INACCESSIBLE;
                 return new CopyConstructorPlan.Operations<>(candidates,destructor);
-            });
+            },this::betterTemplateCandidate);
             MiniType parameter=owner.type.rvalueReferenceTo();
             ConstructorMember source=new ConstructorMember(owner.name,List.of(new Parameter("other",parameter,range)),false,List.of(),new BlockStmt(List.of(),range),range,range);
             Entity function=new Entity(owner.name,freshName(owner.canonicalName+"::move"),Kind.FUNCTION,owner.owner,
@@ -7618,9 +7774,15 @@ public final class NameBinder {
             return OverloadResolver.Argument.literal(type, category, isNullIntegerLiteral(source), isStringLiteral(source));
         }
 
-        /** Source literals and their bound storage form, (*(T(*)[N])"..."). */
+        /** Source literals and their bound storage form, (*(T(*)[N])"...").
+         * A conditional or comma expression carries the flag through when every
+         * reachable arm is itself a string literal, e.g. {@code ok ? "yes" : "no"}. */
         private static boolean isStringLiteral(Expression source) {
             while (source instanceof GroupingExpr group) source = group.expression();
+            if (source instanceof CastExpr cast) return isStringLiteral(cast.operand());
+            if (source instanceof ConditionalExpr conditional)
+                return isStringLiteral(conditional.thenExpression()) && isStringLiteral(conditional.elseExpression());
+            if (source instanceof CommaExpr comma) return !comma.expressions().isEmpty() && isStringLiteral(comma.expressions().getLast());
             return source instanceof StringLiteralExpr
                     || source instanceof UnaryExpr unary && unary.operator() == TokenType.STAR
                     && unary.operand() instanceof CastExpr cast && cast.operand() instanceof StringLiteralExpr;
@@ -7657,7 +7819,8 @@ public final class NameBinder {
                 report("SEM003", range, "列表初始化不能将浮点数窄化为整数。");
                 return;
             }
-            if (a == b || a.floating() && b.floating() && b.sizeBytes() >= a.sizeBytes()) return;
+            if (a == b || a.floating() && b.floating() && b.sizeBytes() >= a.sizeBytes()
+                    && (a != MiniType.ScalarKind.LONG_DOUBLE || b == MiniType.ScalarKind.LONG_DOUBLE)) return;
             if (a.integer() && b.integer() && b != MiniType.ScalarKind.BOOL
                     && (b.sizeBytes() > a.sizeBytes() && (b.signed() || !a.signed())
                     || b.sizeBytes() == a.sizeBytes() && b.signed() == a.signed())) return;
@@ -7938,6 +8101,27 @@ public final class NameBinder {
             }
             List<Expression> values = new ArrayList<>();
             Set<Integer> initialized = new HashSet<>();
+            if (object != null && !nonAggregate(object) && !object.union
+                    && object.fields.stream().anyMatch(f -> f.type().isArray())
+                    && list.values().stream().noneMatch(DesignatedInitExpr.class::isInstance)) {
+                int[] cursor = {0};
+                for (StructField field : object.fields) {
+                    MiniType element = field.type();
+                    if (cursor[0] >= list.values().size()) {
+                        requireImplicitInitialization(element, true, list.range());
+                        continue;
+                    }
+                    Expression clause = original.values().get(cursor[0]);
+                    if (element.isArray() && !isBraced(clause) && !(clause instanceof StringLiteralExpr)) {
+                        values.add(checkElidedArray(element, original.values(), list.values(), cursor, clause.range(), namespace, local));
+                    } else {
+                        int index = cursor[0]++;
+                        values.add(checkInitializer(element, clause, list.values().get(index), true, namespace, local));
+                    }
+                }
+                if (cursor[0] < list.values().size()) report("SEM003", original.values().get(cursor[0]).range(), "Too many aggregate initializer elements.");
+                return mapped(sourceNode, new AggregateInitExpr(values, list.range()));
+            }
             int position = 0;
             for (int i = 0; i < list.values().size(); i++) {
                 Expression value = list.values().get(i), originalValue = original.values().get(i);

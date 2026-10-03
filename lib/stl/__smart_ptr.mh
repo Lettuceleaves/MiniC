@@ -1,0 +1,170 @@
+#ifndef MINIC_STL_SMART_PTR_MH
+#define MINIC_STL_SMART_PTR_MH
+namespace std {
+template<class T> struct __minic_deleter_pointer : false_type {};
+template<class T> struct __minic_deleter_pointer<T*> : true_type {};
+template<class D> struct __minic_default_deleter : integral_constant<bool,
+    is_default_constructible<D>::value && !__minic_deleter_pointer<typename remove_cv<D>::type>::value> {};
+// Preserve the source element type before ordinary pointer conversion can erase it.
+template<class T,class P> struct __minic_array_pointer : false_type {};
+template<class T,class U> struct __minic_array_pointer<T,U*> : integral_constant<bool,
+    is_same<typename remove_cv<T>::type,typename remove_cv<U>::type>::value && is_convertible<U*,T*>::value> {};
+template<class T> struct __minic_array_pointer<T,decltype(nullptr)> : true_type {};
+template<class T> struct default_delete {
+    constexpr default_delete() noexcept = default;
+    template<class U,typename enable_if<is_convertible<U*,T*>::value,int>::type=0>
+    default_delete(const default_delete<U>&) noexcept {}
+    void operator()(T* p) const { delete p; }
+};
+template<class T> struct default_delete<T[]> {
+    constexpr default_delete() noexcept = default;
+    template<class U,typename enable_if<is_same<typename remove_cv<U>::type,typename remove_cv<T>::type>::value && is_convertible<U*,T*>::value,int>::type=0>
+    default_delete(const default_delete<U[]>&) noexcept {}
+    template<class U,typename enable_if<__minic_array_pointer<T,U*>::value,int>::type=0>
+    void operator()(U* p) const { delete[] p; }
+};
+template<class T,class D=default_delete<T>> class unique_ptr {
+    T* pointer_;
+    D deleter_;
+public:
+    typedef T element_type;
+    typedef T* pointer;
+    typedef D deleter_type;
+    template<class E=D,typename enable_if<__minic_default_deleter<E>::value,int>::type=0>
+    constexpr unique_ptr() noexcept:pointer_(nullptr),deleter_(){}
+    template<class E=D,typename enable_if<__minic_default_deleter<E>::value,int>::type=0>
+    constexpr unique_ptr(decltype(nullptr)) noexcept:pointer_(nullptr),deleter_(){}
+    template<class E=D,typename enable_if<__minic_default_deleter<E>::value,int>::type=0>
+    explicit unique_ptr(T* p) noexcept:pointer_(p),deleter_(){}
+    template<class E=D,typename enable_if<is_constructible<E,const E&>::value,int>::type=0>
+    unique_ptr(T* p,const D& d) noexcept:pointer_(p),deleter_(d){}
+    template<class E=D,typename enable_if<!is_reference<E>::value && is_move_constructible<E>::value,int>::type=0>
+    unique_ptr(T* p,typename remove_reference<D>::type&& d) noexcept:pointer_(p),deleter_(std::move(d)){}
+    template<class E=D,typename enable_if<is_reference<E>::value,long>::type=0>
+    unique_ptr(T*,typename remove_reference<D>::type&&)=delete;
+    unique_ptr(const unique_ptr&)=delete;
+    unique_ptr& operator=(const unique_ptr&)=delete;
+    unique_ptr(unique_ptr&& other) noexcept:pointer_(other.release()),deleter_(std::forward<D>(other.get_deleter())){}
+    template<class U,class E,typename enable_if<!is_array<U>::value && is_convertible<U*,T*>::value && (is_reference<D>::value?is_same<D,E>::value:is_convertible<E&&,D>::value),int>::type=0>
+    unique_ptr(unique_ptr<U,E>&& other) noexcept:pointer_(other.release()),deleter_(std::forward<E>(other.get_deleter())){}
+    unique_ptr& operator=(unique_ptr&& other) noexcept {if(this!=&other){reset(other.release());deleter_=std::forward<D>(other.get_deleter());}return *this;}
+    template<class U,class E,typename enable_if<!is_array<U>::value && is_convertible<U*,T*>::value && is_assignable<D&,E&&>::value,int>::type=0>
+    unique_ptr& operator=(unique_ptr<U,E>&& other) noexcept {reset(other.release());deleter_=std::forward<E>(other.get_deleter());return *this;}
+    unique_ptr& operator=(decltype(nullptr)) noexcept {reset();return *this;}
+    ~unique_ptr(){if(pointer_)deleter_(pointer_);}
+    T* get() const noexcept{return pointer_;}
+    D& get_deleter() noexcept{return deleter_;} const D& get_deleter() const noexcept{return deleter_;}
+    explicit operator bool() const noexcept{return pointer_!=nullptr;}
+    T& operator*() const{return *pointer_;} T* operator->() const noexcept{return pointer_;}
+    T* release() noexcept{T* p=pointer_;pointer_=nullptr;return p;}
+    void reset(T* p=nullptr) noexcept{T* old=pointer_;pointer_=p;if(old)deleter_(old);}
+    void swap(unique_ptr& other) noexcept {using std::swap;swap(pointer_,other.pointer_);swap(deleter_,other.deleter_);}
+};
+template<class T,class D> class unique_ptr<T[],D> {
+    T* pointer_; D deleter_;
+public:
+    typedef T element_type; typedef T* pointer; typedef D deleter_type;
+    template<class E=D,typename enable_if<__minic_default_deleter<E>::value,int>::type=0>
+    constexpr unique_ptr() noexcept:pointer_(nullptr),deleter_(){}
+    template<class E=D,typename enable_if<__minic_default_deleter<E>::value,int>::type=0>
+    constexpr unique_ptr(decltype(nullptr)) noexcept:pointer_(nullptr),deleter_(){}
+    template<class P,class E=D,typename enable_if<__minic_array_pointer<T,P>::value && __minic_default_deleter<E>::value,int>::type=0>
+    explicit unique_ptr(P p) noexcept:pointer_(p),deleter_(){}
+    template<class P,class E=D,typename enable_if<__minic_array_pointer<T,P>::value && is_constructible<E,const E&>::value,int>::type=0>
+    unique_ptr(P p,const D& d) noexcept:pointer_(p),deleter_(d){}
+    template<class P,class E=D,typename enable_if<__minic_array_pointer<T,P>::value && !is_reference<E>::value && is_move_constructible<E>::value,int>::type=0>
+    unique_ptr(P p,typename remove_reference<D>::type&& d) noexcept:pointer_(p),deleter_(std::move(d)){}
+    template<class P,class E=D,typename enable_if<__minic_array_pointer<T,P>::value && is_reference<E>::value,long>::type=0>
+    unique_ptr(P,typename remove_reference<D>::type&&)=delete;
+    unique_ptr(const unique_ptr&)=delete;unique_ptr& operator=(const unique_ptr&)=delete;
+    unique_ptr(unique_ptr&& other) noexcept:pointer_(other.release()),deleter_(std::forward<D>(other.get_deleter())){}
+    template<class U,class E,typename enable_if<is_same<typename remove_cv<U>::type,typename remove_cv<T>::type>::value && is_convertible<U*,T*>::value && (is_reference<D>::value?is_same<D,E>::value:is_convertible<E&&,D>::value),int>::type=0>
+    unique_ptr(unique_ptr<U[],E>&& other) noexcept:pointer_(other.release()),deleter_(std::forward<E>(other.get_deleter())){}
+    unique_ptr& operator=(unique_ptr&& other) noexcept{if(this!=&other){reset(other.release());deleter_=std::forward<D>(other.get_deleter());}return *this;}
+    template<class U,class E,typename enable_if<is_same<typename remove_cv<U>::type,typename remove_cv<T>::type>::value && is_convertible<U*,T*>::value && is_assignable<D&,E&&>::value,int>::type=0>
+    unique_ptr& operator=(unique_ptr<U[],E>&& other) noexcept{reset(other.release());deleter_=std::forward<E>(other.get_deleter());return *this;}
+    unique_ptr& operator=(decltype(nullptr)) noexcept{reset();return *this;}
+    ~unique_ptr(){if(pointer_)deleter_(pointer_);}
+    T* get() const noexcept{return pointer_;} D& get_deleter() noexcept{return deleter_;} const D& get_deleter() const noexcept{return deleter_;}
+    explicit operator bool() const noexcept{return pointer_!=nullptr;}
+    T& operator[](unsigned long long i) const{return pointer_[i];}
+    T* release() noexcept{T* p=pointer_;pointer_=nullptr;return p;}
+    template<class P,typename enable_if<__minic_array_pointer<T,P>::value,int>::type=0>
+    void reset(P p) noexcept{T* old=pointer_;pointer_=p;if(old)deleter_(old);}
+    void reset(decltype(nullptr)=nullptr) noexcept{T* old=pointer_;pointer_=nullptr;if(old)deleter_(old);}
+    void swap(unique_ptr& other) noexcept{using std::swap;swap(pointer_,other.pointer_);swap(deleter_,other.deleter_);}
+};
+template<class T> struct __minic_unbounded_array : false_type {};
+template<class T> struct __minic_unbounded_array<T[]> : true_type {};
+template<class T,class... A> typename enable_if<!is_array<T>::value,unique_ptr<T>>::type make_unique(A&&... args){return unique_ptr<T>(new T(std::forward<A>(args)...));}
+template<class T> typename enable_if<__minic_unbounded_array<T>::value,unique_ptr<T>>::type make_unique(unsigned long long n){typedef typename remove_extent<T>::type E;return unique_ptr<T>(new E[n]());}
+template<class T,class D> void swap(unique_ptr<T,D>& a,unique_ptr<T,D>& b) noexcept{a.swap(b);}
+template<class T,class D,class U,class E> bool operator==(const unique_ptr<T,D>& a,const unique_ptr<U,E>& b){return a.get()==b.get();}
+template<class T,class D,class U,class E> bool operator!=(const unique_ptr<T,D>& a,const unique_ptr<U,E>& b){return !(a==b);}
+template<class T,class D> bool operator==(const unique_ptr<T,D>& p,decltype(nullptr)){return !p;}
+template<class T,class D> bool operator==(decltype(nullptr),const unique_ptr<T,D>& p){return !p;}
+template<class T,class D> bool operator!=(const unique_ptr<T,D>& p,decltype(nullptr)){return (bool)p;}
+template<class T,class D> bool operator!=(decltype(nullptr),const unique_ptr<T,D>& p){return (bool)p;}
+
+// OJ execution is single-threaded. Counts are deliberately non-atomic.
+struct __minic_shared_control {long owners;void* state;void (*dispose)(void*);};
+template<class P,class D> struct __minic_shared_external {
+    __minic_shared_control control; P pointer; D deleter;
+    __minic_shared_external(P p,D d):control{1,this,&cleanup},pointer(p),deleter(std::forward<D>(d)){}
+    static void cleanup(void* state){__minic_shared_external* b=(__minic_shared_external*)state;b->deleter(b->pointer);delete b;}
+};
+template<class T> struct __minic_shared_inplace {
+    __minic_shared_control control; T value;
+    template<class... A> __minic_shared_inplace(A&&... a):control{1,this,&cleanup},value(std::forward<A>(a)...){}
+    static void cleanup(void* state){delete (__minic_shared_inplace*)state;}
+};
+template<class T> class shared_ptr {
+    T* pointer_; __minic_shared_control* control_;
+    void drop() noexcept{if(control_ && --control_->owners==0)control_->dispose(control_->state);}
+public:
+    typedef T element_type;
+    constexpr shared_ptr() noexcept:pointer_(nullptr),control_(nullptr){}
+    constexpr shared_ptr(decltype(nullptr)) noexcept:pointer_(nullptr),control_(nullptr){}
+    template<class U,typename enable_if<is_convertible<U*,T*>::value,int>::type=0>
+    explicit shared_ptr(U* p):pointer_(p),control_(nullptr){auto b=new __minic_shared_external<U*,default_delete<U>>(p,default_delete<U>());control_=&b->control;}
+    template<class U,class D,typename enable_if<is_convertible<U*,T*>::value,int>::type=0>
+    shared_ptr(U* p,D d):pointer_(p),control_(nullptr){auto b=new __minic_shared_external<U*,D>(p,std::move(d));control_=&b->control;}
+    template<class D> shared_ptr(decltype(nullptr),D d):pointer_(nullptr),control_(nullptr){auto b=new __minic_shared_external<decltype(nullptr),D>(nullptr,std::move(d));control_=&b->control;}
+    template<class U,class D,typename enable_if<is_convertible<U*,T*>::value,int>::type=0>
+    shared_ptr(unique_ptr<U,D>&& p):pointer_(p.get()),control_(nullptr){if(pointer_){auto b=new __minic_shared_external<U*,D>(p.get(),std::forward<D>(p.get_deleter()));control_=&b->control;p.release();}}
+    shared_ptr(const shared_ptr& other) noexcept:pointer_(other.pointer_),control_(other.control_){if(control_)++control_->owners;}
+    template<class U,typename enable_if<is_convertible<U*,T*>::value,int>::type=0>
+    shared_ptr(const shared_ptr<U>& other) noexcept:pointer_(other.get()),control_(other.__control()){if(control_)++control_->owners;}
+    shared_ptr(shared_ptr&& other) noexcept:pointer_(other.pointer_),control_(other.control_){other.pointer_=nullptr;other.control_=nullptr;}
+    template<class U,typename enable_if<is_convertible<U*,T*>::value,int>::type=0>
+    shared_ptr(shared_ptr<U>&& other) noexcept:pointer_(other.get()),control_(other.__control()){other.__abandon();}
+    template<class U> shared_ptr(const shared_ptr<U>& other,T* p) noexcept:pointer_(p),control_(other.__control()){if(control_)++control_->owners;}
+    shared_ptr(T* p,__minic_shared_control* c) noexcept:pointer_(p),control_(c){}
+    ~shared_ptr(){drop();}
+    shared_ptr& operator=(const shared_ptr& other) noexcept{shared_ptr(other).swap(*this);return *this;}
+    shared_ptr& operator=(shared_ptr&& other) noexcept{shared_ptr(std::move(other)).swap(*this);return *this;}
+    template<class U,typename enable_if<is_convertible<U*,T*>::value,int>::type=0>
+    shared_ptr& operator=(shared_ptr<U>&& other) noexcept{shared_ptr(std::move(other)).swap(*this);return *this;}
+    T* get() const noexcept{return pointer_;} typename add_lvalue_reference<T>::type operator*() const{return *pointer_;} T* operator->() const noexcept{return pointer_;}
+    explicit operator bool() const noexcept{return pointer_!=nullptr;}
+    long use_count() const noexcept{return control_?control_->owners:0;}
+    bool unique() const noexcept{return use_count()==1;}
+    void reset() noexcept{shared_ptr().swap(*this);}
+    template<class U> void reset(U* p){shared_ptr(p).swap(*this);}
+    template<class U,class D> void reset(U* p,D d){shared_ptr(p,std::move(d)).swap(*this);}
+    void swap(shared_ptr& other) noexcept{std::swap(pointer_,other.pointer_);std::swap(control_,other.control_);}
+    __minic_shared_control* __control() const noexcept{return control_;}
+    void __abandon() noexcept{pointer_=nullptr;control_=nullptr;}
+};
+template<class T,class... A> shared_ptr<T> make_shared(A&&... a){auto b=new __minic_shared_inplace<T>(std::forward<A>(a)...);return shared_ptr<T>(&b->value,&b->control);}
+template<class T> void swap(shared_ptr<T>& a,shared_ptr<T>& b) noexcept{a.swap(b);}
+template<class T,class U> bool operator==(const shared_ptr<T>& a,const shared_ptr<U>& b){return a.get()==b.get();}
+template<class T,class U> bool operator!=(const shared_ptr<T>& a,const shared_ptr<U>& b){return !(a==b);}
+template<class T> bool operator==(const shared_ptr<T>& p,decltype(nullptr)){return !p;}
+template<class T> bool operator==(decltype(nullptr),const shared_ptr<T>& p){return !p;}
+template<class T> bool operator!=(const shared_ptr<T>& p,decltype(nullptr)){return (bool)p;}
+template<class T> bool operator!=(decltype(nullptr),const shared_ptr<T>& p){return (bool)p;}
+template<class T,class U> shared_ptr<T> static_pointer_cast(const shared_ptr<U>& p) noexcept{return shared_ptr<T>(p,(T*)p.get());}
+template<class T,class U> shared_ptr<T> const_pointer_cast(const shared_ptr<U>& p) noexcept{return shared_ptr<T>(p,(T*)p.get());}
+}
+#endif

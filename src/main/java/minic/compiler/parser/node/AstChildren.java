@@ -98,8 +98,10 @@ public final class AstChildren {
             case TypeQueryExpr n -> n.arguments();
             case NoexceptExpr n -> present(n.operand());
             case DestructorCallExpr n -> present(n.receiver());
+            case DeleteExpr n -> present(n.operand());
             case PlacementNewExpr n -> {
                 var children = new ArrayList<AstNode>(n.placementArguments());
+                if (n.arrayBound() != null) children.add(n.arrayBound());
                 children.add(n.initializer());
                 yield List.copyOf(children);
             }
@@ -123,6 +125,7 @@ public final class AstChildren {
             case TypedefDecl n -> n.type(); case VarDeclStmt n -> n.type(); case TypedefStmt n -> n.type();
             case CastExpr n -> n.targetType(); case ConstructionExpr n -> n.type();
             case TypeQueryExpr.TypeArgument n -> n.type();
+            case PlacementNewExpr n -> n.type();
             case SizeofExpr n -> n.queriedType(); case AlignofExpr n -> n.queriedType();
             default -> null;
         };

@@ -215,6 +215,7 @@ public interface Expression extends AstNode {
     }
 
     record DoubleLiteralExpr(double value, String lexeme, SourceRange range) implements Expression {
+        public MiniType literalType() { return lexeme.endsWith("L") || lexeme.endsWith("l") ? MiniType.LONG_DOUBLE : MiniType.DOUBLE; }
         public DoubleLiteralExpr {
             Objects.requireNonNull(lexeme, "lexeme");
             Objects.requireNonNull(range, "range");
@@ -541,17 +542,20 @@ public interface Expression extends AstNode {
         }
     }
 
-    /** Source-only placement construction; allocation lookup and object lifetime require binding. */
+    /** Source-only new expression. Empty placement arguments select allocating new. */
     record PlacementNewExpr(MiniType type, List<Expression> placementArguments, InitializerSyntax initializer,
-                            boolean global, SourceRange typeRange, SourceRange range) implements Expression {
+                            boolean global, Expression arrayBound, SourceRange typeRange, SourceRange range) implements Expression {
         public PlacementNewExpr {
             Objects.requireNonNull(type, "type");
             placementArguments = List.copyOf(placementArguments);
-            if (placementArguments.isEmpty()) throw new IllegalArgumentException("Placement arguments must not be empty");
             Objects.requireNonNull(initializer, "initializer");
             Objects.requireNonNull(typeRange, "typeRange");
             Objects.requireNonNull(range, "range");
         }
+    }
+
+    record DeleteExpr(Expression operand, boolean array, boolean global, SourceRange range) implements Expression {
+        public DeleteExpr { Objects.requireNonNull(operand); Objects.requireNonNull(range); }
     }
 
     /** The operand is checked for validity but never evaluated or odr-used. */

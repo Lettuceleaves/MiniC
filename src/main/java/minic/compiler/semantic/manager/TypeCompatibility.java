@@ -172,6 +172,7 @@ public final class TypeCompatibility {
     static MiniType usualArithmeticType(MiniType leftType, MiniType rightType) {
         leftType = leftType.unqualified();
         rightType = rightType.unqualified();
+        if (leftType.equals(MiniType.LONG_DOUBLE) || rightType.equals(MiniType.LONG_DOUBLE)) return MiniType.LONG_DOUBLE;
         if (leftType.equals(MiniType.DOUBLE) || rightType.equals(MiniType.DOUBLE)) {
             return MiniType.DOUBLE;
         }

@@ -90,7 +90,7 @@ public final class GlobalDataLowerer {
         ByteBuffer buffer = ByteBuffer.wrap(output).order(ByteOrder.LITTLE_ENDIAN);
         if (type.isPointer() || type.isVaList()) buffer.putLong(offset, value.longValue());
         else if (type == MiniType.FLOAT) buffer.putFloat(offset, value.floatValue());
-        else if (type == MiniType.DOUBLE) buffer.putDouble(offset, value.doubleValue());
+        else if (type.isFloatingScalar()) buffer.putDouble(offset, value.doubleValue());
         else switch (sizeOf(type)) {
             case 1 -> buffer.put(offset, value.byteValue());
             case 2 -> buffer.putShort(offset, value.shortValue());
@@ -233,7 +233,7 @@ public final class GlobalDataLowerer {
         if(expression instanceof BoolLiteralExpr)return MiniType.BOOL;
         if(expression instanceof CharLiteralExpr)return MiniType.INT;
         if(expression instanceof FloatLiteralExpr)return MiniType.FLOAT;
-        if(expression instanceof DoubleLiteralExpr)return MiniType.DOUBLE;
+        if(expression instanceof DoubleLiteralExpr literal)return literal.literalType();
         if(expression instanceof NullLiteralExpr)return MiniType.VOID.pointerTo();
         if(expression instanceof SizeofExpr||expression instanceof AlignofExpr)return MiniType.UNSIGNED_LONG_LONG;
         if(expression instanceof UnaryExpr unary) {
@@ -276,7 +276,7 @@ public final class GlobalDataLowerer {
             case IntegerConstantExpr value -> new ConstantValue(value.value(),value.type());
             case LongLiteralExpr value -> new ConstantValue(value.value(),MiniType.LONG);
             case FloatLiteralExpr value -> new ConstantValue(value.value(),MiniType.FLOAT);
-            case DoubleLiteralExpr value -> new ConstantValue(value.value(),MiniType.DOUBLE);
+            case DoubleLiteralExpr value -> new ConstantValue(value.value(),value.literalType());
             case NullLiteralExpr ignored -> new ConstantValue(0L,MiniType.VOID.pointerTo());
             case SizeofExpr query -> new ConstantValue((long)sizeOf(queriedType(query.queriedType(),query.expression())),MiniType.UNSIGNED_LONG_LONG);
             case AlignofExpr query -> new ConstantValue((long)alignmentOf(queriedType(query.queriedType(),query.expression())),MiniType.UNSIGNED_LONG_LONG);
@@ -388,6 +388,7 @@ public final class GlobalDataLowerer {
     }
 
     private static MiniType commonType(MiniType left,MiniType right) {
+        if(left.unqualified().equals(MiniType.LONG_DOUBLE)||right.unqualified().equals(MiniType.LONG_DOUBLE))return MiniType.LONG_DOUBLE;
         if(left.unqualified().equals(MiniType.DOUBLE)||right.unqualified().equals(MiniType.DOUBLE))return MiniType.DOUBLE;
         if(left.unqualified().equals(MiniType.FLOAT)||right.unqualified().equals(MiniType.FLOAT))return MiniType.FLOAT;
         if(!left.isIntegerScalar()||!right.isIntegerScalar())throw new IllegalArgumentException("Expected arithmetic constant operands");

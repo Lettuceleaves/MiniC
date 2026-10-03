@@ -27,6 +27,7 @@ using ::exit;
 #if defined(__MINIC__) || defined(__MINIC_SELF_STL__)
 float abs(float value){return (float)::fabs((double)value);}
 double abs(double value){return ::fabs(value);}
+long double abs(long double value){return (long double)::fabs((double)value);}
 long abs(long value){return ::labs(value);}
 long long abs(long long value){return ::llabs(value);}
 #endif

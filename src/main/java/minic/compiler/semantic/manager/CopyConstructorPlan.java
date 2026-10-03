@@ -86,6 +86,10 @@ public final class CopyConstructorPlan {
                                        Function<MiniType,Operations<T>> operations) {
         return planTransfer(owner,fields,union,suppressed,true,null,operations);
     }
+    public static <T> Result<T> planMove(MiniType owner,List<StructField> fields,boolean union,boolean suppressed,
+                                       Function<MiniType,Operations<T>> operations,java.util.function.BiPredicate<T,T> tieBreak) {
+        return planTransfer(owner,fields,union,suppressed,true,null,operations,tieBreak);
+    }
     /** A defaulted mutable copy has an explicit source type rather than the implicit const choice. */
     public static <T> Result<T> planCopy(MiniType owner,List<StructField> fields,boolean union,boolean constant,
                                        Function<MiniType,Operations<T>> operations) {
@@ -93,6 +97,11 @@ public final class CopyConstructorPlan {
     }
     private static <T> Result<T> planTransfer(MiniType owner,List<StructField> fields,boolean union,boolean userDeclaredCopy,
                                              boolean move,Boolean explicitConst,Function<MiniType,Operations<T>> operations) {
+        return planTransfer(owner,fields,union,userDeclaredCopy,move,explicitConst,operations,(a,b)->false);
+    }
+    private static <T> Result<T> planTransfer(MiniType owner,List<StructField> fields,boolean union,boolean userDeclaredCopy,
+                                             boolean move,Boolean explicitConst,Function<MiniType,Operations<T>> operations,
+                                             java.util.function.BiPredicate<T,T> tieBreak) {
         requireOwner(owner);fields=List.copyOf(fields);Objects.requireNonNull(operations,"operations");
         if(userDeclaredCopy)return new Result<>(Status.SUPPRESSED,null,List.of(),List.of(),false,false);
         Map<MiniType,Operations<T>> members=new LinkedHashMap<>();
@@ -122,7 +131,8 @@ public final class CopyConstructorPlan {
             Operations<T> available=members.get(source.unqualified());
             List<OverloadResolver.Candidate<Constructor<T>>> candidates=available.constructors().stream()
                     .map(c->new OverloadResolver.Candidate<>(c,List.of(c.parameterType()),false)).toList();
-            var resolution=OverloadResolver.resolve(candidates,List.of(new OverloadResolver.Argument(source,move?ValueCategory.XVALUE:ValueCategory.LVALUE,false)));
+            var resolution=OverloadResolver.resolve(candidates,List.of(new OverloadResolver.Argument(source,move?ValueCategory.XVALUE:ValueCategory.LVALUE,false)),
+                    null,null,(a,b)->tieBreak.test(a.identity(),b.identity()));
             if(resolution.status()!=OverloadResolver.Status.SELECTED){
                 problems.add(new Problem<>(field,resolution.status()==OverloadResolver.Status.AMBIGUOUS
                         ?Failure.AMBIGUOUS_CONSTRUCTOR:Failure.NO_VIABLE_CONSTRUCTOR,null));continue;

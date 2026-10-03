@@ -120,6 +120,10 @@ public final class TemplateDeduction {
         }
         boolean type(MiniType pattern,MiniType actual) {
             actual=expand.apply(actual);
+            // CV on an array type describes its elements ([dcl.array]/1), so both the
+            // array-layer and element-layer spellings are equivalent during deduction.
+            pattern=pushArrayCv(pattern);
+            actual=pushArrayCv(actual);
             if(pattern instanceof MiniType.MemberType || pattern instanceof MiniType.DecltypeType) {
                 deferred.add(new Deferred(pattern,actual));return true;
             }
@@ -128,6 +132,28 @@ public final class TemplateDeduction {
                 return old==null||old.equals(actual);
             }
             if(pattern instanceof MiniType.QualifiedType p) {
+                if(actual.isArray() || actual.unqualified() instanceof MiniType.DependentArrayType) {
+                    // A qualified pattern matches a cv-qualified array by consuming the
+                    // qualifiers from its innermost element, leaving the rest for T.
+                    MiniType cursor=actual;var layers=new ArrayList<MiniType>();
+                    for(;;) {
+                        MiniType base=cursor.unqualified();
+                        if(base instanceof MiniType.ArrayType array){layers.add(array);cursor=array.elementType();continue;}
+                        if(base instanceof MiniType.DependentArrayType array){layers.add(array);cursor=array.elementType();continue;}
+                        break;
+                    }
+                    if(!cursor.qualifiers().containsAll(p.qualifiers()))return false;
+                    var remaining=EnumSet.noneOf(MiniType.TypeQualifier.class);
+                    remaining.addAll(cursor.qualifiers());remaining.removeAll(p.qualifiers());
+                    MiniType rebuilt=MiniType.qualified(cursor.unqualified(),remaining);
+                    for(int i=layers.size()-1;i>=0;i--) {
+                        MiniType layer=layers.get(i);
+                        rebuilt=layer instanceof MiniType.ArrayType array
+                                ?rebuilt.arrayOf(array.length())
+                                :new MiniType.DependentArrayType(rebuilt,((MiniType.DependentArrayType)layer).bound());
+                    }
+                    return type(p.baseType(),rebuilt);
+                }
                 if(!actual.qualifiers().containsAll(p.qualifiers()))return false;
                 var remaining=EnumSet.noneOf(MiniType.TypeQualifier.class);remaining.addAll(actual.qualifiers());remaining.removeAll(p.qualifiers());
                 return type(p.baseType(),MiniType.qualified(actual.unqualified(),remaining));
@@ -155,6 +181,17 @@ public final class TemplateDeduction {
                 return specification.condition()!=null || !specification.nonThrowing() || actualSpecification.nonThrowing();
             }
             return pattern.equals(actual);
+        }
+        /** Push qualifiers on array layers into the element type, mirroring canonicalArrayCv. */
+        private static MiniType pushArrayCv(MiniType type) {
+            MiniType base=type.unqualified();
+            if(base instanceof MiniType.ArrayType array)
+                return pushArrayCv(MiniType.qualified(array.elementType(),type.qualifiers())).arrayOf(array.length());
+            if(base instanceof MiniType.DependentArrayType array)
+                return new MiniType.DependentArrayType(pushArrayCv(MiniType.qualified(array.elementType(),type.qualifiers())),array.bound());
+            MiniType result=base instanceof MiniType.PointerType pointer?pushArrayCv(pointer.pointee()).pointerTo()
+                    :base instanceof MiniType.ReferenceType reference?pushArrayCv(reference.referent()).referenceTo(reference.kind()):base;
+            return MiniType.qualified(result,type.qualifiers());
         }
     }
 }

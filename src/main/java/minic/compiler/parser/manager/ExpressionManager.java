@@ -286,6 +286,16 @@ public final class ExpressionManager {
     }
 
     private Expression parseUnary() {
+        if (state.check(TokenType.DELETE) || state.check(TokenType.SCOPE) && state.peekAt(1).type() == TokenType.DELETE) {
+            Token start = state.advance();
+            boolean global = start.type() == TokenType.SCOPE;
+            if (global) state.advance();
+            boolean array = state.match(TokenType.LEFT_BRACKET);
+            if (array && state.consume(TokenType.RIGHT_BRACKET, "delete[ 后期望 ']' ") == null) return null;
+            Expression operand = parseCast();
+            return operand == null ? null : new Expression.DeleteExpr(operand, array, global,
+                    SourceRange.span(start.range(), operand.range()));
+        }
         if (state.check(TokenType.NEW) || state.check(TokenType.SCOPE) && state.peekAt(1).type() == TokenType.NEW) {
             return parsePlacementNew();
         }
@@ -333,29 +343,48 @@ public final class ExpressionManager {
         Token start = state.advance();
         boolean global = start.type() == TokenType.SCOPE;
         if (global) state.consume(TokenType.NEW, "期望 new");
-        if (!state.match(TokenType.LEFT_PAREN)) {
-            state.report(state.peek(), "当前 new 语法需要显式 placement 参数；分配式 new 尚未实现");
-            return null;
-        }
         var placement = new ArrayList<Expression>();
-        do {
-            Expression argument = parseAssignment();
-            if (argument == null) return null;
-            placement.add(argument);
-        } while (state.match(TokenType.COMMA));
-        if (state.consume(TokenType.RIGHT_PAREN, "placement 参数后期望 ')' ") == null) return null;
-        Parser.ParsedType type = typeReader.parseTypeWithoutFunctionSuffix("placement new 后期望对象类型");
-        if (type == null) return null;
-        if (state.check(TokenType.LEFT_BRACKET)) {
-            state.report(state.peek(), "数组 new 的语法及生命周期尚未实现");
-            return null;
+        boolean parenthesizedType = state.check(TokenType.LEFT_PAREN) && typeReader.canStartTypeAt(1);
+        if (!parenthesizedType && state.match(TokenType.LEFT_PAREN)) {
+            do {
+                Expression argument = parseAssignment();
+                if (argument == null) return null;
+                placement.add(argument);
+            } while (state.match(TokenType.COMMA));
+            if (state.consume(TokenType.RIGHT_PAREN, "placement 参数后期望 ')' ") == null) return null;
+            parenthesizedType = state.check(TokenType.LEFT_PAREN) && typeReader.canStartTypeAt(1);
         }
+        if (parenthesizedType) state.advance();
+        Parser.ParsedType type = typeReader.parseTypeWithoutFunctionSuffix("new 后期望对象类型");
+        if (type == null) return null;
+        if (parenthesizedType && state.consume(TokenType.RIGHT_PAREN, "new 类型后期望 ')' ") == null) return null;
+        Expression bound = null;
+        boolean deducedBound = false;
+        if (state.match(TokenType.LEFT_BRACKET)) {
+            deducedBound = state.check(TokenType.RIGHT_BRACKET);
+            if (!deducedBound) bound = parseExpression();
+            if (state.consume(TokenType.RIGHT_BRACKET, "数组 new 后期望 ']' ") == null) return null;
+        }
+        MiniType allocatedType = type.type();
+        var innerBounds = new ArrayList<Expression>();
+        while ((bound != null || deducedBound) && state.match(TokenType.LEFT_BRACKET)) {
+            Expression innerBound = parseAssignment();
+            if (innerBound == null || state.consume(TokenType.RIGHT_BRACKET, "数组维度后期望 ']' ") == null) return null;
+            innerBounds.add(innerBound);
+        }
+        for (int i=innerBounds.size()-1;i>=0;i--) allocatedType=new MiniType.DependentArrayType(allocatedType,innerBounds.get(i));
         var initializer = state.check(TokenType.LEFT_PAREN) || state.check(TokenType.LEFT_BRACE)
                 ? parseConstructionInitializer()
                 : new minic.compiler.parser.node.Expression.InitializerSyntax(minic.compiler.parser.node.Expression.InitializerSyntax.Kind.DEFAULT,
                         java.util.List.of(), type.range());
         if (initializer == null) return null;
-        var expression = new minic.compiler.parser.node.Expression.PlacementNewExpr(type.type(), placement, initializer, global,
+        if (deducedBound) {
+            if (initializer.kind() != Expression.InitializerSyntax.Kind.DIRECT_LIST) {
+                state.report(start, "省略 new[] 长度时需要花括号初始化列表"); return null;
+            }
+            bound = new IntegerLiteralExpr(initializer.arguments().size(), Integer.toString(initializer.arguments().size()), initializer.range());
+        }
+        var expression = new minic.compiler.parser.node.Expression.PlacementNewExpr(allocatedType, placement, initializer, global, bound,
                 type.range(), SourceRange.span(start.range(), initializer.range()));
         state.build(expression, "PlacementNewExpr", expression.range());
         return expression;

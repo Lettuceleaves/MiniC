@@ -71,6 +71,9 @@ public sealed interface MiniType permits
      */
     MiniType DOUBLE = new ScalarType(ScalarKind.DOUBLE);
 
+    /** Distinct C++ type, represented by binary64 in the Windows x64 ABI. */
+    MiniType LONG_DOUBLE = new ScalarType(ScalarKind.LONG_DOUBLE);
+
     /**
      * 无值类型，只能用于函数返回类型或作为指针的被指向类型。
      */
@@ -534,7 +537,8 @@ public sealed interface MiniType permits
         LONG_LONG("long long", 8, 8, true, true, false, 5),
         UNSIGNED_LONG_LONG("unsigned long long", 8, 8, false, true, false, 5),
         FLOAT("float", 4, 4, true, false, true, -1),
-        DOUBLE("double", 8, 8, true, false, true, -1);
+        DOUBLE("double", 8, 8, true, false, true, -1),
+        LONG_DOUBLE("long double", 8, 8, true, false, true, -1);
 
         private final String displayName;
         private final int sizeBytes;

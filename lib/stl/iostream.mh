@@ -9,6 +9,8 @@
 #include "cstddef.mh"
 namespace std {
 typedef long long streamsize;
+typedef long long streamoff;
+typedef long long streampos;
 class ios {
     unsigned int flags_;
     unsigned int state_;
@@ -18,6 +20,10 @@ class ios {
 public:
     typedef unsigned int fmtflags;
     typedef unsigned int iostate;
+    typedef unsigned int openmode;
+    typedef int seekdir;
+    static const openmode in=1,out=2,ate=4,app=8,binary=16,trunc=32;
+    static const seekdir beg=0,cur=1,end=2;
     static const fmtflags boolalpha=1,dec=2,hex=4,oct=8,fixed=16,scientific=32;
     static const fmtflags left=64,right=128,internal=256,showbase=512,showpoint=1024,showpos=2048;
     static const fmtflags skipws=4096,unitbuf=8192,uppercase=16384;
@@ -42,9 +48,13 @@ public:
 typedef ios ios_base;
 class ostream {
     FILE* file_;
+    string* buffer_=nullptr;
+    size_t position_=0;
+    bool writable_=true;
+    bool append_=false;
     ios state_;
     ostream* tied_;
-    void raw(const char* text,streamsize n){for(streamsize i=0;i<n;++i)if(::fputc((unsigned char)text[i],file_)==EOF){state_.setstate(ios::badbit);break;}}
+    void raw(const char* text,streamsize n){if(n<=0)return;if(buffer_){if(!writable_){state_.setstate(ios::badbit);return;}if(append_)position_=buffer_->size();size_t count=(size_t)n;size_t replaced=buffer_->size()-position_;if(replaced>count)replaced=count;buffer_->replace(position_,replaced,text,count);position_+=count;return;}for(streamsize i=0;i<n;++i)if(::fputc((unsigned char)text[i],file_)==EOF){state_.setstate(ios::badbit);break;}}
     ostream& formatted(const char* text,streamsize n,bool numeric){
         if(tied_)tied_->flush();if(fail())return *this;
         streamsize width=state_.width(0),padding=width>n?width-n:0;
@@ -105,6 +115,11 @@ class ostream {
     }
 public:
     explicit ostream(FILE* file):file_(file),state_(),tied_(nullptr) {}
+    explicit ostream(string* buffer,bool writable=true,bool append=false):file_(nullptr),buffer_(buffer),writable_(writable),append_(append),state_(),tied_(nullptr){}
+    streampos __tellp() const{return fail()?-1:buffer_&&writable_?(streampos)position_:-1;}
+    ostream& __seekp(streamoff offset,ios::seekdir direction){if(fail())return *this;if(buffer_&&writable_){streamoff target=offset+(direction==ios::cur?(streamoff)position_:direction==ios::end?(streamoff)buffer_->size():0);if(target<0||(size_t)target>buffer_->size())setstate(ios::failbit);else position_=(size_t)target;}else setstate(ios::failbit);return *this;}
+    ostream& __seekp(streampos position){return __seekp(position,ios::beg);}
+    void __reset_position(size_t position){position_=position;}
     ~ostream(){flush();}
     ostream(FILE* file,ostream* tie,bool unit):file_(file),state_(),tied_(tie){if(unit)state_.setf(ios::unitbuf);}
     ostream* tie() const{return tied_;} ostream* tie(ostream* stream){ostream* old=tied_;tied_=stream;return old;}
@@ -118,7 +133,7 @@ public:
     void setstate(ios::iostate s){state_.setstate(s);} bool good() const{return state_.good();}
     bool eof() const{return state_.eof();} bool fail() const{return state_.fail();} bool bad() const{return state_.bad();}
     explicit operator bool() const{return !fail();} bool operator!() const{return fail();}
-    ostream& flush(){if(::fflush(file_)!=0)state_.setstate(ios::badbit);return *this;}
+    ostream& flush(){if(!buffer_&&::fflush(file_)!=0)state_.setstate(ios::badbit);return *this;}
     ostream& put(char c){if(tied_)tied_->flush();if(!fail())raw(&c,1);if(flags()&ios::unitbuf)flush();return *this;}
     ostream& write(const char* text,streamsize n){if(tied_)tied_->flush();if(!fail() && n>0)raw(text,n);if(flags()&ios::unitbuf)flush();return *this;}
     ostream& operator<<(ostream& (*manip)(ostream&)){return manip(*this);}
@@ -140,16 +155,21 @@ public:
     ostream& operator<<(long long value){return base()==10?signed_number(value):unsigned_number((unsigned long long)value);}
     ostream& operator<<(unsigned long long value){return unsigned_number(value);}
     ostream& operator<<(float value){return floating_number(value);} ostream& operator<<(double value){return floating_number(value);}
+    ostream& operator<<(long double value){return floating_number((double)value);}
     ostream& operator<<(const void* value){char text[64];int n=::sprintf(text,"%p",value);return formatted(text,n,true);}
 };
 class istream {
     FILE* file_;
+    string* buffer_=nullptr;
+    size_t position_=0;
+    bool readable_=true;
+    bool writable_=false;
     ios state_;
     ostream* tied_;
     streamsize count_;
     int last_;
-    int take(){int c=::fgetc(file_);if(c!=EOF)last_=c;return c;}
-    int peek_raw(){int c=::fgetc(file_);if(c!=EOF)::ungetc(c,file_);return c;}
+    int take(){int c=buffer_?(readable_&&position_<buffer_->size()?(unsigned char)(*buffer_)[position_++]:EOF) : ::fgetc(file_);if(c!=EOF)last_=c;return c;}
+    int peek_raw(){if(buffer_)return readable_&&position_<buffer_->size()?(unsigned char)(*buffer_)[position_]:EOF;int c=::fgetc(file_);if(c!=EOF)::ungetc(c,file_);return c;}
     bool sentry(bool skip){
         if(tied_)tied_->flush();
         if(!good()){state_.setstate(ios::failbit);return false;}
@@ -191,6 +211,11 @@ class istream {
     }
 public:
     explicit istream(FILE* file):file_(file),state_(),tied_(nullptr),count_(0),last_(EOF) {}
+    explicit istream(string* buffer,bool readable=true,bool writable=false):file_(nullptr),buffer_(buffer),readable_(readable),writable_(writable),state_(),tied_(nullptr),count_(0),last_(EOF){}
+    streampos __tellg(){if(!sentry(false))return -1;return buffer_&&readable_?(streampos)position_:-1;}
+    istream& __seekg(streamoff offset,ios::seekdir direction){state_.clear(state_.rdstate()&~ios::eofbit);if(fail())return *this;if(buffer_&&readable_){streamoff target=offset+(direction==ios::cur?(streamoff)position_:direction==ios::end?(streamoff)buffer_->size():0);if(target<0||(size_t)target>buffer_->size())setstate(ios::failbit);else{position_=(size_t)target;last_=EOF;}}else setstate(ios::failbit);return *this;}
+    istream& __seekg(streampos position){return __seekg(position,ios::beg);}
+    void __reset_position(){position_=0;last_=EOF;count_=0;}
     istream(FILE* file,ostream* tie):file_(file),state_(),tied_(tie),count_(0),last_(EOF) {}
     ostream* tie() const{return tied_;} ostream* tie(ostream* stream){ostream* old=tied_;tied_=stream;return old;}
     ios::fmtflags flags() const{return state_.flags();} ios::fmtflags flags(ios::fmtflags f){return state_.flags(f);}
@@ -204,8 +229,8 @@ public:
     int get(){count_=0;if(!sentry(false))return EOF;int c=take();if(c==EOF)state_.setstate(ios::eofbit|ios::failbit);else count_=1;return c;}
     istream& get(char& c){int value=get();if(value!=EOF)c=(char)value;return *this;}
     int peek(){count_=0;if(!sentry(false))return EOF;int c=peek_raw();if(c==EOF)state_.setstate(ios::eofbit);return c;}
-    istream& unget(){state_.clear(state_.rdstate()&~ios::eofbit);count_=0;if(!sentry(false))return *this;if(last_==EOF || ::ungetc(last_,file_)==EOF)state_.setstate(ios::badbit);last_=EOF;return *this;}
-    istream& putback(char c){state_.clear(state_.rdstate()&~ios::eofbit);count_=0;if(!sentry(false))return *this;if(::ungetc((unsigned char)c,file_)==EOF)state_.setstate(ios::badbit);return *this;}
+    istream& unget(){state_.clear(state_.rdstate()&~ios::eofbit);count_=0;if(!sentry(false))return *this;if(buffer_){if(!position_)state_.setstate(ios::badbit);else --position_;}else if(last_==EOF || ::ungetc(last_,file_)==EOF)state_.setstate(ios::badbit);last_=EOF;return *this;}
+    istream& putback(char c){state_.clear(state_.rdstate()&~ios::eofbit);count_=0;if(!sentry(false))return *this;if(buffer_){if(!readable_||!position_||(!writable_&&(*buffer_)[position_-1]!=c))state_.setstate(ios::badbit);else (*buffer_)[--position_]=c;}else if(::ungetc((unsigned char)c,file_)==EOF)state_.setstate(ios::badbit);return *this;}
     istream& ignore(streamsize n,int delimiter){count_=0;if(!sentry(false))return *this;while(n>0){int c=take();if(c==EOF){state_.setstate(ios::eofbit);break;}++count_;if(c==delimiter)break;if(n!=0x7fffffffffffffffLL)--n;}return *this;}
     istream& ignore(streamsize n){return ignore(n,EOF);} istream& ignore(){return ignore(1,EOF);}
     istream& read(char* buffer,streamsize n){count_=0;if(!sentry(false))return *this;while(count_<n){int c=take();if(c==EOF){state_.setstate(ios::eofbit|ios::failbit);break;}buffer[count_++]=(char)c;}return *this;}
@@ -247,6 +272,7 @@ public:
         }else{bool negative;unsigned long long n=integer(0xffffffffffffffffULL,false,negative);value=n!=0;if(n>1 || (negative && n!=0))state_.setstate(ios::failbit);}return *this;
     }
     istream& operator>>(double& value){if(!sentry(true))return *this;string token=floating_token();if(fail()){value=0;return *this;}value=::strtod(token.c_str(),nullptr);if(value>DBL_MAX){value=DBL_MAX;state_.setstate(ios::failbit);}if(value<-DBL_MAX){value=-DBL_MAX;state_.setstate(ios::failbit);}return *this;}
+    istream& operator>>(long double& value){double parsed=0;*this>>parsed;value=parsed;return *this;}
     istream& operator>>(float& value){if(!sentry(true))return *this;string token=floating_token();if(fail()){value=0;return *this;}value=::strtof(token.c_str(),nullptr);if(value>FLT_MAX){value=FLT_MAX;state_.setstate(ios::failbit);}if(value<-FLT_MAX){value=-FLT_MAX;state_.setstate(ios::failbit);}return *this;}
     istream& __getline(string& text,char delimiter){
         if(!sentry(false))return *this;text.clear();bool extracted=false;

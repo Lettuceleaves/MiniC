@@ -1,0 +1,48 @@
+#ifndef MINIC_STL_UNORDERED_MAP_MH
+#define MINIC_STL_UNORDERED_MAP_MH
+#include "__hash_table.mh"
+namespace std {
+template<class K,class V,class Hash=hash<K>,class Equal=equal_to<K>> class unordered_map {
+    typedef __minic_hash_table<K,pair<const K,V>,__minic_map_key<K,V>,Hash,Equal> table_type;
+    table_type table_;
+public:
+    typedef K key_type;typedef V mapped_type;typedef pair<const K,V> value_type;typedef Hash hasher;typedef Equal key_equal;
+    typedef unsigned long long size_type;typedef long long difference_type;
+    typedef value_type& reference;typedef const value_type& const_reference;
+    typedef typename table_type::iterator iterator;typedef typename table_type::const_iterator const_iterator;
+    unordered_map()=default;
+    explicit unordered_map(size_type n,const Hash& h=Hash(),const Equal& e=Equal()):table_(n,h,e){}
+    template<class I> unordered_map(I a,I b,size_type n=0,const Hash& h=Hash(),const Equal& e=Equal()):table_(n,h,e){insert(a,b);}
+    unordered_map(initializer_list<value_type> v,size_type n=0,const Hash& h=Hash(),const Equal& e=Equal()):table_(n,h,e){insert(v.begin(),v.end());}
+    unordered_map(const unordered_map&)=default;unordered_map(unordered_map&&)=default;
+    unordered_map& operator=(const unordered_map&)=default;unordered_map& operator=(unordered_map&&)=default;
+    unordered_map& operator=(initializer_list<value_type> v){clear();insert(v.begin(),v.end());return *this;}
+    bool empty() const noexcept{return table_.empty();}size_type size() const noexcept{return table_.size();}
+    iterator begin(){return table_.begin();}const_iterator begin() const{return table_.begin();}const_iterator cbegin() const{return table_.begin();}
+    iterator end(){return table_.end();}const_iterator end() const{return table_.end();}const_iterator cend() const{return table_.end();}
+    V& operator[](const K& k){return try_emplace(k).first->second;}V& operator[](K&& k){return try_emplace(std::move(k)).first->second;}
+    V& at(const K& k){auto i=find(k);if(i==end())::abort();return i->second;}const V& at(const K& k) const{auto i=find(k);if(i==end())::abort();return i->second;}
+    iterator find(const K& k){return table_.find(k);}const_iterator find(const K& k) const{return table_.find(k);}size_type count(const K& k) const{return table_.count(k);}
+    pair<iterator,iterator> equal_range(const K& k){auto a=find(k);auto b=a;if(b!=end())++b;return pair<iterator,iterator>(a,b);}
+    pair<const_iterator,const_iterator> equal_range(const K& k) const{auto a=find(k);auto b=a;if(b!=end())++b;return pair<const_iterator,const_iterator>(a,b);}
+    pair<iterator,bool> insert(const value_type& v){return table_.insert(v);}pair<iterator,bool> insert(value_type&& v){return table_.insert(std::move(v));}
+    template<class I> void insert(I a,I b){for(;a!=b;++a)insert(*a);}void insert(initializer_list<value_type> v){insert(v.begin(),v.end());}
+    iterator insert(const_iterator,const value_type& v){return insert(v).first;}
+    template<class... A> pair<iterator,bool> emplace(A&&... a){return table_.emplace(std::forward<A>(a)...);}
+    template<class... A> iterator emplace_hint(const_iterator,A&&... a){return emplace(std::forward<A>(a)...).first;}
+    template<class... A> pair<iterator,bool> try_emplace(const K& k,A&&... a){return table_.insert_key(k,__minic_pair_key_tag(),k,std::forward<A>(a)...);}
+    template<class... A> pair<iterator,bool> try_emplace(K&& k,A&&... a){return table_.insert_key(k,__minic_pair_key_tag(),std::move(k),std::forward<A>(a)...);}
+    template<class M> pair<iterator,bool> insert_or_assign(const K& k,M&& v){auto result=try_emplace(k,std::forward<M>(v));if(!result.second)result.first->second=std::forward<M>(v);return result;}
+    iterator erase(iterator i){return table_.erase(const_iterator(i));}iterator erase(const_iterator i){return table_.erase(i);}
+    iterator erase(const_iterator a,const_iterator b){return table_.erase(a,b);}size_type erase(const K& k){return table_.erase(k);}
+    void clear() noexcept{table_.clear();}void swap(unordered_map& b) noexcept{table_.swap(b.table_);}
+    void reserve(size_type n){table_.reserve(n);}void rehash(size_type n){table_.rehash(n);}
+    size_type bucket_count() const{return table_.bucket_count();}size_type bucket(const K& k) const{return table_.bucket(k);}size_type bucket_size(size_type i) const{return table_.bucket_size(i);}
+    float load_factor() const{return table_.load_factor();}float max_load_factor() const{return table_.max_load_factor();}void max_load_factor(float f){table_.max_load_factor(f);}
+    Hash hash_function() const{return table_.hash_function();}Equal key_eq() const{return table_.key_eq();}
+};
+template<class K,class V,class H,class E> void swap(unordered_map<K,V,H,E>& a,unordered_map<K,V,H,E>& b) noexcept{a.swap(b);}
+template<class K,class V,class H,class E> bool operator==(const unordered_map<K,V,H,E>& a,const unordered_map<K,V,H,E>& b){if(a.size()!=b.size())return false;for(auto i=a.begin();i!=a.end();++i){auto j=b.find(i->first);if(j==b.end()||!(j->second==i->second))return false;}return true;}
+template<class K,class V,class H,class E> bool operator!=(const unordered_map<K,V,H,E>& a,const unordered_map<K,V,H,E>& b){return !(a==b);}
+}
+#endif

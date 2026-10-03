@@ -17,8 +17,12 @@ template<bool B,class T,class F> struct conditional { typedef T type; };
 template<class T,class F> struct conditional<false,T,F> { typedef F type; };
 template<class T> struct remove_const { typedef T type; };
 template<class T> struct remove_const<const T> { typedef T type; };
+template<class T,unsigned long long N> struct remove_const<const T[N]> { typedef typename remove_const<T>::type type[N]; };
+template<class T> struct remove_const<const T[]> { typedef typename remove_const<T>::type type[]; };
 template<class T> struct remove_volatile { typedef T type; };
 template<class T> struct remove_volatile<volatile T> { typedef T type; };
+template<class T,unsigned long long N> struct remove_volatile<volatile T[N]> { typedef typename remove_volatile<T>::type type[N]; };
+template<class T> struct remove_volatile<volatile T[]> { typedef typename remove_volatile<T>::type type[]; };
 template<class T> struct remove_cv { typedef typename remove_const<typename remove_volatile<T>::type>::type type; };
 template<class T> struct add_const { typedef const T type; };
 template<class T> struct add_volatile { typedef volatile T type; };
@@ -65,6 +69,8 @@ template<> struct __minic_integral<unsigned long> { static constexpr bool value=
 template<> struct __minic_integral<long long> { static constexpr bool value=true; };
 template<> struct __minic_integral<unsigned long long> { static constexpr bool value=true; };
 template<class T> struct is_integral : public integral_constant<bool,(__minic_integral<typename remove_cv<T>::type>::value)> {};
+template<class T> struct is_floating_point : public integral_constant<bool,(is_same<typename remove_cv<T>::type,float>::value || is_same<typename remove_cv<T>::type,double>::value || is_same<typename remove_cv<T>::type,long double>::value)> {};
+template<class T> struct is_arithmetic : public integral_constant<bool,(is_integral<T>::value || is_floating_point<T>::value)> {};
 template<class T,class... A> struct is_constructible : public integral_constant<bool,(__is_constructible(T,A...))> {};
 // Unknown-bound arrays cannot define the object required by C++17 [meta.unary.prop].
 template<class T,class... A> struct is_constructible<T[],A...> : public false_type {};

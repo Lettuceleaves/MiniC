@@ -103,7 +103,7 @@ public final class ConstantEvaluator {
             case IntegerValue integer -> new IntegerConstantExpr(integer.value,integer.type,Long.toString(integer.value),range);
             case FloatingValue number -> number.type.unqualified().equals(MiniType.FLOAT)
                     ?new FloatLiteralExpr((float)number.value,Float.toString((float)number.value),range)
-                    :new DoubleLiteralExpr(number.value,Double.toString(number.value),range);
+                    :new DoubleLiteralExpr(number.value,Double.toString(number.value)+(number.type.unqualified().equals(MiniType.LONG_DOUBLE)?"L":""),range);
             case PointerValue pointer when pointer.isNull() -> new CastExpr(pointer.type,new IntegerLiteralExpr(0,"0",range),range);
             default -> throw new Failure(range,"The constant result is not a scalar literal");
         };
@@ -154,7 +154,7 @@ public final class ConstantEvaluator {
             case BoolLiteralExpr n -> new IntegerValue(n.value()?1:0,MiniType.BOOL);
             case CharLiteralExpr n -> new IntegerValue(n.value(),MiniType.CHAR);
             case FloatLiteralExpr n -> new FloatingValue(n.value(),MiniType.FLOAT);
-            case DoubleLiteralExpr n -> new FloatingValue(n.value(),MiniType.DOUBLE);
+            case DoubleLiteralExpr n -> new FloatingValue(n.value(),n.literalType());
             case NullLiteralExpr n -> new PointerValue(null,0,MiniType.NULL);
             case NameExpr n -> {
                 Cell cell=frame.local(n.name());
@@ -360,7 +360,7 @@ public final class ConstantEvaluator {
             return comparison(operator,Integer.compare(a.offset,b.offset),range);
         }
         if(left instanceof FloatingValue||right instanceof FloatingValue){
-            double a=number(left,range),b=number(right,range);MiniType type=left.type().unqualified().equals(MiniType.DOUBLE)||right.type().unqualified().equals(MiniType.DOUBLE)?MiniType.DOUBLE:MiniType.FLOAT;
+            double a=number(left,range),b=number(right,range);MiniType type=TypeCompatibility.usualArithmeticType(left.type(),right.type());
             if(Set.of(TokenType.EQUAL_EQUAL,TokenType.BANG_EQUAL,TokenType.LESS,TokenType.LESS_EQUAL,TokenType.GREATER,TokenType.GREATER_EQUAL).contains(operator))return comparison(operator,a==b?0:a<b?-1:1,range);
             double value=switch(operator){case PLUS->a+b;case MINUS->a-b;case STAR->a*b;case SLASH->a/b;default->throw fail(range,"Invalid floating constant operation");};
             if(type.equals(MiniType.FLOAT))value=(float)value;
@@ -416,7 +416,7 @@ public final class ConstantEvaluator {
             else throw fail(range,"Pointer to integral conversion is not a constant expression");
             var converted=TemplateValues.convert(integer,target,value instanceof FloatingValue);return new IntegerValue(converted.value(),converted.type());
         }
-        if(target.equals(MiniType.FLOAT)||target.equals(MiniType.DOUBLE)){
+        if(target.isFloatingScalar()){
             // Match the binary32/binary64 runtime conversion profile (round to nearest,
             // including signed infinity). This is a floating conversion, not list
             // narrowing or an overflowing arithmetic operation; those are checked separately.

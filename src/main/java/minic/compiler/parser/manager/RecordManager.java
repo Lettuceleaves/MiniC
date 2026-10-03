@@ -206,10 +206,8 @@ public final class RecordManager {
                                 SourceRange.span(start.range(), end.range())), fields, members);
                     } else recoverMember();
                 } else {
-                    var staticSpecifiers = staticMember ? types.parseDeclarationSpecifiers("期望成员类型") : null;
-                    var declaration = staticMember
-                            ? staticSpecifiers == null ? null : types.parseMemberDeclarator(staticSpecifiers, "期望成员名称", true)
-                            : types.parseNamedType("期望成员类型", "期望成员名称", false, true);
+                    var specifiers = types.parseDeclarationSpecifiers("期望成员类型");
+                    var declaration = specifiers == null ? null : types.parseMemberDeclarator(specifiers, "期望成员名称", true);
                     if (declaration == null) recoverMember();
                     else if (declaration.name().equals(simpleName) && declaration.type().unqualified().isFunction()) {
                         state.unsupportedSyntax(declaration.nameRange(), "构造函数不能声明返回类型");
@@ -255,40 +253,35 @@ public final class RecordManager {
                             if (!more || end == null) break;
                             state.advance();
                             first = false;
-                            declaration = types.parseMemberDeclarator(staticSpecifiers, "期望成员名称", false);
+                            declaration = types.parseMemberDeclarator(specifiers, "期望成员名称", false);
                             if (declaration == null) { recoverMember(); break; }
                             if (declaration.type().unqualified().isFunction()) {
                                 state.unsupportedSyntax(declaration.range(), "同一声明中的函数与数据成员混合声明尚未实现");
                                 recoverMember(); break;
                             }
                         }
-                    } else if (declaration.type().containsAuto()) {
-                        state.report(declaration.range(), "A non-static data member cannot have an auto or decltype(auto) placeholder type");
-                        recoverMember();
-                    } else if (state.check(TokenType.EQUAL) || state.check(TokenType.LEFT_BRACE)) {
-                        if(constexprSpecifier)state.report(declarationStart,"A non-static data member cannot be constexpr");
-                        if (union) {
-                            state.unsupportedSyntax(state.peek().range(), "union 默认成员初始化尚未实现");
-                            deferFieldInitializer();
-                            state.match(TokenType.SEMICOLON);
-                        } else {
-                            var initializer = deferFieldInitializer();
-                            Token end = state.consume(TokenType.SEMICOLON, "期望 ';'");
-                            if (end != null) {
-                                int index = members.size();
-                                addField(new StructField(declaration.name(), declaration.type(), declaration.alignmentSpecs(),
-                                        SourceRange.span(declaration.range(), end.range())), fields, members);
-                                defaults.add(new DeferredField(index, initializer));
-                            }
-                        }
-                    } else if (!state.check(TokenType.SEMICOLON)) {
-                        state.unsupportedSyntax(state.peek().range(), "成员位域或多声明器尚未实现");
-                        recoverMember();
                     } else {
                         if(constexprSpecifier)state.report(declarationStart,"A non-static data member cannot be constexpr");
-                        Token end = state.advance();
-                        addField(new StructField(declaration.name(), declaration.type(), declaration.alignmentSpecs(),
-                                SourceRange.span(declaration.range(), end.range())), fields, members);
+                        while (declaration != null) {
+                            if (declaration.type().containsAuto() || declaration.type().unqualified().isFunction()) {
+                                state.report(declaration.range(), "Expected a data member with an explicit type");
+                                recoverMember(); break;
+                            }
+                            Parser.Context.TokenWindow initializer = null;
+                            if (state.check(TokenType.EQUAL) || state.check(TokenType.LEFT_BRACE)) {
+                                if (union) state.unsupportedSyntax(state.peek().range(), "union 默认成员初始化尚未实现");
+                                initializer = deferFieldInitializer();
+                            }
+                            boolean more = state.check(TokenType.COMMA);
+                            Token end = more ? state.advance() : state.consume(TokenType.SEMICOLON, "期望 ';' 或 ','");
+                            if (end == null) { recoverMember(); break; }
+                            int index = members.size();
+                            addField(new StructField(declaration.name(), declaration.type(), declaration.alignmentSpecs(),
+                                    SourceRange.span(declaration.range(), end.range())), fields, members);
+                            if (initializer != null && !union) defaults.add(new DeferredField(index, initializer));
+                            if (!more) break;
+                            declaration = types.parseMemberDeclarator(specifiers, "期望成员名称", false);
+                        }
                     }
                 }
                 if (state.currentIndex() == before && !state.isAtEnd() && !state.check(TokenType.RIGHT_BRACE)) state.advance();
@@ -704,12 +697,25 @@ public final class RecordManager {
 
     /** A member initializer cannot contain an unparenthesized declaration separator. */
     private Parser.Context.TokenWindow deferFieldInitializer() {
-        int start = state.currentIndex(), braces = 0;
-        while (!state.isAtEnd() && !state.check(TokenType.SEMICOLON)) {
+        int start = state.currentIndex(), braces = 0, parens = 0, brackets = 0, angles = 0;
+        while (!state.isAtEnd()) {
+            if (state.check(TokenType.SEMICOLON) && braces == 0 && parens == 0 && brackets == 0) break;
             if (state.check(TokenType.RIGHT_BRACE) && braces == 0) break;
+            if (state.check(TokenType.COMMA) && braces == 0 && parens == 0 && brackets == 0 && angles == 0) break;
+            int construction = Math.max(types.constructionDelimiterAt(0), types.typeMemberDelimiterAt(0));
+            if (construction > 0) { for (int i=0;i<construction;i++) state.advance(); continue; }
+            if (state.check(TokenType.LESS) && types.beginsFunctionTemplateArguments(
+                    new minic.compiler.parser.node.Expression.NameExpr(state.previous().lexeme(), state.previous().range()))) angles++;
+            else if (angles > 0 && state.check(TokenType.LESS)) angles++;
+            else if (angles > 0 && state.check(TokenType.GREATER)) angles--;
+            else if (angles > 0 && state.check(TokenType.GREATER_GREATER)) angles = Math.max(0, angles-2);
             TokenType token = state.advance().type();
             if (token == TokenType.LEFT_BRACE) braces++;
             if (token == TokenType.RIGHT_BRACE) braces--;
+            if (token == TokenType.LEFT_PAREN) parens++;
+            if (token == TokenType.RIGHT_PAREN) parens--;
+            if (token == TokenType.LEFT_BRACKET) brackets++;
+            if (token == TokenType.RIGHT_BRACKET) brackets--;
         }
         return new Parser.Context.TokenWindow(start, state.currentIndex());
     }

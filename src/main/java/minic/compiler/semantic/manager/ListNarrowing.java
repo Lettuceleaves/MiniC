@@ -29,7 +29,8 @@ public final class ListNarrowing {
         var b = to.kind();
         if (a.floating() && b.integer()) return Result.NARROWING;
         if (a == b) return Result.SAFE;
-        if (a.floating() && b.floating() && b.sizeBytes() >= a.sizeBytes()) return Result.SAFE;
+        if (a.floating() && b.floating() && b.sizeBytes() >= a.sizeBytes()
+                && (a != MiniType.ScalarKind.LONG_DOUBLE || b == MiniType.ScalarKind.LONG_DOUBLE)) return Result.SAFE;
         if (a.integer() && b.integer() && min(b).compareTo(min(a)) <= 0 && max(b).compareTo(max(a)) >= 0)
             return Result.SAFE;
         if (constant == null) return Result.NEEDS_CONSTANT;

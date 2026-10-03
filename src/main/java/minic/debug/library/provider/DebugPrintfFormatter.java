@@ -42,7 +42,7 @@ final class DebugPrintfFormatter {
         char conversion = Character.toLowerCase(d.conversion);
         if ("diuox".indexOf(conversion) >= 0) return integer(d, value.integer());
         if ("feg".indexOf(conversion) >= 0) {
-            if (!d.length.isEmpty() && !d.length.equals("l")) unsupportedLength(d);
+            if (!d.length.isEmpty() && !d.length.equals("l") && !d.length.equals("L")) unsupportedLength(d);
             return floating(d, value.real());
         }
         if (!d.length.isEmpty()) unsupportedLength(d);

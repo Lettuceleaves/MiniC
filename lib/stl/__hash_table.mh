@@ -1,0 +1,76 @@
+#ifndef MINIC_STL_HASH_TABLE_MH
+#define MINIC_STL_HASH_TABLE_MH
+#include "memory.mh"
+#include "iterator.mh"
+#include "functional.mh"
+#include "string.mh"
+namespace std {
+unsigned long long __minic_hash_mix(unsigned long long h){h^=h>>33;h*=0xff51afd7ed558ccdULL;h^=h>>33;h*=0xc4ceb9fe1a85ec53ULL;return h^(h>>33);}
+template<class K,class V> struct __minic_map_key {const K& operator()(const pair<const K,V>& v) const{return v.first;}};
+template<class K> struct __minic_set_key {const K& operator()(const K& v) const{return v;}};
+    template<class V> struct __minic_hash_node {
+        __minic_hash_node* next;__minic_hash_node* prev;__minic_hash_node* bucket_next;unsigned long long hash_value;V value;
+        template<class... A> __minic_hash_node(unsigned long long h,A&&... a):next(nullptr),prev(nullptr),bucket_next(nullptr),hash_value(h),value(std::forward<A>(a)...){}
+    };
+    template<class V,bool C> struct __minic_hash_iterator {
+        __minic_hash_node<V>* current;
+        typedef V value_type;typedef long long difference_type;typedef forward_iterator_tag iterator_category;
+        typedef typename conditional<C,const V*,V*>::type pointer;typedef typename conditional<C,const V&,V&>::type reference;
+        __minic_hash_iterator():current(nullptr){}explicit __minic_hash_iterator(__minic_hash_node<V>* p):current(p){}
+        __minic_hash_iterator(const __minic_hash_iterator&)=default;
+        template<bool Enabled=C,typename enable_if<Enabled,int>::type=0> __minic_hash_iterator(const __minic_hash_iterator<V,false>& other):current(other.current){}
+        reference operator*() const{return current->value;}pointer operator->() const{return std::addressof(current->value);}
+        __minic_hash_iterator& operator++(){current=current->next;return *this;}__minic_hash_iterator operator++(int){__minic_hash_iterator saved=*this;++*this;return saved;}
+        bool operator==(const __minic_hash_iterator<V,false>& b) const{return current==b.current;}
+        bool operator==(const __minic_hash_iterator<V,true>& b) const{return current==b.current;}
+        bool operator!=(const __minic_hash_iterator<V,false>& b) const{return current!=b.current;}
+        bool operator!=(const __minic_hash_iterator<V,true>& b) const{return current!=b.current;}
+    };
+template<class K,class V,class KeyOf,class Hash,class Equal> class __minic_hash_table {
+    typedef __minic_hash_node<V> node;
+    node** buckets_;unsigned long long capacity_;unsigned long long size_;node* first_;node* last_;
+    Hash hash_;Equal equal_;float max_load_;
+    unsigned long long index(unsigned long long h) const{return __minic_hash_mix(h)&(capacity_-1);}
+    node* lookup(const K& key,unsigned long long h) const{if(!capacity_)return nullptr;for(node* p=buckets_[index(h)];p;p=p->bucket_next)if(p->hash_value==h&&equal_(KeyOf()(p->value),key))return p;return nullptr;}
+    void grow(){if(!capacity_||(double)(size_+1)>(double)capacity_*max_load_)reserve(size_+1);}
+public:
+    typedef __minic_hash_iterator<V,false> iterator;typedef __minic_hash_iterator<V,true> const_iterator;typedef unsigned long long size_type;
+    template<class H=Hash,class E=Equal,typename enable_if<is_default_constructible<H>::value && is_default_constructible<E>::value,int>::type=0>
+    __minic_hash_table():buckets_(nullptr),capacity_(0),size_(0),first_(nullptr),last_(nullptr),hash_(),equal_(),max_load_(1){}
+    explicit __minic_hash_table(size_type n,const Hash& h=Hash(),const Equal& e=Equal()):buckets_(nullptr),capacity_(0),size_(0),first_(nullptr),last_(nullptr),hash_(h),equal_(e),max_load_(1){rehash(n);}
+    __minic_hash_table(const __minic_hash_table& b):buckets_(nullptr),capacity_(0),size_(0),first_(nullptr),last_(nullptr),hash_(b.hash_),equal_(b.equal_),max_load_(b.max_load_){reserve(b.size_);for(auto i=b.begin();i!=b.end();++i)insert(*i);}
+    __minic_hash_table(__minic_hash_table&& b) noexcept:buckets_(b.buckets_),capacity_(b.capacity_),size_(b.size_),first_(b.first_),last_(b.last_),hash_(b.hash_),equal_(b.equal_),max_load_(b.max_load_){b.buckets_=nullptr;b.capacity_=0;b.size_=0;b.first_=nullptr;b.last_=nullptr;}
+    __minic_hash_table& operator=(const __minic_hash_table& b){if(this!=&b){__minic_hash_table copy(b);swap(copy);}return *this;}
+    __minic_hash_table& operator=(__minic_hash_table&& b) noexcept{if(this!=&b){clear();::free(buckets_);hash_=b.hash_;equal_=b.equal_;buckets_=b.buckets_;capacity_=b.capacity_;size_=b.size_;first_=b.first_;last_=b.last_;max_load_=b.max_load_;b.buckets_=nullptr;b.capacity_=0;b.size_=0;b.first_=nullptr;b.last_=nullptr;}return *this;}
+    ~__minic_hash_table(){clear();::free(buckets_);}
+    size_type size() const noexcept{return size_;}bool empty() const noexcept{return size_==0;}
+    iterator begin(){return iterator(first_);}const_iterator begin() const{return const_iterator(first_);}
+    iterator end(){return iterator(nullptr);}const_iterator end() const{return const_iterator(nullptr);}
+    iterator find(const K& k){return iterator(lookup(k,hash_(k)));}const_iterator find(const K& k) const{return const_iterator(lookup(k,hash_(k)));}
+    size_type count(const K& k) const{return lookup(k,hash_(k))?1:0;}
+    template<class... A> pair<iterator,bool> insert_key(const K& key,A&&... a){
+        size_type h=hash_(key);node* old=lookup(key,h);if(old)return pair<iterator,bool>(iterator(old),false);
+        grow();node* p=new node(h,std::forward<A>(a)...);size_type b=index(h);p->bucket_next=buckets_[b];buckets_[b]=p;
+        p->prev=last_;if(last_)last_->next=p;else first_=p;last_=p;++size_;return pair<iterator,bool>(iterator(p),true);
+    }
+    pair<iterator,bool> insert(const V& v){return insert_key(KeyOf()(v),v);}pair<iterator,bool> insert(V&& v){return insert_key(KeyOf()(v),std::move(v));}
+    template<class... A> pair<iterator,bool> emplace(A&&... a){V value(std::forward<A>(a)...);return insert(std::move(value));}
+    iterator erase(const_iterator i){node* p=i.current;node* next=p->next;size_type b=index(p->hash_value);node** link=&buckets_[b];while(*link!=p)link=&(*link)->bucket_next;*link=p->bucket_next;if(p->prev)p->prev->next=p->next;else first_=p->next;if(p->next)p->next->prev=p->prev;else last_=p->prev;delete p;--size_;return iterator(next);}
+    size_type erase(const K& key){auto i=find(key);if(i==end())return 0;erase(const_iterator(i));return 1;}
+    iterator erase(const_iterator a,const_iterator b){while(a!=b)a=erase(a);return iterator(b.current);}
+    void clear() noexcept{node* p=first_;while(p){node* next=p->next;delete p;p=next;}for(size_type i=0;i<capacity_;++i)buckets_[i]=nullptr;first_=nullptr;last_=nullptr;size_=0;}
+    void swap(__minic_hash_table& b) noexcept{std::swap(buckets_,b.buckets_);std::swap(capacity_,b.capacity_);std::swap(size_,b.size_);std::swap(first_,b.first_);std::swap(last_,b.last_);std::swap(hash_,b.hash_);std::swap(equal_,b.equal_);std::swap(max_load_,b.max_load_);}
+    size_type bucket_count() const{return capacity_;}size_type bucket(const K& k) const{return capacity_?index(hash_(k)):0;}
+    size_type bucket_size(size_type b) const{size_type n=0;for(node* p=buckets_[b];p;p=p->bucket_next)++n;return n;}
+    float load_factor() const{return capacity_?(float)size_/(float)capacity_:0;}
+    float max_load_factor() const{return max_load_;}void max_load_factor(float f){if(!(f>0))::abort();max_load_=f;}
+    Hash hash_function() const{return hash_;}Equal key_eq() const{return equal_;}
+    void reserve(size_type n){double required=(double)n/max_load_;if(required>(double)0x0fffffffffffffffULL)::abort();size_type b=(size_type)required;if((double)b<required)++b;rehash(b);}
+    void rehash(size_type n){double required=(double)size_/max_load_;if((double)n<required){n=(size_type)required;if((double)n<required)++n;}size_type b=8;while(b<n){if(b>0x07ffffffffffffffULL)::abort();b*=2;}if(b==capacity_)return;
+        node** buckets=(node**)::calloc(b,sizeof(node*));if(!buckets)::abort();
+        for(node* p=first_;p;p=p->next){size_type i=__minic_hash_mix(p->hash_value)&(b-1);p->bucket_next=buckets[i];buckets[i]=p;}
+        ::free(buckets_);buckets_=buckets;capacity_=b;
+    }
+};
+}
+#endif

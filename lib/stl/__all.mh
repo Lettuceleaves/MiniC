@@ -27,4 +27,11 @@
 #include "bitset.mh"
 #include "iostream.mh"
 #include "iomanip.mh"
+#include "numeric.mh"
+#include "array.mh"
+#include "tuple.mh"
+#include "list.mh"
+#include "unordered_map.mh"
+#include "unordered_set.mh"
+#include "sstream.mh"
 #endif

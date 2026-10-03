@@ -83,6 +83,51 @@ float ldexp(float value,int exponent){
     return result;
 }
 float ldexpf(float value,int exponent){return std::ldexp(value,exponent);}
+// long double has the Windows binary64 representation, with a distinct source type.
+long double acos(long double value){return (long double)::acos((double)value);}
+long double acosl(long double value){return std::acos(value);}
+long double asin(long double value){return (long double)::asin((double)value);}
+long double asinl(long double value){return std::asin(value);}
+long double atan(long double value){return (long double)::atan((double)value);}
+long double atanl(long double value){return std::atan(value);}
+long double ceil(long double value){return (long double)::ceil((double)value);}
+long double ceill(long double value){return std::ceil(value);}
+long double cos(long double value){return (long double)::cos((double)value);}
+long double cosl(long double value){return std::cos(value);}
+long double cosh(long double value){return (long double)::cosh((double)value);}
+long double coshl(long double value){return std::cosh(value);}
+long double exp(long double value){return (long double)::exp((double)value);}
+long double expl(long double value){return std::exp(value);}
+long double fabs(long double value){return (long double)::fabs((double)value);}
+long double fabsl(long double value){return std::fabs(value);}
+long double floor(long double value){return (long double)::floor((double)value);}
+long double floorl(long double value){return std::floor(value);}
+long double log(long double value){return (long double)::log((double)value);}
+long double logl(long double value){return std::log(value);}
+long double log10(long double value){return (long double)::log10((double)value);}
+long double log10l(long double value){return std::log10(value);}
+long double sin(long double value){return (long double)::sin((double)value);}
+long double sinl(long double value){return std::sin(value);}
+long double sinh(long double value){return (long double)::sinh((double)value);}
+long double sinhl(long double value){return std::sinh(value);}
+long double sqrt(long double value){return (long double)::sqrt((double)value);}
+long double sqrtl(long double value){return std::sqrt(value);}
+long double tan(long double value){return (long double)::tan((double)value);}
+long double tanl(long double value){return std::tan(value);}
+long double tanh(long double value){return (long double)::tanh((double)value);}
+long double tanhl(long double value){return std::tanh(value);}
+long double atan2(long double a,long double b){return (long double)::atan2((double)a,(double)b);}
+long double atan2l(long double a,long double b){return std::atan2(a,b);}
+long double fmod(long double a,long double b){return (long double)::fmod((double)a,(double)b);}
+long double fmodl(long double a,long double b){return std::fmod(a,b);}
+long double pow(long double a,long double b){return (long double)::pow((double)a,(double)b);}
+long double powl(long double a,long double b){return std::pow(a,b);}
+long double frexp(long double value,int* exponent){return (long double)::frexp((double)value,exponent);}
+long double ldexp(long double value,int exponent){return (long double)::ldexp((double)value,exponent);}
+long double modf(long double value,long double* integerPart){double part;double result=::modf((double)value,&part);*integerPart=part;return (long double)result;}
+long double frexpl(long double value,int* exponent){return std::frexp(value,exponent);}
+long double ldexpl(long double value,int exponent){return std::ldexp(value,exponent);}
+long double modfl(long double value,long double* part){return std::modf(value,part);}
 // C++17 cmath: integer arguments are promoted to double; mixed float/double calls are unambiguous.
 template<class T> typename enable_if<is_integral<T>::value,double>::type acos(T value){return ::acos((double)value);}
 template<class T> typename enable_if<is_integral<T>::value,double>::type asin(T value){return ::asin((double)value);}
@@ -100,15 +145,16 @@ template<class T> typename enable_if<is_integral<T>::value,double>::type sinh(T 
 template<class T> typename enable_if<is_integral<T>::value,double>::type sqrt(T value){return ::sqrt((double)value);}
 template<class T> typename enable_if<is_integral<T>::value,double>::type tan(T value){return ::tan((double)value);}
 template<class T> typename enable_if<is_integral<T>::value,double>::type tanh(T value){return ::tanh((double)value);}
-template<class T> struct __minic_math_argument : integral_constant<bool,(is_integral<T>::value || is_same<T,float>::value || is_same<T,double>::value)> {};
+template<class T> struct __minic_math_argument : integral_constant<bool,(is_arithmetic<T>::value)> {};
+template<class A,class B> struct __minic_math_result {typedef typename conditional<is_same<A,long double>::value || is_same<B,long double>::value,long double,double>::type type;};
 template<class A,class B> typename enable_if<__minic_math_argument<A>::value && __minic_math_argument<B>::value
-    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),double>::type
+    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),typename __minic_math_result<A,B>::type>::type
 atan2(A left,B right){return ::atan2((double)left,(double)right);}
 template<class A,class B> typename enable_if<__minic_math_argument<A>::value && __minic_math_argument<B>::value
-    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),double>::type
+    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),typename __minic_math_result<A,B>::type>::type
 fmod(A left,B right){return ::fmod((double)left,(double)right);}
 template<class A,class B> typename enable_if<__minic_math_argument<A>::value && __minic_math_argument<B>::value
-    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),double>::type
+    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),typename __minic_math_result<A,B>::type>::type
 pow(A left,B right){return ::pow((double)left,(double)right);}
 template<class T> typename enable_if<is_integral<T>::value,double>::type frexp(T value,int* exponent){return ::frexp((double)value,exponent);}
 template<class T> typename enable_if<is_integral<T>::value,double>::type ldexp(T value,int exponent){return ::ldexp((double)value,exponent);}

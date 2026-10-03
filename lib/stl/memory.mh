@@ -31,4 +31,5 @@ template<class T,class... A> void __minic_construct(T* target,A&&... args) { ::n
 template<class T> void __minic_destroy(T* value) { value->~T(); }
 template<class T> void __minic_destroy_range(T* data,unsigned long long n) { while(n>0){--n;std::__minic_destroy(data+n);} }
 }
+#include "__smart_ptr.mh"
 #endif

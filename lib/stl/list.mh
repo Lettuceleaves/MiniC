@@ -1,0 +1,104 @@
+#ifndef MINIC_STL_LIST_MH
+#define MINIC_STL_LIST_MH
+#include "memory.mh"
+#include "iterator.mh"
+#include "functional.mh"
+namespace std {
+struct __minic_list_node {__minic_list_node* prev;__minic_list_node* next;__minic_list_node():prev(this),next(this){}};
+template<class T> unsigned long long __minic_list_offset(){return (sizeof(__minic_list_node)+alignof(T)-1)/alignof(T)*alignof(T);}
+template<class T> T* __minic_list_value(__minic_list_node* p){return (T*)((char*)p+std::__minic_list_offset<T>());}
+    template<class T,bool C> struct __minic_list_iterator {
+        __minic_list_node* current;
+        typedef T value_type;typedef long long difference_type;typedef bidirectional_iterator_tag iterator_category;
+        typedef typename conditional<C,const T*,T*>::type pointer;typedef typename conditional<C,const T&,T&>::type reference;
+        __minic_list_iterator():current(nullptr){}explicit __minic_list_iterator(__minic_list_node* p):current(p){}
+        __minic_list_iterator(const __minic_list_iterator&)=default;
+        template<bool Enabled=C,typename enable_if<Enabled,int>::type=0> __minic_list_iterator(const __minic_list_iterator<T,false>& other):current(other.current){}
+        reference operator*() const{return *std::__minic_list_value<T>(current);}pointer operator->() const{return std::__minic_list_value<T>(current);}
+        __minic_list_iterator& operator++(){current=current->next;return *this;}__minic_list_iterator operator++(int){__minic_list_iterator old=*this;++*this;return old;}
+        __minic_list_iterator& operator--(){current=current->prev;return *this;}__minic_list_iterator operator--(int){__minic_list_iterator old=*this;--*this;return old;}
+        bool operator==(const __minic_list_iterator<T,false>& b) const{return current==b.current;}
+        bool operator==(const __minic_list_iterator<T,true>& b) const{return current==b.current;}
+        bool operator!=(const __minic_list_iterator<T,false>& b) const{return current!=b.current;}
+        bool operator!=(const __minic_list_iterator<T,true>& b) const{return current!=b.current;}
+    };
+template<class T> class list {
+    typedef __minic_list_node node;
+    node root_;unsigned long long size_;
+    void attach(node* p,node* n){n->prev=p->prev;n->next=p;p->prev->next=n;p->prev=n;}
+    void unlink(node* n){n->prev->next=n->next;n->next->prev=n->prev;}
+    void take(list& other){if(other.empty())return;root_.next=other.root_.next;root_.prev=other.root_.prev;root_.next->prev=&root_;root_.prev->next=&root_;size_=other.size_;other.root_.next=&other.root_;other.root_.prev=&other.root_;other.size_=0;}
+    template<class Compare> static node* sorted(node* first,Compare comp){
+        if(!first||!first->next)return first;
+        node* slow=first;node* fast=first->next;
+        while(fast&&fast->next){slow=slow->next;fast=fast->next->next;}
+        node* right=slow->next;slow->next=nullptr;
+        node* a=sorted(first,comp);node* b=sorted(right,comp);node* head=nullptr;node* tail=nullptr;
+        while(a||b){node* n;if(!b||(a&&!comp(*std::__minic_list_value<T>(b),*std::__minic_list_value<T>(a)))){n=a;a=a->next;}else{n=b;b=b->next;}n->prev=tail;if(tail)tail->next=n;else head=n;tail=n;}
+        tail->next=nullptr;return head;
+    }
+public:
+    typedef T value_type;typedef unsigned long long size_type;typedef long long difference_type;
+    typedef T& reference;typedef const T& const_reference;typedef T* pointer;typedef const T* const_pointer;
+    typedef __minic_list_iterator<T,false> iterator;typedef __minic_list_iterator<T,true> const_iterator;
+    typedef std::reverse_iterator<iterator> reverse_iterator;typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+    list():root_(),size_(0){}
+    explicit list(size_type n):root_(),size_(0){while(n--)emplace_back();}
+    list(size_type n,const T& value):root_(),size_(0){while(n--)push_back(value);}
+    template<class I,typename enable_if<!is_integral<I>::value,int>::type=0> list(I first,I last):root_(),size_(0){insert(end(),first,last);}
+    list(initializer_list<T> values):root_(),size_(0){insert(end(),values.begin(),values.end());}
+    list(const list& other):root_(),size_(0){insert(end(),other.begin(),other.end());}
+    list(list&& other) noexcept:root_(),size_(0){take(other);}
+    ~list(){clear();}
+    list& operator=(const list& other){if(this!=&other){list copy(other);swap(copy);}return *this;}
+    list& operator=(list&& other) noexcept{if(this!=&other){clear();take(other);}return *this;}
+    list& operator=(initializer_list<T> values){assign(values.begin(),values.end());return *this;}
+    bool empty() const noexcept{return size_==0;}size_type size() const noexcept{return size_;}
+    size_type max_size() const noexcept{return 0x7fffffffffffffffULL/sizeof(node);}
+    iterator begin() noexcept{return iterator(root_.next);}const_iterator begin() const noexcept{return const_iterator(root_.next);}const_iterator cbegin() const noexcept{return begin();}
+    iterator end() noexcept{return iterator(&root_);}const_iterator end() const noexcept{return const_iterator((node*)&root_);}const_iterator cend() const noexcept{return end();}
+    reverse_iterator rbegin(){return reverse_iterator(end());}const_reverse_iterator rbegin() const{return const_reverse_iterator(end());}
+    reverse_iterator rend(){return reverse_iterator(begin());}const_reverse_iterator rend() const{return const_reverse_iterator(begin());}
+    T& front(){return *std::__minic_list_value<T>(root_.next);}const T& front() const{return *std::__minic_list_value<T>(root_.next);}
+    T& back(){return *std::__minic_list_value<T>(root_.prev);}const T& back() const{return *std::__minic_list_value<T>(root_.prev);}
+    template<class... A> iterator emplace(const_iterator position,A&&... a){node* n=(node*)std::__minic_allocate_bytes(std::__minic_list_offset<T>()+sizeof(T),alignof(T)>alignof(node)?alignof(T):alignof(node));std::__minic_construct(n);std::__minic_construct(std::__minic_list_value<T>(n),std::forward<A>(a)...);attach(position.current,n);++size_;return iterator(n);}
+    template<class... A> T& emplace_back(A&&... a){return *emplace(end(),std::forward<A>(a)...);}
+    template<class... A> T& emplace_front(A&&... a){return *emplace(begin(),std::forward<A>(a)...);}
+    void push_back(const T& value){emplace_back(value);}void push_back(T&& value){emplace_back(std::move(value));}
+    void push_front(const T& value){emplace_front(value);}void push_front(T&& value){emplace_front(std::move(value));}
+    iterator insert(const_iterator p,const T& value){return emplace(p,value);}iterator insert(const_iterator p,T&& value){return emplace(p,std::move(value));}
+    iterator insert(const_iterator p,size_type n,const T& value){iterator first(p.current);bool saved=false;while(n--){iterator i=emplace(p,value);if(!saved){first=i;saved=true;}}return first;}
+    template<class I,typename enable_if<!is_integral<I>::value,int>::type=0> iterator insert(const_iterator p,I a,I b){iterator first(p.current);bool saved=false;for(;a!=b;++a){iterator i=emplace(p,*a);if(!saved){first=i;saved=true;}}return first;}
+    iterator insert(const_iterator p,initializer_list<T> v){return insert(p,v.begin(),v.end());}
+    iterator erase(const_iterator p){node* n=p.current;iterator next(n->next);unlink(n);std::__minic_destroy(std::__minic_list_value<T>(n));std::__minic_destroy(n);std::__minic_deallocate_bytes(n,alignof(T)>alignof(node)?alignof(T):alignof(node));--size_;return next;}
+    iterator erase(const_iterator a,const_iterator b){while(a!=b)a=erase(a);return iterator(b.current);}
+    void pop_back(){erase(const_iterator(root_.prev));}void pop_front(){erase(begin());}
+    void clear() noexcept{while(!empty())pop_front();}
+    void resize(size_type n){while(size_>n)pop_back();while(size_<n)emplace_back();}
+    void resize(size_type n,const T& v){while(size_>n)pop_back();while(size_<n)push_back(v);}
+    void assign(size_type n,const T& v){list copy(n,v);swap(copy);}
+    template<class I,typename enable_if<!is_integral<I>::value,int>::type=0> void assign(I a,I b){list copy(a,b);swap(copy);}
+    void assign(initializer_list<T> v){assign(v.begin(),v.end());}
+    void swap(list& other) noexcept{if(this==&other)return;list saved; saved.take(*this);take(other);other.take(saved);}
+    void splice(const_iterator p,list& other){if(this==&other||other.empty())return;node* first=other.root_.next;node* last=other.root_.prev;first->prev=p.current->prev;p.current->prev->next=first;last->next=p.current;p.current->prev=last;size_+=other.size_;other.size_=0;other.root_.next=&other.root_;other.root_.prev=&other.root_;}
+    void splice(const_iterator p,list& other,const_iterator i){node* n=i.current;if(p.current==n||p.current==n->next)return;other.unlink(n);attach(p.current,n);if(this!=&other){++size_;--other.size_;}}
+    void splice(const_iterator p,list& other,const_iterator a,const_iterator b){while(a!=b){const_iterator next=a;++next;splice(p,other,a);a=next;}}
+    void remove(const T& v){list removed;for(auto i=begin();i!=end();){auto next=i;++next;if(*i==v)removed.splice(removed.end(),*this,i);i=next;}}
+    template<class Pred> void remove_if(Pred pred){for(auto i=begin();i!=end();)if(pred(*i))i=erase(i);else ++i;}
+    template<class Pred> void unique(Pred pred){if(empty())return;auto a=begin();auto b=a;++b;while(b!=end()){if(pred(*a,*b))b=erase(b);else{a=b;++b;}}}
+    void unique(){unique(equal_to<T>());}
+    void reverse() noexcept{node* n=&root_;do{node* next=n->next;std::swap(n->next,n->prev);n=next;}while(n!=&root_);}
+    template<class Compare> void sort(Compare comp){if(size_<2)return;root_.prev->next=nullptr;node* first=sorted(root_.next,comp);root_.next=first;first->prev=&root_;node* last=first;while(last->next)last=last->next;root_.prev=last;last->next=&root_;}
+    void sort(){sort(less<T>());}
+    template<class Compare> void merge(list& other,Compare comp){if(this==&other)return;auto a=begin();auto b=other.begin();while(a!=end()&&b!=other.end()){if(comp(*b,*a)){auto next=b;++next;splice(a,other,b);b=next;}else ++a;}if(b!=other.end())splice(end(),other);}
+    void merge(list& other){merge(other,less<T>());}
+};
+template<class T> void swap(list<T>& a,list<T>& b) noexcept{a.swap(b);}
+template<class T> bool operator==(const list<T>& a,const list<T>& b){if(a.size()!=b.size())return false;auto i=a.begin();auto j=b.begin();for(;i!=a.end();++i,++j)if(!(*i==*j))return false;return true;}
+template<class T> bool operator!=(const list<T>& a,const list<T>& b){return !(a==b);}
+template<class T> bool operator<(const list<T>& a,const list<T>& b){auto i=a.begin();auto j=b.begin();for(;i!=a.end()&&j!=b.end();++i,++j){if(*i<*j)return true;if(*j<*i)return false;}return i==a.end()&&j!=b.end();}
+template<class T> bool operator>(const list<T>& a,const list<T>& b){return b<a;}
+template<class T> bool operator<=(const list<T>& a,const list<T>& b){return !(b<a);}
+template<class T> bool operator>=(const list<T>& a,const list<T>& b){return !(a<b);}
+}
+#endif

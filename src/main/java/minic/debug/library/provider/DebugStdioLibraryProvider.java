@@ -265,7 +265,7 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
                     || directive.length().equals("l")
                     || directive.length().equals("ll")
                     || directive.length().equals("I64");
-            case 'f' -> directive.length().isEmpty() || directive.length().equals("l");
+            case 'f' -> directive.length().isEmpty() || directive.length().equals("l") || directive.length().equals("L");
             case 's', 'c' -> directive.length().isEmpty();
             default -> true;
         };
@@ -301,6 +301,9 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         if (index + 2 < format.length() && format.startsWith("I64", index)) {
             length = "I64";
             index += 3;
+        } else if (index < format.length() && format.charAt(index) == 'L') {
+            length = "L";
+            index++;
         } else if (index < format.length() && (format.charAt(index) == 'l' || format.charAt(index) == 'h')) {
             char marker = format.charAt(index++);
             length = Character.toString(marker);
@@ -421,7 +424,7 @@ final class DebugStdioLibraryProvider implements DebugLibraryProvider {
         }
 
         boolean longFloat() {
-            return length.equals("l");
+            return length.equals("l") || length.equals("L");
         }
 
         IrType integerType(boolean unsigned) {
