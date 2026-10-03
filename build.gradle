@@ -56,33 +56,6 @@ tasks.register('testWithoutWorker', JavaExec) {
     args 'execute', '--scan-class-path', '--details=summary', '--disable-banner'
 }
 
-def registerTaggedTest = { String taskName, String tag, String taskDescription ->
-    tasks.register(taskName, JavaExec) {
-        group = 'verification'
-        description = taskDescription
-        dependsOn tasks.named('testClasses')
-        classpath = sourceSets.test.runtimeClasspath
-        mainClass = 'org.junit.platform.console.ConsoleLauncher'
-        args 'execute', '--scan-class-path', '--include-tag', tag, '--details=summary', '--disable-banner'
-    }
-}
-
-registerTaggedTest('stdlibContract', 'stdlib-contract', '验证标准库清单、声明和能力契约')
-registerTaggedTest('stdlibAbi', 'stdlib-abi', '验证 Windows x64 标准库 ABI')
-registerTaggedTest('stdlibNative', 'stdlib-native', '验证标准库原生链接与运行')
-registerTaggedTest('stdlibDebug', 'stdlib-debug', '验证标准库调试解释运行')
-registerTaggedTest('stdlibParity', 'stdlib-parity', '验证原生与调试结果一致性')
-
-tasks.register('stdlibCheck') {
-    group = 'verification'
-    description = '运行全部标准库验收测试'
-    dependsOn 'stdlibContract', 'stdlibAbi', 'stdlibNative', 'stdlibDebug', 'stdlibParity'
-}
-
-tasks.named('check') {
-    dependsOn tasks.named('stdlibCheck')
-}
-
 tasks.named('test') {
     enabled = false
     finalizedBy tasks.named('testWithoutWorker')
