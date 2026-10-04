@@ -4,6 +4,12 @@ import craken.visualization.model.ViewNode;
 import java.util.Objects;
 
 public sealed interface VisualizationCommand {
+    record Compose(ViewLocation parent, ViewLocation child, int slot) implements VisualizationCommand {
+        public Compose {
+            Objects.requireNonNull(parent); Objects.requireNonNull(child);
+            if (slot < 0) throw new IllegalArgumentException("Negative slot");
+        }
+    }
     record AddNode(OperationPath path, ViewNode.Spec spec) implements VisualizationCommand {
         public AddNode { Objects.requireNonNull(path); Objects.requireNonNull(spec); }
     }

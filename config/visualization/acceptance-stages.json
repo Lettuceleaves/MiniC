@@ -27,6 +27,15 @@
           "craken.visualization.mutation.MutationAtomicityTest"
         ]
       }
+    },
+    {
+      "id": "C04",
+      "required": {
+        "visualizationModelTest": [
+          "craken.visualization.model.SemanticNestingTest",
+          "craken.visualization.model.CompositionLifecycleTest"
+        ]
+      }
     }
   ]
 }

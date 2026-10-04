@@ -27,6 +27,7 @@ public final class MutationTransaction {
             switch (batch.commands().get(commandIndex)) {
                 case AddNode add -> add(add);
                 case AttachOwnership attach -> attach(attach.pre(), attach.nxt(), attach.source());
+                case Compose compose -> compose(compose);
             }
         }
     }
@@ -62,6 +63,12 @@ public final class MutationTransaction {
         ownership.add(pre, nxt, source);
         put(child.withState(child.content(), child.parents().add(pre)));
         affected.add(pre.page());
+    }
+    private void compose(Compose compose) {
+        ViewNode parent = node(compose.parent()), child = node(compose.child());
+        PageModel page = pages.get(parent.location().pageId());
+        pages.put(page.ref().pageId(), CompositionStore.compose(page, parent, child, compose.slot()));
+        affected.add(page.ref());
     }
     private ViewNode node(ViewLocation location) { return CommandValidator.node(base.id(), pages, location); }
     private void put(ViewNode node) {

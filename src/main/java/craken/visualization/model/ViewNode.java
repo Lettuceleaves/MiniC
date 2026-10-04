@@ -23,19 +23,26 @@ public abstract class ViewNode {
     private final Spec content;
     private final Retention retention;
     private final ParentSelection parents;
+    private final List<ViewLocation> children;
 
     protected ViewNode(ViewLocation location, Spec content, Retention retention, ParentSelection parents) {
+        this(location, content, retention, parents, List.of());
+    }
+    protected ViewNode(ViewLocation location, Spec content, Retention retention, ParentSelection parents,
+                       List<ViewLocation> children) {
         this.location = Objects.requireNonNull(location);
         this.content = Objects.requireNonNull(content);
         this.retention = Objects.requireNonNull(retention);
         this.parents = Objects.requireNonNull(parents);
+        this.children = List.copyOf(children);
     }
     public final ViewLocation location() { return location; }
     public final Spec content() { return content; }
     public final Retention retention() { return retention; }
     public final ParentSelection parents() { return parents; }
-    public List<ViewLocation> children() { return List.of(); }
+    public final List<ViewLocation> children() { return children; }
     public Set<ViewLocation> highlights() { return Set.of(location); }
     public abstract ViewNode withState(Spec content, ParentSelection parents);
+    public abstract ViewNode withChildren(List<ViewLocation> children);
     public final ViewNode copy() { return withState(content, parents); }
 }
