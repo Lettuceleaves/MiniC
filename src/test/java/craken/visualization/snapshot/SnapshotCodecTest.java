@@ -24,6 +24,7 @@ class SnapshotCodecTest {
             s.modify(MutationBatch.of(new SetContent(new OperationPath(a,x),ViewNode.Spec.point("changed")),new DeleteNode(new OperationPath(b,y)))).requireSuccess();
             s.restore(snap); var restored=s.snapshot();
             assertEquals(snap.pages(),restored.pages()); assertEquals(snap.ownership(),restored.ownership()); assertEquals(snap.pageRules(),restored.pageRules()); assertEquals(snap.interaction(),restored.interaction());
+            assertEquals(snap.sourceVersion(),restored.sourceVersion(),"Restoring advances the live revision, not the historic source version");
             assertTrue(s.model().version()>oldVersion); assertTrue(s.model().epoch()>oldEpoch);
             assertEquals(1,s.model().pages().get(p.pageId()).parts().size());
             assertThrows(UnsupportedOperationException.class,()->snap.pages().clear());

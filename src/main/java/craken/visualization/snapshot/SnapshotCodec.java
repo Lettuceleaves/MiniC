@@ -17,7 +17,7 @@ public final class SnapshotCodec {
             page.nodes().forEach((id,node)->nodes.put(id,new NodeState(node.location(),node.content(),node.retention(),node.parents(),node.highlights())));
             pages.put(page.ref().pageId(),new PageState(page.ref(),TypeDescription.of(page.type()),nodes,page.anchor(),page.composition(),page.topology(),page.ready()));
         }
-        return new VisualizationSnapshot(model.id(),model.root(),pages,model.ownership(),model.pageRules(),model.interaction(),model.version(),model.epoch(),model.sourceStep(),highWater);
+        return new VisualizationSnapshot(model.id(),model.root(),pages,model.ownership(),model.pageRules(),model.interaction(),model.sourceVersion(),model.epoch(),model.sourceStep(),highWater);
     }
     public static ContainerModel restore(VisualizationSnapshot snapshot,PageTypeRegistry registry,long version,long epoch) {
         return decode(snapshot,registry,version,epoch);
@@ -44,10 +44,10 @@ public final class SnapshotCodec {
             }
             pages.put(entry.getKey(),new PageModel(page.ref(),type,nodes,page.anchor(),page.composition(),page.topology(),page.ready(),Map.of(),Map.of()));
         }
-        var draft=new ContainerModel(snapshot.containerId(),snapshot.root(),pages,version,snapshot.ownership(),snapshot.pageRules(),snapshot.interaction(),epoch,snapshot.sourceStep());
+        var draft=new ContainerModel(snapshot.containerId(),snapshot.root(),pages,version,snapshot.ownership(),snapshot.pageRules(),snapshot.interaction(),epoch,snapshot.sourceStep(),snapshot.sourceVersion());
         SnapshotValidator.validate(draft,registry!=null);
         pages.replaceAll((id,page)->PartPlanner.plan(page));
-        return new ContainerModel(draft.id(),draft.root(),pages,version,draft.ownership(),draft.pageRules(),draft.interaction(),epoch,draft.sourceStep());
+        return new ContainerModel(draft.id(),draft.root(),pages,version,draft.ownership(),draft.pageRules(),draft.interaction(),epoch,draft.sourceStep(),draft.sourceVersion());
     }
     private record DisplayType(TypeDescription description) implements PageType {
         @Override public String key() { return description.key(); }

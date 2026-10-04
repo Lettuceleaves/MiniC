@@ -11,7 +11,7 @@ import java.util.*;
 final class SnapshotValidator {
     private SnapshotValidator() {}
     static void validate(ContainerModel model,boolean validateTypePolicy) {
-        if (model.id()<=0 || model.version()<0 || model.epoch()<0) fail("Invalid container identity/version");
+        if (model.id()<=0 || model.version()<0 || model.sourceVersion()<0 || model.epoch()<0) fail("Invalid container identity/version");
         if (model.root()==null ? !model.pages().isEmpty() : !model.pages().containsKey(model.root().pageId()) || model.root().containerId()!=model.id()) fail("Invalid root page");
         var relationIds=new HashSet<Long>();
         for (var page:model.pages().values()) {

@@ -8,12 +8,17 @@ import craken.visualization.model.relation.PageBindingRule;
 
 public record ContainerModel(long id, PageRef root, Map<Long, PageModel> pages, long version,
                              Map<OwnershipBinding.Key, OwnershipBinding> ownership, Map<Long, PageBindingRule> pageRules,
-                             InteractionState interaction,long epoch,String sourceStep) {
+                             InteractionState interaction,long epoch,String sourceStep,long sourceVersion) {
     public ContainerModel {
         pages = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(pages));
         ownership = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(ownership));
         pageRules = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(pageRules));
         java.util.Objects.requireNonNull(interaction);
+    }
+    public ContainerModel(long id, PageRef root, Map<Long, PageModel> pages, long version,
+                          Map<OwnershipBinding.Key, OwnershipBinding> ownership, Map<Long, PageBindingRule> pageRules,
+                          InteractionState interaction,long epoch,String sourceStep) {
+        this(id,root,pages,version,ownership,pageRules,interaction,epoch,sourceStep,version);
     }
     public ContainerModel(long id, PageRef root, Map<Long, PageModel> pages, long version,
                           Map<OwnershipBinding.Key, OwnershipBinding> ownership, Map<Long, PageBindingRule> pageRules,
