@@ -3,8 +3,11 @@ package craken.visualization.api;
 import craken.visualization.mutation.ModelChangeSet;
 import java.util.List;
 
-public record MutationResult(long version, List<ViewLocation> created, ModelChangeSet change, VisualizationError error) {
-    public MutationResult { created = List.copyOf(created); }
+public record MutationResult(long version, List<ViewLocation> created, ModelChangeSet change, VisualizationError error, List<Long> createdRules) {
+    public MutationResult { created = List.copyOf(created); createdRules = List.copyOf(createdRules); }
+    public MutationResult(long version, List<ViewLocation> created, ModelChangeSet change, VisualizationError error) {
+        this(version, created, change, error, List.of());
+    }
     public boolean succeeded() { return error == null; }
     public MutationResult requireSuccess() {
         if (error != null) throw new IllegalStateException(error.code() + ": " + error.message());

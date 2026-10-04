@@ -14,6 +14,9 @@ public final class ModelFixture implements AutoCloseable {
     public ViewLocation node(PageRef page, ViewLocation parent, String value) {
         var location = session.reserveNodeId(page);
         session.addNode(new OperationPath(parent, location), ViewNode.Spec.point(value));
+        // These fixtures exercise explicit references; rule behavior has its own suite.
+        var rules = session.model().pageRules().values().stream().filter(rule -> rule.child().equals(page)).toList();
+        for (var rule : rules) session.modify(MutationBatch.of(new VisualizationCommand.UnbindPage(rule.id()))).requireSuccess();
         return location;
     }
     @Override public void close() { session.close(); }

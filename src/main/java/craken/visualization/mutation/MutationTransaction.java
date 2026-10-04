@@ -3,6 +3,7 @@ package craken.visualization.mutation;
 import craken.visualization.api.*;
 import craken.visualization.api.VisualizationCommand.*;
 import craken.visualization.model.*;
+import craken.visualization.model.relation.PageBindingRule;
 import java.util.*;
 import static craken.visualization.api.VisualizationError.Code.*;
 
@@ -16,6 +17,8 @@ public final class MutationTransaction {
     private final List<ViewLocation> created = new ArrayList<>();
     private final Set<PageRef> affected = new LinkedHashSet<>();
     private final Set<ViewLocation> explicitDeletes = new LinkedHashSet<>();
+    private final Map<Long, PageBindingRule> rules;
+    private final List<Long> createdRules = new ArrayList<>();
     private int commandIndex;
 
     public MutationTransaction(ContainerModel base, Set<ViewLocation> reservations, MonotonicIds relations) {
@@ -24,17 +27,20 @@ public final class MutationTransaction {
         this.ownership = new OwnershipStore(base.ownership(), relations);
         this.relationIds = relations;
         this.reservations = Set.copyOf(reservations);
+        this.rules = new LinkedHashMap<>(base.pageRules());
     }
     public void apply(MutationBatch batch) {
         for (commandIndex = 0; commandIndex < batch.commands().size(); commandIndex++) {
             switch (batch.commands().get(commandIndex)) {
                 case AddNode add -> add(add);
-                case AttachOwnership attach -> attach(attach.pre(), attach.nxt(), attach.source());
+                case AttachOwnership attach -> { validateExplicitSource(attach.source()); attach(attach.pre(), attach.nxt(), attach.source()); }
                 case Compose compose -> compose(compose);
                 case Connect connect -> connect(connect);
                 case Disconnect disconnect -> disconnect(disconnect);
                 case DeleteNode delete -> explicitDeletes.add(select(delete.path()).location());
                 case DetachOwnership detach -> detach(detach);
+                case BindPage bind -> bind(bind);
+                case UnbindPage unbind -> unbind(unbind.ruleId());
             }
         }
     }
@@ -66,6 +72,30 @@ public final class MutationTransaction {
         affected.add(page.ref());
         created.add(node.location());
         if (path.pre() != null) attach(path.pre(), path.nxt(), "explicit");
+        for (var rule : rules.values()) expand(rule, node.location());
+    }
+    private void bind(BindPage bind) {
+        PageBindingRuleExpander.validate(base.id(),pages,bind.child(),bind.binding());
+        var rule = new PageBindingRule(relationIds.next(),bind.child(),bind.binding());
+        rules.put(rule.id(),rule); createdRules.add(rule.id()); affected.add(rule.child());
+        expand(rule,null);
+    }
+    private void expand(PageBindingRule rule, ViewLocation added) {
+        PageBindingRuleExpander.expand(rule,pages,added,explicitDeletes,(pre,nxt) -> {
+            ViewLocation selected = node(nxt).parents().selected();
+            attach(pre,nxt,rule.source());
+            if (selected != null) { var n = node(nxt); put(n.withState(n.content(),n.parents().select(selected))); }
+        });
+    }
+    private void unbind(long id) {
+        var rule = rules.remove(id);
+        if (rule == null) throw CommandValidator.failure(INVALID_COMMAND,"Unknown page binding rule");
+        for (var binding : ownership.bindings().values())
+            ownership.removeSource(binding.key().pre(),binding.key().nxt(),rule.source());
+        affected.add(rule.child());
+    }
+    private static void validateExplicitSource(String source) {
+        if (source.isBlank() || source.startsWith("rule:")) throw CommandValidator.failure(INVALID_COMMAND,"Reserved or empty ownership source");
     }
     private void attach(ViewLocation pre, ViewLocation nxt, String source) {
         requireNotDeleted(pre);
@@ -81,6 +111,7 @@ public final class MutationTransaction {
             throw CommandValidator.failure(INVALID_COMMAND, "Cannot reuse an explicitly deleted node");
     }
     private void detach(DetachOwnership detach) {
+        validateExplicitSource(detach.source());
         select(new OperationPath(detach.pre(), detach.nxt()));
         ownership.removeSource(detach.pre(), detach.nxt(), detach.source());
         affected.add(detach.pre().page());
@@ -117,10 +148,11 @@ public final class MutationTransaction {
         OwnershipDagValidator.validate(pages, ownership);
         for (PageRef ref : affected) if (pages.containsKey(ref.pageId()))
             pages.put(ref.pageId(), PartPlanner.plan(pages.get(ref.pageId())));
-        return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings());
+        return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings(), rules);
     }
     private void release(Set<ViewLocation> deleted) {
         deleted.forEach(ownership::removeNode);
+        rules.values().removeIf(rule -> deleted.contains(rule.spec().parentNode()));
         for (PageModel page : new ArrayList<>(pages.values())) {
             var kept = new LinkedHashMap<Long, ViewNode>();
             boolean changed = false;
@@ -136,8 +168,9 @@ public final class MutationTransaction {
                 }
                 kept.put(node.location().nodeId(), node);
             }
-            ViewLocation anchor = deleted.contains(page.anchor()) ? null : page.anchor();
-            if (!page.ref().equals(base.root()) && kept.isEmpty() && anchor == null) {
+            var retainingRules = rules.values().stream().filter(rule -> rule.child().equals(page.ref())).toList();
+            ViewLocation anchor = retainingRules.stream().map(rule -> rule.spec().parentNode()).filter(Objects::nonNull).findFirst().orElse(null);
+            if (!page.ref().equals(base.root()) && kept.isEmpty() && retainingRules.isEmpty()) {
                 pages.remove(page.ref().pageId());
                 affected.add(page.ref());
                 continue;
@@ -154,8 +187,18 @@ public final class MutationTransaction {
                 affected.add(page.ref());
             }
         }
+        // Empty page dependencies can form chains. Prune to a fixed point without recursive calls.
+        boolean pruned;
+        do {
+            pruned = rules.values().removeIf(rule -> !pages.containsKey(rule.child().pageId()) || !pages.containsKey(rule.spec().parentPage().pageId()));
+            var retained = new HashSet<PageRef>(); rules.values().forEach(rule -> retained.add(rule.child()));
+            for (var page : new ArrayList<>(pages.values())) if (!page.ref().equals(base.root()) && page.nodes().isEmpty() && !retained.contains(page.ref())) {
+                pages.remove(page.ref().pageId()); affected.add(page.ref()); pruned = true;
+            }
+        } while (pruned);
     }
     public int commandIndex() { return commandIndex; }
     public List<ViewLocation> created() { return List.copyOf(created); }
+    public List<Long> createdRules() { return List.copyOf(createdRules); }
     public Set<PageRef> affected() { return Set.copyOf(affected); }
 }

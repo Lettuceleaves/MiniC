@@ -5,6 +5,10 @@ import craken.visualization.model.relation.TopologyEdge.Direction;
 import java.util.Objects;
 
 public sealed interface VisualizationCommand {
+    record BindPage(PageRef child, craken.visualization.model.relation.PageBindingRule.Spec binding) implements VisualizationCommand {
+        public BindPage { Objects.requireNonNull(child); Objects.requireNonNull(binding); }
+    }
+    record UnbindPage(long ruleId) implements VisualizationCommand {}
     record DeleteNode(OperationPath path) implements VisualizationCommand {
         public DeleteNode { Objects.requireNonNull(path); }
     }

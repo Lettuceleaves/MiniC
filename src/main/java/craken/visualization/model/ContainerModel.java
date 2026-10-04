@@ -4,12 +4,18 @@ import craken.visualization.api.*;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import craken.visualization.model.relation.OwnershipBinding;
+import craken.visualization.model.relation.PageBindingRule;
 
 public record ContainerModel(long id, PageRef root, Map<Long, PageModel> pages, long version,
-                             Map<OwnershipBinding.Key, OwnershipBinding> ownership) {
+                             Map<OwnershipBinding.Key, OwnershipBinding> ownership, Map<Long, PageBindingRule> pageRules) {
     public ContainerModel {
         pages = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(pages));
         ownership = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(ownership));
+        pageRules = java.util.Collections.unmodifiableMap(new LinkedHashMap<>(pageRules));
+    }
+    public ContainerModel(long id, PageRef root, Map<Long, PageModel> pages, long version,
+                          Map<OwnershipBinding.Key, OwnershipBinding> ownership) {
+        this(id, root, pages, version, ownership, Map.of());
     }
     public ContainerModel(long id, PageRef root, Map<Long, PageModel> pages, long version) {
         this(id, root, pages, version, Map.of());

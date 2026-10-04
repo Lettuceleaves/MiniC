@@ -54,6 +54,7 @@
           "craken.visualization.mutation.OwnershipReparentTest"
         ]
       }
-    }
+    },
+    { "id": "C07", "required": { "visualizationModelTest": ["craken.visualization.mutation.PageBindingRuleTest"] } }
   ]
 }

@@ -2,6 +2,7 @@ package craken.visualization.mutation;
 
 import craken.visualization.api.*;
 import craken.visualization.model.*;
+import craken.visualization.model.relation.PageBindingRule;
 import java.util.*;
 
 /** Serial model writer; callers and renderers receive immutable committed values. */
@@ -26,7 +27,7 @@ public final class DefaultVisualizationSession implements VisualizationSession {
             ContainerModel next = transaction.finish();
             model = next;
             var change = new ModelChangeSet(next.version(), transaction.affected(), batch.sourceStep());
-            return new MutationResult(next.version(), transaction.created(), change, null);
+            return new MutationResult(next.version(), transaction.created(), change, null, transaction.createdRules());
         } catch (VisualizationError.Failure failure) {
             return MutationResult.failed(model.version(),
                     new VisualizationError(failure.code(), failure.getMessage(), transaction.commandIndex()));
@@ -45,17 +46,24 @@ public final class DefaultVisualizationSession implements VisualizationSession {
         return initialize(type, null, true);
     }
     @Override public synchronized PageRef initializePage(PageType type, ViewLocation anchor) {
-        requireOpen();
-        model.node(Objects.requireNonNull(anchor, "anchor"));
-        return initialize(type, anchor, false);
+        return initializePage(type, PageBindingRule.Spec.node(Objects.requireNonNull(anchor, "anchor")));
     }
-    private PageRef initialize(PageType type, ViewLocation anchor, boolean root) {
+    @Override public synchronized PageRef initializePage(PageType type, PageBindingRule.Spec binding) {
+        requireOpen();
+        Objects.requireNonNull(binding);
+        requirePage(binding.parentPage());
+        if (binding.parentNode() != null) model.node(binding.parentNode());
+        return initialize(type, binding, false);
+    }
+    private PageRef initialize(PageType type, PageBindingRule.Spec binding, boolean root) {
         types.register(type);
         var ref = new PageRef(model.id(), pages.next());
         var updated = new LinkedHashMap<>(model.pages());
-        updated.put(ref.pageId(), new PageModel(ref, type, Map.of(), anchor));
+        updated.put(ref.pageId(), new PageModel(ref, type, Map.of(), binding == null ? null : binding.parentNode()));
         nodes.put(ref.pageId(), new MonotonicIds());
-        model = new ContainerModel(model.id(), root ? ref : model.root(), updated, model.version() + 1, model.ownership());
+        var rules = new LinkedHashMap<>(model.pageRules());
+        if (binding != null) { var rule = new PageBindingRule(relations.next(), ref, binding); rules.put(rule.id(), rule); }
+        model = new ContainerModel(model.id(), root ? ref : model.root(), updated, model.version() + 1, model.ownership(), rules);
         return ref;
     }
     @Override public synchronized ViewLocation reserveNodeId(PageRef page) {
