@@ -22,6 +22,7 @@ public final class MutationTransaction {
     private final List<Long> createdRules = new ArrayList<>();
     private final FocusController focus;
     private int commandIndex;
+    private String sourceStep;
 
     public MutationTransaction(ContainerModel base, Set<ViewLocation> reservations, MonotonicIds relations) {
         this.base = base;
@@ -33,6 +34,7 @@ public final class MutationTransaction {
         this.focus = new FocusController(base.interaction());
     }
     public void apply(MutationBatch batch) {
+        sourceStep=batch.sourceStep();
         for (commandIndex = 0; commandIndex < batch.commands().size(); commandIndex++) {
             switch (batch.commands().get(commandIndex)) {
                 case AddNode add -> add(add);
@@ -169,7 +171,7 @@ public final class MutationTransaction {
         OwnershipDagValidator.validate(pages, ownership);
         for (PageRef ref : affected) if (pages.containsKey(ref.pageId()))
             pages.put(ref.pageId(), PartPlanner.plan(pages.get(ref.pageId())));
-        return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings(), rules,focus.finish(pages,fallback));
+        return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings(), rules,focus.finish(pages,fallback),base.epoch(),sourceStep);
     }
     private void release(Set<ViewLocation> deleted) {
         deleted.forEach(ownership::removeNode);

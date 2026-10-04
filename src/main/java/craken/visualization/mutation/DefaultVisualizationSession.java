@@ -3,6 +3,7 @@ package craken.visualization.mutation;
 import craken.visualization.api.*;
 import craken.visualization.model.*;
 import craken.visualization.model.relation.PageBindingRule;
+import craken.visualization.snapshot.*;
 import java.util.*;
 
 /** Serial model writer; callers and renderers receive immutable committed values. */
@@ -17,6 +18,24 @@ public final class DefaultVisualizationSession implements VisualizationSession {
     private boolean closed;
 
     @Override public synchronized ContainerModel model() { return model; }
+    @Override public synchronized VisualizationSnapshot snapshot() {
+        var nodeHigh=new LinkedHashMap<Long,Long>(); nodes.forEach((id,allocator)->nodeHigh.put(id,allocator.highWater()));
+        return SnapshotCodec.capture(model,new VisualizationSnapshot.HighWater(pages.highWater(),relations.highWater(),nodeHigh));
+    }
+    @Override public synchronized void restore(VisualizationSnapshot snapshot) {
+        requireOpen(); Objects.requireNonNull(snapshot);
+        if (snapshot.containerId()!=model.id()) throw new IllegalArgumentException("Foreign snapshot container");
+        var restored=SnapshotCodec.restore(snapshot,types,Math.addExact(model.version(),1),Math.addExact(model.epoch(),1));
+        pages.observe(snapshot.highWater().page()); relations.observe(snapshot.highWater().relation());
+        snapshot.highWater().nodes().forEach((id,high)->nodes.computeIfAbsent(id,unused->new MonotonicIds()).observe(high));
+        for (var page:restored.pages().values()) {
+            pages.observe(page.ref().pageId());
+            var allocator=nodes.computeIfAbsent(page.ref().pageId(),unused->new MonotonicIds());
+            page.nodes().keySet().forEach(allocator::observe); page.topology().keySet().forEach(relations::observe);
+        }
+        restored.ownership().values().forEach(binding->relations.observe(binding.id())); restored.pageRules().keySet().forEach(relations::observe);
+        reservations.clear(); model=restored;
+    }
     @Override public synchronized MutationResult modify(MutationBatch batch) {
         if (closed) return MutationResult.failed(model.version(),
                 new VisualizationError(VisualizationError.Code.SESSION_CLOSED, "Session closed", 0));
@@ -63,7 +82,7 @@ public final class DefaultVisualizationSession implements VisualizationSession {
         nodes.put(ref.pageId(), new MonotonicIds());
         var rules = new LinkedHashMap<>(model.pageRules());
         if (binding != null) { var rule = new PageBindingRule(relations.next(), ref, binding); rules.put(rule.id(), rule); }
-        model = new ContainerModel(model.id(), root ? ref : model.root(), updated, model.version() + 1, model.ownership(), rules, model.interaction());
+        model = new ContainerModel(model.id(), root ? ref : model.root(), updated, model.version() + 1, model.ownership(), rules, model.interaction(),model.epoch(),model.sourceStep());
         return ref;
     }
     @Override public synchronized ViewLocation reserveNodeId(PageRef page) {
@@ -89,6 +108,6 @@ public final class DefaultVisualizationSession implements VisualizationSession {
         if (closed) return;
         closed = true;
         reservations.clear();
-        model = new ContainerModel(model.id(), null, Map.of(), model.version() + 1);
+        model = new ContainerModel(model.id(), null, Map.of(), model.version() + 1,Map.of(),Map.of(),InteractionState.EMPTY,model.epoch()+1,model.sourceStep());
     }
 }

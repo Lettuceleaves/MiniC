@@ -11,5 +11,7 @@ public interface VisualizationSession extends AutoCloseable {
     ViewNode addNode(OperationPath path, ViewNode.Spec spec);
     MutationResult modify(MutationBatch batch);
     ContainerModel model();
+    craken.visualization.snapshot.VisualizationSnapshot snapshot();
+    void restore(craken.visualization.snapshot.VisualizationSnapshot snapshot);
     @Override void close();
 }
