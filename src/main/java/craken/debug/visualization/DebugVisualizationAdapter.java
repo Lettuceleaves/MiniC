@@ -24,6 +24,7 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
     private DebugObjectIdentityRegistry<ViewLocation> identities = new DebugObjectIdentityRegistry<>();
     private VisualizationSnapshot published;
     private boolean closed;
+    private boolean ownsSession = true;
     private final Map<Integer, ProjectionResult> results = new LinkedHashMap<>();
     private Map<DebugStructureDescriptor.RootAddress, ObjectKey> rootIdentities = new LinkedHashMap<>();
     private record Owner(ObjectKey key, ViewLocation location, String source) {}
@@ -43,6 +44,30 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
         this.types = Objects.requireNonNull(types);
         published = session.snapshot();
     }
+    /** Borrowed sessions are restored by this adapter but remain open when it is closed. */
+    public DebugVisualizationAdapter(VisualizationSession session,PageTypeRegistry types,boolean ownsSession) {
+        this(session,types); this.ownsSession=ownsSession;
+    }
+    static final class Checkpoint {
+        final VisualizationSnapshot snapshot;
+        final DebugObjectIdentityRegistry<ViewLocation> identities;
+        final Map<DebugStructureDescriptor.RootAddress,ObjectKey> roots;
+        final Map<ObjectKey,ManualObject> manual;
+        Checkpoint(VisualizationSnapshot snapshot,DebugObjectIdentityRegistry<ViewLocation> identities,
+                   Map<DebugStructureDescriptor.RootAddress,ObjectKey> roots,Map<ObjectKey,ManualObject> manual) {
+            this.snapshot=snapshot;this.identities=identities.copy();this.roots=Map.copyOf(roots);this.manual=Map.copyOf(manual);
+        }
+    }
+    synchronized Checkpoint checkpoint() { return new Checkpoint(published,identities,rootIdentities,manual); }
+    synchronized void restore(Checkpoint checkpoint) {
+        if(closed)throw new IllegalStateException("Adapter closed");
+        // Session.restore validates and publishes atomically before identity publication.
+        session.restore(checkpoint.snapshot);
+        identities=checkpoint.identities.copy();rootIdentities=new LinkedHashMap<>(checkpoint.roots);
+        manual.clear();manual.putAll(checkpoint.manual);
+        published=session.snapshot();
+    }
+    synchronized void forgetResult(int index) { results.remove(index); }
     public synchronized void registerDescriptor(DebugStructureDescriptor descriptor) {
         var previous = descriptors.putIfAbsent(descriptor.key(), descriptor);
         if (previous != null && !previous.equals(descriptor)) throw new IllegalArgumentException("Descriptor key already registered");
@@ -357,5 +382,11 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
         for(var node:nodes.values())if(overlaps(memory,node.key,0,descriptor(node.key.descriptorKey()).minimumSize(),range))
             commands.add(new Touch(path(locations.get(node.key),node,locations),kind));
     }
-    @Override public synchronized void close() { if (closed) return; closed = true; session.close(); }
+    @Override public synchronized void close() {
+        if(closed)return;
+        closed=true;identities=new DebugObjectIdentityRegistry<>();
+        rootIdentities.clear();roots.clear();manual.clear();descriptors.clear();results.clear();
+        if(ownsSession)session.close();
+        published=session.snapshot();
+    }
 }

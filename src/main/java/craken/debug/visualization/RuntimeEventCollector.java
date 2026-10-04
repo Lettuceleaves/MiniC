@@ -10,12 +10,13 @@ import java.util.function.Supplier;
  * Runtime-thread collector, with one fresh instance per VM session.
  * Collection failures suspend this interval without failing the VM. Not thread-safe.
  */
-public final class RuntimeEventCollector implements RuntimeEventSink {
+public final class RuntimeEventCollector implements RuntimeEventSink, AutoCloseable {
     private final boolean enabled;
     private List<RuntimeEvent> pending;
     private long nextSequence = 1;
     private String diagnostic = "";
     private int suppressionDepth;
+    private boolean closed;
 
     public RuntimeEventCollector() {
         this(true, new ArrayList<>());
@@ -31,7 +32,7 @@ public final class RuntimeEventCollector implements RuntimeEventSink {
     }
 
     public boolean isRecording() {
-        return enabled && diagnostic.isEmpty() && suppressionDepth == 0;
+        return enabled && !closed && diagnostic.isEmpty() && suppressionDepth == 0;
     }
 
     /** Factory evaluation and storage stay inside the exception boundary. Disabled calls create no events. */
@@ -68,7 +69,7 @@ public final class RuntimeEventCollector implements RuntimeEventSink {
 
     public RuntimeEventBatch drain(int contextIndex) {
         if (contextIndex < 0) throw new IllegalArgumentException("contextIndex must not be negative");
-        if (!enabled) return RuntimeEventBatch.unmonitored(contextIndex);
+        if (!enabled || closed) return RuntimeEventBatch.unmonitored(contextIndex);
         List<RuntimeEvent> events;
         try { events = List.copyOf(pending); }
         catch (RuntimeException failure) {
@@ -79,5 +80,10 @@ public final class RuntimeEventCollector implements RuntimeEventSink {
         pending = new ArrayList<>();
         diagnostic = "";
         return new RuntimeEventBatch(contextIndex, true, failure.isEmpty(), events, failure);
+    }
+    /** Detaches the VM observation outlet. Subsequent VM calls use the no-operation path. */
+    @Override public void close() {
+        if (closed) return;
+        closed=true;pending=new ArrayList<>();diagnostic="";
     }
 }
