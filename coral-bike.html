@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>海边骑自行车的小珊瑚</title>
+  <style>
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 24px;
+      box-sizing: border-box;
+      background: linear-gradient(160deg, #fdf3e3 0%, #e8f5f9 55%, #d4eef7 100%);
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    h1 {
+      margin: 0;
+      font-size: 26px;
+      font-weight: 700;
+      color: #22577a;
+      letter-spacing: 1px;
+    }
+    .scene {
+      width: min(1100px, 96vw);
+    }
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 22px;
+      box-shadow: 0 24px 60px rgba(31, 78, 121, 0.28);
+    }
+    .caption {
+      margin: 0;
+      color: #55798c;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🐠 海边骑行的小珊瑚</h1>
+
+  <div class="scene">
+    <svg viewBox="0 0 1200 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="一只粉色珊瑚在海边骑自行车">
+      <defs>
+        <linearGradient id="skyGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#6ec3ef"/>
+          <stop offset="100%" stop-color="#d4f0fb"/>
+        </linearGradient>
+        <linearGradient id="seaGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#3da8dc"/>
+          <stop offset="100%" stop-color="#8fd9f2"/>
+        </linearGradient>
+        <linearGradient id="coralGrad" x1="0" y1="-95" x2="0" y2="12" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#ff8fc0"/>
+          <stop offset="100%" stop-color="#ff4d94"/>
+        </linearGradient>
+        <radialGradient id="sunGlow">
+          <stop offset="0%" stop-color="#ffd166" stop-opacity="0.65"/>
+          <stop offset="100%" stop-color="#ffd166" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3"/>
+        </filter>
+
+        <path id="crestA" d="M0,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0"/>
+        <path id="fillA" d="M0,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 a25,10 0 0 1 50,0 L1200,30 L0,30 Z"/>
+        <path id="crestB" d="M0,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0"/>
+        <path id="fillB" d="M0,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 a25,7 0 0 1 50,0 L1200,24 L0,24 Z"/>
+      </defs>
+
+      <!-- 天空 -->
+      <rect x="0" y="0" width="1200" height="300" fill="url(#skyGrad)"/>
+
+      <!-- 太阳 -->
+      <g>
+        <circle cx="1020" cy="92" r="74" fill="url(#sunGlow)">
+          <animate attributeName="r" values="74;80;74" dur="4s" repeatCount="indefinite"/>
+        </circle>
+        <g>
+          <animateTransform attributeName="transform" type="rotate" values="0 1020 92;360 1020 92" dur="40s" repeatCount="indefinite"/>
+          <g stroke="#ffd166" stroke-width="6" stroke-linecap="round">
+            <line x1="1084" y1="92" x2="1098" y2="92"/>
+            <line x1="1067.2" y1="137.2" x2="1077.1" y2="147.1"/>
+            <line x1="1020" y1="156" x2="1020" y2="170"/>
+            <line x1="972.8" y1="137.2" x2="962.9" y2="147.1"/>
+            <line x1="956" y1="92" x2="942" y2="92"/>
+            <line x1="972.8" y1="46.8" x2="962.9" y2="36.9"/>
+            <line x1="1020" y1="28" x2="1020" y2="14"/>
+            <line x1="1067.2" y1="46.8" x2="1077.1" y2="36.9"/>
+          </g>
+        </g>
+        <circle cx="1020" cy="92" r="48" fill="#ffd166"/>
+        <circle cx="1007" cy="84" r="4" fill="#8a6a12"/>
+        <circle cx="1033" cy="84" r="4" fill="#8a6a12"/>
+        <path d="M1006 101 Q1020 111 1034 101" fill="none" stroke="#8a6a12" stroke-width="3" stroke-linecap="round"/>
+      </g>
+
+      <!-- 云朵 -->
+      <g opacity="0.95">
+        <animateTransform attributeName="transform" type="translate" values="-350 0;1350 0" dur="65s" repeatCount="indefinite"/>
+        <g transform="translate(180,120)" fill="#ffffff">
+          <ellipse cx="0" cy="0" rx="55" ry="20"/>
+          <ellipse cx="-28" cy="-7" rx="26" ry="15"/>
+          <ellipse cx="26" cy="-5" rx="30" ry="16"/>
+        </g>
+      </g>
+      <g opacity="0.9">
+        <animateTransform attributeName="transform" type="translate" values="-350 0;1350 0" dur="85s" repeatCount="indefinite"/>
+        <g transform="translate(680,70) scale(0.75)" fill="#ffffff">
+          <ellipse cx="0" cy="0" rx="55" ry="20"/>
+          <ellipse cx="-28" cy="-7" rx="26" ry="15"/>
+          <ellipse cx="26" cy="-5" rx="30" ry="16"/>
+        </g>
+      </g>
+      <g opacity="0.85">
+        <animateTransform attributeName="transform" type="translate" values="-350 0;1350 0" dur="100s" repeatCount="indefinite"/>
+        <g transform="translate(950,170) scale(0.6)" fill="#ffffff">
+          <ellipse cx="0" cy="0" rx="55" ry="20"/>
+          <ellipse cx="-28" cy="-7" rx="26" ry="15"/>
+          <ellipse cx="26" cy="-5" rx="30" ry="16"/>
+        </g>
+      </g>
+
+      <!-- 海鸥 -->
+      <g>
+        <animateTransform attributeName="transform" type="translate" values="-420 0;1420 0" dur="48s" repeatCount="indefinite"/>
+        <g transform="translate(420,150)">
+          <path d="M0,0 Q9,-9 18,0 Q27,-9 36,0" fill="none" stroke="#2b3a42" stroke-width="3.5" stroke-linecap="round"/>
+        </g>
+      </g>
+      <g opacity="0.75">
+        <animateTransform attributeName="transform" type="translate" values="-420 0;1420 0" dur="62s" repeatCount="indefinite"/>
+        <g transform="translate(760,225) scale(0.65)">
+          <path d="M0,0 Q9,-9 18,0 Q27,-9 36,0" fill="none" stroke="#2b3a42" stroke-width="3.5" stroke-linecap="round"/>
+        </g>
+      </g>
+
+      <!-- 大海 -->
+      <rect x="0" y="300" width="1200" height="60" fill="url(#seaGrad)"/>
+
+      <!-- 浪花 -->
+      <g transform="translate(0,306)">
+        <g>
+          <animateTransform attributeName="transform" type="translate" values="0 0;-1200 0" dur="8s" repeatCount="indefinite"/>
+          <use href="#fillA" fill="#a9dff2"/>
+          <use href="#fillA" transform="translate(1200,0)" fill="#a9dff2"/>
+          <use href="#crestA" fill="none" stroke="#ffffff" stroke-width="2.5" opacity="0.9"/>
+          <use href="#crestA" transform="translate(1200,0)" fill="none" stroke="#ffffff" stroke-width="2.5" opacity="0.9"/>
+        </g>
+      </g>
+      <g transform="translate(0,318)" opacity="0.8">
+        <g>
+          <animateTransform attributeName="transform" type="translate" values="-1200 0;0 0" dur="6.5s" repeatCount="indefinite"/>
+          <use href="#fillB" fill="#79c2e6"/>
+          <use href="#fillB" transform="translate(1200,0)" fill="#79c2e6"/>
+        </g>
+      </g>
+
+      <!-- 海岸线 -->
+      <rect x="0" y="360" width="1200" height="8" fill="#eaf7fd" opacity="0.9"/>
+      <rect x="0" y="368" width="1200" height="32" fill="#dcc084"/>
+      <path d="M0,400 C300,386 900,412 1200,400 L1200,600 L0,600 Z" fill="#f2d49b"/>
+
+      <!-- 帆船 -->
+      <g transform="translate(770,340)">
+        <g>
+          <animateTransform attributeName="transform" type="translate" values="0 0;7 -2;0 0" dur="5s" repeatCount="indefinite"/>
+          <path d="M0,0 L34,0 L28,8 L6,8 Z" fill="#8d5524"/>
+          <path d="M17,0 L17,-24 L7,-8 Z" fill="#ffffff" stroke="#d8d8d8" stroke-width="1"/>
+          <path d="M19,-2 L19,-20 L30,-6 Z" fill="#f4f4f4" stroke="#d8d8d8" stroke-width="1"/>
+        </g>
+      </g>
+
+      <!-- 棕榈树 -->
+      <g>
+        <ellipse cx="90" cy="508" rx="34" ry="7" fill="rgba(0,0,0,0.12)" filter="url(#soft)"/>
+        <path d="M88,505 C90,450 82,380 90,305" fill="none" stroke="#9c6b46" stroke-width="13" stroke-linecap="round"/>
+        <g transform="translate(90,302)">
+          <circle cx="0" cy="8" r="8" fill="#7a4b2f"/>
+          <circle cx="-10" cy="14" r="6.5" fill="#7a4b2f"/>
+          <g>
+            <animateTransform attributeName="transform" type="rotate" values="-3 0 0;3 0 0;-3 0 0" dur="7s" repeatCount="indefinite"/>
+            <path d="M0,0 C30,-14 62,-22 92,-12 C60,-4 26,0 0,0 Z" fill="#3f9e4d" transform="rotate(0)"/>
+            <path d="M0,0 C30,-14 62,-22 92,-12 C60,-4 26,0 0,0 Z" fill="#47ab55" transform="rotate(50)"/>
+            <path d="M0,0 C30,-14 62,-22 92,-12 C60,-4 26,0 0,0 Z" fill="#3f9e4d" transform="rotate(100)"/>
+            <path d="M0,0 C30,-14 62,-22 92,-12 C60,-4 26,0 0,0 Z" fill="#47ab55" transform="rotate(150)"/>
+            <path d="M0,0 C30,-14 62,-22 92,-12 C60,-4 26,0 0,0 Z" fill="#3f9e4d" transform="rotate(200)"/>
+            <path d="M0,0 C30,-14 62,-22 92,-12 C60,-4 26,0 0,0 Z" fill="#47ab55" transform="rotate(250)"/>
+            <path d="M0,0 C30,-14 62,-22 92,-12 C60,-4 26,0 0,0 Z" fill="#3f9e4d" transform="rotate(300)"/>
+            <circle cx="0" cy="0" r="6" fill="#2e7d32"/>
+          </g>
+        </g>
+      </g>
+
+      <!-- 沙滩小物 -->
+      <g transform="translate(340,548)">
+        <path d="M0,0 C-12,8 -14,18 0,22 C14,18 12,8 0,0 Z" fill="#fff4e0"/>
+        <path d="M0,1 L-11,8 M0,1 L0,21 M0,1 L11,8" stroke="#e7cba0" stroke-width="1.5" fill="none"/>
+      </g>
+      <g transform="translate(1000,535) scale(0.8)">
+        <path d="M0,0 C-12,8 -14,18 0,22 C14,18 12,8 0,0 Z" fill="#ffe9d6"/>
+        <path d="M0,1 L-11,8 M0,1 L0,21 M0,1 L11,8" stroke="#e7cba0" stroke-width="1.5" fill="none"/>
+      </g>
+      <g transform="translate(610,585) scale(0.7)">
+        <path d="M0,0 C-12,8 -14,18 0,22 C14,18 12,8 0,0 Z" fill="#fff4e0"/>
+        <path d="M0,1 L-11,8 M0,1 L0,21 M0,1 L11,8" stroke="#e7cba0" stroke-width="1.5" fill="none"/>
+      </g>
+      <g transform="translate(860,566)">
+        <path d="M0,-16 L5,-5 L17,-5 L8,3 L11,15 L0,8 L-11,15 L-8,3 L-17,-5 L-5,-5 Z" fill="#ff7f9f" stroke="#e8567f" stroke-width="1.5" stroke-linejoin="round"/>
+        <circle cx="0" cy="0" r="1.6" fill="#e8567f"/>
+      </g>
+
+      <!-- 骑自行车的小珊瑚 -->
+      <g>
+        <animateTransform attributeName="transform" type="translate" values="-380 515;1500 515" dur="14s" repeatCount="indefinite"/>
+
+        <!-- 影子 -->
+        <ellipse cx="95" cy="56" rx="135" ry="10" fill="rgba(0,0,0,0.14)" filter="url(#soft)"/>
+
+        <!-- 后轮 -->
+        <g>
+          <circle cx="0" cy="0" r="45" fill="none" stroke="#333333" stroke-width="9"/>
+          <g>
+            <animateTransform attributeName="transform" type="rotate" values="0 0 0;360 0 0" dur="2.105s" repeatCount="indefinite"/>
+            <g stroke="#b0bec5" stroke-width="2">
+              <line x1="-39" y1="0" x2="39" y2="0"/>
+              <line x1="-33.8" y1="-19.5" x2="33.8" y2="19.5"/>
+              <line x1="-19.5" y1="-33.8" x2="19.5" y2="33.8"/>
+              <line x1="0" y1="-39" x2="0" y2="39"/>
+              <line x1="19.5" y1="-33.8" x2="-19.5" y2="33.8"/>
+              <line x1="33.8" y1="-19.5" x2="-33.8" y2="19.5"/>
+            </g>
+          </g>
+          <circle cx="0" cy="0" r="38" fill="none" stroke="#8fa3ad" stroke-width="3"/>
+          <circle cx="0" cy="0" r="6" fill="#37474f"/>
+        </g>
+
+        <!-- 前轮 -->
+        <g transform="translate(190,0)">
+          <circle cx="0" cy="0" r="45" fill="none" stroke="#333333" stroke-width="9"/>
+          <g>
+            <animateTransform attributeName="transform" type="rotate" values="0 0 0;360 0 0" dur="2.105s" repeatCount="indefinite"/>
+            <g stroke="#b0bec5" stroke-width="2">
+              <line x1="-39" y1="0" x2="39" y2="0"/>
+              <line x1="-33.8" y1="-19.5" x2="33.8" y2="19.5"/>
+              <line x1="-19.5" y1="-33.8" x2="19.5" y2="33.8"/>
+              <line x1="0" y1="-39" x2="0" y2="39"/>
+              <line x1="19.5" y1="-33.8" x2="-19.5" y2="33.8"/>
+              <line x1="33.8" y1="-19.5" x2="-33.8" y2="19.5"/>
+            </g>
+          </g>
+          <circle cx="0" cy="0" r="38" fill="none" stroke="#8fa3ad" stroke-width="3"/>
+          <circle cx="0" cy="0" r="6" fill="#37474f"/>
+        </g>
+
+        <!-- 车架 -->
+        <g fill="none" stroke="#2ec4b6" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M0,0 L35,-88"/>
+          <path d="M0,0 L72,24"/>
+          <path d="M35,-88 L72,24"/>
+          <path d="M72,24 L172,-70"/>
+          <path d="M35,-88 L172,-70"/>
+          <path d="M172,-70 L190,0"/>
+          <path d="M172,-70 L166,-94"/>
+        </g>
+        <path d="M150,-96 L178,-86" fill="none" stroke="#264653" stroke-width="5" stroke-linecap="round"/>
+
+        <!-- 车座 -->
+        <path d="M12,-82 C12,-94 40,-95 56,-84 C56,-79 34,-77 12,-82 Z" fill="#24343d"/>
+
+        <!-- 链轮与脚踏 -->
+        <circle cx="72" cy="24" r="14" fill="none" stroke="#264653" stroke-width="4"/>
+        <circle cx="72" cy="24" r="5" fill="#264653"/>
+        <g>
+          <animateTransform attributeName="transform" type="rotate" values="0 72 24;360 72 24" dur="2.105s" repeatCount="indefinite"/>
+          <line x1="72" y1="24" x2="94" y2="8" stroke="#264653" stroke-width="5" stroke-linecap="round"/>
+          <line x1="72" y1="24" x2="50" y2="40" stroke="#264653" stroke-width="5" stroke-linecap="round"/>
+          <circle cx="94" cy="8" r="7" fill="#37474f"/>
+          <circle cx="50" cy="40" r="7" fill="#37474f"/>
+        </g>
+
+        <!-- 小珊瑚 -->
+        <g transform="translate(30,-85)">
+          <g>
+            <animateTransform attributeName="transform" type="translate" values="0 0;0 -4;0 0" dur="1.6s" repeatCount="indefinite"/>
+            <g>
+              <animateTransform attributeName="transform" type="rotate" values="-2 0 -35;2 0 -35;-2 0 -35" dur="1.6s" repeatCount="indefinite"/>
+
+              <!-- 背后的枝条 -->
+              <g fill="none" stroke="#e0468f" stroke-width="12" stroke-linecap="round">
+                <path d="M-4,-28 C-20,-36 -30,-50 -34,-64"/>
+                <path d="M3,-34 C18,-42 27,-56 30,-70"/>
+                <path d="M-2,-60 C-12,-68 -16,-78 -21,-90"/>
+                <path d="M1,-58 C11,-66 15,-78 20,-90"/>
+              </g>
+
+              <!-- 手臂 -->
+              <g fill="none" stroke="#ff9ec6" stroke-width="13" stroke-linecap="round">
+                <path d="M8,-12 C48,-18 96,-20 126,-5"/>
+                <path d="M-9,-16 C-24,-12 -33,-8 -40,-11"/>
+              </g>
+              <circle cx="128" cy="-6" r="6" fill="#ff9ec6"/>
+              <circle cx="-41" cy="-12" r="5.5" fill="#ff9ec6"/>
+
+              <!-- 主干 -->
+              <path d="M0,2 C-3,-24 2,-46 -2,-80" fill="none" stroke="url(#coralGrad)" stroke-width="20" stroke-linecap="round"/>
+              <ellipse cx="0" cy="1" rx="11" ry="4.5" fill="#ff6aa8"/>
+
+              <!-- 顶端小亮点 -->
+              <g fill="#ffd1e5">
+                <circle cx="-34" cy="-64" r="3"/>
+                <circle cx="30" cy="-70" r="3"/>
+                <circle cx="-21" cy="-90" r="3"/>
+                <circle cx="20" cy="-90" r="3"/>
+                <circle cx="-2" cy="-80" r="3"/>
+              </g>
+
+              <!-- 表情 -->
+              <circle cx="-7" cy="-46" r="4.6" fill="#ffffff"/>
+              <circle cx="7" cy="-46" r="4.6" fill="#ffffff"/>
+              <circle cx="-6" cy="-45.5" r="2.2" fill="#3a2b35"/>
+              <circle cx="8" cy="-45.5" r="2.2" fill="#3a2b35"/>
+              <ellipse cx="-13" cy="-36" rx="3.6" ry="2.2" fill="#ff5c8a" opacity="0.55"/>
+              <ellipse cx="13" cy="-36" rx="3.6" ry="2.2" fill="#ff5c8a" opacity="0.55"/>
+              <path d="M-5,-30 Q1,-23 7,-30" fill="none" stroke="#7a1f45" stroke-width="2.5" stroke-linecap="round"/>
+            </g>
+          </g>
+        </g>
+      </g>
+    </svg>
+  </div>
+
+  <p class="caption">小珊瑚蹬着车，沿着海岸线兜风 🌊</p>
+</body>
+</html>

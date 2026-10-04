@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 280" width="480" height="560">
+  <defs>
+    <radialGradient id="body" cx="35%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#ff8a80"/>
+      <stop offset="35%" stop-color="#ef5350"/>
+      <stop offset="75%" stop-color="#c62828"/>
+      <stop offset="100%" stop-color="#8e1f1f"/>
+    </radialGradient>
+    <linearGradient id="leaf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8bc34a"/>
+      <stop offset="100%" stop-color="#33691e"/>
+    </linearGradient>
+    <linearGradient id="stem" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#8d6e63"/>
+      <stop offset="100%" stop-color="#4e342e"/>
+    </linearGradient>
+    <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+
+  <!-- 地面阴影 -->
+  <ellipse cx="120" cy="240" rx="70" ry="14" fill="#000" opacity="0.18" filter="url(#softShadow)"/>
+
+  <!-- 果身 -->
+  <path d="M120 76
+           C 114 63 101 60 92 67
+           C 66 76 46 104 44 146
+           C 42 193 72 232 120 232
+           C 168 232 198 193 196 146
+           C 194 104 174 76 148 67
+           C 139 60 126 63 120 76 Z"
+        fill="url(#body)" stroke="#7f1d1d" stroke-width="2"/>
+
+  <!-- 果柄 -->
+  <path d="M120 70 C 121 52 126 38 130 20"
+        fill="none" stroke="url(#stem)" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- 叶子 -->
+  <path d="M126 34 C 148 12 188 16 202 38 C 178 48 142 47 126 34 Z" fill="url(#leaf)"/>
+  <path d="M130 32 C 152 26 180 27 196 36" fill="none" stroke="#2e5d1a"
+        stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+
+  <!-- 高光 -->
+  <ellipse cx="84" cy="100" rx="22" ry="34" fill="#fff" opacity="0.32" transform="rotate(-24 84 100)"/>
+  <ellipse cx="80" cy="88" rx="10" ry="16" fill="#fff" opacity="0.45" transform="rotate(-24 80 88)"/>
+
+  <!-- 侧面反光 -->
+  <path d="M 58 160 C 64 172 74 180 84 184" fill="none" stroke="#fff"
+        stroke-width="4" stroke-linecap="round" opacity="0.25"/>
+</svg>
