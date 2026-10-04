@@ -10,7 +10,7 @@ public final class PipelineProjectionRegistry {
     public PipelineProjectionRegistry(List<PipelineStageProjector<?>> projectors) { this.projectors = List.copyOf(projectors); }
     public static PipelineProjectionRegistry standard() {
         return new PipelineProjectionRegistry(List.of(new SourceProjector(), new TokenProjector(), new ParserProjector(),
-                new SemanticProjector(), new IrProjector()));
+                new SemanticProjector(), new IrProjector(), new AssemblyProjector(), new ObjectProjector(), new LinkProjector()));
     }
     public StageProjection project(PipelineStepObservation observation, PipelineProjectionPlan input) {
         for (var projector : projectors) if (projector.stageType().isInstance(observation.executedStage()))

@@ -69,6 +69,7 @@
     { "id": "C22", "required": { "visualizationAdapterTest": ["craken.debug.DebugVisualizationHistoryTest"] } },
     { "id": "C13", "required": { "visualizationLayoutTest": ["craken.visualization.layout.LayoutCoordinatorTest", "craken.visualization.layout.GraphvizRuntimeLocatorTest"], "visualizationUiTest": ["craken.ui.component.visualization.UiVisualizationContainerFxTest"] } },
     { "id": "C17", "required": { "visualizationAdapterTest": ["craken.compiler.StageLatestContextTest", "craken.visualization.adapter.pipeline.PipelineObservationProjectionTest", "craken.visualization.adapter.pipeline.PipelineAtomicFrameTest", "craken.ui.pipeline.PipelineVisualizationPanelTest"], "visualizationRegression": ["craken.ui.pipeline.PipelineControllerTest"] } },
-    { "id": "C18", "required": { "visualizationAdapterTest": ["craken.visualization.adapter.pipeline.PipelineAstIrProjectionTest", "craken.visualization.adapter.pipeline.PipelineAstFrameLifecycleTest"] } }
+    { "id": "C18", "required": { "visualizationAdapterTest": ["craken.visualization.adapter.pipeline.PipelineAstIrProjectionTest", "craken.visualization.adapter.pipeline.PipelineAstFrameLifecycleTest"] } },
+    { "id": "C19", "required": { "visualizationAdapterTest": ["craken.visualization.adapter.pipeline.PipelineBackendProjectionTest"] } }
   ]
 }
