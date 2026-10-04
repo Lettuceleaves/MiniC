@@ -15,6 +15,7 @@ public final class MutationTransaction {
     private final Set<ViewLocation> reservations;
     private final List<ViewLocation> created = new ArrayList<>();
     private final Set<PageRef> affected = new LinkedHashSet<>();
+    private final Set<ViewLocation> explicitDeletes = new LinkedHashSet<>();
     private int commandIndex;
 
     public MutationTransaction(ContainerModel base, Set<ViewLocation> reservations, MonotonicIds relations) {
@@ -32,11 +33,15 @@ public final class MutationTransaction {
                 case Compose compose -> compose(compose);
                 case Connect connect -> connect(connect);
                 case Disconnect disconnect -> disconnect(disconnect);
+                case DeleteNode delete -> explicitDeletes.add(select(delete.path()).location());
+                case DetachOwnership detach -> detach(detach);
             }
         }
     }
     private void add(AddNode add) {
         OperationPath path = add.path();
+        requireNotDeleted(path.nxt());
+        if (path.pre() != null) requireNotDeleted(path.pre());
         PageModel page = CommandValidator.page(base.id(), pages, path.nxt().page());
         ViewNode existing = page.nodes().get(path.nxt().nodeId());
         if (existing != null) {
@@ -63,11 +68,22 @@ public final class MutationTransaction {
         if (path.pre() != null) attach(path.pre(), path.nxt(), "explicit");
     }
     private void attach(ViewLocation pre, ViewLocation nxt, String source) {
+        requireNotDeleted(pre);
+        requireNotDeleted(nxt);
         ViewNode parent = node(pre), child = node(nxt);
         CommandValidator.ownership(parent, child);
         ownership.add(pre, nxt, source);
         put(child.withState(child.content(), child.parents().add(pre)));
         affected.add(pre.page());
+    }
+    private void requireNotDeleted(ViewLocation location) {
+        if (explicitDeletes.contains(location))
+            throw CommandValidator.failure(INVALID_COMMAND, "Cannot reuse an explicitly deleted node");
+    }
+    private void detach(DetachOwnership detach) {
+        select(new OperationPath(detach.pre(), detach.nxt()));
+        ownership.removeSource(detach.pre(), detach.nxt(), detach.source());
+        affected.add(detach.pre().page());
     }
     private void compose(Compose compose) {
         ViewNode parent = node(compose.parent()), child = node(compose.child());
@@ -97,9 +113,47 @@ public final class MutationTransaction {
         affected.add(page.ref());
     }
     public ContainerModel finish() {
+        release(LifetimePlanner.plan(pages, ownership, explicitDeletes));
         OwnershipDagValidator.validate(pages, ownership);
-        for (PageRef ref : affected) pages.put(ref.pageId(), PartPlanner.plan(pages.get(ref.pageId())));
+        for (PageRef ref : affected) if (pages.containsKey(ref.pageId()))
+            pages.put(ref.pageId(), PartPlanner.plan(pages.get(ref.pageId())));
         return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings());
+    }
+    private void release(Set<ViewLocation> deleted) {
+        deleted.forEach(ownership::removeNode);
+        for (PageModel page : new ArrayList<>(pages.values())) {
+            var kept = new LinkedHashMap<Long, ViewNode>();
+            boolean changed = false;
+            for (ViewNode node : page.nodes().values()) {
+                if (deleted.contains(node.location())) { changed = true; continue; }
+                ParentSelection selection = node.parents();
+                for (var old : node.parents().parents())
+                    if (!ownership.parents(node.location()).contains(old)) selection = selection.remove(old);
+                var children = node.children().stream().filter(child -> !deleted.contains(child)).toList();
+                if (!selection.equals(node.parents()) || !children.equals(node.children())) {
+                    node = node.withState(node.content(), selection).withChildren(children);
+                    changed = true;
+                }
+                kept.put(node.location().nodeId(), node);
+            }
+            ViewLocation anchor = deleted.contains(page.anchor()) ? null : page.anchor();
+            if (!page.ref().equals(base.root()) && kept.isEmpty() && anchor == null) {
+                pages.remove(page.ref().pageId());
+                affected.add(page.ref());
+                continue;
+            }
+            if (changed || !Objects.equals(anchor, page.anchor())) {
+                var composition = new LinkedHashMap<>(page.composition());
+                composition.values().removeIf(link -> deleted.contains(link.parent()) || deleted.contains(link.child()));
+                var topology = new LinkedHashMap<>(page.topology());
+                topology.values().removeIf(edge -> deleted.contains(edge.a()) || deleted.contains(edge.b()));
+                var ready = new HashSet<>(page.ready());
+                ready.retainAll(kept.keySet());
+                pages.put(page.ref().pageId(), new PageModel(page.ref(), page.type(), kept, anchor,
+                        composition, topology, ready, Map.of(), Map.of()));
+                affected.add(page.ref());
+            }
+        }
     }
     public int commandIndex() { return commandIndex; }
     public List<ViewLocation> created() { return List.copyOf(created); }

@@ -45,6 +45,15 @@
           "craken.visualization.mutation.ReadyResidenceTest"
         ]
       }
+    },
+    {
+      "id": "C06",
+      "required": {
+        "visualizationModelTest": [
+          "craken.visualization.mutation.LifetimePlannerTest",
+          "craken.visualization.mutation.OwnershipReparentTest"
+        ]
+      }
     }
   ]
 }

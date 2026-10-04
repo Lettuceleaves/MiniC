@@ -5,6 +5,13 @@ import craken.visualization.model.relation.TopologyEdge.Direction;
 import java.util.Objects;
 
 public sealed interface VisualizationCommand {
+    record DeleteNode(OperationPath path) implements VisualizationCommand {
+        public DeleteNode { Objects.requireNonNull(path); }
+    }
+    record DetachOwnership(ViewLocation pre, ViewLocation nxt, String source) implements VisualizationCommand {
+        public DetachOwnership { Objects.requireNonNull(pre); Objects.requireNonNull(nxt); Objects.requireNonNull(source); }
+        public DetachOwnership(ViewLocation pre, ViewLocation nxt) { this(pre, nxt, "explicit"); }
+    }
     record Connect(OperationPath a, OperationPath b, Direction direction) implements VisualizationCommand {
         public Connect { Objects.requireNonNull(a); Objects.requireNonNull(b); Objects.requireNonNull(direction); }
         public Connect(OperationPath a, OperationPath b) { this(a, b, Direction.NONE); }

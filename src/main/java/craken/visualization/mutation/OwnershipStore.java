@@ -40,4 +40,26 @@ public final class OwnershipStore {
     public Map<OwnershipBinding.Key, OwnershipBinding> bindings() {
         return Collections.unmodifiableMap(new LinkedHashMap<>(bindings));
     }
+    public void removeSource(ViewLocation pre, ViewLocation nxt, String source) {
+        var key = new OwnershipBinding.Key(pre, nxt);
+        var previous = bindings.get(key);
+        if (previous == null || !previous.sources().contains(source)) return;
+        var sources = new LinkedHashSet<>(previous.sources());
+        sources.remove(source);
+        if (sources.isEmpty()) remove(key);
+        else bindings.put(key, new OwnershipBinding(previous.id(), key, sources));
+    }
+    public void removeNode(ViewLocation location) {
+        for (var pre : parents(location)) remove(new OwnershipBinding.Key(pre, location));
+        for (var nxt : children(location)) remove(new OwnershipBinding.Key(location, nxt));
+    }
+    private void remove(OwnershipBinding.Key key) {
+        if (bindings.remove(key) == null) return;
+        var parents = incoming.get(key.nxt());
+        parents.remove(key.pre());
+        if (parents.isEmpty()) incoming.remove(key.nxt());
+        var children = outgoing.get(key.pre());
+        children.remove(key.nxt());
+        if (children.isEmpty()) outgoing.remove(key.pre());
+    }
 }
