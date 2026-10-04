@@ -61,6 +61,7 @@
     { "id": "C10", "required": { "visualizationLayoutTest": ["craken.visualization.navigation.PageWidthAllocatorTest", "craken.visualization.layout.ArrayLinearTreeLayoutTest", "craken.visualization.layout.LayoutProtocolTest", "craken.visualization.layout.PortRouterTest"] } },
     { "id": "C11", "required": { "visualizationLayoutTest": ["craken.visualization.layout.StressGraphIntegrationTest", "craken.visualization.layout.GraphvizPackagingTest"] } },
     { "id": "C12", "required": { "visualizationModelTest": ["craken.ui.component.visualization.ThemeValidatorTest", "craken.visualization.style.ColorTransactionTest"], "visualizationUiTest": ["craken.ui.component.visualization.VisualizationRendererFxTest"] } },
-    { "id": "C14", "required": { "visualizationAdapterTest": ["craken.compiler.parser.node.AstExpressionMigrationTest", "craken.compiler.semantic.manager.AstTemplateStructureTest"] } }
+    { "id": "C14", "required": { "visualizationAdapterTest": ["craken.compiler.parser.node.AstExpressionMigrationTest", "craken.compiler.semantic.manager.AstTemplateStructureTest"] } },
+    { "id": "C15", "required": { "visualizationAdapterTest": ["craken.compiler.parser.node.AstStatementMigrationTest"] } }
   ]
 }
