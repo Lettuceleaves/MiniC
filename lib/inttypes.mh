@@ -1,11 +1,11 @@
-/* MiniC compatibility declarations for <inttypes.h>. */
-#ifndef MINIC_INTTYPES_MH
-#define MINIC_INTTYPES_MH
+/* Craken compatibility declarations for <inttypes.h>. */
+#ifndef CRAKEN_INTTYPES_MH
+#define CRAKEN_INTTYPES_MH
 
 #include "stdint.mh"
 #include "stdlib.mh"
 
-/* Exact-width printf formats for the MiniC Windows LLP64 data model. */
+/* Exact-width printf formats for the Craken Windows LLP64 data model. */
 #define PRId8 "hhd"
 #define PRIi8 "hhi"
 #define PRIo8 "hho"
@@ -177,11 +177,11 @@
 #define strtoimax strtoll
 #define strtoumax strtoull
 
-struct minic_imaxdiv_result {
+struct craken_imaxdiv_result {
     intmax_t quot;
     intmax_t rem;
 };
-typedef struct minic_imaxdiv_result imaxdiv_t;
+typedef struct craken_imaxdiv_result imaxdiv_t;
 
 /* imaxdiv is deferred: the external aggregate-return ABI is not implemented. */
 

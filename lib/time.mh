@@ -1,6 +1,6 @@
-/* MiniC compatibility declarations for <time.h>. */
-#ifndef MINIC_TIME_MH
-#define MINIC_TIME_MH
+/* Craken compatibility declarations for <time.h>. */
+#ifndef CRAKEN_TIME_MH
+#define CRAKEN_TIME_MH
 
 /* Windows x64 uses 32-bit clock_t and 64-bit time_t. */
 typedef long clock_t;

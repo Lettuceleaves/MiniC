@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_DEQUE_MH
-#define MINIC_STL_DEQUE_MH
+#ifndef CRAKEN_STL_DEQUE_MH
+#define CRAKEN_STL_DEQUE_MH
 #include "memory.mh"
 #include "iterator.mh"
 #include "initializer_list.mh"
@@ -7,7 +7,7 @@ namespace std {
 
 // Iterators refer to block-map entries, never to the container object. A map
 // reallocation invalidates iterators but leaves every element at its address.
-template<class T,bool Constant> class __minic_deque_iterator {
+template<class T,bool Constant> class __craken_deque_iterator {
 public:
     typedef T value_type;
     typedef long long difference_type;
@@ -17,44 +17,44 @@ public:
     T** __node;
     difference_type __offset;
     static difference_type __block_size() { return sizeof(T)<512?512/sizeof(T):1; }
-    __minic_deque_iterator():__node(nullptr),__offset(0) {}
-    __minic_deque_iterator(T** node,difference_type offset):__node(node),__offset(offset) {}
+    __craken_deque_iterator():__node(nullptr),__offset(0) {}
+    __craken_deque_iterator(T** node,difference_type offset):__node(node),__offset(offset) {}
     template<bool Other,class Enable=typename enable_if<Constant || !Other>::type>
-    __minic_deque_iterator(const __minic_deque_iterator<T,Other>& other):__node(other.__node),__offset(other.__offset) {}
+    __craken_deque_iterator(const __craken_deque_iterator<T,Other>& other):__node(other.__node),__offset(other.__offset) {}
     reference operator*() const { return (*__node)[__offset]; }
     pointer operator->() const { return (*__node)+__offset; }
-    __minic_deque_iterator& operator++() { ++__offset;if(__offset==__block_size()){++__node;__offset=0;}return *this; }
-    __minic_deque_iterator operator++(int) { __minic_deque_iterator saved=*this;++*this;return saved; }
-    __minic_deque_iterator& operator--() { if(__offset==0){--__node;__offset=__block_size();}--__offset;return *this; }
-    __minic_deque_iterator operator--(int) { __minic_deque_iterator saved=*this;--*this;return saved; }
-    __minic_deque_iterator& operator+=(difference_type n) {
+    __craken_deque_iterator& operator++() { ++__offset;if(__offset==__block_size()){++__node;__offset=0;}return *this; }
+    __craken_deque_iterator operator++(int) { __craken_deque_iterator saved=*this;++*this;return saved; }
+    __craken_deque_iterator& operator--() { if(__offset==0){--__node;__offset=__block_size();}--__offset;return *this; }
+    __craken_deque_iterator operator--(int) { __craken_deque_iterator saved=*this;--*this;return saved; }
+    __craken_deque_iterator& operator+=(difference_type n) {
         difference_type blocks=n/__block_size();
         difference_type offset=__offset+n%__block_size();
         if(offset<0){--blocks;offset+=__block_size();}
         else if(offset>=__block_size()){++blocks;offset-=__block_size();}
         if(blocks!=0)__node+=blocks;__offset=offset;return *this;
     }
-    __minic_deque_iterator& operator-=(difference_type n) {
+    __craken_deque_iterator& operator-=(difference_type n) {
         // Split first, avoiding negation of the most negative difference_type.
         difference_type blocks=n/__block_size();
         difference_type rest=n%__block_size();
         if(blocks!=0)__node-=blocks;return *this+=-rest;
     }
-    __minic_deque_iterator operator+(difference_type n) const { __minic_deque_iterator result=*this;result+=n;return result; }
-    __minic_deque_iterator operator-(difference_type n) const { __minic_deque_iterator result=*this;result-=n;return result; }
+    __craken_deque_iterator operator+(difference_type n) const { __craken_deque_iterator result=*this;result+=n;return result; }
+    __craken_deque_iterator operator-(difference_type n) const { __craken_deque_iterator result=*this;result-=n;return result; }
     reference operator[](difference_type n) const { return *(*this+n); }
-    template<bool Other> difference_type operator-(const __minic_deque_iterator<T,Other>& other) const {
+    template<bool Other> difference_type operator-(const __craken_deque_iterator<T,Other>& other) const {
         if(__node==other.__node)return __offset-other.__offset;
         return (__node-other.__node)*__block_size()+__offset-other.__offset;
     }
-    template<bool Other> bool operator==(const __minic_deque_iterator<T,Other>& other) const { return __node==other.__node && __offset==other.__offset; }
-    template<bool Other> bool operator!=(const __minic_deque_iterator<T,Other>& other) const { return !(*this==other); }
-    template<bool Other> bool operator<(const __minic_deque_iterator<T,Other>& other) const { return __node==other.__node?__offset<other.__offset:__node<other.__node; }
-    template<bool Other> bool operator>(const __minic_deque_iterator<T,Other>& other) const { return other<*this; }
-    template<bool Other> bool operator<=(const __minic_deque_iterator<T,Other>& other) const { return !(other<*this); }
-    template<bool Other> bool operator>=(const __minic_deque_iterator<T,Other>& other) const { return !(*this<other); }
+    template<bool Other> bool operator==(const __craken_deque_iterator<T,Other>& other) const { return __node==other.__node && __offset==other.__offset; }
+    template<bool Other> bool operator!=(const __craken_deque_iterator<T,Other>& other) const { return !(*this==other); }
+    template<bool Other> bool operator<(const __craken_deque_iterator<T,Other>& other) const { return __node==other.__node?__offset<other.__offset:__node<other.__node; }
+    template<bool Other> bool operator>(const __craken_deque_iterator<T,Other>& other) const { return other<*this; }
+    template<bool Other> bool operator<=(const __craken_deque_iterator<T,Other>& other) const { return !(other<*this); }
+    template<bool Other> bool operator>=(const __craken_deque_iterator<T,Other>& other) const { return !(*this<other); }
 };
-template<class T,bool C> __minic_deque_iterator<T,C> operator+(long long n,const __minic_deque_iterator<T,C>& it) { return it+n; }
+template<class T,bool C> __craken_deque_iterator<T,C> operator+(long long n,const __craken_deque_iterator<T,C>& it) { return it+n; }
 
 template<class T> class deque {
     T** map_;
@@ -69,11 +69,11 @@ template<class T> class deque {
         unsigned long long active=active_blocks();
         unsigned long long required=active+front_blocks+back_blocks+2;
         if(capacity<required)capacity=required;
-        T** next=std::__minic_allocate<T*>(capacity);
+        T** next=std::__craken_allocate<T*>(capacity);
         for(unsigned long long i=0;i<capacity;++i)next[i]=nullptr;
         unsigned long long first=front_blocks+(capacity-required)/2;
         for(unsigned long long i=0;i<active;++i)next[first+i]=map_[first_+i];
-        std::__minic_deallocate(map_);map_=next;map_capacity_=capacity;first_=first;
+        std::__craken_deallocate(map_);map_=next;map_capacity_=capacity;first_=first;
     }
     void ensure_map(unsigned long long front_blocks,unsigned long long back_blocks) {
         if(map_!=nullptr && first_>=front_blocks
@@ -91,7 +91,7 @@ template<class T> class deque {
         unsigned long long blocks=(offset_+size_+n-1)/block_size()+1;
         unsigned long long active=active_blocks();
         ensure_map(0,blocks-active);
-        for(unsigned long long i=active;i<blocks;++i)if(map_[first_+i]==nullptr)map_[first_+i]=std::__minic_allocate<T>(block_size());
+        for(unsigned long long i=active;i<blocks;++i)if(map_[first_+i]==nullptr)map_[first_+i]=std::__craken_allocate<T>(block_size());
     }
     void reserve_front_slots(unsigned long long n) {
         if(n==0)return;check_growth(n);
@@ -102,24 +102,24 @@ template<class T> class deque {
         unsigned long long used=(offset_+size_+n-1)/block_size()+1;
         // The existing active blocks follow this new prefix and remain allocated.
         // In an empty deque, used-active also includes its first partial block.
-        for(unsigned long long i=0;i<used-active;++i)if(map_[first_+i]==nullptr)map_[first_+i]=std::__minic_allocate<T>(block_size());
+        for(unsigned long long i=0;i<used-active;++i)if(map_[first_+i]==nullptr)map_[first_+i]=std::__craken_allocate<T>(block_size());
     }
     void release_last_block() {
-        std::__minic_deallocate(map_[first_]);map_[first_]=nullptr;
+        std::__craken_deallocate(map_[first_]);map_[first_]=nullptr;
         first_=map_capacity_/2;offset_=block_size()/2;
     }
-    unsigned long long position(const __minic_deque_iterator<T,true>& it) const { return (unsigned long long)(it-cbegin()); }
-    __minic_deque_iterator<T,false> insert_buffer(unsigned long long index,deque& values) {
+    unsigned long long position(const __craken_deque_iterator<T,true>& it) const { return (unsigned long long)(it-cbegin()); }
+    __craken_deque_iterator<T,false> insert_buffer(unsigned long long index,deque& values) {
         unsigned long long n=values.size_;if(n==0)return begin()+(long long)index;
         check_growth(n);unsigned long long old=size_;
         if(index<old-index) {
             reserve_front_slots(n);
-            for(unsigned long long i=0;i<index;++i){if(i<n)std::__minic_construct(slot(i),std::move(*slot(i+n)));else *slot(i)=std::move(*slot(i+n));}
-            for(unsigned long long i=0;i<n;++i){unsigned long long at=index+i;if(at<n)std::__minic_construct(slot(at),std::move(values[i]));else *slot(at)=std::move(values[i]);}
+            for(unsigned long long i=0;i<index;++i){if(i<n)std::__craken_construct(slot(i),std::move(*slot(i+n)));else *slot(i)=std::move(*slot(i+n));}
+            for(unsigned long long i=0;i<n;++i){unsigned long long at=index+i;if(at<n)std::__craken_construct(slot(at),std::move(values[i]));else *slot(at)=std::move(values[i]);}
         } else {
             reserve_back_slots(n);
-            for(unsigned long long i=old;i>index;){--i;unsigned long long at=i+n;if(at>=old)std::__minic_construct(slot(at),std::move(*slot(i)));else *slot(at)=std::move(*slot(i));}
-            for(unsigned long long i=0;i<n;++i){unsigned long long at=index+i;if(at>=old)std::__minic_construct(slot(at),std::move(values[i]));else *slot(at)=std::move(values[i]);}
+            for(unsigned long long i=old;i>index;){--i;unsigned long long at=i+n;if(at>=old)std::__craken_construct(slot(at),std::move(*slot(i)));else *slot(at)=std::move(*slot(i));}
+            for(unsigned long long i=0;i<n;++i){unsigned long long at=index+i;if(at>=old)std::__craken_construct(slot(at),std::move(values[i]));else *slot(at)=std::move(values[i]);}
         }
         size_=old+n;return begin()+(long long)index;
     }
@@ -131,8 +131,8 @@ public:
     typedef const T& const_reference;
     typedef T* pointer;
     typedef const T* const_pointer;
-    typedef __minic_deque_iterator<T,false> iterator;
-    typedef __minic_deque_iterator<T,true> const_iterator;
+    typedef __craken_deque_iterator<T,false> iterator;
+    typedef __craken_deque_iterator<T,true> const_iterator;
     typedef std::reverse_iterator<iterator> reverse_iterator;
     typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
     deque():map_(nullptr),map_capacity_(0),first_(0),offset_(block_size()/2),size_(0) {}
@@ -145,10 +145,10 @@ public:
     deque(deque&& other):map_(other.map_),map_capacity_(other.map_capacity_),first_(other.first_),offset_(other.offset_),size_(other.size_) {
         other.map_=nullptr;other.map_capacity_=0;other.first_=0;other.offset_=block_size()/2;other.size_=0;
     }
-    ~deque() { clear();std::__minic_deallocate(map_); }
+    ~deque() { clear();std::__craken_deallocate(map_); }
     deque& operator=(const deque& other) { if(this!=&other){deque copy(other);swap(copy);}return *this; }
     deque& operator=(deque&& other) noexcept {
-        if(this!=&other){clear();std::__minic_deallocate(map_);map_=other.map_;map_capacity_=other.map_capacity_;first_=other.first_;offset_=other.offset_;size_=other.size_;other.map_=nullptr;other.map_capacity_=0;other.first_=0;other.offset_=block_size()/2;other.size_=0;}return *this;
+        if(this!=&other){clear();std::__craken_deallocate(map_);map_=other.map_;map_capacity_=other.map_capacity_;first_=other.first_;offset_=other.offset_;size_=other.size_;other.map_=nullptr;other.map_capacity_=0;other.first_=0;other.offset_=block_size()/2;other.size_=0;}return *this;
     }
     deque& operator=(initializer_list<T> values) { assign(values);return *this; }
     iterator begin() noexcept { return iterator(map_?map_+first_:nullptr,(difference_type)offset_); }
@@ -178,12 +178,12 @@ public:
         size_type absolute=offset_+size_,within=absolute%block_size();
         if(size_!=0 && within!=0)check_growth(1);else reserve_back_slots(1);
         T* target=map_[first_+absolute/block_size()]+within;
-        std::__minic_construct(target,std::forward<A>(args)...);++size_;return *target;
+        std::__craken_construct(target,std::forward<A>(args)...);++size_;return *target;
     }
     template<class... A> reference emplace_front(A&&... args) {
         if(size_!=0 && offset_!=0){check_growth(1);--offset_;}else reserve_front_slots(1);
         T* target=map_[first_]+offset_;
-        std::__minic_construct(target,std::forward<A>(args)...);++size_;return *target;
+        std::__craken_construct(target,std::forward<A>(args)...);++size_;return *target;
     }
     void push_back(const T& value) { emplace_back(value); }
     void push_back(T&& value) { emplace_back(std::move(value)); }
@@ -191,17 +191,17 @@ public:
     void push_front(T&& value) { emplace_front(std::move(value)); }
     void pop_back() {
         --size_;size_type end=offset_+size_,within=end%block_size(),block=first_+end/block_size();
-        std::__minic_destroy(map_[block]+within);
+        std::__craken_destroy(map_[block]+within);
         if(size_==0){release_last_block();return;}
-        if(within==0){std::__minic_deallocate(map_[block]);map_[block]=nullptr;}
+        if(within==0){std::__craken_deallocate(map_[block]);map_[block]=nullptr;}
     }
     void pop_front() {
-        std::__minic_destroy(map_[first_]+offset_);--size_;++offset_;
+        std::__craken_destroy(map_[first_]+offset_);--size_;++offset_;
         if(size_==0){release_last_block();return;}
-        if(offset_==block_size()){std::__minic_deallocate(map_[first_]);map_[first_]=nullptr;++first_;offset_=0;}
+        if(offset_==block_size()){std::__craken_deallocate(map_[first_]);map_[first_]=nullptr;++first_;offset_=0;}
     }
     void clear() noexcept { while(size_>0)pop_back(); }
-    void shrink_to_fit() { if(size_==0){std::__minic_deallocate(map_);map_=nullptr;map_capacity_=0;first_=0;offset_=block_size()/2;}else replace_map(active_blocks()+2,0,0); }
+    void shrink_to_fit() { if(size_==0){std::__craken_deallocate(map_);map_=nullptr;map_capacity_=0;first_=0;offset_=block_size()/2;}else replace_map(active_blocks()+2,0,0); }
     void resize(size_type n) { if(n>max_size())::abort();while(size_>n)pop_back();while(size_<n)emplace_back(); }
     void resize(size_type n,const T& value) { if(n>max_size())::abort();if(n>size_){T saved=value;while(size_<n)push_back(saved);}else while(size_>n)pop_back(); }
     template<class... A> iterator emplace(const_iterator where,A&&... args) {

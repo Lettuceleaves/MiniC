@@ -34,8 +34,8 @@ set APP_HOME=%DIRNAME%
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
 @rem Prefer the repository JDK so the Gradle client and Java toolchain use the same runtime.
-set MINIC_JAVA_HOME=%APP_HOME%\.local\tools\jdk-21.0.10+7
-if exist "%MINIC_JAVA_HOME%\bin\java.exe" set JAVA_HOME=%MINIC_JAVA_HOME%
+set CRAKEN_JAVA_HOME=%APP_HOME%\.local\tools\jdk-21.0.10+7
+if exist "%CRAKEN_JAVA_HOME%\bin\java.exe" set JAVA_HOME=%CRAKEN_JAVA_HOME%
 
 @rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 set DEFAULT_JVM_OPTS="--add-opens=java.base/java.util=ALL-UNNAMED" "--add-opens=java.base/java.lang=ALL-UNNAMED" "--add-opens=java.base/java.lang.invoke=ALL-UNNAMED" "--add-opens=java.prefs/java.util.prefs=ALL-UNNAMED" "--add-opens=java.base/java.nio.charset=ALL-UNNAMED" "--add-opens=java.base/java.net=ALL-UNNAMED" "--add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED" "-Dfile.encoding=UTF-8" "-Duser.country=CN" "-Duser.language=zh" "-Duser.variant" "-Dorg.gradle.internal.instrumentation.agent=false"

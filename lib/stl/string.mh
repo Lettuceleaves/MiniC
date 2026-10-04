@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_STRING_MH
-#define MINIC_STL_STRING_MH
+#ifndef CRAKEN_STL_STRING_MH
+#define CRAKEN_STL_STRING_MH
 #include "memory.mh"
 #include "functional.mh"
 #include "iterator.mh"
@@ -13,11 +13,11 @@ namespace std {
 // The char specialization keeps 15 bytes and a terminator inline. buffer_
 // always points at live character storage; small moves repair this self-pointer.
 // The named trivial union keeps the x64 string object at 32 bytes.
-union __minic_string_storage { unsigned long long capacity; char small[16]; };
+union __craken_string_storage { unsigned long long capacity; char small[16]; };
 class string {
     char* buffer_;
     unsigned long long size_;
-    __minic_string_storage storage_;
+    __craken_string_storage storage_;
     bool is_small() const noexcept { return buffer_==storage_.small; }
     static unsigned long long text_length(const char* text) { return ::strlen(text); }
     unsigned long long clipped(unsigned long long position,unsigned long long count) const {
@@ -29,10 +29,10 @@ class string {
     }
     void allocate_capacity(unsigned long long capacity) {
         if(capacity>max_size())::abort();
-        char* next=std::__minic_allocate<char>(capacity+1);
+        char* next=std::__craken_allocate<char>(capacity+1);
         ::memcpy(next,data(),size_+1);
         char* old=is_small()?nullptr:buffer_;buffer_=next;storage_.capacity=capacity;
-        std::__minic_deallocate(old);
+        std::__craken_deallocate(old);
     }
     void ensure(unsigned long long needed) { if(needed>capacity())allocate_capacity(growth(needed)); }
     // Destination has released its old storage and is distinct from source.
@@ -59,13 +59,13 @@ class string {
     // of this string, including its terminator, or an overlapping iterator range.
     string& replace_text(unsigned long long position,unsigned long long count,const char* text,unsigned long long n) {
         count=clipped(position,count);if(n>max_size()-(size_-count))::abort();
-        char snapshot[16];char* saved=n<=15?snapshot:std::__minic_allocate<char>(n);
+        char snapshot[16];char* saved=n<=15?snapshot:std::__craken_allocate<char>(n);
         if(n!=0)::memcpy(saved,text,n);
         unsigned long long next_size=size_-count+n;ensure(next_size);
         char* destination=data();unsigned long long tail=size_-position-count;
         if(n!=count && tail!=0)::memmove(destination+position+n,destination+position+count,tail);
         if(n!=0)::memcpy(destination+position,saved,n);
-        size_=next_size;destination[size_]=0;if(n>15)std::__minic_deallocate(saved);return *this;
+        size_=next_size;destination[size_]=0;if(n>15)std::__craken_deallocate(saved);return *this;
     }
     string& replace_fill(unsigned long long position,unsigned long long count,unsigned long long n,char value) {
         count=clipped(position,count);if(n>max_size()-(size_-count))::abort();
@@ -105,10 +105,10 @@ public:
     string(I first,I last):buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;while(first!=last){push_back(*first);++first;} }
     string(initializer_list<char> values):buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;assign(values.begin(),values.size()); }
     string(string&& other) noexcept:buffer_(nullptr),size_(0) { storage_.small[0]=0;buffer_=storage_.small;take_storage(other); }
-    ~string() { if(!is_small())std::__minic_deallocate(buffer_); }
+    ~string() { if(!is_small())std::__craken_deallocate(buffer_); }
     string& operator=(const string& other) { if(this!=&other)assign(other);return *this; }
     string& operator=(string&& other) noexcept {
-        if(this!=&other){if(!is_small())std::__minic_deallocate(buffer_);take_storage(other);}return *this;
+        if(this!=&other){if(!is_small())std::__craken_deallocate(buffer_);take_storage(other);}return *this;
     }
     string& operator=(const char* text) { return assign(text); }
     string& operator=(char value) { return assign(1,value); }
@@ -146,7 +146,7 @@ public:
     void reserve() { shrink_to_fit(); }
     void shrink_to_fit() {
         if(is_small())return;
-        if(size_<=15){char* old=buffer_;storage_.small[0]=old[0];if(size_!=0)::memcpy(storage_.small+1,old+1,size_);buffer_=storage_.small;std::__minic_deallocate(old);}
+        if(size_<=15){char* old=buffer_;storage_.small[0]=old[0];if(size_!=0)::memcpy(storage_.small+1,old+1,size_);buffer_=storage_.small;std::__craken_deallocate(old);}
         else if(size_<storage_.capacity)allocate_capacity(size_);
     }
     void resize(size_type n,char value) { if(n>size_)replace_fill(size_,0,n-size_,value);else {size_=n;data()[n]=0;} }
@@ -319,35 +319,35 @@ string operator+(char a,string&& b) { b.insert((string::size_type)0,(string::siz
 
 // Exceptions are outside this algorithm profile: invalid/range errors use
 // its common abort policy. Parsing itself uses the shared native/debug CRT.
-void __minic_string_conversion(const char* begin,char* end,int error,string::size_type* index) {
+void __craken_string_conversion(const char* begin,char* end,int error,string::size_type* index) {
     if(end==begin || error==ERANGE)::abort();if(index!=nullptr)*index=(string::size_type)(end-begin);
 }
-long long stoll(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;long long value=::strtoll(text.c_str(),&end,base);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+long long stoll(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;long long value=::strtoll(text.c_str(),&end,base);__craken_string_conversion(text.c_str(),end,errno,index);return value; }
 long long stoll(const string& text,string::size_type* index) { return stoll(text,index,10); }
 long long stoll(const string& text) { return stoll(text,nullptr,10); }
 int stoi(const string& text,string::size_type* index,int base) { string::size_type used=0;long long value=stoll(text,&used,base);if(value<INT_MIN || value>INT_MAX)::abort();if(index!=nullptr)*index=used;return (int)value; }
 int stoi(const string& text,string::size_type* index) { return stoi(text,index,10); }
 int stoi(const string& text) { return stoi(text,nullptr,10); }
-long stol(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;long value=::strtol(text.c_str(),&end,base);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+long stol(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;long value=::strtol(text.c_str(),&end,base);__craken_string_conversion(text.c_str(),end,errno,index);return value; }
 long stol(const string& text,string::size_type* index) { return stol(text,index,10); }
 long stol(const string& text) { return stol(text,nullptr,10); }
-unsigned long stoul(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;unsigned long value=::strtoul(text.c_str(),&end,base);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+unsigned long stoul(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;unsigned long value=::strtoul(text.c_str(),&end,base);__craken_string_conversion(text.c_str(),end,errno,index);return value; }
 unsigned long stoul(const string& text,string::size_type* index) { return stoul(text,index,10); }
 unsigned long stoul(const string& text) { return stoul(text,nullptr,10); }
-unsigned long long stoull(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;unsigned long long value=::strtoull(text.c_str(),&end,base);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+unsigned long long stoull(const string& text,string::size_type* index,int base) { if(base!=0 && (base<2 || base>36))::abort();char* end=nullptr;errno=0;unsigned long long value=::strtoull(text.c_str(),&end,base);__craken_string_conversion(text.c_str(),end,errno,index);return value; }
 unsigned long long stoull(const string& text,string::size_type* index) { return stoull(text,index,10); }
 unsigned long long stoull(const string& text) { return stoull(text,nullptr,10); }
-double stod(const string& text,string::size_type* index) { char* end=nullptr;errno=0;double value=::strtod(text.c_str(),&end);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+double stod(const string& text,string::size_type* index) { char* end=nullptr;errno=0;double value=::strtod(text.c_str(),&end);__craken_string_conversion(text.c_str(),end,errno,index);return value; }
 double stod(const string& text) { return stod(text,nullptr); }
-float stof(const string& text,string::size_type* index) { char* end=nullptr;errno=0;float value=::strtof(text.c_str(),&end);__minic_string_conversion(text.c_str(),end,errno,index);return value; }
+float stof(const string& text,string::size_type* index) { char* end=nullptr;errno=0;float value=::strtof(text.c_str(),&end);__craken_string_conversion(text.c_str(),end,errno,index);return value; }
 float stof(const string& text) { return stof(text,nullptr); }
-string __minic_string_unsigned(unsigned long long value,bool negative) {
+string __craken_string_unsigned(unsigned long long value,bool negative) {
     char digits[32];unsigned long long count=0;
     do {digits[count++]=(char)('0'+value%10);value/=10;}while(value!=0);
     string result;if(negative)result.push_back('-');while(count>0)result.push_back(digits[--count]);return result;
 }
-string to_string(long long value) { bool negative=value<0;unsigned long long magnitude=(unsigned long long)value;if(negative)magnitude=0-magnitude;return __minic_string_unsigned(magnitude,negative); }
-string to_string(unsigned long long value) { return __minic_string_unsigned(value,false); }
+string to_string(long long value) { bool negative=value<0;unsigned long long magnitude=(unsigned long long)value;if(negative)magnitude=0-magnitude;return __craken_string_unsigned(magnitude,negative); }
+string to_string(unsigned long long value) { return __craken_string_unsigned(value,false); }
 string to_string(int value) { return to_string((long long)value); }
 string to_string(unsigned int value) { return to_string((unsigned long long)value); }
 string to_string(long value) { return to_string((long long)value); }

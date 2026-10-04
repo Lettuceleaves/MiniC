@@ -1,7 +1,7 @@
-/* MiniC compatibility declarations for <stdlib.h>. */
-#ifndef MINIC_STDLIB_MH
-#define MINIC_STDLIB_MH
-#if !defined(__MINIC__)
+/* Craken compatibility declarations for <stdlib.h>. */
+#ifndef CRAKEN_STDLIB_MH
+#define CRAKEN_STDLIB_MH
+#if !defined(__CRAKEN__)
 #include <stdlib.h>
 #else
 #include <errno.h>
@@ -16,9 +16,9 @@ extern double atof(const char *string);
 extern int atoi(const char *string);
 extern long atol(const char *string);
 extern long long atoll(const char *string);
-extern double minic_ucrt_strtod(const char *string, char **endPointer);
-extern float minic_ucrt_strtof(const char *string, char **endPointer);
-extern int *minic_ucrt_errno_location(void);
+extern double craken_ucrt_strtod(const char *string, char **endPointer);
+extern float craken_ucrt_strtof(const char *string, char **endPointer);
+extern int *craken_ucrt_errno_location(void);
 /* MSVCRT lacks strtof. UCRT performs one correctly rounded float conversion;
  * transport its errno into this profile's MSVCRT errno without changing errno
  * on success or leaving the other CRT's thread-local error slot modified. */
@@ -26,20 +26,20 @@ extern int *minic_ucrt_errno_location(void);
  * from the legacy MSVCRT double conversion. It uses UCRT's independent
  * locale (initially C), which is not synchronized with MSVCRT setlocale. */
 double strtod(const char *string, char **endPointer) {
-    int *foreign_errno = minic_ucrt_errno_location();
+    int *foreign_errno = craken_ucrt_errno_location();
     int saved_errno = *foreign_errno;
     *foreign_errno = 0;
-    double result = minic_ucrt_strtod(string, endPointer);
+    double result = craken_ucrt_strtod(string, endPointer);
     int conversion_errno = *foreign_errno;
     *foreign_errno = saved_errno;
     if (conversion_errno != 0) errno = conversion_errno;
     return result;
 }
 float strtof(const char *string, char **endPointer) {
-    int *foreign_errno = minic_ucrt_errno_location();
+    int *foreign_errno = craken_ucrt_errno_location();
     int saved_errno = *foreign_errno;
     *foreign_errno = 0;
-    float result = minic_ucrt_strtof(string, endPointer);
+    float result = craken_ucrt_strtof(string, endPointer);
     int conversion_errno = *foreign_errno;
     *foreign_errno = saved_errno;
     if (conversion_errno != 0) errno = conversion_errno;
@@ -56,7 +56,7 @@ extern int rand(void);
 extern void srand(unsigned int seed);
 extern void abort(void);
 extern void exit(int status);
-extern int minic_immediate_exit(long long processHandle, int status);
-#define _Exit(status) minic_immediate_exit(-1LL, (status))
+extern int craken_immediate_exit(long long processHandle, int status);
+#define _Exit(status) craken_immediate_exit(-1LL, (status))
 #endif
 #endif

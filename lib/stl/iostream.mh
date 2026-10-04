@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_IOSTREAM_MH
-#define MINIC_STL_IOSTREAM_MH
+#ifndef CRAKEN_STL_IOSTREAM_MH
+#define CRAKEN_STL_IOSTREAM_MH
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -93,7 +93,7 @@ class ostream {
             return formatted(text,n,true);
         }
         streamsize p=precision();if(p<0)p=6;if(p>2147483000LL)::abort();
-        char* text=std::__minic_allocate<char>((size_t)p+384);
+        char* text=std::__craken_allocate<char>((size_t)p+384);
         char format[16];int at=0;format[at++]='%';
         if(flags()&ios::showpos)format[at++]='+';if(flags()&ios::showpoint)format[at++]='#';
         format[at++]='.';format[at++]='*';
@@ -111,7 +111,7 @@ class ostream {
             }
             formatted(text,n,true);
         }
-        std::__minic_deallocate(text);return *this;
+        std::__craken_deallocate(text);return *this;
     }
 public:
     explicit ostream(FILE* file):file_(file),state_(),tied_(nullptr) {}

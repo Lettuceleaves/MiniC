@@ -1,8 +1,8 @@
-/* MiniC compatibility declarations for <float.h>. */
-#ifndef MINIC_FLOAT_MH
-#define MINIC_FLOAT_MH
+/* Craken compatibility declarations for <float.h>. */
+#ifndef CRAKEN_FLOAT_MH
+#define CRAKEN_FLOAT_MH
 
-/* MiniC uses binary32 float and binary64 double on Windows x64. */
+/* Craken uses binary32 float and binary64 double on Windows x64. */
 #define FLT_RADIX 2
 #define FLT_ROUNDS 1
 #define FLT_EVAL_METHOD 0
@@ -38,7 +38,7 @@
 #define DBL_HAS_SUBNORM 1
 
 /*
- * MiniC has no wider floating representation: an L-suffixed literal is
+ * Craken has no wider floating representation: an L-suffixed literal is
  * represented and evaluated exactly as double. Keep every LDBL property an
  * representation alias; value macros retain their distinct long double type.
  */

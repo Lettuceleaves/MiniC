@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_CSTDINT_MH
-#define MINIC_STL_CSTDINT_MH
+#ifndef CRAKEN_STL_CSTDINT_MH
+#define CRAKEN_STL_CSTDINT_MH
 #include <stdint.h>
 namespace std {
 using ::int8_t;

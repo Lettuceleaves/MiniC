@@ -1,22 +1,22 @@
-/* MiniC compatibility declarations for <stdio.h>. */
-#ifndef MINIC_STDIO_MH
-#define MINIC_STDIO_MH
-#if !defined(__MINIC__)
+/* Craken compatibility declarations for <stdio.h>. */
+#ifndef CRAKEN_STDIO_MH
+#define CRAKEN_STDIO_MH
+#if !defined(__CRAKEN__)
 /* A reference compiler owns its FILE ABI and C linkage. */
 #include <stdio.h>
 #else
 #define EOF (-1)
 
 // Keep the CRT stream representation incomplete; only pointers cross the ABI.
-struct __minic_file;
-typedef struct __minic_file FILE;
+struct __craken_file;
+typedef struct __craken_file FILE;
 /* Windows x64 legacy MSVCRT: __iob_func returns contiguous 48-byte _iobufs.
  * FILE remains opaque; only this ABI adapter performs the byte offsets.
  * All operations and printf/scanf use the same CRT and its stream buffers. */
-extern void *minic_iob_base(void);
-#define stdin ((FILE *)minic_iob_base())
-#define stdout ((FILE *)((char *)minic_iob_base() + 48))
-#define stderr ((FILE *)((char *)minic_iob_base() + 96))
+extern void *craken_iob_base(void);
+#define stdin ((FILE *)craken_iob_base())
+#define stdout ((FILE *)((char *)craken_iob_base() + 48))
+#define stderr ((FILE *)((char *)craken_iob_base() + 96))
 extern int fgetc(FILE *stream);
 extern int fputc(int character, FILE *stream);
 extern int ungetc(int character, FILE *stream);

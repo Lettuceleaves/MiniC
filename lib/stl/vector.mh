@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_VECTOR_MH
-#define MINIC_STL_VECTOR_MH
+#ifndef CRAKEN_STL_VECTOR_MH
+#define CRAKEN_STL_VECTOR_MH
 #include "memory.mh"
 #include "iterator.mh"
 #include "initializer_list.mh"
@@ -15,14 +15,14 @@ template<class T> class vector {
         unsigned long long grown=capacity_>max_size()/2?max_size():capacity_*2;
         return grown<needed?needed:grown;
     }
-    void release() { std::__minic_destroy_range(data_,size_);std::__minic_deallocate(data_); }
+    void release() { std::__craken_destroy_range(data_,size_);std::__craken_deallocate(data_); }
     void relocate(T* target) {
-        for(unsigned long long i=0;i<size_;++i)std::__minic_construct(target+i,std::move_if_noexcept(data_[i]));
+        for(unsigned long long i=0;i<size_;++i)std::__craken_construct(target+i,std::move_if_noexcept(data_[i]));
     }
     void replace_storage(T* target,unsigned long long capacity) { release();data_=target;capacity_=capacity; }
     void make_gap(unsigned long long index,unsigned long long count) {
         unsigned long long old=size_;
-        for(unsigned long long i=old;i>index;){--i;unsigned long long target=i+count;if(target>=old)std::__minic_construct(data_+target,std::move(data_[i]));else data_[target]=std::move(data_[i]);}
+        for(unsigned long long i=old;i>index;){--i;unsigned long long target=i+count;if(target>=old)std::__craken_construct(data_+target,std::move(data_[i]));else data_[target]=std::move(data_[i]);}
     }
 public:
     typedef T value_type;
@@ -37,22 +37,22 @@ public:
     typedef std::reverse_iterator<iterator> reverse_iterator;
     typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
     vector() noexcept:data_(nullptr),size_(0),capacity_(0) {}
-    explicit vector(size_type n):data_(std::__minic_allocate<T>(n)),size_(n),capacity_(n) { for(size_type i=0;i<n;++i)std::__minic_construct(data_+i); }
-    vector(size_type n,const T& value):data_(std::__minic_allocate<T>(n)),size_(n),capacity_(n) { for(size_type i=0;i<n;++i)std::__minic_construct(data_+i,value); }
+    explicit vector(size_type n):data_(std::__craken_allocate<T>(n)),size_(n),capacity_(n) { for(size_type i=0;i<n;++i)std::__craken_construct(data_+i); }
+    vector(size_type n,const T& value):data_(std::__craken_allocate<T>(n)),size_(n),capacity_(n) { for(size_type i=0;i<n;++i)std::__craken_construct(data_+i,value); }
     template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
     vector(I first,I last):data_(nullptr),size_(0),capacity_(0) { while(first!=last){push_back(*first);++first;} }
-    vector(initializer_list<T> values):data_(std::__minic_allocate<T>(values.size())),size_(values.size()),capacity_(values.size()) { size_type i=0;for(const T* it=values.begin();it!=values.end();++it,++i)std::__minic_construct(data_+i,*it); }
-    vector(const vector& other):data_(std::__minic_allocate<T>(other.size_)),size_(other.size_),capacity_(other.size_) { for(size_type i=0;i<size_;++i)std::__minic_construct(data_+i,other.data_[i]); }
+    vector(initializer_list<T> values):data_(std::__craken_allocate<T>(values.size())),size_(values.size()),capacity_(values.size()) { size_type i=0;for(const T* it=values.begin();it!=values.end();++it,++i)std::__craken_construct(data_+i,*it); }
+    vector(const vector& other):data_(std::__craken_allocate<T>(other.size_)),size_(other.size_),capacity_(other.size_) { for(size_type i=0;i<size_;++i)std::__craken_construct(data_+i,other.data_[i]); }
     vector(vector&& other) noexcept:data_(other.data_),size_(other.size_),capacity_(other.capacity_) { other.data_=nullptr;other.size_=0;other.capacity_=0; }
     ~vector() { release(); }
     vector& operator=(const vector& other) {
         if(this==&other)return *this;
         if(other.size_>capacity_){vector copy(other);swap(copy);return *this;}
         size_type common=size_<other.size_?size_:other.size_;
-        if(!std::__minic_try_live_integral_copy(other.data_,data_,common))
+        if(!std::__craken_try_live_integral_copy(other.data_,data_,common))
             for(size_type i=0;i<common;++i)data_[i]=other.data_[i];
-        for(size_type i=common;i<other.size_;++i)std::__minic_construct(data_+i,other.data_[i]);
-        while(size_>other.size_){--size_;std::__minic_destroy(data_+size_);}
+        for(size_type i=common;i<other.size_;++i)std::__craken_construct(data_+i,other.data_[i]);
+        while(size_>other.size_){--size_;std::__craken_destroy(data_+size_);}
         size_=other.size_;return *this;
     }
     vector& operator=(vector&& other) noexcept { if(this!=&other){release();data_=other.data_;size_=other.size_;capacity_=other.capacity_;other.data_=nullptr;other.size_=0;other.capacity_=0;}return *this; }
@@ -83,25 +83,25 @@ public:
     const T& front() const { return data_[0]; }
     T& back() { return data_[size_-1]; }
     const T& back() const { return data_[size_-1]; }
-    void clear() noexcept { std::__minic_destroy_range(data_,size_);size_=0; }
-    void reserve(size_type n) { if(n<=capacity_)return;T* target=std::__minic_allocate<T>(n);relocate(target);replace_storage(target,n); }
-    void shrink_to_fit() { if(size_==capacity_)return;T* target=std::__minic_allocate<T>(size_);relocate(target);replace_storage(target,size_); }
+    void clear() noexcept { std::__craken_destroy_range(data_,size_);size_=0; }
+    void reserve(size_type n) { if(n<=capacity_)return;T* target=std::__craken_allocate<T>(n);relocate(target);replace_storage(target,n); }
+    void shrink_to_fit() { if(size_==capacity_)return;T* target=std::__craken_allocate<T>(size_);relocate(target);replace_storage(target,size_); }
     template<class... A> T& emplace_back(A&&... args) {
-        if(size_==capacity_){size_type n=growth(size_+1);T* target=std::__minic_allocate<T>(n);std::__minic_construct(target+size_,std::forward<A>(args)...);relocate(target);replace_storage(target,n);}
-        else std::__minic_construct(data_+size_,std::forward<A>(args)...);
+        if(size_==capacity_){size_type n=growth(size_+1);T* target=std::__craken_allocate<T>(n);std::__craken_construct(target+size_,std::forward<A>(args)...);relocate(target);replace_storage(target,n);}
+        else std::__craken_construct(data_+size_,std::forward<A>(args)...);
         ++size_;return back();
     }
     void push_back(const T& value) { emplace_back(value); }
     void push_back(T&& value) { emplace_back(std::move(value)); }
-    void pop_back() { --size_;std::__minic_destroy(data_+size_); }
-    void resize(size_type n) { if(n<size_){while(size_>n)pop_back();return;}if(n>capacity_)reserve(growth(n));while(size_<n){std::__minic_construct(data_+size_);++size_;} }
-    void resize(size_type n,const T& value) { if(n<=size_){while(size_>n)pop_back();return;}if(n>capacity_){T saved=value;reserve(growth(n));while(size_<n){std::__minic_construct(data_+size_,saved);++size_;}}else while(size_<n){std::__minic_construct(data_+size_,value);++size_;} }
+    void pop_back() { --size_;std::__craken_destroy(data_+size_); }
+    void resize(size_type n) { if(n<size_){while(size_>n)pop_back();return;}if(n>capacity_)reserve(growth(n));while(size_<n){std::__craken_construct(data_+size_);++size_;} }
+    void resize(size_type n,const T& value) { if(n<=size_){while(size_>n)pop_back();return;}if(n>capacity_){T saved=value;reserve(growth(n));while(size_<n){std::__craken_construct(data_+size_,saved);++size_;}}else while(size_<n){std::__craken_construct(data_+size_,value);++size_;} }
     template<class... A> iterator emplace(const_iterator position,A&&... args) {
         size_type index=offset(position);
         if(index==size_){emplace_back(std::forward<A>(args)...);return data_+index;}
         T saved(std::forward<A>(args)...);
         if(size_==capacity_)reserve(growth(size_+1));
-        make_gap(index,1);if(index<size_)data_[index]=std::move(saved);else std::__minic_construct(data_+index,std::move(saved));
+        make_gap(index,1);if(index<size_)data_[index]=std::move(saved);else std::__craken_construct(data_+index,std::move(saved));
         ++size_;return data_+index;
     }
     iterator insert(const_iterator position,const T& value) { return emplace(position,value); }
@@ -109,24 +109,24 @@ public:
     iterator insert(const_iterator position,size_type n,const T& value) {
         size_type index=offset(position);if(n==0)return data_?data_+index:data_;
         if(n>max_size()-size_)::abort();T saved=value;if(size_+n>capacity_)reserve(growth(size_+n));
-        make_gap(index,n);for(size_type i=0;i<n;++i){if(index+i<size_)data_[index+i]=saved;else std::__minic_construct(data_+index+i,saved);}size_+=n;return data_+index;
+        make_gap(index,n);for(size_type i=0;i<n;++i){if(index+i<size_)data_[index+i]=saved;else std::__craken_construct(data_+index+i,saved);}size_+=n;return data_+index;
     }
     template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
     iterator insert(const_iterator position,I first,I last) {
         size_type index=offset(position);vector saved(first,last);size_type n=saved.size();if(n==0)return data_?data_+index:data_;
         if(n>max_size()-size_)::abort();if(size_+n>capacity_)reserve(growth(size_+n));make_gap(index,n);
-        for(size_type i=0;i<n;++i){if(index+i<size_)data_[index+i]=std::move(saved[i]);else std::__minic_construct(data_+index+i,std::move(saved[i]));}size_+=n;return data_+index;
+        for(size_type i=0;i<n;++i){if(index+i<size_)data_[index+i]=std::move(saved[i]);else std::__craken_construct(data_+index+i,std::move(saved[i]));}size_+=n;return data_+index;
     }
     iterator insert(const_iterator position,initializer_list<T> values) { return insert(position,values.begin(),values.end()); }
     iterator erase(const_iterator position) { return erase(position,position+1); }
     iterator erase(const_iterator first,const_iterator last) {
         size_type index=offset(first),finish=offset(last),n=finish-index;
         if(n==0)return data_?data_+index:data_;
-        if(!std::__minic_try_live_integral_copy(data_+finish,data_+index,size_-finish))
+        if(!std::__craken_try_live_integral_copy(data_+finish,data_+index,size_-finish))
             for(size_type i=finish;i<size_;++i)data_[i-n]=std::move(data_[i]);
         for(size_type i=0;i<n;++i)pop_back();return data_+index;
     }
-    void assign(size_type n,const T& value) { T saved=value;clear();if(n>capacity_)reserve(n);while(size_<n){std::__minic_construct(data_+size_,saved);++size_;} }
+    void assign(size_type n,const T& value) { T saved=value;clear();if(n>capacity_)reserve(n);while(size_<n){std::__craken_construct(data_+size_,saved);++size_;} }
     template<class I,class Enable=typename enable_if<!is_integral<I>::value>::type>
     void assign(I first,I last) { vector saved(first,last);swap(saved); }
     void assign(initializer_list<T> values) { assign(values.begin(),values.end()); }

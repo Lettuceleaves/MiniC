@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_CSTDLIB_MH
-#define MINIC_STL_CSTDLIB_MH
+#ifndef CRAKEN_STL_CSTDLIB_MH
+#define CRAKEN_STL_CSTDLIB_MH
 #include <stdlib.h>
 #include <math.h>
 namespace std {
@@ -24,7 +24,7 @@ using ::rand;
 using ::srand;
 using ::abort;
 using ::exit;
-#if defined(__MINIC__) || defined(__MINIC_SELF_STL__)
+#if defined(__CRAKEN__) || defined(__CRAKEN_SELF_STL__)
 float abs(float value){return (float)::fabs((double)value);}
 double abs(double value){return ::fabs(value);}
 long double abs(long double value){return (long double)::fabs((double)value);}

@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_ARRAY_MH
-#define MINIC_STL_ARRAY_MH
+#ifndef CRAKEN_STL_ARRAY_MH
+#define CRAKEN_STL_ARRAY_MH
 #include "iterator.mh"
 #include "tuple.mh"
 #include <stdlib.h>

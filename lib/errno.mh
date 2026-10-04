@@ -1,9 +1,9 @@
-/* MiniC compatibility declarations for <errno.h>. */
-#ifndef MINIC_ERRNO_MH
-#define MINIC_ERRNO_MH
+/* Craken compatibility declarations for <errno.h>. */
+#ifndef CRAKEN_ERRNO_MH
+#define CRAKEN_ERRNO_MH
 #define EDOM 33
 #define ERANGE 34
 #define EILSEQ 42
-extern int *minic_errno_location(void);
-#define errno minic_errno_location()[0]
+extern int *craken_errno_location(void);
+#define errno craken_errno_location()[0]
 #endif

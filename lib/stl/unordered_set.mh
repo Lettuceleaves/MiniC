@@ -1,9 +1,9 @@
-#ifndef MINIC_STL_UNORDERED_SET_MH
-#define MINIC_STL_UNORDERED_SET_MH
+#ifndef CRAKEN_STL_UNORDERED_SET_MH
+#define CRAKEN_STL_UNORDERED_SET_MH
 #include "__hash_table.mh"
 namespace std {
 template<class K,class Hash=hash<K>,class Equal=equal_to<K>> class unordered_set {
-    typedef __minic_hash_table<K,K,__minic_set_key<K>,Hash,Equal> table_type;table_type table_;
+    typedef __craken_hash_table<K,K,__craken_set_key<K>,Hash,Equal> table_type;table_type table_;
 public:
     typedef K key_type;typedef K value_type;typedef Hash hasher;typedef Equal key_equal;typedef unsigned long long size_type;typedef long long difference_type;
     typedef const K& reference;typedef const K& const_reference;typedef typename table_type::const_iterator iterator;typedef iterator const_iterator;

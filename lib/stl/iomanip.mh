@@ -1,20 +1,20 @@
-#ifndef MINIC_STL_IOMANIP_MH
-#define MINIC_STL_IOMANIP_MH
+#ifndef CRAKEN_STL_IOMANIP_MH
+#define CRAKEN_STL_IOMANIP_MH
 #include "iostream.mh"
 namespace std {
-struct __minic_precision { int value; explicit __minic_precision(int n):value(n) {} };
-struct __minic_width { int value; explicit __minic_width(int n):value(n) {} };
-struct __minic_fill { char value; explicit __minic_fill(char c):value(c) {} };
-struct __minic_base { int value; explicit __minic_base(int n):value(n) {} };
-__minic_precision setprecision(int n){return __minic_precision(n);}
-__minic_width setw(int n){return __minic_width(n);}
-__minic_fill setfill(char c){return __minic_fill(c);}
-__minic_base setbase(int n){return __minic_base(n);}
-ostream& operator<<(ostream& stream,__minic_precision value){stream.precision(value.value);return stream;}
-ostream& operator<<(ostream& stream,__minic_width value){stream.width(value.value);return stream;}
-istream& operator>>(istream& stream,__minic_width value){stream.width(value.value);return stream;}
-ostream& operator<<(ostream& stream,__minic_fill value){stream.fill(value.value);return stream;}
-ostream& operator<<(ostream& stream,__minic_base value){stream.setf(value.value==16?ios::hex:value.value==8?ios::oct:value.value==10?ios::dec:0,ios::basefield);return stream;}
-istream& operator>>(istream& stream,__minic_base value){stream.setf(value.value==16?ios::hex:value.value==8?ios::oct:value.value==10?ios::dec:0,ios::basefield);return stream;}
+struct __craken_precision { int value; explicit __craken_precision(int n):value(n) {} };
+struct __craken_width { int value; explicit __craken_width(int n):value(n) {} };
+struct __craken_fill { char value; explicit __craken_fill(char c):value(c) {} };
+struct __craken_base { int value; explicit __craken_base(int n):value(n) {} };
+__craken_precision setprecision(int n){return __craken_precision(n);}
+__craken_width setw(int n){return __craken_width(n);}
+__craken_fill setfill(char c){return __craken_fill(c);}
+__craken_base setbase(int n){return __craken_base(n);}
+ostream& operator<<(ostream& stream,__craken_precision value){stream.precision(value.value);return stream;}
+ostream& operator<<(ostream& stream,__craken_width value){stream.width(value.value);return stream;}
+istream& operator>>(istream& stream,__craken_width value){stream.width(value.value);return stream;}
+ostream& operator<<(ostream& stream,__craken_fill value){stream.fill(value.value);return stream;}
+ostream& operator<<(ostream& stream,__craken_base value){stream.setf(value.value==16?ios::hex:value.value==8?ios::oct:value.value==10?ios::dec:0,ios::basefield);return stream;}
+istream& operator>>(istream& stream,__craken_base value){stream.setf(value.value==16?ios::hex:value.value==8?ios::oct:value.value==10?ios::dec:0,ios::basefield);return stream;}
 }
 #endif

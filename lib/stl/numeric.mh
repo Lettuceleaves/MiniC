@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_NUMERIC_MH
-#define MINIC_STL_NUMERIC_MH
+#ifndef CRAKEN_STL_NUMERIC_MH
+#define CRAKEN_STL_NUMERIC_MH
 #include "iterator.mh"
 #include "functional.mh"
 namespace std {
@@ -12,14 +12,14 @@ template<class I,class O> O partial_sum(I first,I last,O out){if(first==last)ret
 template<class I,class O,class Op> O partial_sum(I first,I last,O out,Op op){if(first==last)return out;typename iterator_traits<I>::value_type value=*first;*out=value;while(++first!=last){value=op(value,*first);*++out=value;}return ++out;}
 template<class I,class O> O adjacent_difference(I first,I last,O out){if(first==last)return out;typename iterator_traits<I>::value_type prev=*first;*out=prev;while(++first!=last){typename iterator_traits<I>::value_type value=*first;*++out=value-prev;prev=std::move(value);}return ++out;}
 template<class I,class O,class Op> O adjacent_difference(I first,I last,O out,Op op){if(first==last)return out;typename iterator_traits<I>::value_type prev=*first;*out=prev;while(++first!=last){typename iterator_traits<I>::value_type value=*first;*++out=op(value,prev);prev=std::move(value);}return ++out;}
-template<class M,class N> struct __minic_numeric_result {typedef typename decay<decltype(false?std::declval<M>():std::declval<N>())>::type type;};
-template<class M,class N> constexpr typename __minic_numeric_result<M,N>::type gcd(M a,N b){
+template<class M,class N> struct __craken_numeric_result {typedef typename decay<decltype(false?std::declval<M>():std::declval<N>())>::type type;};
+template<class M,class N> constexpr typename __craken_numeric_result<M,N>::type gcd(M a,N b){
  static_assert(is_integral<M>::value&&is_integral<N>::value&&!is_same<typename remove_cv<M>::type,bool>::value&&!is_same<typename remove_cv<N>::type,bool>::value,"gcd requires non-bool integral arguments");
- typedef typename __minic_numeric_result<M,N>::type R;unsigned long long x=(unsigned long long)a,y=(unsigned long long)b;if(a<0)x=0ULL-x;if(b<0)y=0ULL-y;while(y!=0){unsigned long long r=x%y;x=y;y=r;}return (R)x;
+ typedef typename __craken_numeric_result<M,N>::type R;unsigned long long x=(unsigned long long)a,y=(unsigned long long)b;if(a<0)x=0ULL-x;if(b<0)y=0ULL-y;while(y!=0){unsigned long long r=x%y;x=y;y=r;}return (R)x;
 }
-template<class M,class N> constexpr typename __minic_numeric_result<M,N>::type lcm(M a,N b){
+template<class M,class N> constexpr typename __craken_numeric_result<M,N>::type lcm(M a,N b){
  static_assert(is_integral<M>::value&&is_integral<N>::value&&!is_same<typename remove_cv<M>::type,bool>::value&&!is_same<typename remove_cv<N>::type,bool>::value,"lcm requires non-bool integral arguments");
- typedef typename __minic_numeric_result<M,N>::type R;if(a==0||b==0)return (R)0;unsigned long long x=(unsigned long long)a,y=(unsigned long long)b;if(a<0)x=0ULL-x;if(b<0)y=0ULL-y;return (R)(x/(unsigned long long)std::gcd(a,b)*y);
+ typedef typename __craken_numeric_result<M,N>::type R;if(a==0||b==0)return (R)0;unsigned long long x=(unsigned long long)a,y=(unsigned long long)b;if(a<0)x=0ULL-x;if(b<0)y=0ULL-y;return (R)(x/(unsigned long long)std::gcd(a,b)*y);
 }
 template<class I,class T> T reduce(I first,I last,T init){return std::accumulate(first,last,init);}
 template<class I,class T,class Op> T reduce(I first,I last,T init,Op op){return std::accumulate(first,last,init,op);}

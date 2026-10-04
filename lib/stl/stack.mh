@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_STACK_MH
-#define MINIC_STL_STACK_MH
+#ifndef CRAKEN_STL_STACK_MH
+#define CRAKEN_STL_STACK_MH
 #include "deque.mh"
 #include "utility.mh"
 namespace std {

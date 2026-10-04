@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_INITIALIZER_LIST_MH
-#define MINIC_STL_INITIALIZER_LIST_MH
+#ifndef CRAKEN_STL_INITIALIZER_LIST_MH
+#define CRAKEN_STL_INITIALIZER_LIST_MH
 namespace std {
 template<class T> class initializer_list {
     const T* first_;

@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_ALL_MH
-#define MINIC_STL_ALL_MH
+#ifndef CRAKEN_STL_ALL_MH
+#define CRAKEN_STL_ALL_MH
 #include "cassert.mh"
 #include "cerrno.mh"
 #include "cctype.mh"

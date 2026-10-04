@@ -1,6 +1,6 @@
-/* MiniC compatibility declarations for <math.h>. */
-#ifndef MINIC_MATH_MH
-#define MINIC_MATH_MH
+/* Craken compatibility declarations for <math.h>. */
+#ifndef CRAKEN_MATH_MH
+#define CRAKEN_MATH_MH
 extern double acos(double value);
 extern double asin(double value);
 extern double atan(double value);

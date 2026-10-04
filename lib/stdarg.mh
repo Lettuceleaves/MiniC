@@ -1,8 +1,8 @@
-/* MiniC compatibility declarations for <stdarg.h>. */
-#ifndef MINIC_STDARG_MH
-#define MINIC_STDARG_MH
+/* Craken compatibility declarations for <stdarg.h>. */
+#ifndef CRAKEN_STDARG_MH
+#define CRAKEN_STDARG_MH
 
 /* Windows x64 variadic cursor. Operations on this opaque type are compiler intrinsics. */
-typedef __minic_va_list va_list;
+typedef __craken_va_list va_list;
 
 #endif

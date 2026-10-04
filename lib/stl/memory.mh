@@ -1,10 +1,10 @@
-#ifndef MINIC_STL_MEMORY_MH
-#define MINIC_STL_MEMORY_MH
+#ifndef CRAKEN_STL_MEMORY_MH
+#define CRAKEN_STL_MEMORY_MH
 #include <stdlib.h>
 #include "new.mh"
 #include "utility.mh"
 namespace std {
-void* __minic_allocate_bytes(unsigned long long bytes,unsigned long long alignment) {
+void* __craken_allocate_bytes(unsigned long long bytes,unsigned long long alignment) {
     if(bytes==0)return nullptr;
     if(alignment<=16){void* storage=::malloc(bytes);if(!storage)::abort();return storage;}
     // malloc on the Windows x64 target guarantees 16-byte alignment. Keep the
@@ -16,20 +16,20 @@ void* __minic_allocate_bytes(unsigned long long bytes,unsigned long long alignme
     unsigned long long aligned=(start+alignment-1)/alignment*alignment;
     void* storage=(void*)aligned;((void**)storage)[-1]=original;return storage;
 }
-void __minic_deallocate_bytes(void* storage,unsigned long long alignment) {
+void __craken_deallocate_bytes(void* storage,unsigned long long alignment) {
     if(!storage)return;
     ::free(alignment<=16?storage:((void**)storage)[-1]);
 }
-template<class T> T* __minic_allocate(unsigned long long count) {
+template<class T> T* __craken_allocate(unsigned long long count) {
     if(count==0)return nullptr;
     if(count>0x7fffffffffffffffULL/sizeof(T))::abort();
-    void* storage=std::__minic_allocate_bytes(count*sizeof(T),alignof(T));
+    void* storage=std::__craken_allocate_bytes(count*sizeof(T),alignof(T));
     return (T*)storage;
 }
-template<class T> void __minic_deallocate(T* storage) { std::__minic_deallocate_bytes((void*)storage,alignof(T)); }
-template<class T,class... A> void __minic_construct(T* target,A&&... args) { ::new((void*)target) T(std::forward<A>(args)...); }
-template<class T> void __minic_destroy(T* value) { value->~T(); }
-template<class T> void __minic_destroy_range(T* data,unsigned long long n) { while(n>0){--n;std::__minic_destroy(data+n);} }
+template<class T> void __craken_deallocate(T* storage) { std::__craken_deallocate_bytes((void*)storage,alignof(T)); }
+template<class T,class... A> void __craken_construct(T* target,A&&... args) { ::new((void*)target) T(std::forward<A>(args)...); }
+template<class T> void __craken_destroy(T* value) { value->~T(); }
+template<class T> void __craken_destroy_range(T* data,unsigned long long n) { while(n>0){--n;std::__craken_destroy(data+n);} }
 }
 #include "__smart_ptr.mh"
 #endif

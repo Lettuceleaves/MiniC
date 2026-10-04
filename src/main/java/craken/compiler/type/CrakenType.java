@@ -1,0 +1,846 @@
+package craken.compiler.type;
+
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.EnumSet;
+
+/**
+ * Craken 前端类型。
+ */
+public sealed interface CrakenType permits
+        CrakenType.NamedType,
+        CrakenType.CombinationType,
+        CrakenType.QualifiedType,
+        CrakenType.NullPointerType,
+        CrakenType.VoidType {
+    /**
+     * 具有源码名称的叶子节点。标量名和 {@code struct Name} 都在这里终止递归。
+     */
+    sealed interface NamedType extends CrakenType permits ScalarType, StructType, VaListType, TemplateParameterType, TemplateIdType, MemberType, AutoType, DecltypeType, TrailingReturnType {
+    }
+
+    /**
+     * 组合节点。每个节点只描述一层组合，因此指针、数组和函数可以任意递归嵌套。
+     */
+    sealed interface CombinationType extends CrakenType permits PointerType, ArrayType, DependentArrayType, FunctionType, ReferenceType, PackExpansionType {
+    }
+    /**
+     * Craken bool 类型。
+     */
+    CrakenType BOOL = new ScalarType(ScalarKind.BOOL);
+
+    /**
+     * Craken 有符号 char 类型。
+     */
+    CrakenType CHAR = new ScalarType(ScalarKind.CHAR);
+
+    CrakenType SIGNED_CHAR = new ScalarType(ScalarKind.SIGNED_CHAR);
+
+    CrakenType UNSIGNED_CHAR = new ScalarType(ScalarKind.UNSIGNED_CHAR);
+
+    CrakenType SHORT = new ScalarType(ScalarKind.SHORT);
+
+    CrakenType UNSIGNED_SHORT = new ScalarType(ScalarKind.UNSIGNED_SHORT);
+
+    /**
+     * Craken int 类型。
+     */
+    CrakenType INT = new ScalarType(ScalarKind.INT);
+
+    CrakenType UNSIGNED_INT = new ScalarType(ScalarKind.UNSIGNED_INT);
+
+    /**
+     * Craken long 类型。
+     */
+    CrakenType LONG = new ScalarType(ScalarKind.LONG);
+
+    CrakenType UNSIGNED_LONG = new ScalarType(ScalarKind.UNSIGNED_LONG);
+
+    CrakenType LONG_LONG = new ScalarType(ScalarKind.LONG_LONG);
+
+    CrakenType UNSIGNED_LONG_LONG = new ScalarType(ScalarKind.UNSIGNED_LONG_LONG);
+
+    /**
+     * Craken float 类型。
+     */
+    CrakenType FLOAT = new ScalarType(ScalarKind.FLOAT);
+
+    /**
+     * Craken double 类型。
+     */
+    CrakenType DOUBLE = new ScalarType(ScalarKind.DOUBLE);
+
+    /** Distinct C++ type, represented by binary64 in the Windows x64 ABI. */
+    CrakenType LONG_DOUBLE = new ScalarType(ScalarKind.LONG_DOUBLE);
+
+    /**
+     * 无值类型，只能用于函数返回类型或作为指针的被指向类型。
+     */
+    CrakenType VOID = new VoidType();
+
+    /**
+     * NULL 空指针常量类型。
+     */
+    CrakenType NULL = new NullPointerType();
+
+    /** Opaque Windows x64 variadic cursor exposed by {@code stdarg.mh}. */
+    CrakenType VA_LIST = new VaListType();
+
+    /** Source placeholders are resolved by name binding, never by layout or IR. */
+    CrakenType AUTO = new AutoType(false);
+    CrakenType DECLTYPE_AUTO = new AutoType(true);
+    record AutoType(boolean decltypeAuto) implements NamedType {
+        @Override public String toString() { return decltypeAuto ? "decltype(auto)" : "auto"; }
+    }
+    record DecltypeType(craken.compiler.parser.node.Expression expression) implements NamedType {
+        public DecltypeType { Objects.requireNonNull(expression); }
+        @Override public String toString() { return "decltype(...)"; }
+    }
+    record TrailingReturnType(CrakenType type) implements NamedType {
+        public TrailingReturnType { Objects.requireNonNull(type); }
+        @Override public String toString() { return "auto -> " + type; }
+    }
+    default boolean containsPlaceholder() {
+        return switch (unqualified()) {
+            case AutoType ignored -> true;
+            case DecltypeType ignored -> true;
+            case TrailingReturnType ignored -> true;
+            case PointerType pointer -> pointer.pointee().containsPlaceholder();
+            case ReferenceType reference -> reference.referent().containsPlaceholder();
+            case ArrayType array -> array.elementType().containsPlaceholder();
+            case FunctionType function -> function.returnType().containsPlaceholder()
+                    || function.parameterTypes().stream().anyMatch(CrakenType::containsPlaceholder);
+            case TemplateIdType template -> template.arguments().stream().anyMatch(a -> a instanceof TemplateArgument.Type t && t.type().containsPlaceholder());
+            case MemberType member -> member.owner().containsPlaceholder();
+            default -> false;
+        };
+    }
+    default boolean containsAuto() {
+        return switch (unqualified()) {
+            case AutoType ignored -> true;
+            case PointerType pointer -> pointer.pointee().containsAuto();
+            case ReferenceType reference -> reference.referent().containsAuto();
+            case ArrayType array -> array.elementType().containsAuto();
+            case FunctionType function -> function.returnType().containsAuto()
+                    || function.parameterTypes().stream().anyMatch(CrakenType::containsAuto);
+            default -> false;
+        };
+    }
+
+    /**
+     * 返回指向当前类型的指针类型。
+     *
+     * @return 指针类型
+     */
+    default CrakenType pointerTo() {
+        return new PointerType(this);
+    }
+
+    /** Source references collapse during alias/template composition; core ABI remains a pointer. */
+    default CrakenType referenceTo() { return referenceTo(ReferenceKind.LVALUE); }
+    default CrakenType rvalueReferenceTo() { return referenceTo(ReferenceKind.RVALUE); }
+    default CrakenType referenceTo(ReferenceKind kind) { return new ReferenceType(this,kind); }
+    default boolean isLvalueReference() { return unqualified() instanceof ReferenceType reference && reference.kind()==ReferenceKind.LVALUE; }
+    default boolean isRvalueReference() { return unqualified() instanceof ReferenceType reference && reference.kind()==ReferenceKind.RVALUE; }
+
+    default boolean isReference() {
+        return unqualified() instanceof ReferenceType;
+    }
+
+    default CrakenType referent() {
+        if (unqualified() instanceof ReferenceType reference) return reference.referent();
+        throw new IllegalStateException("type is not a reference: " + this);
+    }
+
+    /** Includes references nested in declarators and callable signatures. */
+    default boolean containsReference() {
+        return switch (unqualified()) {
+            case ReferenceType ignored -> true;
+            case PointerType pointer -> pointer.pointee().containsReference();
+            case ArrayType array -> array.elementType().containsReference();
+            case FunctionType function -> function.returnType().containsReference()
+                    || function.parameterTypes().stream().anyMatch(CrakenType::containsReference);
+            default -> false;
+        };
+    }
+
+    /** Source template types must be instantiated before core semantics or layout. */
+    default boolean containsTemplateType() {
+        return switch (unqualified()) {
+            case PackExpansionType ignored -> true;
+            case DecltypeType ignored -> true;
+            case TrailingReturnType trailing -> trailing.type().isDependentTemplate();
+            case TemplateParameterType ignored -> true;
+            case TemplateIdType ignored -> true;
+            case MemberType ignored -> true;
+            case DependentArrayType ignored -> true;
+            case PointerType pointer -> pointer.pointee().containsTemplateType();
+            case ReferenceType reference -> reference.referent().containsTemplateType();
+            case ArrayType array -> array.elementType().containsTemplateType();
+            case FunctionType function -> function.returnType().containsTemplateType()
+                    || function.parameterTypes().stream().anyMatch(CrakenType::containsTemplateType)
+                    || function.exceptionSpecification().condition()!=null&&TemplateValues.dependent(function.exceptionSpecification().condition());
+            default -> false;
+        };
+    }
+
+    /** Structural substitution used by defaults and instantiation; no textual type-name rewriting. */
+    default CrakenType substituteTemplateParameters(java.util.Map<TemplateParameterType, CrakenType> arguments) {
+        return substituteTemplateParameters(arguments,java.util.Map.of());
+    }
+    default CrakenType substituteTemplateParameters(java.util.Map<TemplateParameterType, CrakenType> arguments,
+                                                   java.util.Map<TemplateParameterType,craken.compiler.parser.node.Expression> values) {
+        return switch (this) {
+            case PackExpansionType pack -> new PackExpansionType(pack.pattern().substituteTemplateParameters(arguments,values));
+            case TemplateParameterType parameter -> arguments.getOrDefault(parameter, parameter);
+            case MemberType member -> new MemberType(member.owner().substituteTemplateParameters(arguments,values),member.name());
+            case TemplateIdType id -> new TemplateIdType(id.templateName(), id.arguments().stream().map(t -> t.substitute(arguments,values)).toList());
+            case TrailingReturnType trailing -> new TrailingReturnType(trailing.type().substituteTemplateParameters(arguments,values));
+            case DecltypeType query -> new DecltypeType(TemplateValues.substitute(query.expression(),arguments,values));
+            case QualifiedType qualified -> CrakenType.qualified(qualified.baseType().substituteTemplateParameters(arguments,values), qualified.qualifiers());
+            case PointerType pointer -> pointer.pointee().substituteTemplateParameters(arguments,values).pointerTo();
+            case ReferenceType reference -> reference.referent().substituteTemplateParameters(arguments,values).referenceTo(reference.kind());
+            case ArrayType array -> array.elementType().substituteTemplateParameters(arguments,values).arrayOf(array.length());
+            case DependentArrayType array -> {
+                CrakenType element=array.elementType().substituteTemplateParameters(arguments,values);
+                var bound=TemplateValues.substitute(array.bound(),arguments,values);
+                if(TemplateValues.dependent(bound)||TemplateValues.requiresSemanticContext(bound))yield new DependentArrayType(element,bound);
+                long length=TemplateValues.evaluate(bound).value();
+                if(length<=0||length>Integer.MAX_VALUE)throw new IllegalArgumentException("Array bound must be in 1..2147483647");
+                yield element.arrayOf((int)length);
+            }
+            case FunctionType function -> CrakenType.function(function.returnType().substituteTemplateParameters(arguments,values),
+                    function.parameterTypes().stream().map(t -> t.substituteTemplateParameters(arguments,values)).toList(), function.variadic(),function.exceptionSpecification().substitute(arguments,values));
+            default -> this;
+        };
+    }
+
+    /** Parameter identity is independent of its spelling in a redeclaration. */
+    record TemplateParameterType(String owner, int index) implements NamedType {
+        public TemplateParameterType {
+            Objects.requireNonNull(owner, "owner");
+            if (owner.isBlank() || index < 0) throw new IllegalArgumentException("invalid template parameter identity");
+        }
+        @Override public String toString() { return owner + "::$T" + index; }
+    }
+
+    /** Canonical primary identity and structural argument types, never a manufactured core tag. */
+    record TemplateIdType(String templateName, List<TemplateArgument> arguments) implements NamedType {
+        public TemplateIdType(String name, java.util.Collection<? extends CrakenType> types) {
+            this(name, types.stream().map(t -> (TemplateArgument)new TemplateArgument.Type(t)).toList());
+        }
+        public TemplateIdType {
+            Objects.requireNonNull(templateName, "templateName");
+            arguments = List.copyOf(arguments);
+            if (templateName.isBlank()) throw new IllegalArgumentException("invalid template-id");
+        }
+        @Override public String toString() {
+            return templateName + "<" + String.join(", ", arguments.stream().map(Object::toString).toList()) + ">";
+        }
+    }
+
+    /** Qualified member type awaiting class instantiation and access-checked lookup. */
+    record MemberType(CrakenType owner, String name) implements NamedType {
+        public MemberType { Objects.requireNonNull(owner); Objects.requireNonNull(name); if(name.isBlank())throw new IllegalArgumentException("member type needs name"); }
+        @Override public String toString(){return owner+"::"+name;}
+    }
+
+    default boolean isDependentTemplate() {
+        return switch(this) {
+            case PackExpansionType ignored -> true;
+            case DecltypeType ignored -> true;
+            case TrailingReturnType trailing -> trailing.type().isDependentTemplate();
+            case TemplateParameterType ignored -> true;
+            case TemplateIdType id -> id.arguments().stream().anyMatch(a -> a instanceof TemplateArgument.Expansion || a instanceof TemplateArgument.Type t && t.type().isDependentTemplate()
+                    || a instanceof TemplateArgument.Value v && TemplateValues.dependent(v.expression()));
+            case MemberType member -> member.owner().isDependentTemplate();
+            case DependentArrayType array -> true;
+            case QualifiedType qualified -> qualified.baseType().isDependentTemplate();
+            case PointerType pointer -> pointer.pointee().isDependentTemplate();
+            case ReferenceType reference -> reference.referent().isDependentTemplate();
+            case ArrayType array -> array.elementType().isDependentTemplate();
+            case FunctionType function -> function.returnType().isDependentTemplate()||function.parameterTypes().stream().anyMatch(CrakenType::isDependentTemplate)
+                    || function.exceptionSpecification().condition()!=null&&TemplateValues.dependent(function.exceptionSpecification().condition());
+            default -> false;
+        };
+    }
+
+    /** Source-only function parameter/type-list expansion, expanded before the core pipeline. */
+    record PackExpansionType(CrakenType pattern) implements CombinationType {
+        public PackExpansionType { Objects.requireNonNull(pattern); }
+        @Override public String toString() { return pattern + "..."; }
+    }
+
+    /** Source-only array bound, evaluated after non-type parameters are substituted. */
+    record DependentArrayType(CrakenType elementType, craken.compiler.parser.node.Expression bound) implements CombinationType {
+        public DependentArrayType { Objects.requireNonNull(elementType); Objects.requireNonNull(bound); }
+        @Override public String toString() { return elementType + "[dependent]"; }
+    }
+
+    /**
+     * 返回当前类型的固定长度数组类型。
+     *
+     * @param length 数组长度
+     * @return 数组类型
+     */
+    default CrakenType arrayOf(int length) {
+        return new ArrayType(this, length);
+    }
+
+    /**
+     * 创建命名结构体类型。
+     *
+     * @param name 结构体名
+     * @return 结构体类型
+     */
+    static CrakenType struct(String name) {
+        return new StructType(name);
+    }
+
+    /**
+     * 创建函数签名类型。
+     *
+     * @param returnType 返回类型
+     * @param parameterTypes 参数类型列表
+     * @return 函数签名类型
+     */
+    static CrakenType function(CrakenType returnType, List<CrakenType> parameterTypes) {
+        return new FunctionType(returnType, parameterTypes, false);
+    }
+
+    /**
+     * 创建函数签名类型。
+     *
+     * @param returnType 返回类型
+     * @param parameterTypes 固定参数类型列表
+     * @param variadic 是否接受可变参数
+     * @return 函数签名类型
+     */
+    static CrakenType function(CrakenType returnType, List<CrakenType> parameterTypes, boolean variadic) {
+        return new FunctionType(returnType, parameterTypes, variadic);
+    }
+
+    /** Apply C type qualifiers to exactly this type layer. */
+    static CrakenType qualified(CrakenType type, Set<TypeQualifier> qualifiers) {
+        Objects.requireNonNull(type, "type");
+        Objects.requireNonNull(qualifiers, "qualifiers");
+        if (qualifiers.isEmpty()) {
+            return type;
+        }
+        // CV applied through an alias/template neither qualifies a referent nor a function.
+        // Function declarator qualifiers (member const) are a separate notion: [dcl.fct]/7.
+        if (type.isReference() || type.isFunction()) return type.unqualified();
+        if (type instanceof QualifiedType qualifiedType) {
+            EnumSet<TypeQualifier> merged = EnumSet.copyOf(qualifiedType.qualifiers());
+            merged.addAll(qualifiers);
+            return new QualifiedType(qualifiedType.baseType(), merged);
+        }
+        return new QualifiedType(type, qualifiers);
+    }
+
+    /** Return this layer without its qualifiers. */
+    default CrakenType unqualified() {
+        return this instanceof QualifiedType qualifiedType ? qualifiedType.baseType() : this;
+    }
+
+    /** Return qualifiers attached to exactly this type layer. */
+    default Set<TypeQualifier> qualifiers() {
+        return this instanceof QualifiedType qualifiedType ? qualifiedType.qualifiers() : Set.of();
+    }
+
+    default boolean isConstQualified() {
+        return qualifiers().contains(TypeQualifier.CONST);
+    }
+
+    default boolean isVolatileQualified() {
+        return qualifiers().contains(TypeQualifier.VOLATILE);
+    }
+
+    default boolean isRestrictQualified() {
+        return qualifiers().contains(TypeQualifier.RESTRICT);
+    }
+
+    /**
+     * 判断当前类型是否为指针。
+     *
+     * @return 指针类型返回 {@code true}
+     */
+    default boolean isPointer() {
+        return unqualified() instanceof PointerType;
+    }
+
+    /**
+     * 判断当前类型是否为数组。
+     *
+     * @return 数组类型返回 {@code true}
+     */
+    default boolean isArray() {
+        return unqualified() instanceof ArrayType;
+    }
+
+    /**
+     * 判断当前类型是否为结构体。
+     *
+     * @return 结构体类型返回 {@code true}
+     */
+    default boolean isStruct() {
+        return unqualified() instanceof StructType;
+    }
+
+    /**
+     * 判断当前类型是否为函数签名。
+     *
+     * @return 函数签名类型返回 {@code true}
+     */
+    default boolean isFunction() {
+        return unqualified() instanceof FunctionType;
+    }
+
+    /**
+     * 判断当前类型是否为基础标量。
+     *
+     * @return 基础标量返回 {@code true}
+     */
+    default boolean isScalar() {
+        return unqualified() instanceof ScalarType;
+    }
+
+    /**
+     * 判断当前类型是否为整数标量。
+     *
+     * @return bool、char、int、long 返回 {@code true}
+     */
+    default boolean isIntegerScalar() {
+        return unqualified() instanceof ScalarType scalarType && scalarType.kind().integer();
+    }
+
+    /** @return 当前类型是否为有符号整数标量。 */
+    default boolean isSignedIntegerScalar() {
+        return unqualified() instanceof ScalarType scalarType
+                && scalarType.kind().integer()
+                && scalarType.kind().signed();
+    }
+
+    /** @return 当前类型是否为无符号整数标量（bool 除外）。 */
+    default boolean isUnsignedIntegerScalar() {
+        return unqualified() instanceof ScalarType scalarType
+                && scalarType.kind().integer()
+                && !scalarType.kind().signed()
+                && scalarType.kind() != ScalarKind.BOOL;
+    }
+
+    /**
+     * 判断当前类型是否为浮点标量。
+     *
+     * @return float、double 返回 {@code true}
+     */
+    default boolean isFloatingScalar() {
+        return unqualified() instanceof ScalarType scalarType && scalarType.kind().floating();
+    }
+
+    /**
+     * 判断当前类型是否为空指针常量类型。
+     *
+     * @return NULL 类型返回 {@code true}
+     */
+    default boolean isNullPointer() {
+        return unqualified() instanceof NullPointerType;
+    }
+
+    /** @return 当前类型是否为 {@code void}。 */
+    default boolean isVoid() {
+        return unqualified() instanceof VoidType;
+    }
+
+    /** @return whether this is the opaque stdarg cursor type. */
+    default boolean isVaList() {
+        return unqualified() instanceof VaListType;
+    }
+
+    /**
+     * 返回当前类型的指向元素类型。
+     *
+     * @return 指向元素类型
+     * @throws IllegalStateException 当前类型不是指针时抛出
+     */
+    default CrakenType pointee() {
+        if (unqualified() instanceof PointerType pointerType) {
+            return pointerType.pointee();
+        }
+        throw new IllegalStateException("type is not a pointer: " + this);
+    }
+
+    /**
+     * 返回数组元素类型。
+     *
+     * @return 数组元素类型
+     * @throws IllegalStateException 当前类型不是数组时抛出
+     */
+    default CrakenType elementType() {
+        if (unqualified() instanceof ArrayType arrayType) {
+            return arrayType.elementType();
+        }
+        throw new IllegalStateException("type is not an array: " + this);
+    }
+
+    /**
+     * 返回数组长度。
+     *
+     * @return 数组长度
+     * @throws IllegalStateException 当前类型不是数组时抛出
+     */
+    default int arrayLength() {
+        if (unqualified() instanceof ArrayType arrayType) {
+            return arrayType.length();
+        }
+        throw new IllegalStateException("type is not an array: " + this);
+    }
+
+    /**
+     * 返回函数返回类型。
+     *
+     * @return 函数返回类型
+     * @throws IllegalStateException 当前类型不是函数签名时抛出
+     */
+    default CrakenType returnType() {
+        if (unqualified() instanceof FunctionType functionType) {
+            return functionType.returnType();
+        }
+        throw new IllegalStateException("type is not a function: " + this);
+    }
+
+    /**
+     * 返回函数参数类型列表。
+     *
+     * @return 函数参数类型列表
+     * @throws IllegalStateException 当前类型不是函数签名时抛出
+     */
+    default List<CrakenType> parameterTypes() {
+        if (unqualified() instanceof FunctionType functionType) {
+            return functionType.parameterTypes();
+        }
+        throw new IllegalStateException("type is not a function: " + this);
+    }
+
+    enum ScalarKind {
+        BOOL("bool", 1, 1, false, true, false, 0),
+        CHAR("char", 1, 1, true, true, false, 1),
+        SIGNED_CHAR("signed char", 1, 1, true, true, false, 1),
+        UNSIGNED_CHAR("unsigned char", 1, 1, false, true, false, 1),
+        SHORT("short", 2, 2, true, true, false, 2),
+        UNSIGNED_SHORT("unsigned short", 2, 2, false, true, false, 2),
+        INT("int", 4, 4, true, true, false, 3),
+        UNSIGNED_INT("unsigned int", 4, 4, false, true, false, 3),
+        LONG("long", 4, 4, true, true, false, 4),
+        UNSIGNED_LONG("unsigned long", 4, 4, false, true, false, 4),
+        LONG_LONG("long long", 8, 8, true, true, false, 5),
+        UNSIGNED_LONG_LONG("unsigned long long", 8, 8, false, true, false, 5),
+        FLOAT("float", 4, 4, true, false, true, -1),
+        DOUBLE("double", 8, 8, true, false, true, -1),
+        LONG_DOUBLE("long double", 8, 8, true, false, true, -1);
+
+        private final String displayName;
+        private final int sizeBytes;
+        private final int alignmentBytes;
+        private final boolean signed;
+        private final boolean integer;
+        private final boolean floating;
+        private final int integerRank;
+
+        ScalarKind(
+                String displayName,
+                int sizeBytes,
+                int alignmentBytes,
+                boolean signed,
+                boolean integer,
+                boolean floating,
+                int integerRank
+        ) {
+            this.displayName = displayName;
+            this.sizeBytes = sizeBytes;
+            this.alignmentBytes = alignmentBytes;
+            this.signed = signed;
+            this.integer = integer;
+            this.floating = floating;
+            this.integerRank = integerRank;
+        }
+
+        public String displayName() {
+            return displayName;
+        }
+
+        public int sizeBytes() {
+            return sizeBytes;
+        }
+
+        public int alignmentBytes() {
+            return alignmentBytes;
+        }
+
+        public boolean signed() {
+            return signed;
+        }
+
+        public boolean integer() {
+            return integer;
+        }
+
+        public boolean floating() {
+            return floating;
+        }
+
+        /** C 整数转换等级；非整数类型返回 -1。 */
+        public int integerRank() {
+            return integerRank;
+        }
+    }
+
+    enum TypeQualifier {
+        CONST("const"),
+        VOLATILE("volatile"),
+        RESTRICT("restrict");
+
+        private final String spelling;
+
+        TypeQualifier(String spelling) {
+            this.spelling = spelling;
+        }
+
+        public String spelling() {
+            return spelling;
+        }
+    }
+
+    /** Qualifiers wrap one precise type layer, so pointer and pointee qualifiers remain distinct. */
+    record QualifiedType(CrakenType baseType, Set<TypeQualifier> qualifiers) implements CrakenType {
+        public QualifiedType {
+            Objects.requireNonNull(baseType, "baseType");
+            Objects.requireNonNull(qualifiers, "qualifiers");
+            if (baseType instanceof QualifiedType) {
+                throw new IllegalArgumentException("qualified types must be flattened");
+            }
+            if (qualifiers.isEmpty()) {
+                throw new IllegalArgumentException("qualified type requires at least one qualifier");
+            }
+            qualifiers = Set.copyOf(qualifiers);
+        }
+
+        @Override
+        public String toString() {
+            String prefix = String.join(" ", qualifiers.stream()
+                    .map(TypeQualifier::spelling)
+                    .sorted()
+                    .toList());
+            return prefix + " " + baseType;
+        }
+    }
+
+    /**
+     * Craken 基础标量类型。
+     *
+     * @param kind 标量种类
+     */
+    record ScalarType(ScalarKind kind) implements NamedType {
+        /**
+         * 创建基础标量类型。
+         *
+         * @param kind 标量种类
+         */
+        public ScalarType {
+            Objects.requireNonNull(kind, "kind");
+        }
+
+        @Override
+        public String toString() {
+            return kind.displayName();
+        }
+    }
+
+    /**
+     * Craken NULL 空指针常量类型。
+     */
+    record NullPointerType() implements CrakenType {
+        @Override
+        public String toString() {
+            return "NULL";
+        }
+    }
+
+    /** Compiler-owned va_list representation; its native representation is one pointer. */
+    record VaListType() implements NamedType {
+        @Override
+        public String toString() {
+            return "va_list";
+        }
+    }
+
+    /** Craken {@code void} 类型。 */
+    record VoidType() implements CrakenType {
+        @Override
+        public String toString() {
+            return "void";
+        }
+    }
+
+    /**
+     * Craken 指针类型。
+     *
+     * @param pointee 指向的元素类型
+     */
+    record PointerType(CrakenType pointee) implements CombinationType {
+        /**
+         * 创建指针类型。
+         *
+         * @param pointee 指向的元素类型
+         */
+        public PointerType {
+            Objects.requireNonNull(pointee, "pointee");
+        }
+
+        @Override
+        public String toString() {
+            return pointee + "*";
+        }
+    }
+
+    enum ReferenceKind { LVALUE, RVALUE }
+    /** Source-only reference, with standard alias/template reference collapsing. */
+    record ReferenceType(CrakenType referent,ReferenceKind kind) implements CombinationType {
+        public ReferenceType(CrakenType referent){this(referent,ReferenceKind.LVALUE);}
+        public ReferenceType {
+            Objects.requireNonNull(referent, "referent");Objects.requireNonNull(kind,"kind");
+            if (referent.unqualified() instanceof ReferenceType reference) {
+                if(kind==ReferenceKind.LVALUE||reference.kind()==ReferenceKind.LVALUE)kind=ReferenceKind.LVALUE;
+                referent = reference.referent();
+            }
+        }
+        @Override public String toString() { return referent + (kind==ReferenceKind.RVALUE?"&&":"&"); }
+    }
+
+    /**
+     * Craken 固定长度数组类型。
+     *
+     * @param elementType 元素类型
+     * @param length 数组长度
+     */
+    record ArrayType(CrakenType elementType, int length) implements CombinationType {
+        /**
+         * 创建固定长度数组类型。
+         *
+         * @param elementType 元素类型
+         * @param length 数组长度
+         */
+        public ArrayType {
+            Objects.requireNonNull(elementType, "elementType");
+            if (length == 0 || length < -1) {
+                throw new IllegalArgumentException("length must be positive, or -1 for an unknown bound");
+            }
+        }
+
+        @Override
+        public String toString() {
+            return elementType + "[" + (length < 0 ? "" : length) + "]";
+        }
+    }
+
+    /**
+     * Craken 命名结构体类型。
+     *
+     * @param name 结构体名
+     */
+    record StructType(String name) implements NamedType {
+        /**
+         * 创建命名结构体类型。
+         *
+         * @param name 结构体名
+         */
+        public StructType {
+            Objects.requireNonNull(name, "name");
+            if (name.isBlank()) {
+                throw new IllegalArgumentException("name must not be blank");
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "struct " + name;
+        }
+    }
+
+    /**
+     * Craken 函数签名类型。
+     *
+     * @param returnType 返回类型
+     * @param parameterTypes 固定参数类型列表
+     * @param variadic 是否接受可变参数
+     */
+    /** Source conditional specs are normalized before overload resolution; core ABI drops them. */
+    record ExceptionSpecification(boolean specified, boolean nonThrowing,
+                                  craken.compiler.parser.node.Expression condition) {
+        public static final ExceptionSpecification UNSPECIFIED = new ExceptionSpecification(false,false,null);
+        public static final ExceptionSpecification NON_THROWING = new ExceptionSpecification(true,true,null);
+        public static final ExceptionSpecification POTENTIALLY_THROWING = new ExceptionSpecification(true,false,null);
+        public ExceptionSpecification {
+            if (!specified && (nonThrowing || condition != null)) throw new IllegalArgumentException("Unspecified exception specification has no operand");
+            if (nonThrowing && condition != null) throw new IllegalArgumentException("Conditional specification must first be resolved");
+        }
+        public ExceptionSpecification substitute(java.util.Map<TemplateParameterType,CrakenType> types,
+                                                 java.util.Map<TemplateParameterType,craken.compiler.parser.node.Expression> values) {
+            return condition == null ? this : new ExceptionSpecification(true,false,TemplateValues.substitute(condition,types,values));
+        }
+    }
+
+    static CrakenType function(CrakenType result, List<CrakenType> parameters, boolean variadic, ExceptionSpecification specification) {
+        return new FunctionType(result,parameters,variadic,specification);
+    }
+
+    default boolean containsExceptionSpecification() {
+        return switch(unqualified()) {
+            case FunctionType function -> function.exceptionSpecification().specified()
+                    || function.returnType().containsExceptionSpecification()
+                    || function.parameterTypes().stream().anyMatch(CrakenType::containsExceptionSpecification);
+            case PointerType pointer -> pointer.pointee().containsExceptionSpecification();
+            case ReferenceType reference -> reference.referent().containsExceptionSpecification();
+            case ArrayType array -> array.elementType().containsExceptionSpecification();
+            default -> false;
+        };
+    }
+
+    record FunctionType(
+            CrakenType returnType,
+            List<CrakenType> parameterTypes,
+            boolean variadic,
+            ExceptionSpecification exceptionSpecification
+    ) implements CombinationType {
+        public FunctionType(CrakenType returnType,List<CrakenType> parameterTypes,boolean variadic) {
+            this(returnType,parameterTypes,variadic,ExceptionSpecification.UNSPECIFIED);
+        }
+        public FunctionType withExceptionSpecification(ExceptionSpecification specification) {
+            return new FunctionType(returnType,parameterTypes,variadic,specification);
+        }
+        /**
+         * 创建函数签名类型。
+         *
+         * @param returnType 返回类型
+         * @param parameterTypes 参数类型列表
+         */
+        public FunctionType {
+            Objects.requireNonNull(exceptionSpecification,"exceptionSpecification");
+            Objects.requireNonNull(returnType, "returnType");
+            Objects.requireNonNull(parameterTypes, "parameterTypes");
+            parameterTypes = List.copyOf(parameterTypes);
+        }
+
+        @Override
+        public String toString() {
+            String parameters = String.join(", ", parameterTypes.stream()
+                    .map(Object::toString)
+                    .toList());
+            if (variadic) {
+                parameters = parameters.isEmpty() ? "..." : parameters + ", ...";
+            }
+            return returnType + " (" + parameters + ")" + (exceptionSpecification.nonThrowing() ? " noexcept" : "");
+        }
+    }
+}

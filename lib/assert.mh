@@ -1,7 +1,7 @@
-/* MiniC compatibility declarations for <assert.h>. */
-#ifndef MINIC_ASSERT_MH
-#define MINIC_ASSERT_MH
-extern void minic_assert_fail(const char *expression, const char *file, unsigned int line);
+/* Craken compatibility declarations for <assert.h>. */
+#ifndef CRAKEN_ASSERT_MH
+#define CRAKEN_ASSERT_MH
+extern void craken_assert_fail(const char *expression, const char *file, unsigned int line);
 #endif
 
 /* assert is deliberately redefined on every inclusion so NDEBUG is observed. */
@@ -10,5 +10,5 @@ extern void minic_assert_fail(const char *expression, const char *file, unsigned
 #ifdef NDEBUG
 #define assert(expression) ((void) 0)
 #else
-#define assert(expression) ((expression) ? 0 : (minic_assert_fail(#expression, __FILE__, __LINE__), 0))
+#define assert(expression) ((expression) ? 0 : (craken_assert_fail(#expression, __FILE__, __LINE__), 0))
 #endif

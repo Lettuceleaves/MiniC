@@ -1,10 +1,10 @@
-#ifndef MINIC_STL_SET_MH
-#define MINIC_STL_SET_MH
+#ifndef CRAKEN_STL_SET_MH
+#define CRAKEN_STL_SET_MH
 #include "__tree.mh"
 #include "algorithm.mh"
 namespace std {
 template<class Key,class Compare=less<Key>> class set {
-    typedef __minic_tree<Key,Key,__minic_identity<Key>,Compare,false> tree_type;
+    typedef __craken_tree<Key,Key,__craken_identity<Key>,Compare,false> tree_type;
     tree_type tree_;
 public:
     typedef Key key_type;
@@ -57,15 +57,15 @@ public:
     iterator lower_bound(const Key& key) const{return tree_.lower_bound(key);}
     iterator upper_bound(const Key& key) const{return tree_.upper_bound(key);}
     pair<iterator,iterator> equal_range(const Key& key) const{return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> size_type count(const K& key) const{return tree_.count(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator find(const K& key){return tree_.find(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator find(const K& key) const{return tree_.find(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator lower_bound(const K& key){return tree_.lower_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator lower_bound(const K& key) const{return tree_.lower_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator upper_bound(const K& key){return tree_.upper_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator upper_bound(const K& key) const{return tree_.upper_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> pair<iterator,iterator> equal_range(const K& key){return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> pair<const_iterator,const_iterator> equal_range(const K& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> size_type count(const K& key) const{return tree_.count(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> iterator find(const K& key){return tree_.find(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> const_iterator find(const K& key) const{return tree_.find(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> iterator lower_bound(const K& key){return tree_.lower_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> const_iterator lower_bound(const K& key) const{return tree_.lower_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> iterator upper_bound(const K& key){return tree_.upper_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> const_iterator upper_bound(const K& key) const{return tree_.upper_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> pair<iterator,iterator> equal_range(const K& key){return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> pair<const_iterator,const_iterator> equal_range(const K& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
     Compare key_comp() const{return tree_.key_comp();} Compare value_comp() const{return tree_.key_comp();}
 };
 template<class K,class C> void swap(set<K,C>& a,set<K,C>& b) noexcept(noexcept(a.swap(b))) {a.swap(b);}
@@ -76,7 +76,7 @@ template<class K,class C> bool operator>(const set<K,C>& a,const set<K,C>& b){re
 template<class K,class C> bool operator<=(const set<K,C>& a,const set<K,C>& b){return !(b<a);}
 template<class K,class C> bool operator>=(const set<K,C>& a,const set<K,C>& b){return !(a<b);}
 template<class Key,class Compare=less<Key>> class multiset {
-    typedef __minic_tree<Key,Key,__minic_identity<Key>,Compare,true> tree_type;
+    typedef __craken_tree<Key,Key,__craken_identity<Key>,Compare,true> tree_type;
     tree_type tree_;
 public:
     typedef Key key_type;
@@ -129,15 +129,15 @@ public:
     iterator lower_bound(const Key& key) const{return tree_.lower_bound(key);}
     iterator upper_bound(const Key& key) const{return tree_.upper_bound(key);}
     pair<iterator,iterator> equal_range(const Key& key) const{return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> size_type count(const K& key) const{return tree_.count(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator find(const K& key){return tree_.find(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator find(const K& key) const{return tree_.find(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator lower_bound(const K& key){return tree_.lower_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator lower_bound(const K& key) const{return tree_.lower_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator upper_bound(const K& key){return tree_.upper_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator upper_bound(const K& key) const{return tree_.upper_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> pair<iterator,iterator> equal_range(const K& key){return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> pair<const_iterator,const_iterator> equal_range(const K& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> size_type count(const K& key) const{return tree_.count(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> iterator find(const K& key){return tree_.find(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> const_iterator find(const K& key) const{return tree_.find(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> iterator lower_bound(const K& key){return tree_.lower_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> const_iterator lower_bound(const K& key) const{return tree_.lower_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> iterator upper_bound(const K& key){return tree_.upper_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> const_iterator upper_bound(const K& key) const{return tree_.upper_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> pair<iterator,iterator> equal_range(const K& key){return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> pair<const_iterator,const_iterator> equal_range(const K& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
     Compare key_comp() const{return tree_.key_comp();} Compare value_comp() const{return tree_.key_comp();}
 };
 template<class K,class C> void swap(multiset<K,C>& a,multiset<K,C>& b) noexcept(noexcept(a.swap(b))) {a.swap(b);}

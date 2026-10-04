@@ -1,6 +1,6 @@
-/* MiniC compatibility declarations for <iso646.h>. */
-#ifndef MINIC_ISO646_MH
-#define MINIC_ISO646_MH
+/* Craken compatibility declarations for <iso646.h>. */
+#ifndef CRAKEN_ISO646_MH
+#define CRAKEN_ISO646_MH
 #define and &&
 #define and_eq &=
 #define bitand &

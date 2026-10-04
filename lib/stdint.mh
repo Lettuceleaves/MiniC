@@ -1,6 +1,6 @@
-/* MiniC compatibility declarations for <stdint.h>. */
-#ifndef MINIC_STDINT_MH
-#define MINIC_STDINT_MH
+/* Craken compatibility declarations for <stdint.h>. */
+#ifndef CRAKEN_STDINT_MH
+#define CRAKEN_STDINT_MH
 typedef signed char int8_t;
 typedef unsigned char uint8_t;
 typedef short int16_t;

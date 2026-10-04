@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_UTILITY_MH
-#define MINIC_STL_UTILITY_MH
+#ifndef CRAKEN_STL_UTILITY_MH
+#define CRAKEN_STL_UTILITY_MH
 #include "type_traits.mh"
 namespace std {
 template<class T> constexpr typename remove_reference<T>::type&& move(T&& value) noexcept {
@@ -15,13 +15,13 @@ template<class T, unsigned long long N> typename enable_if<is_swappable<T>::valu
 }
 template<class T> constexpr typename conditional<!is_nothrow_move_constructible<T>::value && is_copy_constructible<T>::value,const T&,T&&>::type
 move_if_noexcept(T& value) noexcept { return std::move(value); }
-struct __minic_pair_key_tag {};
-struct __minic_disabled_pair_assignment { __minic_disabled_pair_assignment() = delete; };
-template<class T> void __minic_pair_implicit_default(T);
-template<class T,class Probe=decltype(__minic_pair_implicit_default<T>({}))> true_type __minic_pair_default_probe(int);
-template<class T> false_type __minic_pair_default_probe(...);
-template<class T> struct __minic_pair_default_implicit {
-    static const bool value = decltype(__minic_pair_default_probe<T>(0))::value;
+struct __craken_pair_key_tag {};
+struct __craken_disabled_pair_assignment { __craken_disabled_pair_assignment() = delete; };
+template<class T> void __craken_pair_implicit_default(T);
+template<class T,class Probe=decltype(__craken_pair_implicit_default<T>({}))> true_type __craken_pair_default_probe(int);
+template<class T> false_type __craken_pair_default_probe(...);
+template<class T> struct __craken_pair_default_implicit {
+    static const bool value = decltype(__craken_pair_default_probe<T>(0))::value;
 };
 template<class T, class U> struct pair {
     typedef T first_type;
@@ -29,10 +29,10 @@ template<class T, class U> struct pair {
     T first;
     U second;
     template<class A=T,class B=U,typename enable_if<is_default_constructible<A>::value && is_default_constructible<B>::value
-        && __minic_pair_default_implicit<A>::value && __minic_pair_default_implicit<B>::value,int>::type Enabled=0>
+        && __craken_pair_default_implicit<A>::value && __craken_pair_default_implicit<B>::value,int>::type Enabled=0>
     constexpr pair():first(),second() {}
     template<class A=T,class B=U,typename enable_if<is_default_constructible<A>::value && is_default_constructible<B>::value
-        && !(__minic_pair_default_implicit<A>::value && __minic_pair_default_implicit<B>::value),long>::type Enabled=0>
+        && !(__craken_pair_default_implicit<A>::value && __craken_pair_default_implicit<B>::value),long>::type Enabled=0>
     explicit constexpr pair():first(),second() {}
     pair(const pair&) = default;
     pair(pair&&) = default;
@@ -60,11 +60,11 @@ template<class T, class U> struct pair {
     template<class A,class B,typename enable_if<is_constructible<T,A&&>::value && is_constructible<U,B&&>::value
         && !(is_convertible<A&&,T>::value && is_convertible<B&&,U>::value),long>::type Enabled=0>
     explicit constexpr pair(pair<A,B>&& other):first(std::forward<A>(other.first)),second(std::forward<B>(other.second)) {}
-    template<class K,class... A> constexpr pair(__minic_pair_key_tag,K&& key,A&&... a):first(std::forward<K>(key)),second(std::forward<A>(a)...) {}
+    template<class K,class... A> constexpr pair(__craken_pair_key_tag,K&& key,A&&... a):first(std::forward<K>(key)),second(std::forward<A>(a)...) {}
     typedef typename conditional<is_assignable<T&,const T&>::value && is_assignable<U&,const U&>::value,
-        const pair&,const __minic_disabled_pair_assignment&>::type __copy_assignment_argument;
+        const pair&,const __craken_disabled_pair_assignment&>::type __copy_assignment_argument;
     typedef typename conditional<is_assignable<T&,T&&>::value && is_assignable<U&,U&&>::value,
-        pair&&,__minic_disabled_pair_assignment&&>::type __move_assignment_argument;
+        pair&&,__craken_disabled_pair_assignment&&>::type __move_assignment_argument;
     pair& operator=(__copy_assignment_argument other) { first=other.first;second=other.second;return *this; }
     pair& operator=(__move_assignment_argument other) noexcept(is_nothrow_move_assignable<T>::value && is_nothrow_move_assignable<U>::value) { first=std::forward<T>(other.first);second=std::forward<U>(other.second);return *this; }
     template<class A,class B> typename enable_if<is_assignable<T&,const A&>::value && is_assignable<U&,const B&>::value,pair&>::type

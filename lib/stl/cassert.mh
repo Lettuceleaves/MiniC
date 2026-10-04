@@ -1,4 +1,4 @@
-#ifndef MINIC_STL_CASSERT_MH
-#define MINIC_STL_CASSERT_MH
+#ifndef CRAKEN_STL_CASSERT_MH
+#define CRAKEN_STL_CASSERT_MH
 #include <assert.h>
 #endif

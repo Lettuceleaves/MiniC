@@ -1,8 +1,8 @@
-/* MiniC compatibility declarations for <limits.h>. */
-#ifndef MINIC_LIMITS_MH
-#define MINIC_LIMITS_MH
+/* Craken compatibility declarations for <limits.h>. */
+#ifndef CRAKEN_LIMITS_MH
+#define CRAKEN_LIMITS_MH
 
-/* MiniC targets the Windows x64 LLP64 data model. */
+/* Craken targets the Windows x64 LLP64 data model. */
 #define BOOL_WIDTH 1
 #define BOOL_MAX 1
 #define CHAR_BIT 8
@@ -18,7 +18,7 @@
 #define LLONG_WIDTH 64
 #define ULLONG_WIDTH 64
 
-/* MiniC currently exposes only its single-byte execution character model. */
+/* Craken currently exposes only its single-byte execution character model. */
 #define MB_LEN_MAX 1
 
 #define SCHAR_MIN (-127 - 1)
@@ -41,7 +41,7 @@
 
 /*
  * Intentionally absent: BITINT_MAXWIDTH and __STDC_VERSION_LIMITS_H__.
- * MiniC does not implement C23 _BitInt and therefore does not claim the
+ * Craken does not implement C23 _BitInt and therefore does not claim the
  * complete C23 <limits.h> contract.
  */
 #endif

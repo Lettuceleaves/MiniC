@@ -1,6 +1,6 @@
-/* MiniC compatibility declarations for <locale.h>. */
-#ifndef MINIC_LOCALE_MH
-#define MINIC_LOCALE_MH
+/* Craken compatibility declarations for <locale.h>. */
+#ifndef CRAKEN_LOCALE_MH
+#define CRAKEN_LOCALE_MH
 
 #define LC_ALL 0
 #define LC_COLLATE 1

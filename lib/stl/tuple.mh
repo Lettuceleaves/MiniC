@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_TUPLE_MH
-#define MINIC_STL_TUPLE_MH
+#ifndef CRAKEN_STL_TUPLE_MH
+#define CRAKEN_STL_TUPLE_MH
 #include "utility.mh"
 namespace std {
 template<class T> struct tuple_size;
@@ -12,94 +12,94 @@ template<unsigned long long I,class T> struct tuple_element<I,volatile T>{typede
 template<unsigned long long I,class T> struct tuple_element<I,const volatile T>{typedef const volatile typename tuple_element<I,T>::type type;};
 template<class... T> struct tuple;
 // Match corresponding elements without instantiating a tuple of argument references.
-template<class... T> struct __minic_tuple_types {};
-template<class H,class... T> struct __minic_tuple_types<H,T...> {
-    typedef H head_type;typedef __minic_tuple_types<T...> tail_type;
+template<class... T> struct __craken_tuple_types {};
+template<class H,class... T> struct __craken_tuple_types<H,T...> {
+    typedef H head_type;typedef __craken_tuple_types<T...> tail_type;
 };
-template<class To,class From> struct __minic_tuple_conversion {
-    static constexpr bool constructible=is_constructible<typename To::head_type,typename From::head_type>::value && __minic_tuple_conversion<typename To::tail_type,typename From::tail_type>::constructible;
-    static constexpr bool implicit=is_convertible<typename From::head_type,typename To::head_type>::value && __minic_tuple_conversion<typename To::tail_type,typename From::tail_type>::implicit;
-    static constexpr bool assignable=is_assignable<typename To::head_type&,typename From::head_type>::value && __minic_tuple_conversion<typename To::tail_type,typename From::tail_type>::assignable;
+template<class To,class From> struct __craken_tuple_conversion {
+    static constexpr bool constructible=is_constructible<typename To::head_type,typename From::head_type>::value && __craken_tuple_conversion<typename To::tail_type,typename From::tail_type>::constructible;
+    static constexpr bool implicit=is_convertible<typename From::head_type,typename To::head_type>::value && __craken_tuple_conversion<typename To::tail_type,typename From::tail_type>::implicit;
+    static constexpr bool assignable=is_assignable<typename To::head_type&,typename From::head_type>::value && __craken_tuple_conversion<typename To::tail_type,typename From::tail_type>::assignable;
 };
-template<class... T> struct __minic_tuple_conversion<__minic_tuple_types<T...>,__minic_tuple_types<>> {
+template<class... T> struct __craken_tuple_conversion<__craken_tuple_types<T...>,__craken_tuple_types<>> {
     static constexpr bool constructible=false,implicit=false,assignable=false;
 };
-template<class... T> struct __minic_tuple_conversion<__minic_tuple_types<>,__minic_tuple_types<T...>> {
+template<class... T> struct __craken_tuple_conversion<__craken_tuple_types<>,__craken_tuple_types<T...>> {
     static constexpr bool constructible=false,implicit=false,assignable=false;
 };
-template<> struct __minic_tuple_conversion<__minic_tuple_types<>,__minic_tuple_types<>> {
+template<> struct __craken_tuple_conversion<__craken_tuple_types<>,__craken_tuple_types<>> {
     static constexpr bool constructible=true,implicit=true,assignable=true;
 };
-template<class... T> struct __minic_tuple_default {static constexpr bool constructible=true,implicit=true;};
-template<class H,class... T> struct __minic_tuple_default<H,T...> {
-    static constexpr bool constructible=is_default_constructible<H>::value && __minic_tuple_default<T...>::constructible;
-    static constexpr bool implicit=__minic_pair_default_implicit<H>::value && __minic_tuple_default<T...>::implicit;
+template<class... T> struct __craken_tuple_default {static constexpr bool constructible=true,implicit=true;};
+template<class H,class... T> struct __craken_tuple_default<H,T...> {
+    static constexpr bool constructible=is_default_constructible<H>::value && __craken_tuple_default<T...>::constructible;
+    static constexpr bool implicit=__craken_pair_default_implicit<H>::value && __craken_tuple_default<T...>::implicit;
 };
 template<> struct tuple<> {constexpr tuple() noexcept {} void swap(tuple&) noexcept {}};
 template<class H,class... T> struct tuple<H,T...> {
     H head;tuple<T...> tail;
-    typedef __minic_tuple_types<H,T...> __elements;
-    template<class E=__minic_tuple_default<H,T...>,typename enable_if<E::constructible && E::implicit,int>::type=0>
+    typedef __craken_tuple_types<H,T...> __elements;
+    template<class E=__craken_tuple_default<H,T...>,typename enable_if<E::constructible && E::implicit,int>::type=0>
     constexpr tuple():head(),tail(){}
-    template<class E=__minic_tuple_default<H,T...>,typename enable_if<E::constructible && !E::implicit,long>::type=0>
+    template<class E=__craken_tuple_default<H,T...>,typename enable_if<E::constructible && !E::implicit,long>::type=0>
     explicit constexpr tuple():head(),tail(){}
     tuple(const tuple&)=default;tuple(tuple&&)=default;
-    template<class E=__elements,typename enable_if<__minic_tuple_conversion<E,__minic_tuple_types<const H&,const T&...>>::constructible && __minic_tuple_conversion<E,__minic_tuple_types<const H&,const T&...>>::implicit,int>::type=0>
+    template<class E=__elements,typename enable_if<__craken_tuple_conversion<E,__craken_tuple_types<const H&,const T&...>>::constructible && __craken_tuple_conversion<E,__craken_tuple_types<const H&,const T&...>>::implicit,int>::type=0>
     constexpr tuple(const H& h,const T&... t):head(h),tail(t...){}
-    template<class E=__elements,typename enable_if<__minic_tuple_conversion<E,__minic_tuple_types<const H&,const T&...>>::constructible && !__minic_tuple_conversion<E,__minic_tuple_types<const H&,const T&...>>::implicit,long>::type=0>
+    template<class E=__elements,typename enable_if<__craken_tuple_conversion<E,__craken_tuple_types<const H&,const T&...>>::constructible && !__craken_tuple_conversion<E,__craken_tuple_types<const H&,const T&...>>::implicit,long>::type=0>
     explicit constexpr tuple(const H& h,const T&... t):head(h),tail(t...){}
     // Identical collapsed parameter lists are handled by the element-copy overload.
-    template<class A,class... B,typename enable_if<!is_same<typename decay<A>::type,tuple>::value && !is_same<__minic_tuple_types<A&&,B&&...>,__minic_tuple_types<const H&,const T&...>>::value && __minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&...>>::constructible && __minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&...>>::implicit,int>::type=0>
+    template<class A,class... B,typename enable_if<!is_same<typename decay<A>::type,tuple>::value && !is_same<__craken_tuple_types<A&&,B&&...>,__craken_tuple_types<const H&,const T&...>>::value && __craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&...>>::constructible && __craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&...>>::implicit,int>::type=0>
     constexpr tuple(A&& a,B&&... b):head(std::forward<A>(a)),tail(std::forward<B>(b)...){}
-    template<class A,class... B,typename enable_if<!is_same<typename decay<A>::type,tuple>::value && !is_same<__minic_tuple_types<A&&,B&&...>,__minic_tuple_types<const H&,const T&...>>::value && __minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&...>>::constructible && !__minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&...>>::implicit,long>::type=0>
+    template<class A,class... B,typename enable_if<!is_same<typename decay<A>::type,tuple>::value && !is_same<__craken_tuple_types<A&&,B&&...>,__craken_tuple_types<const H&,const T&...>>::value && __craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&...>>::constructible && !__craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&...>>::implicit,long>::type=0>
     explicit constexpr tuple(A&& a,B&&... b):head(std::forward<A>(a)),tail(std::forward<B>(b)...){}
-    template<class A,class... B,typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<const A&,const B&...>>::constructible && __minic_tuple_conversion<__elements,__minic_tuple_types<const A&,const B&...>>::implicit && (sizeof...(T)!=0 || (!is_same<H,A>::value && !is_constructible<H,const tuple<A,B...>&>::value && !is_convertible<const tuple<A,B...>&,H>::value)),int>::type=0>
+    template<class A,class... B,typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<const A&,const B&...>>::constructible && __craken_tuple_conversion<__elements,__craken_tuple_types<const A&,const B&...>>::implicit && (sizeof...(T)!=0 || (!is_same<H,A>::value && !is_constructible<H,const tuple<A,B...>&>::value && !is_convertible<const tuple<A,B...>&,H>::value)),int>::type=0>
     constexpr tuple(const tuple<A,B...>& other):head(other.head),tail(other.tail){}
-    template<class A,class... B,typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<const A&,const B&...>>::constructible && !__minic_tuple_conversion<__elements,__minic_tuple_types<const A&,const B&...>>::implicit && (sizeof...(T)!=0 || (!is_same<H,A>::value && !is_constructible<H,const tuple<A,B...>&>::value && !is_convertible<const tuple<A,B...>&,H>::value)),long>::type=0>
+    template<class A,class... B,typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<const A&,const B&...>>::constructible && !__craken_tuple_conversion<__elements,__craken_tuple_types<const A&,const B&...>>::implicit && (sizeof...(T)!=0 || (!is_same<H,A>::value && !is_constructible<H,const tuple<A,B...>&>::value && !is_convertible<const tuple<A,B...>&,H>::value)),long>::type=0>
     explicit constexpr tuple(const tuple<A,B...>& other):head(other.head),tail(other.tail){}
-    template<class A,class... B,typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&...>>::constructible && __minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&...>>::implicit && (sizeof...(T)!=0 || (!is_same<H,A>::value && !is_constructible<H,tuple<A,B...>&&>::value && !is_convertible<tuple<A,B...>&&,H>::value)),int>::type=0>
+    template<class A,class... B,typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&...>>::constructible && __craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&...>>::implicit && (sizeof...(T)!=0 || (!is_same<H,A>::value && !is_constructible<H,tuple<A,B...>&&>::value && !is_convertible<tuple<A,B...>&&,H>::value)),int>::type=0>
     constexpr tuple(tuple<A,B...>&& other):head(std::forward<A>(other.head)),tail(std::move(other.tail)){}
-    template<class A,class... B,typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&...>>::constructible && !__minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&...>>::implicit && (sizeof...(T)!=0 || (!is_same<H,A>::value && !is_constructible<H,tuple<A,B...>&&>::value && !is_convertible<tuple<A,B...>&&,H>::value)),long>::type=0>
+    template<class A,class... B,typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&...>>::constructible && !__craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&...>>::implicit && (sizeof...(T)!=0 || (!is_same<H,A>::value && !is_constructible<H,tuple<A,B...>&&>::value && !is_convertible<tuple<A,B...>&&,H>::value)),long>::type=0>
     explicit constexpr tuple(tuple<A,B...>&& other):head(std::forward<A>(other.head)),tail(std::move(other.tail)){}
-    template<class A,class B,typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<const A&,const B&>>::constructible && __minic_tuple_conversion<__elements,__minic_tuple_types<const A&,const B&>>::implicit,int>::type=0>
+    template<class A,class B,typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<const A&,const B&>>::constructible && __craken_tuple_conversion<__elements,__craken_tuple_types<const A&,const B&>>::implicit,int>::type=0>
     constexpr tuple(const pair<A,B>& other):head(other.first),tail(other.second){}
-    template<class A,class B,typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<const A&,const B&>>::constructible && !__minic_tuple_conversion<__elements,__minic_tuple_types<const A&,const B&>>::implicit,long>::type=0>
+    template<class A,class B,typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<const A&,const B&>>::constructible && !__craken_tuple_conversion<__elements,__craken_tuple_types<const A&,const B&>>::implicit,long>::type=0>
     explicit constexpr tuple(const pair<A,B>& other):head(other.first),tail(other.second){}
-    template<class A,class B,typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&>>::constructible && __minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&>>::implicit,int>::type=0>
+    template<class A,class B,typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&>>::constructible && __craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&>>::implicit,int>::type=0>
     constexpr tuple(pair<A,B>&& other):head(std::forward<A>(other.first)),tail(std::forward<B>(other.second)){}
-    template<class A,class B,typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&>>::constructible && !__minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&>>::implicit,long>::type=0>
+    template<class A,class B,typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&>>::constructible && !__craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&>>::implicit,long>::type=0>
     explicit constexpr tuple(pair<A,B>&& other):head(std::forward<A>(other.first)),tail(std::forward<B>(other.second)){}
-    typedef typename conditional<__minic_tuple_conversion<__elements,__minic_tuple_types<const H&,const T&...>>::assignable,const tuple&,const __minic_disabled_pair_assignment&>::type __copy_assignment_argument;
-    typedef typename conditional<__minic_tuple_conversion<__elements,__minic_tuple_types<H&&,T&&...>>::assignable,tuple&&,__minic_disabled_pair_assignment&&>::type __move_assignment_argument;
+    typedef typename conditional<__craken_tuple_conversion<__elements,__craken_tuple_types<const H&,const T&...>>::assignable,const tuple&,const __craken_disabled_pair_assignment&>::type __copy_assignment_argument;
+    typedef typename conditional<__craken_tuple_conversion<__elements,__craken_tuple_types<H&&,T&&...>>::assignable,tuple&&,__craken_disabled_pair_assignment&&>::type __move_assignment_argument;
     tuple& operator=(__copy_assignment_argument other){head=other.head;tail=other.tail;return *this;}
     tuple& operator=(__move_assignment_argument other){head=std::forward<H>(other.head);tail=std::move(other.tail);return *this;}
-    template<class A,class... B> typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<const A&,const B&...>>::assignable,tuple&>::type operator=(const tuple<A,B...>& other){head=other.head;tail=other.tail;return *this;}
-    template<class A,class... B> typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&...>>::assignable,tuple&>::type operator=(tuple<A,B...>&& other){head=std::forward<A>(other.head);tail=std::move(other.tail);return *this;}
-    template<class A,class B> typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<const A&,const B&>>::assignable,tuple&>::type operator=(const pair<A,B>& other){head=other.first;tail.head=other.second;return *this;}
-    template<class A,class B> typename enable_if<__minic_tuple_conversion<__elements,__minic_tuple_types<A&&,B&&>>::assignable,tuple&>::type operator=(pair<A,B>&& other){head=std::forward<A>(other.first);tail.head=std::forward<B>(other.second);return *this;}
+    template<class A,class... B> typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<const A&,const B&...>>::assignable,tuple&>::type operator=(const tuple<A,B...>& other){head=other.head;tail=other.tail;return *this;}
+    template<class A,class... B> typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&...>>::assignable,tuple&>::type operator=(tuple<A,B...>&& other){head=std::forward<A>(other.head);tail=std::move(other.tail);return *this;}
+    template<class A,class B> typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<const A&,const B&>>::assignable,tuple&>::type operator=(const pair<A,B>& other){head=other.first;tail.head=other.second;return *this;}
+    template<class A,class B> typename enable_if<__craken_tuple_conversion<__elements,__craken_tuple_types<A&&,B&&>>::assignable,tuple&>::type operator=(pair<A,B>&& other){head=std::forward<A>(other.first);tail.head=std::forward<B>(other.second);return *this;}
     void swap(tuple& other){using std::swap;swap(head,other.head);tail.swap(other.tail);}
 };
 template<class... T> struct tuple_size<tuple<T...>> : integral_constant<unsigned long long,sizeof...(T)> {};
 template<unsigned long long I,class H,class... T> struct tuple_element<I,tuple<H,T...>> {typedef typename tuple_element<I-1,tuple<T...>>::type type;};
 template<class H,class... T> struct tuple_element<0,tuple<H,T...>> {typedef H type;};
-template<unsigned long long I,class H,class... T> struct __minic_tuple_get {
+template<unsigned long long I,class H,class... T> struct __craken_tuple_get {
     typedef typename tuple_element<I,tuple<H,T...>>::type E;
-    static constexpr E& access(tuple<H,T...>& v){return __minic_tuple_get<I-1,T...>::access(v.tail);}
-    static constexpr const E& access(const tuple<H,T...>& v){return __minic_tuple_get<I-1,T...>::access(v.tail);}
+    static constexpr E& access(tuple<H,T...>& v){return __craken_tuple_get<I-1,T...>::access(v.tail);}
+    static constexpr const E& access(const tuple<H,T...>& v){return __craken_tuple_get<I-1,T...>::access(v.tail);}
 };
-template<class H,class... T> struct __minic_tuple_get<0,H,T...> {
+template<class H,class... T> struct __craken_tuple_get<0,H,T...> {
     static constexpr H& access(tuple<H,T...>& v){return v.head;}
     static constexpr const H& access(const tuple<H,T...>& v){return v.head;}
 };
-template<unsigned long long I,class... T> constexpr typename tuple_element<I,tuple<T...>>::type& get(tuple<T...>& v){return __minic_tuple_get<I,T...>::access(v);}
-template<unsigned long long I,class... T> constexpr const typename tuple_element<I,tuple<T...>>::type& get(const tuple<T...>& v){return __minic_tuple_get<I,T...>::access(v);}
-template<unsigned long long I,class... T> constexpr typename tuple_element<I,tuple<T...>>::type&& get(tuple<T...>&& v){return std::forward<typename tuple_element<I,tuple<T...>>::type>(std::__minic_tuple_get<I,T...>::access(v));}
-template<unsigned long long I,class... T> constexpr const typename tuple_element<I,tuple<T...>>::type&& get(const tuple<T...>&& v){return std::forward<const typename tuple_element<I,tuple<T...>>::type>(std::__minic_tuple_get<I,T...>::access(v));}
+template<unsigned long long I,class... T> constexpr typename tuple_element<I,tuple<T...>>::type& get(tuple<T...>& v){return __craken_tuple_get<I,T...>::access(v);}
+template<unsigned long long I,class... T> constexpr const typename tuple_element<I,tuple<T...>>::type& get(const tuple<T...>& v){return __craken_tuple_get<I,T...>::access(v);}
+template<unsigned long long I,class... T> constexpr typename tuple_element<I,tuple<T...>>::type&& get(tuple<T...>&& v){return std::forward<typename tuple_element<I,tuple<T...>>::type>(std::__craken_tuple_get<I,T...>::access(v));}
+template<unsigned long long I,class... T> constexpr const typename tuple_element<I,tuple<T...>>::type&& get(const tuple<T...>&& v){return std::forward<const typename tuple_element<I,tuple<T...>>::type>(std::__craken_tuple_get<I,T...>::access(v));}
 template<class... T> constexpr tuple<typename decay<T>::type...> make_tuple(T&&... v){return tuple<typename decay<T>::type...>(std::forward<T>(v)...);}
 template<class... T> constexpr tuple<T&...> tie(T&... v) noexcept{return tuple<T&...>(v...);}
 template<class... T> constexpr tuple<T&&...> forward_as_tuple(T&&... v) noexcept{return tuple<T&&...>(std::forward<T>(v)...);}
-struct __minic_ignore {template<class T> const __minic_ignore& operator=(const T&) const noexcept{return *this;}};
-const __minic_ignore ignore;
+struct __craken_ignore {template<class T> const __craken_ignore& operator=(const T&) const noexcept{return *this;}};
+const __craken_ignore ignore;
 inline bool operator==(const tuple<>&,const tuple<>&){return true;}
 inline bool operator<(const tuple<>&,const tuple<>&){return false;}
 template<class H,class... T,class A,class... B> bool operator==(const tuple<H,T...>& a,const tuple<A,B...>& b){return a.head==b.head&&a.tail==b.tail;}

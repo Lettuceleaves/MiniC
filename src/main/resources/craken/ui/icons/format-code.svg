@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Craken “自动整理代码 / 代码格式优化” 图标。
+  源自 UiIcon.Kind.FORMAT_CODE 的 24px 矢量定义（描边 1.5，方头，斜接）。
+  应用内颜色：默认 #8b949e（-ui-text-muted），悬停 #e6edf3（-ui-text）。
+  作为静态资源使用时以 currentColor 承载颜色，便于随上下文着色。
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <g fill="none" stroke="currentColor" stroke-width="1.5"
+     stroke-linecap="butt" stroke-linejoin="miter">
+    <path d="M4 5h16M10 10h10M10 15h10M4 20h16"/>
+    <path d="M3 12.5h4M4 9.5l3 3-3 3"/>
+  </g>
+</svg>

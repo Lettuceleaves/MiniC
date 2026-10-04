@@ -1,4 +1,4 @@
-#ifndef MINIC_STL_CLIMITS_MH
-#define MINIC_STL_CLIMITS_MH
+#ifndef CRAKEN_STL_CLIMITS_MH
+#define CRAKEN_STL_CLIMITS_MH
 #include <limits.h>
 #endif

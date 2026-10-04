@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_NEW_MH
-#define MINIC_STL_NEW_MH
+#ifndef CRAKEN_STL_NEW_MH
+#define CRAKEN_STL_NEW_MH
 void* operator new(unsigned long long,void* storage) noexcept { return storage; }
 void* operator new[](unsigned long long,void* storage) noexcept { return storage; }
 void operator delete(void*,void*) noexcept {}

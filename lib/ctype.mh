@@ -1,6 +1,6 @@
-/* MiniC compatibility declarations for <ctype.h>. */
-#ifndef MINIC_CTYPE_MH
-#define MINIC_CTYPE_MH
+/* Craken compatibility declarations for <ctype.h>. */
+#ifndef CRAKEN_CTYPE_MH
+#define CRAKEN_CTYPE_MH
 extern int isalnum(int character);
 extern int isalpha(int character);
 extern int iscntrl(int character);
@@ -21,8 +21,8 @@ extern int toupper(int character);
  * A header-owned function preserves the standard addressable interface and
  * evaluates the caller's argument exactly once.
  */
-extern int minic_isctype(int character, int mask);
+extern int craken_isctype(int character, int mask);
 int isblank(int character) {
-    return character == '\t' || minic_isctype(character, 0x40);
+    return character == '\t' || craken_isctype(character, 0x40);
 }
 #endif

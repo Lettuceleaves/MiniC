@@ -1,6 +1,6 @@
-/* MiniC compatibility declarations for <string.h>. */
-#ifndef MINIC_STRING_MH
-#define MINIC_STRING_MH
+/* Craken compatibility declarations for <string.h>. */
+#ifndef CRAKEN_STRING_MH
+#define CRAKEN_STRING_MH
 
 #include "stddef.mh"
 
@@ -28,7 +28,7 @@ extern void *memset(void *destination, int character, size_t count);
 extern char *strerror(int errorNumber);
 extern size_t strlen(const char *string);
 extern char *strdup(const char *string);
-extern void *minic_string_malloc(size_t size);
+extern void *craken_string_malloc(size_t size);
 
 char *strndup(const char *string, size_t count) {
     size_t length = 0;
@@ -36,7 +36,7 @@ char *strndup(const char *string, size_t count) {
         length = length + 1;
     }
 
-    char *copy = (char *)minic_string_malloc(length + 1);
+    char *copy = (char *)craken_string_malloc(length + 1);
     if (copy == NULL) {
         return NULL;
     }

@@ -1,23 +1,23 @@
-#ifndef MINIC_STL_MAP_MH
-#define MINIC_STL_MAP_MH
+#ifndef CRAKEN_STL_MAP_MH
+#define CRAKEN_STL_MAP_MH
 #include "__tree.mh"
 #include "algorithm.mh"
 namespace std {
-template<class Key,class T,class Compare> class __minic_map_value_compare {
+template<class Key,class T,class Compare> class __craken_map_value_compare {
     Compare compare_;
 public:
-    explicit __minic_map_value_compare(const Compare& c):compare_(c) {}
+    explicit __craken_map_value_compare(const Compare& c):compare_(c) {}
     bool operator()(const pair<const Key,T>& a,const pair<const Key,T>& b) const{return compare_(a.first,b.first);}
 };
 template<class Key,class T,class Compare=less<Key>> class map {
-    typedef __minic_tree<Key,pair<const Key,T>,__minic_first<Key,T>,Compare,false> tree_type;
+    typedef __craken_tree<Key,pair<const Key,T>,__craken_first<Key,T>,Compare,false> tree_type;
     tree_type tree_;
 public:
     typedef Key key_type;
     typedef T mapped_type;
     typedef pair<const Key,T> value_type;
     typedef Compare key_compare;
-    typedef __minic_map_value_compare<Key,T,Compare> value_compare;
+    typedef __craken_map_value_compare<Key,T,Compare> value_compare;
     typedef size_t size_type;
     typedef ptrdiff_t difference_type;
     typedef value_type& reference;
@@ -63,19 +63,19 @@ public:
     template<class... A> iterator emplace_hint(const_iterator hint,A&&... a){return tree_.emplace_hint(hint,std::forward<A>(a)...);}
     template<class... A> pair<iterator,bool> try_emplace(const Key& key,A&&... a){
         iterator i=find(key);if(i!=end())return pair<iterator,bool>(i,false);
-        return tree_.emplace(__minic_pair_key_tag(),key,std::forward<A>(a)...);
+        return tree_.emplace(__craken_pair_key_tag(),key,std::forward<A>(a)...);
     }
     template<class... A> pair<iterator,bool> try_emplace(Key&& key,A&&... a){
         iterator i=find(key);if(i!=end())return pair<iterator,bool>(i,false);
-        return tree_.emplace(__minic_pair_key_tag(),std::move(key),std::forward<A>(a)...);
+        return tree_.emplace(__craken_pair_key_tag(),std::move(key),std::forward<A>(a)...);
     }
     template<class... A> iterator try_emplace(const_iterator hint,const Key& key,A&&... a){
         iterator i=tree_.find_with_hint(hint,key);if(i!=end())return i;
-        return tree_.emplace_hint(hint,__minic_pair_key_tag(),key,std::forward<A>(a)...);
+        return tree_.emplace_hint(hint,__craken_pair_key_tag(),key,std::forward<A>(a)...);
     }
     template<class... A> iterator try_emplace(const_iterator hint,Key&& key,A&&... a){
         iterator i=tree_.find_with_hint(hint,key);if(i!=end())return i;
-        return tree_.emplace_hint(hint,__minic_pair_key_tag(),std::move(key),std::forward<A>(a)...);
+        return tree_.emplace_hint(hint,__craken_pair_key_tag(),std::move(key),std::forward<A>(a)...);
     }
     template<class M> pair<iterator,bool> insert_or_assign(const Key& key,M&& value){
         iterator i=find(key);if(i!=end()){i->second=std::forward<M>(value);return pair<iterator,bool>(i,false);}return try_emplace(key,std::forward<M>(value));
@@ -85,11 +85,11 @@ public:
     }
     template<class M> iterator insert_or_assign(const_iterator hint,const Key& key,M&& value){
         iterator i=tree_.find_with_hint(hint,key);if(i!=end()){i->second=std::forward<M>(value);return i;}
-        return tree_.emplace_hint(hint,__minic_pair_key_tag(),key,std::forward<M>(value));
+        return tree_.emplace_hint(hint,__craken_pair_key_tag(),key,std::forward<M>(value));
     }
     template<class M> iterator insert_or_assign(const_iterator hint,Key&& key,M&& value){
         iterator i=tree_.find_with_hint(hint,key);if(i!=end()){i->second=std::forward<M>(value);return i;}
-        return tree_.emplace_hint(hint,__minic_pair_key_tag(),std::move(key),std::forward<M>(value));
+        return tree_.emplace_hint(hint,__craken_pair_key_tag(),std::move(key),std::forward<M>(value));
     }
     iterator erase(iterator i){return tree_.erase(i);} iterator erase(const_iterator i){return tree_.erase(i);}
     iterator erase(const_iterator first,const_iterator last){return tree_.erase(first,last);}
@@ -101,15 +101,15 @@ public:
     iterator upper_bound(const Key& key){return tree_.upper_bound(key);} const_iterator upper_bound(const Key& key) const{return tree_.upper_bound(key);}
     pair<iterator,iterator> equal_range(const Key& key){return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
     pair<const_iterator,const_iterator> equal_range(const Key& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> size_type count(const K& key) const{return tree_.count(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator find(const K& key){return tree_.find(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator find(const K& key) const{return tree_.find(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator lower_bound(const K& key){return tree_.lower_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator lower_bound(const K& key) const{return tree_.lower_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> iterator upper_bound(const K& key){return tree_.upper_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> const_iterator upper_bound(const K& key) const{return tree_.upper_bound(key);}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> pair<iterator,iterator> equal_range(const K& key){return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
-    template<class K,class=typename __minic_transparent_lookup<Compare,K>::type> pair<const_iterator,const_iterator> equal_range(const K& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> size_type count(const K& key) const{return tree_.count(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> iterator find(const K& key){return tree_.find(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> const_iterator find(const K& key) const{return tree_.find(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> iterator lower_bound(const K& key){return tree_.lower_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> const_iterator lower_bound(const K& key) const{return tree_.lower_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> iterator upper_bound(const K& key){return tree_.upper_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> const_iterator upper_bound(const K& key) const{return tree_.upper_bound(key);}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> pair<iterator,iterator> equal_range(const K& key){return pair<iterator,iterator>(lower_bound(key),upper_bound(key));}
+    template<class K,class=typename __craken_transparent_lookup<Compare,K>::type> pair<const_iterator,const_iterator> equal_range(const K& key) const{return pair<const_iterator,const_iterator>(lower_bound(key),upper_bound(key));}
     Compare key_comp() const{return tree_.key_comp();} value_compare value_comp() const{return value_compare(tree_.key_comp());}
 };
 template<class K,class T,class C> void swap(map<K,T,C>& a,map<K,T,C>& b) noexcept(noexcept(a.swap(b))) {a.swap(b);}

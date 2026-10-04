@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_FUNCTIONAL_MH
-#define MINIC_STL_FUNCTIONAL_MH
+#ifndef CRAKEN_STL_FUNCTIONAL_MH
+#define CRAKEN_STL_FUNCTIONAL_MH
 #include "utility.mh"
 #include <string.h>
 namespace std {

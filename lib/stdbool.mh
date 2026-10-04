@@ -1,6 +1,6 @@
-/* MiniC compatibility declarations for <stdbool.h>. */
-#ifndef MINIC_STDBOOL_MH
-#define MINIC_STDBOOL_MH
+/* Craken compatibility declarations for <stdbool.h>. */
+#ifndef CRAKEN_STDBOOL_MH
+#define CRAKEN_STDBOOL_MH
 #define _Bool bool
 #define __bool_true_false_are_defined 1
 #endif

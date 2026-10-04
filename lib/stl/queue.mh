@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_QUEUE_MH
-#define MINIC_STL_QUEUE_MH
+#ifndef CRAKEN_STL_QUEUE_MH
+#define CRAKEN_STL_QUEUE_MH
 #include "deque.mh"
 #include "vector.mh"
 #include "algorithm.mh"

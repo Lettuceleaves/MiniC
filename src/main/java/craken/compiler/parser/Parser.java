@@ -1,0 +1,2694 @@
+package craken.compiler.parser;
+
+import craken.compiler.CompilerApi;
+import craken.compiler.Stage;
+import craken.compiler.lexer.Lexer;
+import craken.compiler.lexer.token.Token;
+import craken.compiler.lexer.token.TokenType;
+import craken.compiler.parser.manager.DeclarationManager;
+import craken.compiler.parser.manager.ExpressionManager;
+import craken.compiler.parser.manager.RecordManager;
+import craken.compiler.parser.manager.StatementManager;
+import craken.compiler.parser.manager.TypeNameManager;
+import craken.compiler.parser.node.AstNode;
+import craken.compiler.parser.node.Declaration.FunctionDecl;
+import craken.compiler.parser.node.Declaration.Program;
+import craken.compiler.parser.node.Declaration.StructDecl;
+import craken.compiler.parser.node.Declaration.EnumDecl;
+import craken.compiler.parser.node.Declaration.TypedefDecl;
+import craken.compiler.parser.node.Declaration.GlobalVarDecl;
+import craken.compiler.parser.node.Declaration;
+import craken.compiler.parser.node.QualifiedName;
+import craken.compiler.parser.node.OperatorName;
+import craken.compiler.parser.node.OperatorName.Kind;
+import craken.compiler.parser.node.Declaration.ClassTemplateDecl;
+import craken.compiler.parser.node.Declaration.FunctionTemplateDecl;
+import craken.compiler.type.CrakenType;
+import craken.compiler.type.TemplateArgument;
+import craken.compiler.type.TemplateValues;
+import craken.compiler.parser.node.Expression;
+import craken.compiler.parser.node.Expression.TemplateValueExpr;
+import craken.compiler.Diagnostic;
+import craken.SourceRange;
+import craken.compiler.parser.node.Declaration.TemplateMemberDefinitionDecl;
+import craken.compiler.parser.node.Expression.TypeMemberExpr;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+
+/**
+ * Craken 递归下降语法分析器。
+ *
+ * <p>Parser 负责 token 游标、单步生命周期和各 Manager 的调度；声明、
+ * 语句、表达式和类成员的具体语法规则分别由对应 Manager 处理，
+ * 类型名称的声明点分类由 TypeNameManager 维护。</p>
+ */
+public final class Parser extends Stage {
+    private final Lexer lexer;
+    private final boolean traceEnabled;
+    private List<Token> tokens;
+    private Context context;
+    private DeclarationManager declarationManager;
+    private TypeReader typeReader;
+    private final ArrayList<Declaration> declarations = new ArrayList<>();
+    private final java.util.Deque<List<Declaration>> namespaceMembers = new java.util.ArrayDeque<>();
+    private final ArrayList<StructDecl> structs = new ArrayList<>();
+    private final ArrayList<EnumDecl> enums = new ArrayList<>();
+    private final ArrayList<TypedefDecl> typedefs = new ArrayList<>();
+    private final ArrayList<GlobalVarDecl> globals = new ArrayList<>();
+    private final java.util.Map<String, Long> enumConstants = new java.util.LinkedHashMap<>();
+    private final ArrayList<FunctionDecl> functions = new ArrayList<>();
+    private final ArrayList<AstNode> completedNodes = new ArrayList<>();
+
+    private AstNode currentNode;
+    private ParserResult parserResult;
+    private boolean sourceCompleted;
+    private boolean completed;
+    private long stepCount;
+
+    /** 创建不记录 trace 的 Parser。 */
+    public Parser(List<Token> tokens) {
+        this(tokens, false);
+    }
+
+    /** 创建 Parser，并可选择记录递归下降 trace。 */
+    public Parser(List<Token> tokens, boolean traceEnabled) {
+        lexer = null;
+        this.traceEnabled = traceEnabled;
+        initialize(tokens);
+    }
+
+    /** 创建由 Lexer 提供输入的 Parser。 */
+    public Parser(Lexer lexer) {
+        this(lexer, false);
+    }
+
+    /** 创建由 Lexer 提供输入的 Parser，并可选择记录递归下降 trace。 */
+    public Parser(Lexer lexer, boolean traceEnabled) {
+        this.lexer = Objects.requireNonNull(lexer, "lexer");
+        this.traceEnabled = traceEnabled;
+    }
+
+    private void initialize(List<Token> sourceTokens) {
+        tokens = List.copyOf(Objects.requireNonNull(sourceTokens, "tokens"));
+        context = new Context(tokens, traceEnabled);
+        typeReader = new TypeReader(context, aggregate -> {
+            if (namespaceMembers.isEmpty()) {
+                structs.add(aggregate);
+                declarations.add(aggregate);
+            }
+            else namespaceMembers.peek().add(aggregate);
+        });
+        ExpressionManager expressionManager = new ExpressionManager(context, typeReader, enumConstants);
+        typeReader.expressionManager = expressionManager;
+        StatementManager statementManager = new StatementManager(context, expressionManager, typeReader);
+        declarationManager = new DeclarationManager(context, statementManager, expressionManager, typeReader, enumConstants);
+    }
+
+    /** 循环执行 {@link #step()}，直到独立的最后空步骤发出。 */
+    public ParserResult parse() {
+        new CompilerApi(List.of(this)).run();
+        return result();
+    }
+
+    @Override
+    public boolean canNext() {
+        return !completed;
+    }
+
+    /** 每次解析一个顶层声明。token 处理结束后先生成结果，下一步再发出空结束步骤。 */
+    @Override
+    public SourceRange step() {
+        if (!canNext()) {
+            throw new IllegalStateException("parser step is already completed");
+        }
+        ensureInitialized();
+        currentNode = null;
+
+        if (sourceCompleted) {
+            completed = true;
+            stepCount++;
+            return finishStep(null, "", context.reportedErrors(), () -> parserResult);
+        }
+
+        if (context.isAtEnd()) {
+            parserResult = buildResult();
+            sourceCompleted = true;
+            stepCount++;
+            SourceRange range = context.peek().range();
+            return finishStep(range, "COMPLETE_PARSE", context.reportedErrors(), this::currentResult);
+        }
+
+        Declaration declaration = parseDeclaration();
+        if (declaration != null) {
+            declarations.add(declaration);
+            indexDeclaration(declaration);
+            captureNode(declaration);
+        } else {
+            context.synchronizeFunction();
+        }
+        stepCount++;
+        SourceRange range = currentNode != null
+                ? currentNode.range()
+                : context.peek().range();
+        String operation = currentNode == null ? "RECOVER" : "PARSE_" + currentNode.getClass().getSimpleName();
+        return finishStep(range, operation, context.reportedErrors(), this::currentResult);
+    }
+
+    private void indexDeclaration(Declaration declaration) {
+        Declaration indexed=declaration instanceof Declaration.InternalLinkageDecl internal?internal.declaration():declaration;
+        if(indexed instanceof Declaration.DeclGroupDecl group){group.declarations().forEach(this::indexDeclaration);return;}
+        if(indexed instanceof TypedefDecl item)typedefs.add(item);
+        else if(indexed instanceof EnumDecl item)enums.add(item);
+        else if(indexed instanceof StructDecl item)structs.add(item);
+        else if(indexed instanceof FunctionDecl item)functions.add(item);
+        else if(indexed instanceof GlobalVarDecl item)globals.add(item);
+    }
+
+    public ParserResult result() {
+        if (parserResult == null) {
+            throw new IllegalStateException("parser result is not available before parsing completes");
+        }
+        return parserResult;
+    }
+
+    /** 返回当前已构建部分对应的结果，供观察界面生成预览。 */
+    public ParserResult currentResult() {
+        return parserResult != null ? parserResult : buildResult();
+    }
+
+    public List<Token> tokens() {
+        return tokens == null ? List.of() : tokens;
+    }
+
+    public int currentIndex() {
+        return context == null ? 0 : context.currentIndex();
+    }
+
+    public long stepCount() {
+        return stepCount;
+    }
+
+    public List<AstNode> completedNodes() {
+        return List.copyOf(completedNodes);
+    }
+
+    public List<TraceEvent> traceEvents() {
+        return context == null ? List.of() : context.traceEvents();
+    }
+
+    private void captureNode(AstNode node) {
+        currentNode = node;
+        completedNodes.add(node);
+    }
+
+    private void ensureInitialized() {
+        if (context != null) {
+            return;
+        }
+        if (lexer.canNext()) {
+            throw new IllegalStateException("lexer has not completed");
+        }
+        if (!lexer.succeeded()) {
+            throw new IllegalStateException("lexer did not succeed");
+        }
+        initialize(lexer.toLexerResult().tokens());
+    }
+
+    private boolean isStructDeclaration() {
+        if (context.peekAt(1).type() != TokenType.IDENTIFIER) return false;
+        TokenType following = context.peekAt(2).type();
+        if (following == TokenType.SEMICOLON) return true;
+        if (following == TokenType.COLON) return true;
+        if (following != TokenType.LEFT_BRACE) return false;
+        int depth = 0;
+        for (int offset = 2; context.peekAt(offset).type() != TokenType.EOF; offset++) {
+            TokenType token = context.peekAt(offset).type();
+            if (token == TokenType.LEFT_BRACE) depth++;
+            if (token == TokenType.RIGHT_BRACE && --depth == 0) {
+                return context.peekAt(offset + 1).type() == TokenType.SEMICOLON;
+            }
+        }
+        return true;
+    }
+
+    private Declaration parseDeclaration() {
+        if (context.check(TokenType.STATIC_ASSERT)) return declarationManager.parseStaticAssert();
+        if (context.check(TokenType.TEMPLATE)) return parseClassTemplate();
+        if (context.check(TokenType.NAMESPACE)) return parseNamespace();
+        if (context.check(TokenType.USING)) {
+            var using = declarationManager.parseUsing();
+            if (using != null) typeReader.registerUsing(using);
+            return using;
+        }
+        if (context.check(TokenType.TYPEDEF)) return declarationManager.parseTypedefDecl();
+        if (context.check(TokenType.ENUM) && context.peekAt(1).type() == TokenType.IDENTIFIER
+                && context.peekAt(2).type() == TokenType.LEFT_BRACE) return declarationManager.parseEnumDecl();
+        if ((context.check(TokenType.STRUCT) || context.check(TokenType.UNION)
+                || context.check(TokenType.CLASS)) && isStructDeclaration()) {
+            return declarationManager.parseStructDecl();
+        }
+        return declarationManager.parseFunctionOrGlobalDecl();
+    }
+
+    private Declaration parseClassTemplate() {
+        Token start = context.advance();
+        if (context.consume(TokenType.LESS, "template 后期望 '<'") == null) return null;
+        Token name = peekTemplateClassName();
+        if (name == null) return parseFunctionTemplate(start);
+        String owner = typeReader.beginClassTemplate(name);
+        try {
+            var parameters = typeReader.readTemplateParameters(name, owner);
+            if (parameters == null) return null;
+            for (int index=0; index+1<parameters.size(); index++)
+                if (parameters.get(index).pack()) context.report(parameters.get(index).range(),"主类模板参数包必须位于末尾");
+            if (context.consumeTemplateGreater("模板参数后期望 '>'") == null) return null;
+            boolean specialization=context.peekAt(2).type()==TokenType.LESS;
+            if(!specialization) {
+                if(parameters.isEmpty()){context.report(name.range(),"显式特化需要模板实参");return null;}
+                typeReader.registerClassTemplate(name, parameters);
+            } else {
+                for(var parameter:parameters)if(parameter.defaultType()!=null || parameter instanceof ClassTemplateDecl.ValueParameter value&&value.defaultValue()!=null)
+                    context.report(parameter.range(),"类模板特化不能声明默认模板实参");
+            }
+            StructDecl record = declarationManager.parseStructDecl();
+            if (record == null) return null;
+            var result = new ClassTemplateDecl(parameters, record, typeReader.currentSpecializationArguments(), specialization, SourceRange.span(start.range(), record.range()));
+            typeReader.recordTemplateDeclaration(result);
+            context.build(result, "ClassTemplateDecl " + record.name(), result.range());
+            return result;
+        } finally {
+            typeReader.exitClassTemplate();
+        }
+    }
+
+    private Declaration parseFunctionTemplate(Token start) {
+        String owner=typeReader.beginFunctionTemplate(start);
+        try {
+            var parameters=typeReader.readTemplateParameters(start,owner);
+            if(parameters==null||context.consumeTemplateGreater("模板参数后期望 '>'")==null)return null;
+            typeReader.pendingFunctionTemplateParameters=parameters;
+            typeReader.definitionTemplateParameters=parameters;
+            typeReader.templateDefinitionOwner=null;typeReader.functionSpecializationArguments=null;
+            Declaration declaration=declarationManager.parseFunctionOrGlobalDecl();
+            if(declaration!=null && typeReader.templateDefinitionOwner!=null) {
+                for(var parameter:parameters)if(parameter.defaultType()!=null || parameter instanceof ClassTemplateDecl.ValueParameter value&&value.defaultValue()!=null)
+                    context.report(parameter.range(),"类模板类外成员定义不能重复默认模板实参");
+                var result=new craken.compiler.parser.node.Declaration.TemplateMemberDefinitionDecl(parameters,typeReader.templateDefinitionOwner,
+                        declaration,SourceRange.span(start.range(),declaration.range()));
+                context.build(result,"TemplateMemberDefinition",result.range());return result;
+            }
+            QualifiedName qualifiedName=null;
+            if(parameters.isEmpty() && declaration instanceof Declaration.OutOfLineMethodDecl method) {
+                if(method.constQualified())context.report(method.range(),"自由函数显式特化不能使用成员 cv 限定符");
+                declaration=method.method();qualifiedName=method.qualifiedName();
+            }
+            if(!(declaration instanceof FunctionDecl function)) {
+                context.unsupportedSyntax(start.range(),"此模板声明需要普通函数定义或声明");return null;
+            }
+            if(!parameters.isEmpty())typeReader.registerFunctionTemplate(function.name(),parameters);
+            if(!parameters.isEmpty() && typeReader.functionSpecializationArguments!=null)context.report(function.range(),"函数模板不能偏特化");
+            var result=new FunctionTemplateDecl(parameters,function,typeReader.functionSpecializationArguments,qualifiedName,SourceRange.span(start.range(),function.range()));
+            context.build(result,"FunctionTemplate "+function.name(),result.range());return result;
+        } finally {typeReader.pendingFunctionTemplateParameters=null;typeReader.definitionTemplateParameters=null;
+            typeReader.templateDefinitionOwner=null;typeReader.functionSpecializationArguments=null;typeReader.exitFunctionTemplate();}
+    }
+
+    /** Find the owner without consuming the header or giving its name premature scope. */
+    private Token peekTemplateClassName() {
+        int depth = 1, parens = 0, brackets = 0;
+        for (int offset = 0; ; offset++) {
+            TokenType token = context.peekAt(offset).type();
+            if (token == TokenType.EOF || token == TokenType.SEMICOLON || token == TokenType.LEFT_BRACE) return null;
+            if (token == TokenType.LEFT_PAREN) parens++;
+            if (token == TokenType.RIGHT_PAREN) parens--;
+            if (token == TokenType.LEFT_BRACKET) brackets++;
+            if (token == TokenType.RIGHT_BRACKET) brackets--;
+            if (parens == 0 && brackets == 0) {
+                if (token == TokenType.LESS) depth++;
+                if (token == TokenType.GREATER) depth--;
+                if (token == TokenType.GREATER_GREATER) depth -= 2;
+            }
+            if (depth <= 0) {
+                if (depth < 0) return null;
+                TokenType key = context.peekAt(offset + 1).type();
+                return (key == TokenType.STRUCT || key == TokenType.CLASS) && context.peekAt(offset + 2).type() == TokenType.IDENTIFIER
+                        ? context.peekAt(offset + 2) : null;
+            }
+        }
+    }
+
+    private Declaration.NamespaceDecl parseNamespace() {
+        Token start = context.advance();
+        if (context.check(TokenType.LEFT_BRACE)) {
+            context.unsupportedSyntax(context.peek().range(), "匿名命名空间尚未实现");
+            return null;
+        }
+        var name = context.parseQualifiedName();
+        if (name == null) return null;
+        if (name.global()) {
+            context.report(name.range(), "命名空间定义不能以 :: 开头");
+            return null;
+        }
+        if (context.check(TokenType.EQUAL)) {
+            context.unsupportedSyntax(context.peek().range(), "命名空间别名尚未实现");
+            return null;
+        }
+        if (context.consume(TokenType.LEFT_BRACE, "期望 '{'") == null) return null;
+        var members = new ArrayList<Declaration>();
+        var savedConstants = new java.util.LinkedHashMap<>(enumConstants);
+        typeReader.enterNamespace(name);
+        namespaceMembers.push(members);
+        try {
+            while (!context.isAtEnd() && !context.check(TokenType.RIGHT_BRACE)) {
+                int before = context.currentIndex();
+                if (context.match(TokenType.SEMICOLON)) continue;
+                Declaration member = parseDeclaration();
+                if (member != null) members.add(member);
+                else {
+                    // Recovery remains inside this namespace's closing brace.
+                    while (!context.isAtEnd() && !context.check(TokenType.RIGHT_BRACE)
+                            && !context.check(TokenType.SEMICOLON)) context.advance();
+                    context.match(TokenType.SEMICOLON);
+                }
+                if (context.currentIndex() == before && !context.isAtEnd()
+                        && !context.check(TokenType.RIGHT_BRACE)) context.advance();
+            }
+            Token end = context.consume(TokenType.RIGHT_BRACE, "期望命名空间结束的 '}'");
+            if (end == null) return null;
+            var namespace = new Declaration.NamespaceDecl(name, members, SourceRange.span(start.range(), end.range()));
+            context.build(namespace, "NamespaceDecl", namespace.range());
+            return namespace;
+        } finally {
+            typeReader.exitNamespace();
+            namespaceMembers.pop();
+            enumConstants.clear();
+            enumConstants.putAll(savedConstants);
+        }
+    }
+
+    private ParserResult buildResult() {
+        return new ParserResult(new Program(structs, enums, typedefs, globals, functions, declarations, programRange()));
+    }
+
+    private SourceRange programRange() {
+        if (declarations.isEmpty() && structs.isEmpty()) {
+            return context.peek().range();
+        }
+        ArrayList<SourceRange> ranges = new ArrayList<>();
+        declarations.forEach(declaration -> ranges.add(declaration.range()));
+        structs.forEach(declaration -> ranges.add(declaration.range()));
+        enums.forEach(declaration -> ranges.add(declaration.range()));
+        typedefs.forEach(declaration -> ranges.add(declaration.range()));
+        globals.forEach(declaration -> ranges.add(declaration.range()));
+        functions.forEach(declaration -> ranges.add(declaration.range()));
+        SourceRange first = ranges.stream().min(Parser::compareRangeStart).orElseThrow();
+        SourceRange last = ranges.stream().max(Parser::compareRangeEnd).orElseThrow();
+        return SourceRange.span(first, last);
+    }
+
+    private static int compareRangeStart(SourceRange left, SourceRange right) {
+        int line = Integer.compare(left.startLine(), right.startLine());
+        return line != 0 ? line : Integer.compare(left.startByte(), right.startByte());
+    }
+
+    private static int compareRangeEnd(SourceRange left, SourceRange right) {
+        int line = Integer.compare(left.endLine(), right.endLine());
+        return line != 0 ? line : Integer.compare(left.endByte(), right.endByte());
+    }
+
+    /** 各 Manager 共享的 token 游标、诊断和 trace 上下文。 */
+    public static final class Context {
+        private final List<Token> tokens;
+        private final ArrayList<Diagnostic> reportedErrors = new ArrayList<>();
+        private final ArrayList<TraceEvent> traceEvents;
+        private int currentIndex;
+        private int tokenLimit;
+        private Token windowEnd;
+        private boolean functionBoundaryRecovered;
+        private Token pendingTemplateGreater;
+        private Token previousOverride;
+
+        private Context(List<Token> tokens, boolean traceEnabled) {
+            if (tokens.isEmpty()) {
+                throw new IllegalArgumentException("tokens must contain EOF");
+            }
+            this.tokens = tokens;
+            tokenLimit = tokens.size();
+            traceEvents = traceEnabled ? new ArrayList<>() : null;
+        }
+
+        List<Diagnostic> reportedErrors() {
+            return reportedErrors;
+        }
+
+        public int currentIndex() {
+            return currentIndex;
+        }
+
+
+        public void unsupportedSyntax(SourceRange range, String message) {
+            reportedErrors.add(new Diagnostic("PAR002", Diagnostic.Severity.ERROR, message,
+                    "该语法尚未实现；请改用已支持的写法。", range));
+        }
+
+        public boolean match(TokenType type) {
+            if (!check(type)) {
+                return false;
+            }
+            advance();
+            return true;
+        }
+
+        public Token consume(TokenType type, String message) {
+            if (check(type)) {
+                return advance();
+            }
+            Token actual = peek();
+            reportedErrors.add(new Diagnostic(
+                    "PAR001",
+                    Diagnostic.Severity.ERROR,
+                    message + "；实际读到 " + describeToken(actual),
+                    "请在该位置补充或替换为 " + type,
+                    actual.range()
+            ));
+            return null;
+        }
+
+        /** An identifier that is a keyword only in one grammar position. */
+        public boolean checkContextual(String keyword) {
+            return check(TokenType.IDENTIFIER) && peek().lexeme().equals(keyword);
+        }
+
+        public boolean matchContextual(String keyword) {
+            if (!checkContextual(keyword)) return false;
+            advance();
+            return true;
+        }
+
+        public boolean check(TokenType type) {
+            return peek().type() == type;
+        }
+
+        public Token advance() {
+            Token token;
+            if (pendingTemplateGreater != null) {
+                token = pendingTemplateGreater;
+                pendingTemplateGreater = null;
+                previousOverride = token;
+            } else {
+                previousOverride = null;
+                if (!isAtEnd()) {
+                currentIndex++;
+                }
+                token = previous();
+            }
+            if (traceEvents != null) {
+                traceEvents.add(new TraceEvent(
+                        "consume",
+                        "consume " + token.type() + " " + token.lexeme(),
+                        token.range(),
+                        null
+                ));
+            }
+            return token;
+        }
+
+        public boolean isAtEnd() {
+            return peek().type() == TokenType.EOF;
+        }
+
+        public Token peek() {
+            if (pendingTemplateGreater != null) return pendingTemplateGreater;
+            return currentIndex >= tokenLimit ? windowEnd : tokens.get(currentIndex);
+        }
+
+        public Token peekAt(int offset) {
+            if (pendingTemplateGreater != null) {
+                if (offset == 0) return pendingTemplateGreater;
+                offset--;
+            }
+            int index = currentIndex + offset;
+            if (index >= tokenLimit && windowEnd != null) return windowEnd;
+            return index >= tokens.size() ? tokens.getLast() : tokens.get(index);
+        }
+
+        /** Whether an expression cursor is still outside every enclosing (), [] and {}. */
+        public boolean atExpressionNestingLevel(int startIndex) {
+            int parens=0, brackets=0, braces=0;
+            for(int index=startIndex;index<currentIndex;index++) {
+                switch(tokens.get(index).type()) {
+                    case LEFT_PAREN -> parens++; case RIGHT_PAREN -> parens--;
+                    case LEFT_BRACKET -> brackets++; case RIGHT_BRACKET -> brackets--;
+                    case LEFT_BRACE -> braces++; case RIGHT_BRACE -> braces--;
+                    default -> { }
+                }
+            }
+            return parens==0 && brackets==0 && braces==0;
+        }
+
+        /** A balanced body is retained as token indices, preserving original source locations. */
+        public record TokenWindow(int start, int end) { }
+
+        public TokenWindow deferBlock() {
+            if (!check(TokenType.LEFT_BRACE)) throw new IllegalStateException("Expected deferred block");
+            int start = currentIndex;
+            int depth = 0;
+            while (!isAtEnd()) {
+                TokenType type = peek().type();
+                currentIndex++;
+                if (type == TokenType.LEFT_BRACE) depth++;
+                if (type == TokenType.RIGHT_BRACE && --depth == 0) return new TokenWindow(start, currentIndex);
+            }
+            report(tokens.get(start), "未闭合的方法体");
+            return new TokenWindow(start, currentIndex);
+        }
+
+        /** Retain a constructor's argument list without interpreting names before class completion. */
+        public TokenWindow deferParentheses() {
+            if (!check(TokenType.LEFT_PAREN)) throw new IllegalStateException("Expected deferred arguments");
+            int start = currentIndex, depth = 0, braces = 0;
+            while (!isAtEnd()) {
+                TokenType type = peek().type();
+                // Neither a class terminator nor a member separator can belong to these arguments.
+                if (type == TokenType.SEMICOLON || type == TokenType.RIGHT_BRACE && braces == 0) break;
+                currentIndex++;
+                if (type == TokenType.LEFT_BRACE) braces++;
+                if (type == TokenType.RIGHT_BRACE) braces--;
+                if (type == TokenType.LEFT_PAREN) depth++;
+                if (type == TokenType.RIGHT_PAREN && --depth == 0) return new TokenWindow(start, currentIndex);
+            }
+            report(tokens.get(start), "未闭合的构造初始化参数，期望 ')'");
+            return new TokenWindow(start, currentIndex);
+        }
+
+        public <T> T inTokenWindow(TokenWindow window, java.util.function.Supplier<T> parse) {
+            if (window.start() < 0 || window.end() <= window.start() || window.end() > tokenLimit) {
+                throw new IllegalArgumentException("Invalid token window");
+            }
+            int savedIndex = currentIndex, savedLimit = tokenLimit;
+            Token savedEnd = windowEnd;
+            Token savedGreater = pendingTemplateGreater, savedPrevious = previousOverride;
+            boolean savedRecovery = functionBoundaryRecovered;
+            currentIndex = window.start();
+            tokenLimit = window.end();
+            SourceRange end = tokens.get(window.end() - 1).range();
+            windowEnd = new Token(TokenType.EOF, "", new SourceRange(end.endLine(), end.endByte(), end.endLine(), end.endByte()));
+            functionBoundaryRecovered = false;
+            pendingTemplateGreater = null; previousOverride = null;
+            try { return parse.get(); }
+            finally {
+                currentIndex = savedIndex;
+                tokenLimit = savedLimit;
+                windowEnd = savedEnd;
+                functionBoundaryRecovered = savedRecovery;
+                pendingTemplateGreater = savedGreater; previousOverride = savedPrevious;
+            }
+        }
+
+        public Token previous() {
+            if (previousOverride != null) return previousOverride;
+            return tokens.get(currentIndex - 1);
+        }
+
+        /** Split >> only when the type grammar asks for a template closing token. */
+        public Token consumeTemplateGreater(String message) {
+            if (!check(TokenType.GREATER_GREATER)) return consume(TokenType.GREATER, message);
+            Token both = advance();
+            SourceRange range = both.range();
+            previousOverride = new Token(TokenType.GREATER, ">", new SourceRange(range.startLine(), range.startByte(), range.startLine(), range.startByte() + 1));
+            pendingTemplateGreater = new Token(TokenType.GREATER, ">", new SourceRange(range.startLine(), range.startByte() + 1, range.endLine(), range.endByte()));
+            return previousOverride;
+        }
+
+        public void report(Token token, String message) {
+            reportedErrors.add(new Diagnostic(
+                    "PAR001",
+                    Diagnostic.Severity.ERROR,
+                    message + "；实际读到 " + describeToken(token),
+                    parserSolution(message),
+                    token.range()
+            ));
+        }
+
+        public void report(SourceRange range, String message) {
+            reportedErrors.add(new Diagnostic(
+                    "PAR001",
+                    Diagnostic.Severity.ERROR,
+                    message,
+                    parserSolution(message),
+                    range
+            ));
+        }
+
+
+        private static String describeToken(Token token) {
+            String lexeme = token.lexeme().replace("\n", "\\n").replace("\r", "\\r");
+            return token.type() + (lexeme.isEmpty() ? "" : " '" + lexeme + "'");
+        }
+
+        private static String parserSolution(String message) {
+            if (message.startsWith("期望")) {
+                return "请在该位置补充或替换为" + message.substring(2);
+            }
+            if (message.contains("必须") || message.contains("不能") || message.contains("只能")) {
+                return "请调整当前语法结构，使其满足限制：" + message;
+            }
+            return "请修正该位置附近的语法结构后重新解析。";
+        }
+
+        public void enter(String rule) {
+            if (traceEvents != null) {
+                traceEvents.add(new TraceEvent("enter", "enter " + rule, peek().range(), null));
+            }
+        }
+
+        public void exit(String rule, SourceRange range) {
+            if (traceEvents != null) {
+                traceEvents.add(new TraceEvent("exit", "exit " + rule, range, null));
+            }
+        }
+
+        public void build(AstNode node, String label, SourceRange range) {
+            if (traceEvents != null) {
+                traceEvents.add(new TraceEvent("build", "build " + label, range, node));
+            }
+        }
+
+        public void synchronizeFunction() {
+            if (functionBoundaryRecovered) {
+                functionBoundaryRecovered = false;
+                return;
+            }
+            if (isAtEnd()) {
+                return;
+            }
+            advance();
+            while (!isAtEnd()
+                    && previous().type() != TokenType.RIGHT_BRACE
+                    && previous().type() != TokenType.SEMICOLON) {
+                advance();
+            }
+        }
+
+        /** A specialized declaration parser already consumed its own failed declaration. */
+        public void markDeclarationBoundaryRecovered() {
+            functionBoundaryRecovered = true;
+        }
+
+        /**
+         * 函数头后缺少左花括号时，跳过这份无法可靠解析的函数体。
+         *
+         * <p>从当前位置开始，成对花括号视为函数体中的嵌套块；遇到第一个没有
+         * 对应左花括号的右花括号时，将它作为当前函数原本的结束位置并消费；
+         * 如果先遇到明确的下一个函数头，则停在函数头之前。这样一次 Parser
+         * step 就能完成恢复，避免把每条函数体语句都误当成顶层函数声明反复解析。</p>
+         */
+        public void synchronizeMissingFunctionBody() {
+            int nestedBraceDepth = 0;
+            while (!isAtEnd()) {
+                if (nestedBraceDepth == 0 && isLikelyFunctionDeclarationStart()) {
+                    functionBoundaryRecovered = true;
+                    return;
+                }
+                if (check(TokenType.LEFT_BRACE)) {
+                    nestedBraceDepth++;
+                    advance();
+                    continue;
+                }
+                if (check(TokenType.RIGHT_BRACE)) {
+                    advance();
+                    if (nestedBraceDepth == 0) {
+                        functionBoundaryRecovered = true;
+                        return;
+                    }
+                    nestedBraceDepth--;
+                    continue;
+                }
+                advance();
+            }
+            functionBoundaryRecovered = true;
+        }
+
+        private boolean isLikelyFunctionDeclarationStart() {
+            int offset = 0;
+            if (peekAt(offset).type() == TokenType.EXTERN) {
+                offset++;
+            }
+            TokenType type = peekAt(offset).type();
+            if (type == TokenType.STRUCT || type == TokenType.UNION || type == TokenType.ENUM) {
+                if (peekAt(offset + 1).type() != TokenType.IDENTIFIER) {
+                    return false;
+                }
+                offset += 2;
+            } else if (isIntegerTypeSpecifier(type)) {
+                do {
+                    offset++;
+                } while (isIntegerTypeSpecifier(peekAt(offset).type()));
+            } else if (type == TokenType.BOOL
+                    || type == TokenType.FLOAT
+                    || type == TokenType.DOUBLE
+                    || type == TokenType.VOID) {
+                offset++;
+            } else {
+                return false;
+            }
+            while (peekAt(offset).type() == TokenType.STAR
+                    || peekAt(offset).type() == TokenType.AMPERSAND || peekAt(offset).type() == TokenType.AMPERSAND_AMPERSAND) {
+                offset++;
+            }
+            return peekAt(offset).type() == TokenType.IDENTIFIER
+                    && peekAt(offset + 1).type() == TokenType.LEFT_PAREN;
+        }
+
+        private boolean isIntegerTypeSpecifier(TokenType type) {
+            return type == TokenType.CHAR
+                    || type == TokenType.SHORT
+                    || type == TokenType.INT
+                    || type == TokenType.LONG
+                    || type == TokenType.SIGNED
+                    || type == TokenType.UNSIGNED;
+        }
+
+        /** Lookahead for declaration/cast disambiguation; never consumes tokens or emits diagnostics. */
+        public QualifiedName peekQualifiedName(int offset) {
+            var start = peekAt(offset);
+            boolean global = start.type() == TokenType.SCOPE;
+            if (global) offset++;
+            if (peekAt(offset).type() != TokenType.IDENTIFIER) return null;
+            var segments = new ArrayList<String>();
+            var end = peekAt(offset++);
+            segments.add(end.lexeme());
+            while (peekAt(offset).type() == TokenType.SCOPE) {
+                offset++;
+                if (peekAt(offset).type() != TokenType.IDENTIFIER) return null;
+                end = peekAt(offset++);
+                segments.add(end.lexeme());
+            }
+            return new QualifiedName(global, segments, SourceRange.span(start.range(), end.range()));
+        }
+
+        /** Reads qualified-name syntax only; name lookup remains a separate semantic operation. */
+        public QualifiedName parseQualifiedName() {
+            var start = peek();
+            boolean global = match(TokenType.SCOPE);
+            var first = consume(TokenType.IDENTIFIER, "期望限定名称标识符");
+            if (first == null) return null;
+            var segments = new ArrayList<String>();
+            segments.add(first.lexeme());
+            var end = first;
+            while (match(TokenType.SCOPE)) {
+                end = consume(TokenType.IDENTIFIER, "期望 :: 后的标识符");
+                if (end == null) return null;
+                segments.add(end.lexeme());
+            }
+            return new QualifiedName(global, segments, SourceRange.span(start.range(), end.range()));
+        }
+
+        /** Consumes a source definition marker, preserving the declaration's candidate identity. */
+        public Declaration.DefinitionKind parseDefinitionKind() {
+            if (!match(TokenType.EQUAL)) return Declaration.DefinitionKind.ORDINARY;
+            Declaration.DefinitionKind kind;
+            if (match(TokenType.DEFAULT)) kind = Declaration.DefinitionKind.DEFAULTED;
+            else if (match(TokenType.DELETE)) kind = Declaration.DefinitionKind.DELETED;
+            else {
+                report(peek(), "Expected 'default' or 'delete' after '=' in a function definition");
+                kind = Declaration.DefinitionKind.ORDINARY;
+            }
+            consume(TokenType.SEMICOLON, "Expected ';' after the function definition marker");
+            return kind;
+        }
+
+        public void synchronizeStatement() {
+            while (!isAtEnd() && !check(TokenType.SEMICOLON) && !check(TokenType.RIGHT_BRACE)) {
+                advance();
+            }
+            match(TokenType.SEMICOLON);
+        }
+
+        private List<TraceEvent> traceEvents() {
+            return traceEvents == null ? List.of() : List.copyOf(traceEvents);
+        }
+    }
+
+    /** Manager 共用的类型语法读取器。 */
+    public static final class TypeReader {
+        private final Context context;
+        private final java.util.function.Consumer<StructDecl> aggregateSink;
+        private final TypeNameManager typeNames;
+        private final java.util.Map<String, List<Declaration.StructField>> aggregateFields = new java.util.LinkedHashMap<>();
+        private final java.util.Map<String, StructDecl> aggregateDeclarations = new java.util.LinkedHashMap<>();
+        private int localScopeDepth;
+        private int memberScopeDepth;
+        private int anonymousAggregateIndex;
+        private RecordManager recordManager;
+        private final java.util.Map<String, List<ClassTemplateDecl.Parameter>> classTemplates = new java.util.LinkedHashMap<>();
+        private final java.util.Map<String, List<Optional<TemplateArgument>>> classTemplateDefaults = new java.util.LinkedHashMap<>();
+        private ExpressionManager expressionManager;
+        private boolean probingParameterClause;
+        private List<ClassTemplateDecl.Parameter> pendingFunctionTemplateParameters;
+        private List<ClassTemplateDecl.Parameter> definitionTemplateParameters;
+        private List<TemplateArgument> functionSpecializationArguments;
+        private CrakenType.TemplateIdType templateDefinitionOwner;
+        private final java.util.Map<String,List<ClassTemplateDecl>> templateDeclarations=new java.util.LinkedHashMap<>();
+        private void recordTemplateDeclaration(ClassTemplateDecl declaration) {
+            if(declaration.record().definition())templateDeclarations.computeIfAbsent(declaration.record().name(),key->new ArrayList<>()).add(declaration);
+        }
+        private List<TemplateArgument> templateOwnerPattern(ClassTemplateDecl declaration) {
+            if(declaration.specialization())return declaration.specializationArguments();
+            return declaration.parameters().stream().map(parameter->{
+                TemplateArgument argument=parameter instanceof ClassTemplateDecl.TypeParameter?new TemplateArgument.Type(parameter.type())
+                        :new TemplateArgument.Value(new TemplateValueExpr(parameter.type(),((ClassTemplateDecl.ValueParameter)parameter).valueType(),parameter.range()));
+                return parameter.pack()?new TemplateArgument.Expansion(argument):argument;
+            }).toList();
+        }
+        private final java.util.Map<String,List<ClassTemplateDecl.Parameter>> functionTemplateNames=new java.util.LinkedHashMap<>();
+        private final java.util.Deque<java.util.Map<String,TemplateValueExpr>> templateValues = new java.util.ArrayDeque<>();
+        private final java.util.Deque<List<TemplateArgument>> specializationArguments = new java.util.ArrayDeque<>();
+        private final java.util.Deque<String> activeClassTemplates = new java.util.ArrayDeque<>();
+
+        public TypeReader(Context context) {
+            this(context, ignored -> { });
+        }
+
+        public TypeReader(Context context, java.util.function.Consumer<StructDecl> aggregateSink) {
+            this.context = Objects.requireNonNull(context, "context");
+            Objects.requireNonNull(aggregateSink, "aggregateSink");
+            this.aggregateSink = declaration -> { if (!probingParameterClause) aggregateSink.accept(declaration); };
+            typeNames = new TypeNameManager();
+        }
+
+
+        public String beginFunctionTemplate(Token anchor) {
+            typeNames.enterTemplateScope();templateValues.push(new java.util.LinkedHashMap<>());
+            return typeNames.namespaceIdentity("$functionTemplate"+anchor.range().startLine()+"_"+anchor.range().startByte());
+        }
+        public void exitFunctionTemplate(){typeNames.exitTemplateScope();templateValues.pop();}
+        public void restoreFunctionTemplateParameters(List<ClassTemplateDecl.Parameter> parameters) {
+            typeNames.enterTemplateScope();templateValues.push(new java.util.LinkedHashMap<>());
+            for(var parameter:parameters) {
+                if(parameter instanceof ClassTemplateDecl.TypeParameter)typeNames.declareTypedef(parameter.name(),parameter.type(),parameter.range());
+                else {
+                    var value=(ClassTemplateDecl.ValueParameter)parameter;
+                    typeNames.declareValue(value.name(),value.range());
+                    templateValues.peek().put(value.name(),new TemplateValueExpr(value.type(),value.valueType(),value.range()));
+                }
+            }
+        }
+        public void registerPendingFunctionTemplate(String name){
+            if(pendingFunctionTemplateParameters!=null && !pendingFunctionTemplateParameters.isEmpty() && templateDefinitionOwner==null){registerFunctionTemplate(name,pendingFunctionTemplateParameters);pendingFunctionTemplateParameters=null;}
+        }
+        public void registerFunctionTemplate(String name,List<ClassTemplateDecl.Parameter> parameters){functionTemplateNames.put(name,List.copyOf(parameters));}
+        private boolean beginsTypeTemplateParameter() {
+            if (!context.check(TokenType.CLASS) && !context.check(TokenType.TYPENAME)) return false;
+            int offset = context.peekAt(1).type() == TokenType.ELLIPSIS ? 2 : 1;
+            if (context.peekAt(offset).type() == TokenType.IDENTIFIER) offset++;
+            return switch (context.peekAt(offset).type()) {
+                case COMMA, GREATER, GREATER_GREATER, EQUAL -> true;
+                // A typename-specifier such as typename Trait<T>::type names
+                // the type of a non-type parameter; it does not declare T.
+                default -> false;
+            };
+        }
+        public List<ClassTemplateDecl.Parameter> readTemplateParameters(Token anchor,String owner) {
+            var parameters=new ArrayList<ClassTemplateDecl.Parameter>();
+            if(context.check(TokenType.GREATER))return parameters;
+            do {
+                Token key=context.peek();
+                if(beginsTypeTemplateParameter()) {
+                    context.advance();
+                    boolean pack=context.match(TokenType.ELLIPSIS);
+                    Token name=context.check(TokenType.IDENTIFIER)?context.advance():new Token(TokenType.IDENTIFIER,"__templateParameter"+parameters.size(),key.range());
+                    var identity=declareTemplateParameter(anchor,name,owner,parameters.size());
+                    CrakenType defaultType=null;
+                    if(context.match(TokenType.EQUAL)){var value=parseType("期望默认模板类型");if(value==null)return null;defaultType=value.type();}
+                    parameters.add(new ClassTemplateDecl.TypeParameter(name.lexeme(),identity,defaultType,pack,name.range()));
+                } else {
+                    BaseType base=parseBaseType("期望非类型模板参数类型");if(base==null)return null;
+                    Declarator declarator=canStartDeclarator(true)?parseDeclarator("",false):new Declarator("",new ArrayList<>(),base.endToken(),base.endToken(),base.endToken());
+                    if(declarator==null)return null;
+                    CrakenType valueType=adjustParameterType(resolveDeclarator(declarator,base.type()));
+                    Token name=new Token(TokenType.IDENTIFIER,declarator.name().isEmpty()?"__templateParameter"+parameters.size():declarator.name(),declarator.endToken().range());
+                    boolean pack=valueType instanceof CrakenType.PackExpansionType;
+                    if(pack)valueType=((CrakenType.PackExpansionType)valueType).pattern();
+                    var identity=declareValueTemplateParameter(anchor,name,owner,parameters.size(),valueType);
+                    Expression defaultValue=context.match(TokenType.EQUAL)?parseTemplateValue():null;
+                    parameters.add(new ClassTemplateDecl.ValueParameter(name.lexeme(),identity,valueType,defaultValue,pack,SourceRange.span(base.startToken().range(),name.range())));
+                }
+            }while(context.match(TokenType.COMMA));
+            for(var parameter:parameters)if(parameter.pack() && (parameter.defaultType()!=null || parameter instanceof ClassTemplateDecl.ValueParameter value&&value.defaultValue()!=null)) context.report(parameter.range(),"模板参数包不能有默认实参");
+            return parameters;
+        }
+        public boolean beginsFunctionTemplateArguments(Expression target) {
+            if(!context.check(TokenType.LESS))return false;
+            String name=target instanceof Expression.NameExpr n?n.name():target instanceof Expression.QualifiedNameExpr q?q.name().segments().getLast():target instanceof Expression.FieldAccessExpr f?f.fieldName():target instanceof craken.compiler.parser.node.Expression.TypeMemberExpr m?m.memberName():null;
+            if(name==null||!functionTemplateNames.containsKey(name))return false;
+            // An unqualified name shadowed by an ordinary (non-template) declaration, such as a
+            // local variable sharing a std:: algorithm's name, cannot start a template-argument-list.
+            if(target instanceof Expression.NameExpr) {
+                var lookup=typeNames.lookup(new QualifiedName(false,List.of(name),target.range()));
+                if(lookup.kind()==TypeNameManager.Kind.VALUE)return false;
+            }
+            int depth=1,parens=0;
+            for(int offset=1;;offset++){
+                TokenType token=context.peekAt(offset).type();
+                if(token==TokenType.EOF||token==TokenType.SEMICOLON||token==TokenType.LEFT_BRACE)return false;
+                if(token==TokenType.LEFT_PAREN)parens++;if(token==TokenType.RIGHT_PAREN)parens--;
+                if(parens==0){if(token==TokenType.LESS)depth++;if(token==TokenType.GREATER)depth--;if(token==TokenType.GREATER_GREATER)depth-=2;}
+                if(depth<=0)return depth==0;
+            }
+        }
+        private TemplateArgument templateTypeArgument(CrakenType type) {
+            return type instanceof CrakenType.PackExpansionType pack?new TemplateArgument.Expansion(new TemplateArgument.Type(pack.pattern())):new TemplateArgument.Type(type);
+        }
+        public List<TemplateArgument> parseFunctionTemplateArguments() {
+            if(context.consume(TokenType.LESS,"期望 '<'")==null)return null;
+            var arguments=new ArrayList<TemplateArgument>();
+            if(!context.check(TokenType.GREATER))do {
+                if(canStartType()) {var type=parseType("期望模板类型实参");if(type==null)return null;arguments.add(templateTypeArgument(type.type()));}
+                else {var value=parseTemplateValue();if(value==null)return null;arguments.add(new TemplateArgument.Value(value));}
+                if(context.match(TokenType.ELLIPSIS))arguments.set(arguments.size()-1,new TemplateArgument.Expansion(arguments.getLast()));
+            }while(context.match(TokenType.COMMA));
+            return context.consumeTemplateGreater("模板实参后期望 '>'")==null?null:arguments;
+        }
+
+        public String beginClassTemplate(Token name) {
+            String owner = typeNames.namespaceIdentity(name.lexeme());
+            activeClassTemplates.push(owner);
+            specializationArguments.push(List.of());
+            specializationFlags.push(false);
+            templateValues.push(new java.util.LinkedHashMap<>());
+            typeNames.enterTemplateScope();
+            return owner;
+        }
+
+        public CrakenType.TemplateParameterType declareTemplateParameter(Token className, Token name, String owner, int index) {
+            if (name.lexeme().equals(className.lexeme())) context.report(className.range(), "类名不能重声明模板参数");
+            var type = new CrakenType.TemplateParameterType(owner, index);
+            int before = typeNames.diagnostics().size();
+            typeNames.declareTypedef(name.lexeme(), type, name.range());
+            copyTypeDiagnostics(before);
+            return type;
+        }
+
+        public CrakenType.TemplateParameterType declareValueTemplateParameter(Token className, Token name, String owner, int index, CrakenType valueType) {
+            if (name.lexeme().equals(className.lexeme())) context.report(name.range(), "类名不能重声明模板参数");
+            var identity = new CrakenType.TemplateParameterType(owner,index);
+            int before=typeNames.diagnostics().size();
+            typeNames.declareValue(name.lexeme(), name.range()); copyTypeDiagnostics(before);
+            if(!valueType.isIntegerScalar() && !valueType.containsTemplateType()) context.unsupportedSyntax(name.range(), "此切片非类型模板参数需要整数类型");
+            templateValues.peek().put(name.lexeme(),new TemplateValueExpr(identity,valueType,name.range()));
+            return identity;
+        }
+
+        public TemplateValueExpr templateValueReference(Token name) {
+            for(var scope:templateValues) {
+                var value=scope.get(name.lexeme());
+                if(value!=null) return new TemplateValueExpr(value.parameter(),value.valueType(),name.range());
+            }
+            return null;
+        }
+
+        /** Expression grammar consumes inner template-ids; only an unenclosed > ends this argument. */
+        public Expression parseTemplateValue() {
+            return expressionManager.parseTemplateArgumentExpression();
+        }
+
+        public void registerClassTemplate(Token name, List<ClassTemplateDecl.Parameter> parameters) {
+            int before = typeNames.diagnostics().size();
+            var existing = typeNames.lookupElaborated(new QualifiedName(false, List.of(name.lexeme()), name.range()));
+            var owner = (CrakenType.StructType) typeNames.declareStruct(name.lexeme(), false, false, name.range());
+            copyTypeDiagnostics(before);
+            if (existing.kind() == TypeNameManager.Kind.TYPE && owner.name().equals(existing.canonicalName())
+                    && !classTemplates.containsKey(owner.name()))
+                context.report(name.range(), "类模板与普通类型声明冲突");
+            List<ClassTemplateDecl.Parameter> previous = classTemplates.get(owner.name());
+            if (previous != null && previous.size() != parameters.size()) context.report(name.range(), "类模板重声明的参数数量不匹配");
+            List<Optional<TemplateArgument>> priorDefaults = classTemplateDefaults.getOrDefault(owner.name(), List.of());
+            var defaults = new ArrayList<Optional<TemplateArgument>>();
+            boolean seenDefault = false;
+            for (int index = 0; index < parameters.size(); index++) {
+                var parameter = parameters.get(index);
+                TemplateArgument supplied = parameter instanceof ClassTemplateDecl.TypeParameter t && t.defaultType()!=null ? new TemplateArgument.Type(t.defaultType())
+                        : parameter instanceof ClassTemplateDecl.ValueParameter v && v.defaultValue()!=null ? new TemplateArgument.Value(v.defaultValue()) : null;
+                if(previous!=null && index<previous.size() && (previous.get(index).getClass()!=parameter.getClass() || previous.get(index).pack()!=parameter.pack()))
+                    context.report(parameter.range(), "模板重声明的参数种类不匹配");
+                Optional<TemplateArgument> old = index < priorDefaults.size() ? priorDefaults.get(index) : Optional.empty();
+                if (old.isPresent() && supplied != null) context.report(parameters.get(index).range(), "默认模板实参不能重复声明");
+                Optional<TemplateArgument> actual = supplied == null ? old : Optional.of(supplied);
+                if (seenDefault && actual.isEmpty() && !parameter.pack()) context.report(parameters.get(index).range(), "默认模板参数之后的参数也需要默认实参");
+                seenDefault |= actual.isPresent();
+                defaults.add(actual);
+            }
+            classTemplates.put(owner.name(), List.copyOf(parameters));
+            classTemplateDefaults.put(owner.name(), List.copyOf(defaults));
+        }
+
+        private final java.util.Deque<Boolean> specializationFlags=new java.util.ArrayDeque<>();
+        public boolean inClassSpecialization(){return !specializationFlags.isEmpty()&&specializationFlags.peek();}
+        public List<TemplateArgument> currentSpecializationArguments(){return specializationArguments.isEmpty()?List.of():specializationArguments.peek();}
+
+        public CrakenType parseSpecializedRecordName(Token name) {
+            if(activeClassTemplates.isEmpty()||!context.check(TokenType.LESS))return null;
+            CrakenType result=parseTemplateId(CrakenType.struct(activeClassTemplates.peek()),name.range());
+            if(!(result instanceof CrakenType.TemplateIdType id)){context.report(name.range(),"特化需要已经声明的主模板");return null;}
+            specializationArguments.pop();
+            specializationArguments.push(id.arguments());
+            specializationFlags.pop();specializationFlags.push(true);
+            return CrakenType.struct(activeClassTemplates.peek());
+        }
+
+        public void exitClassTemplate() {
+            typeNames.exitTemplateScope();
+            activeClassTemplates.pop();
+            specializationArguments.pop();
+            specializationFlags.pop();
+            templateValues.pop();
+        }
+
+        public void setRecordManager(RecordManager manager) { recordManager = Objects.requireNonNull(manager); }
+
+        /** Declaration-name syntax only: this does not perform operator lookup or overload selection. */
+        public OperatorName parseOperatorName() {
+            Token start = context.consume(TokenType.OPERATOR, "期望 operator");
+            if (start == null) return null;
+            Token token = context.peek();
+            if (!context.isAtEnd()) context.advance();
+            Kind kind = switch (token.type()) {
+                case PLUS -> Kind.ADD; case MINUS -> Kind.SUBTRACT; case STAR -> Kind.MULTIPLY;
+                case SLASH -> Kind.DIVIDE; case PERCENT -> Kind.REMAINDER; case CARET -> Kind.BIT_XOR;
+                case AMPERSAND -> Kind.BIT_AND; case PIPE -> Kind.BIT_OR; case TILDE -> Kind.BIT_NOT;
+                case BANG -> Kind.LOGICAL_NOT; case EQUAL -> Kind.ASSIGN; case LESS -> Kind.LESS;
+                case GREATER -> Kind.GREATER; case PLUS_EQUAL -> Kind.ADD_ASSIGN; case MINUS_EQUAL -> Kind.SUBTRACT_ASSIGN;
+                case STAR_EQUAL -> Kind.MULTIPLY_ASSIGN; case SLASH_EQUAL -> Kind.DIVIDE_ASSIGN; case PERCENT_EQUAL -> Kind.REMAINDER_ASSIGN;
+                case CARET_EQUAL -> Kind.XOR_ASSIGN; case AMPERSAND_EQUAL -> Kind.AND_ASSIGN; case PIPE_EQUAL -> Kind.OR_ASSIGN;
+                case LESS_LESS -> Kind.SHIFT_LEFT; case GREATER_GREATER -> Kind.SHIFT_RIGHT;
+                case LESS_LESS_EQUAL -> Kind.SHIFT_LEFT_ASSIGN; case GREATER_GREATER_EQUAL -> Kind.SHIFT_RIGHT_ASSIGN;
+                case EQUAL_EQUAL -> Kind.EQUAL; case BANG_EQUAL -> Kind.NOT_EQUAL; case LESS_EQUAL -> Kind.LESS_EQUAL;
+                case GREATER_EQUAL -> Kind.GREATER_EQUAL; case AMPERSAND_AMPERSAND -> Kind.LOGICAL_AND;
+                case PIPE_PIPE -> Kind.LOGICAL_OR; case PLUS_PLUS -> Kind.INCREMENT; case MINUS_MINUS -> Kind.DECREMENT;
+                case COMMA -> Kind.COMMA; case ARROW -> Kind.MEMBER_ACCESS;
+                case LEFT_PAREN -> Kind.CALL; case LEFT_BRACKET -> Kind.SUBSCRIPT;
+                case NEW -> Kind.NEW; case DELETE -> Kind.DELETE;
+                default -> null;
+            };
+            if (kind == null) {
+                if (token.type() == TokenType.STRING_LITERAL)
+                    context.unsupportedSyntax(SourceRange.span(start.range(), token.range()), "字面量运算符声明尚未实现");
+                else context.report(token.range(), "期望可重载的运算符名称");
+                return null;
+            }
+            Token end = token;
+            if (kind == Kind.CALL || kind == Kind.SUBSCRIPT) {
+                end = context.consume(kind == Kind.CALL ? TokenType.RIGHT_PAREN : TokenType.RIGHT_BRACKET, "运算符名称需要完整的 () 或 []");
+                if (end == null) return null;
+            } else if ((kind == Kind.NEW || kind == Kind.DELETE) && context.match(TokenType.LEFT_BRACKET)) {
+                end = context.consume(TokenType.RIGHT_BRACKET, "分配运算符名称需要完整的 []");
+                if (end == null) return null;
+                kind = kind == Kind.NEW ? Kind.NEW_ARRAY : Kind.DELETE_ARRAY;
+            } else if (kind == Kind.MEMBER_ACCESS && context.check(TokenType.STAR)
+                    && token.range().endLine() == context.peek().range().startLine()
+                    && token.range().endByte() == context.peek().range().startByte()) {
+                // The core lexer uses ARROW and STAR; only adjacent spelling forms the ->* token.
+                end = context.advance(); kind = Kind.POINTER_TO_MEMBER;
+            }
+            return new OperatorName(kind, SourceRange.span(start.range(), end.range()));
+        }
+
+        /** Keep the existing qualified identifier path, permitting an operator-function-id at its end. */
+        public ParsedName parseQualifiedDeclarationName() {
+            Token start = context.peek();
+            boolean global = context.match(TokenType.SCOPE);
+            var segments = new ArrayList<String>();
+            Token name;
+            OperatorName operator = null;
+            while (true) {
+                if (context.check(TokenType.OPERATOR)) {
+                    operator = parseOperatorName();
+                    if (operator == null) return null;
+                    name = new Token(TokenType.IDENTIFIER, operator.spelling(), operator.range());
+                } else {
+                    name = context.consume(TokenType.IDENTIFIER, "期望限定声明名称");
+                    if (name == null) return null;
+                }
+                segments.add(name.lexeme());
+                if (operator != null || !context.match(TokenType.SCOPE)) break;
+            }
+            return new ParsedName(new QualifiedName(global, segments, SourceRange.span(start.range(), name.range())), name, operator);
+        }
+
+        public void enterNamespace(craken.compiler.parser.node.QualifiedName name) {
+            typeNames.enterNamespace(name.segments(), name.range());
+        }
+
+        public void exitNamespace() { typeNames.exitNamespace(); }
+
+        public void enterMemberScope() {
+            enterMemberScope(null);
+        }
+
+        public void enterMemberScope(CrakenType selfType) {
+            typeNames.enterMemberScope(selfType); memberScopeDepth++;
+        }
+
+        public void exitMemberScope() {
+            typeNames.exitMemberScope(); memberScopeDepth--;
+        }
+
+        /** Nondependent base aliases participate in parsing; dependent bases are resolved by binding. */
+        public void inheritMemberNames(List<Declaration.BaseSpecifier> bases) {
+            for(var base:bases)inheritMemberNames(base.type(),new java.util.HashSet<>());
+        }
+
+        private void inheritMemberNames(CrakenType base,java.util.Set<CrakenType> visited) {
+            if(base.isDependentTemplate() || visited.size()>64 || !visited.add(base.unqualified()))return;
+            RecordView view=knownRecord(base);if(view==null)return;
+            StructDecl declaration=view.declaration();var substitution=view.substitution();
+            if(declaration==null||declaration.recordInfo()==null)return;
+            for(var ancestor:declaration.recordInfo().bases())inheritMemberNames(substitution==null?ancestor.type():substitution.type(ancestor.type()),visited);
+            String identity=base.unqualified() instanceof CrakenType.TemplateIdType id?id.templateName():((CrakenType.StructType)base.unqualified()).name();
+            typeNames.inheritMember(identity.substring(identity.lastIndexOf("::")+2),base);
+            for(var member:declaration.recordInfo().members()) {
+                if(member instanceof Declaration.MemberTypedef alias)
+                    typeNames.inheritMember(alias.declaration().name(),new CrakenType.MemberType(base,alias.declaration().name()));
+                else if(member instanceof Declaration.StaticFieldMember field)typeNames.inheritMember(field.declaration().name(),null);
+                else if(member instanceof Declaration.MethodMember method&&method.method().conversionName()==null)
+                    typeNames.inheritMember(method.method().name(),null);
+                else if(member instanceof Declaration.TemplateMethodMember method)typeNames.inheritMember(method.method().method().name(),null);
+            }
+        }
+
+        private record RecordView(StructDecl declaration,craken.compiler.semantic.manager.TemplateSubstitution substitution) {}
+        private RecordView knownRecord(CrakenType base) {
+            StructDecl declaration=null;
+            craken.compiler.semantic.manager.TemplateSubstitution substitution=null;
+            if(base.unqualified() instanceof CrakenType.StructType record)declaration=aggregateDeclarations.get(record.name());
+            else if(base.unqualified() instanceof CrakenType.TemplateIdType id) {
+                var matches=new ArrayList<ClassTemplateDecl>();
+                for(var source:templateDeclarations.getOrDefault(id.templateName(),List.of()))
+                    if(craken.compiler.semantic.manager.TemplateDeduction.match(templateOwnerPattern(source),id.arguments(),source.parameters(),java.util.function.UnaryOperator.identity())!=null)matches.add(source);
+                var specialized=matches.stream().filter(ClassTemplateDecl::specialization).toList();
+                if(!specialized.isEmpty())matches=new ArrayList<>(specialized);
+                ClassTemplateDecl chosen=null;
+                for(var candidate:matches) {
+                    boolean best=true;
+                    for(var other:matches)if(other!=candidate) {
+                        boolean accepts=craken.compiler.semantic.manager.TemplateDeduction.match(templateOwnerPattern(other),templateOwnerPattern(candidate),other.parameters(),java.util.function.UnaryOperator.identity())!=null;
+                        boolean reverse=craken.compiler.semantic.manager.TemplateDeduction.match(templateOwnerPattern(candidate),templateOwnerPattern(other),candidate.parameters(),java.util.function.UnaryOperator.identity())!=null;
+                        if(!accepts||reverse){best=false;break;}
+                    }
+                    if(best){chosen=candidate;break;}
+                }
+                if(chosen!=null) {
+                    declaration=chosen.record();
+                    var bindings=craken.compiler.semantic.manager.TemplateDeduction.match(templateOwnerPattern(chosen),id.arguments(),chosen.parameters(),java.util.function.UnaryOperator.identity());
+                    var values=craken.compiler.semantic.manager.FunctionTemplateDeduction.expressions(bindings.values(),chosen.parameters());
+                    substitution=new craken.compiler.semantic.manager.TemplateSubstitution(bindings.types(),values,bindings.packs(),chosen.parameters(),id.templateName(),id.templateName());
+                }
+            }
+            return declaration==null?null:new RecordView(declaration,substitution);
+        }
+
+        /** Source lookup distinguishes a member type from a static value before statement disambiguation. */
+        private CrakenType knownMemberType(CrakenType type,java.util.Set<CrakenType> visited) {
+            if(!(type instanceof CrakenType.MemberType member))return type;
+            if(visited.size()>64||!visited.add(type))return null;
+            CrakenType owner=knownMemberType(member.owner(),visited);if(owner==null)return null;
+            RecordView view=knownRecord(owner);if(view==null||view.declaration().recordInfo()==null)return null;
+            StructDecl declaration=view.declaration();var substitution=view.substitution();
+            for(var item:declaration.recordInfo().members()) {
+                if(item instanceof Declaration.MemberTypedef alias&&alias.declaration().name().equals(member.name()))
+                    return knownMemberType(substitution==null?alias.declaration().type():substitution.type(alias.declaration().type()),visited);
+                if(item instanceof Declaration.StaticFieldMember field&&field.declaration().name().equals(member.name())
+                        ||item instanceof Declaration.MethodMember method&&method.method().name().equals(member.name())
+                        ||item instanceof Declaration.TemplateMethodMember method&&method.method().method().name().equals(member.name()))return null;
+            }
+            if(declaration.fields().stream().anyMatch(field->field.name().equals(member.name())))return null;
+            String name=declaration.name();if(name.substring(name.lastIndexOf("::")+2).equals(member.name()))return owner;
+            for(var base:declaration.recordInfo().bases()) {
+                CrakenType found=knownMemberType(new CrakenType.MemberType(substitution==null?base.type():substitution.type(base.type()),member.name()),visited);
+                if(found!=null)return found;
+            }
+            return null;
+        }
+        private boolean qualifiedMemberIsType(int end) { return qualifiedMemberIsType(0, end); }
+        private boolean qualifiedMemberIsType(int offset, int end) {
+            int errors=context.reportedErrors.size(),traces=context.traceEvents==null?0:context.traceEvents.size();
+            int start=context.currentIndex();
+            try {
+                CrakenType type=context.inTokenWindow(new Context.TokenWindow(start+offset,start+end),()->parseQualifiedNamedType(false));
+                return type!=null&&knownMemberType(type,new java.util.HashSet<>())!=null;
+            } finally {
+                context.reportedErrors.subList(errors,context.reportedErrors.size()).clear();
+                if(context.traceEvents!=null)context.traceEvents.subList(traces,context.traceEvents.size()).clear();
+            }
+        }
+
+        /** Retain anonymous aggregate members so a containing class can promote their names. */
+        public void recordAggregateFields(StructDecl declaration) {
+            aggregateFields.put(declaration.name(), declaration.fields());
+            if (declaration.definition()) aggregateDeclarations.put(declaration.name(), declaration);
+        }
+
+        public void enterMemberDefinitionScope(QualifiedName qualifiedName) {
+            QualifiedName owner = new QualifiedName(qualifiedName.global(),
+                    qualifiedName.segments().subList(0, qualifiedName.segments().size() - 1), qualifiedName.range());
+            CrakenType type = typeNames.enterMemberDefinitionScope(owner);
+            memberScopeDepth++;
+            if (!(type instanceof CrakenType.StructType record)) return;
+            StructDecl declaration = aggregateDeclarations.get(record.name());
+            if (declaration == null) return;
+            var replacements=new java.util.LinkedHashMap<CrakenType.TemplateParameterType,CrakenType>();
+            var valueReplacements=new java.util.LinkedHashMap<CrakenType.TemplateParameterType,Expression>();
+            if(templateDefinitionOwner!=null && templateDefinitionOwner.templateName().equals(record.name())) {
+                typeNames.replaceInjectedClassType(templateDefinitionOwner);
+                for(var source:templateDeclarations.getOrDefault(record.name(),List.of())) {
+                    var bindings=craken.compiler.semantic.manager.TemplateDeduction.match(templateOwnerPattern(source),templateDefinitionOwner.arguments(),
+                            source.parameters(),java.util.function.UnaryOperator.identity());
+                    if(bindings==null || craken.compiler.semantic.manager.TemplateDeduction.match(templateDefinitionOwner.arguments(),templateOwnerPattern(source),
+                            definitionTemplateParameters,java.util.function.UnaryOperator.identity())==null)continue;
+                    declaration=source.record();replacements.putAll(bindings.types());
+                    for(var entry:bindings.values().entrySet())if(entry.getValue() instanceof TemplateArgument.Value value)valueReplacements.put(entry.getKey(),value.expression());
+                    for(var entry:bindings.packs().entrySet())if(entry.getValue().size()==1) {
+                        var argument=entry.getValue().getFirst();
+                        if(argument instanceof TemplateArgument.Type value)replacements.put(entry.getKey(),value.type());
+                        if(argument instanceof TemplateArgument.Value value)valueReplacements.put(entry.getKey(),value.expression());
+                    }
+                    break;
+                }
+                if(definitionTemplateParameters!=null)for(var parameter:definitionTemplateParameters) {
+                    if(parameter instanceof ClassTemplateDecl.TypeParameter)typeNames.declareTypedef(parameter.name(),parameter.type(),parameter.range());
+                    else typeNames.declareValue(parameter.name(),parameter.range());
+                }
+            }
+            declaration.fields().forEach(this::declareMemberField);
+            if(declaration.recordInfo()!=null)inheritMemberNames(declaration.recordInfo().bases());
+            if (declaration.recordInfo() != null) {
+                for (var member : declaration.recordInfo().members()) {
+                    if (member instanceof Declaration.MemberTypedef alias) {
+                        defineTypedef(alias.declaration().name(),alias.declaration().type().substituteTemplateParameters(replacements,valueReplacements),alias.range());
+                    } else if (member instanceof Declaration.MethodMember method && method.method().conversionName() == null) {
+                        declareOrdinaryName(method.method().name(), method.nameRange());
+                    } else if (member instanceof Declaration.StaticFieldMember field) {
+                        declareOrdinaryName(field.declaration().name(), field.range());
+                    }
+                }
+            }
+        }
+
+        /** Pure disambiguation: a namespace-qualified type may also precede a parenthesized variable. */
+        public boolean namesConstructor(QualifiedName name) {
+            if (name.segments().size() < 2) return false;
+            var owner = new QualifiedName(name.global(), name.segments().subList(0, name.segments().size() - 1), name.range());
+            var lookup = typeNames.lookupQualifier(owner);
+            if (lookup.kind() != TypeNameManager.Kind.TYPE || !(lookup.type().unqualified() instanceof CrakenType.StructType record)) return false;
+            String injectedName = record.name().substring(record.name().lastIndexOf("::") + 2);
+            return injectedName.equals(name.segments().getLast());
+        }
+
+        public void exitMemberDefinitionScope() {
+            typeNames.exitMemberDefinitionScope();
+            memberScopeDepth--;
+        }
+
+        public void declareMemberField(Declaration.StructField field) {
+            if (field.anonymous()) {
+                promoteAnonymousMemberNames(field.type(), new java.util.HashSet<>());
+            } else {
+                declareOrdinaryName(field.name(), field.range());
+            }
+        }
+
+        private void promoteAnonymousMemberNames(CrakenType type, java.util.Set<String> visited) {
+            if (!(type.unqualified() instanceof CrakenType.StructType aggregate) || !visited.add(aggregate.name())) return;
+            for (var field : aggregateFields.getOrDefault(aggregate.name(), List.of())) {
+                if (field.anonymous()) promoteAnonymousMemberNames(field.type(), visited);
+                else declareOrdinaryName(field.name(), field.range());
+            }
+        }
+
+        public void registerUsing(Declaration.UsingDecl declaration) {
+            typeNames.registerUsing(declaration.target(), declaration.namespaceDirective(), declaration.range());
+            // Value lookup and invalid using declarations are diagnosed by the binder.
+        }
+
+        public CrakenType declareAggregate(String name, boolean union, boolean definition, SourceRange range) {
+            if(inClassSpecialization() && activeClassTemplates.peek().equals(typeNames.namespaceIdentity(name)))
+                return CrakenType.struct(activeClassTemplates.peek());
+            if (!activeClassTemplates.isEmpty() && name.startsWith("$anonymous$"))
+                context.unsupportedSyntax(range, "类模板内部的匿名聚合声明尚未实现");
+            if (memberScopeDepth > 0 && !name.startsWith("$anonymous$")) {
+                context.unsupportedSyntax(range, "成员命名结构体声明尚未实现");
+            }
+            int before = typeNames.diagnostics().size();
+            CrakenType result = typeNames.declareStruct(name, union, definition, range);
+            if (result instanceof CrakenType.StructType record && classTemplates.containsKey(record.name())
+                    && (activeClassTemplates.isEmpty() || !activeClassTemplates.peek().equals(record.name())))
+                context.report(range, "类模板的重声明需要 template 参数列表");
+            copyTypeDiagnostics(before);
+            return result;
+        }
+
+        private void copyTypeDiagnostics(int before) {
+            var diagnostics = typeNames.diagnostics();
+            for (int i = before; i < diagnostics.size(); i++) context.reportedErrors.add(diagnostics.get(i));
+        }
+
+        public void enterScope(java.util.Collection<String> ordinaryNames) {
+            typeNames.enterLocalScope();
+            localScopeDepth++;
+            for (String name : ordinaryNames) declareOrdinaryName(name, context.peek().range());
+        }
+
+        public void exitScope() {
+            typeNames.exitLocalScope();
+            localScopeDepth--;
+        }
+
+        public boolean defineTypedef(String name, CrakenType type, SourceRange range) {
+            int before = typeNames.diagnostics().size();
+            typeNames.declareTypedef(name, type, range);
+            copyTypeDiagnostics(before);
+            return before == typeNames.diagnostics().size();
+        }
+
+        public void declareOrdinaryName(String name, SourceRange range) {
+            int before = typeNames.diagnostics().size();
+            boolean templateParameter = typeNames.isTemplateParameter(name);
+            typeNames.declareValue(name, range);
+            if (templateParameter) copyTypeDiagnostics(before);
+        }
+
+        public CrakenType resolveTypedef(String name) {
+            var result = typeNames.lookup(new craken.compiler.parser.node.QualifiedName(false, List.of(name), context.peek().range()));
+            return result.kind() == TypeNameManager.Kind.TYPE ? result.type() : null;
+        }
+
+        /** Reads a type prefix without consuming a following function/initializer suffix. */
+        public ParsedType parseTypeWithoutFunctionSuffix(String expectedMessage) {
+            int offset = 0;
+            while (isTypeQualifier(context.peekAt(offset).type())) offset++;
+            Token key = context.peekAt(offset);
+            if (key.type() == TokenType.STRUCT || key.type() == TokenType.CLASS
+                    || key.type() == TokenType.UNION || key.type() == TokenType.ENUM) {
+                offset++;
+                while (context.peekAt(offset).type() == TokenType.IDENTIFIER
+                        || context.peekAt(offset).type() == TokenType.SCOPE) offset++;
+                if (context.peekAt(offset).type() == TokenType.LEFT_BRACE) {
+                    context.report(SourceRange.span(key.range(), context.peekAt(offset).range()), "此类型名称中不能定义类或枚举");
+                    return null;
+                }
+            }
+            BaseType base = parseBaseType(expectedMessage);
+            if (base == null) return null;
+            CrakenType type = base.type();
+            Token end = base.endToken();
+            while (context.check(TokenType.STAR) || context.check(TokenType.AMPERSAND)
+                    || context.check(TokenType.AMPERSAND_AMPERSAND)) {
+                Token operator = context.advance();
+                boolean reference = operator.type() != TokenType.STAR;
+
+                var qualifiers = parseTypeQualifiers();
+                if (reference && !qualifiers.isEmpty())
+                    context.report(operator.range(), "引用声明器不能直接带 const/volatile 限定符");
+                type = reference ? type.referenceTo(operator.type()==TokenType.AMPERSAND_AMPERSAND?CrakenType.ReferenceKind.RVALUE:CrakenType.ReferenceKind.LVALUE) : CrakenType.qualified(type.pointerTo(), qualifiers);
+                end = context.previous();
+            }
+            SourceRange range = SourceRange.span(base.startToken().range(), end.range());
+            validateReferenceShape(type, range);
+            return new ParsedType(type, base.startToken(), range);
+        }
+
+        public ParsedType parseType(String expectedMessage) {
+            BaseType baseType = parseBaseType(expectedMessage);
+            if (baseType == null) {
+                return null;
+            }
+            if (!canStartDeclarator(false)) {
+                return new ParsedType(
+                        baseType.type(),
+                        baseType.startToken(),
+                        SourceRange.span(baseType.startToken().range(), baseType.endToken().range())
+                );
+            }
+
+            Declarator declarator = parseDeclarator("", false);
+            if (declarator == null) {
+                return null;
+            }
+            if (declarator.operatorName() != null) {
+                context.report(declarator.operatorName().range(), "类型名称不能声明运算符函数");
+                return null;
+            }
+            CrakenType type = resolveDeclarator(declarator, baseType.type());
+            return new ParsedType(
+                    type,
+                    baseType.startToken(),
+                    SourceRange.span(baseType.startToken().range(), declarator.endToken().range())
+            );
+        }
+
+        /**
+         * 读取一个完整 C 声明器。声明器先保存“从名字向外”的组合节点，随后从外向内
+         * 绑定到命名叶子类型，因此可统一表达多级指针、多维数组、数组指针和函数指针。
+         */
+        public ParsedNamedType parseNamedType(String expectedTypeMessage, String expectedNameMessage) {
+            return parseNamedType(expectedTypeMessage, expectedNameMessage, false);
+        }
+
+        public ParsedNamedType parseNamedType(String expectedTypeMessage, String expectedNameMessage,
+                                             boolean allowQualifiedName) {
+            return parseNamedType(expectedTypeMessage, expectedNameMessage, allowQualifiedName, allowQualifiedName);
+        }
+
+        public ParsedNamedType parseNamedType(String expectedTypeMessage, String expectedNameMessage,
+                                             boolean allowQualifiedName, boolean allowOperatorName) {
+            DeclarationSpecifiers specifiers=parseDeclarationSpecifiers(expectedTypeMessage);
+            return specifiers==null?null:parseNamedDeclarator(specifiers,expectedNameMessage,allowQualifiedName,allowOperatorName,specifiers.range());
+        }
+
+        /** Shared declaration specifiers do not include any individual pointer, reference, array or function declarator. */
+        public record DeclarationSpecifiers(CrakenType type,List<craken.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs,SourceRange range){
+            public DeclarationSpecifiers{alignmentSpecs=List.copyOf(alignmentSpecs);}
+        }
+        public DeclarationSpecifiers parseDeclarationSpecifiers(String expectedTypeMessage){
+            List<craken.compiler.parser.node.Declaration.AlignmentSpec> alignments=parseAlignmentSpecs();
+            BaseType base=parseBaseType(expectedTypeMessage);if(base==null)return null;
+            SourceRange start=alignments.isEmpty()?base.startToken().range():alignments.getFirst().range();
+            return new DeclarationSpecifiers(base.type(),alignments,SourceRange.span(start,base.endToken().range()));
+        }
+        public ParsedNamedType parseNamedDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
+            return parseNamedDeclarator(specifiers,expectedNameMessage,false,false,first?specifiers.range():context.peek().range());
+        }
+        public ParsedNamedType parseGlobalDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
+            return parseNamedDeclarator(specifiers,expectedNameMessage,true,true,first?specifiers.range():context.peek().range());
+        }
+        public ParsedNamedType parseMemberDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,boolean first){
+            return parseNamedDeclarator(specifiers,expectedNameMessage,false,true,first?specifiers.range():context.peek().range());
+        }
+        private ParsedNamedType parseNamedDeclarator(DeclarationSpecifiers specifiers,String expectedNameMessage,
+                                                     boolean allowQualifiedName,boolean allowOperatorName,SourceRange startRange){
+            List<craken.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs=specifiers.alignmentSpecs();
+            Declarator declarator = parseDeclarator(expectedNameMessage, true, allowQualifiedName, specifiers.type().isReference());
+            if (declarator == null || declarator.name().isEmpty()) {
+                return null;
+            }
+            if (declarator.operatorName() != null && !allowOperatorName) {
+                context.report(declarator.operatorName().range(), "此声明不能使用运算符函数名称");
+                return null;
+            }
+            CrakenType resolvedType = resolveDeclarator(declarator, specifiers.type());
+            if (declarator.operatorName() != null && !(resolvedType.unqualified() instanceof CrakenType.FunctionType)) {
+                context.report(declarator.operatorName().range(), "运算符名称必须声明函数");
+                return null;
+            }
+            if (resolvedType instanceof CrakenType.FunctionType function && context.check(TokenType.ARROW))
+                resolvedType = parseTrailingReturn(function);
+            FunctionModifier topFunction = declarator.topFunction();
+            List<ParsedParameter> resolvedParameters;
+            boolean resolvedVariadic;
+            if (topFunction != null) {
+                resolvedParameters = topFunction.parameters();
+                resolvedVariadic = topFunction.variadic();
+            } else if (resolvedType.unqualified() instanceof CrakenType.FunctionType functionType) {
+                resolvedParameters = functionType.parameterTypes().stream()
+                        .map(type -> new ParsedParameter("", type, declarator.endToken().range()))
+                        .toList();
+                resolvedVariadic = functionType.variadic();
+            } else {
+                resolvedParameters = List.of();
+                resolvedVariadic = false;
+            }
+            SourceRange declarationRange = SourceRange.span(startRange,declarator.endToken().range());
+            return new ParsedNamedType(
+                    declarator.name(),
+                    resolvedType,
+                    declarationRange,
+                    resolvedParameters,
+                    resolvedVariadic,
+                    alignmentSpecs,
+                    declarator.nameToken().range(),
+                    declarator.qualifiedName(),
+                    declarator.operatorName()
+            );
+        }
+
+        public CrakenType.ExceptionSpecification parseExceptionSpecification() {
+            if (!context.match(TokenType.NOEXCEPT)) return CrakenType.ExceptionSpecification.UNSPECIFIED;
+            if (!context.match(TokenType.LEFT_PAREN)) return CrakenType.ExceptionSpecification.NON_THROWING;
+            var expression = new craken.compiler.parser.manager.ExpressionManager(context,this).parseExpression();
+            context.consume(TokenType.RIGHT_PAREN,"noexcept 条件后期望 ')' ");
+            return expression == null ? CrakenType.ExceptionSpecification.POTENTIALLY_THROWING
+                    : new CrakenType.ExceptionSpecification(true,false,expression);
+        }
+
+        public CrakenType.FunctionType parseFunctionException(CrakenType.FunctionType function) {
+            if (!context.check(TokenType.NOEXCEPT)) return function;
+            if (function.exceptionSpecification().specified()) context.report(context.peek(),"noexcept 说明符重复");
+            return function.withExceptionSpecification(parseExceptionSpecification());
+        }
+
+        public CrakenType.FunctionType parseTrailingReturn(CrakenType.FunctionType function) {
+            if (!context.match(TokenType.ARROW)) return function;
+            if (!function.returnType().equals(CrakenType.AUTO)) context.report(context.previous(), "尾置返回类型要求前置 auto");
+            ParsedType result = parseType("期望尾置返回类型");
+            return result == null ? function : (CrakenType.FunctionType) CrakenType.function(
+                    new CrakenType.TrailingReturnType(result.type()), function.parameterTypes(), function.variadic(), function.exceptionSpecification());
+        }
+
+        public boolean canStartType() {
+            return canStartTypeAt(0);
+        }
+
+        /** Functional notation accepts a simple-type-specifier, not an arbitrary declarator. */
+        public int constructionDelimiterAt(int offset) {
+            int member = typeMemberDelimiterAt(offset);
+            if (member >= 0) {
+                int end = member + 2;
+                if (!qualifiedMemberIsType(offset, end)) return -1;
+                TokenType following = context.peekAt(end).type();
+                return following == TokenType.LEFT_PAREN || following == TokenType.LEFT_BRACE ? end : -1;
+            }
+            TokenType token = context.peekAt(offset).type();
+            int end;
+            if(token==TokenType.DECLTYPE) {
+                end=decltypeEndAt(offset);if(end<0)return -1;
+            } else if(token==TokenType.TYPENAME) {
+                end=offset+1;
+                if(context.peekAt(end).type()==TokenType.SCOPE)end++;
+                while(context.peekAt(end).type()==TokenType.IDENTIFIER) {
+                    end=templateArgumentsEndAt(end+1);if(end<0)return -1;
+                    if(context.peekAt(end).type()!=TokenType.SCOPE)break;end++;
+                }
+            } else if (token == TokenType.IDENTIFIER || token == TokenType.SCOPE) {
+                var name = context.peekQualifiedName(offset);
+                if (name == null || typeNames.lookup(name).kind() != TypeNameManager.Kind.TYPE) return -1;
+                end = offset + name.segments().size() * 2 - 1 + (name.global() ? 1 : 0);
+                if (context.peekAt(end).type() == TokenType.LESS) {
+                    int depth = 1;
+                    while (depth > 0) {
+                        TokenType next = context.peekAt(++end).type();
+                        if (next == TokenType.EOF || next == TokenType.SEMICOLON || next == TokenType.LEFT_BRACE) return -1;
+                        if (next == TokenType.LESS) depth++;
+                        if (next == TokenType.GREATER) depth--;
+                        if (next == TokenType.GREATER_GREATER) depth -= 2;
+                    }
+                    if (depth < 0) return -1;
+                    end++;
+                }
+            } else {
+                if (token != TokenType.BOOL && token != TokenType.CHAR && token != TokenType.INT
+                        && token != TokenType.LONG && token != TokenType.SHORT && token != TokenType.SIGNED
+                        && token != TokenType.UNSIGNED && token != TokenType.FLOAT && token != TokenType.DOUBLE
+                        && token != TokenType.VOID) return -1;
+                end = offset + 1;
+            }
+            TokenType following = context.peekAt(end).type();
+            return following == TokenType.LEFT_PAREN || following == TokenType.LEFT_BRACE ? end : -1;
+        }
+
+        private int typeOwnerDepth;
+        private int decltypeEndAt(int offset) {
+            if(context.peekAt(offset).type()!=TokenType.DECLTYPE || context.peekAt(offset+1).type()!=TokenType.LEFT_PAREN)return -1;
+            int depth=1,end=offset+2;
+            for(;depth>0;end++) {
+                TokenType token=context.peekAt(end).type();if(token==TokenType.EOF||token==TokenType.SEMICOLON)return -1;
+                if(token==TokenType.LEFT_PAREN)depth++;else if(token==TokenType.RIGHT_PAREN)depth--;
+            }
+            return end;
+        }
+        private int templateArgumentsEndAt(int end) {
+            if(context.peekAt(end).type()!=TokenType.LESS)return end;
+            int depth=1,parens=0;
+            while(depth>0) {
+                TokenType next=context.peekAt(++end).type();
+                if(next==TokenType.EOF || next==TokenType.SEMICOLON)return -1;
+                if(next==TokenType.LEFT_PAREN)parens++;else if(next==TokenType.RIGHT_PAREN)parens--;
+                if(parens==0){if(next==TokenType.LESS)depth++;if(next==TokenType.GREATER)depth--;if(next==TokenType.GREATER_GREATER)depth-=2;}
+            }
+            return depth==0?end+1:-1;
+        }
+        /** The type prefix has a token boundary; it must not consume the following value member. */
+        public int typeMemberDelimiterAt(int offset) {
+            int end=decltypeEndAt(offset);
+            if(end<0) {
+                boolean global=context.peekAt(offset).type()==TokenType.SCOPE;
+                int cursor=offset+(global?1:0);var segments=new ArrayList<String>();
+                while(context.peekAt(cursor).type()==TokenType.IDENTIFIER) {
+                    Token name=context.peekAt(cursor);segments.add(name.lexeme());cursor++;
+                    var prefix=new QualifiedName(global,segments,name.range());
+                    var lookup=context.peekAt(cursor).type()==TokenType.SCOPE
+                            ?typeNames.lookupQualifier(prefix):typeNames.lookup(prefix);
+                    if(lookup.kind()==TypeNameManager.Kind.TYPE){end=templateArgumentsEndAt(cursor);break;}
+                    if(context.peekAt(cursor).type()!=TokenType.SCOPE)return -1;cursor++;
+                }
+            }
+            if(end<0)return -1;
+            while(context.peekAt(end).type()==TokenType.SCOPE && context.peekAt(end+1).type()==TokenType.IDENTIFIER
+                    && context.peekAt(end+2).type()==TokenType.SCOPE)end+=2;
+            return context.peekAt(end).type()==TokenType.SCOPE?end:-1;
+        }
+        /** A declaration owner containing a template-id; the final member stays unconsumed. */
+        public int templateMemberDelimiter() {
+            if(definitionTemplateParameters==null)return -1;
+            int end=typeMemberDelimiterAt(0);if(end<0)return -1;
+            for(int i=0;i<end;i++)if(context.peekAt(i).type()==TokenType.LESS)return end;
+            return -1;
+        }
+        public QualifiedName parseTemplateMemberOwner() {
+            ParsedType parsed=parseTypeMemberOwner();
+            if(parsed==null || !(parsed.type().unqualified() instanceof CrakenType.TemplateIdType id)) {
+                context.unsupportedSyntax(context.peek().range(),"类外模板成员需要直接类模板限定类型");return null;
+            }
+            if(context.consume(TokenType.SCOPE,"成员前期望 '::'")==null)return null;
+            templateDefinitionOwner=id;
+            String name=id.templateName();if(name.startsWith("::"))name=name.substring(2);
+            return new QualifiedName(true,List.of(name.split("::")),parsed.range());
+        }
+        public ParsedType parseTypeMemberOwner() {
+            int length=typeMemberDelimiterAt(0);if(length<0)return null;
+            int start=context.currentIndex();typeOwnerDepth++;
+            ParsedType result;
+            try {result=context.inTokenWindow(new Context.TokenWindow(start,start+length),()->parseType("期望成员限定类型"));}
+            finally {typeOwnerDepth--;}
+            for(int i=0;i<length;i++)context.advance();return result;
+        }
+
+        public ParsedType parseConstructionType() {
+            BaseType base = parseBaseType("期望构造类型");
+            return base == null ? null : new ParsedType(base.type(), base.startToken(),
+                    SourceRange.span(base.startToken().range(), base.endToken().range()));
+        }
+
+        /** Type-id grammar wins sizeof/alignof ambiguity; function pointer casts remain type-ids. */
+        public boolean typeOperandAt(int offset, boolean query) {
+            int member = typeMemberDelimiterAt(offset);
+            if (member >= 0 && !qualifiedMemberIsType(offset, member + 2)) return false;
+            int delimiter = constructionDelimiterAt(offset);
+            if (delimiter < 0) return true;
+            if (context.peekAt(delimiter).type() == TokenType.LEFT_BRACE) return false;
+            TokenType first = context.peekAt(delimiter + 1).type();
+            if (first == TokenType.RIGHT_PAREN) return query;
+            if (canStartTypeAt(delimiter + 1)) return query && typeOperandAt(delimiter + 1, true);
+            int end = skipAbstractDeclarator(delimiter);
+            return end >= 0 && context.peekAt(end).type() == TokenType.RIGHT_PAREN;
+        }
+
+        private int skipAbstractDeclarator(int offset) {
+            int start = offset;
+            while (context.peekAt(offset).type() == TokenType.STAR || context.peekAt(offset).type() == TokenType.AMPERSAND
+                    || context.peekAt(offset).type() == TokenType.AMPERSAND_AMPERSAND) {
+                offset++;
+                while (isTypeQualifier(context.peekAt(offset).type())) offset++;
+            }
+            if (context.peekAt(offset).type() == TokenType.LEFT_PAREN
+                    && context.peekAt(offset + 1).type() != TokenType.RIGHT_PAREN && !canStartTypeAt(offset + 1)) {
+                int inner = skipAbstractDeclarator(offset + 1);
+                if (inner < 0 || context.peekAt(inner).type() != TokenType.RIGHT_PAREN) return -1;
+                offset = inner + 1;
+            }
+            while (context.peekAt(offset).type() == TokenType.LEFT_PAREN || context.peekAt(offset).type() == TokenType.LEFT_BRACKET) {
+                TokenType open = context.peekAt(offset).type();
+                TokenType close = open == TokenType.LEFT_PAREN ? TokenType.RIGHT_PAREN : TokenType.RIGHT_BRACKET;
+                if (open == TokenType.LEFT_PAREN && context.peekAt(offset + 1).type() != close && !canStartTypeAt(offset + 1)) return -1;
+                int depth = 1;
+                while (depth > 0) {
+                    TokenType token = context.peekAt(++offset).type();
+                    if (token == TokenType.EOF || token == TokenType.SEMICOLON) return -1;
+                    if (token == open) depth++;
+                    if (token == close) depth--;
+                }
+                offset++;
+                if (open == TokenType.LEFT_PAREN) {
+                    offset = skipExceptionSpecification(offset);
+                    if (offset < 0) return -1;
+                }
+            }
+            return offset == start || context.peekAt(offset).type() == TokenType.IDENTIFIER ? -1 : offset;
+        }
+
+        /** In a statement, a syntactically complete declaration wins T(name) ambiguity. */
+        public boolean startsConstructionStatement() {
+            int memberDelimiter=typeMemberDelimiterAt(0);
+            if(memberDelimiter>=0) {
+                int afterMember=memberDelimiter+2;
+                if(!qualifiedMemberIsType(afterMember))return true;
+                TokenType next=context.peekAt(afterMember).type();
+                if(next!=TokenType.LEFT_PAREN&&next!=TokenType.LEFT_BRACE)return false;
+                if(next==TokenType.LEFT_BRACE)return true;
+                int after=skipGroupedDeclarator(afterMember);
+                if(after<0)return true;
+                next=context.peekAt(after).type();
+                return next!=TokenType.SEMICOLON&&next!=TokenType.EQUAL&&next!=TokenType.COMMA&&next!=TokenType.LEFT_BRACE;
+            }
+            int delimiter = constructionDelimiterAt(0);
+            if (delimiter < 0) return false;
+            if (context.peekAt(delimiter).type() == TokenType.LEFT_BRACE) return true;
+            int after = skipGroupedDeclarator(delimiter);
+            if (after < 0) return true;
+            TokenType next = context.peekAt(after).type();
+            return next != TokenType.SEMICOLON && next != TokenType.EQUAL && next != TokenType.COMMA
+                    && next != TokenType.LEFT_BRACE;
+        }
+
+        private int skipGroupedDeclarator(int offset) {
+            while (context.peekAt(offset).type() == TokenType.STAR || context.peekAt(offset).type() == TokenType.AMPERSAND
+                    || context.peekAt(offset).type() == TokenType.AMPERSAND_AMPERSAND) {
+                offset++;
+                while (isTypeQualifier(context.peekAt(offset).type())) offset++;
+            }
+            if (context.peekAt(offset).type() == TokenType.IDENTIFIER) offset++;
+            else if (context.peekAt(offset).type() == TokenType.LEFT_PAREN) {
+                offset = skipGroupedDeclarator(offset + 1);
+                if (offset < 0 || context.peekAt(offset).type() != TokenType.RIGHT_PAREN) return -1;
+                offset++;
+            } else return -1;
+            while (context.peekAt(offset).type() == TokenType.LEFT_PAREN || context.peekAt(offset).type() == TokenType.LEFT_BRACKET) {
+                TokenType open = context.peekAt(offset).type();
+                TokenType close = open == TokenType.LEFT_PAREN ? TokenType.RIGHT_PAREN : TokenType.RIGHT_BRACKET;
+                if (open == TokenType.LEFT_PAREN && context.peekAt(offset + 1).type() != close
+                        && !canStartTypeAt(offset + 1)) return -1;
+                int depth = 1;
+                while (depth > 0) {
+                    TokenType token = context.peekAt(++offset).type();
+                    if (token == TokenType.EOF || token == TokenType.SEMICOLON) return -1;
+                    if (token == open) depth++;
+                    if (token == close) depth--;
+                }
+                offset++;
+                if (open == TokenType.LEFT_PAREN) {
+                    offset = skipExceptionSpecification(offset);
+                    if (offset < 0) return -1;
+                }
+            }
+            return offset;
+        }
+
+        /** Lookahead must consume the same function suffix as the declarator parser. */
+        private int skipExceptionSpecification(int offset) {
+            if (context.peekAt(offset).type() != TokenType.NOEXCEPT) return offset;
+            offset++;
+            if (context.peekAt(offset).type() != TokenType.LEFT_PAREN) return offset;
+            int depth = 1;
+            while (depth > 0) {
+                TokenType token = context.peekAt(++offset).type();
+                if (token == TokenType.EOF || token == TokenType.SEMICOLON) return -1;
+                if (token == TokenType.LEFT_PAREN) depth++;
+                if (token == TokenType.RIGHT_PAREN) depth--;
+            }
+            return offset + 1;
+        }
+
+        public boolean canStartTypeAt(int offset) {
+            while (isTypeQualifier(context.peekAt(offset).type())) {
+                offset++;
+            }
+            TokenType type = context.peekAt(offset).type();
+            if ((type == TokenType.TYPENAME || type == TokenType.AUTO || type == TokenType.DECLTYPE)) return true;
+            if ((type == TokenType.IDENTIFIER || type == TokenType.SCOPE)) {
+                var name = context.peekQualifiedName(offset);
+                if(name==null)return false;
+                for(int count=1;count<=name.segments().size();count++) {
+                    var prefix=new QualifiedName(name.global(),name.segments().subList(0,count),name.range());
+                    var found=count<name.segments().size()?typeNames.lookupQualifier(prefix):typeNames.lookup(prefix);
+                    if(found.kind()==TypeNameManager.Kind.TYPE)return true;
+                }
+                return false;
+            }
+            return type == TokenType.BOOL
+                    || type == TokenType.CHAR
+                    || type == TokenType.INT
+                    || type == TokenType.LONG
+                    || type == TokenType.SHORT
+                    || type == TokenType.SIGNED
+                    || type == TokenType.UNSIGNED
+                    || type == TokenType.FLOAT
+                    || type == TokenType.DOUBLE
+                    || type == TokenType.VOID
+                    || type == TokenType.STRUCT
+                    || type == TokenType.CLASS
+                    || type == TokenType.UNION
+                    || type == TokenType.ENUM
+                    || type == TokenType.BUILTIN_VA_LIST
+                    || type == TokenType.IDENTIFIER
+                    && resolveTypedef(context.peekAt(offset).lexeme()) != null;
+        }
+
+        public List<craken.compiler.parser.node.Declaration.AlignmentSpec> parseAlignmentSpecs() {
+            ArrayList<craken.compiler.parser.node.Declaration.AlignmentSpec> specs = new ArrayList<>();
+            while (context.match(TokenType.ALIGNAS)) {
+                Token start = context.previous();
+                context.consume(TokenType.LEFT_PAREN, "alignas 后期望 '('");
+                if (canStartType()) {
+                    ParsedType parsedType = parseType("alignas 期望类型或整数常量");
+                    Token end = context.consume(TokenType.RIGHT_PAREN, "alignas 期望 ')'");
+                    if (parsedType != null && end != null) {
+                        specs.add(craken.compiler.parser.node.Declaration.AlignmentSpec.type(
+                                parsedType.type(), SourceRange.span(start.range(), end.range())));
+                    }
+                    continue;
+                }
+                boolean negative = context.match(TokenType.MINUS);
+                Token value = context.peek();
+                if (!context.match(TokenType.INTEGER_LITERAL) && !context.match(TokenType.LONG_LITERAL)) {
+                    context.report(value, "alignas 期望类型或整数常量");
+                    context.consume(TokenType.RIGHT_PAREN, "alignas 期望 ')'");
+                    continue;
+                }
+                long raw = value.literalValue() instanceof Integer integer
+                        ? integer.longValue()
+                        : ((Token.IntegerLiteralValue) value.literalValue()).value();
+                if (negative) {
+                    raw = -raw;
+                }
+                Token end = context.consume(TokenType.RIGHT_PAREN, "alignas 期望 ')'");
+                if (end != null) {
+                    if (raw < Integer.MIN_VALUE || raw > Integer.MAX_VALUE) {
+                        context.report(value, "alignas 整数超出支持范围");
+                        raw = -1;
+                    }
+                    specs.add(craken.compiler.parser.node.Declaration.AlignmentSpec.constant(
+                            (int) raw, SourceRange.span(start.range(), end.range())));
+                }
+            }
+            return List.copyOf(specs);
+        }
+
+        private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired) {
+            return parseDeclarator(expectedNameMessage, nameRequired, false);
+        }
+
+        private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired, boolean allowQualifiedName) {
+            return parseDeclarator(expectedNameMessage, nameRequired, allowQualifiedName, false);
+        }
+
+        private Declarator parseDeclarator(String expectedNameMessage, boolean nameRequired,
+                                           boolean allowQualifiedName, boolean referenceBase) {
+            ArrayList<PointerLayer> pointerLayers = new ArrayList<>();
+            while (context.check(TokenType.STAR)
+                    || context.check(TokenType.AMPERSAND) || context.check(TokenType.AMPERSAND_AMPERSAND)) {
+                Token operator = context.advance();
+                boolean reference = operator.type() != TokenType.STAR;
+
+                var qualifiers = parseTypeQualifiers();
+                if (reference && !qualifiers.isEmpty()) context.report(operator, "引用声明器不能直接带 const/volatile 限定符");
+                pointerLayers.add(new PointerLayer(operator, qualifiers, reference));
+            }
+
+            boolean pack = context.match(TokenType.ELLIPSIS);
+            Declarator direct;
+            if(allowQualifiedName && templateMemberDelimiter()>=0) {
+                Token first=context.peek();QualifiedName owner=parseTemplateMemberOwner();if(owner==null)return null;
+                OperatorName operator=null;Token name;
+                if(context.check(TokenType.OPERATOR)) {
+                    operator=parseOperatorName();if(operator==null)return null;
+                    name=new Token(TokenType.IDENTIFIER,operator.spelling(),operator.range());
+                } else name=context.consume(TokenType.IDENTIFIER,expectedNameMessage);
+                if(name==null)return null;
+                var segments=new ArrayList<>(owner.segments());segments.add(name.lexeme());
+                QualifiedName qualified=new QualifiedName(true,segments,SourceRange.span(first.range(),name.range()));
+                direct=new Declarator(name.lexeme(),new ArrayList<>(),first,name,name,qualified,operator);
+            } else if (context.check(TokenType.OPERATOR)) {
+                OperatorName operator = parseOperatorName();
+                if (operator == null) return null;
+                Token name = new Token(TokenType.IDENTIFIER, operator.spelling(), operator.range());
+                direct = new Declarator(name.lexeme(), new ArrayList<>(), name, name, name, null, operator);
+            } else if (allowQualifiedName && (context.check(TokenType.SCOPE)
+                    || context.check(TokenType.IDENTIFIER) && context.peekAt(1).type() == TokenType.SCOPE)) {
+                Token first = context.peek();
+                var parsed = parseQualifiedDeclarationName();
+                if (parsed == null) return null;
+                Token last = parsed.nameToken();
+                direct = new Declarator(last.lexeme(), new ArrayList<>(), first, last, last, parsed.qualifiedName(), parsed.operatorName());
+            } else if (context.match(TokenType.IDENTIFIER)) {
+                Token nameToken = context.previous();
+                direct = new Declarator(nameToken.lexeme(), new ArrayList<>(), nameToken, nameToken, nameToken);
+            } else if (!nameRequired && context.check(TokenType.LEFT_PAREN)
+                    && (context.peekAt(1).type() == TokenType.RIGHT_PAREN || canStartTypeAt(1)
+                    || context.peekAt(1).type() == TokenType.ELLIPSIS)) {
+                Token anchor = context.peek();
+                direct = new Declarator("", new ArrayList<>(), anchor, anchor, anchor);
+            } else if (context.match(TokenType.LEFT_PAREN)) {
+                Token startToken = context.previous();
+                direct = parseDeclarator(expectedNameMessage, nameRequired, allowQualifiedName, referenceBase);
+                Token endToken = context.consume(TokenType.RIGHT_PAREN, "期望 ')'");
+                if (direct == null || endToken == null) {
+                    return null;
+                }
+                direct = direct.withRange(startToken, endToken);
+            } else if (!nameRequired) {
+                Token anchor = pointerLayers.isEmpty() ? context.peek() : pointerLayers.getFirst().token();
+                direct = new Declarator("", new ArrayList<>(), anchor, anchor, anchor);
+            } else {
+                context.report(context.peek(), expectedNameMessage);
+                return null;
+            }
+
+            if(definitionTemplateParameters!=null && templateDefinitionOwner==null && context.check(TokenType.LESS)) {
+                functionSpecializationArguments=parseFunctionTemplateArguments();if(functionSpecializationArguments==null)return null;
+            }
+            boolean memberScope = direct.qualifiedName() != null && direct.qualifiedName().segments().size() > 1;
+            if (memberScope) enterMemberDefinitionScope(direct.qualifiedName());
+            try {
+                Declarator result=parseDeclaratorSuffix(direct, pointerLayers, referenceBase);
+                if(pack && result!=null)result.modifiers().add(0,new PackModifier());
+                return result;
+            } finally {
+                if (memberScope) exitMemberDefinitionScope();
+            }
+        }
+
+        private Declarator parseDeclaratorSuffix(Declarator direct, List<PointerLayer> pointerLayers, boolean referenceBase) {
+            while (context.check(TokenType.LEFT_BRACKET) || context.check(TokenType.LEFT_PAREN)) {
+                // A named declarator followed by an expression is direct initialization. A
+                // type (or empty list) still begins a function declarator, including reference returns.
+                if (context.check(TokenType.LEFT_PAREN) && !direct.name().isEmpty()
+                        && !canStartTypeAt(1) && context.peekAt(1).type() != TokenType.RIGHT_PAREN
+                        && context.peekAt(1).type() != TokenType.ELLIPSIS) break;
+                if (!probingParameterClause && context.check(TokenType.LEFT_PAREN)
+                        && !direct.name().isEmpty() && !parameterClauseIsDeclaration()) break;
+                if (context.match(TokenType.LEFT_BRACKET)) {
+                    if(context.match(TokenType.RIGHT_BRACKET)) {
+                        direct.modifiers().add(new ArrayModifier(-1));direct=direct.withEnd(context.previous());continue;
+                    }
+                    Expression bound=expressionManager.parseAssignmentExpression();
+                    Token close=context.consume(TokenType.RIGHT_BRACKET,"期望 ']'");
+                    if(bound==null||close==null)return null;
+                    if(TemplateValues.dependent(bound) || TemplateValues.requiresSemanticContext(bound))direct.modifiers().add(new DependentArrayModifier(bound));
+                    else {
+                        try {
+                            long length=TemplateValues.evaluate(bound).value();
+                            if(length<=0||length>Integer.MAX_VALUE)throw new IllegalArgumentException("数组长度必须位于 1..2147483647");
+                            direct.modifiers().add(new ArrayModifier((int)length));
+                        } catch(IllegalArgumentException error){context.report(bound.range(),error.getMessage());return null;}
+                    }
+                    direct=direct.withEnd(close);continue;
+                }
+
+                context.advance();
+                ParameterList parameterList = parseParameterList();
+                Token endToken = context.consume(TokenType.RIGHT_PAREN, "期望 ')'");
+                if (endToken == null) {
+                    return null;
+                }
+                direct.modifiers().add(new FunctionModifier(
+                        parameterList.parameters(),
+                        parameterList.variadic(),
+                        true, parseExceptionSpecification()
+                ));
+                direct = direct.withEnd(endToken);
+            }
+
+            // The '*' nearest the identifier is the outermost pointer layer. Tokens are
+            // collected left-to-right, so append them in reverse to preserve qualifiers
+            // on their exact pointer level when Declarator.resolve walks inside-out.
+            for (int index = pointerLayers.size() - 1; index >= 0; index--) {
+                PointerLayer layer = pointerLayers.get(index);
+                direct.modifiers().add(layer.reference() ? new ReferenceModifier(layer.token().type()==TokenType.AMPERSAND_AMPERSAND?CrakenType.ReferenceKind.RVALUE:CrakenType.ReferenceKind.LVALUE) : new PointerModifier(layer.qualifiers()));
+            }
+            if (!pointerLayers.isEmpty()) {
+                direct = direct.withStart(pointerLayers.getFirst().token());
+            }
+            return direct;
+        }
+
+        /** Declaration priority applies only when the entire parameter clause is grammatical. */
+        private boolean parameterClauseIsDeclaration() {
+            int end = 0, depth = 0;
+            do {
+                TokenType token = context.peekAt(end++).type();
+                if (token == TokenType.EOF) return false;
+                if (token == TokenType.LEFT_PAREN) depth++;
+                if (token == TokenType.RIGHT_PAREN) depth--;
+            } while (depth > 0);
+            int start = context.currentIndex(), limit = start + end, errors = context.reportedErrors.size();
+            int traces = context.traceEvents == null ? 0 : context.traceEvents.size();
+            int savedAnonymous = anonymousAggregateIndex;
+            var savedFields = new java.util.LinkedHashMap<>(aggregateFields);
+            var savedDeclarations = new java.util.LinkedHashMap<>(aggregateDeclarations);
+            var savedSpecialization = functionSpecializationArguments;
+            var savedOwner = templateDefinitionOwner;
+            probingParameterClause = true;
+            try {
+                return typeNames.probeLocalDeclarations(() -> context.inTokenWindow(
+                        new Context.TokenWindow(start, limit), () -> {
+                            context.advance();
+                            parseParameterList();
+                            boolean complete = context.match(TokenType.RIGHT_PAREN) && context.isAtEnd();
+                            return complete && context.reportedErrors.size() == errors;
+                        }));
+            } finally {
+                probingParameterClause = false;
+                anonymousAggregateIndex = savedAnonymous;
+                aggregateFields.clear(); aggregateFields.putAll(savedFields);
+                aggregateDeclarations.clear(); aggregateDeclarations.putAll(savedDeclarations);
+                functionSpecializationArguments = savedSpecialization;
+                templateDefinitionOwner = savedOwner;
+                context.reportedErrors.subList(errors, context.reportedErrors.size()).clear();
+                if (context.traceEvents != null) context.traceEvents.subList(traces, context.traceEvents.size()).clear();
+            }
+        }
+
+        /** The caller owns the surrounding parentheses; shared by functions and constructors. */
+        public ParameterList parseParameterList() {
+            enterScope(List.of());
+            try { return parseParameterListContents(); }
+            finally { exitScope(); }
+        }
+
+        private ParameterList parseParameterListContents() {
+            ArrayList<ParsedParameter> parameters = new ArrayList<>();
+            if (context.check(TokenType.RIGHT_PAREN)) {
+                return new ParameterList(parameters, false);
+            }
+            // C 的 (void) 表示无参数；void* 等声明仍按普通参数解析。
+            if (context.check(TokenType.VOID) && context.peekAt(1).type() == TokenType.RIGHT_PAREN) {
+                context.advance();
+                return new ParameterList(parameters, false);
+            }
+            boolean variadic = false;
+            do {
+                if (context.match(TokenType.ELLIPSIS)) {
+                    variadic = true;
+                    if (!context.check(TokenType.RIGHT_PAREN)) {
+                        context.report(context.peek(), "可变参数标记必须位于参数列表末尾");
+                    }
+                    break;
+                }
+                BaseType baseType = parseBaseType("期望参数类型");
+                if (baseType == null) {
+                    break;
+                }
+                Declarator declarator;
+                if (canStartDeclarator(true)) {
+                    declarator = parseDeclarator("", false);
+                    if (declarator == null) {
+                        break;
+                    }
+                } else {
+                    declarator = new Declarator("", new ArrayList<>(), baseType.endToken(), baseType.endToken(), baseType.endToken());
+                }
+                if (declarator.operatorName() != null) {
+                    context.report(declarator.operatorName().range(), "形参不能使用运算符函数名称");
+                    break;
+                }
+                CrakenType parameterType = adjustParameterType(resolveDeclarator(declarator, baseType.type()));
+                SourceRange range = SourceRange.span(baseType.startToken().range(), declarator.endToken().range());
+                Expression defaultValue=null;
+                if(context.match(TokenType.EQUAL))defaultValue=expressionManager.parseInitializerClause();
+                if(defaultValue==null&&!(parameterType instanceof CrakenType.PackExpansionType)&&parameters.stream().anyMatch(p->p.defaultValue()!=null))context.report(range,"默认函数实参之后的参数也需要默认实参");
+                if(parameterType instanceof CrakenType.PackExpansionType && defaultValue!=null)context.report(range,"函数参数包不能有默认实参");
+                parameters.add(new ParsedParameter(declarator.name(), parameterType, defaultValue, range));
+                if (!declarator.name().isEmpty()) declareOrdinaryName(declarator.name(), range);
+            } while (context.match(TokenType.COMMA));
+            return new ParameterList(parameters, variadic);
+        }
+
+        private boolean canStartDeclarator(boolean allowIdentifier) {
+            return context.check(TokenType.STAR)
+                    || (context.check(TokenType.ELLIPSIS) || context.check(TokenType.AMPERSAND) || context.check(TokenType.AMPERSAND_AMPERSAND))
+                    || context.check(TokenType.LEFT_PAREN)
+                    || context.check(TokenType.LEFT_BRACKET)
+                    || (allowIdentifier && context.check(TokenType.IDENTIFIER));
+        }
+
+        private CrakenType adjustParameterType(CrakenType type) {
+            if(type instanceof CrakenType.PackExpansionType pack)return new CrakenType.PackExpansionType(adjustParameterType(pack.pattern()));
+            CrakenType unqualified = type.unqualified();
+            if (unqualified instanceof CrakenType.ArrayType arrayType) {
+                java.util.EnumSet<CrakenType.TypeQualifier> elementQualifiers =
+                        java.util.EnumSet.noneOf(CrakenType.TypeQualifier.class);
+                elementQualifiers.addAll(arrayType.elementType().qualifiers());
+                type.qualifiers().stream()
+                        .filter(qualifier -> qualifier != CrakenType.TypeQualifier.RESTRICT)
+                        .forEach(elementQualifiers::add);
+                return CrakenType.qualified(arrayType.elementType().unqualified(), elementQualifiers).pointerTo();
+            }
+            if (unqualified instanceof CrakenType.FunctionType) {
+                return type.pointerTo();
+            }
+            return type;
+        }
+
+        public boolean startsStructuredBinding() {
+            int offset=0;
+            while(context.peekAt(offset).type()==TokenType.CONST || context.peekAt(offset).type()==TokenType.VOLATILE)offset++;
+            if(context.peekAt(offset++).type()!=TokenType.AUTO)return false;
+            while(context.peekAt(offset).type()==TokenType.CONST || context.peekAt(offset).type()==TokenType.VOLATILE)offset++;
+            if(context.peekAt(offset).type()==TokenType.AMPERSAND || context.peekAt(offset).type()==TokenType.AMPERSAND_AMPERSAND)offset++;
+            return context.peekAt(offset).type()==TokenType.LEFT_BRACKET;
+        }
+
+        public ParsedType parseStructuredBindingType() {
+            BaseType base=parseBaseType("Structured bindings require auto");
+            if(base==null)return null;
+            CrakenType type=base.type();
+            if(context.match(TokenType.AMPERSAND))type=type.referenceTo();
+            else if(context.match(TokenType.AMPERSAND_AMPERSAND))type=type.rvalueReferenceTo();
+            return new ParsedType(type,base.startToken(),SourceRange.span(base.startToken().range(),context.previous().range()));
+        }
+
+        private BaseType parseBaseType(String expectedMessage) {
+            Token start = context.peek();
+            java.util.EnumSet<CrakenType.TypeQualifier> qualifiers = java.util.EnumSet.noneOf(
+                    CrakenType.TypeQualifier.class);
+            qualifiers.addAll(parseTypeQualifiers());
+            int afterLong = 1;
+            while (context.peekAt(afterLong).type() == TokenType.CONST || context.peekAt(afterLong).type() == TokenType.VOLATILE) afterLong++;
+            boolean longDouble = context.check(TokenType.LONG) && context.peekAt(afterLong).type() == TokenType.DOUBLE;
+            if (isIntegerTypeSpecifier(context.peek().type()) && !longDouble) {
+                return parseIntegerBaseType(start, qualifiers);
+            }
+
+            CrakenType type;
+            Token end;
+            if (context.check(TokenType.AUTO)) {
+                end = context.advance(); type = CrakenType.AUTO;
+            } else if (context.match(TokenType.DECLTYPE)) {
+                context.consume(TokenType.LEFT_PAREN, "decltype 需要 '('");
+                if (context.match(TokenType.AUTO)) type = CrakenType.DECLTYPE_AUTO;
+                else {
+                    Expression operand = expressionManager.parseExpression();
+                    if (operand == null) return null;
+                    type = new CrakenType.DecltypeType(operand);
+                }
+                end = context.consume(TokenType.RIGHT_PAREN, "decltype 需要 ')'");
+                if (end == null) return null;
+                while(context.match(TokenType.SCOPE)) {
+                    Token member=context.consume(TokenType.IDENTIFIER,"decltype 限定类型后需要成员类型名");if(member==null)return null;
+                    type=new CrakenType.MemberType(type,member.lexeme());end=member;
+                }
+            } else if (context.check(TokenType.BOOL)) {
+                end = context.advance();
+                type = CrakenType.BOOL;
+            } else if (context.check(TokenType.FLOAT)) {
+                end = context.advance();
+                type = CrakenType.FLOAT;
+            } else if (longDouble) {
+                context.advance(); qualifiers.addAll(parseTypeQualifiers());
+                end = context.advance(); type = CrakenType.LONG_DOUBLE;
+            } else if (context.check(TokenType.DOUBLE)) {
+                end = context.advance();
+                qualifiers.addAll(parseTypeQualifiers());
+                type = context.match(TokenType.LONG) ? CrakenType.LONG_DOUBLE : CrakenType.DOUBLE;
+                end = context.previous();
+            } else if (context.check(TokenType.VOID)) {
+                end = context.advance();
+                type = CrakenType.VOID;
+            } else if (context.check(TokenType.BUILTIN_VA_LIST)) {
+                end = context.advance();
+                type = CrakenType.VA_LIST;
+            } else if (context.check(TokenType.STRUCT) || context.check(TokenType.CLASS)) {
+                BaseType struct = parseStructType();
+                if (struct == null) return null;
+                type = struct.type();
+                end = struct.endToken();
+            } else if (context.check(TokenType.UNION)) {
+                BaseType union = parseUnionType();
+                if (union == null) return null;
+                type = union.type();
+                end = union.endToken();
+            } else if (context.check(TokenType.ENUM)) {
+                Token startToken = context.advance();
+                Token nameToken = context.consume(TokenType.IDENTIFIER, "期望枚举类型名");
+                if (nameToken == null) return null;
+                type = CrakenType.INT;
+                end = nameToken;
+            } else if ((context.check(TokenType.TYPENAME) || context.check(TokenType.IDENTIFIER) || context.check(TokenType.SCOPE))) {
+                boolean typename=context.match(TokenType.TYPENAME);
+                type=parseQualifiedNamedType(typename);
+                if(type==null)return null;
+                end=context.previous();
+            } else if (context.check(TokenType.IDENTIFIER)
+                    && resolveTypedef(context.peek().lexeme()) != null) {
+                Token alias = context.advance();
+                type = resolveTypedef(alias.lexeme());
+                end = alias;
+            } else {
+                context.report(context.peek(), expectedMessage);
+                return null;
+            }
+            java.util.Set<CrakenType.TypeQualifier> trailing = parseTypeQualifiers();
+            qualifiers.addAll(trailing);
+            if (!trailing.isEmpty()) {
+                end = context.previous();
+            }
+            return new BaseType(CrakenType.qualified(type, qualifiers), start, end);
+        }
+
+        private CrakenType parseQualifiedNamedType(boolean typename) {
+            boolean global=context.match(TokenType.SCOPE);
+            var segments=new ArrayList<String>();
+            Token first=context.peek();
+            CrakenType type=null;
+            while(type==null) {
+                Token identifier=context.consume(TokenType.IDENTIFIER,"期望类型名称");
+                if(identifier==null)return null;
+                segments.add(identifier.lexeme());
+                var name=new QualifiedName(global,segments,SourceRange.span(first.range(),identifier.range()));
+                var found=context.check(TokenType.SCOPE)||typeOwnerDepth>0&&context.check(TokenType.EOF)
+                        ?typeNames.lookupQualifier(name):typeNames.lookup(name);
+                if(found.kind()==TypeNameManager.Kind.TYPE)type=parseTemplateId(found.type(),name.range());
+                else if(found.kind()==TypeNameManager.Kind.NAMESPACE && context.match(TokenType.SCOPE))continue;
+                else {context.report(name.range(),"此位置不能将名称作为类型使用："+name+" ("+found.kind()+")");return null;}
+                if(type==null)return null;
+            }
+            while(context.match(TokenType.SCOPE)) {
+                Token member=context.consume(TokenType.IDENTIFIER,"期望成员类型名称");
+                if(member==null)return null;
+                if(type.isDependentTemplate()&&!typename&&typeOwnerDepth==0)context.report(member.range(),"依赖成员类型需要 typename");
+                type=new CrakenType.MemberType(type,member.lexeme());
+                if(context.check(TokenType.LESS)) {context.unsupportedSyntax(context.peek().range(),"成员类模板尚未实现");return null;}
+            }
+            return type;
+        }
+
+        private CrakenType parseTemplateId(CrakenType type, SourceRange nameRange) {
+            if(type instanceof CrakenType.TemplateIdType injected && context.check(TokenType.LESS))type=CrakenType.struct(injected.templateName());
+            if (!(type instanceof CrakenType.StructType record) || !classTemplates.containsKey(record.name())) return type;
+            List<ClassTemplateDecl.Parameter> parameters=classTemplates.get(record.name());
+            if (context.match(TokenType.LESS)) {
+                var arguments = new ArrayList<TemplateArgument>();
+                if (!context.check(TokenType.GREATER) && !context.check(TokenType.GREATER_GREATER)) {
+                    do {
+                        if(arguments.size()>=parameters.size() && (parameters.isEmpty()||!parameters.getLast().pack())){context.report(context.peek(),"类模板实参数量过多");return null;}
+                        if(parameters.get(Math.min(arguments.size(),parameters.size()-1)) instanceof ClassTemplateDecl.ValueParameter) {
+                            Expression value=parseTemplateValue();if(value==null)return null;
+                            arguments.add(new TemplateArgument.Value(value));
+                        } else {
+                            ParsedType argument = parseType("期望类型模板实参");
+                            if (argument == null) return null;
+                            arguments.add(templateTypeArgument(argument.type()));
+                        }
+                        if(context.match(TokenType.ELLIPSIS))arguments.set(arguments.size()-1,new TemplateArgument.Expansion(arguments.getLast()));
+                    } while (context.match(TokenType.COMMA));
+                }
+                if (context.consumeTemplateGreater("模板实参后期望 '>'") == null) return null;
+                var types = new java.util.LinkedHashMap<CrakenType.TemplateParameterType, CrakenType>();
+                var values = new java.util.LinkedHashMap<CrakenType.TemplateParameterType, Expression>();
+                for (int index = 0; index < parameters.size(); index++) {
+                    if(parameters.get(index).pack() || arguments.stream().anyMatch(TemplateArgument.Expansion.class::isInstance))break;
+                    if (index >= arguments.size()) {
+                        TemplateArgument value = classTemplateDefaults.get(record.name()).get(index).orElse(null);
+                        if (value == null) { context.report(nameRange, "缺少必需的模板实参"); return null; }
+                        arguments.add(value.substitute(types,values));
+                    }
+                    if(arguments.get(index) instanceof TemplateArgument.Type t)types.put(parameters.get(index).type(),t.type());
+                    else if(arguments.get(index) instanceof TemplateArgument.Value v)values.put(parameters.get(index).type(),v.expression());
+                }
+                return new CrakenType.TemplateIdType(record.name(), arguments);
+            }
+            if (!activeClassTemplates.isEmpty() && activeClassTemplates.peek().equals(record.name())) {
+                if(inClassSpecialization())return new CrakenType.TemplateIdType(record.name(),currentSpecializationArguments());
+                return new CrakenType.TemplateIdType(record.name(), parameters.stream().map(p -> {
+                    TemplateArgument argument=p instanceof ClassTemplateDecl.ValueParameter v ? new TemplateArgument.Value(new TemplateValueExpr(v.type(),v.valueType(),nameRange)) : new TemplateArgument.Type(p.type());
+                    return p.pack() ? new TemplateArgument.Expansion(argument) : argument;
+                }).toList());
+            }
+            context.report(nameRange, "类模板名称需要实参");
+            return null;
+        }
+
+        private BaseType parseIntegerBaseType(
+                Token start,
+                java.util.EnumSet<CrakenType.TypeQualifier> qualifiers
+        ) {
+            Token end = start;
+            boolean signed = false;
+            boolean unsigned = false;
+            boolean character = false;
+            boolean shortType = false;
+            boolean explicitInt = false;
+            int longCount = 0;
+
+            while (isIntegerTypeSpecifier(context.peek().type()) || isTypeQualifier(context.peek().type())) {
+                Token token = context.advance();
+                end = token;
+                switch (token.type()) {
+                    case CONST -> qualifiers.add(CrakenType.TypeQualifier.CONST);
+                    case VOLATILE -> qualifiers.add(CrakenType.TypeQualifier.VOLATILE);
+                    case RESTRICT -> qualifiers.add(CrakenType.TypeQualifier.RESTRICT);
+                    case SIGNED -> {
+                        if (signed || unsigned) context.report(token, "整数类型的 signed/unsigned 说明重复或冲突");
+                        signed = true;
+                    }
+                    case UNSIGNED -> {
+                        if (signed || unsigned) context.report(token, "整数类型的 signed/unsigned 说明重复或冲突");
+                        unsigned = true;
+                    }
+                    case CHAR -> {
+                        if (character) context.report(token, "char 类型说明重复");
+                        character = true;
+                    }
+                    case SHORT -> {
+                        if (shortType) context.report(token, "short 类型说明重复");
+                        shortType = true;
+                    }
+                    case INT -> {
+                        if (explicitInt) context.report(token, "int 类型说明重复");
+                        explicitInt = true;
+                    }
+                    case LONG -> longCount++;
+                    default -> throw new IllegalStateException("unexpected integer type specifier " + token.type());
+                }
+            }
+
+            if (longCount > 2 || character && (shortType || longCount > 0) || shortType && longCount > 0) {
+                context.report(SourceRange.span(start.range(), end.range()), "无效的整数类型说明符组合");
+            }
+
+            CrakenType type;
+            if (character) {
+                type = unsigned ? CrakenType.UNSIGNED_CHAR : signed ? CrakenType.SIGNED_CHAR : CrakenType.CHAR;
+            } else if (shortType) {
+                type = unsigned ? CrakenType.UNSIGNED_SHORT : CrakenType.SHORT;
+            } else if (longCount >= 2) {
+                type = unsigned ? CrakenType.UNSIGNED_LONG_LONG : CrakenType.LONG_LONG;
+            } else if (longCount == 1) {
+                type = unsigned ? CrakenType.UNSIGNED_LONG : CrakenType.LONG;
+            } else {
+                type = unsigned ? CrakenType.UNSIGNED_INT : CrakenType.INT;
+            }
+            return new BaseType(CrakenType.qualified(type, qualifiers), start, end);
+        }
+
+        private boolean isIntegerTypeSpecifier(TokenType type) {
+            return type == TokenType.CHAR
+                    || type == TokenType.SHORT
+                    || type == TokenType.INT
+                    || type == TokenType.LONG
+                    || type == TokenType.SIGNED
+                    || type == TokenType.UNSIGNED;
+        }
+
+        private boolean isTypeQualifier(TokenType type) {
+            return type == TokenType.CONST || type == TokenType.VOLATILE || type == TokenType.RESTRICT;
+        }
+
+        private java.util.Set<CrakenType.TypeQualifier> parseTypeQualifiers() {
+            java.util.EnumSet<CrakenType.TypeQualifier> qualifiers = java.util.EnumSet.noneOf(
+                    CrakenType.TypeQualifier.class);
+            while (isTypeQualifier(context.peek().type())) {
+                Token token = context.advance();
+                qualifiers.add(switch (token.type()) {
+                    case CONST -> CrakenType.TypeQualifier.CONST;
+                    case VOLATILE -> CrakenType.TypeQualifier.VOLATILE;
+                    case RESTRICT -> CrakenType.TypeQualifier.RESTRICT;
+                    default -> throw new IllegalStateException("not a type qualifier: " + token.type());
+                });
+            }
+            return java.util.Set.copyOf(qualifiers);
+        }
+
+        private BaseType parseStructType() {
+            return parseAggregateType(false);
+        }
+
+        private BaseType parseUnionType() {
+            return parseAggregateType(true);
+        }
+
+        private BaseType parseAggregateType(boolean union) {
+            Token startToken = context.advance();
+            return parseRecordAggregateType(union, startToken);
+        }
+
+        private BaseType parseRecordAggregateType(boolean union, Token startToken) {
+            var name = context.peekQualifiedName(0);
+            if (name != null) name = context.parseQualifiedName();
+            Token end = name == null ? startToken : context.previous();
+            if (context.match(TokenType.LEFT_BRACE)) {
+                if (name != null && (name.global() || name.segments().size() != 1)) {
+                    context.unsupportedSyntax(name.range(), "限定名称的结构体定义尚未实现");
+                    return null;
+                }
+                String simple = name == null ? "$anonymous$" + anonymousAggregateIndex++ : name.segments().getFirst();
+                CrakenType type = declareAggregate(simple, union, true, name == null ? startToken.range() : name.range());
+                return parseAggregateDefinition(type, union, startToken);
+            }
+            if (name == null) {
+                context.report(context.peek(), union ? "期望联合体名称或定义" : "期望结构体名称或定义");
+                return null;
+            }
+            var lookup = typeNames.lookupElaborated(name);
+            CrakenType type;
+            if (lookup.kind() == TypeNameManager.Kind.MISSING && !name.global() && name.segments().size() == 1) {
+                type = declareAggregate(name.segments().getFirst(), union, false, name.range());
+                String identity = ((CrakenType.StructType) type.unqualified()).name();
+                var info = union ? null : new Declaration.RecordInfo(
+                        startToken.type() == TokenType.CLASS ? Declaration.RecordKey.CLASS : Declaration.RecordKey.STRUCT,
+                        List.of(), startToken.range());
+                aggregateSink.accept(new StructDecl(identity, List.of(), false, union, info,
+                        SourceRange.span(startToken.range(), end.range())));
+            } else if (lookup.kind() == TypeNameManager.Kind.TYPE && lookup.type().unqualified() instanceof CrakenType.StructType tag) {
+                type = lookup.type();
+                if (union != tag.name().startsWith("$union$")) {
+                    context.report(name.range(), "struct/union 种类与已声明类型不一致");
+                    return null;
+                }
+            } else {
+                context.report(name.range(), "此位置未找到可使用的结构体类型：" + String.join("::", name.segments()));
+                return null;
+            }
+            type = parseTemplateId(type, name.range());
+            return type == null ? null : new BaseType(type, startToken, context.previous());
+        }
+
+        private BaseType parseAggregateDefinition(CrakenType type, boolean union, Token startToken) {
+            if (recordManager != null) {
+                StructDecl declaration = recordManager.parseDefinition(type, union, startToken);
+                if (declaration == null) return null;
+                recordAggregateFields(declaration);
+                aggregateSink.accept(declaration);
+                context.build(declaration, "Record " + declaration.name(), declaration.range());
+                return new BaseType(type, startToken, context.previous());
+            }
+            enterMemberScope(type);
+            try { return parseAggregateDefinitionContents(type, union, startToken); }
+            finally { exitMemberScope(); }
+        }
+
+        private BaseType parseAggregateDefinitionContents(CrakenType type, boolean union, Token startToken) {
+            String internalName = ((CrakenType.StructType) type.unqualified()).name();
+            ArrayList<craken.compiler.parser.node.Declaration.StructField> fields = new ArrayList<>();
+            while (!context.check(TokenType.RIGHT_BRACE) && !context.isAtEnd()) {
+                List<craken.compiler.parser.node.Declaration.AlignmentSpec> specs = parseAlignmentSpecs();
+                BaseType fieldBase = parseBaseType("期望字段类型");
+                if (fieldBase == null) { context.synchronizeStatement(); continue; }
+                if (context.check(TokenType.SEMICOLON)
+                        && fieldBase.type().unqualified() instanceof CrakenType.StructType) {
+                    Token end = context.advance();
+                    var field = new craken.compiler.parser.node.Declaration.StructField(
+                            "", fieldBase.type(), true, specs,
+                            SourceRange.span(fieldBase.startToken().range(), end.range()));
+                    fields.add(field);
+                    declareMemberField(field);
+                    continue;
+                }
+                Declarator declarator = parseDeclarator("期望字段名", true);
+                Token end = context.consume(TokenType.SEMICOLON, "期望 ';'");
+                if (declarator != null && end != null) {
+                    var field = new craken.compiler.parser.node.Declaration.StructField(
+                            declarator.name(), resolveDeclarator(declarator, fieldBase.type()), false, specs,
+                            SourceRange.span(fieldBase.startToken().range(), end.range()));
+                    fields.add(field);
+                    declareMemberField(field);
+                }
+            }
+            Token close = context.consume(TokenType.RIGHT_BRACE, "期望 '}'");
+            if (close == null) return null;
+            StructDecl declaration = new StructDecl(internalName, fields, true, union,
+                    SourceRange.span(startToken.range(), close.range()));
+            recordAggregateFields(declaration);
+            aggregateSink.accept(declaration);
+            context.build(declaration, "AnonymousAggregate " + internalName, declaration.range());
+            return new BaseType(CrakenType.struct(internalName), startToken, close);
+        }
+
+        private record BaseType(CrakenType type, Token startToken, Token endToken) {
+        }
+
+        private interface DeclaratorModifier {
+            CrakenType apply(CrakenType inner);
+        }
+
+        private record PointerModifier(java.util.Set<CrakenType.TypeQualifier> qualifiers)
+                implements DeclaratorModifier {
+            @Override
+            public CrakenType apply(CrakenType inner) {
+                return CrakenType.qualified(inner.pointerTo(), qualifiers);
+            }
+        }
+
+        private record PointerLayer(Token token, java.util.Set<CrakenType.TypeQualifier> qualifiers, boolean reference) {
+        }
+
+        private record PackModifier() implements DeclaratorModifier {
+            @Override public CrakenType apply(CrakenType inner) { return new CrakenType.PackExpansionType(inner); }
+        }
+
+        private record ReferenceModifier(CrakenType.ReferenceKind kind) implements DeclaratorModifier {
+            @Override public CrakenType apply(CrakenType inner) { return inner.referenceTo(kind); }
+        }
+
+        private CrakenType resolveDeclarator(Declarator declarator, CrakenType baseType) {
+            CrakenType type = baseType;
+            SourceRange range = SourceRange.span(declarator.startToken().range(), declarator.endToken().range());
+            boolean directReference = false;
+            for (int index = declarator.modifiers().size() - 1; index >= 0; index--) {
+                DeclaratorModifier modifier = declarator.modifiers().get(index);
+                if (modifier instanceof ReferenceModifier && directReference) {
+                    context.report(range, "不能直接声明引用的引用；引用折叠仅适用于类型别名");
+                }
+                type = modifier.apply(type);
+                // A function/array/pointer layer separates references; a reference already
+                // present in baseType came through an alias and is allowed to collapse.
+                directReference = modifier instanceof ReferenceModifier;
+            }
+            validateReferenceShape(type, range);
+            return type;
+        }
+
+        private void validateReferenceShape(CrakenType type, SourceRange range) {
+            switch (type.unqualified()) {
+                case CrakenType.ReferenceType reference -> {
+                    if (reference.referent().isVoid()) context.report(range, "引用不能指向 void");
+                    validateReferenceShape(reference.referent(), range);
+                }
+                case CrakenType.PointerType pointer -> {
+                    if (pointer.pointee().isReference()) context.report(range, "不能声明指向引用的指针");
+                    validateReferenceShape(pointer.pointee(), range);
+                }
+                case CrakenType.ArrayType array -> {
+                    if (array.elementType().isReference()) context.report(range, "数组元素不能是引用");
+                    if(array.elementType().isArray()&&array.elementType().arrayLength()<0)context.report(range,"Only the outermost array extent may be omitted");
+                    validateReferenceShape(array.elementType(), range);
+                }
+                case CrakenType.FunctionType function -> {
+                    validateReferenceShape(function.returnType(), range);
+                    function.parameterTypes().forEach(parameter -> validateReferenceShape(parameter, range));
+                }
+                default -> { }
+            }
+        }
+
+        private record DependentArrayModifier(Expression bound) implements DeclaratorModifier {
+            @Override public CrakenType apply(CrakenType inner) { return new CrakenType.DependentArrayType(inner,bound); }
+        }
+
+        private record ArrayModifier(int length) implements DeclaratorModifier {
+            @Override
+            public CrakenType apply(CrakenType inner) {
+                return inner.arrayOf(length);
+            }
+        }
+
+        private record FunctionModifier(
+                List<ParsedParameter> parameters,
+                boolean variadic,
+                boolean preserveReturnQualifiers,
+                CrakenType.ExceptionSpecification exceptionSpecification
+        ) implements DeclaratorModifier {
+            private FunctionModifier {
+                parameters = List.copyOf(parameters);
+            }
+
+            @Override
+            public CrakenType apply(CrakenType inner) {
+                return CrakenType.function(
+                        preserveReturnQualifiers ? inner : inner.unqualified(),
+                        parameters.stream().map(ParsedParameter::type).map(CrakenType::unqualified).toList(),
+                        variadic, exceptionSpecification
+                );
+            }
+        }
+
+        private record Declarator(
+                String name,
+                ArrayList<DeclaratorModifier> modifiers,
+                Token startToken,
+                Token endToken,
+                Token nameToken,
+                QualifiedName qualifiedName,
+                OperatorName operatorName
+        ) {
+            private Declarator(String name, ArrayList<DeclaratorModifier> modifiers, Token startToken,
+                               Token endToken, Token nameToken) {
+                this(name, modifiers, startToken, endToken, nameToken, null, null);
+            }
+            private FunctionModifier topFunction() {
+                return !modifiers.isEmpty() && modifiers.getFirst() instanceof FunctionModifier function
+                        ? function
+                        : null;
+            }
+
+            private Declarator withRange(Token start, Token end) {
+                return new Declarator(name, modifiers, start, end, nameToken, qualifiedName, operatorName);
+            }
+
+            private Declarator withStart(Token start) {
+                return new Declarator(name, modifiers, start, endToken, nameToken, qualifiedName, operatorName);
+            }
+
+            private Declarator withEnd(Token end) {
+                return new Declarator(name, modifiers, startToken, end, nameToken, qualifiedName, operatorName);
+            }
+        }
+
+        public record ParameterList(List<ParsedParameter> parameters, boolean variadic) {
+            public ParameterList {
+                parameters = List.copyOf(parameters);
+            }
+        }
+    }
+
+    public record ParsedType(CrakenType type, Token startToken, SourceRange range) {
+    }
+
+    public record ParsedName(QualifiedName qualifiedName, Token nameToken, OperatorName operatorName) {
+    }
+
+    public record ParsedNamedType(
+            String name,
+            CrakenType type,
+            SourceRange range,
+            List<ParsedParameter> parameters,
+            boolean variadic,
+            List<craken.compiler.parser.node.Declaration.AlignmentSpec> alignmentSpecs,
+            SourceRange nameRange,
+            QualifiedName qualifiedName,
+            OperatorName operatorName
+    ) {
+        public ParsedNamedType(String name, CrakenType type, SourceRange range, List<ParsedParameter> parameters,
+                               boolean variadic, List<Declaration.AlignmentSpec> alignmentSpecs, SourceRange nameRange,
+                               QualifiedName qualifiedName) {
+            this(name, type, range, parameters, variadic, alignmentSpecs, nameRange, qualifiedName, null);
+        }
+        public ParsedNamedType(String name, CrakenType type, SourceRange range, List<ParsedParameter> parameters,
+                               boolean variadic, List<Declaration.AlignmentSpec> alignmentSpecs, SourceRange nameRange) {
+            this(name, type, range, parameters, variadic, alignmentSpecs, nameRange, null);
+        }
+        public ParsedNamedType(String name, CrakenType type, SourceRange range, List<ParsedParameter> parameters,
+                               boolean variadic, List<Declaration.AlignmentSpec> alignmentSpecs) {
+            this(name, type, range, parameters, variadic, alignmentSpecs, range);
+        }
+        public ParsedNamedType {
+            parameters = List.copyOf(parameters);
+            alignmentSpecs = List.copyOf(alignmentSpecs);
+        }
+    }
+
+    public record ParsedParameter(String name, CrakenType type, Expression defaultValue, SourceRange range) {
+        public ParsedParameter(String name,CrakenType type,SourceRange range){this(name,type,null,range);}
+    }
+
+    /** Parser 递归下降与 AST 构建观察事件。 */
+    public record TraceEvent(String kind, String label, SourceRange range, AstNode node) {
+        public TraceEvent {
+            Objects.requireNonNull(kind, "kind");
+            Objects.requireNonNull(label, "label");
+        }
+    }
+}

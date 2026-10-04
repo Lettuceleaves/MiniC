@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_CTIME_MH
-#define MINIC_STL_CTIME_MH
+#ifndef CRAKEN_STL_CTIME_MH
+#define CRAKEN_STL_CTIME_MH
 #include <time.h>
 namespace std {
 using ::clock_t;

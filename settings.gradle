@@ -16,4 +16,4 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = 'MiniC'
+rootProject.name = 'Craken'

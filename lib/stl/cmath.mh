@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_CMATH_MH
-#define MINIC_STL_CMATH_MH
+#ifndef CRAKEN_STL_CMATH_MH
+#define CRAKEN_STL_CMATH_MH
 #include <math.h>
 #include <float.h>
 #include <errno.h>
@@ -145,16 +145,16 @@ template<class T> typename enable_if<is_integral<T>::value,double>::type sinh(T 
 template<class T> typename enable_if<is_integral<T>::value,double>::type sqrt(T value){return ::sqrt((double)value);}
 template<class T> typename enable_if<is_integral<T>::value,double>::type tan(T value){return ::tan((double)value);}
 template<class T> typename enable_if<is_integral<T>::value,double>::type tanh(T value){return ::tanh((double)value);}
-template<class T> struct __minic_math_argument : integral_constant<bool,(is_arithmetic<T>::value)> {};
-template<class A,class B> struct __minic_math_result {typedef typename conditional<is_same<A,long double>::value || is_same<B,long double>::value,long double,double>::type type;};
-template<class A,class B> typename enable_if<__minic_math_argument<A>::value && __minic_math_argument<B>::value
-    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),typename __minic_math_result<A,B>::type>::type
+template<class T> struct __craken_math_argument : integral_constant<bool,(is_arithmetic<T>::value)> {};
+template<class A,class B> struct __craken_math_result {typedef typename conditional<is_same<A,long double>::value || is_same<B,long double>::value,long double,double>::type type;};
+template<class A,class B> typename enable_if<__craken_math_argument<A>::value && __craken_math_argument<B>::value
+    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),typename __craken_math_result<A,B>::type>::type
 atan2(A left,B right){return ::atan2((double)left,(double)right);}
-template<class A,class B> typename enable_if<__minic_math_argument<A>::value && __minic_math_argument<B>::value
-    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),typename __minic_math_result<A,B>::type>::type
+template<class A,class B> typename enable_if<__craken_math_argument<A>::value && __craken_math_argument<B>::value
+    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),typename __craken_math_result<A,B>::type>::type
 fmod(A left,B right){return ::fmod((double)left,(double)right);}
-template<class A,class B> typename enable_if<__minic_math_argument<A>::value && __minic_math_argument<B>::value
-    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),typename __minic_math_result<A,B>::type>::type
+template<class A,class B> typename enable_if<__craken_math_argument<A>::value && __craken_math_argument<B>::value
+    && !(is_same<A,float>::value && is_same<B,float>::value) && !(is_same<A,double>::value && is_same<B,double>::value),typename __craken_math_result<A,B>::type>::type
 pow(A left,B right){return ::pow((double)left,(double)right);}
 template<class T> typename enable_if<is_integral<T>::value,double>::type frexp(T value,int* exponent){return ::frexp((double)value,exponent);}
 template<class T> typename enable_if<is_integral<T>::value,double>::type ldexp(T value,int exponent){return ::ldexp((double)value,exponent);}

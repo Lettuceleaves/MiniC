@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_CSTDDEF_MH
-#define MINIC_STL_CSTDDEF_MH
+#ifndef CRAKEN_STL_CSTDDEF_MH
+#define CRAKEN_STL_CSTDDEF_MH
 #include <stddef.h>
 namespace std {
 using ::size_t;

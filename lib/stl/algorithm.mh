@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_ALGORITHM_MH
-#define MINIC_STL_ALGORITHM_MH
+#ifndef CRAKEN_STL_ALGORITHM_MH
+#define CRAKEN_STL_ALGORITHM_MH
 #include "iterator.mh"
 #include "functional.mh"
 #include "initializer_list.mh"
@@ -10,39 +10,39 @@ template<class T,class C> constexpr const T& min(const T& a,const T& b,C comp) {
 template<class T> constexpr const T& min(const T& a,const T& b) { return b<a?b:a; }
 template<class T,class C> constexpr const T& max(const T& a,const T& b,C comp) { return comp(a,b)?b:a; }
 template<class T> constexpr const T& max(const T& a,const T& b) { return a<b?b:a; }
-template<class I,class O> O __minic_copy_range(I first,I last,O out) { while(first!=last){*out=*first;++first;++out;}return out; }
-template<class From,class To> To* __minic_copy_range(From* first,From* last,To* out) {
+template<class I,class O> O __craken_copy_range(I first,I last,O out) { while(first!=last){*out=*first;++first;++out;}return out; }
+template<class From,class To> To* __craken_copy_range(From* first,From* last,To* out) {
     if(first==last)return out;
     unsigned long long count=(unsigned long long)(last-first);
-    if(std::__minic_try_live_integral_copy(first,out,count))return out+count;
+    if(std::__craken_try_live_integral_copy(first,out,count))return out+count;
     while(first!=last){*out=*first;++first;++out;}return out;
 }
-template<class I,class O> O copy(I first,I last,O out) { return std::__minic_copy_range(first,last,out); }
+template<class I,class O> O copy(I first,I last,O out) { return std::__craken_copy_range(first,last,out); }
 template<class I,class N,class O> O copy_n(I first,N n,O out) { while(n>0){*out=*first;++first;++out;--n;}return out; }
-template<class I,class O> O __minic_copy_backward_range(I first,I last,O out) { while(first!=last){--last;--out;*out=*last;}return out; }
-template<class From,class To> To* __minic_copy_backward_range(From* first,From* last,To* out) {
+template<class I,class O> O __craken_copy_backward_range(I first,I last,O out) { while(first!=last){--last;--out;*out=*last;}return out; }
+template<class From,class To> To* __craken_copy_backward_range(From* first,From* last,To* out) {
     if(first==last)return out;
     unsigned long long count=(unsigned long long)(last-first);
-    if(std::__minic_try_live_integral_copy(first,out-count,count))return out-count;
+    if(std::__craken_try_live_integral_copy(first,out-count,count))return out-count;
     while(first!=last){--last;--out;*out=*last;}return out;
 }
-template<class I,class O> O copy_backward(I first,I last,O out) { return std::__minic_copy_backward_range(first,last,out); }
-template<class I,class O> O __minic_move_range(I first,I last,O out) { while(first!=last){*out=std::move(*first);++first;++out;}return out; }
-template<class From,class To> To* __minic_move_range(From* first,From* last,To* out) {
+template<class I,class O> O copy_backward(I first,I last,O out) { return std::__craken_copy_backward_range(first,last,out); }
+template<class I,class O> O __craken_move_range(I first,I last,O out) { while(first!=last){*out=std::move(*first);++first;++out;}return out; }
+template<class From,class To> To* __craken_move_range(From* first,From* last,To* out) {
     if(first==last)return out;
     unsigned long long count=(unsigned long long)(last-first);
-    if(std::__minic_try_live_integral_copy(first,out,count))return out+count;
+    if(std::__craken_try_live_integral_copy(first,out,count))return out+count;
     while(first!=last){*out=std::move(*first);++first;++out;}return out;
 }
-template<class I,class O> O move(I first,I last,O out) { return std::__minic_move_range(first,last,out); }
-template<class I,class O> O __minic_move_backward_range(I first,I last,O out) { while(first!=last){--last;--out;*out=std::move(*last);}return out; }
-template<class From,class To> To* __minic_move_backward_range(From* first,From* last,To* out) {
+template<class I,class O> O move(I first,I last,O out) { return std::__craken_move_range(first,last,out); }
+template<class I,class O> O __craken_move_backward_range(I first,I last,O out) { while(first!=last){--last;--out;*out=std::move(*last);}return out; }
+template<class From,class To> To* __craken_move_backward_range(From* first,From* last,To* out) {
     if(first==last)return out;
     unsigned long long count=(unsigned long long)(last-first);
-    if(std::__minic_try_live_integral_copy(first,out-count,count))return out-count;
+    if(std::__craken_try_live_integral_copy(first,out-count,count))return out-count;
     while(first!=last){--last;--out;*out=std::move(*last);}return out;
 }
-template<class I,class O> O move_backward(I first,I last,O out) { return std::__minic_move_backward_range(first,last,out); }
+template<class I,class O> O move_backward(I first,I last,O out) { return std::__craken_move_backward_range(first,last,out); }
 template<class I,class T> void fill(I first,I last,const T& value) { while(first!=last){*first=value;++first;} }
 template<class I,class N,class T> I fill_n(I first,N count,const T& value) { while(count>0){*first=value;++first;--count;}return first; }
 template<class I,class J,class P> bool equal(I first,I last,J other,P pred) { while(first!=last){if(!pred(*first,*other))return false;++first;++other;}return true; }
@@ -99,7 +99,7 @@ template<class I,class C> bool prev_permutation(I first,I last,C comp) {
     while(true){I at=next;--next;if(comp(*at,*next)){I target=last;while(!comp(*--target,*next)){}std::iter_swap(next,target);std::reverse(at,last);return true;}if(next==first){std::reverse(first,last);return false;}}
 }
 template<class I> bool prev_permutation(I first,I last) { return std::prev_permutation(first,last,less<void>()); }
-template<class I,class D,class C> void __minic_sift_down(I first,D root,D n,C& comp) {
+template<class I,class D,class C> void __craken_sift_down(I first,D root,D n,C& comp) {
     typename iterator_traits<I>::value_type value=std::move(*(first+root));
     while(root<n/2){D child=root*2+1;if(child+1<n && comp(*(first+child),*(first+child+1)))++child;if(!comp(value,*(first+child)))break;*(first+root)=std::move(*(first+child));root=child;}
     *(first+root)=std::move(value);
@@ -112,17 +112,17 @@ template<class I,class C> void push_heap(I first,I last,C comp) {
     *(first+at)=std::move(value);
 }
 template<class I> void push_heap(I first,I last) { std::push_heap(first,last,less<void>()); }
-template<class I,class C> void pop_heap(I first,I last,C comp) { typename iterator_traits<I>::difference_type n=std::distance(first,last);if(n<2)return;std::iter_swap(first,last-1);std::__minic_sift_down(first,(typename iterator_traits<I>::difference_type)0,n-1,comp); }
+template<class I,class C> void pop_heap(I first,I last,C comp) { typename iterator_traits<I>::difference_type n=std::distance(first,last);if(n<2)return;std::iter_swap(first,last-1);std::__craken_sift_down(first,(typename iterator_traits<I>::difference_type)0,n-1,comp); }
 template<class I> void pop_heap(I first,I last) { std::pop_heap(first,last,less<void>()); }
-template<class I,class C> void make_heap(I first,I last,C comp) { typename iterator_traits<I>::difference_type n=std::distance(first,last);typename iterator_traits<I>::difference_type at=n/2;while(at>0){--at;std::__minic_sift_down(first,at,n,comp);} }
+template<class I,class C> void make_heap(I first,I last,C comp) { typename iterator_traits<I>::difference_type n=std::distance(first,last);typename iterator_traits<I>::difference_type at=n/2;while(at>0){--at;std::__craken_sift_down(first,at,n,comp);} }
 template<class I> void make_heap(I first,I last) { std::make_heap(first,last,less<void>()); }
 template<class I,class C> void sort_heap(I first,I last,C comp) { while(std::distance(first,last)>1){std::pop_heap(first,last,comp);--last;} }
 template<class I> void sort_heap(I first,I last) { std::sort_heap(first,last,less<void>()); }
-template<class I,class C> void __minic_insertion_sort(I first,I last,C& comp) {
+template<class I,class C> void __craken_insertion_sort(I first,I last,C& comp) {
     if(first==last)return;
     for(I at=first+1;at!=last;++at){typename iterator_traits<I>::value_type value=std::move(*at);I hole=at;while(hole!=first && comp(value,*(hole-1))){*hole=std::move(*(hole-1));--hole;}*hole=std::move(value);}
 }
-template<class I,class C> void __minic_introsort(I first,I last,int depth,C& comp) {
+template<class I,class C> void __craken_introsort(I first,I last,int depth,C& comp) {
     while(last-first>16){
         if(depth==0){std::make_heap(first,last,comp);std::sort_heap(first,last,comp);return;}--depth;
         I middle=first+(last-first)/2;I pivot=last-1;
@@ -132,15 +132,15 @@ template<class I,class C> void __minic_introsort(I first,I last,int depth,C& com
         std::iter_swap(middle,pivot);
         I split=first;for(I it=first;it!=pivot;++it)if(comp(*it,*pivot)){if(it!=split)std::iter_swap(it,split);++split;}
         std::iter_swap(split,pivot);
-        if(split-first<last-split-1){std::__minic_introsort(first,split,depth,comp);first=split+1;}
-        else{std::__minic_introsort(split+1,last,depth,comp);last=split;}
+        if(split-first<last-split-1){std::__craken_introsort(first,split,depth,comp);first=split+1;}
+        else{std::__craken_introsort(split+1,last,depth,comp);last=split;}
     }
-    std::__minic_insertion_sort(first,last,comp);
+    std::__craken_insertion_sort(first,last,comp);
 }
 template<class I,class C> void sort(I first,I last,C comp) {
     if(first==last)return;
     typename iterator_traits<I>::difference_type n=last-first;int depth=0;
-    while(n>1){n/=2;++depth;}std::__minic_introsort(first,last,2*depth,comp);
+    while(n>1){n/=2;++depth;}std::__craken_introsort(first,last,2*depth,comp);
 }
 template<class I> void sort(I first,I last) { std::sort(first,last,less<void>()); }
 template<class I,class J,class C> bool lexicographical_compare(I first,I last,J other,J end,C comp) {
@@ -152,7 +152,7 @@ template<class T,class C> constexpr T min(initializer_list<T> values,C comp){con
 template<class T> constexpr T min(initializer_list<T> values){return std::min(values,less<void>());}
 template<class T,class C> constexpr T max(initializer_list<T> values,C comp){const T* best=values.begin();for(const T* p=best+1;p!=values.end();++p)if(comp(*best,*p))best=p;return *best;}
 template<class T> constexpr T max(initializer_list<T> values){return std::max(values,less<void>());}
-template<class G> unsigned long long __minic_uniform_index(G& generator,unsigned long long bound){
+template<class G> unsigned long long __craken_uniform_index(G& generator,unsigned long long bound){
     if(bound<=1)return 0;
     unsigned long long low=generator.min(),range=generator.max()-low;
     if(range==0)::abort();
@@ -164,7 +164,7 @@ template<class G> unsigned long long __minic_uniform_index(G& generator,unsigned
     }
     unsigned long long base=range+1,value;
     do{
-        unsigned long long high=std::__minic_uniform_index(generator,(bound-1)/base+1);
+        unsigned long long high=std::__craken_uniform_index(generator,(bound-1)/base+1);
         unsigned long long tail=(unsigned long long)generator()-low;
         value=high*base+tail;
         if(value<high*base)continue;
@@ -174,14 +174,14 @@ template<class G> unsigned long long __minic_uniform_index(G& generator,unsigned
 template<class I,class G> void shuffle(I first,I last,G&& generator){
     if(first==last)return;
     typename iterator_traits<I>::difference_type n=last-first;
-    for(typename iterator_traits<I>::difference_type i=n-1;i>0;--i)std::iter_swap(first+i,first+std::__minic_uniform_index(generator,(unsigned long long)i+1));
+    for(typename iterator_traits<I>::difference_type i=n-1;i>0;--i)std::iter_swap(first+i,first+std::__craken_uniform_index(generator,(unsigned long long)i+1));
 }
-struct __minic_rand_generator {
+struct __craken_rand_generator {
     static unsigned int min(){return 0;} static unsigned int max(){return RAND_MAX;}
     unsigned int operator()(){return (unsigned int)::rand();}
 };
 // Kept as an explicitly documented pre-C++17 compatibility extension.
-template<class I> void random_shuffle(I first,I last){__minic_rand_generator generator;std::shuffle(first,last,generator);}
+template<class I> void random_shuffle(I first,I last){__craken_rand_generator generator;std::shuffle(first,last,generator);}
 template<class I,class R> void random_shuffle(I first,I last,R&& random){
     if(first==last)return;
     typename iterator_traits<I>::difference_type n=last-first;

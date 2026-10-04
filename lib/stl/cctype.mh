@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_CCTYPE_MH
-#define MINIC_STL_CCTYPE_MH
+#ifndef CRAKEN_STL_CCTYPE_MH
+#define CRAKEN_STL_CCTYPE_MH
 #include <ctype.h>
 namespace std {
 using ::isalnum;

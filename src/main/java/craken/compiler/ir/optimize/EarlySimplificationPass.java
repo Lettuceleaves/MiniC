@@ -1,0 +1,14 @@
+package craken.compiler.ir.optimize;
+
+import craken.compiler.ir.IrResult;
+
+/** Exposes constant wrapper bodies before bounded inlining chooses its candidates. */
+public final class EarlySimplificationPass implements IrPass {
+    @Override public String name() { return "early-simplification"; }
+    @Override public IrResult apply(IrResult input) {
+        IrResult result = new ConstantPropagationPass().apply(input);
+        result = new NonZeroCheckEliminationPass().apply(result);
+        result = new DeadCodeEliminationPass().apply(result);
+        return new ControlFlowSimplificationPass().apply(result);
+    }
+}

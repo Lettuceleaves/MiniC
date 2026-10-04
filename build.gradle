@@ -4,7 +4,7 @@ plugins {
     id 'org.openjfx.javafxplugin' version '0.1.0'
 }
 
-group = 'minic'
+group = 'craken'
 version = '1.0.0'
 
 java {
@@ -90,7 +90,7 @@ tasks.named('test') {
 }
 
 application {
-    mainClass = 'minic.ui.Starter'
+    mainClass = 'craken.ui.Starter'
     applicationDefaultJvmArgs = [
             '--add-exports=java.desktop/sun.font=ALL-UNNAMED'
     ]
@@ -98,9 +98,9 @@ application {
 
 tasks.register('runUi', JavaExec) {
     group = 'application'
-    description = '启动 MiniC Visual Workbench JavaFX UI'
+    description = '启动 Craken Visual Workbench JavaFX UI'
     classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'minic.ui.Starter'
+    mainClass = 'craken.ui.Starter'
     jvmArgs = [
             '--module-path', configurations.runtimeClasspath.asPath,
             '--add-modules', javafx.modules.join(','),
@@ -127,7 +127,7 @@ tasks.register('benchmarkEditorResize', JavaExec) {
     description = '可见窗口中测量编辑器侧栏动画的布局与渲染完成节奏（非显示器呈现帧率）'
     dependsOn tasks.named('compileEditorResizeBenchmark')
     classpath = files(resizeBenchmarkClasses) + sourceSets.main.runtimeClasspath
-    mainClass = 'minic.ui.frame.VisibleAnimationPerformance'
+    mainClass = 'craken.ui.frame.VisibleAnimationPerformance'
     jvmArgs '--module-path', configurations.runtimeClasspath.asPath,
             '--add-modules', javafx.modules.join(','),
             '--add-exports=java.desktop/sun.font=ALL-UNNAMED',

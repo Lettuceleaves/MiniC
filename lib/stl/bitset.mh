@@ -1,20 +1,20 @@
-#ifndef MINIC_STL_BITSET_MH
-#define MINIC_STL_BITSET_MH
+#ifndef CRAKEN_STL_BITSET_MH
+#define CRAKEN_STL_BITSET_MH
 #include <stdlib.h>
 #include <string.h>
 #include "string.mh"
 #include "iostream.mh"
 namespace std {
-template<unsigned long long N> class __minic_bitset_reference {
+template<unsigned long long N> class __craken_bitset_reference {
     unsigned long long* word_;
     unsigned long long mask_;
 public:
-    __minic_bitset_reference(unsigned long long* word,unsigned long long mask):word_(word),mask_(mask) {}
+    __craken_bitset_reference(unsigned long long* word,unsigned long long mask):word_(word),mask_(mask) {}
     operator bool() const noexcept { return (*word_&mask_)!=0; }
     bool operator~() const noexcept { return (*word_&mask_)==0; }
-    __minic_bitset_reference& operator=(bool value) noexcept { if(value)*word_|=mask_;else *word_&=~mask_;return *this; }
-    __minic_bitset_reference& operator=(const __minic_bitset_reference& value) noexcept { return *this=(bool)value; }
-    __minic_bitset_reference& flip() noexcept { *word_^=mask_;return *this; }
+    __craken_bitset_reference& operator=(bool value) noexcept { if(value)*word_|=mask_;else *word_&=~mask_;return *this; }
+    __craken_bitset_reference& operator=(const __craken_bitset_reference& value) noexcept { return *this=(bool)value; }
+    __craken_bitset_reference& flip() noexcept { *word_^=mask_;return *this; }
 };
 template<unsigned long long N> class bitset {
     // Divide before rounding up so a large template size cannot wrap to zero.
@@ -35,7 +35,7 @@ template<unsigned long long N> class bitset {
         read(text,n==string::npos?::strlen(text):n,zero,one);
     }
 public:
-    typedef __minic_bitset_reference<N> reference;
+    typedef __craken_bitset_reference<N> reference;
     constexpr bitset() noexcept:words_{} {}
     constexpr bitset(unsigned long long value) noexcept:words_{value} { trim(); }
     explicit bitset(const char* text) { read(text,::strlen(text),'0','1'); }
@@ -78,7 +78,7 @@ public:
         unsigned long long count=0;
         for(unsigned long long i=0;i<(N/64+(N%64!=0));++i){
             unsigned long long value=words_[i];
-#ifdef MINIC_BITSET_FORCE_KERNIGHAN
+#ifdef CRAKEN_BITSET_FORCE_KERNIGHAN
             // Library-level fallback switch, also used by differential acceptance.
             while(value){value&=value-1ULL;++count;}
 #else

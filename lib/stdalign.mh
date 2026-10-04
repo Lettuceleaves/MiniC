@@ -1,6 +1,6 @@
-/* MiniC compatibility declarations for <stdalign.h>. */
-#ifndef MINIC_STDALIGN_MH
-#define MINIC_STDALIGN_MH
+/* Craken compatibility declarations for <stdalign.h>. */
+#ifndef CRAKEN_STDALIGN_MH
+#define CRAKEN_STDALIGN_MH
 #define alignas _Alignas
 #define alignof _Alignof
 #define __alignas_is_defined 1

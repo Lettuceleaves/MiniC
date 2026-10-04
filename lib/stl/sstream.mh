@@ -1,16 +1,16 @@
-#ifndef MINIC_STL_SSTREAM_MH
-#define MINIC_STL_SSTREAM_MH
+#ifndef CRAKEN_STL_SSTREAM_MH
+#define CRAKEN_STL_SSTREAM_MH
 #include "iomanip.mh"
 namespace std {
 // The same numeric formatting/parsing and stream-state code serves files and strings.
-template<unsigned int Mode> class __minic_stringstream {
+template<unsigned int Mode> class __craken_stringstream {
     ios::openmode mode_;string buffer_;istream input_;ostream output_;
     void from_input(){output_.clear(input_.rdstate());output_.flags(input_.flags());output_.width(input_.width());}
     void from_output(){input_.clear(output_.rdstate());input_.flags(output_.flags());input_.width(output_.width());}
 public:
-    explicit __minic_stringstream(ios::openmode mode=Mode):mode_(Mode==3?mode:mode|Mode),buffer_(),input_(&buffer_,(mode_&ios::in)!=0,(mode_&ios::out)!=0),output_(&buffer_,(mode_&ios::out)!=0,(mode_&ios::app)!=0){}
-    explicit __minic_stringstream(const string& text,ios::openmode mode=Mode):mode_(Mode==3?mode:mode|Mode),buffer_(text),input_(&buffer_,(mode_&ios::in)!=0,(mode_&ios::out)!=0),output_(&buffer_,(mode_&ios::out)!=0,(mode_&ios::app)!=0){if(mode_&(ios::ate|ios::app))output_.__reset_position(buffer_.size());}
-    __minic_stringstream(const __minic_stringstream&)=delete;__minic_stringstream& operator=(const __minic_stringstream&)=delete;
+    explicit __craken_stringstream(ios::openmode mode=Mode):mode_(Mode==3?mode:mode|Mode),buffer_(),input_(&buffer_,(mode_&ios::in)!=0,(mode_&ios::out)!=0),output_(&buffer_,(mode_&ios::out)!=0,(mode_&ios::app)!=0){}
+    explicit __craken_stringstream(const string& text,ios::openmode mode=Mode):mode_(Mode==3?mode:mode|Mode),buffer_(text),input_(&buffer_,(mode_&ios::in)!=0,(mode_&ios::out)!=0),output_(&buffer_,(mode_&ios::out)!=0,(mode_&ios::app)!=0){if(mode_&(ios::ate|ios::app))output_.__reset_position(buffer_.size());}
+    __craken_stringstream(const __craken_stringstream&)=delete;__craken_stringstream& operator=(const __craken_stringstream&)=delete;
     string str() const{return buffer_;}void str(const string& value){buffer_=value;input_.__reset_position();output_.__reset_position((mode_&(ios::ate|ios::app))?buffer_.size():0);}
     ios::iostate rdstate() const{return input_.rdstate();}void clear(ios::iostate state=ios::goodbit){input_.clear(state);output_.clear(state);}
     void setstate(ios::iostate s){clear(rdstate()|s);}bool good() const{return rdstate()==ios::goodbit;}bool eof() const{return input_.eof();}bool fail() const{return input_.fail();}bool bad() const{return input_.bad();}
@@ -21,35 +21,35 @@ public:
     streamsize precision() const{return output_.precision();}streamsize precision(streamsize n){return output_.precision(n);}
     streamsize width() const{return output_.width();}streamsize width(streamsize n){input_.width(n);return output_.width(n);}
     char fill() const{return output_.fill();}char fill(char c){return output_.fill(c);}
-    template<class T> __minic_stringstream& operator<<(const T& value){output_<<value;from_output();return *this;}
-    __minic_stringstream& operator<<(ostream& (*manip)(ostream&)){manip(output_);from_output();return *this;}
-    __minic_stringstream& operator<<(ios& (*manip)(ios&)){output_<<manip;from_output();return *this;}
-    template<class T> __minic_stringstream& operator>>(T& value){input_>>value;from_input();return *this;}
-    __minic_stringstream& operator>>(istream& (*manip)(istream&)){manip(input_);from_input();return *this;}
-    __minic_stringstream& operator>>(ios& (*manip)(ios&)){input_>>manip;from_input();return *this;}
-    __minic_stringstream& operator>>(__minic_width value){input_>>value;from_input();return *this;}
-    __minic_stringstream& operator>>(__minic_base value){input_>>value;from_input();return *this;}
+    template<class T> __craken_stringstream& operator<<(const T& value){output_<<value;from_output();return *this;}
+    __craken_stringstream& operator<<(ostream& (*manip)(ostream&)){manip(output_);from_output();return *this;}
+    __craken_stringstream& operator<<(ios& (*manip)(ios&)){output_<<manip;from_output();return *this;}
+    template<class T> __craken_stringstream& operator>>(T& value){input_>>value;from_input();return *this;}
+    __craken_stringstream& operator>>(istream& (*manip)(istream&)){manip(input_);from_input();return *this;}
+    __craken_stringstream& operator>>(ios& (*manip)(ios&)){input_>>manip;from_input();return *this;}
+    __craken_stringstream& operator>>(__craken_width value){input_>>value;from_input();return *this;}
+    __craken_stringstream& operator>>(__craken_base value){input_>>value;from_input();return *this;}
     streamsize gcount() const{return input_.gcount();}
     int get(){int c=input_.get();from_input();return c;}
-    __minic_stringstream& get(char& c){input_.get(c);from_input();return *this;}
+    __craken_stringstream& get(char& c){input_.get(c);from_input();return *this;}
     int peek(){int c=input_.peek();from_input();return c;}
-    __minic_stringstream& unget(){input_.unget();from_input();return *this;}
-    __minic_stringstream& putback(char c){input_.putback(c);from_input();return *this;}
-    __minic_stringstream& ignore(streamsize n=1,int delimiter=EOF){input_.ignore(n,delimiter);from_input();return *this;}
-    __minic_stringstream& read(char* p,streamsize n){input_.read(p,n);from_input();return *this;}
-    __minic_stringstream& getline(char* p,streamsize n,char delimiter='\n'){input_.getline(p,n,delimiter);from_input();return *this;}
-    __minic_stringstream& __getline(string& s,char delimiter){input_.__getline(s,delimiter);from_input();return *this;}
-    __minic_stringstream& put(char c){output_.put(c);from_output();return *this;}
-    __minic_stringstream& write(const char* p,streamsize n){output_.write(p,n);from_output();return *this;}
-    __minic_stringstream& flush(){output_.flush();from_output();return *this;}
+    __craken_stringstream& unget(){input_.unget();from_input();return *this;}
+    __craken_stringstream& putback(char c){input_.putback(c);from_input();return *this;}
+    __craken_stringstream& ignore(streamsize n=1,int delimiter=EOF){input_.ignore(n,delimiter);from_input();return *this;}
+    __craken_stringstream& read(char* p,streamsize n){input_.read(p,n);from_input();return *this;}
+    __craken_stringstream& getline(char* p,streamsize n,char delimiter='\n'){input_.getline(p,n,delimiter);from_input();return *this;}
+    __craken_stringstream& __getline(string& s,char delimiter){input_.__getline(s,delimiter);from_input();return *this;}
+    __craken_stringstream& put(char c){output_.put(c);from_output();return *this;}
+    __craken_stringstream& write(const char* p,streamsize n){output_.write(p,n);from_output();return *this;}
+    __craken_stringstream& flush(){output_.flush();from_output();return *this;}
     streampos tellg(){streampos p=input_.__tellg();from_input();return p;}streampos tellp(){return output_.__tellp();}
-    __minic_stringstream& seekg(streamoff offset,ios::seekdir dir=ios::beg){input_.__seekg(offset,dir);from_input();return *this;}
-    __minic_stringstream& seekp(streamoff offset,ios::seekdir dir=ios::beg){output_.__seekp(offset,dir);from_output();return *this;}
+    __craken_stringstream& seekg(streamoff offset,ios::seekdir dir=ios::beg){input_.__seekg(offset,dir);from_input();return *this;}
+    __craken_stringstream& seekp(streamoff offset,ios::seekdir dir=ios::beg){output_.__seekp(offset,dir);from_output();return *this;}
 };
-typedef __minic_stringstream<ios::in> istringstream;
-typedef __minic_stringstream<ios::out> ostringstream;
-typedef __minic_stringstream<ios::in|ios::out> stringstream;
-template<unsigned int M> __minic_stringstream<M>& getline(__minic_stringstream<M>& stream,string& text,char delimiter){return stream.__getline(text,delimiter);}
-template<unsigned int M> __minic_stringstream<M>& getline(__minic_stringstream<M>& stream,string& text){return stream.__getline(text,'\n');}
+typedef __craken_stringstream<ios::in> istringstream;
+typedef __craken_stringstream<ios::out> ostringstream;
+typedef __craken_stringstream<ios::in|ios::out> stringstream;
+template<unsigned int M> __craken_stringstream<M>& getline(__craken_stringstream<M>& stream,string& text,char delimiter){return stream.__getline(text,delimiter);}
+template<unsigned int M> __craken_stringstream<M>& getline(__craken_stringstream<M>& stream,string& text){return stream.__getline(text,'\n');}
 }
 #endif

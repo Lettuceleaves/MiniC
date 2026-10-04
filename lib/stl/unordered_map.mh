@@ -1,9 +1,9 @@
-#ifndef MINIC_STL_UNORDERED_MAP_MH
-#define MINIC_STL_UNORDERED_MAP_MH
+#ifndef CRAKEN_STL_UNORDERED_MAP_MH
+#define CRAKEN_STL_UNORDERED_MAP_MH
 #include "__hash_table.mh"
 namespace std {
 template<class K,class V,class Hash=hash<K>,class Equal=equal_to<K>> class unordered_map {
-    typedef __minic_hash_table<K,pair<const K,V>,__minic_map_key<K,V>,Hash,Equal> table_type;
+    typedef __craken_hash_table<K,pair<const K,V>,__craken_map_key<K,V>,Hash,Equal> table_type;
     table_type table_;
 public:
     typedef K key_type;typedef V mapped_type;typedef pair<const K,V> value_type;typedef Hash hasher;typedef Equal key_equal;
@@ -30,8 +30,8 @@ public:
     iterator insert(const_iterator,const value_type& v){return insert(v).first;}
     template<class... A> pair<iterator,bool> emplace(A&&... a){return table_.emplace(std::forward<A>(a)...);}
     template<class... A> iterator emplace_hint(const_iterator,A&&... a){return emplace(std::forward<A>(a)...).first;}
-    template<class... A> pair<iterator,bool> try_emplace(const K& k,A&&... a){return table_.insert_key(k,__minic_pair_key_tag(),k,std::forward<A>(a)...);}
-    template<class... A> pair<iterator,bool> try_emplace(K&& k,A&&... a){return table_.insert_key(k,__minic_pair_key_tag(),std::move(k),std::forward<A>(a)...);}
+    template<class... A> pair<iterator,bool> try_emplace(const K& k,A&&... a){return table_.insert_key(k,__craken_pair_key_tag(),k,std::forward<A>(a)...);}
+    template<class... A> pair<iterator,bool> try_emplace(K&& k,A&&... a){return table_.insert_key(k,__craken_pair_key_tag(),std::move(k),std::forward<A>(a)...);}
     template<class M> pair<iterator,bool> insert_or_assign(const K& k,M&& v){auto result=try_emplace(k,std::forward<M>(v));if(!result.second)result.first->second=std::forward<M>(v);return result;}
     iterator erase(iterator i){return table_.erase(const_iterator(i));}iterator erase(const_iterator i){return table_.erase(i);}
     iterator erase(const_iterator a,const_iterator b){return table_.erase(a,b);}size_type erase(const K& k){return table_.erase(k);}

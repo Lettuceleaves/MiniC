@@ -1,5 +1,5 @@
-#ifndef MINIC_STL_ITERATOR_MH
-#define MINIC_STL_ITERATOR_MH
+#ifndef CRAKEN_STL_ITERATOR_MH
+#define CRAKEN_STL_ITERATOR_MH
 #include "utility.mh"
 #include "initializer_list.mh"
 namespace std {
@@ -10,9 +10,9 @@ struct output_iterator_tag {};
 struct forward_iterator_tag : public input_iterator_tag {};
 struct bidirectional_iterator_tag : public forward_iterator_tag {};
 struct random_access_iterator_tag : public bidirectional_iterator_tag {};
-template<class... T> struct __minic_iterator_void { typedef void type; };
+template<class... T> struct __craken_iterator_void { typedef void type; };
 template<class I,class Enable=void> struct iterator_traits {};
-template<class I> struct iterator_traits<I,typename __minic_iterator_void<
+template<class I> struct iterator_traits<I,typename __craken_iterator_void<
     typename I::difference_type,typename I::value_type,typename I::pointer,
     typename I::reference,typename I::iterator_category>::type> {
     typedef typename I::difference_type difference_type;
@@ -35,19 +35,19 @@ template<class T> struct iterator_traits<const T*> {
     typedef const T& reference;
     typedef random_access_iterator_tag iterator_category;
 };
-template<class I> constexpr typename iterator_traits<I>::difference_type __minic_distance(I first,I last,input_iterator_tag) {
+template<class I> constexpr typename iterator_traits<I>::difference_type __craken_distance(I first,I last,input_iterator_tag) {
     typename iterator_traits<I>::difference_type n=0;
     while(first!=last){++first;++n;} return n;
 }
-template<class I> constexpr typename iterator_traits<I>::difference_type __minic_distance(I first,I last,forward_iterator_tag) { return __minic_distance(first,last,input_iterator_tag()); }
-template<class I> constexpr typename iterator_traits<I>::difference_type __minic_distance(I first,I last,bidirectional_iterator_tag) { return __minic_distance(first,last,input_iterator_tag()); }
-template<class I> constexpr typename iterator_traits<I>::difference_type __minic_distance(I first,I last,random_access_iterator_tag) { return first==last ? 0 : last-first; }
-template<class I> constexpr typename iterator_traits<I>::difference_type distance(I first,I last) { return __minic_distance(first,last,typename iterator_traits<I>::iterator_category()); }
-template<class I,class D> constexpr void __minic_advance(I& it,D n,input_iterator_tag) { while(n>0){++it;--n;} }
-template<class I,class D> constexpr void __minic_advance(I& it,D n,forward_iterator_tag) { __minic_advance(it,n,input_iterator_tag()); }
-template<class I,class D> constexpr void __minic_advance(I& it,D n,bidirectional_iterator_tag) { if(n>=0){while(n>0){++it;--n;}}else{while(n<0){--it;++n;}} }
-template<class I,class D> constexpr void __minic_advance(I& it,D n,random_access_iterator_tag) { if(n!=0) it+=n; }
-template<class I,class D> constexpr void advance(I& it,D n) { __minic_advance(it,n,typename iterator_traits<I>::iterator_category()); }
+template<class I> constexpr typename iterator_traits<I>::difference_type __craken_distance(I first,I last,forward_iterator_tag) { return __craken_distance(first,last,input_iterator_tag()); }
+template<class I> constexpr typename iterator_traits<I>::difference_type __craken_distance(I first,I last,bidirectional_iterator_tag) { return __craken_distance(first,last,input_iterator_tag()); }
+template<class I> constexpr typename iterator_traits<I>::difference_type __craken_distance(I first,I last,random_access_iterator_tag) { return first==last ? 0 : last-first; }
+template<class I> constexpr typename iterator_traits<I>::difference_type distance(I first,I last) { return __craken_distance(first,last,typename iterator_traits<I>::iterator_category()); }
+template<class I,class D> constexpr void __craken_advance(I& it,D n,input_iterator_tag) { while(n>0){++it;--n;} }
+template<class I,class D> constexpr void __craken_advance(I& it,D n,forward_iterator_tag) { __craken_advance(it,n,input_iterator_tag()); }
+template<class I,class D> constexpr void __craken_advance(I& it,D n,bidirectional_iterator_tag) { if(n>=0){while(n>0){++it;--n;}}else{while(n<0){--it;++n;}} }
+template<class I,class D> constexpr void __craken_advance(I& it,D n,random_access_iterator_tag) { if(n!=0) it+=n; }
+template<class I,class D> constexpr void advance(I& it,D n) { __craken_advance(it,n,typename iterator_traits<I>::iterator_category()); }
 template<class I> constexpr I next(I it,typename iterator_traits<I>::difference_type n) { std::advance(it,n);return it; }
 template<class I> constexpr I next(I it) { ++it;return it; }
 template<class I> constexpr I prev(I it,typename iterator_traits<I>::difference_type n) { std::advance(it,-n);return it; }
