@@ -17,6 +17,7 @@ import java.util.List;
 public final class DebugProgram {
     private final IrResult ir;
     private final List<List<Location>> lines;
+    private final DebugVariableRegistry variables;
 
     DebugProgram(SourceFile source, IrResult original) {
         int lineCount = 1 + (int) source.content().chars().filter(c -> c == '\n').count();
@@ -75,6 +76,7 @@ public final class DebugProgram {
                 original.entryFunction()
         );
         lines = lineIndex.stream().map(List::copyOf).toList();
+        variables = DebugVariableRegistry.scan(ir);
     }
 
     private static void index(
@@ -96,6 +98,9 @@ public final class DebugProgram {
     }
 
     public IrResult ir() { return ir; }
+
+    /** 预处理阶段扫描出的变量标记；按定义范围与源码名双索引。 */
+    public DebugVariableRegistry variables() { return variables; }
 
     /** 第 0 项留空；lines().get(n) 对应 IDE 中第 n 行，包括插入的 trap。 */
     public List<List<Location>> lines() { return lines; }

@@ -61,7 +61,8 @@ public final class GlobalDataLowerer {
                 alignment = Math.max(alignment, spec.constant() != null
                         ? spec.constant() : alignmentOf(spec.type()));
             }
-            result.add(new IrGlobalData(declaration.name(), declaration.type(), bytes, alignment,addresses));
+            result.add(new IrGlobalData(declaration.name(), declaration.type(), bytes, alignment,
+                    addresses, declaration.range()));
         }
         return List.copyOf(result);
     }
