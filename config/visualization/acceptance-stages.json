@@ -11,6 +11,12 @@
           "craken.ui.pipeline.PipelinePanelTest"
         ]
       }
+    },
+    {
+      "id": "C02",
+      "required": {
+        "visualizationModelTest": ["craken.visualization.model.PageRegistrationTest"]
+      }
     }
   ]
 }
