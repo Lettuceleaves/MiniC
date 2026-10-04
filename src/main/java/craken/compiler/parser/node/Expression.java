@@ -1835,8 +1835,46 @@ public interface Expression extends AstNode {
         }
         public enum CaptureDefault { NONE, COPY, REFERENCE }
         public enum CaptureKind { COPY, REFERENCE, THIS, THIS_COPY }
-        public record Capture(String name,CaptureKind kind,InitializerSyntax initializer,SourceRange range) implements AstNode {
-            public Capture {Objects.requireNonNull(name);Objects.requireNonNull(kind);Objects.requireNonNull(range);}
+        public static final class Capture extends AbstractAstNode implements AstNode {
+            private final String name;
+            private final CaptureKind kind;
+            private final InitializerSyntax initializer;
+            private final SourceRange range;
+
+            @AstNodeConstructor({"name", "kind", "initializer", "range"})
+            public Capture(String name, CaptureKind kind, InitializerSyntax initializer, SourceRange range) {Objects.requireNonNull(name);Objects.requireNonNull(kind);Objects.requireNonNull(range);
+                this.name = name;
+                this.kind = kind;
+                this.initializer = initializer;
+                this.range = range;
+            }
+
+            public String name() { return name; }
+            public CaptureKind kind() { return kind; }
+            public InitializerSyntax initializer() { return initializer; }
+            public SourceRange range() { return range; }
+
+            @Override public boolean equals(Object other) {
+                if (this == other) return true;
+                if (!(other instanceof Capture that)) return false;
+                return Objects.equals(name, that.name)
+                        && Objects.equals(kind, that.kind)
+                        && Objects.equals(initializer, that.initializer)
+                        && Objects.equals(range, that.range);
+            }
+
+            @Override public int hashCode() {
+                int result = 0;
+                result = 31 * result + Objects.hashCode(name);
+                result = 31 * result + Objects.hashCode(kind);
+                result = 31 * result + Objects.hashCode(initializer);
+                result = 31 * result + Objects.hashCode(range);
+                return result;
+            }
+
+            @Override public String toString() {
+                return "Capture[name=" + name + ", kind=" + kind + ", initializer=" + initializer + ", range=" + range + "]";
+            }
         }
         @AstNodeConstructor({"captureDefault", "captures", "parameters", "variadic", "mutable", "returnType", "body", "range", "exceptionSpecification", "constexprSpecifier"})
         public LambdaExpr(CaptureDefault captureDefault, List<Capture> captures, List<Declaration.Parameter> parameters, boolean variadic, boolean mutable, CrakenType returnType, Statement.BlockStmt body, SourceRange range, CrakenType.ExceptionSpecification exceptionSpecification, boolean constexprSpecifier) {
@@ -2249,9 +2287,42 @@ public interface Expression extends AstNode {
             public boolean acceptsArity(int count) { return this == CONSTRUCTIBLE ? count >= 1 : count == 2; }
         }
 
-        public record TypeArgument(CrakenType type, boolean packExpansion, SourceRange range) implements AstNode {
-            public TypeArgument { Objects.requireNonNull(type); Objects.requireNonNull(range); }
+        public static final class TypeArgument extends AbstractAstNode implements AstNode {
+            private final CrakenType type;
+            private final boolean packExpansion;
+            private final SourceRange range;
+
+            @AstNodeConstructor({"type", "packExpansion", "range"})
+            public TypeArgument(CrakenType type, boolean packExpansion, SourceRange range) { Objects.requireNonNull(type); Objects.requireNonNull(range);
+                this.type = type;
+                this.packExpansion = packExpansion;
+                this.range = range;
+            }
             public TypeArgument(CrakenType type, SourceRange range) { this(type, false, range); }
+
+            public CrakenType type() { return type; }
+            public boolean packExpansion() { return packExpansion; }
+            public SourceRange range() { return range; }
+
+            @Override public boolean equals(Object other) {
+                if (this == other) return true;
+                if (!(other instanceof TypeArgument that)) return false;
+                return Objects.equals(type, that.type)
+                        && packExpansion == that.packExpansion
+                        && Objects.equals(range, that.range);
+            }
+
+            @Override public int hashCode() {
+                int result = 0;
+                result = 31 * result + Objects.hashCode(type);
+                result = 31 * result + Boolean.hashCode(packExpansion);
+                result = 31 * result + Objects.hashCode(range);
+                return result;
+            }
+
+            @Override public String toString() {
+                return "TypeArgument[type=" + type + ", packExpansion=" + packExpansion + ", range=" + range + "]";
+            }
         }
 
         @AstNodeConstructor({"kind", "arguments", "nameRange", "range"})

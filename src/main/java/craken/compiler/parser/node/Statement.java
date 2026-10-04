@@ -372,11 +372,20 @@ public interface Statement extends AstNode {
         }
     }
 
-    record SwitchCase(Expression value, List<Statement> statements, SourceRange range) implements AstNode {
-        public SwitchCase {
+    static final class SwitchCase extends AbstractAstNode implements AstNode {
+        private final Expression value;
+        private final List<Statement> statements;
+        private final SourceRange range;
+
+        @AstNodeConstructor({"value", "statements", "range"})
+        public SwitchCase(Expression value, List<Statement> statements, SourceRange range) {
             Objects.requireNonNull(statements, "statements");
             Objects.requireNonNull(range, "range");
             statements = List.copyOf(statements);
+
+            this.value = value;
+            this.statements = statements;
+            this.range = range;
         }
 
         public Optional<Expression> valueOptional() {
@@ -385,6 +394,30 @@ public interface Statement extends AstNode {
 
         public boolean defaultCase() {
             return value == null;
+        }
+
+        public Expression value() { return value; }
+        public List<Statement> statements() { return statements; }
+        public SourceRange range() { return range; }
+
+        @Override public boolean equals(Object other) {
+            if (this == other) return true;
+            if (!(other instanceof SwitchCase that)) return false;
+            return Objects.equals(value, that.value)
+                    && Objects.equals(statements, that.statements)
+                    && Objects.equals(range, that.range);
+        }
+
+        @Override public int hashCode() {
+            int result = 0;
+            result = 31 * result + Objects.hashCode(value);
+            result = 31 * result + Objects.hashCode(statements);
+            result = 31 * result + Objects.hashCode(range);
+            return result;
+        }
+
+        @Override public String toString() {
+            return "SwitchCase[value=" + value + ", statements=" + statements + ", range=" + range + "]";
         }
     }
 

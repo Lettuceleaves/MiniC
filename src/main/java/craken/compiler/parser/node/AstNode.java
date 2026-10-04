@@ -7,4 +7,7 @@ import craken.SourceRange;
  */
 public interface AstNode {
     SourceRange range();
+
+    /** Presentation positions are independent of business equality and source semantics. */
+    AstVisualSlots visualSlots();
 }

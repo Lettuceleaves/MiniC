@@ -4,5 +4,6 @@ package craken.compiler.parser.node;
 public abstract class AbstractAstNode implements AstNode {
     private final AstVisualSlots visualSlots = new AstVisualSlots();
 
+    @Override
     public final AstVisualSlots visualSlots() { return visualSlots; }
 }
