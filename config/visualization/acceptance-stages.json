@@ -55,6 +55,7 @@
         ]
       }
     },
-    { "id": "C07", "required": { "visualizationModelTest": ["craken.visualization.mutation.PageBindingRuleTest"] } }
+    { "id": "C07", "required": { "visualizationModelTest": ["craken.visualization.mutation.PageBindingRuleTest"] } },
+    { "id": "C08", "required": { "visualizationModelTest": ["craken.visualization.navigation.FocusNavigationTest", "craken.visualization.navigation.NavigationResolverTest"] } }
   ]
 }

@@ -5,6 +5,14 @@ import craken.visualization.model.relation.TopologyEdge.Direction;
 import java.util.Objects;
 
 public sealed interface VisualizationCommand {
+    record SetContent(OperationPath path, ViewNode.Spec spec) implements VisualizationCommand {
+        public SetContent { Objects.requireNonNull(path); Objects.requireNonNull(spec); }
+    }
+    record Touch(OperationPath path, AccessKind kind) implements VisualizationCommand {
+        public Touch { Objects.requireNonNull(path); Objects.requireNonNull(kind); }
+    }
+    record SetFocus(OperationPath path) implements VisualizationCommand { public SetFocus { Objects.requireNonNull(path); } }
+    record Configure(VisualizationOptions options) implements VisualizationCommand { public Configure { Objects.requireNonNull(options); } }
     record BindPage(PageRef child, craken.visualization.model.relation.PageBindingRule.Spec binding) implements VisualizationCommand {
         public BindPage { Objects.requireNonNull(child); Objects.requireNonNull(binding); }
     }

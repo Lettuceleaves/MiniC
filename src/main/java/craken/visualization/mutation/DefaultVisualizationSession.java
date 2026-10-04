@@ -63,7 +63,7 @@ public final class DefaultVisualizationSession implements VisualizationSession {
         nodes.put(ref.pageId(), new MonotonicIds());
         var rules = new LinkedHashMap<>(model.pageRules());
         if (binding != null) { var rule = new PageBindingRule(relations.next(), ref, binding); rules.put(rule.id(), rule); }
-        model = new ContainerModel(model.id(), root ? ref : model.root(), updated, model.version() + 1, model.ownership(), rules);
+        model = new ContainerModel(model.id(), root ? ref : model.root(), updated, model.version() + 1, model.ownership(), rules, model.interaction());
         return ref;
     }
     @Override public synchronized ViewLocation reserveNodeId(PageRef page) {

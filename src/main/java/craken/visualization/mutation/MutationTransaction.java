@@ -4,6 +4,7 @@ import craken.visualization.api.*;
 import craken.visualization.api.VisualizationCommand.*;
 import craken.visualization.model.*;
 import craken.visualization.model.relation.PageBindingRule;
+import craken.visualization.navigation.FocusController;
 import java.util.*;
 import static craken.visualization.api.VisualizationError.Code.*;
 
@@ -19,6 +20,7 @@ public final class MutationTransaction {
     private final Set<ViewLocation> explicitDeletes = new LinkedHashSet<>();
     private final Map<Long, PageBindingRule> rules;
     private final List<Long> createdRules = new ArrayList<>();
+    private final FocusController focus;
     private int commandIndex;
 
     public MutationTransaction(ContainerModel base, Set<ViewLocation> reservations, MonotonicIds relations) {
@@ -28,19 +30,24 @@ public final class MutationTransaction {
         this.relationIds = relations;
         this.reservations = Set.copyOf(reservations);
         this.rules = new LinkedHashMap<>(base.pageRules());
+        this.focus = new FocusController(base.interaction());
     }
     public void apply(MutationBatch batch) {
         for (commandIndex = 0; commandIndex < batch.commands().size(); commandIndex++) {
             switch (batch.commands().get(commandIndex)) {
                 case AddNode add -> add(add);
-                case AttachOwnership attach -> { validateExplicitSource(attach.source()); attach(attach.pre(), attach.nxt(), attach.source()); }
+                case AttachOwnership attach -> { validateExplicitSource(attach.source()); attach(attach.pre(), attach.nxt(), attach.source()); focus.access(attach.nxt(),AccessKind.WRITE); }
                 case Compose compose -> compose(compose);
                 case Connect connect -> connect(connect);
                 case Disconnect disconnect -> disconnect(disconnect);
-                case DeleteNode delete -> explicitDeletes.add(select(delete.path()).location());
+                case DeleteNode delete -> { explicitDeletes.add(select(delete.path()).location()); focus.access(delete.path().nxt(),AccessKind.DELETE); }
                 case DetachOwnership detach -> detach(detach);
                 case BindPage bind -> bind(bind);
                 case UnbindPage unbind -> unbind(unbind.ruleId());
+                case SetContent content -> setContent(content);
+                case Touch touch -> { select(touch.path()); focus.access(touch.path().nxt(),touch.kind()); }
+                case SetFocus selected -> { select(selected.path()); focus.focus(selected.path().nxt()); }
+                case Configure configure -> focus.configure(configure.options());
             }
         }
     }
@@ -54,6 +61,7 @@ public final class MutationTransaction {
             if (path.pre() != null) attach(path.pre(), path.nxt(), "explicit");
             else if (existing.retention() != ViewNode.Retention.ROOT)
                 throw CommandValidator.failure(INVALID_OWNERSHIP, "OWNED node requires an upstream path");
+            focus.access(path.nxt(),AccessKind.ALLOCATE);
             return;
         }
         if (!reservations.contains(path.nxt()))
@@ -73,6 +81,16 @@ public final class MutationTransaction {
         created.add(node.location());
         if (path.pre() != null) attach(path.pre(), path.nxt(), "explicit");
         for (var rule : rules.values()) expand(rule, node.location());
+        focus.access(path.nxt(),AccessKind.ALLOCATE);
+    }
+    private void setContent(SetContent content) {
+        var node=select(content.path());
+        if (node.content().kind()!=content.spec().kind()) throw CommandValidator.failure(PAGE_TYPE_MISMATCH,"A node kind cannot change");
+        var updated=node.withState(content.spec(),node.parents());
+        if (!updated.location().equals(node.location()) || !updated.children().equals(node.children()) || updated.retention()!=node.retention()
+                || !updated.parents().equals(node.parents()) || !updated.content().equals(content.spec()))
+            throw CommandValidator.failure(PAGE_TYPE_MISMATCH,"Node copy violated its contract");
+        put(updated); focus.access(node.location(),AccessKind.WRITE);
     }
     private void bind(BindPage bind) {
         PageBindingRuleExpander.validate(base.id(),pages,bind.child(),bind.binding());
@@ -123,8 +141,10 @@ public final class MutationTransaction {
         affected.add(page.ref());
     }
     private ViewNode select(OperationPath path) {
+        requireNotDeleted(path.nxt());
         ViewNode node = CommandValidator.path(base.id(), pages, path);
         put(node);
+        focus.access(node.location(),AccessKind.WRITE);
         return node;
     }
     private void connect(Connect connect) {
@@ -144,11 +164,12 @@ public final class MutationTransaction {
         affected.add(page.ref());
     }
     public ContainerModel finish() {
+        var fallback=focus.capture(pages);
         release(LifetimePlanner.plan(pages, ownership, explicitDeletes));
         OwnershipDagValidator.validate(pages, ownership);
         for (PageRef ref : affected) if (pages.containsKey(ref.pageId()))
             pages.put(ref.pageId(), PartPlanner.plan(pages.get(ref.pageId())));
-        return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings(), rules);
+        return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings(), rules,focus.finish(pages,fallback));
     }
     private void release(Set<ViewLocation> deleted) {
         deleted.forEach(ownership::removeNode);
