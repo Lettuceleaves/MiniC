@@ -19,6 +19,7 @@ final class SnapshotValidator {
             if (!page.type().readyEnabled() && !page.ready().isEmpty()) fail("READY disabled");
             if (page.anchor()!=null) model.node(page.anchor());
             for (var node:page.nodes().values()) {
+                if (node.content().color() != null) craken.visualization.style.ColorValidator.validate(node.content().color());
                 if (node.retention()==ViewNode.Retention.ROOT && !page.ref().equals(model.root())) fail("ROOT node outside root page");
                 for (var h:node.highlights()) { if (!h.page().equals(page.ref())) fail("Cross-page highlight"); model.node(h); }
             }

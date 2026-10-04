@@ -59,6 +59,7 @@
     { "id": "C08", "required": { "visualizationModelTest": ["craken.visualization.navigation.FocusNavigationTest", "craken.visualization.navigation.NavigationResolverTest"] } },
     { "id": "C09", "required": { "visualizationModelTest": ["craken.visualization.snapshot.SnapshotCodecTest"] } },
     { "id": "C10", "required": { "visualizationLayoutTest": ["craken.visualization.navigation.PageWidthAllocatorTest", "craken.visualization.layout.ArrayLinearTreeLayoutTest", "craken.visualization.layout.LayoutProtocolTest", "craken.visualization.layout.PortRouterTest"] } },
-    { "id": "C11", "required": { "visualizationLayoutTest": ["craken.visualization.layout.StressGraphIntegrationTest", "craken.visualization.layout.GraphvizPackagingTest"] } }
+    { "id": "C11", "required": { "visualizationLayoutTest": ["craken.visualization.layout.StressGraphIntegrationTest", "craken.visualization.layout.GraphvizPackagingTest"] } },
+    { "id": "C12", "required": { "visualizationModelTest": ["craken.ui.component.visualization.ThemeValidatorTest", "craken.visualization.style.ColorTransactionTest"], "visualizationUiTest": ["craken.ui.component.visualization.VisualizationRendererFxTest"] } }
   ]
 }

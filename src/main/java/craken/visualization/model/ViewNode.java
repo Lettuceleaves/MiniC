@@ -1,6 +1,7 @@
 package craken.visualization.model;
 
 import craken.visualization.api.ViewLocation;
+import craken.visualization.style.ColorSpec;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -10,13 +11,14 @@ import java.util.Set;
 public abstract class ViewNode {
     public enum Kind { POINT, ARRAY, LINKED, TREE, GRAPH }
     public enum Retention { ROOT, OWNED }
-    public record Spec(Kind kind, String label, Map<String, String> fields) {
+    public record Spec(Kind kind, String label, Map<String, String> fields, ColorSpec color) {
         public Spec {
             Objects.requireNonNull(kind, "kind");
             label = Objects.requireNonNullElse(label, "");
             fields = Map.copyOf(fields);
         }
-        public Spec(Kind kind, String label) { this(kind, label, Map.of()); }
+        public Spec(Kind kind, String label, Map<String, String> fields) { this(kind, label, fields, null); }
+        public Spec(Kind kind, String label) { this(kind, label, Map.of(), null); }
         public static Spec point(String label) { return new Spec(Kind.POINT, label); }
     }
     private final ViewLocation location;

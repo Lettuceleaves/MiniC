@@ -70,6 +70,7 @@ public final class MutationTransaction {
             throw CommandValidator.failure(UNRESERVED_POSITION, "Position was not reserved or has already been consumed");
         if (!page.type().nodeKinds().contains(add.spec().kind()))
             throw CommandValidator.failure(PAGE_TYPE_MISMATCH, "Unsupported node kind");
+        if (add.spec().color() != null) craken.visualization.style.ColorValidator.validate(add.spec().color());
         ViewNode.Retention retention = path.pre() == null ? ViewNode.Retention.ROOT : ViewNode.Retention.OWNED;
         if (path.pre() == null && !page.ref().equals(base.root()))
             throw CommandValidator.failure(INVALID_OWNERSHIP, "Only root page permits ROOT nodes");
@@ -88,6 +89,7 @@ public final class MutationTransaction {
     private void setContent(SetContent content) {
         var node=select(content.path());
         if (node.content().kind()!=content.spec().kind()) throw CommandValidator.failure(PAGE_TYPE_MISMATCH,"A node kind cannot change");
+        if (content.spec().color() != null) craken.visualization.style.ColorValidator.validate(content.spec().color());
         var updated=node.withState(content.spec(),node.parents());
         if (!updated.location().equals(node.location()) || !updated.children().equals(node.children()) || updated.retention()!=node.retention()
                 || !updated.parents().equals(node.parents()) || !updated.content().equals(content.spec()))
