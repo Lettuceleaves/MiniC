@@ -13,6 +13,9 @@ import craken.compiler.obj.ObjBuilder;
 import craken.compiler.parser.Parser;
 import craken.compiler.preprocess.Preprocessor;
 import craken.compiler.semantic.SemanticAnalyzer;
+import craken.visualization.adapter.pipeline.PipelineStepObservation;
+import craken.visualization.adapter.pipeline.PipelineVisualizationFrame;
+import craken.visualization.adapter.pipeline.PipelineVisualizationSession;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -27,12 +30,15 @@ import java.util.stream.Collectors;
  * 一份源码快照的编译展示会话。编译止于链接，不执行生成的程序。
  * 推进方法应在后台线程调用；不可变 snapshot 可直接交给 FX 线程。
  */
-public final class PipelineSession {
+public final class PipelineSession implements AutoCloseable {
     private static final List<String> STAGE_LABELS = List.of(
             "预处理", "词法分析", "语法分析", "语义分析", "生成 IR", "生成汇编", "生成目标文件", "链接");
 
     private final CompilerApi compiler;
     private final List<Stage> stages;
+    private final PipelineVisualizationSession visualization;
+    private PipelineStepObservation pending;
+    private String visualizationFailure = "";
     private int selectedStageIndex;
     private String executionFailure = "";
     private volatile Snapshot snapshot;
@@ -47,10 +53,20 @@ public final class PipelineSession {
     }
 
     public PipelineSession(CompilerApi compiler) {
+        this(compiler, new PipelineVisualizationSession());
+    }
+
+    public PipelineSession(CompilerApi compiler, PipelineVisualizationSession visualization) {
         this.compiler = Objects.requireNonNull(compiler, "compiler");
+        this.visualization = Objects.requireNonNull(visualization, "visualization");
         stages = compiler.stages().stream().takeWhile(stage -> !(stage instanceof ExecutableRunner)).toList();
-        // 输入输出视图尚未启用，仅保留完成阶段的最终上下文，避免为每一步复制整个编译状态。
-        for (Stage stage : stages) compiler.setResultRecording(stage, false);
+        for (Stage stage : stages) {
+            compiler.setResultRecording(stage, false);
+            compiler.setCaptureLatestContext(stage, true);
+        }
+        SourceFile source = stages.stream().filter(Preprocessor.class::isInstance).map(Preprocessor.class::cast)
+                .map(Preprocessor::sourceFile).findFirst().orElse(null);
+        visualization.initialize(source);
         selectedStageIndex = stages.isEmpty() ? -1 : Math.min(compiler.currentStageIndex(), stages.size() - 1);
         refresh();
     }
@@ -69,10 +85,8 @@ public final class PipelineSession {
         if (!snapshot.canAdvance()) return;
         if (cancelled.getAsBoolean()) throw new InterruptedException("compilation cancelled");
         try {
-            compiler.step();
-        } catch (RuntimeException | LinkageError failure) {
-            executionFailure = describeFailure(failure);
-            throw failure;
+            if (pending != null) retryProjection();
+            else advanceAndProject();
         } finally {
             followCurrentStage();
         }
@@ -83,12 +97,43 @@ public final class PipelineSession {
         Objects.requireNonNull(cancelled, "cancelled");
         if (!snapshot.canAdvance()) return;
         try {
-            compiler.nextStage(cancelled);
+            if (pending != null) {
+                if (cancelled.getAsBoolean()) throw new InterruptedException("compilation cancelled");
+                retryProjection();
+                return;
+            }
+            int target = compiler.currentStageIndex();
+            while (compiler.canNext() && compiler.currentStageIndex() == target && target < stages.size()) {
+                if (cancelled.getAsBoolean()) throw new InterruptedException("compilation cancelled");
+                advanceAndProject();
+                if (pending != null) break;
+            }
+        } finally {
+            followCurrentStage();
+        }
+    }
+
+    private void advanceAndProject() {
+        Stage executed = compiler.currentStage().orElseThrow();
+        int index = compiler.currentStageIndex();
+        Stage.Result result;
+        try {
+            result = compiler.stepResult();
         } catch (RuntimeException | LinkageError failure) {
             executionFailure = describeFailure(failure);
             throw failure;
-        } finally {
-            followCurrentStage();
+        }
+        pending = PipelineStepObservation.capture(executed, index, result);
+        retryProjection();
+    }
+
+    private void retryProjection() {
+        try {
+            visualization.project(pending);
+            pending = null;
+            visualizationFailure = "";
+        } catch (RuntimeException | LinkageError failure) {
+            visualizationFailure = describeFailure(failure);
         }
     }
 
@@ -101,7 +146,7 @@ public final class PipelineSession {
     }
 
     private void followCurrentStage() {
-        selectedStageIndex = stages.isEmpty() ? -1 : Math.min(compiler.currentStageIndex(), stages.size() - 1);
+        selectedStageIndex = stages.isEmpty() ? -1 : pending != null ? pending.stageIndex() : Math.min(compiler.currentStageIndex(), stages.size() - 1);
         refresh();
     }
 
@@ -126,7 +171,8 @@ public final class PipelineSession {
             views.add(new StageView(index, label(stage), status, status != Status.PENDING, error));
         }
         snapshot = new Snapshot(views, selectedStageIndex, current, compiler.stepCount(),
-                !succeeded && !failed && compiler.canNext(), succeeded, failed);
+                pending != null || !succeeded && !failed && compiler.canNext(), succeeded, failed,
+                visualization.frameFor(selectedStageIndex), pending != null, visualizationFailure);
     }
 
     private static String label(Stage stage) {
@@ -146,9 +192,16 @@ public final class PipelineSession {
     public record StageView(int index, String label, Status status, boolean selectable, String error) { }
 
     public record Snapshot(List<StageView> stages, int selectedStageIndex, int currentStageIndex,
-                           long stepCount, boolean canAdvance, boolean succeeded, boolean failed) {
+                           long stepCount, boolean canAdvance, boolean succeeded, boolean failed,
+                           PipelineVisualizationFrame visualization, boolean visualizationPending, String visualizationError) {
+        public Snapshot(List<StageView> stages, int selectedStageIndex, int currentStageIndex,
+                long stepCount, boolean canAdvance, boolean succeeded, boolean failed) {
+            this(stages, selectedStageIndex, currentStageIndex, stepCount, canAdvance, succeeded, failed, null, false, "");
+        }
         public Snapshot {
             stages = List.copyOf(stages);
         }
     }
+
+    @Override public synchronized void close() { visualization.close(); }
 }

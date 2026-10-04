@@ -41,6 +41,7 @@ public final class PipelineController implements AutoCloseable {
         frame.setOnPipeline(this::open);
         panel.setOnNextStep(() -> advance(false));
         panel.setOnNextStage(() -> advance(true));
+        panel.setOnSelectStage(this::selectStage);
         updateAvailability();
     }
 
@@ -54,7 +55,9 @@ public final class PipelineController implements AutoCloseable {
         frame.showPipelineDisplayArea();
         SourceFile source = new SourceFile(selected.path().toString(), selected.editor().text());
         if (active != null && active.source.equals(source)) return;
-        if (active != null && active.future != null) active.future.cancel(true);
+        Request previous = active;
+        if (previous != null && previous.future != null) previous.future.cancel(true);
+        if (previous != null) worker.submit(() -> { if (previous.session != null) previous.session.close(); });
         Request request = new Request(source);
         active = request;
         busy = true;
@@ -90,6 +93,17 @@ public final class PipelineController implements AutoCloseable {
         });
     }
 
+    private void selectStage(int index) {
+        requireFxThread();
+        Request request = active;
+        if (closed || busy || request == null || request.session == null) return;
+        busy = true;
+        request.future = worker.submit(() -> {
+            request.session.selectStage(index);
+            publish(request, request.session.snapshot(), null);
+        });
+    }
+
     private void publish(Request request, PipelineSession.Snapshot snapshot, Throwable failure) {
         Platform.runLater(() -> {
             if (closed || active != request) return;
@@ -114,11 +128,14 @@ public final class PipelineController implements AutoCloseable {
         if (closed) return;
         closed = true;
         if (active != null && active.future != null) active.future.cancel(true);
+        Request previous = active;
         active = null;
         editors.activeFileProperty().removeListener(selectionChanged);
         frame.setOnPipeline(null);
         panel.setBusy(true);
-        worker.shutdownNow();
+        panel.close();
+        if (previous != null) worker.submit(() -> { if (previous.session != null) previous.session.close(); });
+        worker.shutdown();
         updateAvailability();
     }
 

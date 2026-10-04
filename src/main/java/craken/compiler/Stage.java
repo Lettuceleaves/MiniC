@@ -24,6 +24,7 @@ public abstract class Stage {
     private final ArrayList<Diagnostic> errors = new ArrayList<>();
     private final Set<Diagnostic> observedErrors = Collections.newSetFromMap(new IdentityHashMap<>());
     private boolean resultRecordingEnabled;
+    private boolean captureLatestContext;
     private long observedStepCount;
     private Result latestStepResult;
     private Result stageResult;
@@ -69,13 +70,18 @@ public abstract class Stage {
         return resultRecordingEnabled;
     }
 
+    /** 是否为每一步创建最近结果的上下文；独立于逐步结果记录，默认关闭。 */
+    public final boolean captureLatestContext() {
+        return captureLatestContext;
+    }
+
     /** 返回本阶段按发生顺序收集的全部错误。 */
     public final List<Diagnostic> errors() {
         return List.copyOf(errors);
     }
 
     /**
-     * 完成一次 step 并生成 Result。上下文只在打开记录或最后一步时创建。
+     * 完成一次 step 并生成 Result。上下文在打开当前捕获、打开记录或最后一步时创建。
      */
     protected final SourceRange finishStep(
             SourceRange sourceRange,
@@ -94,7 +100,7 @@ public abstract class Stage {
             }
         }
         boolean lastStep = !canNext();
-        Context capturedContext = resultRecordingEnabled || lastStep ? context.get() : null;
+        Context capturedContext = captureLatestContext || resultRecordingEnabled || lastStep ? context.get() : null;
         String error = describeErrors(lastStep ? errors : stepErrors);
         Result result = new Result(
                 observedStepCount++,
@@ -143,6 +149,10 @@ public abstract class Stage {
         } else if (enabled && stageResult != null) {
             recordedResults.add(stageResult);
         }
+    }
+
+    final void setCaptureLatestContext(boolean enabled) {
+        captureLatestContext = enabled;
     }
 
     final void resetResultObservation() {

@@ -256,6 +256,34 @@ public final class CompilerApi {
         }
     }
 
+    /** 按阶段实例控制每步最近上下文捕获，不改变阶段结果的保存策略。 */
+    public void setCaptureLatestContext(Stage stage, boolean enabled) {
+        requireStage(stage).setCaptureLatestContext(enabled);
+    }
+
+    /** 按阶段下标控制每步最近上下文捕获。 */
+    public void setCaptureLatestContext(int stageIndex, boolean enabled) {
+        if (stageIndex < 0 || stageIndex >= stages.size()) {
+            throw new IndexOutOfBoundsException("stageIndex: " + stageIndex);
+        }
+        stages.get(stageIndex).setCaptureLatestContext(enabled);
+    }
+
+    /** 为指定类型的全部阶段控制每步最近上下文捕获。 */
+    public void setCaptureLatestContext(Class<? extends Stage> stageType, boolean enabled) {
+        Objects.requireNonNull(stageType, "stageType");
+        boolean matched = false;
+        for (Stage stage : stages) {
+            if (stageType.isInstance(stage)) {
+                stage.setCaptureLatestContext(enabled);
+                matched = true;
+            }
+        }
+        if (!matched) {
+            throw new IllegalArgumentException("pipeline has no stage of type " + stageType.getName());
+        }
+    }
+
     /** 返回指定阶段保留的步骤结果。 */
     public List<Stage.Result> results(Stage stage) {
         return requireStage(stage).stepResults();

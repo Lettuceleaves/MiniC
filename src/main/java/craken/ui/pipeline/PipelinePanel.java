@@ -25,9 +25,12 @@ import craken.ui.component.action.UiButton;
 import craken.ui.component.data.UiCollection;
 import craken.ui.component.display.UiIcon;
 import craken.ui.component.feedback.UiTooltip;
+import craken.ui.component.visualization.UiVisualizationContainer;
+import craken.visualization.adapter.pipeline.PipelineVisualizationFrame;
+import java.util.function.IntConsumer;
 
 /** 编译展示台：左右输入输出留白，右侧承载执行控件与阶段列表。 */
-public final class PipelinePanel extends BorderPane {
+public final class PipelinePanel extends BorderPane implements AutoCloseable {
     private static final double SIDEBAR_WIDTH = 356;
     private static final double MIN_STAGE_HEIGHT = 56;
     private final UiButton nextStep = new UiButton("下一步");
@@ -40,12 +43,18 @@ public final class PipelinePanel extends BorderPane {
     private int selectedStage = -1;
     private boolean updating;
     private boolean busy;
+    private final UiVisualizationContainer inputView;
+    private final UiVisualizationContainer outputView;
+    private PipelineVisualizationFrame visualization;
+    private IntConsumer selectStage;
 
     public PipelinePanel() {
         setId("pipeline-panel");
         setMinSize(0, 0);
         getStyleClass().add("pipeline-panel");
-        SplitPane views = new SplitPane(placeholder("输入", "pipeline-input"), placeholder("输出", "pipeline-output"));
+        inputView = new UiVisualizationContainer();
+        outputView = new UiVisualizationContainer();
+        SplitPane views = new SplitPane(pane("输入", "pipeline-input", inputView), pane("输出", "pipeline-output", outputView));
         views.setId("pipeline-io-split");
         views.setOrientation(Orientation.HORIZONTAL);
         views.setMinSize(0, 0);
@@ -64,8 +73,15 @@ public final class PipelinePanel extends BorderPane {
         nextStage.setOnAction(event -> action.run());
     }
 
+    public void setOnSelectStage(IntConsumer action) { selectStage = action; }
+
+    public PipelineVisualizationFrame visualization() { return visualization; }
+
     public void clear() {
         snapshot = null;
+        visualization = null;
+        inputView.refresh();
+        outputView.refresh();
         selectedStage = -1;
         source.setText("编译阶段");
         source.setTooltip(null);
@@ -97,6 +113,11 @@ public final class PipelinePanel extends BorderPane {
 
     public void show(PipelineSession.Snapshot current) {
         snapshot = current;
+        if (current.visualization() != null && visualization != current.visualization()) {
+            inputView.showSnapshot(current.visualization().input());
+            outputView.showSnapshot(current.visualization().output());
+            visualization = current.visualization();
+        }
         long finished = current.stages().stream()
                 .filter(stage -> stage.status() == PipelineSession.Status.COMPLETED).count();
         completed.setText(finished + " / " + current.stages().size() + " 已完成");
@@ -110,7 +131,11 @@ public final class PipelinePanel extends BorderPane {
             updating = false;
         }
         setBusy(false);
-        if (current.failed()) {
+        if (!current.visualizationError().isBlank()) {
+            status.setText("展示失败：" + current.visualizationError() + " · 点击下一步重试");
+            status.setTooltip(new UiTooltip(status.getText()));
+            status.pseudoClassStateChanged(PseudoClass.getPseudoClass("failed"), true);
+        } else if (current.failed()) {
             String error = current.stages().stream().filter(stage -> !stage.error().isBlank())
                     .map(PipelineSession.StageView::error).findFirst().orElse("编译失败");
             failed(error);
@@ -137,7 +162,7 @@ public final class PipelinePanel extends BorderPane {
     }
 
     private void updateStatus() {
-        if (snapshot == null || busy || snapshot.failed()) return;
+        if (snapshot == null || busy || snapshot.failed() || !snapshot.visualizationError().isBlank()) return;
         status.setTooltip(null);
         status.pseudoClassStateChanged(PseudoClass.getPseudoClass("failed"), false);
         if (snapshot.succeeded() && selectedStage == snapshot.stages().size() - 1) {
@@ -209,6 +234,7 @@ public final class PipelinePanel extends BorderPane {
                 return;
             }
             selectedStage = requested;
+            if (selectStage != null) selectStage.accept(requested);
             updateStatus();
         });
 
@@ -232,7 +258,7 @@ public final class PipelinePanel extends BorderPane {
         return sidebar;
     }
 
-    private static BorderPane placeholder(String title, String id) {
+    private static BorderPane pane(String title, String id, UiVisualizationContainer view) {
         Label heading = new Label(title);
         heading.getStyleClass().add("pipeline-pane-title");
         HBox bar = new HBox(heading);
@@ -241,15 +267,16 @@ public final class PipelinePanel extends BorderPane {
         bar.setMinHeight(36);
         bar.setPrefHeight(36);
         bar.getStyleClass().add("interaction-toolbar");
-        StackPane empty = new StackPane();
-        empty.setMinSize(0, 0);
-        BorderPane pane = new BorderPane(empty);
+        view.setMinSize(0, 0);
+        BorderPane pane = new BorderPane(view);
         pane.setTop(bar);
         pane.setId(id);
         pane.setMinSize(0, 0);
         pane.getStyleClass().add("pipeline-io-pane");
         return pane;
     }
+
+    @Override public void close() { inputView.close(); outputView.close(); }
 
     private static final class StageCell extends ListCell<PipelineSession.StageView> {
         private final StageRow row;
