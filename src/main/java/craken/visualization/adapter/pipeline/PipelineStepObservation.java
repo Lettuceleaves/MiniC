@@ -1,5 +1,6 @@
 package craken.visualization.adapter.pipeline;
 
+import craken.SourceRange;
 import craken.compiler.*;
 import craken.compiler.parser.Parser;
 import craken.compiler.parser.node.AstNode;
@@ -16,7 +17,13 @@ import java.util.Objects;
 /** Frozen public observations from the stage that actually executed this step. */
 public record PipelineStepObservation(Stage executedStage, int stageIndex, Stage.Result result,
         SourceFile source, int cursor, AstNode currentAstNode, MachineModule machineModule,
-        EncodedMachineModule encodedModule, byte[] peImage) {
+        EncodedMachineModule encodedModule, byte[] peImage, SourceRange expandedSourceRange) {
+    public PipelineStepObservation(Stage executedStage, int stageIndex, Stage.Result result,
+            SourceFile source, int cursor, AstNode currentAstNode, MachineModule machineModule,
+            EncodedMachineModule encodedModule, byte[] peImage) {
+        this(executedStage, stageIndex, result, source, cursor, currentAstNode, machineModule,
+                encodedModule, peImage, null);
+    }
     public PipelineStepObservation {
         Objects.requireNonNull(executedStage); Objects.requireNonNull(result);
         if (stageIndex < 0 || result.stageType() != executedStage.getClass())
@@ -38,6 +45,7 @@ public record PipelineStepObservation(Stage executedStage, int stageIndex, Stage
         MachineModule machine = stage instanceof ObjBuilder obj ? obj.machineModule().orElse(null) : null;
         EncodedMachineModule encoded = stage instanceof ObjBuilder obj ? obj.encodedMachineModule().orElse(null) : null;
         byte[] image = stage instanceof Linker linker ? linker.peImage().map(p -> p.bytes()).orElse(null) : null;
-        return new PipelineStepObservation(stage, index, result, source, cursor, current, machine, encoded, image);
+        SourceRange expanded = stage instanceof Lexer lexer ? lexer.expandedStepRange() : null;
+        return new PipelineStepObservation(stage, index, result, source, cursor, current, machine, encoded, image, expanded);
     }
 }

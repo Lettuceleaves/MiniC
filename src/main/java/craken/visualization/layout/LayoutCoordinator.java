@@ -120,10 +120,12 @@ public final class LayoutCoordinator implements AutoCloseable {
     }
     @Override public synchronized void close() {
         if (closed) return; closed = true; active.values().forEach(Ticket::cancel); active.clear(); cache.clear(); workers.shutdownNow();
-        IllegalStateException failure = null;
-        for (var resource : resources) try { resource.close(); } catch (Exception error) {
-            if (failure == null) failure = new IllegalStateException("Cannot close layout resource", error); else failure.addSuppressed(error);
+        Throwable failure = null;
+        for (var resource : resources) try { resource.close(); } catch (Exception | Error error) {
+            if (failure == null) failure = error instanceof Error ? error : new IllegalStateException("Cannot close layout resource", error);
+            else if (error != failure) failure.addSuppressed(error);
         }
-        if (failure != null) throw failure;
+        if (failure instanceof Error error) throw error;
+        if (failure instanceof RuntimeException error) throw error;
     }
 }

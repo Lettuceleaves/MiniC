@@ -79,6 +79,10 @@
     { "id": "C24", "required": {
       "visualizationModelTest": ["craken.visualization.mutation.ModelContractAuditTest", "craken.visualization.mutation.TouchReadResultTest", "craken.visualization.snapshot.SnapshotAuditTest", "craken.visualization.mutation.PageLayoutHintsTest", "craken.visualization.TopologyPortsTest"],
       "visualizationAdapterTest": ["craken.debug.DebugStructureRecognizerTest"]
+    } },
+    { "id": "C25", "required": {
+      "visualizationModelTest": ["craken.visualization.mutation.TransactionBoundaryAuditTest", "craken.visualization.snapshot.SnapshotInputContractTest"],
+      "visualizationAdapterTest": ["craken.visualization.adapter.pipeline.PipelineSharedAstDiffTest", "craken.visualization.adapter.pipeline.PipelineLexerPresentationTest"]
     } }
   ]
 }

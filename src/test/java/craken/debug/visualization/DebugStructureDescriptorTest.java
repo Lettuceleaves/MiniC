@@ -12,6 +12,17 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("visualization-adapter")
 final class DebugStructureDescriptorTest {
+    @Test void aScalarAndReferenceNameCanOnlyShareTheSamePointerField() {
+        var valid=descriptor("valid",ViewKind.POINT,16,List.of(new Field("next",8,POINTER)),
+                List.of(new Reference("next",8,"valid",Relation.TOPOLOGY,Direction.FORWARD)),null);
+        assertEquals(1,valid.fields().size());
+        assertThrows(IllegalArgumentException.class,()->descriptor("nonpointer",ViewKind.POINT,16,List.of(new Field("next",8,SIGNED32)),
+                List.of(new Reference("next",8,"nonpointer",Relation.TOPOLOGY,Direction.FORWARD)),null));
+    }
+    @Test void aScalarAndReferenceNameCannotHideTwoDifferentOffsets() {
+        assertThrows(IllegalArgumentException.class,()->descriptor("offset collision",ViewKind.POINT,16,List.of(new Field("next",0,POINTER)),
+                List.of(new Reference("next",8,"offset collision",Relation.TOPOLOGY,Direction.FORWARD)),null));
+    }
     @Test
     void callerSchemasRetainExactOffsetsAndDistinguishDrawingEdgesFromOwnership() {
         var descriptor = descriptor("tree", ViewKind.TREE, 24, List.of(new Field("value", 0, SIGNED32)),

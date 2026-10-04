@@ -24,6 +24,86 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag("visualization-adapter")
 @Timeout(30)
 final class DebugVisualizationAdapterTest {
+    @Test void aLargerPhysicalAllocationCannotLegitimizeOverlappingArrayElementSchemas() {
+        for(int length:new int[]{0,2}) {
+            Fixture f=new Fixture();f.types.register(BuiltinPageTypes.array());
+            f.adapter.registerDescriptor(new DebugStructureDescriptor("large","array-0",ViewKind.POINT,8,
+                    List.of(new Field("value",0,SIGNED64)),List.of(),null,ReallocationPolicy.RECREATE));
+            f.adapter.registerDescriptor(new DebugStructureDescriptor("array","array-0",ViewKind.ARRAY,8,
+                    List.of(),List.of(),new ArrayLayout(0,length,4,"large"),ReallocationPolicy.RECREATE));
+            long address=f.runtime.allocateZeroed(16,8,"heap","larger allocation");f.adapter.registerRoot(new RootAddress("array",address));
+            var state=f.runtime.snapshot();var result=f.project(0);
+            assertFalse(result.accepted(),"Each element requires 8 bytes but the declared stride is 4, including an empty array");
+            assertTrue(result.diagnostic().contains("stride"),result.diagnostic());assertTrue(f.session.model().pages().isEmpty());
+            assertTrue(f.adapter.locations().isEmpty());assertEquals(state,f.runtime.snapshot());
+        }
+    }
+    @Test void explicitlySharedNodePortsMergeOppositeDirectionsWithoutChangingEdgeIdentity() {
+        Fixture f=new Fixture();f.types.register(BuiltinPageTypes.graph(true));
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("graph","directed-graph",ViewKind.GRAPH,8,List.of(),
+                List.of(new Reference("next",0,"graph",Relation.TOPOLOGY,Direction.FORWARD,"node","node")),null,ReallocationPolicy.RECREATE));
+        long a=f.runtime.allocateZeroed(8,8,"heap","a"),b=f.runtime.allocateZeroed(8,8,"heap","b");
+        f.runtime.write(a,DebugRuntime.Value.of(IrType.POINTER,b));f.runtime.write(b,DebugRuntime.Value.of(IrType.POINTER,a));
+        f.adapter.registerRoot(new RootAddress("graph",a));var result=f.project(0);assertTrue(result.accepted(),result.diagnostic());
+        var page=f.location(a,"graph").page();var edges=f.session.model().pages().get(page.pageId()).topology();assertEquals(1,edges.size());
+        var first=edges.values().iterator().next();assertEquals(craken.visualization.model.relation.TopologyEdge.Direction.BOTH,first.direction());
+        f.runtime.write(b,DebugRuntime.Value.of(IrType.POINTER,0));result=f.project(1);assertTrue(result.accepted(),result.diagnostic());
+        var remaining=f.session.model().pages().get(page.pageId()).topology().values().iterator().next();
+        assertEquals(first.id(),remaining.id());assertEquals(craken.visualization.model.relation.TopologyEdge.Direction.FORWARD,remaining.direction());
+    }
+    @Test void reciprocalPointerFieldsKeepTheirIndependentDirectedEdges() {
+        Fixture f=new Fixture();f.types.register(BuiltinPageTypes.graph(true));
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("graph","directed-graph",ViewKind.GRAPH,8,List.of(),
+                List.of(new Reference("next",0,"graph",Relation.TOPOLOGY,Direction.FORWARD)),null,ReallocationPolicy.RECREATE));
+        long a=f.runtime.allocateZeroed(8,8,"heap","a"),b=f.runtime.allocateZeroed(8,8,"heap","b");
+        f.runtime.write(a,DebugRuntime.Value.of(IrType.POINTER,b));f.runtime.write(b,DebugRuntime.Value.of(IrType.POINTER,a));
+        f.adapter.registerRoot(new RootAddress("graph",a));var result=f.project(0);assertTrue(result.accepted(),result.diagnostic());
+        var edges=f.session.model().pages().get(f.location(a,"graph").pageId()).topology().values();
+        assertEquals(2,edges.size(),"Each pointer field owns its own concrete port pair");
+        assertTrue(edges.stream().anyMatch(edge->edge.direction()==craken.visualization.model.relation.TopologyEdge.Direction.FORWARD));
+        assertTrue(edges.stream().anyMatch(edge->edge.direction()==craken.visualization.model.relation.TopologyEdge.Direction.BACKWARD));
+    }
+    @Test void anUnchangedBackwardCanonicalEdgeRetainsItsIdentityAcrossStops() {
+        Fixture f=new Fixture();f.types.register(BuiltinPageTypes.graph(true));
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("graph","directed-graph",ViewKind.GRAPH,8,List.of(),
+                List.of(new Reference("next",0,"graph",Relation.TOPOLOGY,Direction.FORWARD)),null,ReallocationPolicy.RECREATE));
+        long a=f.runtime.allocateZeroed(8,8,"heap","a"),b=f.runtime.allocateZeroed(8,8,"heap","b");
+        f.runtime.write(b,DebugRuntime.Value.of(IrType.POINTER,a));f.adapter.registerRoot(new RootAddress("graph",a));f.adapter.registerRoot(new RootAddress("graph",b));
+        assertTrue(f.project(0).accepted());var page=f.location(a,"graph").page();
+        var edges=f.session.model().pages().get(page.pageId()).topology();
+        var result=f.project(1);assertTrue(result.accepted(),result.diagnostic());
+        assertEquals(edges,f.session.model().pages().get(page.pageId()).topology(),"No topology event occurred");
+    }
+    @Test void twoPointerFieldsToTheSameTargetDoNotOverwriteOneAnother() {
+        Fixture f=new Fixture();f.types.register(BuiltinPageTypes.graph(true));
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("graph","directed-graph",ViewKind.GRAPH,16,List.of(),
+                List.of(new Reference("left",0,"graph",Relation.TOPOLOGY,Direction.FORWARD),
+                        new Reference("right",8,"graph",Relation.TOPOLOGY,Direction.FORWARD)),null,ReallocationPolicy.RECREATE));
+        long a=f.runtime.allocateZeroed(16,8,"heap","a"),b=f.runtime.allocateZeroed(16,8,"heap","b");
+        f.runtime.write(a,DebugRuntime.Value.of(IrType.POINTER,b));f.runtime.write(a+8,DebugRuntime.Value.of(IrType.POINTER,b));
+        f.adapter.registerRoot(new RootAddress("graph",a));var result=f.project(0);assertTrue(result.accepted(),result.diagnostic());
+        var source=f.location(a,"graph");var edges=f.session.model().pages().get(source.pageId()).topology().values();
+        assertEquals(2,edges.size());assertEquals(java.util.Set.of("field:left","field:right"),
+                edges.stream().map(edge->edge.aPort()).collect(java.util.stream.Collectors.toSet()));
+        assertEquals("0x"+Long.toUnsignedString(b,16).toUpperCase(java.util.Locale.ROOT),f.session.model().node(source).content().fields().get("left"));
+        f.runtime.write(a,DebugRuntime.Value.of(IrType.POINTER,0));result=f.project(1);assertTrue(result.accepted(),result.diagnostic());
+        edges=f.session.model().pages().get(source.pageId()).topology().values();assertEquals(1,edges.size());assertEquals("field:right",edges.iterator().next().aPort());
+    }
+    @Test void preservingAnArrayWrapperWhileRecreatingItsReallocatedMembersReplacesOccupiedSlots() {
+        Fixture f=new Fixture();f.types.register(BuiltinPageTypes.array());
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("int","array-0",ViewKind.POINT,4,
+                List.of(new Field("value",0,SIGNED32)),List.of(),null,ReallocationPolicy.RECREATE));
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("array","array-0",ViewKind.ARRAY,12,
+                List.of(),List.of(),new ArrayLayout(0,3,4,"int"),ReallocationPolicy.PRESERVE_LOCATION));
+        long a=f.runtime.allocateZeroed(12,4,"heap","array");for(int i=0;i<3;i++)f.runtime.write(a+i*4,DebugRuntime.Value.of(IrType.INT,i+1));
+        f.adapter.registerRoot(new RootAddress("array",a));assertTrue(f.project(0).accepted());
+        var wrapper=f.location(a,"array");var first=f.location(a,"int");var previous=f.adapter.publishedSnapshot();
+        long resized=f.runtime.reallocate(a,24);var state=f.runtime.snapshot();var result=f.project(1);assertTrue(result.accepted(),result.diagnostic());
+        assertEquals(wrapper,f.location(resized,"array"));assertNotEquals(first,f.location(resized,"int"));
+        var page=f.session.model().pages().get(wrapper.pageId());assertEquals(3,page.composition().size());assertEquals(4,page.nodes().size());
+        assertEquals("1",f.session.model().node(f.location(resized,"int")).content().fields().get("value"));assertEquals(state,f.runtime.snapshot());
+        assertEquals(4,previous.pages().get(wrapper.pageId()).nodes().size(),"The old history frame stays immutable");
+    }
     @Test
     void aManuallyRegisteredSingletonExpandsItsTreeWithAnUpstreamForEveryTreeNode() {
         Fixture f = new Fixture();

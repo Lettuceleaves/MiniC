@@ -11,6 +11,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("visualization-layout")
 final class LayoutCoordinatorTest {
+    @Test void closeReleasesEveryResourceAfterAnErrorAndPreservesTheFirstFailure() {
+        var first = new AssertionError("first resource"); var later = new IllegalStateException("later resource"); var released = new AtomicInteger();
+        var coordinator = new LayoutCoordinator(Map.of(Kind.GRAPH, new ArrayLayout()), Runnable::run, 2,
+                () -> { throw first; }, () -> { throw first; }, () -> { throw later; }, released::incrementAndGet);
+        assertSame(first, assertThrows(AssertionError.class, coordinator::close));
+        assertEquals(1, released.get(), "An Error must not skip the remaining registered resources");
+        assertEquals(List.of(later), Arrays.asList(first.getSuppressed()));
+        assertTrue(coordinator.isClosed()); assertEquals(0, coordinator.activeRequestCount());
+        coordinator.close(); assertEquals(1, released.get());
+    }
     private static LayoutRequest input(long geometryVersion, long epoch) {
         var original = request(Kind.GRAPH, List.of(node(1, 64, 48)), List.of(), Hints.defaults());
         return new LayoutRequest(new Stamp(original.stamp().page(), 1, geometryVersion, 0, epoch, 800), original.kind(), original.units(), original.links(), original.hints(), Map.of());

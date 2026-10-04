@@ -42,7 +42,8 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
         Node(ObjectKey key, Group group, ViewNode.Spec spec) { this.key=key; this.group=group; this.spec=spec; }
     }
     private record Work(ObjectKey key, Group group, Set<Owner> owners) {}
-    private record Edge(ObjectKey a, ObjectKey b, TopologyEdge.Direction direction) {}
+    private record Edge(ObjectKey a, ObjectKey b, TopologyEdge.Direction direction,String aPort,String bPort) {}
+    private record EdgePorts(ViewLocation a,ViewLocation b,String aPort,String bPort) {}
     private record Member(ObjectKey parent, ObjectKey child, int slot) {}
     private record PointerField(ReferenceKey key, int offset, long value) {}
 
@@ -204,7 +205,8 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                     if (target.isEmpty()) continue;
                     ObjectKey child = key(target.get(),reference.targetDescriptorKey());
                     if (reference.relation()==DebugStructureDescriptor.Relation.TOPOLOGY) {
-                        edges.add(new Edge(work.key(),child,TopologyEdge.Direction.valueOf(reference.direction().name())));
+                        edges.add(new Edge(work.key(),child,TopologyEdge.Direction.valueOf(reference.direction().name()),
+                                reference.sourcePort(),reference.targetPort()));
                         queue.add(new Work(child,node.group,Set.copyOf(node.owners)));
                     } else {
                         Group group = groupFor(child,draft,registered);
@@ -237,28 +239,32 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                 if (!session.model().node(location).content().equals(node.spec))
                     commands.add(new SetContent(path(location,node,locations),node.spec));
             }
-            for (var member : members) {
-                var parent=locations.get(member.parent()); var child=locations.get(member.child());
-                boolean present=session.model().pages().get(parent.pageId()).composition().values().stream()
-                        .anyMatch(link->link.parent().equals(parent)&&link.child().equals(child));
-                if (!present) commands.add(new Compose(parent,child,member.slot()));
-            }
+            var resolved=resolveEdges(edges,locations);
+            var currentEdges=new LinkedHashMap<EdgePorts,TopologyEdge>();
             for (var page : session.model().pages().values()) for (var edge : page.topology().values()) {
-                boolean keep=edges.stream().anyMatch(e->edge.a().equals(locations.get(e.a()))&&edge.b().equals(locations.get(e.b()))
-                        &&edge.direction()==e.direction());
-                if (!keep) commands.add(new Disconnect(currentPath(edge.a()),currentPath(edge.b())));
-            }
-            for (var edge : edges) {
-                var a=locations.get(edge.a()); var b=locations.get(edge.b());
-                boolean present=session.model().pages().get(a.pageId()).topology().values().stream()
-                        .anyMatch(e->e.a().equals(a)&&e.b().equals(b)&&e.direction()==edge.direction());
-                if (!present) commands.add(new Connect(path(a,nodes.get(edge.a()),locations),path(b,nodes.get(edge.b()),locations),edge.direction()));
+                var ports=new EdgePorts(edge.a(),edge.b(),edge.aPort(),edge.bPort());currentEdges.put(ports,edge);
+                if (!resolved.containsKey(ports)) commands.add(new Disconnect(currentPath(edge.a()),currentPath(edge.b()),edge.aPort(),edge.bPort()));
             }
             var retained = new HashSet<>(locations.values());
             var deleted = new LinkedHashSet<ViewLocation>();
             for (var previous : identities.locations().values()) if (!retained.contains(previous)&&exists(previous)) deleted.add(previous);
             // Children still need a live pre. Delete leaves before parents, before detaching their paths.
             for (var previous : deletionOrder(deleted)) commands.add(new DeleteNode(currentPath(previous)));
+            // Explicitly deleted old members release their slots for a later Compose in this same batch.
+            for (var member : members) {
+                var parent=locations.get(member.parent()); var child=locations.get(member.child());
+                boolean present=session.model().pages().get(parent.pageId()).composition().values().stream()
+                        .anyMatch(link->link.parent().equals(parent)&&link.child().equals(child));
+                if (!present) commands.add(new Compose(parent,child,member.slot()));
+            }
+            var nodeByLocation=new HashMap<ViewLocation,Node>();nodes.values().forEach(node->nodeByLocation.put(locations.get(node.key),node));
+            for(var entry:resolved.entrySet()) {
+                var ports=entry.getKey();var existing=currentEdges.get(ports);
+                if(existing==null||existing.direction()!=entry.getValue())
+                    commands.add(new Connect(path(ports.a(),nodeByLocation.get(ports.a()),locations),
+                            path(ports.b(),nodeByLocation.get(ports.b()),locations),entry.getValue(),ports.aPort(),ports.bPort(),
+                            existing==null?craken.visualization.style.EdgeStyle.DEFAULT:existing.style()));
+            }
             // Replacement sources have already been attached. Explicit deletion removes its own sources.
             for (var binding : session.model().ownership().values()) for (var source : binding.sources()) {
                 if (!source.startsWith("debug:")) continue;
@@ -290,6 +296,14 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
     }
     private DebugStructureDescriptor descriptor(String key) {
         var schema=descriptors.get(key); if (schema==null) throw new IllegalArgumentException("Unregistered descriptor: "+key);
+        var array=schema.array();
+        if(array!=null) {
+            var element=descriptors.get(array.elementDescriptorKey());
+            if(element==null)throw new IllegalArgumentException("Unregistered array element descriptor: "+array.elementDescriptorKey());
+            if(element.minimumSize()>array.stride())throw new IllegalArgumentException("Array element minimumSize exceeds declared stride");
+            long end=(long)array.offset()+(array.length()==0?0:(long)(array.length()-1)*array.stride()+element.minimumSize());
+            if(end>schema.minimumSize())throw new IllegalArgumentException("Array element exceeds declared object minimumSize");
+        }
         types.require(schema.pageTypeKey()); return schema;
     }
     private void requireOpen() { if(closed)throw new IllegalStateException("Adapter closed"); }
@@ -335,6 +349,13 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
             catch(DebugMemoryReader.MemoryReadException e) {
                 if(e.reason()!=DebugMemoryReader.Reason.UNINITIALIZED) throw e;
                 fields.put(field.name(),"<uninitialized>");
+            }
+        }
+        for(var reference:schema.references())if(!fields.containsKey(reference.name())) {
+            try { fields.put(reference.name(),memory.readScalar(key.address(),reference.offset(),DebugMemoryReader.ScalarType.POINTER)); }
+            catch(DebugMemoryReader.MemoryReadException e) {
+                if(e.reason()!=DebugMemoryReader.Reason.UNINITIALIZED)throw e;
+                fields.put(reference.name(),"<uninitialized>");
             }
         }
         return new ViewNode.Spec(ViewNode.Kind.valueOf(schema.viewKind().name()),schema.key(),fields);
@@ -438,6 +459,22 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
         while(!groups.get(root).equals(root))root=groups.get(root);
         while(!group.equals(root)) {Group next=groups.get(group);groups.put(group,root);group=next;}
         return root;
+    }
+    private static Map<EdgePorts,TopologyEdge.Direction> resolveEdges(Set<Edge> edges,Map<ObjectKey,ViewLocation> locations) {
+        var resolved=new LinkedHashMap<EdgePorts,TopologyEdge.Direction>();
+        for(var edge:edges) {
+            var a=locations.get(edge.a());var b=locations.get(edge.b());var aPort=edge.aPort();var bPort=edge.bPort();var direction=edge.direction();
+            if(a.nodeId()>b.nodeId()||a.equals(b)&&aPort.compareTo(bPort)>0) {
+                var swap=a;a=b;b=swap;var port=aPort;aPort=bPort;bPort=port;direction=direction.reversed();
+            }
+            resolved.merge(new EdgePorts(a,b,aPort,bPort),direction,DebugVisualizationAdapter::mergeDirections);
+        }
+        return resolved;
+    }
+    private static TopologyEdge.Direction mergeDirections(TopologyEdge.Direction a,TopologyEdge.Direction b) {
+        if(a==b||b==TopologyEdge.Direction.NONE)return a;
+        if(a==TopologyEdge.Direction.NONE)return b;
+        return TopologyEdge.Direction.BOTH;
     }
     private static ViewLocation owner(Owner owner,Map<ObjectKey,ViewLocation> locations) {
         return owner.location()!=null?owner.location():Objects.requireNonNull(locations.get(owner.key()));

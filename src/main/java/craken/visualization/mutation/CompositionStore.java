@@ -9,9 +9,16 @@ import static craken.visualization.api.VisualizationError.Code.*;
 public final class CompositionStore {
     private CompositionStore() {}
     public static PageModel compose(PageModel page, ViewNode parent, ViewNode child, int slot) {
+        return compose(page, parent, child, slot, Set.of());
+    }
+    public static PageModel compose(PageModel page, ViewNode parent, ViewNode child, int slot,
+                                    Set<ViewLocation> explicitlyDeleted) {
         if (!parent.location().page().equals(child.location().page()))
             throw CommandValidator.failure(COMPOSITION_CONFLICT, "Composition must stay in one page");
         var links = new LinkedHashMap<>(page.composition());
+        // Delete remains deferred for lifetime planning, but its slot is available to a later command.
+        links.values().removeIf(link -> link.parent().equals(parent.location()) && link.slot() == slot
+                && explicitlyDeleted.contains(link.child()));
         var previous = links.get(child.location().nodeId());
         if (previous != null && (!previous.parent().equals(parent.location()) || previous.slot() != slot))
             throw CommandValidator.failure(COMPOSITION_CONFLICT, "Child already has another parent or slot");

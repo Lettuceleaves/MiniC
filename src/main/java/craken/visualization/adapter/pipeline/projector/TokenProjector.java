@@ -15,7 +15,12 @@ public final class TokenProjector implements PipelineStageProjector<LexerResult>
             token.literalValueOptional().ifPresent(value -> fields.put("literal", String.valueOf(value)));
             return new PipelinePlans.Row(token.type().name() + " " + token.lexeme(), fields, token.range());
         }).toList();
-        var output = PipelinePlans.sequence("Token", rows).highlightRange(observation.result().sourceRange());
-        return new StageProjection((input == null ? PipelinePlans.empty("输入") : input).highlightRange(observation.result().sourceRange()), output);
+        boolean emitted = observation.result().operation().startsWith("EMIT_") && !context.tokens().isEmpty();
+        var output = PipelinePlans.sequence("Token", rows);
+        if (emitted) output = output.highlighted(Set.of(new ProjectionKey.Indexed("Token", rows.size() - 1)));
+        var source = input == null ? PipelinePlans.empty("输入") : input;
+        var range = observation.expandedSourceRange() != null
+                ? observation.expandedSourceRange() : observation.result().sourceRange();
+        return new StageProjection(source.highlightRange(range), output);
     }
 }

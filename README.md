@@ -114,6 +114,8 @@ view.refresh();
 
 `DebugStructureRecognizer` 提供只读候选识别接口；调用者决定是否采用返回的描述并显式注册，适配器不会自动运行它。
 
+TOPOLOGY 引用默认从自己的 `field:<字段名>` 连到目标节点；`Reference` 扩展构造器可指定两端端口。不同字段即使指向同一节点，也保留独立连线；同一具体端口对的互反方向合为双向箭头。引用字段会显示在卡片中，数组元素描述尺寸必须适合声明的步长。
+
 ```java
 var types = new PageTypeRegistry();
 types.register(BuiltinPageTypes.point());
@@ -146,7 +148,7 @@ if ((Get-FileHash $runtimeLock.archivePath -Algorithm SHA256).Hash -ne $runtimeL
     throw 'Graphviz archive checksum mismatch'
 }
 Expand-Archive -LiteralPath $runtimeLock.archivePath -DestinationPath $archiveDir -Force
-./scripts/verify-visualization.ps1 -Stage C24
+./scripts/verify-visualization.ps1 -Stage C25
 ```
 
 每次提交前使用该验收入口，重新编译并检查模型、布局、适配、真实 FX、原 UI 回归和默认回归的本次 XML；必需测试缺失、跳过或失败均拒绝验收。门禁会生成 `build/install/Craken`，从任意 cwd 用安装包 JAR 定位并执行自带 neato，完整核验 303 个官方运行文件、校验和及许可证；不依赖全局 Graphviz。`installDist`、`distZip`、`distTar` 都包含 `runtime/graphviz`。

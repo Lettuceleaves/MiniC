@@ -16,10 +16,17 @@ public record DebugStructureDescriptor(String key, String pageTypeKey, ViewKind 
     public record Field(String name, int offset, DebugMemoryReader.ScalarType type) {
         public Field { requireKey(name); requireOffset(offset); Objects.requireNonNull(type); }
     }
-    public record Reference(String name, int offset, String targetDescriptorKey, Relation relation, Direction direction) {
+    public record Reference(String name, int offset, String targetDescriptorKey, Relation relation, Direction direction,
+                            String sourcePort, String targetPort) {
+        public Reference(String name,int offset,String targetDescriptorKey,Relation relation,Direction direction) {
+            this(name,offset,targetDescriptorKey,relation,direction,
+                    relation==Relation.TOPOLOGY?"field:"+name:"node","node");
+        }
         public Reference {
             requireKey(name); requireOffset(offset); requireKey(targetDescriptorKey);
             Objects.requireNonNull(relation); Objects.requireNonNull(direction);
+            craken.visualization.model.relation.TopologyEdge.requirePort(sourcePort);
+            craken.visualization.model.relation.TopologyEdge.requirePort(targetPort);
             if (relation == Relation.OWNERSHIP && direction != Direction.NONE) {
                 throw new IllegalArgumentException("Ownership describes expansion; direction belongs to topology");
             }
@@ -51,6 +58,9 @@ public record DebugStructureDescriptor(String key, String pageTypeKey, ViewKind 
         for (Reference reference : references) {
             if (!names.add(reference.name())) throw new IllegalArgumentException("Duplicate reference field: " + reference.name());
             requireFits(reference.offset(), Long.BYTES, minimumSize);
+            for(Field field:fields)if(field.name().equals(reference.name())
+                    &&(field.offset()!=reference.offset()||field.type()!=DebugMemoryReader.ScalarType.POINTER))
+                throw new IllegalArgumentException("Scalar/reference names must describe the same pointer field: "+reference.name());
         }
         if (array != null) {
             if (viewKind != ViewKind.ARRAY) throw new IllegalArgumentException("Array composition requires an ARRAY view node");

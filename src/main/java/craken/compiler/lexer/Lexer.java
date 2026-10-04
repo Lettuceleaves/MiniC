@@ -31,6 +31,7 @@ public final class Lexer extends Stage {
     private final List<Token> tokens = new ArrayList<>();
     private final List<Diagnostic> diagnostics = new ArrayList<>();
     private int currentOffset;
+    private SourceRange expandedStepRange;
     private boolean eofEmitted;
     private boolean completed;
     private long stepCount;
@@ -64,6 +65,9 @@ public final class Lexer extends Stage {
         return currentOffset;
     }
 
+    /** Most recent step in the expanded input text; IDE Result ranges remain mapped to the original source. */
+    public SourceRange expandedStepRange() { return expandedStepRange; }
+
     /**
      * 循环执行 {@link #step()}，直到独立的最后空步骤发出。
      *
@@ -86,12 +90,14 @@ public final class Lexer extends Stage {
         int beforeTokens = tokens.size();
         int beforeDiagnostics = diagnostics.size();
         if (eofEmitted) {
+            expandedStepRange = null;
             completed = true;
             stepCount++;
             return finishStep(null, "", diagnostics, this::toLexerResult);
         }
         if (isAtEnd()) {
             int eofOffset = currentOffset;
+            expandedStepRange = sourceFile.range(eofOffset, eofOffset);
             Token eof = new Token(
                     TokenType.EOF,
                     "",
@@ -183,6 +189,7 @@ public final class Lexer extends Stage {
             operation = "SKIP";
         }
         SourceRange sourceRange = range(startOffset, currentOffset);
+        expandedStepRange = sourceFile.range(startOffset, currentOffset);
         return finishStep(sourceRange, operation, diagnostics, this::toLexerResult);
     }
 

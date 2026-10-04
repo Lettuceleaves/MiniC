@@ -10,6 +10,17 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("visualization-model")
 class NavigationResolverTest {
+    @Test void offPathCustomHighlightRuleStillAppliesToItsDisplayedPage() {
+        var p = new PageRef(1, 1); var a = new ViewLocation(1, 1, 1); var b = new ViewLocation(1, 1, 2); var slot = new ViewLocation(1, 1, 3);
+        var selected = new PointViewNode(a, ViewNode.Spec.point("focus"), ViewNode.Retention.ROOT, ParentSelection.ROOT);
+        var custom = new PointViewNode(b, ViewNode.Spec.point("accessed"), ViewNode.Retention.ROOT, ParentSelection.ROOT) {
+            @Override public Set<ViewLocation> highlights() { return Set.of(b, slot); }
+        };
+        var cell = new PointViewNode(slot, ViewNode.Spec.point("slot"), ViewNode.Retention.ROOT, ParentSelection.ROOT);
+        var model = new ContainerModel(1, p, Map.of(1L, new PageModel(p, BuiltinPageTypes.point(), Map.of(1L, selected, 2L, custom, 3L, cell), null)), 1, Map.of(), Map.of(),
+                new InteractionState(a, b, AccessKind.READ, new VisualizationOptions(false, false)));
+        assertEquals(Set.of(b, slot), NavigationResolver.resolve(model).occurrences().getFirst().highlights());
+    }
     @Test void deepPathIsIterativeAndDoesNotDeduplicatePages() {
         var p=new PageRef(1,1); var q=new PageRef(1,2);
         var left=new LinkedHashMap<Long,ViewNode>(); var right=new LinkedHashMap<Long,ViewNode>();

@@ -82,5 +82,15 @@ final class ProjectionContainer {
         plan = next;
     }
     private static OperationPath path(ViewLocation location) { return new OperationPath(null, location); }
-    private record Edge(ViewLocation parent, ViewLocation child, TopologyEdge.Direction direction) {}
+    private record Edge(ViewLocation parent, ViewLocation child, TopologyEdge.Direction direction) {
+        Edge {
+            // Core topology stores the lower node ID first, with the direction reversed as needed.
+            if (parent.nodeId() > child.nodeId()) {
+                var previousParent = parent;
+                parent = child;
+                child = previousParent;
+                direction = direction.reversed();
+            }
+        }
+    }
 }

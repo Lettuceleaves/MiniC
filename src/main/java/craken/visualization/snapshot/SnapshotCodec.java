@@ -38,8 +38,10 @@ public final class SnapshotCodec {
                 if (nodeEntry.getKey()!=value.location().nodeId() || !value.location().page().equals(page.ref()) || !type.nodeKinds().contains(value.content().kind())) throw new IllegalArgumentException("Invalid node identity or type");
                 var children=page.composition().values().stream().filter(link->link.parent().equals(value.location()))
                         .sorted(Comparator.comparingInt(CompositionLink::slot)).map(CompositionLink::child).toList();
-                var node=registry==null?new FrozenNode(value,children):type.create(value.location(),value.content(),value.retention(),value.parents()).withChildren(children);
-                if (!node.location().equals(value.location()) || !node.content().equals(value.content()) || node.retention()!=value.retention() || !node.parents().equals(value.parents()) || !node.children().equals(children)) throw new IllegalArgumentException("Page factory violated snapshot contract");
+                var node=registry==null?new FrozenNode(value,children):ViewNodeContract.withChildren(
+                        ViewNodeContract.require(type.create(value.location(),value.content(),value.retention(),value.parents()),
+                                value.location(),value.content(),value.retention(),value.parents(),List.of()),children);
+                if (!node.highlights().equals(value.highlights())) throw new IllegalArgumentException("Page factory changed captured highlights");
                 nodes.put(nodeEntry.getKey(),node);
             }
             pages.put(entry.getKey(),new PageModel(page.ref(),type,nodes,page.anchor(),page.composition(),page.topology(),page.ready(),Map.of(),Map.of(),page.layoutHints()));

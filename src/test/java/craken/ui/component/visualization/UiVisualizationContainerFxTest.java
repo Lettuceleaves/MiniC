@@ -41,6 +41,70 @@ import static craken.visualization.layout.LayoutRequest.Kind;
 @Tag("visualization-ui")
 @EnabledIfSystemProperty(named = "craken.ui.test", matches = "true")
 final class UiVisualizationContainerFxTest {
+    @Test void disabledAutomaticNavigationHighlightsAnotherVisibleNodeAndExplicitClickStillChangesFocus() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.point()); var a = add(session, page, null, "focus A"); var b = add(session, page, null, "access B");
+            session.modify(MutationBatch.of(new VisualizationCommand.Configure(new VisualizationOptions(false, false)),
+                    new VisualizationCommand.SetFocus(new OperationPath(null, a)), new VisualizationCommand.Touch(new OperationPath(null, b), AccessKind.READ))).requireSuccess();
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session, deterministic(new AtomicInteger())); new Scene(host, 600, 500); host.applyCss(); host.layout(); host.refresh(); return host; });
+            try { awaitFx(() -> !ui.isLayoutPending()); onFx(() -> {
+                var occurrence = ui.visibleOccurrences().getFirst(); assertEquals(a, occurrence.occurrence().node());
+                assertEquals(2, ((Rectangle)occurrence.nodeViews().get(b).getChildren().getFirst()).getStrokeWidth(), "Access B must highlight its actually visible card");
+                assertEquals(1, ((Rectangle)occurrence.nodeViews().get(a).getChildren().getFirst()).getStrokeWidth());
+                occurrence.nodeViews().get(b).fireEvent(new MouseEvent(MouseEvent.MOUSE_CLICKED, 0, 0, 0, 0, MouseButton.PRIMARY, 1,
+                        false, false, false, false, true, false, false, false, false, false, null));
+                assertEquals(b, session.model().focus()); assertEquals(b, ui.visibleOccurrences().getFirst().occurrence().node()); return null;
+            }); } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void aTopologyEdgeBetweenArrayCellsIsActuallyVisibleOverTheOpaqueArrayBackground() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.array()); var array = session.reserveNodeId(page);
+            session.addNode(new OperationPath(null, array), new ViewNode.Spec(ViewNode.Kind.ARRAY, "array"));
+            var a = add(session, page, null, "A"); var b = add(session, page, null, "B");
+            session.modify(MutationBatch.of(new VisualizationCommand.Compose(array, a, 0), new VisualizationCommand.Compose(array, b, 1),
+                    new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, b), TopologyEdge.Direction.NONE,
+                            "east", "west", new EdgeStyle("#FFFFFF", null, "")))).requireSuccess();
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session); new Scene(host, 600, 500); host.applyCss(); host.layout(); host.refresh(); return host; });
+            try { awaitFx(() -> !ui.isLayoutPending()); onFx(() -> {
+                var part = ui.visibleOccurrences().getFirst().parts().getFirst(); assertTrue(part.errorText().isEmpty(), part.errorText());
+                var route = part.geometry().edgePaths().values().iterator().next(); assertEquals(1, route.segments().size());
+                var extent = part.geometry().contentBounds(); var canvas = (Pane)part.getChildren().getLast();
+                var middle = canvas.localToScene((route.start().x() + route.end().x()) / 2 - extent.x(), (route.start().y() + route.end().y()) / 2 - extent.y());
+                var image = ui.getScene().snapshot(null); var directory = Path.of(System.getProperty("craken.visualization.screenshots", "build/verification/screenshots"));
+                Files.createDirectories(directory); ImageIO.write(SwingFXUtils.fromFXImage(image, null), "png", directory.resolve("internal-array-edge.png").toFile());
+                double brightestWhite = 0;
+                for (int y = (int)Math.floor(middle.getY()) - 1; y <= (int)Math.ceil(middle.getY()) + 1; y++) {
+                    var color = image.getPixelReader().getColor((int)Math.round(middle.getX()), y);
+                    brightestWhite = Math.max(brightestWhite, Math.min(color.getRed(), Math.min(color.getGreen(), color.getBlue())));
+                }
+                assertTrue(brightestWhite > .5, "The real Scene must show the white edge in the gap between cells; geometry alone is insufficient"); return null;
+            }); } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void aSceneAttachedOccurrenceRestoresRealScrollRangesAfterItIsHiddenAndRebuilt() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var root = session.initializeRoot(BuiltinPageTypes.point()); var parent = add(session, root, null, "parent");
+            for (int i = 0; i < 18; i++) add(session, root, null, "long visible card " + "value ".repeat(40));
+            var child = session.initializePage(BuiltinPageTypes.point(), parent); add(session, child, parent, "child");
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session, deterministic(new AtomicInteger())); host.setManaged(false);
+                new Scene(new Pane(host), 1500, 700); host.resize(1500, 700); host.applyCss(); host.layout(); host.refresh(); return host; });
+            try {
+                awaitFx(() -> !ui.isLayoutPending());
+                onFx(() -> { ui.applyCss(); ui.layout(); var occurrence = ui.visibleOccurrences().getFirst(); occurrence.setZoom(1.2); ui.layout();
+                    assertTrue(occurrence.scrollPane().getContent().getBoundsInLocal().getWidth() > occurrence.scrollPane().getViewportBounds().getWidth());
+                    assertTrue(occurrence.scrollPane().getContent().getBoundsInLocal().getHeight() > occurrence.scrollPane().getViewportBounds().getHeight());
+                    occurrence.scrollPane().setHvalue(.65); occurrence.scrollPane().setVvalue(.75);
+                    ui.getScene().snapshot(null); assertEquals(.65, occurrence.scrollPane().getHvalue(), 1e-9); assertEquals(.75, occurrence.scrollPane().getVvalue(), 1e-9);
+                    ui.resize(300, 700); ui.applyCss(); ui.layout(); assertEquals(1, ui.visibleOccurrences().size());
+                    ui.resize(1500, 700); ui.applyCss(); ui.layout(); return null; });
+                awaitFx(() -> !ui.isLayoutPending());
+                onFx(() -> { ui.getScene().snapshot(null); var occurrence = ui.visibleOccurrences().getFirst();
+                    assertEquals(1.2, occurrence.getZoom(), 1e-9); assertEquals(.65, occurrence.scrollPane().getHvalue(), 1e-9);
+                    assertEquals(.75, occurrence.scrollPane().getVvalue(), 1e-9); return null; });
+            } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
     @BeforeAll static void toolkit() throws Exception {
         var ready = new CompletableFuture<Void>(); Runnable task = () -> { Platform.setImplicitExit(false); ready.complete(null); };
         try { Platform.startup(task); } catch (IllegalStateException started) { Platform.runLater(task); } ready.get(10, TimeUnit.SECONDS);

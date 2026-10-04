@@ -111,7 +111,12 @@ public final class PartView extends VBox implements AutoCloseable {
         var edgeRenderer = new EdgeRenderer();
         for (var edge : links) if (visible.contains(edge.tail().node()) && visible.contains(edge.head().node())) {
             var path = result.edgePaths().get(edge.id());
-            if (path != null) { var graphic = edgeRenderer.render(path, edge.direction(), page.topology().get(edge.id()).style()); graphic.setTranslateX(-extent.x()); graphic.setTranslateY(-extent.y()); canvas.getChildren().add(graphic); }
+            if (path != null) {
+                var graphic = edgeRenderer.render(path, edge.direction(), page.topology().get(edge.id()).style());
+                graphic.setTranslateX(-extent.x()); graphic.setTranslateY(-extent.y());
+                // Composition frames have opaque backgrounds. Routed edges must remain visible in their internal channels.
+                graphic.setViewOrder(-1); canvas.getChildren().add(graphic);
+            }
         }
         for (var entry : prepared.entrySet()) if (visible.contains(entry.getKey())) {
             var rendered = entry.getValue(); var outer = result.nodeBounds().get(entry.getKey());

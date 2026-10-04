@@ -15,9 +15,9 @@ public final class NavigationResolver {
         return List.copyOf(path);
     }
     public static NavigationFrame resolve(ContainerModel model) {
-        if (model.focus()==null) return new NavigationFrame(model.root()==null?List.of():List.of(new NavigationFrame.PageOccurrence(model.root(),null,Set.of())));
-        var highlights=HighlightPlanner.plan(model);
         var nodes=new ArrayList<>(chain(model,model.focus())); Collections.reverse(nodes);
+        var highlights=HighlightPlanner.plan(model,nodes);
+        if (nodes.isEmpty()) return new NavigationFrame(model.root()==null?List.of():List.of(new NavigationFrame.PageOccurrence(model.root(),null,highlights.getOrDefault(null,Set.of()))));
         return new NavigationFrame(nodes.stream().map(n->new NavigationFrame.PageOccurrence(n.page(),n,highlights.getOrDefault(n,Set.of()))).toList());
     }
 }

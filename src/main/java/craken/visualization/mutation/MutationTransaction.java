@@ -107,7 +107,7 @@ public final class MutationTransaction {
     private void bind(BindPage bind) {
         PageBindingRuleExpander.validate(base.id(),pages,bind.child(),bind.binding());
         var rule = new PageBindingRule(relationIds.next(),bind.child(),bind.binding());
-        rules.put(rule.id(),rule); createdRules.add(rule.id()); affected.add(rule.child());
+        rules.put(rule.id(),rule); createdRules.add(rule.id()); affected.add(rule.child()); affected.add(rule.spec().parentPage());
         expand(rule,null);
     }
     private void expand(PageBindingRule rule, ViewLocation added) {
@@ -122,9 +122,11 @@ public final class MutationTransaction {
     private void unbind(long id) {
         var rule = rules.remove(id);
         if (rule == null) throw CommandValidator.failure(INVALID_COMMAND,"Unknown page binding rule");
-        for (var binding : ownership.bindings().values())
+        for (var binding : ownership.bindings().values()) if (binding.sources().contains(rule.source())) {
+            affected.add(binding.key().pre().page()); affected.add(binding.key().nxt().page());
             ownership.removeSource(binding.key().pre(),binding.key().nxt(),rule.source());
-        affected.add(rule.child());
+        }
+        affected.add(rule.child()); affected.add(rule.spec().parentPage());
     }
     private static void validateExplicitSource(String source) {
         if (source.isBlank() || source.startsWith("rule:")) throw CommandValidator.failure(INVALID_COMMAND,"Reserved or empty ownership source");
@@ -160,7 +162,7 @@ public final class MutationTransaction {
         requireNotDeleted(compose.parent()); requireNotDeleted(compose.child());
         ViewNode parent = node(compose.parent()), child = node(compose.child());
         PageModel page = pages.get(parent.location().pageId());
-        pages.put(page.ref().pageId(), CompositionStore.compose(page, parent, child, compose.slot()));
+        pages.put(page.ref().pageId(), CompositionStore.compose(page, parent, child, compose.slot(), explicitDeletes));
         affected.add(page.ref());
     }
     private ViewNode select(OperationPath path) {
@@ -206,6 +208,13 @@ public final class MutationTransaction {
         return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings(), rules,focus.finish(pages),base.epoch(),sourceStep);
     }
     private void release(Set<ViewLocation> deleted) {
+        for (var binding : ownership.bindings().values())
+            if (deleted.contains(binding.key().pre()) || deleted.contains(binding.key().nxt())) {
+                affected.add(binding.key().pre().page()); affected.add(binding.key().nxt().page());
+            }
+        for (var rule : rules.values()) if (deleted.contains(rule.spec().parentNode())) {
+            affected.add(rule.spec().parentPage()); affected.add(rule.child());
+        }
         deleted.forEach(ownership::removeNode);
         rules.values().removeIf(rule -> deleted.contains(rule.spec().parentNode()));
         for (PageModel page : new ArrayList<>(pages.values())) {

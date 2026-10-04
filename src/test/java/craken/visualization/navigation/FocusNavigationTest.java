@@ -10,6 +10,61 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("visualization-model")
 class FocusNavigationTest {
+    @Test void disablingNavigationBeforeTheFirstAllocationStillHighlightsTheDisplayedRootPage() {
+        try (var session = new craken.visualization.mutation.DefaultVisualizationSession()) {
+            var page = session.initializeRoot(craken.visualization.type.BuiltinPageTypes.point());
+            session.modify(MutationBatch.of(new Configure(new VisualizationOptions(false, true)))).requireSuccess();
+            var node = session.reserveNodeId(page); session.addNode(new OperationPath(null, node), ViewNode.Spec.point("first"));
+            assertNull(session.model().focus());
+            var frame = NavigationResolver.resolve(session.model()); assertEquals(1, frame.occurrences().size());
+            assertNull(frame.occurrences().getFirst().node()); assertEquals(Set.of(node), frame.occurrences().getFirst().highlights());
+        }
+    }
+    @Test void disabledNavigationStillHighlightsAnotherNodeInTheDisplayedPage() {
+        try (var f = new ModelFixture()) {
+            var other = f.root("other");
+            f.session.modify(MutationBatch.of(new Configure(new VisualizationOptions(false, false)),
+                    new SetFocus(new OperationPath(null, f.r)), new Touch(new OperationPath(null, other), AccessKind.READ))).requireSuccess();
+            var frame = NavigationResolver.resolve(f.session.model());
+            assertEquals(f.r, f.session.model().focus()); assertEquals(List.of(f.r), frame.occurrences().stream().map(NavigationFrame.PageOccurrence::node).toList());
+            assertEquals(Set.of(other), frame.occurrences().getFirst().highlights());
+        }
+    }
+    @Test void anUnfocusedRootOccurrenceDoesNotInsertTheAccessedNonRootPage() {
+        try (var f = new ModelFixture()) {
+            var child = f.node(f.page(f.r), f.r, "child");
+            f.session.modify(MutationBatch.of(new Configure(new VisualizationOptions(false, false)), new ClearFocus(),
+                    new Touch(new OperationPath(f.r, child), AccessKind.READ))).requireSuccess();
+            var frame = NavigationResolver.resolve(f.session.model()); assertEquals(1, frame.occurrences().size());
+            assertNull(f.session.model().focus()); assertEquals(f.root, frame.occurrences().getFirst().page());
+            assertNull(frame.occurrences().getFirst().node()); assertTrue(frame.occurrences().getFirst().highlights().isEmpty());
+        }
+    }
+    @Test void disabledNavigationHighlightsAnOffPathNodeInAnAlreadyDisplayedUpstreamPage() {
+        try (var f = new ModelFixture()) {
+            var other = f.root("other"); var child = f.node(f.page(f.r), f.r, "child");
+            f.session.modify(MutationBatch.of(new Configure(new VisualizationOptions(false, false)),
+                    new Touch(new OperationPath(null, other), AccessKind.WRITE))).requireSuccess();
+            var frame = NavigationResolver.resolve(f.session.model());
+            assertEquals(child, f.session.model().focus()); assertEquals(Set.of(other), frame.occurrences().getFirst().highlights());
+            assertTrue(frame.occurrences().getLast().highlights().isEmpty());
+        }
+    }
+    @Test void offPathAccessTargetsOnlyTheRepeatedPageOccurrenceWithTheClosestParentContext() {
+        for (boolean deeper : List.of(false, true)) try (var f = new ModelFixture()) {
+            var aPage = f.page(f.r); var a1 = f.node(aPage, f.r, "a1"); var b1 = f.node(f.page(a1), a1, "b1");
+            var a2 = f.node(aPage, b1, "a2"); var pre = deeper ? b1 : f.r; var side = f.node(aPage, pre, "side");
+            f.session.modify(MutationBatch.of(new Configure(new VisualizationOptions(false, true)),
+                    new SetFocus(new OperationPath(b1, a2)), new Touch(new OperationPath(pre, side), AccessKind.READ))).requireSuccess();
+            var occurrences = NavigationResolver.resolve(f.session.model()).occurrences();
+            assertEquals(List.of(f.r, a1, b1, a2), occurrences.stream().map(NavigationFrame.PageOccurrence::node).toList());
+            assertEquals(1, occurrences.stream().filter(o -> o.highlights().contains(side)).count(), "Do not broadcast to every copy of a shared page");
+            assertTrue(occurrences.get(deeper ? 3 : 1).highlights().contains(side));
+            assertEquals(Set.of(f.r), occurrences.getFirst().highlights());
+            if (deeper) { assertEquals(Set.of(a1), occurrences.get(1).highlights()); assertEquals(Set.of(b1), occurrences.get(2).highlights()); }
+            else { assertTrue(occurrences.get(2).highlights().isEmpty()); assertTrue(occurrences.get(3).highlights().isEmpty()); }
+        }
+    }
     @Test void clearingFocusIsAtomicAndPreservesNavigationOptionsAndLiveNodes() {
         try (var f = new ModelFixture()) {
             var options = new VisualizationOptions(false, true);
