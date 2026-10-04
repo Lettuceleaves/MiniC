@@ -10,7 +10,6 @@ import craken.compiler.parser.node.Expression.TemplateValueExpr;
 import craken.compiler.parser.node.Expression.TypeQueryExpr;
 
 import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.RecordComponent;
 import java.util.*;
 
 /** Instantiation-time source AST copying. Never rewrites tokens or interprets a library name. */
@@ -133,17 +132,17 @@ public final class TemplateSubstitution {
 
     private Object copyRecord(Object source) {
         Class<?> kind = source.getClass();
-        if (!kind.isRecord() || !kind.getPackageName().equals("craken.compiler.parser.node"))
+        if ((!kind.isRecord() && !(source instanceof AbstractAstNode))
+                || !kind.getPackageName().equals("craken.compiler.parser.node"))
             throw new IllegalArgumentException("unsupported source component during template substitution: " + kind.getName());
-        RecordComponent[] components = kind.getRecordComponents();
-        Class<?>[] signature = new Class<?>[components.length];
-        Object[] values = new Object[components.length];
+        var shape = AstNodeComponents.describe(kind);
+        var components = shape.components();
+        Object[] values = new Object[components.size()];
         try {
-            for (int index = 0; index < components.length; index++) {
-                RecordComponent component = components[index];
-                signature[index] = component.getType();
-                values[index] = copy(component.getAccessor().invoke(source));
-                if(component.getName().equals("qualifiedName")) {
+            for (int index = 0; index < components.size(); index++) {
+                var component = components.get(index);
+                values[index] = copy(component.accessor().invoke(source));
+                if(component.name().equals("qualifiedName")) {
                     String memberName=source instanceof OutOfLineConstructorDecl declaration?((ConstructorMember)copy(declaration.constructor())).name()
                             :source instanceof OutOfLineDestructorDecl declaration?"~"+((DestructorMember)copy(declaration.destructor())).name()
                             :source instanceof OutOfLineMethodDecl declaration&&declaration.method().conversionName()!=null?((FunctionDecl)copy(declaration.method())).name():null;
@@ -153,7 +152,7 @@ public final class TemplateSubstitution {
                         values[index]=new QualifiedName(name.global(),segments,name.range());
                     }
                 }
-                if (component.getName().equals("name")) {
+                if (component.name().equals("name")) {
                     if (source instanceof StructDecl record && record.name().equals(primaryName)) values[index] = instanceName;
                     else if (source instanceof ConstructorMember || source instanceof DestructorMember)
                         values[index] = simple(instanceName);
@@ -161,7 +160,7 @@ public final class TemplateSubstitution {
                         values[index] = "operator " + type(function.conversionName().targetType());
                 }
             }
-            Object result = kind.getConstructor(signature).newInstance(values);
+            Object result = shape.constructor().newInstance(values);
             copies.put(source, result);
             if (source instanceof AstNode original && result instanceof AstNode clone) origins.put(clone, original);
             return result;

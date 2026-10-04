@@ -27,9 +27,9 @@ final class TemplatePacks {
         if(value instanceof Expression.NameExpr name){names.add(name.name());return;}
         if(value instanceof List<?> list){list.forEach(item->visit(item,types,names));return;}
         Class<?> kind=value.getClass();
-        if(!kind.isRecord() || !(kind.getPackageName().equals("craken.compiler.parser.node") || value instanceof CrakenType
+        if(!(kind.isRecord() || value instanceof AbstractAstNode) || !(kind.getPackageName().equals("craken.compiler.parser.node") || value instanceof CrakenType
                 || value instanceof CrakenType.ExceptionSpecification || value instanceof TemplateArgument))return;
-        try {for(var component:kind.getRecordComponents())visit(component.getAccessor().invoke(value),types,names);}
+        try {for(var component:AstNodeComponents.describe(kind).components())visit(component.accessor().invoke(value),types,names);}
         catch(ReflectiveOperationException error){throw new IllegalArgumentException("Cannot inspect template pattern",error);}
     }
 }
