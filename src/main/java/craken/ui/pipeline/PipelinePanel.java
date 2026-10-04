@@ -276,7 +276,15 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
         return pane;
     }
 
-    @Override public void close() { inputView.close(); outputView.close(); }
+    @Override public void close() {
+        Throwable failure = null;
+        try { inputView.close(); } catch (RuntimeException | Error error) { failure = error; }
+        try { outputView.close(); } catch (RuntimeException | Error error) {
+            if (failure == null) failure = error; else if (failure != error) failure.addSuppressed(error);
+        }
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
+    }
 
     private static final class StageCell extends ListCell<PipelineSession.StageView> {
         private final StageRow row;

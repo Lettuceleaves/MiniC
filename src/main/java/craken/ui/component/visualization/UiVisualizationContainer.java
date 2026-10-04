@@ -15,19 +15,25 @@ import javafx.beans.value.ChangeListener;
 import javafx.beans.property.ReadOnlyBooleanProperty;
 import javafx.beans.property.ReadOnlyBooleanWrapper;
 import javafx.scene.control.Label;
+import javafx.scene.control.*;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.MouseButton;
 import javafx.scene.layout.*;
 import javafx.geometry.Insets;
 import java.time.Duration;
 import java.util.*;
 
 public final class UiVisualizationContainer extends BorderPane implements AutoCloseable {
-    private record OccurrenceKey(int index, PageRef page) {}
+    private record OccurrenceKey(PageRef page, ViewLocation node) {}
     private final VisualizationSession session;
     private final LayoutCoordinator coordinator;
     private final boolean ownSession;
     private final HBox pages = new HBox(8);
     private final Label path = new Label();
+    private final MenuButton pathPicker = new MenuButton("页面路径");
+    private final ListView<OperationPath> pathChoices = new ListView<>();
     private final LinkedHashMap<OccurrenceKey, PageOccurrenceView> visible = new LinkedHashMap<>();
+    private final LinkedHashMap<OccurrenceKey, PageOccurrenceView.ViewportState> viewports = new LinkedHashMap<>(16, .75f, true);
     private final ReadOnlyBooleanWrapper pending = new ReadOnlyBooleanWrapper();
     private final ChangeListener<Number> widthListener = (property, old, value) -> renderFrame();
     private ContainerModel model;
@@ -41,7 +47,20 @@ public final class UiVisualizationContainer extends BorderPane implements AutoCl
     private UiVisualizationContainer(VisualizationSession session, LayoutCoordinator coordinator, boolean ownSession) {
         ViewNodeRenderer.requireFxThread(); this.session = Objects.requireNonNull(session); this.coordinator = Objects.requireNonNull(coordinator); this.ownSession = ownSession;
         setMinSize(0, 0); setBackground(new Background(new BackgroundFill(ViewNodeRenderer.color(VisualizationTheme.CANVAS), CornerRadii.EMPTY, Insets.EMPTY)));
-        path.setTextFill(ViewNodeRenderer.color(VisualizationTheme.TEXT)); path.setPadding(new Insets(6)); setTop(path); setCenter(pages);
+        path.setTextFill(ViewNodeRenderer.color(VisualizationTheme.TEXT)); path.setPadding(new Insets(6));
+        pathPicker.setId("visualization-path-picker"); pathPicker.setMinWidth(Region.USE_PREF_SIZE);
+        pathPicker.setStyle("-fx-text-fill: #FFFFFF; -fx-text-base-color: #FFFFFF; -fx-mark-color: #FFFFFF; -fx-background-color: #161B22;");
+        pathChoices.setPrefSize(360, 240); pathChoices.setCellFactory(list -> new ListCell<>() {
+            @Override protected void updateItem(OperationPath item, boolean empty) {
+                super.updateItem(item, empty); setText(empty || item == null ? null : "页 #" + item.nxt().pageId() + " · 节点 #" + item.nxt().nodeId());
+                setTextFill(ViewNodeRenderer.color(VisualizationTheme.TEXT));
+                setBackground(new Background(new BackgroundFill(ViewNodeRenderer.color(VisualizationTheme.GROUP_BACKGROUND), CornerRadii.EMPTY, Insets.EMPTY)));
+            }
+        });
+        pathChoices.setOnMouseClicked(event -> { if (event.getButton() == MouseButton.PRIMARY) choosePath(); });
+        pathChoices.setOnKeyPressed(event -> { if (event.getCode() == KeyCode.ENTER) { choosePath(); event.consume(); } });
+        pathPicker.getItems().add(new CustomMenuItem(pathChoices, false));
+        setTop(new HBox(6, pathPicker, path)); setCenter(pages);
         widthProperty().addListener(widthListener); refresh();
     }
     private static LayoutCoordinator defaultCoordinator() {
@@ -56,34 +75,53 @@ public final class UiVisualizationContainer extends BorderPane implements AutoCl
     public void refresh() {
         requireOpen(); var next = session.model();
         if (snapshotMode || model == null || next.id() != model.id() || next.epoch() != modelEpoch) { clearOccurrences(); displayEpoch++; }
+        if (model != null && next.id() != model.id()) viewports.clear();
         snapshotMode = false; model = next; modelEpoch = next.epoch(); renderFrame();
     }
     public void showSnapshot(VisualizationSnapshot snapshot) {
         requireOpen(); var next = SnapshotCodec.toDisplayModel(Objects.requireNonNull(snapshot));
-        clearOccurrences(); displayEpoch++; snapshotMode = true; model = next; modelEpoch = next.epoch(); renderFrame();
+        clearOccurrences(); if (model != null && next.id() != model.id()) viewports.clear();
+        displayEpoch++; snapshotMode = true; model = next; modelEpoch = next.epoch(); renderFrame();
     }
     private void renderFrame() {
         if (closed || model == null) return;
         long started = System.nanoTime();
         var occurrences = NavigationResolver.resolve(model).occurrences();
         var widths = new PageWidthAllocator().allocate(occurrences.size(), Math.max(0, getWidth()), 2, 8, 160);
-        var nextKeys = new LinkedHashSet<OccurrenceKey>();
+        var nextKeys = new LinkedHashMap<OccurrenceKey, NavigationFrame.PageOccurrence>();
         for (int index = widths.firstVisibleIndex(); index < occurrences.size(); index++) {
-            var occurrence = occurrences.get(index); nextKeys.add(new OccurrenceKey(index, occurrence.page()));
+            var occurrence = occurrences.get(index); nextKeys.put(new OccurrenceKey(occurrence.page(), occurrence.node()), occurrence);
         }
-        visible.keySet().stream().filter(key -> !nextKeys.contains(key)).toList().forEach(key -> visible.remove(key).close());
+        visible.keySet().stream().filter(key -> !nextKeys.containsKey(key)).toList().forEach(this::hideOccurrence);
         var ordered = new LinkedHashMap<OccurrenceKey, PageOccurrenceView>(); int widthIndex = 0;
-        for (var key : nextKeys) {
-            var occurrence = occurrences.get(key.index()); var page = model.pages().get(key.page().pageId());
-            var view = visible.computeIfAbsent(key, unused -> new PageOccurrenceView(++occurrenceSequence, coordinator, this::updatePending));
-            view.setZoom(zoom); view.update(page, occurrence, widths.widths().get(widthIndex++), displayEpoch, this::select);
+        for (var entry : nextKeys.entrySet()) {
+            var key = entry.getKey(); var occurrence = entry.getValue(); var page = model.pages().get(key.page().pageId());
+            var view = visible.get(key);
+            if (view == null) {
+                view = new PageOccurrenceView(++occurrenceSequence, coordinator, this::updatePending);
+                var saved = viewports.get(key); if (saved == null) view.setZoom(zoom); else view.restoreViewport(saved);
+            }
+            view.update(page, occurrence, widths.widths().get(widthIndex++), displayEpoch, this::select);
             ordered.put(key, view);
         }
         visible.clear(); visible.putAll(ordered); pages.getChildren().setAll(visible.values());
+        if (!snapshotMode) viewports.keySet().removeIf(key -> key.node() != null
+                && (model.pages().get(key.page().pageId()) == null || !model.pages().get(key.page().pageId()).nodes().containsKey(key.node().nodeId())));
         path.setText(occurrences.isEmpty() ? "尚未初始化页面" : (widths.firstVisibleIndex() > 0 ? "隐藏 " + widths.firstVisibleIndex() + " 个上游页 · " : "")
                 + "路径 " + occurrences.size() + " 页 · 聚焦页 #" + occurrences.getLast().page().pageId());
+        pathChoices.getItems().setAll(occurrences.stream().filter(o -> o.node() != null)
+                .map(o -> new OperationPath(model.node(o.node()).parents().selected(), o.node())).toList());
+        pathPicker.setDisable(pathChoices.getItems().isEmpty());
         updatePending();
         lastFxPreparationNanos = System.nanoTime() - started;
+    }
+    private void choosePath() {
+        var chosen = pathChoices.getSelectionModel().getSelectedItem();
+        if (chosen != null) { pathPicker.hide(); select(chosen); }
+    }
+    private void hideOccurrence(OccurrenceKey key) {
+        var view = visible.remove(key); viewports.put(key, view.viewportState());
+        view.close();
     }
     private void select(OperationPath location) {
         if (closed) return;
@@ -101,11 +139,12 @@ public final class UiVisualizationContainer extends BorderPane implements AutoCl
         }
     }
     private void updatePending() { pending.set(!closed && visible.values().stream().flatMap(view -> view.parts().stream()).anyMatch(PartView::isPending)); }
-    private void clearOccurrences() { visible.values().forEach(PageOccurrenceView::close); visible.clear(); pages.getChildren().clear(); pending.set(false); }
+    private void clearOccurrences() { List.copyOf(visible.keySet()).forEach(this::hideOccurrence); pages.getChildren().clear(); pending.set(false); }
     public List<PageOccurrenceView> visibleOccurrences() { return List.copyOf(visible.values()); }
     public void setZoom(double zoom) {
         requireOpen(); if (!Double.isFinite(zoom) || zoom <= 0) throw new IllegalArgumentException("Zoom must be finite and positive");
         this.zoom = zoom; visible.values().forEach(view -> view.setZoom(zoom));
+        viewports.replaceAll((key, state) -> new PageOccurrenceView.ViewportState(zoom, state.horizontal(), state.vertical()));
     }
     public double getZoom() { return zoom; }
     public boolean isLayoutPending() { return pending.get(); }
@@ -121,6 +160,7 @@ public final class UiVisualizationContainer extends BorderPane implements AutoCl
         failure = cleanup(coordinator::close, failure);
         if (ownSession) failure = cleanup(session::close, failure);
         failure = cleanup(() -> setCenter(null), failure); failure = cleanup(() -> setTop(null), failure);
+        pathPicker.hide(); pathChoices.getItems().clear(); viewports.clear();
         if (failure instanceof RuntimeException runtime) throw runtime;
         if (failure instanceof Error error) throw error;
     }

@@ -28,7 +28,7 @@ final class ProjectionContainer {
                     ? new VisualizationSnapshot.NodeState(node.location(), node.content(), node.retention(), node.parents(), highlighted)
                     : node));
             pages.put(page.ref().pageId(), new VisualizationSnapshot.PageState(page.ref(), page.type(), nodes,
-                    page.anchor(), page.composition(), page.topology(), page.ready()));
+                    page.anchor(), page.composition(), page.topology(), page.ready(), page.layoutHints()));
         }
         return new VisualizationSnapshot(snapshot.containerId(), snapshot.root(), pages, snapshot.ownership(), snapshot.pageRules(),
                 snapshot.interaction(), snapshot.sourceVersion(), snapshot.epoch(), snapshot.sourceStep(), snapshot.highWater());

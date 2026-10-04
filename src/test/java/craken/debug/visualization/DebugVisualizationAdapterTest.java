@@ -278,6 +278,143 @@ final class DebugVisualizationAdapterTest {
         assertEquals(3,state.heap().size(),"Removing a visualization subgraph never frees VM memory");
     }
 
+    @Test void manuallyRegisteredReadyObjectsCanHaveSeveralIndependentUpstreams() {
+        Fixture f=new Fixture();
+        long a=f.runtime.allocateZeroed(8,8,"heap","a"),b=f.runtime.allocateZeroed(8,8,"heap","b");
+        long root=f.runtime.allocateZeroed(24,8,"heap","tree");
+        f.runtime.write(a,DebugRuntime.Value.of(IrType.POINTER,root));f.registerTree(a);f.adapter.registerRoot(new RootAddress("singleton",b));
+        assertTrue(f.project(0).accepted());
+        long fresh=f.runtime.allocateZeroed(24,8,"heap","fresh");
+        var address=new DebugMemoryReader(f.runtime.snapshot()).resolve(fresh);
+        var page=f.location(root,"tree").page();var ownerA=f.location(a,"singleton");var ownerB=f.location(b,"singleton");
+        f.adapter.registerObject("tree",address,page,ownerA);f.adapter.registerObject("tree",address,page,ownerB);
+        assertTrue(f.project(1).accepted());
+        var child=f.location(fresh,"tree");
+        assertEquals(java.util.Set.of(ownerA,ownerB),java.util.Set.copyOf(f.session.model().node(child).parents().parents()));
+        assertTrue(f.session.model().pages().get(page.pageId()).ready().contains(child.nodeId()));
+        f.runtime.release(a);var surviving=f.project(2);assertTrue(surviving.accepted(),surviving.diagnostic());
+        assertEquals(List.of(ownerB),f.session.model().node(child).parents().parents());
+        assertTrue(f.project(3).accepted(),"A removed manual parent must not poison later projections");
+    }
+    @Test void releasingTheLastManualParentDoesNotPermanentlyPoisonLaterFrames() {
+        Fixture f=new Fixture();long owner=f.runtime.allocateZeroed(8,8,"heap","owner"),tree=f.runtime.allocateZeroed(24,8,"heap","tree");
+        f.runtime.write(owner,DebugRuntime.Value.of(IrType.POINTER,tree));f.registerTree(owner);assertTrue(f.project(0).accepted());
+        long fresh=f.runtime.allocateZeroed(24,8,"heap","fresh");var reader=new DebugMemoryReader(f.runtime.snapshot());
+        f.adapter.registerObject("tree",reader.resolve(fresh),f.location(tree,"tree").page(),f.location(owner,"singleton"));
+        assertTrue(f.project(1).accepted());f.runtime.release(owner);assertTrue(f.project(2).accepted());
+        var next=f.project(3);assertTrue(next.accepted(),next.diagnostic());assertTrue(f.adapter.locations().isEmpty());
+        assertEquals(2,f.runtime.snapshot().heap().size(),"Visual parent release never frees unrelated VM allocations");
+    }
+    @Test void severalReallocationsWithinOneIntervalPreserveOnlyTheFinalGenerationLocation() {
+        Fixture f=new Fixture();f.adapter.registerDescriptor(new DebugStructureDescriptor("value","point",ViewKind.POINT,4,
+                List.of(new Field("value",0,SIGNED32)),List.of(),null,ReallocationPolicy.PRESERVE_LOCATION));
+        f.adapter.registerRoot(new RootAddress("value",100));
+        assertTrue(f.adapter.project(0,new DebugMemoryReader(List.of(valueBlock(1,100,7))),batch(0,allocated(1,1,100,4))).accepted());
+        var original=f.adapter.locations().values().iterator().next();
+        var result=f.adapter.project(1,new DebugMemoryReader(List.of(valueBlock(3,500,11))),batch(1,
+                allocated(2,2,300,4),new RuntimeEvent.Copied(3,new RuntimeEvent.MemoryRange(1,100,4),new RuntimeEvent.MemoryRange(2,300,4)),
+                new RuntimeEvent.Released(4,new RuntimeEvent.MemoryRange(1,100,4)),new RuntimeEvent.Reallocated(5,new RuntimeEvent.MemoryRange(1,100,4),new RuntimeEvent.MemoryRange(2,300,4),4),
+                allocated(6,3,500,4),new RuntimeEvent.Copied(7,new RuntimeEvent.MemoryRange(2,300,4),new RuntimeEvent.MemoryRange(3,500,4)),
+                new RuntimeEvent.Released(8,new RuntimeEvent.MemoryRange(2,300,4)),new RuntimeEvent.Reallocated(9,new RuntimeEvent.MemoryRange(2,300,4),new RuntimeEvent.MemoryRange(3,500,4),4)));
+        assertTrue(result.accepted(),result.diagnostic());
+        assertEquals(java.util.Map.of(new DebugObjectIdentityRegistry.ObjectKey(3,0,"value"),original),f.adapter.locations());
+        assertEquals("11",f.session.model().node(original).content().fields().get("value"));
+    }
+    @Test void aRejectedModelStillRemembersSuccessfulPointerWritesAndTheirAllocationGenerations() {
+        Fixture f=new Fixture();
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("value","point",ViewKind.POINT,4,List.of(new Field("value",0,SIGNED32)),List.of(),null,ReallocationPolicy.RECREATE));
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("targetSlot","point",ViewKind.POINT,8,List.of(),
+                List.of(new Reference("target",0,"value",Relation.OWNERSHIP,Direction.NONE)),null,ReallocationPolicy.RECREATE));
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("cycleSlot","point",ViewKind.POINT,8,List.of(),
+                List.of(new Reference("target",0,"owner",Relation.OWNERSHIP,Direction.NONE)),null,ReallocationPolicy.RECREATE));
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("owner","point",ViewKind.POINT,8,List.of(),
+                List.of(new Reference("child",0,"owner",Relation.OWNERSHIP,Direction.NONE)),null,ReallocationPolicy.RECREATE));
+        f.adapter.registerRoot(new RootAddress("targetSlot",200));f.adapter.registerRoot(new RootAddress("cycleSlot",400));
+        var before=new DebugMemoryReader(List.of(pointerBlock(10,200,100),valueBlock(1,100,7),pointerBlock(20,400,300),pointerBlock(30,300,500),pointerBlock(50,500,0)));
+        assertTrue(f.adapter.project(0,before,batch(0,allocated(1,10,200,8),allocated(2,1,100,4),allocated(3,20,400,8),
+                allocated(4,30,300,8),allocated(5,50,500,8),writePointer(6,10,200),writePointer(7,20,400),writePointer(8,30,300))).accepted());
+        var published=f.adapter.publishedSnapshot();
+        var cyclic=new DebugMemoryReader(List.of(pointerBlock(10,200,100),valueBlock(2,100,9),pointerBlock(20,400,300),pointerBlock(30,300,500),pointerBlock(50,500,300)));
+        assertFalse(f.adapter.project(1,cyclic,batch(1,new RuntimeEvent.Released(9,new RuntimeEvent.MemoryRange(1,100,4)),
+                allocated(10,2,100,4),writePointer(11,10,200),writePointer(12,50,500))).accepted());
+        assertSame(published,f.adapter.publishedSnapshot());
+        var recovered=new DebugMemoryReader(List.of(pointerBlock(10,200,100),valueBlock(2,100,9),pointerBlock(20,400,300),pointerBlock(30,300,500),pointerBlock(50,500,0)));
+        var result=f.adapter.project(2,recovered,batch(2,writePointer(13,50,500)));
+        assertTrue(result.accepted(),result.diagnostic());
+        assertNotNull(f.adapter.locations().get(new DebugObjectIdentityRegistry.ObjectKey(2,0,"value")),
+                "A real rewrite in a rejected frame must survive even when the next frame does not rewrite this pointer");
+        assertEquals(5,f.adapter.locations().size());
+    }
+    @Test void closedAdaptersRejectRegistrationAndCannotAccumulateNewOwnedState() {
+        Fixture f=new Fixture();f.adapter.close();
+        assertThrows(IllegalStateException.class,f::registerTreeDescriptors);
+        assertThrows(IllegalStateException.class,()->f.adapter.registerRoot(new RootAddress("value",100)));
+        assertThrows(IllegalStateException.class,()->f.adapter.registerObject("value",new DebugMemoryReader.Address(1,0),new PageRef(f.session.model().id(),1),new ViewLocation(f.session.model().id(),1,1)));
+        assertDoesNotThrow(f.adapter::close);assertTrue(f.adapter.locations().isEmpty());
+    }
+
+    @Test void releasesWithinOneStopNavigateInActualVmOrderRatherThanRegistryInsertionOrder() {
+        Fixture f=new Fixture();
+        long a=f.runtime.allocateZeroed(8,8,"heap","a"),b=f.runtime.allocateZeroed(8,8,"heap","b");
+        long treeA=f.runtime.allocateZeroed(24,8,"heap","tree-a"),treeB=f.runtime.allocateZeroed(24,8,"heap","tree-b");
+        f.runtime.write(a,DebugRuntime.Value.of(IrType.POINTER,treeA));f.runtime.write(b,DebugRuntime.Value.of(IrType.POINTER,treeB));
+        f.registerTree(a);f.adapter.registerRoot(new RootAddress("singleton",b));assertTrue(f.project(0).accepted());
+        var finalOwner=f.location(a,"singleton");
+        f.runtime.release(treeB);f.runtime.release(treeA);
+        var result=f.project(1);assertTrue(result.accepted(),result.diagnostic());
+        assertEquals(finalOwner,f.session.model().focus(),"The last actual release belongs to owner a");
+        assertEquals(AccessKind.DELETE,f.session.model().interaction().accessKind());
+    }
+
+    @Test void aPointerWriteToAKnownButTemporarilyUnreachableObjectKeepsItsNewGeneration() {
+        Fixture f=new Fixture();
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("owner","point",ViewKind.POINT,8,List.of(),
+                List.of(new Reference("child",0,"owner",Relation.OWNERSHIP,Direction.NONE)),null,ReallocationPolicy.RECREATE));
+        f.adapter.registerRoot(new RootAddress("owner",200));
+        assertTrue(f.adapter.project(0,new DebugMemoryReader(List.of(pointerBlock(10,200,300),pointerBlock(30,300,100),pointerBlock(1,100,0))),
+                batch(0,allocated(1,10,200,8),allocated(2,30,300,8),allocated(3,1,100,8),writePointer(4,10,200),writePointer(5,30,300))).accepted());
+        var hidden=new DebugMemoryReader(List.of(pointerBlock(10,200,0),pointerBlock(30,300,100),pointerBlock(2,100,0)));
+        var interval=f.adapter.project(1,hidden,batch(1,writePointer(6,10,200),new RuntimeEvent.Released(7,new RuntimeEvent.MemoryRange(1,100,8)),
+                allocated(8,2,100,8),writePointer(9,30,300)));
+        assertTrue(interval.accepted(),interval.diagnostic());assertEquals(1,f.adapter.locations().size());
+        var again=new DebugMemoryReader(List.of(pointerBlock(10,200,300),pointerBlock(30,300,100),pointerBlock(2,100,0)));
+        var result=f.adapter.project(2,again,batch(2,writePointer(10,10,200)));
+        assertTrue(result.accepted(),result.diagnostic());
+        assertNotNull(f.adapter.locations().get(new DebugObjectIdentityRegistry.ObjectKey(2,0,"owner")),
+                "The actual write while detached captured generation 2, even without a later rewrite of that field");
+        assertEquals(3,f.adapter.locations().size());
+    }
+
+    @Test void allocatingANewRootThenReleasingThePreviousRootLeavesTheLastReleaseWithoutFocus() {
+        Fixture f=new Fixture();f.adapter.registerDescriptor(new DebugStructureDescriptor("value","point",ViewKind.POINT,4,
+                List.of(new Field("value",0,SIGNED32)),List.of(),null,ReallocationPolicy.RECREATE));
+        long a=f.runtime.allocateZeroed(4,4,"heap","a");f.adapter.registerRoot(new RootAddress("value",a));assertTrue(f.project(0).accepted());
+        long b=f.runtime.allocateZeroed(4,4,"heap","b");f.adapter.registerRoot(new RootAddress("value",b));f.runtime.release(a);
+        var result=f.project(1);assertTrue(result.accepted(),result.diagnostic());
+        assertEquals(1,f.adapter.locations().size());assertNull(f.session.model().focus());
+        assertNull(f.session.model().interaction().accessed());
+    }
+    @Test void aRootReleaseWithoutUpstreamsDoesNotClearAnUnrelatedFocusWhenAutoNavigationIsDisabled() {
+        Fixture f=new Fixture();f.adapter.registerDescriptor(new DebugStructureDescriptor("value","point",ViewKind.POINT,4,
+                List.of(new Field("value",0,SIGNED32)),List.of(),null,ReallocationPolicy.RECREATE));
+        long a=f.runtime.allocateZeroed(4,4,"heap","a"),b=f.runtime.allocateZeroed(4,4,"heap","b");
+        f.adapter.registerRoot(new RootAddress("value",a));f.adapter.registerRoot(new RootAddress("value",b));assertTrue(f.project(0).accepted());
+        var retained=f.location(b,"value");
+        assertTrue(f.session.modify(MutationBatch.of(new VisualizationCommand.SetFocus(new OperationPath(null,retained)),
+                new VisualizationCommand.Configure(new VisualizationOptions(false,true)))).succeeded());
+        f.runtime.release(a);var result=f.project(1);assertTrue(result.accepted(),result.diagnostic());
+        assertEquals(retained,f.session.model().focus());assertFalse(f.session.model().interaction().options().autoNavigate());
+    }
+    @Test void anAccessAfterAParentlessRootReleaseCanEstablishTheLaterFocus() {
+        Fixture f=new Fixture();f.adapter.registerDescriptor(new DebugStructureDescriptor("value","point",ViewKind.POINT,4,
+                List.of(new Field("value",0,SIGNED32)),List.of(),null,ReallocationPolicy.RECREATE));
+        long a=f.runtime.allocateZeroed(4,4,"heap","a"),b=f.runtime.allocateZeroed(4,4,"heap","b");
+        f.adapter.registerRoot(new RootAddress("value",a));f.adapter.registerRoot(new RootAddress("value",b));assertTrue(f.project(0).accepted());
+        var retained=f.location(b,"value");f.runtime.release(a);f.runtime.write(b,DebugRuntime.Value.of(IrType.INT,7));
+        var result=f.project(1);assertTrue(result.accepted(),result.diagnostic());
+        assertEquals(retained,f.session.model().focus());assertEquals(AccessKind.WRITE,f.session.model().interaction().accessKind());
+    }
+
     private static final class Fixture {
         final RuntimeEventCollector events = new RuntimeEventCollector();
         final DebugRuntime runtime;

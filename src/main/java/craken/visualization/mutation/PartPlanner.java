@@ -33,6 +33,6 @@ public final class PartPlanner {
             }
         }
         return new PageModel(page.ref(), page.type(), page.nodes(), page.anchor(), page.composition(),
-                page.topology(), ready, parts, membership);
+                page.topology(), ready, parts, membership, page.layoutHints());
     }
 }

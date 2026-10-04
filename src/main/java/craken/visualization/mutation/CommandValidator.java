@@ -32,7 +32,7 @@ public final class CommandValidator {
         if (path.pre() == null || !node.parents().parents().contains(path.pre()))
             throw failure(INVALID_OWNERSHIP, "Operation requires an effective upstream");
         node(containerId, pages, path.pre());
-        return node.withState(node.content(), node.parents().select(path.pre()));
+        return ViewNodeContract.withState(node, node.content(), node.parents().select(path.pre()));
     }
     public static VisualizationError.Failure failure(VisualizationError.Code code, String message) {
         return new VisualizationError.Failure(code, message);

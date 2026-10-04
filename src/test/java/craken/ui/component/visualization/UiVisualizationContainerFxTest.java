@@ -14,6 +14,20 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.input.MouseButton;
 import javafx.stage.Stage;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.CustomMenuItem;
+import javafx.scene.control.ListView;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import craken.visualization.style.EdgeStyle;
+import javafx.scene.Group;
+import javafx.scene.layout.Pane;
+import javafx.scene.paint.Color;
+import javafx.scene.shape.Polygon;
+import javafx.scene.text.Text;
+import javafx.embed.swing.SwingFXUtils;
+import javax.imageio.ImageIO;
+import java.nio.file.Files;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import java.nio.file.Path;
@@ -48,6 +62,12 @@ final class UiVisualizationContainerFxTest {
         LayoutEngine engine = (r, token) -> { calls.incrementAndGet(); return new ArrayLayout().layout(r, token); };
         var engines = new EnumMap<Kind, LayoutEngine>(Kind.class); for (var kind : Kind.values()) engines.put(kind, engine);
         return new LayoutCoordinator(engines, Platform::runLater);
+    }
+    private static void snapshot(UiVisualizationContainer ui, String filename, int width, int height) throws Exception {
+        var scene = Objects.requireNonNull(ui.getScene()); ui.applyCss(); ui.layout(); assertFalse(ui.isLayoutPending());
+        var image = scene.snapshot(null); var directory = Path.of(System.getProperty("craken.visualization.screenshots", "build/verification/screenshots"));
+        Files.createDirectories(directory); ImageIO.write(SwingFXUtils.fromFXImage(image, null), "png", directory.resolve(filename).toFile());
+        assertEquals(width, image.getWidth()); assertEquals(height, image.getHeight());
     }
     @Test void repeatedPageOccurrencesUseIndependentNodesAndHighlightsAndNarrowWidthCreatesOnlyFocus() throws Exception {
         try (var session = new DefaultVisualizationSession()) {
@@ -85,6 +105,7 @@ final class UiVisualizationContainerFxTest {
     @Test void zoomAndHighlightKeepGeometryCachedWhileTheViewportBoundsChange() throws Exception {
         try (var session = new DefaultVisualizationSession()) {
             var page = session.initializeRoot(BuiltinPageTypes.point()); var a = add(session, page, null, "first"); add(session, page, null, "second");
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.SetFocus(new OperationPath(null, a)))).succeeded());
             var calls = new AtomicInteger(); var ui = onFx(() -> { var view = new UiVisualizationContainer(session, deterministic(calls)); view.resize(600, 500); view.refresh(); return view; });
             try {
                 awaitFx(() -> !ui.isLayoutPending()); int initial = calls.get();
@@ -95,7 +116,7 @@ final class UiVisualizationContainerFxTest {
                 assertEquals(before * 2, after, .1); assertEquals(initial, calls.get());
                 assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.Touch(new OperationPath(null, a), AccessKind.READ))).succeeded());
                 onFx(() -> { ui.refresh(); return null; }); awaitFx(() -> !ui.isLayoutPending()); assertEquals(initial, calls.get());
-                assertSame(occurrence, onFx(() -> ui.visibleOccurrences().getFirst()), "Selection within a page preserves its viewport instance");
+                assertSame(occurrence, onFx(() -> ui.visibleOccurrences().getFirst()), "Highlighting the same occurrence preserves its viewport instance");
                 onFx(() -> { var parts = ui.visibleOccurrences().getFirst().parts(); assertEquals(List.of(1L, 2L), parts.stream().map(PartView::partId).toList()); return null; });
             } finally { onFx(() -> { ui.close(); return null; }); }
         }
@@ -258,6 +279,260 @@ final class UiVisualizationContainerFxTest {
                     assertEquals(PageType.Layout.TREE, ui.displayModel().pages().get(page.pageId()).type().layout()); return null;
                 });
             } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void hiddenUpstreamOccurrencesRemainReachableThroughTheVirtualizedPathPicker() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var root = session.initializeRoot(BuiltinPageTypes.point()); var first = add(session, root, null, "root"); var previous = first;
+            for (int i = 0; i < 12; i++) { var page = session.initializePage(BuiltinPageTypes.point(), previous); previous = add(session, page, previous, "child " + i); }
+            var historical = session.snapshot();
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session, deterministic(new AtomicInteger())); new Scene(host, 300, 500); host.applyCss(); host.layout(); host.refresh(); return host; });
+            try {
+                awaitFx(() -> !ui.isLayoutPending());
+                onFx(() -> {
+                    assertEquals(1, ui.visibleOccurrences().size());
+                    var picker = (MenuButton)ui.lookup("#visualization-path-picker"); assertNotNull(picker, "A hidden count label alone is not a navigation entry");
+                    var list = (ListView<?>)((CustomMenuItem)picker.getItems().getFirst()).getContent(); assertEquals(13, list.getItems().size());
+                    snapshot(ui, "hidden-ancestor-navigation.png", 300, 500);
+                    list.getSelectionModel().select(0); list.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER, false, false, false, false));
+                    assertEquals(first, session.model().focus()); assertEquals(root, ui.visibleOccurrences().getFirst().occurrence().page()); return null;
+                });
+                var live = session.model();
+                onFx(() -> { ui.showSnapshot(historical); var picker = (MenuButton)ui.lookup("#visualization-path-picker");
+                    var list = (ListView<?>)((CustomMenuItem)picker.getItems().getFirst()).getContent(); var chosen = (OperationPath)list.getItems().get(5);
+                    list.getSelectionModel().select(5); list.fireEvent(new KeyEvent(KeyEvent.KEY_PRESSED, "", "", KeyCode.ENTER, false, false, false, false));
+                    assertEquals(chosen.nxt(), ui.displayModel().focus()); assertSame(live, session.model(), "Historical path selection only changes the display DTO"); return null; });
+            } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void hidingAndRebuildingAnOccurrenceRestoresItsOwnScrollAndZoomValues() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var root = session.initializeRoot(BuiltinPageTypes.point()); var parent = add(session, root, null, "root");
+            for (int i = 0; i < 8; i++) add(session, root, null, "a very long root card " + "value ".repeat(40));
+            var child = session.initializePage(BuiltinPageTypes.point(), parent); add(session, child, parent, "child");
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session, deterministic(new AtomicInteger())); host.resize(1500, 700); host.refresh(); return host; });
+            try {
+                awaitFx(() -> !ui.isLayoutPending());
+                onFx(() -> {
+                    var first = ui.visibleOccurrences().getFirst(); var last = ui.visibleOccurrences().getLast();
+                    first.setZoom(1.3); last.setZoom(.8); first.scrollPane().setHvalue(.6); first.scrollPane().setVvalue(.7);
+                    ui.resize(300, 700); assertEquals(.8, ui.visibleOccurrences().getFirst().getZoom(), 1e-9);
+                    ui.resize(1500, 700); var restored = ui.visibleOccurrences().getFirst(); assertNotSame(first, restored);
+                    assertEquals(1.3, restored.getZoom(), 1e-9); assertEquals(.6, restored.scrollPane().getHvalue(), 1e-9); assertEquals(.7, restored.scrollPane().getVvalue(), 1e-9);
+                    assertEquals(.8, ui.visibleOccurrences().getLast().getZoom(), 1e-9); return null;
+                });
+            } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void distinctNodesInTheSamePageKeepIndependentViewportState() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.point()); var a = add(session, page, null, "A"); var b = add(session, page, null, "B");
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.SetFocus(new OperationPath(null, a)))).succeeded());
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session, deterministic(new AtomicInteger())); host.resize(600, 500); host.refresh(); return host; });
+            try {
+                awaitFx(() -> !ui.isLayoutPending());
+                onFx(() -> { ui.visibleOccurrences().getFirst().setZoom(1.3); return null; });
+                assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.SetFocus(new OperationPath(null, b)))).succeeded());
+                onFx(() -> { ui.refresh(); assertEquals(1, ui.visibleOccurrences().getFirst().getZoom(), 1e-9); ui.visibleOccurrences().getFirst().setZoom(.8); return null; });
+                assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.SetFocus(new OperationPath(null, a)))).succeeded());
+                onFx(() -> { ui.refresh(); assertEquals(1.3, ui.visibleOccurrences().getFirst().getZoom(), 1e-9); return null; });
+            } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void theSameNodeKeepsItsViewportWhenItsSelectedParentChangesPathDepth() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var root = session.initializeRoot(BuiltinPageTypes.point()); var a = add(session, root, null, "root");
+            var middle = session.initializePage(BuiltinPageTypes.point(), a); var b = add(session, middle, a, "middle");
+            var leaf = session.initializePage(BuiltinPageTypes.point(), a); var c = add(session, leaf, a, "shared leaf");
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.AttachOwnership(b, c), new VisualizationCommand.SetFocus(new OperationPath(a, c)))).succeeded());
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session, deterministic(new AtomicInteger())); host.resize(300, 500); host.refresh(); return host; });
+            try {
+                awaitFx(() -> !ui.isLayoutPending()); var first = onFx(() -> ui.visibleOccurrences().getFirst());
+                onFx(() -> { first.setZoom(1.3); return null; });
+                assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.SetFocus(new OperationPath(b, c)))).succeeded());
+                onFx(() -> { ui.refresh(); assertSame(first, ui.visibleOccurrences().getFirst()); assertEquals(1.3, ui.visibleOccurrences().getFirst().getZoom(), 1e-9); return null; });
+            } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void viewportStateSurvivesMoreThanSixtyFourOtherVisitedNodes() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.point()); var nodes = new ArrayList<ViewLocation>();
+            for (int i = 0; i < 66; i++) nodes.add(add(session, page, null, "node " + i));
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.SetFocus(new OperationPath(null, nodes.getFirst())))).succeeded());
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session, deterministic(new AtomicInteger())); host.resize(600, 500); host.refresh(); return host; });
+            try {
+                awaitFx(() -> !ui.isLayoutPending()); onFx(() -> { ui.visibleOccurrences().getFirst().setZoom(1.25); return null; });
+                for (var node : nodes.subList(1, nodes.size())) {
+                    assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.SetFocus(new OperationPath(null, node)))).succeeded());
+                    onFx(() -> { ui.refresh(); return null; });
+                }
+                assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.SetFocus(new OperationPath(null, nodes.getFirst())))).succeeded());
+                onFx(() -> { ui.refresh(); assertEquals(1.25, ui.visibleOccurrences().getFirst().getZoom(), 1e-9); return null; });
+            } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void linkedPagesFollowTheirActualConnectionsRatherThanAllocationOrder() throws Exception {
+        for (var direction : List.of(TopologyEdge.Direction.FORWARD, TopologyEdge.Direction.BOTH)) try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.linked(direction == TopologyEdge.Direction.BOTH));
+            var a = add(session, page, null, "A"); var c = add(session, page, null, "C"); var b = add(session, page, null, "B");
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, b), direction),
+                    new VisualizationCommand.Connect(new OperationPath(null, b), new OperationPath(null, c), direction))).succeeded());
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session); host.resize(800, 500); host.refresh(); return host; });
+            try { awaitFx(() -> !ui.isLayoutPending()); onFx(() -> { var bounds = ui.visibleOccurrences().getFirst().parts().getFirst().geometry().nodeBounds();
+                assertTrue(bounds.get(a).x() < bounds.get(b).x() && bounds.get(b).x() < bounds.get(c).x(), "A→B→C must appear in connection order"); return null; }); }
+            finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void temporaryLinkedCyclesAndBranchesUseTheRegisteredNativeGraphPath() throws Exception {
+        for (boolean cycle : List.of(true, false)) try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.linked(false)); var nodes = new ArrayList<ViewLocation>();
+            for (int i = 0; i < (cycle ? 3 : 4); i++) nodes.add(add(session, page, null, "node " + i));
+            var commands = new ArrayList<VisualizationCommand>(); int[][] pairs = cycle ? new int[][]{{0, 1}, {1, 2}, {2, 0}} : new int[][]{{0, 1}, {0, 2}, {0, 3}};
+            for (var pair : pairs) commands.add(new VisualizationCommand.Connect(new OperationPath(null, nodes.get(pair[0])), new OperationPath(null, nodes.get(pair[1]))));
+            assertTrue(session.modify(new MutationBatch(commands, "temporary-linked-topology")).succeeded());
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session); host.resize(800, 500); host.refresh(); return host; });
+            try { awaitFx(() -> !ui.isLayoutPending()); onFx(() -> { var part = ui.visibleOccurrences().getFirst().parts().getFirst(); assertTrue(part.errorText().isEmpty());
+                assertEquals("graphviz/neato-major", part.geometry().engine()); assertEquals(pairs.length, part.geometry().edgePaths().size()); return null; }); }
+            finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void productionFieldPortsAndIndependentStrokeArrowColorsReachTheRealHost() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.composite("field-graph", PageType.Layout.STRESS, false));
+            var a = session.reserveNodeId(page); session.addNode(new OperationPath(null, a), new ViewNode.Spec(ViewNode.Kind.POINT, "A", Map.of("next", "B", "other", "B")));
+            var b = add(session, page, null, "B"); var style = new EdgeStyle("#7BB0DF", "#D6A64F", "next");
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, b), TopologyEdge.Direction.FORWARD, "field:next", "west", style),
+                    new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, b), TopologyEdge.Direction.NONE, "field:other", "north", EdgeStyle.DEFAULT))).succeeded());
+            assertEquals(2, session.model().pages().get(page.pageId()).topology().size());
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session); new Scene(host, 800, 600); host.applyCss(); host.layout(); host.refresh(); return host; });
+            try {
+                awaitFx(() -> !ui.isLayoutPending());
+                onFx(() -> {
+                    var part = ui.visibleOccurrences().getFirst().parts().getFirst(); assertTrue(part.errorText().isEmpty(), part.errorText());
+                    var edge = session.model().pages().get(page.pageId()).topology().values().stream().filter(e -> e.aPort().equals("field:next")).findFirst().orElseThrow();
+                    var expected = new ViewNodeRenderer().render(session.model().node(a), session.model().pages().get(page.pageId()).nodes(), VisualizationTheme.of(VisualizationTheme.Preset.BLUE), Set.of()).unit().ports().stream().filter(p -> p.ref().key().equals("field:next")).findFirst().orElseThrow();
+                    var bounds = part.geometry().nodeBounds().get(a); var start = part.geometry().edgePaths().get(edge.id()).start();
+                    assertEquals(bounds.x() + expected.anchor().x(), start.x(), 1e-7); assertEquals(bounds.y() + expected.anchor().y(), start.y(), 1e-7);
+                    var graphics = ((Pane)part.getChildren().getLast()).getChildren().stream().filter(n -> n instanceof Group).map(n -> (Group)n).toList();
+                    var colored = graphics.stream().filter(g -> g.getChildren().stream().anyMatch(n -> n instanceof Text t && t.getText().equals("next"))).findFirst().orElseThrow();
+                    assertEquals(Color.web("#7BB0DF"), ((javafx.scene.shape.Path)colored.getChildren().getFirst()).getStroke());
+                    assertEquals(Color.web("#D6A64F"), colored.getChildren().stream().filter(n -> n instanceof Polygon).map(n -> ((Polygon)n).getFill()).findFirst().orElseThrow());
+                    assertEquals(Color.WHITE, colored.getChildren().stream().filter(n -> n instanceof Text).map(n -> ((Text)n).getFill()).findFirst().orElseThrow());
+                    snapshot(ui, "field-ports-colored-edge.png", 800, 600); return null;
+                });
+                var before = onFx(() -> ui.visibleOccurrences().getFirst().parts().getFirst().geometry()); long runs = ui.diagnostics().engineRuns().getOrDefault(Kind.GRAPH, 0L);
+                assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, b), TopologyEdge.Direction.FORWARD, "field:next", "west", new EdgeStyle("#FFFFFF", null, "changed")))).succeeded());
+                onFx(() -> { ui.refresh(); return null; }); awaitFx(() -> !ui.isLayoutPending());
+                assertEquals(runs, ui.diagnostics().engineRuns().getOrDefault(Kind.GRAPH, 0L));
+                assertEquals(before.nodeBounds(), onFx(() -> ui.visibleOccurrences().getFirst().parts().getFirst().geometry().nodeBounds()));
+                assertEquals(before.edgePaths(), onFx(() -> ui.visibleOccurrences().getFirst().parts().getFirst().geometry().edgePaths()));
+            } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void productionFieldSelfReferencesHaveAnExteriorRouteAndVisibleArrow() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.composite("self-reference", PageType.Layout.STRESS, false)); var a = session.reserveNodeId(page);
+            session.addNode(new OperationPath(null, a), new ViewNode.Spec(ViewNode.Kind.POINT, "A", Map.of("next", "A")));
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, a),
+                    TopologyEdge.Direction.FORWARD, "field:next", "node", new EdgeStyle("#7BB0DF", "#D6A64F", "next")))).succeeded());
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session); host.resize(600, 500); host.refresh(); return host; });
+            try { awaitFx(() -> !ui.isLayoutPending()); onFx(() -> { var part = ui.visibleOccurrences().getFirst().parts().getFirst();
+                assertTrue(part.errorText().isEmpty(), part.errorText()); assertEquals("graphviz/neato-major", part.geometry().engine());
+                var box = part.geometry().nodeBounds().get(a); var route = part.geometry().edgePaths().values().iterator().next();
+                assertTrue(route.segments().stream().anyMatch(s -> s.end().x() > box.right() + 1));
+                assertTrue(((Group)((Pane)part.getChildren().getLast()).getChildren().getFirst()).getChildren().stream().anyMatch(n -> n instanceof Polygon)); return null; }); }
+            finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void edgeStyleIsARealSessionUpdateAndDoesNotInvalidateMeasuredGeometry() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.composite("colored-edge", PageType.Layout.STRESS, false));
+            var a = add(session, page, null, "A"); var b = add(session, page, null, "B");
+            var style = new EdgeStyle("#7BB0DF", "#D6A64F", "next");
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, b), TopologyEdge.Direction.FORWARD, "node", "node", style))).succeeded());
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session); new Scene(host, 800, 600); host.applyCss(); host.layout(); host.refresh(); return host; });
+            try {
+                awaitFx(() -> !ui.isLayoutPending());
+                onFx(() -> {
+                    var part = ui.visibleOccurrences().getFirst().parts().getFirst(); var graphic = (Group)((Pane)part.getChildren().getLast()).getChildren().getFirst();
+                    assertEquals(Color.web("#7BB0DF"), ((javafx.scene.shape.Path)graphic.getChildren().getFirst()).getStroke());
+                    assertEquals(Color.web("#D6A64F"), graphic.getChildren().stream().filter(n -> n instanceof Polygon).map(n -> ((Polygon)n).getFill()).findFirst().orElseThrow());
+                    var label = graphic.getChildren().stream().filter(n -> n instanceof Text).map(n -> (Text)n).findFirst().orElseThrow();
+                    assertEquals("next", label.getText()); assertEquals(Color.WHITE, label.getFill()); assertEquals(1, label.getOpacity()); return null;
+                });
+                var geometry = onFx(() -> ui.visibleOccurrences().getFirst().parts().getFirst().geometry()); long runs = ui.diagnostics().engineRuns().getOrDefault(Kind.GRAPH, 0L);
+                String longLabel = "long field label ".repeat(40);
+                assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, b), TopologyEdge.Direction.FORWARD, "node", "node", new EdgeStyle("#FFFFFF", null, longLabel)))).succeeded());
+                onFx(() -> { ui.refresh(); return null; }); awaitFx(() -> !ui.isLayoutPending());
+                assertEquals(runs, ui.diagnostics().engineRuns().getOrDefault(Kind.GRAPH, 0L));
+                assertEquals(geometry.nodeBounds(), onFx(() -> ui.visibleOccurrences().getFirst().parts().getFirst().geometry().nodeBounds()));
+                assertEquals(geometry.edgePaths(), onFx(() -> ui.visibleOccurrences().getFirst().parts().getFirst().geometry().edgePaths()));
+                onFx(() -> { var occurrence = ui.visibleOccurrences().getFirst(); var part = occurrence.parts().getFirst();
+                    var graphic = (Group)((Pane)part.getChildren().getLast()).getChildren().getFirst();
+                    var label = graphic.getChildren().stream().filter(n -> n instanceof Text).map(n -> (Text)n).findFirst().orElseThrow();
+                    assertEquals(longLabel, label.getText());
+                    var content = occurrence.scrollPane().getContent(); var inContent = content.sceneToLocal(label.localToScene(label.getBoundsInLocal()));
+                    assertTrue(content.getBoundsInLocal().contains(inContent), "The scrollable content must include the complete long edge label"); return null; });
+            } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void longEdgeLabelsRemainScrollableWhenGeometryHasANegativeOrigin() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.linked(false)); var a = add(session, page, null, "A"); var b = add(session, page, null, "B");
+            String label = "long edge label ".repeat(40);
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, b),
+                    TopologyEdge.Direction.FORWARD, "node", "node", new EdgeStyle("#FFFFFF", null, label)))).succeeded());
+            LayoutEngine engine = (request, token) -> {
+                var source = new ArrayLayout().layout(request, token); var bounds = new LinkedHashMap<ViewLocation, LayoutRequest.Rect>();
+                source.nodeBounds().forEach((node, box) -> bounds.put(node, new LayoutRequest.Rect(box.x() - 500, box.y() - 100, box.width(), box.height())));
+                var edges = new LinkedHashMap<Long, LayoutResult.EdgePath>();
+                source.edgePaths().forEach((id, path) -> edges.put(id, new LayoutResult.EdgePath(new LayoutRequest.Point(path.start().x() - 500, path.start().y() - 100),
+                        path.segments().stream().map(segment -> (LayoutResult.Segment)new LayoutResult.Line(new LayoutRequest.Point(segment.end().x() - 500, segment.end().y() - 100))).toList())));
+                var box = source.contentBounds(); return new LayoutResult(source.stamp(), bounds, edges,
+                        new LayoutRequest.Rect(box.x() - 500, box.y() - 100, box.width(), box.height()), source.engine(), source.engineVersion());
+            };
+            var engines = new EnumMap<Kind, LayoutEngine>(Kind.class); for (var kind : Kind.values()) engines.put(kind, engine);
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session, new LayoutCoordinator(engines, Platform::runLater));
+                new Scene(host, 600, 500); host.applyCss(); host.layout(); host.refresh(); return host; });
+            try { awaitFx(() -> !ui.isLayoutPending()); onFx(() -> {
+                var occurrence = ui.visibleOccurrences().getFirst(); var part = occurrence.parts().getFirst(); assertTrue(part.geometry().contentBounds().x() < 0);
+                var graphic = (Group)((Pane)part.getChildren().getLast()).getChildren().getFirst();
+                var text = graphic.getChildren().stream().filter(n -> n instanceof Text).map(n -> (Text)n).findFirst().orElseThrow();
+                var content = occurrence.scrollPane().getContent(); var inContent = content.sceneToLocal(text.localToScene(text.getBoundsInLocal()));
+                assertTrue(text.getBoundsInLocal().getWidth() > part.geometry().contentBounds().width());
+                assertTrue(content.getBoundsInLocal().contains(inContent), "Translation from a negative origin must retain the full long label in scroll bounds"); return null;
+            }); } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void callerTreeRootAndChildOrderReachLiveAndHistoricalViews() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.tree(true)); var a = add(session, page, null, "A"); var b = add(session, page, null, "B"); var c = add(session, page, null, "C");
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, b)),
+                    new VisualizationCommand.Connect(new OperationPath(null, b), new OperationPath(null, c)),
+                    new VisualizationCommand.SetPageLayout(page, new PageLayoutHints(b, List.of(c, a))))).succeeded());
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session); host.resize(800, 600); host.refresh(); return host; });
+            try {
+                awaitFx(() -> !ui.isLayoutPending());
+                onFx(() -> { var bounds = ui.visibleOccurrences().getFirst().parts().getFirst().geometry().nodeBounds();
+                    assertTrue(bounds.get(b).y() < bounds.get(a).y() && bounds.get(b).y() < bounds.get(c).y(), "The caller's rotated root must be above its children");
+                    assertTrue(bounds.get(c).x() < bounds.get(a).x(), "The explicit C,A child order must be visible"); return null; });
+                assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.SetPageLayout(page, new PageLayoutHints(c, List.of(a))))).succeeded());
+                var snapshot = session.snapshot(); onFx(() -> { ui.showSnapshot(snapshot); return null; }); awaitFx(() -> !ui.isLayoutPending());
+                onFx(() -> { var bounds = ui.visibleOccurrences().getFirst().parts().getFirst().geometry().nodeBounds();
+                    assertTrue(bounds.get(c).y() < bounds.get(b).y() && bounds.get(b).y() < bounds.get(a).y()); return null; });
+            } finally { onFx(() -> { ui.close(); return null; }); }
+        }
+    }
+    @Test void anExplicitPartialLinkedOrderOverridesTheDefaultTopologyOrder() throws Exception {
+        try (var session = new DefaultVisualizationSession()) {
+            var page = session.initializeRoot(BuiltinPageTypes.linked(false)); var a = add(session, page, null, "A"); var c = add(session, page, null, "C"); var b = add(session, page, null, "B");
+            assertTrue(session.modify(MutationBatch.of(new VisualizationCommand.Connect(new OperationPath(null, a), new OperationPath(null, b)),
+                    new VisualizationCommand.Connect(new OperationPath(null, b), new OperationPath(null, c)),
+                    new VisualizationCommand.SetPageLayout(page, new PageLayoutHints(null, List.of(b))))).succeeded());
+            var ui = onFx(() -> { var host = new UiVisualizationContainer(session); host.resize(800, 600); host.refresh(); return host; });
+            try { awaitFx(() -> !ui.isLayoutPending()); onFx(() -> { var bounds = ui.visibleOccurrences().getFirst().parts().getFirst().geometry().nodeBounds();
+                assertTrue(bounds.get(b).x() < bounds.get(a).x() && bounds.get(a).x() < bounds.get(c).x()); return null; }); }
+            finally { onFx(() -> { ui.close(); return null; }); }
         }
     }
 }

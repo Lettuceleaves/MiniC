@@ -42,6 +42,7 @@ public final class PipelineSession implements AutoCloseable {
     private int selectedStageIndex;
     private String executionFailure = "";
     private volatile Snapshot snapshot;
+    private boolean closed;
 
     /** 独立产物目录保护已有编译产物；源码来自编辑缓冲区，不保存或重新读取源文件。 */
     public static PipelineSession create(SourceFile source, Path outputRoot) throws IOException {
@@ -139,7 +140,7 @@ public final class PipelineSession implements AutoCloseable {
 
     /** 回看已完成或当前阶段不会修改编译器的推进位置。 */
     public synchronized boolean selectStage(int index) {
-        if (index < 0 || index >= stages.size() || !snapshot.stages().get(index).selectable()) return false;
+        if (closed || index < 0 || index >= stages.size() || !snapshot.stages().get(index).selectable()) return false;
         selectedStageIndex = index;
         refresh();
         return true;
@@ -203,5 +204,16 @@ public final class PipelineSession implements AutoCloseable {
         }
     }
 
-    @Override public synchronized void close() { visualization.close(); }
+    @Override public synchronized void close() {
+        if (closed) return;
+        closed = true;
+        pending = null;
+        try { visualization.close(); }
+        finally {
+            var previous = snapshot;
+            snapshot = new Snapshot(previous.stages(), previous.selectedStageIndex(), previous.currentStageIndex(),
+                    previous.stepCount(), false, previous.succeeded(), previous.failed(), previous.visualization(), false,
+                    previous.visualizationError());
+        }
+    }
 }

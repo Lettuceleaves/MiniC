@@ -15,7 +15,7 @@ public final class SnapshotCodec {
         for (var page:model.pages().values()) {
             var nodes=new LinkedHashMap<Long,NodeState>();
             page.nodes().forEach((id,node)->nodes.put(id,new NodeState(node.location(),node.content(),node.retention(),node.parents(),node.highlights())));
-            pages.put(page.ref().pageId(),new PageState(page.ref(),TypeDescription.of(page.type()),nodes,page.anchor(),page.composition(),page.topology(),page.ready()));
+            pages.put(page.ref().pageId(),new PageState(page.ref(),TypeDescription.of(page.type()),nodes,page.anchor(),page.composition(),page.topology(),page.ready(),page.layoutHints()));
         }
         return new VisualizationSnapshot(model.id(),model.root(),pages,model.ownership(),model.pageRules(),model.interaction(),model.sourceVersion(),model.epoch(),model.sourceStep(),highWater);
     }
@@ -42,7 +42,7 @@ public final class SnapshotCodec {
                 if (!node.location().equals(value.location()) || !node.content().equals(value.content()) || node.retention()!=value.retention() || !node.parents().equals(value.parents()) || !node.children().equals(children)) throw new IllegalArgumentException("Page factory violated snapshot contract");
                 nodes.put(nodeEntry.getKey(),node);
             }
-            pages.put(entry.getKey(),new PageModel(page.ref(),type,nodes,page.anchor(),page.composition(),page.topology(),page.ready(),Map.of(),Map.of()));
+            pages.put(entry.getKey(),new PageModel(page.ref(),type,nodes,page.anchor(),page.composition(),page.topology(),page.ready(),Map.of(),Map.of(),page.layoutHints()));
         }
         var draft=new ContainerModel(snapshot.containerId(),snapshot.root(),pages,version,snapshot.ownership(),snapshot.pageRules(),snapshot.interaction(),epoch,snapshot.sourceStep(),snapshot.sourceVersion());
         SnapshotValidator.validate(draft,registry!=null);

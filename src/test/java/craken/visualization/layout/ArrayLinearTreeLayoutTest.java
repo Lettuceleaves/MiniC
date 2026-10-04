@@ -28,6 +28,14 @@ final class ArrayLinearTreeLayoutTest {
         assertEquals(164, result.nodeBounds().get(id(2)).x());
         assertEquals(2, result.edgePaths().size());
     }
+    @Test void defaultLinearOrderFollowsTheDirectedChainEvenWhenTheHeadHasTheLargestId() {
+        var request = request(Kind.LINEAR, List.of(node(1, 60, 30), node(2, 80, 40), node(3, 100, 50)),
+                List.of(new Link(1, PortRef.node(id(3)), PortRef.node(id(2)), Direction.FORWARD),
+                        new Link(2, PortRef.node(id(2)), PortRef.node(id(1)), Direction.FORWARD)), Hints.defaults());
+        var result = new LinearLayout().layout(request);
+        assertTrue(result.nodeBounds().get(id(3)).x() < result.nodeBounds().get(id(2)).x());
+        assertTrue(result.nodeBounds().get(id(2)).x() < result.nodeBounds().get(id(1)).x());
+    }
     @Test void treeUsesUndirectedTopologyAndStableEntryWithoutPointerRoles() {
         var hints = new Hints(16, 30, 8, 1, Orientation.VERTICAL, id(2), List.of(id(3), id(1)));
         var request = request(Kind.TREE, List.of(node(3, 110, 40), node(1, 60, 30), node(2, 80, 50)),

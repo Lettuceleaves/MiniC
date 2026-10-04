@@ -90,6 +90,11 @@ public final class DebugObjectIdentityRegistry<L> {
         references.put(key, new PointerTarget(rawAddress, resolve(rawAddress).orElse(null)));
     }
     public Optional<PointerTarget> reference(ReferenceKey key) { return Optional.ofNullable(references.get(key)); }
+    /** Previously declared fields remain observable while their source allocation is alive, even off-screen. */
+    public Set<ObjectKey> referenceSources() {
+        var sources=new LinkedHashSet<ObjectKey>();references.keySet().forEach(reference->sources.add(reference.source()));
+        return Collections.unmodifiableSet(sources);
+    }
     public void forgetReference(ReferenceKey key) { references.remove(key); }
     public Optional<DebugMemoryReader.Address> referenceTarget(ReferenceKey key) {
         PointerTarget pointer = references.get(key);

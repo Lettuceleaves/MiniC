@@ -11,6 +11,26 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("visualization-model")
 class PageRegistrationTest {
+    @Test void anAlreadyRegisteredTypeCanInitializeAnotherPage() {
+        try (var session = new DefaultVisualizationSession()) {
+            var root = session.initializeRoot(BuiltinPageTypes.point());
+            var owner = session.reserveNodeId(root);
+            session.addNode(new OperationPath(null, owner), ViewNode.Spec.point("owner"));
+            var registered = session.model().pages().get(root.pageId()).type();
+            var child = session.initializePage(registered, owner);
+            assertSame(registered, session.model().pages().get(child.pageId()).type());
+        }
+    }
+    @Test void callerRegistriesAndSessionRegistriesCanReuseTheSameTypeDefinition() {
+        try (var session = new DefaultVisualizationSession()) {
+            var caller = new PageTypeRegistry(); caller.register(BuiltinPageTypes.point());
+            var root = session.initializeRoot(BuiltinPageTypes.point());
+            var owner = session.reserveNodeId(root);
+            session.addNode(new OperationPath(null, owner), ViewNode.Spec.point("owner"));
+            var child = session.initializePage(caller.require("point"), owner);
+            assertEquals("point", session.model().pages().get(child.pageId()).type().key());
+        }
+    }
     @Test void callerMustRegisterTheTypeAndRootIsUnique() {
         try (var session = new DefaultVisualizationSession()) {
             assertThrows(NullPointerException.class, () -> session.initializeRoot(null));

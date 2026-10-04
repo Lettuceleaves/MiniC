@@ -15,13 +15,20 @@ import java.util.*;
 public final class DebugVisualizationAdapter implements AutoCloseable {
     public record ProjectionResult(int contextIndex, boolean accepted, RuntimeEventBatch events,
                                    String diagnostic, VisualizationSnapshot snapshot) {}
-    private record ManualObject(DebugObjectIdentityRegistry.ObjectKey key, PageRef page, ViewLocation pre) {}
+    private record ManualObject(DebugObjectIdentityRegistry.ObjectKey key, PageRef page, Set<ViewLocation> parents) {
+        ManualObject { parents=Collections.unmodifiableSet(new LinkedHashSet<>(parents)); }
+    }
     private final VisualizationSession session;
     private final PageTypeRegistry types;
     private final Map<String, DebugStructureDescriptor> descriptors = new LinkedHashMap<>();
     private final Set<DebugStructureDescriptor.RootAddress> roots = new LinkedHashSet<>();
     private final Map<DebugObjectIdentityRegistry.ObjectKey, ManualObject> manual = new LinkedHashMap<>();
+    // Unconsumed caller registrations are configuration, not a historical model value.
+    private final Map<ObjectKey,ManualObject> pendingManual = new LinkedHashMap<>();
+    private final Set<DebugStructureDescriptor.RootAddress> pendingRoots = new LinkedHashSet<>();
     private DebugObjectIdentityRegistry<ViewLocation> identities = new DebugObjectIdentityRegistry<>();
+    // Successful VM observations must advance even when publication of a model frame is rejected.
+    private DebugObjectIdentityRegistry<ViewLocation> observations = new DebugObjectIdentityRegistry<>();
     private VisualizationSnapshot published;
     private boolean closed;
     private boolean ownsSession = true;
@@ -51,33 +58,41 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
     static final class Checkpoint {
         final VisualizationSnapshot snapshot;
         final DebugObjectIdentityRegistry<ViewLocation> identities;
+        final DebugObjectIdentityRegistry<ViewLocation> observations;
         final Map<DebugStructureDescriptor.RootAddress,ObjectKey> roots;
         final Map<ObjectKey,ManualObject> manual;
         Checkpoint(VisualizationSnapshot snapshot,DebugObjectIdentityRegistry<ViewLocation> identities,
+                   DebugObjectIdentityRegistry<ViewLocation> observations,
                    Map<DebugStructureDescriptor.RootAddress,ObjectKey> roots,Map<ObjectKey,ManualObject> manual) {
-            this.snapshot=snapshot;this.identities=identities.copy();this.roots=Map.copyOf(roots);this.manual=Map.copyOf(manual);
+            this.snapshot=snapshot;this.identities=identities.copy();this.observations=observations.copy();
+            this.roots=Map.copyOf(roots);this.manual=Map.copyOf(manual);
         }
     }
-    synchronized Checkpoint checkpoint() { return new Checkpoint(published,identities,rootIdentities,manual); }
+    synchronized Checkpoint checkpoint() { return new Checkpoint(published,identities,observations,rootIdentities,manual); }
     synchronized void restore(Checkpoint checkpoint) {
         if(closed)throw new IllegalStateException("Adapter closed");
         // Session.restore validates and publishes atomically before identity publication.
         session.restore(checkpoint.snapshot);
         identities=checkpoint.identities.copy();rootIdentities=new LinkedHashMap<>(checkpoint.roots);
+        observations=checkpoint.observations.copy();
         manual.clear();manual.putAll(checkpoint.manual);
         published=session.snapshot();
     }
     synchronized void forgetResult(int index) { results.remove(index); }
     public synchronized void registerDescriptor(DebugStructureDescriptor descriptor) {
+        requireOpen();Objects.requireNonNull(descriptor);
         var previous = descriptors.putIfAbsent(descriptor.key(), descriptor);
         if (previous != null && !previous.equals(descriptor)) throw new IllegalArgumentException("Descriptor key already registered");
     }
     public synchronized void registerRoot(DebugStructureDescriptor.RootAddress root) {
-        Objects.requireNonNull(root); roots.add(root); rootIdentities.remove(root);
+        requireOpen();Objects.requireNonNull(root); roots.add(root);pendingRoots.add(root);
     }
     public synchronized void registerObject(String descriptorKey, DebugMemoryReader.Address address, PageRef page, ViewLocation pre) {
+        requireOpen();Objects.requireNonNull(address);Objects.requireNonNull(page);Objects.requireNonNull(pre);
+        if(page.containerId()!=pre.containerId()||page.containerId()!=session.model().id())
+            throw new IllegalArgumentException("Manual ownership must stay in its container");
         var key = new DebugObjectIdentityRegistry.ObjectKey(address.allocationId(), address.offset(), descriptorKey);
-        manual.put(key, new ManualObject(key, page, pre));
+        mergeManual(pendingManual,new ManualObject(key,page,Set.of(pre)));
     }
     public synchronized Map<DebugObjectIdentityRegistry.ObjectKey, ViewLocation> locations() { return identities.locations(); }
     public synchronized VisualizationSnapshot publishedSnapshot() { return published; }
@@ -92,13 +107,27 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
         if (!events.complete()) return reject(index, events, "Incomplete monitoring interval: " + events.diagnostic());
         VisualizationSnapshot before = session.snapshot();
         ContainerModel old = session.model();
+        DebugObjectIdentityRegistry<ViewLocation> observedInterval=null;
+        Map<DebugStructureDescriptor.RootAddress,ObjectKey> observedRoots=null;
+        Map<ObjectKey,ManualObject> registered=null;
         try {
-            var draft = identities.copy();
+            var draft = observations.copy();
             var boundRoots = new LinkedHashMap<>(rootIdentities);
-            for (var event:events.events()) if(event instanceof RuntimeEvent.Reallocated resize&&resize.previous()!=null) {
-                boundRoots.replaceAll((root,key)->key.allocationId()==resize.previous().allocationId()
-                        &&key.offset()+descriptor(key.descriptorKey()).minimumSize()<=resize.replacement().size()
-                        ?new ObjectKey(resize.replacement().allocationId(),key.offset(),key.descriptorKey()):key);
+            pendingRoots.forEach(boundRoots::remove);
+            boundRoots.replaceAll((root,key)->relocated(key,events.events()));
+            registered=new LinkedHashMap<>();
+            var registrations=new LinkedHashMap<>(manual);
+            pendingManual.values().forEach(object->mergeManual(registrations,object));
+            Map<ViewLocation,ObjectKey> priorObjects=new HashMap<>();
+            identities.locations().forEach((key,location)->priorObjects.put(location,key));
+            for(var object:registrations.values()) {
+                ObjectKey key=relocated(object.key(),events.events());
+                var parents=new LinkedHashSet<ViewLocation>();
+                for(var parent:object.parents()) {
+                    ObjectKey identity=priorObjects.get(parent);
+                    if(exists(parent)&&(identity==null||live(memory,relocated(identity,events.events()))))parents.add(parent);
+                }
+                if(!parents.isEmpty())mergeManual(registered,new ManualObject(key,object.page(),parents));
             }
             var seeds = new LinkedHashSet<ObjectKey>();
             for (var root : roots) {
@@ -110,9 +139,11 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                 }
                 if (key != null && live(memory, key)) seeds.add(key);
             }
-            manual.keySet().stream().filter(key -> live(memory,key)).forEach(seeds::add);
+            registered.keySet().stream().filter(key -> live(memory,key)).forEach(seeds::add);
             // First enumerate declared pointer fields. Their generation is then captured in event order.
-            List<PointerField> pointers = pointerFields(memory, seeds);
+            var observedSources=new LinkedHashSet<>(seeds);
+            observations.referenceSources().stream().filter(key->live(memory,key)).forEach(observedSources::add);
+            List<PointerField> pointers = pointerFields(memory, observedSources);
             draft.beginInterval(memory, events.events());
             for (var event : events.events()) {
                 draft.observe(event);
@@ -124,29 +155,31 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                 }
             }
             draft.reconcile(memory);
-            for (var event:events.events()) if(event instanceof RuntimeEvent.Reallocated resize&&resize.previous()!=null)
-                for(var entry:identities.locations().entrySet()) {
-                    var key=entry.getKey(); var schema=descriptor(key.descriptorKey());
-                    if(key.allocationId()==resize.previous().allocationId()
-                            &&key.offset()+schema.minimumSize()<=resize.replacement().size()
-                            &&schema.reallocationPolicy()==DebugStructureDescriptor.ReallocationPolicy.PRESERVE_LOCATION)
-                        draft.put(new ObjectKey(resize.replacement().allocationId(),key.offset(),key.descriptorKey()),entry.getValue());
-                }
+            for(var entry:observations.locations().entrySet()) {
+                var key=entry.getKey();var relocated=relocated(key,events.events());
+                if(!key.equals(relocated)&&live(memory,relocated)
+                        &&descriptor(key.descriptorKey()).reallocationPolicy()==DebugStructureDescriptor.ReallocationPolicy.PRESERVE_LOCATION)
+                    draft.put(relocated,entry.getValue());
+            }
             for (var field : pointers) {
                 var remembered = draft.reference(field.key());
                 if (remembered.isEmpty() || remembered.get().rawAddress()!=field.value())
                     draft.rememberReference(field.key(),field.value());
             }
+            observedInterval=draft.copy();observedRoots=new LinkedHashMap<>(boundRoots);
             var nodes = new LinkedHashMap<ObjectKey,Node>();
             var edges = new LinkedHashSet<Edge>();
             var members = new LinkedHashSet<Member>();
             Deque<Work> queue = new ArrayDeque<>();
             for (var seed : seeds) {
-                var explicit = manual.get(seed);
+                var explicit = registered.get(seed);
                 if (explicit != null) {
-                    requirePage(explicit.page()); old.node(explicit.pre());
-                    queue.add(new Work(seed,new Group(null,explicit.page()),
-                            Set.of(new Owner(null,explicit.pre(),"debug:manual:"+seed))));
+                    requirePage(explicit.page());
+                    var owners=new LinkedHashSet<Owner>();
+                    for(var parent:explicit.parents()) {
+                        old.node(parent);owners.add(new Owner(null,parent,"debug:manual:"+seed));
+                    }
+                    queue.add(new Work(seed,new Group(null,explicit.page()),owners));
                 } else queue.add(new Work(seed,new Group(null,old.root()),Set.of()));
             }
             while (!queue.isEmpty()) {
@@ -174,7 +207,7 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                         edges.add(new Edge(work.key(),child,TopologyEdge.Direction.valueOf(reference.direction().name())));
                         queue.add(new Work(child,node.group,Set.copyOf(node.owners)));
                     } else {
-                        Group group = groupFor(child,draft);
+                        Group group = groupFor(child,draft,registered);
                         queue.add(new Work(child,group,Set.of(new Owner(work.key(),null,"debug:ref:"+work.key()+":"+reference.name()))));
                     }
                 }
@@ -191,14 +224,18 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
             List<VisualizationCommand> commands = new ArrayList<>();
             for (var node : nodes.values()) {
                 ViewLocation location=locations.get(node.key);
-                if (!session.model().node(location).content().equals(node.spec))
-                    commands.add(new SetContent(path(location,node,locations),node.spec));
                 for (var owner : node.owners) {
                     var pre=owner(owner,locations);
                     var current=session.model().ownership().get(new OwnershipBinding.Key(pre,location));
                     if(current==null||!current.sources().contains(owner.source()))
                         commands.add(new AttachOwnership(pre,location,owner.source()));
                 }
+            }
+            // Establish the selected upstream before any command that requires that path.
+            for (var node : nodes.values()) {
+                ViewLocation location=locations.get(node.key);
+                if (!session.model().node(location).content().equals(node.spec))
+                    commands.add(new SetContent(path(location,node,locations),node.spec));
             }
             for (var member : members) {
                 var parent=locations.get(member.parent()); var child=locations.get(member.child());
@@ -217,27 +254,34 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                         .anyMatch(e->e.a().equals(a)&&e.b().equals(b)&&e.direction()==edge.direction());
                 if (!present) commands.add(new Connect(path(a,nodes.get(edge.a()),locations),path(b,nodes.get(edge.b()),locations),edge.direction()));
             }
-            // Add replacements before removing old ownership sources, so shared children remain alive.
+            var retained = new HashSet<>(locations.values());
+            var deleted = new LinkedHashSet<ViewLocation>();
+            for (var previous : identities.locations().values()) if (!retained.contains(previous)&&exists(previous)) deleted.add(previous);
+            // Children still need a live pre. Delete leaves before parents, before detaching their paths.
+            for (var previous : deletionOrder(deleted)) commands.add(new DeleteNode(currentPath(previous)));
+            // Replacement sources have already been attached. Explicit deletion removes its own sources.
             for (var binding : session.model().ownership().values()) for (var source : binding.sources()) {
                 if (!source.startsWith("debug:")) continue;
+                if (deleted.contains(binding.key().pre())||deleted.contains(binding.key().nxt())) continue;
                 boolean keep=nodes.values().stream().anyMatch(n->locations.get(n.key).equals(binding.key().nxt())
                         &&n.owners.stream().anyMatch(o->o.source().equals(source)&&owner(o,locations).equals(binding.key().pre())));
                 if (!keep) commands.add(new DetachOwnership(binding.key().pre(),binding.key().nxt(),source));
             }
-            var retained = new HashSet<>(locations.values());
-            for (var previous : identities.locations().values()) if (!retained.contains(previous)&&exists(previous))
-                commands.add(new DeleteNode(currentPath(previous)));
-            touch(events,memory,nodes,locations,commands);
+            touch(events,memory,nodes,locations,deleted,commands);
             apply(new MutationBatch(commands,"debug:"+index));
             locations.entrySet().removeIf(entry -> !exists(entry.getValue()));
             draft.replaceLocations(locations);
             var next=session.snapshot();
-            identities=draft; rootIdentities=boundRoots; published=next;
+            identities=draft;observations=draft.copy();rootIdentities=boundRoots;published=next;
+            publishRegistrations(registered);
             var result=new ProjectionResult(index,true,events,events.monitored()?"":"Monitoring disabled",next);
             results.put(index,result);
             return result;
         } catch (RuntimeException failure) {
             if (session.model()!=old) session.restore(before);
+            if(observedInterval!=null) {
+                observations=observedInterval;rootIdentities=observedRoots;publishRegistrations(registered);
+            }
             return reject(index,events,String.valueOf(failure.getMessage()));
         }
     }
@@ -247,6 +291,30 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
     private DebugStructureDescriptor descriptor(String key) {
         var schema=descriptors.get(key); if (schema==null) throw new IllegalArgumentException("Unregistered descriptor: "+key);
         types.require(schema.pageTypeKey()); return schema;
+    }
+    private void requireOpen() { if(closed)throw new IllegalStateException("Adapter closed"); }
+    private static void mergeManual(Map<ObjectKey,ManualObject> registrations,ManualObject object) {
+        var previous=registrations.get(object.key());
+        if(previous==null) { registrations.put(object.key(),object);return; }
+        if(!previous.page().equals(object.page()))throw new IllegalArgumentException("Manual object already registered in another page");
+        var parents=new LinkedHashSet<>(previous.parents());parents.addAll(object.parents());
+        registrations.put(object.key(),new ManualObject(object.key(),object.page(),parents));
+    }
+    private void publishRegistrations(Map<ObjectKey,ManualObject> registrations) {
+        manual.clear();
+        for(var object:registrations.values()) {
+            var parents=new LinkedHashSet<ViewLocation>();
+            object.parents().stream().filter(this::exists).forEach(parents::add);
+            if(!parents.isEmpty())manual.put(object.key(),new ManualObject(object.key(),object.page(),parents));
+        }
+        pendingManual.clear();pendingRoots.clear();
+    }
+    private ObjectKey relocated(ObjectKey key,List<RuntimeEvent> events) {
+        for(var event:events)if(event instanceof RuntimeEvent.Reallocated resize&&resize.previous()!=null
+                &&key.allocationId()==resize.previous().allocationId()
+                &&key.offset()+descriptor(key.descriptorKey()).minimumSize()<=resize.replacement().size())
+            key=new ObjectKey(resize.replacement().allocationId(),key.offset(),key.descriptorKey());
+        return key;
     }
     private static ObjectKey key(DebugMemoryReader.Address a,String descriptor) { return new ObjectKey(a.allocationId(),a.offset(),descriptor); }
     private static boolean live(DebugMemoryReader memory,ObjectKey key) {
@@ -306,8 +374,8 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
         long start=memory.absolute(key.address())+offset;
         return start<range.address()+range.size()&&range.address()<start+size;
     }
-    private Group groupFor(ObjectKey key,DebugObjectIdentityRegistry<ViewLocation> draft) {
-        var explicit=manual.get(key); if(explicit!=null)return new Group(null,explicit.page());
+    private Group groupFor(ObjectKey key,DebugObjectIdentityRegistry<ViewLocation> draft,Map<ObjectKey,ManualObject> registered) {
+        var explicit=registered.get(key); if(explicit!=null)return new Group(null,explicit.page());
         var existing=draft.location(key);
         return existing.isPresent()?new Group(null,existing.get().page()):new Group(key,null);
     }
@@ -380,6 +448,26 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
     private OperationPath currentPath(ViewLocation location) {
         return new OperationPath(session.model().node(location).parents().selected(),location);
     }
+    private List<ViewLocation> deletionOrder(Set<ViewLocation> deleted) {
+        var children=new HashMap<ViewLocation,Integer>();
+        var parents=new HashMap<ViewLocation,List<ViewLocation>>();
+        deleted.forEach(node->children.put(node,0));
+        for(var binding:session.model().ownership().values()) {
+            var pre=binding.key().pre();var nxt=binding.key().nxt();
+            if(deleted.contains(pre)&&deleted.contains(nxt)) {
+                children.merge(pre,1,Integer::sum);parents.computeIfAbsent(nxt,ignored->new ArrayList<>()).add(pre);
+            }
+        }
+        var leaves=new ArrayDeque<ViewLocation>();
+        deleted.stream().filter(node->children.get(node)==0).forEach(leaves::add);
+        var ordered=new ArrayList<ViewLocation>();
+        while(!leaves.isEmpty()) {
+            var node=leaves.removeFirst();ordered.add(node);
+            for(var parent:parents.getOrDefault(node,List.of()))if(children.merge(parent,-1,Integer::sum)==0)leaves.add(parent);
+        }
+        if(ordered.size()!=deleted.size())throw new IllegalArgumentException("Cyclic ownership cleanup");
+        return ordered;
+    }
     private boolean exists(ViewLocation location) {
         var page=session.model().pages().get(location.pageId()); return page!=null&&page.nodes().containsKey(location.nodeId());
     }
@@ -388,7 +476,7 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
         if(!result.succeeded())throw new IllegalArgumentException(result.error().code()+": "+result.error().message());
     }
     private void touch(RuntimeEventBatch events,DebugMemoryReader memory,Map<ObjectKey,Node> nodes,
-                       Map<ObjectKey,ViewLocation> locations,List<VisualizationCommand> commands) {
+                       Map<ObjectKey,ViewLocation> locations,Set<ViewLocation> deleted,List<VisualizationCommand> commands) {
         for(var event:events.events()) {
             if(event instanceof RuntimeEvent.Accessed access) {
                 addTouch(access.range(),access.access()==RuntimeEvent.Access.READ?AccessKind.READ:AccessKind.WRITE,memory,nodes,locations,commands);
@@ -397,6 +485,21 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                 addTouch(copy.destination(),AccessKind.WRITE,memory,nodes,locations,commands);
             } else if(event instanceof RuntimeEvent.Allocated allocated) {
                 addTouch(allocated.range(),AccessKind.ALLOCATE,memory,nodes,locations,commands);
+            } else if(event instanceof RuntimeEvent.Released released) {
+                // Replay actual release order after structural cleanup. A freed node navigates to its
+                // nearest surviving selected upstream, just as a core DeleteNode would do at finish.
+                for(var entry:identities.locations().entrySet())if(entry.getKey().allocationId()==released.range().allocationId()
+                        &&deleted.contains(entry.getValue())) {
+                    ViewLocation fallback=session.model().node(entry.getValue()).parents().selected();
+                    while(fallback!=null&&deleted.contains(fallback))fallback=session.model().node(fallback).parents().selected();
+                    if(fallback==null) {
+                        if(session.model().interaction().options().autoNavigate())commands.add(new ClearFocus());
+                        continue;
+                    }
+                    Node target=null;
+                    for(var candidate:nodes.values())if(locations.get(candidate.key).equals(fallback)) {target=candidate;break;}
+                    commands.add(new Touch(target==null?currentPath(fallback):path(fallback,target,locations),AccessKind.DELETE));
+                }
             }
         }
     }
@@ -407,8 +510,8 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
     }
     @Override public synchronized void close() {
         if(closed)return;
-        closed=true;identities=new DebugObjectIdentityRegistry<>();
-        rootIdentities.clear();roots.clear();manual.clear();descriptors.clear();results.clear();
+        closed=true;identities=new DebugObjectIdentityRegistry<>();observations=new DebugObjectIdentityRegistry<>();
+        rootIdentities.clear();roots.clear();manual.clear();pendingManual.clear();pendingRoots.clear();descriptors.clear();results.clear();
         if(ownsSession)session.close();
         published=session.snapshot();
     }

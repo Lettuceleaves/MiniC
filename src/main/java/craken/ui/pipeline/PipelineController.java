@@ -133,10 +133,11 @@ public final class PipelineController implements AutoCloseable {
         editors.activeFileProperty().removeListener(selectionChanged);
         frame.setOnPipeline(null);
         panel.setBusy(true);
-        panel.close();
-        if (previous != null) worker.submit(() -> { if (previous.session != null) previous.session.close(); });
-        worker.shutdown();
-        updateAvailability();
+        try { panel.close(); }
+        finally {
+            try { if (previous != null) worker.submit(() -> { if (previous.session != null) previous.session.close(); }); }
+            finally { worker.shutdown(); updateAvailability(); }
+        }
     }
 
     private static void requireFxThread() {

@@ -23,10 +23,11 @@ public final class DebugVisualizationHistory implements AutoCloseable {
     private final int limit;
     private final NavigableMap<Integer,Frame> frames=new TreeMap<>();
     private final Map<Integer,DebugVisualizationAdapter.Checkpoint> checkpoints=new HashMap<>();
+    // Consecutive expired contexts share one range; unobserved gaps are never classified as expired.
+    private final NavigableMap<Integer,Integer> expiredRanges=new TreeMap<>();
     private boolean closed;
     private int maximumIndex=-1;
     private int currentIndex=-1;
-    private int expiredThrough=-1;
     public DebugVisualizationHistory(DebugVisualizationAdapter adapter,RuntimeEventCollector collector,Runnable releaseDisplay) {
         this(adapter,collector,releaseDisplay,Integer.MAX_VALUE);
     }
@@ -46,7 +47,10 @@ public final class DebugVisualizationHistory implements AutoCloseable {
         var frame=new Frame(context.index(),result.accepted(),result.events(),result.diagnostic(),result.snapshot(),adapter.locations());
         frames.put(context.index(),frame);checkpoints.put(context.index(),adapter.checkpoint());maximumIndex=context.index();currentIndex=context.index();
         while(frames.size()>limit) {
-            int removed=frames.firstKey();frames.remove(removed);checkpoints.remove(removed);adapter.forgetResult(removed);expiredThrough=removed;
+            int removed=frames.firstKey();frames.remove(removed);checkpoints.remove(removed);adapter.forgetResult(removed);
+            var previous=expiredRanges.lastEntry();
+            if(previous!=null&&(long)previous.getValue()+1==removed)expiredRanges.put(previous.getKey(),removed);
+            else expiredRanges.put(removed,removed);
         }
         return frame;
     }
@@ -59,8 +63,10 @@ public final class DebugVisualizationHistory implements AutoCloseable {
     public synchronized VisualizationSnapshot displayedSnapshot() { return adapter.publishedSnapshot(); }
     public synchronized List<Integer> indices() { return List.copyOf(frames.keySet()); }
     private HistoryUnavailableException unavailable(int index) {
-        return new HistoryUnavailableException(index<=expiredThrough?Reason.EXPIRED_CONTEXT:Reason.UNKNOWN_CONTEXT,
-                (index<=expiredThrough?"Expired context: ":"Unknown context: ")+index);
+        var range=expiredRanges.floorEntry(index);
+        boolean expired=range!=null&&index<=range.getValue();
+        return new HistoryUnavailableException(expired?Reason.EXPIRED_CONTEXT:Reason.UNKNOWN_CONTEXT,
+                (expired?"Expired context: ":"Unknown context: ")+index);
     }
     private void requireOpen() {
         if(closed)throw new HistoryUnavailableException(Reason.CLOSED,"Visualization history closed");
@@ -71,9 +77,9 @@ public final class DebugVisualizationHistory implements AutoCloseable {
         Throwable failure=null;
         for(Runnable release:List.<Runnable>of(releaseDisplay,adapter::close,collector::close)) {
             try { release.run(); }
-            catch(Throwable thrown) { if(failure==null)failure=thrown;else failure.addSuppressed(thrown); }
+            catch(Throwable thrown) { if(failure==null)failure=thrown;else if(thrown!=failure)failure.addSuppressed(thrown); }
         }
-        frames.clear();checkpoints.clear();currentIndex=-1;
+        frames.clear();checkpoints.clear();expiredRanges.clear();currentIndex=-1;
         if(failure instanceof RuntimeException runtime)throw runtime;
         if(failure instanceof Error error)throw error;
         if(failure!=null)throw new IllegalStateException("Visualization cleanup failed",failure);

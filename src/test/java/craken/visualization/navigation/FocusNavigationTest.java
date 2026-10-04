@@ -10,6 +10,19 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("visualization-model")
 class FocusNavigationTest {
+    @Test void clearingFocusIsAtomicAndPreservesNavigationOptionsAndLiveNodes() {
+        try (var f = new ModelFixture()) {
+            var options = new VisualizationOptions(false, true);
+            f.session.modify(MutationBatch.of(new Configure(options), new ClearFocus())).requireSuccess();
+            assertNull(f.session.model().focus()); assertNull(f.session.model().interaction().accessed());
+            assertEquals(options, f.session.model().interaction().options()); assertNotNull(f.session.model().node(f.r));
+            f.session.modify(MutationBatch.of(new SetFocus(new OperationPath(null, f.r)))).requireSuccess();
+            var before = f.session.model();
+            assertFalse(f.session.modify(MutationBatch.of(new ClearFocus(), new DeleteNode(new OperationPath(null,
+                    new ViewLocation(f.r.containerId(), f.r.pageId(), 999))))).succeeded());
+            assertSame(before, f.session.model());
+        }
+    }
     @Test void nodePathKeepsRepeatedRootPageOccurrences() {
         try (var f = new ModelFixture()) {
             var a = f.node(f.page(f.r),f.r,"a"); var b = f.node(f.root,a,"b");
@@ -30,6 +43,16 @@ class FocusNavigationTest {
             assertEquals(f.r,f.session.model().node(x).parents().selected());
         }
     }
+    @Test void removingANonselectedBindingPreservesTheSelectedParentIdentity() {
+        try (var f = new ModelFixture()) {
+            var b = f.root("b"); var c = f.root("c"); var child = f.node(f.page(f.r), f.r, "child");
+            f.session.modify(MutationBatch.of(new AttachOwnership(b, child), new AttachOwnership(c, child),
+                    new Touch(new OperationPath(f.r, child), AccessKind.READ))).requireSuccess();
+            f.session.modify(MutationBatch.of(new DetachOwnership(b, child))).requireSuccess();
+            assertEquals(List.of(f.r, c), f.session.model().node(child).parents().parents());
+            assertEquals(f.r, f.session.model().node(child).parents().selected());
+        }
+    }
     @Test void deletingNonfocusedNodeUsesSuppliedParentBeforeFallback() {
         try (var f = new ModelFixture()) {
             var b=f.root("b"); var x=f.node(f.page(f.r),f.r,"x");
@@ -44,6 +67,18 @@ class FocusNavigationTest {
             f.session.modify(MutationBatch.of(new Configure(new VisualizationOptions(false,true)),new DeleteNode(new OperationPath(f.r,x)))).requireSuccess();
             assertEquals(f.r,f.session.model().focus());
             assertThrows(IllegalArgumentException.class,()->f.session.model().node(y));
+        }
+    }
+    @Test void deletingAnAncestorThroughAnotherBranchDoesNotRewriteTheDisabledNavigationFallback() {
+        for (boolean autoNavigate : new boolean[]{false, true}) try (var f = new ModelFixture()) {
+            var other = f.root("other branch");
+            var ancestor = f.node(f.page(f.r), f.r, "ancestor");
+            var focused = f.node(f.page(ancestor), ancestor, "focused descendant");
+            f.session.modify(MutationBatch.of(new AttachOwnership(other, ancestor),
+                    new Touch(new OperationPath(f.r, ancestor), AccessKind.READ), new SetFocus(new OperationPath(ancestor, focused)))).requireSuccess();
+            f.session.modify(MutationBatch.of(new Configure(new VisualizationOptions(autoNavigate, true)),
+                    new DeleteNode(new OperationPath(other, ancestor)))).requireSuccess();
+            assertEquals(autoNavigate ? other : f.r, f.session.model().focus());
         }
     }
     @Test void twoOptionsAreIndependentAndInvisibleAccessDoesNotInsertPages() {

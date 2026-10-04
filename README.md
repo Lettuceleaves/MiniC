@@ -104,9 +104,15 @@ view.refresh();
 
 `showSnapshot(snapshot)` 只显示纯值历史，不恢复外部活动会话。`refresh()` 返回活动模型，`setZoom(...)` 缩放，`layoutPendingProperty()` 和 `diagnostics()` 可用于宿主状态显示。无参宿主拥有其会话；传入会话的宿主借用它，调用者负责关闭会话。布局采用两条后台工作线程与有界缓存；仅高亮变化复用几何。共享 AST 等非树宏拓扑使用正式 Graphviz，运行时缺失时显示布局错误。
 
+顶部“页面路径”可选择因窗口宽度而隐藏的上游节点；每个出现位置按页和节点身份保存缩放、滚动状态，返回时恢复。Ctrl+滚轮只缩放当前出现位置，历史路径选择也只影响历史显示。
+
+`SetPageLayout(page, new PageLayoutHints(root, order))` 设置显示根及部分节点顺序，适用于树旋转后的展示；不解释业务指针字段，也不改变焦点。提示随快照保存，节点释放时自动裁剪。`Connect` 的扩展构造器接收两个端口名和 `EdgeStyle`，支持 `node`、四个边界方向及 `field:<字段名>`；同一对节点可保留不同端口的连线，`Disconnect` 使用对应端口精确删除。`Touch` 的结果位于 `MutationResult.reads()`，保留每条命令当时的内容，失败批次不返回局部读取结果。
+
 ## Debugger 结构适配
 
 使用 `new Debugger(source, "", collector)` 开启会话专属 `RuntimeEventCollector`，默认 Debugger 路径关闭事件收集。`DebugVisualizationAdapter` 读取止点的不可变内存和事件，调用者注册 `DebugStructureDescriptor`（字段类型/偏移、拓扑或归属引用、数组长度/步长、realloc 策略）和 `RootAddress`。不根据 malloc 大小猜测结构；自动识别器是后续能力。
+
+`DebugStructureRecognizer` 提供只读候选识别接口；调用者决定是否采用返回的描述并显式注册，适配器不会自动运行它。
 
 ```java
 var types = new PageTypeRegistry();
@@ -140,7 +146,7 @@ if ((Get-FileHash $runtimeLock.archivePath -Algorithm SHA256).Hash -ne $runtimeL
     throw 'Graphviz archive checksum mismatch'
 }
 Expand-Archive -LiteralPath $runtimeLock.archivePath -DestinationPath $archiveDir -Force
-./scripts/verify-visualization.ps1 -Stage C23
+./scripts/verify-visualization.ps1 -Stage C24
 ```
 
 每次提交前使用该验收入口，重新编译并检查模型、布局、适配、真实 FX、原 UI 回归和默认回归的本次 XML；必需测试缺失、跳过或失败均拒绝验收。门禁会生成 `build/install/Craken`，从任意 cwd 用安装包 JAR 定位并执行自带 neato，完整核验 303 个官方运行文件、校验和及许可证；不依赖全局 Graphviz。`installDist`、`distZip`、`distTar` 都包含 `runtime/graphviz`。

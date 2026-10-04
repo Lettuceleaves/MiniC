@@ -46,7 +46,7 @@ public final class DefaultVisualizationSession implements VisualizationSession {
             ContainerModel next = transaction.finish();
             model = next;
             var change = new ModelChangeSet(next.version(), transaction.affected(), batch.sourceStep());
-            return new MutationResult(next.version(), transaction.created(), change, null, transaction.createdRules());
+            return new MutationResult(next.version(), transaction.created(), change, null, transaction.createdRules(), transaction.reads());
         } catch (VisualizationError.Failure failure) {
             return MutationResult.failed(model.version(),
                     new VisualizationError(failure.code(), failure.getMessage(), transaction.commandIndex()));
@@ -75,7 +75,7 @@ public final class DefaultVisualizationSession implements VisualizationSession {
         return initialize(type, binding, false);
     }
     private PageRef initialize(PageType type, PageBindingRule.Spec binding, boolean root) {
-        types.register(type);
+        type = types.register(type);
         var ref = new PageRef(model.id(), pages.next());
         var updated = new LinkedHashMap<>(model.pages());
         updated.put(ref.pageId(), new PageModel(ref, type, Map.of(), binding == null ? null : binding.parentNode()));

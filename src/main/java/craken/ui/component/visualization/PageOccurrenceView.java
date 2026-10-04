@@ -11,10 +11,13 @@ import javafx.scene.Group;
 import javafx.scene.transform.Scale;
 import javafx.geometry.Insets;
 import javafx.scene.layout.*;
+import javafx.scene.input.ScrollEvent;
+import javafx.event.EventHandler;
 import java.util.*;
 import java.util.function.Consumer;
 
 public final class PageOccurrenceView extends BorderPane implements AutoCloseable {
+    record ViewportState(double zoom, double horizontal, double vertical) {}
     private final long id;
     private final LayoutCoordinator coordinator;
     private final Runnable changed;
@@ -27,6 +30,11 @@ public final class PageOccurrenceView extends BorderPane implements AutoCloseabl
     private int readyCount;
     private double zoom = 1;
     private boolean closed;
+    private boolean updating;
+    private ViewportState pendingViewport;
+    private final EventHandler<ScrollEvent> zoomGesture = event -> {
+        if (event.isControlDown()) { setZoom(Math.max(.05, Math.min(8, zoom * Math.exp(event.getDeltaY() * .002)))); event.consume(); }
+    };
     PageOccurrenceView(long id, LayoutCoordinator coordinator, Runnable changed) {
         this.id = id; this.coordinator = coordinator; this.changed = changed;
         setMinSize(0, 0); setPadding(new Insets(1));
@@ -34,10 +42,11 @@ public final class PageOccurrenceView extends BorderPane implements AutoCloseabl
         setBorder(new Border(new BorderStroke(ViewNodeRenderer.color(VisualizationTheme.GROUP_BORDER), BorderStrokeStyle.SOLID, CornerRadii.EMPTY, BorderWidths.DEFAULT)));
         stack.setPadding(new Insets(8)); viewport.setContent(world); viewport.setFitToWidth(false); viewport.setPannable(true); viewport.setMinSize(0, 0);
         viewport.setStyle("-fx-background-color: #0D1117; -fx-background: #0D1117;");
+        viewport.addEventFilter(ScrollEvent.SCROLL, zoomGesture);
         ready.setTextFill(ViewNodeRenderer.color(VisualizationTheme.TEXT)); ready.setPadding(new Insets(6)); setCenter(viewport);
     }
     void update(PageModel page, PageOccurrence occurrence, double width, long epoch, Consumer<OperationPath> selection) {
-        if (closed) return; this.occurrence = occurrence; setMinWidth(width); setPrefWidth(width); setMaxWidth(width);
+        if (closed) return; updating = true; this.occurrence = occurrence; setMinWidth(width); setPrefWidth(width); setMaxWidth(width);
         var title = new Label("页 #" + page.ref().pageId() + " · " + page.type().key()); title.setTextFill(ViewNodeRenderer.color(VisualizationTheme.TEXT));
         var header = new HBox(8, title); header.setPadding(new Insets(8));
         if (occurrence.node() != null) {
@@ -58,7 +67,7 @@ public final class PageOccurrenceView extends BorderPane implements AutoCloseabl
         }
         parts.clear(); parts.putAll(ordered); stack.getChildren().setAll(parts.values());
         if (parts.isEmpty()) { var empty = new Label("空页"); empty.setTextFill(ViewNodeRenderer.color(VisualizationTheme.TEXT)); stack.getChildren().add(empty); }
-        stack.applyCss(); stack.autosize(); stack.layout(); setZoom(zoom); changed.run();
+        stack.applyCss(); stack.autosize(); stack.layout(); setZoom(zoom); updating = false; restoreScroll(); changed.run();
     }
     public PageOccurrence occurrence() { return occurrence; }
     public List<PartView> parts() { return List.copyOf(parts.values()); }
@@ -67,13 +76,21 @@ public final class PageOccurrenceView extends BorderPane implements AutoCloseabl
     public int readyCount() { return readyCount; }
     public double getZoom() { return zoom; }
     private void partChanged() {
-        if (closed) return; stack.applyCss(); stack.autosize(); stack.layout(); changed.run();
+        if (closed) return; stack.applyCss(); stack.autosize(); stack.layout(); restoreScroll(); changed.run();
+    }
+    ViewportState viewportState() { return new ViewportState(zoom, viewport.getHvalue(), viewport.getVvalue()); }
+    void restoreViewport(ViewportState state) { pendingViewport = state; setZoom(state.zoom()); restoreScroll(); }
+    private void restoreScroll() {
+        if (pendingViewport == null) return;
+        viewport.setHvalue(pendingViewport.horizontal()); viewport.setVvalue(pendingViewport.vertical());
+        if (!updating && !parts.isEmpty() && parts.values().stream().noneMatch(PartView::isPending)) pendingViewport = null;
     }
     void setZoom(double zoom) {
         this.zoom = zoom; stack.getTransforms().setAll(new Scale(zoom, zoom, 0, 0)); stack.applyCss(); stack.autosize(); stack.layout();
     }
     @Override public void close() {
         ViewNodeRenderer.requireFxThread(); if (closed) return; closed = true; parts.values().forEach(PartView::close); parts.clear(); coordinator.cancelOccurrence(id);
+        viewport.removeEventFilter(ScrollEvent.SCROLL, zoomGesture);
         stack.getChildren().clear(); viewport.setContent(null); setCenter(null); setTop(null); setBottom(null);
     }
 }

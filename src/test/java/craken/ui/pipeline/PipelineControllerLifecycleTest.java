@@ -7,6 +7,8 @@ import craken.ui.editor.EditorFile;
 import craken.ui.component.visualization.UiVisualizationContainer;
 import craken.ui.frame.AppFrame;
 import craken.visualization.adapter.pipeline.*;
+import craken.visualization.layout.*;
+import craken.visualization.mutation.DefaultVisualizationSession;
 import javafx.application.Platform;
 import javafx.scene.control.Button;
 import javafx.scene.layout.BorderPane;
@@ -20,6 +22,7 @@ import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.*;
+import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /** Deterministic in-flight lifecycle checks use the real first preprocessing step. */
@@ -75,6 +78,55 @@ final class PipelineControllerLifecycleTest {
                 return null;
             });
         }
+    }
+
+    @Test void panelClosesTheOtherHostEvenWhenTheFirstLayoutResourceThrows() throws Exception {
+        onFx(() -> {
+            var panel = new PipelinePanel();
+            var broken = replaceInputWithFailingHost(panel);
+            var output = host(panel, 1);
+            try {
+                assertThrows(IllegalStateException.class, panel::close);
+                assertTrue(broken.isClosed());
+                assertTrue(output.isClosed(), "one failed cleanup must not skip the other host");
+            } finally { broken.close(); broken.session().close(); output.close(); }
+            return null;
+        });
+    }
+
+    @Test void controllerStillReleasesCoreAndStopsWorkerAfterHostCloseFails() throws Exception {
+        Fixture ui = fixture();
+        var activeSession = onFx(() -> (PipelineSession) read(read(ui.controller, "active"), "session"));
+        var visual = (PipelineVisualizationSession) read(activeSession, "visualization");
+        var broken = onFx(() -> replaceInputWithFailingHost(ui.panel()));
+        var output = onFx(() -> host(ui.panel(), 1));
+        try {
+            onFx(() -> { assertThrows(IllegalStateException.class, ui.controller::close); return null; });
+            boolean stopped = ui.worker.awaitTermination(2, TimeUnit.SECONDS);
+            onFx(() -> {
+                assertAll(() -> assertTrue(output.isClosed(), "output host must close"),
+                        () -> assertTrue(stopped, "worker must shut down despite FX cleanup failure"),
+                        () -> assertEquals(0, visual.activeContainerCount(), "queued core cleanup must run"));
+                return null;
+            });
+        } finally {
+            ui.worker.shutdownNow(); activeSession.close();
+            onFx(() -> { broken.close(); broken.session().close(); output.close(); return null; });
+            ui.close();
+        }
+    }
+
+    private static UiVisualizationContainer replaceInputWithFailingHost(PipelinePanel panel) throws Exception {
+        host(panel, 0).close();
+        var coordinator = new LayoutCoordinator(Map.of(LayoutRequest.Kind.POINT, new ArrayLayout()), Platform::runLater, 2,
+                () -> { throw new IllegalStateException("test layout close failure"); });
+        var broken = new UiVisualizationContainer(new DefaultVisualizationSession(), coordinator);
+        Field input = PipelinePanel.class.getDeclaredField("inputView"); input.setAccessible(true); input.set(panel, broken);
+        ((BorderPane) ((SplitPane) panel.getCenter()).getItems().getFirst()).setCenter(broken);
+        return broken;
+    }
+    private static UiVisualizationContainer host(PipelinePanel panel, int index) {
+        return (UiVisualizationContainer) ((BorderPane) ((SplitPane) panel.getCenter()).getItems().get(index)).getCenter();
     }
 
     private BlockingStep installBlockingFirstStep(Fixture ui) throws Exception {

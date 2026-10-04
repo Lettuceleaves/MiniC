@@ -26,8 +26,19 @@ public final class CompositionStore {
         var nodes = new LinkedHashMap<>(page.nodes());
         var children = links.values().stream().filter(link -> link.parent().equals(parent.location()))
                 .sorted(Comparator.comparingInt(CompositionLink::slot)).map(CompositionLink::child).toList();
-        nodes.put(parent.location().nodeId(), parent.withChildren(children));
+        nodes.put(parent.location().nodeId(), ViewNodeContract.withChildren(parent, children));
         return page.withComposition(nodes, links);
+    }
+    /** Content-dependent extension policies must be re-evaluated after all commands. */
+    public static PageModel refreshSemantics(PageModel page) {
+        var links = new LinkedHashMap<Long, CompositionLink>();
+        for (var link : page.composition().values()) {
+            int increment = page.type().nestingPolicy().increment(page.nodes().get(link.parent().nodeId()), page.nodes().get(link.child().nodeId()));
+            if (increment < 0 || increment > 1) throw CommandValidator.failure(NESTING_LIMIT, "Nesting policy must return 0 or 1");
+            links.put(link.child().nodeId(), new CompositionLink(link.parent(), link.child(), link.slot(), increment));
+        }
+        validate(page, links);
+        return links.equals(page.composition()) ? page : page.withComposition(page.nodes(), links);
     }
     public static void validate(PageModel page, Map<Long, CompositionLink> links) {
         var depths = new HashMap<Long, Integer>();

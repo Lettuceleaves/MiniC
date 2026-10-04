@@ -101,6 +101,37 @@ final class PipelineAtomicFrameTest {
         }
     }
 
+    @Test
+    void closeStopsAllFurtherCompilerAdvancement() throws Exception {
+        var stage = new CountingStage(3);
+        var compiler = new CompilerApi(List.of(stage));
+        var session = new PipelineSession(compiler);
+        session.close(); session.close();
+        session.nextStep(() -> false);
+        session.nextStage(() -> false);
+        assertEquals(0, compiler.stepCount(), "a disposed visualization session must not consume compiler steps");
+        assertFalse(session.snapshot().canAdvance());
+        assertFalse(session.selectStage(0));
+    }
+
+    @Test
+    void closeClearsPendingProjectionInsteadOfOfferingRetries() throws Exception {
+        var compiler = new CompilerApi(List.of(new CountingStage(3)));
+        var visual = new PipelineVisualizationSession(PipelineProjectionRegistry.standard(), checkpoint -> {
+            if (checkpoint.equals("OUTPUT")) throw new IllegalStateException("display failure");
+        });
+        var session = new PipelineSession(compiler, visual);
+        session.nextStep(() -> false);
+        assertTrue(session.snapshot().visualizationPending());
+        assertEquals(1, compiler.stepCount());
+        session.close();
+        assertFalse(session.snapshot().visualizationPending(), "disposed contexts cannot remain pending");
+        assertFalse(session.snapshot().canAdvance());
+        session.nextStep(() -> false);
+        assertEquals(1, compiler.stepCount());
+        assertEquals(0, visual.activeContainerCount());
+    }
+
     private interface Checkpoint { void reached(String name); }
     private static Object visualization(Checkpoint probe) throws Exception {
         Class<?> type = Class.forName("craken.visualization.adapter.pipeline.PipelineVisualizationSession");

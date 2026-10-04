@@ -41,6 +41,12 @@ public final class PortRouter {
                 result.put(link.id(), loop(start, ports.get(link.tail()).side(), box, obstacles));
                 continue;
             }
+            if (link.tail().node().equals(link.head().node())) {
+                obstacles.add(tailBox);
+                result.put(link.id(), loopBetween(start, ports.get(link.tail()).side(), end,
+                        ports.get(link.head()).side(), tailBox, obstacles, cancellation));
+                continue;
+            }
             // Boundary ports must enter/leave the concrete card from outside. Ancestor frames remain traversable.
             if (!encloses(tailBox, headBox)) obstacles.add(tailBox);
             if (!encloses(headBox, tailBox)) obstacles.add(headBox);
@@ -50,6 +56,32 @@ public final class PortRouter {
     }
     private static boolean encloses(Rect outer, Rect inner) {
         return outer.contains(new Point(inner.x(), inner.y())) && outer.contains(new Point(inner.right(), inner.bottom()));
+    }
+    private static EdgePath loopBetween(Point start, Side tailSide, Point end, Side headSide, Rect box,
+                                        List<Rect> obstacles, CancellationToken token) {
+        var tail = outward(tailSide, start, box); var head = outward(headSide, end, box);
+        if (start.equals(end)) return loop(start, tail, box, obstacles);
+        for (double gap : new double[]{12, 6, 3, 1}) {
+            token.check(); var a = stub(start, tail, gap); var b = stub(end, head, gap);
+            if (!clear(List.of(start, a), obstacles) || !clear(List.of(b, end), obstacles)) continue;
+            try {
+                var points = new ArrayList<Point>(); points.add(start); points.addAll(shortest(a, b, obstacles, token)); points.add(end);
+                if (clear(points, obstacles)) return path(points);
+            } catch (LayoutException failure) {
+                if (failure.code() != LayoutException.Code.INVALID_RESULT) throw failure;
+            }
+        }
+        throw new LayoutException(LayoutException.Code.INVALID_RESULT, "No collision-free route between self-reference ports");
+    }
+    private static Side outward(Side side, Point anchor, Rect box) {
+        if (side != Side.AUTO) return side;
+        if (Math.abs(anchor.x() - box.right()) < 1e-7) return Side.EAST;
+        if (Math.abs(anchor.x() - box.x()) < 1e-7) return Side.WEST;
+        return Math.abs(anchor.y() - box.y()) < 1e-7 ? Side.NORTH : Side.SOUTH;
+    }
+    private static Point stub(Point point, Side side, double gap) {
+        return new Point(point.x() + (side == Side.EAST ? gap : side == Side.WEST ? -gap : 0),
+                point.y() + (side == Side.SOUTH ? gap : side == Side.NORTH ? -gap : 0));
     }
     private static EdgePath loop(Point start, Side side, Rect box, List<Rect> obstacles) {
         for (double gap : new double[]{12, 6, 3, 1}) {

@@ -23,8 +23,12 @@ public record VisualizationSnapshot(long containerId, PageRef root, Map<Long,Pag
         public NodeState { Objects.requireNonNull(location); Objects.requireNonNull(content); Objects.requireNonNull(retention); Objects.requireNonNull(parents); highlights=Set.copyOf(highlights); }
     }
     public record PageState(PageRef ref,TypeDescription type,Map<Long,NodeState> nodes,ViewLocation anchor,
-                            Map<Long,CompositionLink> composition,Map<Long,TopologyEdge> topology,Set<Long> ready) {
-        public PageState { Objects.requireNonNull(ref); Objects.requireNonNull(type); nodes=ordered(nodes); composition=ordered(composition); topology=ordered(topology); ready=Set.copyOf(ready); }
+                            Map<Long,CompositionLink> composition,Map<Long,TopologyEdge> topology,Set<Long> ready, PageLayoutHints layoutHints) {
+        public PageState { Objects.requireNonNull(ref); Objects.requireNonNull(type); Objects.requireNonNull(layoutHints); nodes=ordered(nodes); composition=ordered(composition); topology=ordered(topology); ready=Set.copyOf(ready); }
+        public PageState(PageRef ref, TypeDescription type, Map<Long, NodeState> nodes, ViewLocation anchor,
+                         Map<Long, CompositionLink> composition, Map<Long, TopologyEdge> topology, Set<Long> ready) {
+            this(ref, type, nodes, anchor, composition, topology, ready, PageLayoutHints.EMPTY);
+        }
     }
     public record HighWater(long page,long relation,Map<Long,Long> nodes) {
         public HighWater { if (page<0 || relation<0 || nodes.values().stream().anyMatch(n->n<0)) throw new IllegalArgumentException("Negative high water"); nodes=ordered(nodes); }

@@ -15,6 +15,8 @@ final class SnapshotValidator {
         if (model.root()==null ? !model.pages().isEmpty() : !model.pages().containsKey(model.root().pageId()) || model.root().containerId()!=model.id()) fail("Invalid root page");
         var relationIds=new HashSet<Long>();
         for (var page:model.pages().values()) {
+            page.layoutHints().validate(page.ref(), page.nodes().keySet());
+            if (page.type().key().isBlank() || page.type().maximumNesting()<0 || page.type().maximumNesting()>1 || page.type().nodeKinds().isEmpty()) fail("Invalid page type description");
             if (!page.nodes().keySet().containsAll(page.ready())) fail("Dangling READY node");
             if (!page.type().readyEnabled() && !page.ready().isEmpty()) fail("READY disabled");
             if (page.anchor()!=null) model.node(page.anchor());
@@ -30,10 +32,13 @@ final class SnapshotValidator {
                 if (link.semanticIncrement()<0 || link.semanticIncrement()>1 || validateTypePolicy && link.semanticIncrement()!=page.type().nestingPolicy().increment(parent,child)) fail("Invalid semantic increment");
             }
             CompositionStore.validate(page,page.composition());
+            TopologyStore.validate(page);
             for (var entry:page.topology().entrySet()) {
                 var edge=entry.getValue(); model.node(edge.a()); model.node(edge.b());
                 if (entry.getKey()!=edge.id() || edge.id()<=0 || !relationIds.add(edge.id()) || !edge.a().page().equals(page.ref()) || !edge.b().page().equals(page.ref()) || edge.direction()==null) fail("Invalid topology edge");
+                if (page.ready().contains(edge.a().nodeId()) || page.ready().contains(edge.b().nodeId())) fail("Connected node cannot remain READY");
             }
+            if (!PartPlanner.plan(page).ready().equals(page.ready())) fail("Mixed composition residence in snapshot");
         }
         for (var entry:model.ownership().entrySet()) {
             var binding=entry.getValue();

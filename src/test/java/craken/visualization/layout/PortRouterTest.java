@@ -8,6 +8,15 @@ import static craken.visualization.layout.LayoutFixtures.*;
 
 @Tag("visualization-layout")
 final class PortRouterTest {
+    @Test void aSelfReferenceBetweenDifferentConcretePortsLeavesTheOpaqueCardBoundary() {
+        var simple = node(1, 120, 80); var field = new Port(new PortRef(id(1), "field:next"), new Point(120, 20), Side.EAST);
+        var unit = new Unit(simple.node(), simple.size(), simple.members(), List.of(simple.ports().getFirst(), field), List.of());
+        var request = request(Kind.GRAPH, List.of(unit), List.of(new Link(1, field.ref(), PortRef.node(id(1)), Direction.FORWARD)), Hints.defaults());
+        var box = new Rect(20, 30, 120, 80); var path = new PortRouter().route(request, Map.of(id(1), box), CancellationToken.NONE).get(1L);
+        assertEquals(new Point(140, 50), path.start()); assertEquals(new Point(140, 70), path.end());
+        assertTrue(path.segments().stream().anyMatch(s -> s.end().x() > box.right() + 1), "An edge hidden behind the opaque node border is not a visible self-reference");
+        var from = path.start(); for (var segment : path.segments()) { assertFalse(PortRouter.crosses(from, segment.end(), box)); from = segment.end(); }
+    }
     @Test void avoidsTheUnrelatedMiddleCard() {
         var request = request(Kind.LINEAR, List.of(node(1, 60, 30), node(2, 60, 30), node(3, 60, 30)),
                 List.of(edge(1, 1, 3)), Hints.defaults());
@@ -84,7 +93,8 @@ final class PortRouterTest {
         var unit = new Unit(id(2), new Size(60, 30), List.of(new Member(id(2), new Rect(0, 0, 60, 30))),
                 List.of(new Port(east, new Point(60, 15), Side.EAST)), List.of());
         var result = new LinearLayout().layout(request(Kind.LINEAR, List.of(node(1, 60, 30), unit),
-                List.of(new Link(1, east, PortRef.node(id(1)), Direction.FORWARD)), Hints.defaults()));
+                List.of(new Link(1, east, PortRef.node(id(1)), Direction.FORWARD)),
+                new Hints(24, 40, 8, 1, Orientation.HORIZONTAL, null, List.of(id(1), id(2)))));
         var route = result.edgePaths().get(1L); var previous = route.start();
         for (var segment : route.segments()) {
             assertFalse(PortRouter.crosses(previous, segment.end(), result.nodeBounds().get(id(2)))); previous = segment.end();

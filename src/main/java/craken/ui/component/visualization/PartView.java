@@ -42,16 +42,23 @@ public final class PartView extends VBox implements AutoCloseable {
             prepared.put(node.location(), rendered); units.add(rendered.unit());
         }
         var links = page.topology().values().stream().filter(e -> part.members().contains(e.a().nodeId()) && part.members().contains(e.b().nodeId()))
-                .sorted(Comparator.comparingLong(e -> e.id())).map(e -> new Link(e.id(), PortRef.node(e.a()), PortRef.node(e.b()), Direction.valueOf(e.direction().name()))).toList();
+                .sorted(Comparator.comparingLong(e -> e.id())).map(e -> new Link(e.id(), new PortRef(e.a(), e.aPort()), new PortRef(e.b(), e.bPort()), Direction.valueOf(e.direction().name()))).toList();
         Kind kind = switch (page.type().layout()) { case POINT -> Kind.POINT; case ARRAY -> Kind.ARRAY; case LINEAR -> Kind.LINEAR; case TREE -> Kind.TREE; case STRESS -> Kind.GRAPH; };
         // A measured isolated macro is an exact point, even when its page otherwise uses Stress.
         if (units.size() == 1 && links.isEmpty()) kind = Kind.POINT;
         // A TREE page may contain shared AST identities. Dispatch its measured macro graph before layout.
         if (kind == Kind.TREE && !isMacroTree(units, links)) kind = Kind.GRAPH;
+        var configuredOrder = page.layoutHints().order().stream().filter(n -> part.members().contains(n.nodeId())).toList();
+        List<ViewLocation> order = configuredOrder.isEmpty() ? units.stream().map(Unit::node).toList() : configuredOrder;
+        if (kind == Kind.LINEAR) {
+            var chain = LinearLayout.topologyOrder(units, links);
+            if (chain.isPresent()) { if (configuredOrder.isEmpty()) order = chain.get(); } else kind = Kind.GRAPH;
+        }
         double widest = units.stream().mapToDouble(u -> u.size().width()).max().orElse(1);
         int columns = Math.max(1, (int)Math.floor((Math.max(0, width - 16) + 24) / (widest + 24)));
-        var hints = new Hints(24, 40, 8, columns, Orientation.HORIZONTAL,
-                kind == Kind.TREE && !units.isEmpty() ? units.getFirst().node() : null, units.stream().map(Unit::node).toList());
+        var configuredRoot = page.layoutHints().treeRoot();
+        var treeRoot = configuredRoot != null && part.members().contains(configuredRoot.nodeId()) ? configuredRoot : units.isEmpty() ? null : units.getFirst().node();
+        var hints = new Hints(24, 40, 8, columns, Orientation.HORIZONTAL, kind == Kind.TREE ? treeRoot : null, order);
         var nextShape = new Shape(kind, List.copyOf(units), links, hints, epoch, width);
         if (!nextShape.equals(shape)) { shape = nextShape; geometryVersion++; }
         request = new LayoutRequest(new Stamp(page.ref(), id, geometryVersion, 0, epoch, width), kind, units, links, hints, Map.of());
@@ -104,7 +111,7 @@ public final class PartView extends VBox implements AutoCloseable {
         var edgeRenderer = new EdgeRenderer();
         for (var edge : links) if (visible.contains(edge.tail().node()) && visible.contains(edge.head().node())) {
             var path = result.edgePaths().get(edge.id());
-            if (path != null) { var graphic = edgeRenderer.render(path, edge.direction()); graphic.setTranslateX(-extent.x()); graphic.setTranslateY(-extent.y()); canvas.getChildren().add(graphic); }
+            if (path != null) { var graphic = edgeRenderer.render(path, edge.direction(), page.topology().get(edge.id()).style()); graphic.setTranslateX(-extent.x()); graphic.setTranslateY(-extent.y()); canvas.getChildren().add(graphic); }
         }
         for (var entry : prepared.entrySet()) if (visible.contains(entry.getKey())) {
             var rendered = entry.getValue(); var outer = result.nodeBounds().get(entry.getKey());

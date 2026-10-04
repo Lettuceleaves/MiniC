@@ -16,12 +16,14 @@ public final class MutationTransaction {
     private final MonotonicIds relationIds;
     private final Set<ViewLocation> reservations;
     private final List<ViewLocation> created = new ArrayList<>();
+    private final List<MutationResult.ReadValue> reads = new ArrayList<>();
     private final Set<PageRef> affected = new LinkedHashSet<>();
     private final Set<ViewLocation> explicitDeletes = new LinkedHashSet<>();
     private final Map<Long, PageBindingRule> rules;
     private final List<Long> createdRules = new ArrayList<>();
     private final FocusController focus;
     private int commandIndex;
+    private int commandCount;
     private String sourceStep;
 
     public MutationTransaction(ContainerModel base, Set<ViewLocation> reservations, MonotonicIds relations) {
@@ -32,11 +34,17 @@ public final class MutationTransaction {
         this.reservations = Set.copyOf(reservations);
         this.rules = new LinkedHashMap<>(base.pageRules());
         this.focus = new FocusController(base.interaction());
+        this.focus.remember(pages);
     }
     public void apply(MutationBatch batch) {
         sourceStep=batch.sourceStep();
+        commandCount=batch.commands().size();
         for (commandIndex = 0; commandIndex < batch.commands().size(); commandIndex++) {
             switch (batch.commands().get(commandIndex)) {
+                case SetPageLayout layout -> {
+                    var page = CommandValidator.page(base.id(), pages, layout.page());
+                    pages.put(page.ref().pageId(), page.withLayoutHints(layout.hints())); affected.add(page.ref());
+                }
                 case AddNode add -> add(add);
                 case AttachOwnership attach -> { validateExplicitSource(attach.source()); attach(attach.pre(), attach.nxt(), attach.source()); focus.access(attach.nxt(),AccessKind.WRITE); }
                 case Compose compose -> compose(compose);
@@ -47,10 +55,15 @@ public final class MutationTransaction {
                 case BindPage bind -> bind(bind);
                 case UnbindPage unbind -> unbind(unbind.ruleId());
                 case SetContent content -> setContent(content);
-                case Touch touch -> { select(touch.path()); focus.access(touch.path().nxt(),touch.kind()); }
+                case Touch touch -> {
+                    var node = select(touch.path()); focus.access(touch.path().nxt(),touch.kind());
+                    reads.add(new MutationResult.ReadValue(commandIndex, touch.path(), touch.kind(), node.content()));
+                }
                 case SetFocus selected -> { select(selected.path()); focus.focus(selected.path().nxt()); }
+                case ClearFocus ignored -> focus.clear();
                 case Configure configure -> focus.configure(configure.options());
             }
+            focus.remember(pages);
         }
     }
     private void add(AddNode add) {
@@ -75,10 +88,8 @@ public final class MutationTransaction {
         if (path.pre() == null && !page.ref().equals(base.root()))
             throw CommandValidator.failure(INVALID_OWNERSHIP, "Only root page permits ROOT nodes");
         var selection = path.pre() == null ? ParentSelection.ROOT : ParentSelection.ROOT.add(path.pre());
-        ViewNode node = page.type().create(path.nxt(), add.spec(), retention, selection);
-        if (node == null || !node.location().equals(path.nxt()) || node.retention() != retention
-                || !node.parents().equals(selection) || !node.content().equals(add.spec()))
-            throw CommandValidator.failure(PAGE_TYPE_MISMATCH, "Page type factory violated the node contract");
+        ViewNode node = ViewNodeContract.require(page.type().create(path.nxt(), add.spec(), retention, selection),
+                path.nxt(), add.spec(), retention, selection, List.of());
         pages.put(page.ref().pageId(), page.withAllocatedNode(node));
         affected.add(page.ref());
         created.add(node.location());
@@ -90,10 +101,7 @@ public final class MutationTransaction {
         var node=select(content.path());
         if (node.content().kind()!=content.spec().kind()) throw CommandValidator.failure(PAGE_TYPE_MISMATCH,"A node kind cannot change");
         if (content.spec().color() != null) craken.visualization.style.ColorValidator.validate(content.spec().color());
-        var updated=node.withState(content.spec(),node.parents());
-        if (!updated.location().equals(node.location()) || !updated.children().equals(node.children()) || updated.retention()!=node.retention()
-                || !updated.parents().equals(node.parents()) || !updated.content().equals(content.spec()))
-            throw CommandValidator.failure(PAGE_TYPE_MISMATCH,"Node copy violated its contract");
+        var updated=ViewNodeContract.withState(node,content.spec(),node.parents());
         put(updated); focus.access(node.location(),AccessKind.WRITE);
     }
     private void bind(BindPage bind) {
@@ -106,7 +114,9 @@ public final class MutationTransaction {
         PageBindingRuleExpander.expand(rule,pages,added,explicitDeletes,(pre,nxt) -> {
             ViewLocation selected = node(nxt).parents().selected();
             attach(pre,nxt,rule.source());
-            if (selected != null) { var n = node(nxt); put(n.withState(n.content(),n.parents().select(selected))); }
+            if (selected != null && ownership.parents(nxt).contains(selected)) {
+                var n = node(nxt); put(ViewNodeContract.withState(n,n.content(),n.parents().select(selected)));
+            }
         });
     }
     private void unbind(long id) {
@@ -124,8 +134,10 @@ public final class MutationTransaction {
         requireNotDeleted(nxt);
         ViewNode parent = node(pre), child = node(nxt);
         CommandValidator.ownership(parent, child);
+        var selection = child.parents();
+        for (var old : selection.parents()) if (!ownership.parents(nxt).contains(old)) selection = selection.remove(old);
         ownership.add(pre, nxt, source);
-        put(child.withState(child.content(), child.parents().add(pre)));
+        put(ViewNodeContract.withState(child, child.content(), selection.add(pre)));
         affected.add(pre.page());
     }
     private void requireNotDeleted(ViewLocation location) {
@@ -134,11 +146,18 @@ public final class MutationTransaction {
     }
     private void detach(DetachOwnership detach) {
         validateExplicitSource(detach.source());
-        select(new OperationPath(detach.pre(), detach.nxt()));
+        requireNotDeleted(detach.pre()); requireNotDeleted(detach.nxt());
+        CommandValidator.ownership(node(detach.pre()), node(detach.nxt()));
+        if (!ownership.parents(detach.nxt()).contains(detach.pre()))
+            throw CommandValidator.failure(INVALID_OWNERSHIP, "Detach requires a currently effective upstream");
+        // Removing a relationship is not selecting that relationship as an access path.
+        // Cleanup advances only when the selected effective parent actually disappears.
         ownership.removeSource(detach.pre(), detach.nxt(), detach.source());
-        affected.add(detach.pre().page());
+        affected.add(detach.pre().page()); affected.add(detach.nxt().page());
+        focus.access(detach.nxt(), AccessKind.WRITE);
     }
     private void compose(Compose compose) {
+        requireNotDeleted(compose.parent()); requireNotDeleted(compose.child());
         ViewNode parent = node(compose.parent()), child = node(compose.child());
         PageModel page = pages.get(parent.location().pageId());
         pages.put(page.ref().pageId(), CompositionStore.compose(page, parent, child, compose.slot()));
@@ -146,6 +165,11 @@ public final class MutationTransaction {
     }
     private ViewNode select(OperationPath path) {
         requireNotDeleted(path.nxt());
+        if (path.pre() != null) {
+            requireNotDeleted(path.pre());
+            if (!ownership.parents(path.nxt()).contains(path.pre()))
+                throw CommandValidator.failure(INVALID_OWNERSHIP, "Operation requires a currently effective upstream");
+        }
         ViewNode node = CommandValidator.path(base.id(), pages, path);
         put(node);
         focus.access(node.location(),AccessKind.WRITE);
@@ -154,12 +178,12 @@ public final class MutationTransaction {
     private void connect(Connect connect) {
         ViewNode a = select(connect.a()), b = select(connect.b());
         var page = pages.get(a.location().pageId());
-        pages.put(page.ref().pageId(), TopologyStore.connect(page, a.location(), b.location(), connect.direction(), relationIds));
+        pages.put(page.ref().pageId(), TopologyStore.connect(page, a.location(), b.location(), connect.direction(), connect.aPort(), connect.bPort(), connect.style(), relationIds));
     }
     private void disconnect(Disconnect disconnect) {
         ViewNode a = select(disconnect.a()), b = select(disconnect.b());
         var page = pages.get(a.location().pageId());
-        pages.put(page.ref().pageId(), TopologyStore.disconnect(page, a.location(), b.location()));
+        pages.put(page.ref().pageId(), TopologyStore.disconnect(page, a.location(), b.location(), disconnect.aPort(), disconnect.bPort()));
     }
     private ViewNode node(ViewLocation location) { return CommandValidator.node(base.id(), pages, location); }
     private void put(ViewNode node) {
@@ -168,12 +192,18 @@ public final class MutationTransaction {
         affected.add(page.ref());
     }
     public ContainerModel finish() {
-        var fallback=focus.capture(pages);
         release(LifetimePlanner.plan(pages, ownership, explicitDeletes));
         OwnershipDagValidator.validate(pages, ownership);
-        for (PageRef ref : affected) if (pages.containsKey(ref.pageId()))
-            pages.put(ref.pageId(), PartPlanner.plan(pages.get(ref.pageId())));
-        return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings(), rules,focus.finish(pages,fallback),base.epoch(),sourceStep);
+        for (PageRef ref : affected) if (pages.containsKey(ref.pageId())) {
+            var page = CompositionStore.refreshSemantics(pages.get(ref.pageId()));
+            page.layoutHints().validate(page.ref(), page.nodes().keySet());
+            TopologyStore.validate(page);
+            for (var node : page.nodes().values()) for (var highlight : node.highlights())
+                if (!highlight.page().equals(page.ref()) || !page.nodes().containsKey(highlight.nodeId()))
+                    throw CommandValidator.failure(PAGE_TYPE_MISMATCH, "Node highlight must refer to a live node in its page");
+            pages.put(ref.pageId(), PartPlanner.plan(page));
+        }
+        return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings(), rules,focus.finish(pages),base.epoch(),sourceStep);
     }
     private void release(Set<ViewLocation> deleted) {
         deleted.forEach(ownership::removeNode);
@@ -188,7 +218,7 @@ public final class MutationTransaction {
                     if (!ownership.parents(node.location()).contains(old)) selection = selection.remove(old);
                 var children = node.children().stream().filter(child -> !deleted.contains(child)).toList();
                 if (!selection.equals(node.parents()) || !children.equals(node.children())) {
-                    node = node.withState(node.content(), selection).withChildren(children);
+                    node = ViewNodeContract.withChildren(ViewNodeContract.withState(node, node.content(), selection), children);
                     changed = true;
                 }
                 kept.put(node.location().nodeId(), node);
@@ -208,7 +238,7 @@ public final class MutationTransaction {
                 var ready = new HashSet<>(page.ready());
                 ready.retainAll(kept.keySet());
                 pages.put(page.ref().pageId(), new PageModel(page.ref(), page.type(), kept, anchor,
-                        composition, topology, ready, Map.of(), Map.of()));
+                        composition, topology, ready, Map.of(), Map.of(), page.layoutHints().without(deleted)));
                 affected.add(page.ref());
             }
         }
@@ -222,8 +252,9 @@ public final class MutationTransaction {
             }
         } while (pruned);
     }
-    public int commandIndex() { return commandIndex; }
+    public int commandIndex() { return Math.min(commandIndex, Math.max(0, commandCount - 1)); }
     public List<ViewLocation> created() { return List.copyOf(created); }
+    public List<MutationResult.ReadValue> reads() { return List.copyOf(reads); }
     public List<Long> createdRules() { return List.copyOf(createdRules); }
     public Set<PageRef> affected() { return Set.copyOf(affected); }
 }

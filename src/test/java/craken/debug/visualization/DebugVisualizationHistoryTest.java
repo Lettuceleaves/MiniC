@@ -145,6 +145,44 @@ final class DebugVisualizationHistoryTest {
         }
         assertEquals(Debugger.Status.COMPLETED,observed.current().stop().status());assertDoesNotThrow(history::close);
     }
+    @Test void pendingManualRegistrationSurvivesReturningFromAnOlderHistoryFrameToNewExecution() {
+        Fixture f=new Fixture(true,10);long root=f.allocate(7);f.adapter.registerRoot(new RootAddress("value",root));var first=f.show(0);
+        var owner=first.locations().values().iterator().next();
+        var childPage=f.session.initializePage(f.types.require("point"),owner);
+        f.runtime.write(root,DebugRuntime.Value.of(IrType.INT,9));f.show(1);f.history.show(0);
+        long fresh=f.allocate(11);var reader=new DebugMemoryReader(f.runtime.snapshot());
+        f.adapter.registerObject("value",reader.resolve(fresh),childPage,owner);
+        var next=f.show(2);assertTrue(next.accepted(),next.diagnostic());assertEquals(2,next.locations().size());
+        assertNotNull(f.adapter.locations().get(new DebugObjectIdentityRegistry.ObjectKey(reader.resolve(fresh).allocationId(),0,"value")));
+    }
+    @Test void aNegativeIndexWasNeverRetainedAndIsReportedAsUnknownInsteadOfExpired() {
+        Fixture f=new Fixture(true,2);
+        var failure=assertThrows(DebugVisualizationHistory.HistoryUnavailableException.class,()->f.history.show(-1));
+        assertEquals(DebugVisualizationHistory.Reason.UNKNOWN_CONTEXT,failure.reason());
+    }
+    @Test void missingIndexesBetweenRetainedContextsAreUnknownEvenAfterEviction() {
+        Fixture f=new Fixture(true,1);long root=f.allocate(7);f.adapter.registerRoot(new RootAddress("value",root));
+        f.show(0);f.show(2);f.show(4);
+        assertEquals(DebugVisualizationHistory.Reason.EXPIRED_CONTEXT,
+                assertThrows(DebugVisualizationHistory.HistoryUnavailableException.class,()->f.history.show(2)).reason());
+        assertEquals(DebugVisualizationHistory.Reason.UNKNOWN_CONTEXT,
+                assertThrows(DebugVisualizationHistory.HistoryUnavailableException.class,()->f.history.show(1)).reason());
+    }
+    @Test void repeatedIdenticalCleanupFailuresCannotPreventCollectorAndHistoryCleanup() {
+        Fixture f=new Fixture(true,10);RuntimeException fault=new IllegalStateException("shared cleanup failure");
+        VisualizationSession session=(VisualizationSession)java.lang.reflect.Proxy.newProxyInstance(
+                VisualizationSession.class.getClassLoader(),new Class<?>[]{VisualizationSession.class},(proxy,method,arguments)-> {
+                    if(method.getName().equals("close")) {f.session.close();throw fault;}
+                    return method.invoke(f.session,arguments);
+                });
+        var adapter=new DebugVisualizationAdapter(session,f.types);registerValue(adapter);
+        long address=f.allocate(7);adapter.registerRoot(new RootAddress("value",address));
+        var history=new DebugVisualizationHistory(adapter,f.events,()->{throw fault;});history.show(f.context(0));
+        var thrown=assertThrows(RuntimeException.class,history::close);
+        assertFalse(f.events.isRecording(),"A repeated exception instance must not abort the cleanup sequence");
+        assertTrue(history.indices().isEmpty());assertTrue(adapter.locations().isEmpty());
+        assertSame(fault,thrown);assertDoesNotThrow(history::close);
+    }
     private static void registerValue(DebugVisualizationAdapter adapter) {
         adapter.registerDescriptor(new DebugStructureDescriptor("value","point",ViewKind.POINT,4,
                 List.of(new Field("value",0,SIGNED32)),List.of(),null,ReallocationPolicy.RECREATE));
