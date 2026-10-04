@@ -143,13 +143,11 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
             Deque<Work> queue = new ArrayDeque<>();
             for (var seed : seeds) {
                 var explicit = manual.get(seed);
-                if (boundRoots.containsValue(seed)) queue.add(new Work(seed,new Group(null,old.root()),Set.of()));
-                else {
-                    Objects.requireNonNull(explicit);
+                if (explicit != null) {
                     requirePage(explicit.page()); old.node(explicit.pre());
                     queue.add(new Work(seed,new Group(null,explicit.page()),
                             Set.of(new Owner(null,explicit.pre(),"debug:manual:"+seed))));
-                }
+                } else queue.add(new Work(seed,new Group(null,old.root()),Set.of()));
             }
             while (!queue.isEmpty()) {
                 Work work = queue.removeFirst();
@@ -189,7 +187,7 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                     queue.add(new Work(child,node.group,Set.copyOf(node.owners)));
                 }
             }
-            var locations = materialize(nodes,draft);
+            var locations = materialize(nodes,edges,draft);
             List<VisualizationCommand> commands = new ArrayList<>();
             for (var node : nodes.values()) {
                 ViewLocation location=locations.get(node.key);
@@ -278,7 +276,10 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
         var queue=new ArrayDeque<>(seeds);
         while(!queue.isEmpty()) {
             var object=queue.removeFirst(); if(!seen.add(object))continue;
-            content(memory,object); var schema=descriptor(object.descriptorKey());
+            var schema=descriptor(object.descriptorKey());
+            // Raw-address pre-scanning must not claim that a stale pointer owns a replacement generation.
+            // Actual reachable nodes are validated later, after event-ordered reference resolution.
+            if(schema.minimumSize()>memory.allocation(object.allocationId()).size()-object.offset())continue;
             for(var reference:schema.references()) {
                 try {
                     long raw=memory.readPointer(object.address(),reference.offset());
@@ -310,11 +311,25 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
         var existing=draft.location(key);
         return existing.isPresent()?new Group(null,existing.get().page()):new Group(key,null);
     }
-    private Map<ObjectKey,ViewLocation> materialize(Map<ObjectKey,Node> nodes,DebugObjectIdentityRegistry<ViewLocation> draft) {
+    private Map<ObjectKey,ViewLocation> materialize(Map<ObjectKey,Node> nodes,Set<Edge> edges,DebugObjectIdentityRegistry<ViewLocation> draft) {
         Map<ObjectKey,ViewLocation> locations=new LinkedHashMap<>();
         nodes.keySet().forEach(key->draft.location(key).filter(this::exists).ifPresent(l->locations.put(key,l)));
+        Map<Group,Group> groups=new HashMap<>();
+        nodes.values().forEach(node->groups.putIfAbsent(node.group,node.group));
+        for(var edge:edges) {
+            Group a=representative(groups,nodes.get(edge.a()).group),b=representative(groups,nodes.get(edge.b()).group);
+            if(!a.equals(b))groups.put(b,a);
+        }
         Map<Group,PageRef> pages=new HashMap<>();
-        for(var node:nodes.values())if(node.group.page()!=null)pages.put(node.group,node.group.page());
+        for(var node:nodes.values()) {
+            Group group=representative(groups,node.group);
+            PageRef page=node.group.page()!=null?node.group.page():locations.containsKey(node.key)?locations.get(node.key).page():null;
+            if(page!=null) {
+                PageRef previous=pages.putIfAbsent(group,page);
+                if(previous!=null&&!previous.equals(page))throw new IllegalArgumentException("Topology joins objects registered in different pages");
+            }
+        }
+        Set<Long> initializationRules=new HashSet<>();
         int remaining=nodes.size()-locations.size();
         while(remaining>0) {
             int previous=remaining;
@@ -323,11 +338,13 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                 ViewLocation pre=node.owners.stream().map(o->o.location()!=null?o.location():locations.get(o.key()))
                         .filter(Objects::nonNull).findFirst().orElse(null);
                 if(!node.owners.isEmpty()&&pre==null)continue;
-                PageRef page=pages.get(node.group);
+                Group group=representative(groups,node.group);
+                PageRef page=pages.get(group);
                 if(page==null) {
                     page=node.owners.isEmpty()?session.initializeRoot(types.require(descriptor(node.key.descriptorKey()).pageTypeKey()))
                             :session.initializePage(types.require(descriptor(node.key.descriptorKey()).pageTypeKey()),pre);
-                    pages.put(node.group,page);
+                    pages.put(group,page);
+                    for(var rule:session.model().pageRules().values())if(rule.child().equals(page))initializationRules.add(rule.id());
                 }
                 ViewLocation location=session.reserveNodeId(page);
                 var batch=new ArrayList<VisualizationCommand>();
@@ -339,7 +356,7 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                 }
                 // Rules used solely to initialize an adapter page must not retain unreachable objects forever.
                 for(var rule:session.model().pageRules().values())
-                    if(rule.child().equals(page)&&page.equals(pages.get(node.group))&&node.group.key()!=null)
+                    if(rule.child().equals(page)&&initializationRules.remove(rule.id()))
                         batch.add(new UnbindPage(rule.id()));
                 apply(new MutationBatch(batch,"debug:allocation"));
                 locations.put(node.key,location); remaining--;
@@ -347,6 +364,12 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
             if(previous==remaining)throw new IllegalArgumentException("Ownership cycle has no creatable parent");
         }
         return locations;
+    }
+    private static Group representative(Map<Group,Group> groups,Group group) {
+        Group root=group;
+        while(!groups.get(root).equals(root))root=groups.get(root);
+        while(!group.equals(root)) {Group next=groups.get(group);groups.put(group,root);group=next;}
+        return root;
     }
     private static ViewLocation owner(Owner owner,Map<ObjectKey,ViewLocation> locations) {
         return owner.location()!=null?owner.location():Objects.requireNonNull(locations.get(owner.key()));

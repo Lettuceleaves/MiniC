@@ -29,7 +29,7 @@ import craken.ui.component.visualization.UiVisualizationContainer;
 import craken.visualization.adapter.pipeline.PipelineVisualizationFrame;
 import java.util.function.IntConsumer;
 
-/** 编译展示台：左右输入输出留白，右侧承载执行控件与阶段列表。 */
+/** 编译展示台：左右显示同一步的输入输出快照，右侧承载执行控件与阶段列表。 */
 public final class PipelinePanel extends BorderPane implements AutoCloseable {
     private static final double SIDEBAR_WIDTH = 356;
     private static final double MIN_STAGE_HEIGHT = 56;

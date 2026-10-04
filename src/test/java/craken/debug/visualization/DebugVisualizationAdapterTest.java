@@ -237,6 +237,46 @@ final class DebugVisualizationAdapterTest {
         assertEquals(before.pages(),f.session.model().pages()); assertEquals(mappings,f.adapter.locations());
         assertSame(published,f.adapter.publishedSnapshot());
     }
+    @Test void aStalePointerDoesNotInterpretASmallerReplacementAllocationAsTheOldType() {
+        Fixture f=new Fixture();f.registerTreeDescriptors();f.adapter.registerRoot(new RootAddress("singleton",200));
+        var initial=new DebugMemoryReader(List.of(pointerBlock(10,200,100),treeBlock(1,100,7)));
+        assertTrue(f.adapter.project(0,initial,batch(0,allocated(1,10,200,8),allocated(2,1,100,24),writePointer(3,10,200))).accepted());
+        var reused=new DebugMemoryReader(List.of(pointerBlock(10,200,100),valueBlock(2,100,9)));
+        var result=f.adapter.project(1,reused,batch(1,new RuntimeEvent.Released(4,new RuntimeEvent.MemoryRange(1,100,24)),
+                allocated(5,2,100,4)));
+        assertTrue(result.accepted(),result.diagnostic());assertEquals(1,f.adapter.locations().size());
+        var rewritten=f.adapter.project(2,reused,batch(2,writePointer(6,10,200)));
+        assertFalse(rewritten.accepted(),"An actual rewrite must still validate the registered tree size");
+        assertEquals(1,f.adapter.locations().size());
+    }
+    @Test void aRootEntryAndAManualObjectWithTheSameIdentityReuseTheAlreadyOwnedNode() {
+        Fixture f=new Fixture();
+        long singleton=f.runtime.allocateZeroed(8,8,"heap","singleton"),tree=f.runtime.allocateZeroed(24,8,"heap","tree");
+        f.runtime.write(singleton,DebugRuntime.Value.of(IrType.POINTER,tree));f.registerTree(singleton);f.project(0);
+        var owner=f.location(singleton,"singleton");var root=f.location(tree,"tree");
+        var address=new DebugMemoryReader(f.runtime.snapshot()).resolve(tree);
+        f.adapter.registerObject("tree",address,root.page(),owner);f.adapter.registerRoot(new RootAddress("tree",tree));
+        f.runtime.write(tree,DebugRuntime.Value.of(IrType.INT,9));
+        var result=f.project(1);assertTrue(result.accepted(),result.diagnostic());
+        assertEquals(root,f.location(tree,"tree"));assertEquals(2,f.adapter.locations().size());
+        assertEquals(1,f.session.model().node(root).parents().parents().size());
+        assertEquals(2,f.session.model().ownership().values().iterator().next().sources().size(),
+                "Manual and pointer contributions share one effective ownership binding");
+    }
+    @Test void removingAnEntireOwnershipSubgraphUsesLiveOperationPathsUntilTheAtomicCommit() {
+        Fixture f=new Fixture();
+        f.adapter.registerDescriptor(new DebugStructureDescriptor("owner","point",ViewKind.POINT,8,List.of(),
+                List.of(new Reference("child",0,"owner",Relation.OWNERSHIP,Direction.NONE)),null,ReallocationPolicy.RECREATE));
+        long a=f.runtime.allocateZeroed(8,8,"heap","a"),b=f.runtime.allocateZeroed(8,8,"heap","b"),c=f.runtime.allocateZeroed(8,8,"heap","c");
+        f.runtime.write(a,DebugRuntime.Value.of(IrType.POINTER,b));f.runtime.write(b,DebugRuntime.Value.of(IrType.POINTER,c));
+        f.adapter.registerRoot(new RootAddress("owner",a));
+        assertTrue(f.project(0).accepted());assertEquals(3,f.adapter.locations().size());
+        f.runtime.write(a,DebugRuntime.Value.of(IrType.POINTER,0));var state=f.runtime.snapshot();
+        var result=f.project(1);
+        assertTrue(result.accepted(),result.diagnostic());assertEquals(1,f.adapter.locations().size());
+        assertEquals(1,f.session.model().pages().size());assertEquals(state,f.runtime.snapshot());
+        assertEquals(3,state.heap().size(),"Removing a visualization subgraph never frees VM memory");
+    }
 
     private static final class Fixture {
         final RuntimeEventCollector events = new RuntimeEventCollector();

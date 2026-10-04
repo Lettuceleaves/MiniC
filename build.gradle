@@ -248,3 +248,25 @@ tasks.register('visualizationCheck') {
             throw new GradleException('visualizationStage and visualizationRunId are required')
     }
 }
+
+// These scans include the real release probe; production classes are loaded from installDist/lib.
+['testWithoutWorker', 'visualizationBaseline', 'visualizationLayoutTest'].each { taskName ->
+    tasks.named(taskName) { dependsOn tasks.named('installDist') }
+}
+
+def visualizationHostBenchmarkClasses = layout.buildDirectory.dir('classes/java/visualizationHostBenchmark')
+tasks.register('compileVisualizationHostBenchmark', JavaCompile) {
+    dependsOn tasks.named('classes')
+    source = fileTree('src/benchmark/java/craken/ui/component/visualization') { include '**/*.java' }
+    classpath = sourceSets.main.runtimeClasspath
+    destinationDirectory = visualizationHostBenchmarkClasses
+}
+tasks.register('benchmarkVisualizationHost', JavaExec) {
+    group = 'verification'
+    description = '测量真实FX宿主、缓存、native调度和关闭，输出JSON与截图'
+    dependsOn tasks.named('compileVisualizationHostBenchmark')
+    classpath = files(visualizationHostBenchmarkClasses) + sourceSets.main.runtimeClasspath
+    mainClass = 'craken.ui.component.visualization.VisualizationHostBenchmark'
+    args providers.gradleProperty('graphvizRuntime').getOrElse(file('.local/tools/graphviz/16.1.0/Graphviz-16.1.0-win64').absolutePath),
+            layout.buildDirectory.file('verification/visualization-host-benchmark.json').get().asFile.absolutePath
+}

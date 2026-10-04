@@ -8,7 +8,10 @@ import java.util.function.Supplier;
 
 /**
  * Runtime-thread collector, with one fresh instance per VM session.
- * Collection failures suspend this interval without failing the VM. Not thread-safe.
+ * Collection failures suspend this interval without failing the VM.
+ * record/accept/drain/inspection have one VM-thread owner. close alone may run on a display thread:
+ * its volatile tombstone stops subsequent factories without synchronizing the VM hot path.
+ * A factory already running may finish, but its event is discarded.
  */
 public final class RuntimeEventCollector implements RuntimeEventSink, AutoCloseable {
     private final boolean enabled;
@@ -16,7 +19,7 @@ public final class RuntimeEventCollector implements RuntimeEventSink, AutoClosea
     private long nextSequence = 1;
     private String diagnostic = "";
     private int suppressionDepth;
-    private boolean closed;
+    private volatile boolean closed;
 
     public RuntimeEventCollector() {
         this(true, new ArrayList<>());
@@ -55,6 +58,7 @@ public final class RuntimeEventCollector implements RuntimeEventSink, AutoClosea
             if (nextSequence == Long.MAX_VALUE || event.sequence() != nextSequence)
                 throw new IllegalArgumentException("Unexpected event sequence: " + event.sequence());
             if (!pending.add(event)) throw new IllegalStateException("Event storage rejected an event");
+            if (closed) { pending=new ArrayList<>();return; }
             nextSequence++;
         } catch (RuntimeException failure) {
             diagnostic = failure.getClass().getSimpleName() + ": " + Objects.toString(failure.getMessage(), "");
@@ -79,6 +83,8 @@ public final class RuntimeEventCollector implements RuntimeEventSink, AutoClosea
         String failure = diagnostic;
         pending = new ArrayList<>();
         diagnostic = "";
+        // Final close check is the drain publication boundary; never publish an interval copied across close.
+        if(closed)return RuntimeEventBatch.unmonitored(contextIndex);
         return new RuntimeEventBatch(contextIndex, true, failure.isEmpty(), events, failure);
     }
     /** Detaches the VM observation outlet. Subsequent VM calls use the no-operation path. */

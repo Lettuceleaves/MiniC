@@ -41,6 +41,7 @@ Craken 是一个面向编译原理与程序运行机制学习的 C 语言子集�
 | RichTextFX | 0.11.7 |
 | JUnit Jupiter / Platform Console | 5.11.4 / 1.11.4 |
 | Gradle Wrapper | 8.7 |
+| Graphviz（Windows x64 完整运行时） | 16.1.0 |
 
 ## 内置终端
 
@@ -67,11 +68,84 @@ JediTerm 依赖从 JetBrains 官方缓存仓库解析，其余依赖使用 Maven
 
 ## 编译 Pipeline 展示台
 
-右侧活动栏的第二个图标打开编译展示台，并将右侧区域完全展开。展示台左侧保留“输入”和“输出”两个空白区域，默认左右均分，中间分隔线可拖动；右侧信息栏宽 356px，顶部为“下一步”和“下一阶段”。下方采用纵向轨道列表，八个阶段各有独立图标与说明，阶段之间以连续细线相连，并均分可用高度；矮窗口下保持可读行高并允许滚动。选中背景沿用交互面板样式，已完成阶段及其连接线显示绿色，当前阶段以蓝色图标标识。
+右侧活动栏的第二个图标打开编译展示台，并将右侧区域完全展开。“输入”和“输出”两个可视化容器展示每步冻结的源码、Token、AST、语义注解、IR、汇编、COFF 和 PE 内容；默认左右均分，中间分隔线可拖动。右侧信息栏宽 356px，顶部为“下一步”和“下一阶段”。下方采用纵向轨道列表，八个阶段各有独立图标与说明，阶段之间以连续细线相连，并均分可用高度；矮窗口下保持可读行高并允许滚动。选中背景沿用交互面板样式，已完成阶段及其连接线显示绿色，当前阶段以蓝色图标标识。
 
 编译使用点击图标时当前标签的编辑内容（包括未保存修改），在后台按实际编译器步骤推进。“下一步”执行一步，“下一阶段”完成当前阶段；已完成阶段可以点击回看，未来阶段不可选，回看不会倒退编译进度。完成链接后停止，编译错误显示在信息栏中。再次打开相同源码保留进度，源码或文件变化后开始新会话；独立产物保存在 `build/craken-pipelines/pipeline-*` 中。
 
 再次点击已选中的 Pipeline 图标会取消选中并完全收起信息栏；重新打开相同源码时保留编译进度、阶段选择和输入输出分栏比例。
+
+每一步先生成完整双侧快照，再在同一 FX 调用中切换画面；异步布局结果带版本校验。展示投影失败时保留上一完整帧，下一次操作重试已捕获的投影，不增加编译步数。阶段回看使用冻结历史，不读取已经变化的 AST 位置。源码切换会取消旧请求并释放旧容器，迟到结果不会覆盖新会话。
+
+## 可视化容器 API
+
+核心入口为 `craken.visualization.api.VisualizationSession`，默认实现为 `DefaultVisualizationSession`；FX 宿主为 `UiVisualizationContainer`。核心模型和布局协议不依赖 JavaFX，也不识别编译器或 VM 对象。页必须在初始化时注册 `PageType`；页内节点 ID 单调递增，页 ID 在容器内唯一。节点归属禁止成环，页可在选中节点路径中重复出现，每次出现使用独立控件和高亮。
+
+下例在 FX 线程创建单例及红黑树页。所用类型来自 `craken.visualization.api`、`model`、`type` 和 `craken.ui.component.visualization`；`TopologyEdge` 位于 `model.relation`。
+
+```java
+var view = new UiVisualizationContainer();
+var session = view.session();
+var rootPage = session.initializeRoot(BuiltinPageTypes.point());
+var owner = session.reserveNodeId(rootPage);
+session.addNode(new OperationPath(null, owner), ViewNode.Spec.point("singleton"));
+var treePage = session.initializePage(BuiltinPageTypes.tree(true), owner);
+var root = session.reserveNodeId(treePage);
+session.addNode(new OperationPath(owner, root), new ViewNode.Spec(ViewNode.Kind.TREE, "root"));
+var child = session.reserveNodeId(treePage);
+session.addNode(new OperationPath(owner, child), new ViewNode.Spec(ViewNode.Kind.TREE, "child"));
+session.modify(MutationBatch.of(new VisualizationCommand.Connect(
+        new OperationPath(owner, root), new OperationPath(owner, child),
+        TopologyEdge.Direction.FORWARD))).requireSuccess();
+view.refresh();
+// 宿主销毁时在 FX 线程调用 view.close()。
+```
+
+空页首次分配直接展示，后续节点按页类型进入 READY；连接后提升到连通 part，断链重分 part。READY 当前显示待连接数量，可滚动列表按计划留待后续实现。`Compose` 描述同页包含，`Connect` 描述绘制连线，`AttachOwnership` 描述跨页归属，三者不能混用。`PageBindingRule.Spec.page(parentPage)` 注册动态大页绑定，包含 READY 节点。`Configure(new VisualizationOptions(false, true))` 关闭自动导航并保留向上高亮；第二个参数控制高亮传播。
+
+`showSnapshot(snapshot)` 只显示纯值历史，不恢复外部活动会话。`refresh()` 返回活动模型，`setZoom(...)` 缩放，`layoutPendingProperty()` 和 `diagnostics()` 可用于宿主状态显示。无参宿主拥有其会话；传入会话的宿主借用它，调用者负责关闭会话。布局采用两条后台工作线程与有界缓存；仅高亮变化复用几何。共享 AST 等非树宏拓扑使用正式 Graphviz，运行时缺失时显示布局错误。
+
+## Debugger 结构适配
+
+使用 `new Debugger(source, "", collector)` 开启会话专属 `RuntimeEventCollector`，默认 Debugger 路径关闭事件收集。`DebugVisualizationAdapter` 读取止点的不可变内存和事件，调用者注册 `DebugStructureDescriptor`（字段类型/偏移、拓扑或归属引用、数组长度/步长、realloc 策略）和 `RootAddress`。不根据 malloc 大小猜测结构；自动识别器是后续能力。
+
+```java
+var types = new PageTypeRegistry();
+types.register(BuiltinPageTypes.point());
+var adapter = new DebugVisualizationAdapter(new DefaultVisualizationSession(), types);
+adapter.registerDescriptor(new DebugStructureDescriptor(
+        "value", "point", DebugStructureDescriptor.ViewKind.POINT, 4,
+        List.of(new DebugStructureDescriptor.Field("value", 0, DebugMemoryReader.ScalarType.SIGNED32)),
+        List.of(), null, DebugStructureDescriptor.ReallocationPolicy.RECREATE));
+adapter.registerRoot(new DebugStructureDescriptor.RootAddress("value", knownVmAddress));
+var history = new DebugVisualizationHistory(adapter, collector, releaseDisplay);
+var frame = history.show(debugApi.current());
+// 在 FX 线程：view.showSnapshot(history.displayedSnapshot());
+// 下一止点：history.show(debugApi.next()); 回退：history.show(debugApi.previous());
+```
+
+示例的 `knownVmAddress` 必须是调用者已知的有效 4 字节整数地址，不能使用 Java 对象地址。未连接分配通过 `registerObject(descriptorKey, address, page, pre)` 手动登记后进入相应页；`Address` 由 `DebugMemoryReader(context.runtime()).resolve(...)` 得到，包含分配代次以隔离地址重用。完整可运行结构示例见 `DebugVisualizationEndToEndTest`。
+
+`history.show(index)` 只切换展示，`DebugApi.previous()/next()` 才移动调试光标。已知 Context 不重复消费事件。`Frame.snapshot()` 保留历史来源版本，`displayedSnapshot()` 携带当前递增 epoch；后者用于布局失效控制。程序完成后可继续回看，显式 `history.close()` 才释放历史、映射、显示资源与 collector。Adapter 两参构造拥有 session，三参 `ownsSession=false` 借用 session。`releaseDisplay` 应在正确的 FX 线程释放宿主；即使它抛错，其他资源仍会清理。只有 collector 的 `close()` 支持从显示线程调用，其余事件操作由 VM 线程独占。
+
+## 可视化构建与验收
+
+在项目根目录使用 JDK 21。开发运行与发布包使用同一份锁定的完整 Graphviz 分发；`.local` 不纳入 Git。首次准备可按锁定清单下载并校验：
+
+```powershell
+$runtimeLock = Get-Content config/visualization/graphviz-runtime.json -Raw | ConvertFrom-Json
+$archiveDir = Split-Path $runtimeLock.archivePath -Parent
+New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
+Invoke-WebRequest -Uri $runtimeLock.archiveUrl -OutFile $runtimeLock.archivePath
+if ((Get-FileHash $runtimeLock.archivePath -Algorithm SHA256).Hash -ne $runtimeLock.archiveSha256) {
+    throw 'Graphviz archive checksum mismatch'
+}
+Expand-Archive -LiteralPath $runtimeLock.archivePath -DestinationPath $archiveDir -Force
+./scripts/verify-visualization.ps1 -Stage C23
+```
+
+每次提交前使用该验收入口，重新编译并检查模型、布局、适配、真实 FX、原 UI 回归和默认回归的本次 XML；必需测试缺失、跳过或失败均拒绝验收。门禁会生成 `build/install/Craken`，从任意 cwd 用安装包 JAR 定位并执行自带 neato，完整核验 303 个官方运行文件、校验和及许可证；不依赖全局 Graphviz。`installDist`、`distZip`、`distTar` 都包含 `runtime/graphviz`。
+
+详细模型与职责见[技术方案](可视化容器技术方案.md)，逐提交证据见[实施记录](可视化容器实施记录.md)，测量方法与开销见[性能基准](可视化性能基准.md)。
 
 ## 通用弹窗
 

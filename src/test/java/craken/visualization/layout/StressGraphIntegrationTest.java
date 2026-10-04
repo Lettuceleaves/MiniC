@@ -47,6 +47,49 @@ final class StressGraphIntegrationTest {
             assertFalse(result.edgePaths().get(1L).segments().isEmpty());
         }
     }
+    @Test void unusedFixedPortsPreserveTheAuthoritativeNativeAutoRoutes() {
+        try (var bridge = bridge()) {
+            var original = node(1, 120, 60); var ports = new ArrayList<>(original.ports());
+            ports.add(new Port(new PortRef(id(1), "unused-east"), new Point(120, 30), Side.EAST));
+            var expanded = new Unit(original.node(), original.size(), original.members(), ports, original.textObstacles());
+            var request = request(Kind.GRAPH, List.of(expanded, node(2, 80, 50), node(3, 100, 70)),
+                    List.of(edge(1, 1, 2), edge(2, 2, 3), edge(3, 3, 1)), Hints.defaults());
+            var encoded = new DotGraphWriter().write(request); var nativeOutput = bridge.execute(encoded.dot(), CancellationToken.NONE);
+            var nativeGeometry = new PlainExtReader().read(nativeOutput.stdout(), encoded, request, bridge.version());
+            var actual = new StressGraphLayout(bridge).layout(request);
+            assertEquals(nativeGeometry.edgePaths(), actual.edgePaths(), "Unused extension ports must not replace real native Cubic routes with Java polylines");
+            assertTrue(actual.edgePaths().values().stream().flatMap(p -> p.segments().stream()).allMatch(s -> s instanceof LayoutResult.Cubic));
+        }
+    }
+    @Test void aUsedFixedPortStillRoutesToItsExactlyMeasuredMemberBoundary() {
+        try (var bridge = bridge()) {
+            var a = node(1, 120, 60); var b = node(2, 80, 50);
+            var east = new Port(new PortRef(id(1), "east"), new Point(120, 30), Side.EAST);
+            var west = new Port(new PortRef(id(2), "west"), new Point(0, 25), Side.WEST);
+            a = new Unit(a.node(), a.size(), a.members(), List.of(a.ports().getFirst(), east), List.of());
+            b = new Unit(b.node(), b.size(), b.members(), List.of(b.ports().getFirst(), west), List.of());
+            var request = request(Kind.GRAPH, List.of(a, b), List.of(new Link(1, east.ref(), west.ref(), Direction.FORWARD)), Hints.defaults());
+            var result = new StressGraphLayout(bridge).layout(request); var route = result.edgePaths().get(1L);
+            assertEquals(result.nodeBounds().get(id(1)).right(), route.start().x(), 1e-7);
+            assertEquals(result.nodeBounds().get(id(1)).center().y(), route.start().y(), 1e-7);
+            assertEquals(result.nodeBounds().get(id(2)).x(), route.end().x(), 1e-7);
+            assertEquals(result.nodeBounds().get(id(2)).center().y(), route.end().y(), 1e-7);
+            assertTrue(route.segments().stream().allMatch(s -> s instanceof LayoutResult.Line));
+        }
+    }
+    @Test void aUsedInternalAutoPortStillAttachesToTheConcreteChild() {
+        try (var bridge = bridge()) {
+            var child = new Rect(20, 25, 80, 45);
+            var composed = new Unit(id(1), new Size(220, 120), List.of(new Member(id(1), new Rect(0, 0, 220, 120)), new Member(id(3), child)),
+                    List.of(new Port(PortRef.node(id(1)), new Point(110, 60), Side.AUTO), new Port(PortRef.node(id(3)), child.center(), Side.AUTO)), List.of());
+            var request = request(Kind.GRAPH, List.of(composed, node(2, 100, 60)), List.of(edge(1, 3, 2)), Hints.defaults());
+            var result = new StressGraphLayout(bridge).layout(request); var start = result.edgePaths().get(1L).start(); var bounds = result.nodeBounds().get(id(3));
+            assertTrue(bounds.contains(start));
+            assertTrue(Math.abs(start.x() - bounds.x()) < 1e-7 || Math.abs(start.x() - bounds.right()) < 1e-7
+                    || Math.abs(start.y() - bounds.y()) < 1e-7 || Math.abs(start.y() - bounds.bottom()) < 1e-7);
+            assertTrue(result.edgePaths().get(1L).segments().stream().allMatch(s -> s instanceof LayoutResult.Line));
+        }
+    }
     @Test void missingRuntimeIsAnErrorAndNeverAFallbackLayout() {
         try (var bridge = new GraphvizProcessBridge(Path.of("build/missing-runtime"), Duration.ofSeconds(1))) {
             var failure = assertThrows(LayoutException.class, () -> bridge.execute("graph{}", CancellationToken.NONE));
