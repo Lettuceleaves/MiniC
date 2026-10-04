@@ -96,6 +96,26 @@ application {
     ]
 }
 
+def stagedGraphviz = layout.buildDirectory.dir('graphviz-staging/default/graphviz')
+tasks.register('stageGraphvizRuntime', Exec) {
+    group = 'distribution'
+    description = '校验锁定的官方 Graphviz 完整运行目录，并生成发布副本'
+    commandLine 'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+            '-File', file('scripts/stage-graphviz-runtime.ps1').absolutePath,
+            '-ProjectRoot', projectDir.absolutePath
+    // Always verify the source bytes, including when the staging directory already exists.
+}
+distributions {
+    main {
+        contents {
+            from(stagedGraphviz) { into 'runtime/graphviz' }
+        }
+    }
+}
+['installDist', 'distZip', 'distTar'].each { taskName ->
+    tasks.named(taskName) { dependsOn tasks.named('stageGraphvizRuntime') }
+}
+
 tasks.register('runUi', JavaExec) {
     group = 'application'
     description = '启动 Craken Visual Workbench JavaFX UI'
@@ -143,7 +163,28 @@ tasks.register('benchmarkEditorResize', JavaExec) {
     }
 }
 
+def visualizationBenchmarkClasses = layout.buildDirectory.dir('classes/java/visualizationBenchmark')
+tasks.register('compileVisualizationGraphBenchmark', JavaCompile) {
+    dependsOn tasks.named('classes')
+    source = fileTree('src/benchmark/java/craken/visualization/layout') { include '**/*.java' }
+    classpath = sourceSets.main.runtimeClasspath
+    destinationDirectory = visualizationBenchmarkClasses
+}
+tasks.register('benchmarkVisualizationGraph', JavaExec) {
+    group = 'verification'
+    description = 'Measure locked neato: 50/30, 100/250, per-part overhead and incremental displacement'
+    dependsOn tasks.named('compileVisualizationGraphBenchmark')
+    classpath = files(visualizationBenchmarkClasses) + sourceSets.main.runtimeClasspath
+    mainClass = 'craken.visualization.layout.NativeGraphLayoutBenchmark'
+    args providers.gradleProperty('graphvizRuntime').getOrElse(file('.local/tools/graphviz/16.1.0/Graphviz-16.1.0-win64').absolutePath),
+            layout.buildDirectory.file('verification/graphviz-native-benchmark.json').get().asFile.absolutePath
+}
+
 // One manifest is shared by Gradle selection and the XML verifier. Stages are cumulative.
+tasks.withType(JavaExec).configureEach {
+    systemProperty 'craken.graphviz.runtime', providers.gradleProperty('graphvizRuntime').getOrElse(
+            file('.local/tools/graphviz/16.1.0/Graphviz-16.1.0-win64').absolutePath)
+}
 def visualManifest = new groovy.json.JsonSlurper().parse(file('config/visualization/acceptance-stages.json'))
 def visualStage = providers.gradleProperty('visualizationStage').getOrElse(visualManifest.stages.last().id)
 def visualRunId = providers.gradleProperty('visualizationRunId').getOrElse('manual-' + UUID.randomUUID())

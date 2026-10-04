@@ -1,0 +1,15 @@
+{
+  "version": "16.1.0",
+  "platform": "windows-x64",
+  "archiveUrl": "https://gitlab.com/api/v4/projects/4207231/packages/generic/graphviz-releases/16.1.0/windows_10_cmake_Release_Graphviz-16.1.0-win64.zip",
+  "archiveSha256": "733e49626c492242eb8dca30ea627b6ead20710e207998c7933b4909d92d6abc",
+  "archivePath": ".local/tools/graphviz/16.1.0/graphviz-16.1.0-win64.zip",
+  "runtimePath": ".local/tools/graphviz/16.1.0/Graphviz-16.1.0-win64",
+  "archiveRoot": "Graphviz-16.1.0-win64/",
+  "executable": "bin/neato.exe",
+  "requiredFiles": ["bin/neato.exe", "bin/config8", "bin/gvplugin_neato_layout.dll", "bin/gvplugin_core.dll", "bin/gvc.dll", "bin/cgraph.dll"],
+  "licensePath": "config/visualization/graphviz/LICENSE",
+  "licenseSha256": "0becf16567beb77fa252b7664631dd177c8f9a1889e48995b45379c7130e5303",
+  "sourceUrl": "https://gitlab.com/graphviz/graphviz/-/tree/16.1.0",
+  "licenseUrl": "https://gitlab.com/graphviz/graphviz/-/raw/16.1.0/LICENSE"
+}

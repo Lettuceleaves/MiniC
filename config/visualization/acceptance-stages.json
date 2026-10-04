@@ -58,6 +58,7 @@
     { "id": "C07", "required": { "visualizationModelTest": ["craken.visualization.mutation.PageBindingRuleTest"] } },
     { "id": "C08", "required": { "visualizationModelTest": ["craken.visualization.navigation.FocusNavigationTest", "craken.visualization.navigation.NavigationResolverTest"] } },
     { "id": "C09", "required": { "visualizationModelTest": ["craken.visualization.snapshot.SnapshotCodecTest"] } },
-    { "id": "C10", "required": { "visualizationLayoutTest": ["craken.visualization.navigation.PageWidthAllocatorTest", "craken.visualization.layout.ArrayLinearTreeLayoutTest", "craken.visualization.layout.LayoutProtocolTest", "craken.visualization.layout.PortRouterTest"] } }
+    { "id": "C10", "required": { "visualizationLayoutTest": ["craken.visualization.navigation.PageWidthAllocatorTest", "craken.visualization.layout.ArrayLinearTreeLayoutTest", "craken.visualization.layout.LayoutProtocolTest", "craken.visualization.layout.PortRouterTest"] } },
+    { "id": "C11", "required": { "visualizationLayoutTest": ["craken.visualization.layout.StressGraphIntegrationTest", "craken.visualization.layout.GraphvizPackagingTest"] } }
   ]
 }

@@ -1,0 +1,2 @@
+# Preserve the upstream license byte-for-byte; its trailing spaces are part of the locked checksum.
+config/visualization/graphviz/LICENSE -text whitespace=-blank-at-eol
