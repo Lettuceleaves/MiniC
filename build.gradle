@@ -142,3 +142,68 @@ tasks.register('benchmarkEditorResize', JavaExec) {
         args '--scale=' + providers.gradleProperty('benchmarkScale').get()
     }
 }
+
+// One manifest is shared by Gradle selection and the XML verifier. Stages are cumulative.
+def visualManifest = new groovy.json.JsonSlurper().parse(file('config/visualization/acceptance-stages.json'))
+def visualStage = providers.gradleProperty('visualizationStage').getOrElse(visualManifest.stages.last().id)
+def visualRunId = providers.gradleProperty('visualizationRunId').getOrElse('manual-' + UUID.randomUUID())
+def visualIndex = visualManifest.stages.findIndexOf { it.id == visualStage }
+def visualRequired = [:].withDefault { [] }
+if (visualIndex >= 0) {
+    visualManifest.stages.take(visualIndex + 1).each { stage ->
+        stage.required.each { name, classes -> visualRequired[name].addAll(classes) }
+    }
+}
+visualRequired.each { name, classes -> visualRequired[name] = classes.unique() }
+def visualReports = layout.buildDirectory.dir('test-results/visualization/' + visualRunId)
+def visualTags = [
+        visualizationModelTest: 'visualization-model',
+        visualizationLayoutTest: 'visualization-layout',
+        visualizationAdapterTest: 'visualization-adapter',
+        visualizationUiTest: 'visualization-ui'
+]
+def visualSuiteNames = (visualManifest.stages.collectMany { it.required.keySet() } + ['visualizationBaseline']).unique()
+visualSuiteNames.each { suiteName ->
+    tasks.register(suiteName, JavaExec) {
+        group = 'verification'
+        dependsOn tasks.named('classes'), tasks.named('testClasses')
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = 'org.junit.platform.console.ConsoleLauncher'
+        jvmArgs '--add-exports=java.desktop/sun.font=ALL-UNNAMED'
+        if (suiteName in ['visualizationUiTest', 'visualizationRegression'])
+            systemProperty 'craken.ui.test', 'true'
+        def selectedClasses = visualRequired.containsKey(suiteName) ? visualRequired[suiteName] : []
+        args 'execute', '--fail-if-no-tests', '--details=summary', '--disable-banner',
+                '--reports-dir', visualReports.get().dir(suiteName).asFile.absolutePath
+        if (suiteName == 'visualizationRegression') {
+            selectedClasses.each { name -> args '--select-class', name }
+        } else {
+            args '--scan-class-path'
+            if (visualTags.containsKey(suiteName)) args '--include-tag', visualTags[suiteName]
+        }
+        doFirst {
+            if (visualIndex < 0) throw new GradleException('Unknown visualization stage: ' + visualStage)
+            if (suiteName != 'visualizationBaseline' && selectedClasses.isEmpty())
+                throw new GradleException('No required test classes for ' + suiteName)
+        }
+    }
+}
+tasks.register('visualizationVerifyReports', JavaExec) {
+    group = 'verification'
+    dependsOn visualRequired.keySet().collect { tasks.named(it) }
+    dependsOn tasks.named('visualizationBaseline')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'craken.visualization.support.AcceptanceReportVerifier'
+    args visualReports.get().asFile.absolutePath, 'visualizationBaseline|true|'
+    visualRequired.each { name, classes -> args name + '|false|' + classes.join(',') }
+}
+tasks.register('visualizationCheck') {
+    group = 'verification'
+    description = 'Compile and verify all cumulative visualization acceptance reports'
+    dependsOn tasks.named('visualizationVerifyReports')
+    doFirst {
+        if (!providers.gradleProperty('visualizationStage').isPresent()
+                || !providers.gradleProperty('visualizationRunId').isPresent())
+            throw new GradleException('visualizationStage and visualizationRunId are required')
+    }
+}

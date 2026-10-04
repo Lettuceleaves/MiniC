@@ -1,0 +1,16 @@
+{
+  "stages": [
+    {
+      "id": "C01",
+      "required": {
+        "visualizationModelTest": [
+          "craken.visualization.model.MonotonicIdsTest",
+          "craken.visualization.support.AcceptanceReportVerifierTest"
+        ],
+        "visualizationRegression": [
+          "craken.ui.pipeline.PipelinePanelTest"
+        ]
+      }
+    }
+  ]
+}
