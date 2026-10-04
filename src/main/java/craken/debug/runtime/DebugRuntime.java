@@ -239,7 +239,8 @@ public final class DebugRuntime {
     private List<MemoryBlock> blocks(String segment) {
         return memory.values().stream().filter(a -> a.segment.equals(segment))
                 .map(a -> new MemoryBlock(a.address, a.bytes.length, code.ir().displayName(a.label),
-                        HexFormat.of().formatHex(a.bytes), a.initialized.cardinality())).toList();
+                        HexFormat.of().formatHex(a.bytes), a.initialized.cardinality(), a.identity,
+                        HexFormat.of().formatHex(a.initialized.toByteArray()))).toList();
     }
 
     long allocate(int size, String segment, String label) {
@@ -874,7 +875,13 @@ public final class DebugRuntime {
                              Map<String, Value> parameters,
                              Map<String, Long> locals,
                              Map<String, Value> temporaries) {}
-    public record MemoryBlock(long address, int size, String label, String bytes, int initializedBytes) {}
+    public record MemoryBlock(long address, int size, String label, String bytes, int initializedBytes,
+                              long allocationId, String initializedMask) {
+        /** Compatibility for consumers of older snapshots; identity and per-byte bits are unknown. */
+        public MemoryBlock(long address, int size, String label, String bytes, int initializedBytes) {
+            this(address, size, label, bytes, initializedBytes, 0, "");
+        }
+    }
 
     static final class Frame {
         final IrFunction function;

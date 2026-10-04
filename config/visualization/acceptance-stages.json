@@ -64,6 +64,7 @@
     { "id": "C14", "required": { "visualizationAdapterTest": ["craken.compiler.parser.node.AstExpressionMigrationTest", "craken.compiler.semantic.manager.AstTemplateStructureTest"] } },
     { "id": "C15", "required": { "visualizationAdapterTest": ["craken.compiler.parser.node.AstStatementMigrationTest"] } },
     { "id": "C16", "required": { "visualizationAdapterTest": ["craken.compiler.parser.node.AstDeclarationMigrationTest"] } },
-    { "id": "C20", "required": { "visualizationAdapterTest": ["craken.debug.RuntimeEventCoverageTest", "craken.debug.DebugRuntimeEventBatchTest", "craken.debug.visualization.RuntimeEventCollectorTest"] } }
+    { "id": "C20", "required": { "visualizationAdapterTest": ["craken.debug.RuntimeEventCoverageTest", "craken.debug.DebugRuntimeEventBatchTest", "craken.debug.visualization.RuntimeEventCollectorTest"] } },
+    { "id": "C21", "required": { "visualizationAdapterTest": ["craken.debug.DebugMemoryReaderTest", "craken.debug.visualization.DebugObjectIdentityRegistryTest", "craken.debug.visualization.DebugStructureDescriptorTest", "craken.debug.DebugVisualizationAdapterTest"] } }
   ]
 }
