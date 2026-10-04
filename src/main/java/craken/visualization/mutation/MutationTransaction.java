@@ -11,6 +11,7 @@ public final class MutationTransaction {
     private final ContainerModel base;
     private final Map<Long, PageModel> pages;
     private final OwnershipStore ownership;
+    private final MonotonicIds relationIds;
     private final Set<ViewLocation> reservations;
     private final List<ViewLocation> created = new ArrayList<>();
     private final Set<PageRef> affected = new LinkedHashSet<>();
@@ -20,6 +21,7 @@ public final class MutationTransaction {
         this.base = base;
         this.pages = new LinkedHashMap<>(base.pages());
         this.ownership = new OwnershipStore(base.ownership(), relations);
+        this.relationIds = relations;
         this.reservations = Set.copyOf(reservations);
     }
     public void apply(MutationBatch batch) {
@@ -28,6 +30,8 @@ public final class MutationTransaction {
                 case AddNode add -> add(add);
                 case AttachOwnership attach -> attach(attach.pre(), attach.nxt(), attach.source());
                 case Compose compose -> compose(compose);
+                case Connect connect -> connect(connect);
+                case Disconnect disconnect -> disconnect(disconnect);
             }
         }
     }
@@ -53,7 +57,8 @@ public final class MutationTransaction {
         if (node == null || !node.location().equals(path.nxt()) || node.retention() != retention
                 || !node.parents().equals(selection) || !node.content().equals(add.spec()))
             throw CommandValidator.failure(PAGE_TYPE_MISMATCH, "Page type factory violated the node contract");
-        put(node);
+        pages.put(page.ref().pageId(), page.withAllocatedNode(node));
+        affected.add(page.ref());
         created.add(node.location());
         if (path.pre() != null) attach(path.pre(), path.nxt(), "explicit");
     }
@@ -70,6 +75,21 @@ public final class MutationTransaction {
         pages.put(page.ref().pageId(), CompositionStore.compose(page, parent, child, compose.slot()));
         affected.add(page.ref());
     }
+    private ViewNode select(OperationPath path) {
+        ViewNode node = CommandValidator.path(base.id(), pages, path);
+        put(node);
+        return node;
+    }
+    private void connect(Connect connect) {
+        ViewNode a = select(connect.a()), b = select(connect.b());
+        var page = pages.get(a.location().pageId());
+        pages.put(page.ref().pageId(), TopologyStore.connect(page, a.location(), b.location(), connect.direction(), relationIds));
+    }
+    private void disconnect(Disconnect disconnect) {
+        ViewNode a = select(disconnect.a()), b = select(disconnect.b());
+        var page = pages.get(a.location().pageId());
+        pages.put(page.ref().pageId(), TopologyStore.disconnect(page, a.location(), b.location()));
+    }
     private ViewNode node(ViewLocation location) { return CommandValidator.node(base.id(), pages, location); }
     private void put(ViewNode node) {
         PageModel page = pages.get(node.location().pageId());
@@ -78,6 +98,7 @@ public final class MutationTransaction {
     }
     public ContainerModel finish() {
         OwnershipDagValidator.validate(pages, ownership);
+        for (PageRef ref : affected) pages.put(ref.pageId(), PartPlanner.plan(pages.get(ref.pageId())));
         return new ContainerModel(base.id(), base.root(), pages, base.version() + 1, ownership.bindings());
     }
     public int commandIndex() { return commandIndex; }

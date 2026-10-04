@@ -1,9 +1,17 @@
 package craken.visualization.api;
 
 import craken.visualization.model.ViewNode;
+import craken.visualization.model.relation.TopologyEdge.Direction;
 import java.util.Objects;
 
 public sealed interface VisualizationCommand {
+    record Connect(OperationPath a, OperationPath b, Direction direction) implements VisualizationCommand {
+        public Connect { Objects.requireNonNull(a); Objects.requireNonNull(b); Objects.requireNonNull(direction); }
+        public Connect(OperationPath a, OperationPath b) { this(a, b, Direction.NONE); }
+    }
+    record Disconnect(OperationPath a, OperationPath b) implements VisualizationCommand {
+        public Disconnect { Objects.requireNonNull(a); Objects.requireNonNull(b); }
+    }
     record Compose(ViewLocation parent, ViewLocation child, int slot) implements VisualizationCommand {
         public Compose {
             Objects.requireNonNull(parent); Objects.requireNonNull(child);

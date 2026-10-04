@@ -27,7 +27,7 @@ public final class CompositionStore {
         var children = links.values().stream().filter(link -> link.parent().equals(parent.location()))
                 .sorted(Comparator.comparingInt(CompositionLink::slot)).map(CompositionLink::child).toList();
         nodes.put(parent.location().nodeId(), parent.withChildren(children));
-        return new PageModel(page.ref(), page.type(), nodes, page.anchor(), links);
+        return page.withComposition(nodes, links);
     }
     public static void validate(PageModel page, Map<Long, CompositionLink> links) {
         var depths = new HashMap<Long, Integer>();

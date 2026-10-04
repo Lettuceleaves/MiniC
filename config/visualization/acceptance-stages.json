@@ -36,6 +36,15 @@
           "craken.visualization.model.CompositionLifecycleTest"
         ]
       }
+    },
+    {
+      "id": "C05",
+      "required": {
+        "visualizationModelTest": [
+          "craken.visualization.mutation.PartPlannerTest",
+          "craken.visualization.mutation.ReadyResidenceTest"
+        ]
+      }
     }
   ]
 }

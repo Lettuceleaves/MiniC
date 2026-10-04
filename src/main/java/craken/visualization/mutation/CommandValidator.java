@@ -23,6 +23,17 @@ public final class CommandValidator {
                 || parent.location().page().equals(child.location().page()) || child.retention() == ViewNode.Retention.ROOT)
             throw failure(INVALID_OWNERSHIP, "Ownership must connect distinct pages to an OWNED node");
     }
+    public static ViewNode path(long containerId, Map<Long, PageModel> pages, OperationPath path) {
+        ViewNode node = node(containerId, pages, path.nxt());
+        if (node.retention() == ViewNode.Retention.ROOT) {
+            if (path.pre() != null) throw failure(INVALID_OWNERSHIP, "ROOT node requires a null upstream");
+            return node;
+        }
+        if (path.pre() == null || !node.parents().parents().contains(path.pre()))
+            throw failure(INVALID_OWNERSHIP, "Operation requires an effective upstream");
+        node(containerId, pages, path.pre());
+        return node.withState(node.content(), node.parents().select(path.pre()));
+    }
     public static VisualizationError.Failure failure(VisualizationError.Code code, String message) {
         return new VisualizationError.Failure(code, message);
     }
