@@ -15,6 +15,8 @@ import craken.debug.DebugRuntime.Frame;
 import craken.debug.DebugRuntime.RuntimeState;
 import craken.debug.DebugRuntime.Value;
 import craken.SourceRange;
+import craken.debug.visualization.RuntimeEventCollector;
+import craken.debug.visualization.RuntimeEventBatch;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +39,12 @@ public final class Debugger {
         this(source, standardInput, DebugTimeSource.system());
     }
 
+    /** Opt-in VM memory observation; the internal collector cannot call visualization code. */
+    public Debugger(SourceFile source, String standardInput, RuntimeEventCollector events) {
+        this(source, new CompilerApi(source).runToIr(), standardInput, DebugTimeSource.system(),
+                DebugRuntime.DEFAULT_HEAP_CAPACITY, Integer.MAX_VALUE, events);
+    }
+
     Debugger(SourceFile source, String standardInput, DebugTimeSource timeSource) {
         this(source, standardInput, timeSource, DebugRuntime.DEFAULT_HEAP_CAPACITY);
     }
@@ -53,6 +61,12 @@ public final class Debugger {
         return new Debugger(source, ir, standardInput, DebugTimeSource.system(), DebugRuntime.DEFAULT_HEAP_CAPACITY, historyLimit);
     }
 
+    static Debugger fromIr(SourceFile source, IrResult ir, String standardInput, int historyLimit,
+                          RuntimeEventCollector events) {
+        return new Debugger(source, ir, standardInput, DebugTimeSource.system(),
+                DebugRuntime.DEFAULT_HEAP_CAPACITY, historyLimit, events);
+    }
+
     private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
                      int heapCapacity) {
         this(source, ir, standardInput, timeSource, heapCapacity, Integer.MAX_VALUE);
@@ -60,9 +74,14 @@ public final class Debugger {
 
     private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
                      int heapCapacity, int historyLimit) {
+        this(source, ir, standardInput, timeSource, heapCapacity, historyLimit, RuntimeEventCollector.disabled());
+    }
+
+    private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
+                     int heapCapacity, int historyLimit, RuntimeEventCollector events) {
         if (historyLimit < 1) throw new IllegalArgumentException("History limit must retain at least the current context");
         this.historyLimit = historyLimit;
-        runtime = new DebugRuntime(new DebugProgram(source, ir), standardInput, timeSource, heapCapacity);
+        runtime = new DebugRuntime(new DebugProgram(source, ir), standardInput, timeSource, heapCapacity, events);
         runtime.push(runtime.code().ir().findFunction(runtime.code().ir().entryFunction())
                 .orElseThrow(() -> new IllegalStateException("Missing entry function: " + runtime.code().ir().entryFunction())), List.of(), null);
         remember(latestStop);
@@ -146,7 +165,9 @@ public final class Debugger {
 
     private Context remember(Stop next) {
         latestStop = next;
-        Context context = new Context(nextContextIndex++, next, runtime.code(), runtime.snapshot());
+        int index = nextContextIndex++;
+        RuntimeState state = runtime.snapshot();
+        Context context = new Context(index, next, runtime.code(), state, runtime.takeEvents(index));
         if (contexts.size() == historyLimit) contexts.removeFirst();
         contexts.add(context);
         contextIndex = contexts.size() - 1;
@@ -293,5 +314,9 @@ public final class Debugger {
     public enum Status { READY, PAUSED, COMPLETED, FAILED }
     public record Stop(Status status, SourceRange range, TrapKind kind, String function,
                        String block, int instruction, String error) {}
-    public record Context(int index, Stop stop, DebugProgram program, RuntimeState runtime) {}
+    public record Context(int index, Stop stop, DebugProgram program, RuntimeState runtime, RuntimeEventBatch events) {
+        public Context(int index, Stop stop, DebugProgram program, RuntimeState runtime) {
+            this(index, stop, program, runtime, RuntimeEventBatch.unmonitored(index));
+        }
+    }
 }

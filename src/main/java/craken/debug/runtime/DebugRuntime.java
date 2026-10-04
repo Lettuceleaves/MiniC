@@ -2,6 +2,9 @@ package craken.debug;
 
 import craken.compiler.ir.model.*;
 import craken.compiler.ir.value.IrValue.IrTemporary;
+import craken.debug.visualization.RuntimeEventCollector;
+import craken.debug.visualization.RuntimeEvent;
+import craken.debug.visualization.RuntimeEventBatch;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -28,11 +31,13 @@ public final class DebugRuntime {
     private final DebugProgram code;
     private final DebugTimeSource timeSource;
     private final int heapCapacity;
+    private final RuntimeEventCollector events;
     final ArrayList<Frame> stack = new ArrayList<>();
     private final NavigableMap<Long, Allocation> memory = new TreeMap<>();
     private final Map<String, Long> symbols = new LinkedHashMap<>();
     private final Map<Long, String> functions = new LinkedHashMap<>();
     private long nextAddress = 0x10000;
+    private long nextAllocationIdentity = 1;
     private final byte[] input;
     private int inputOffset;
     private int inputPushback = -1;
@@ -75,6 +80,12 @@ public final class DebugRuntime {
     }
 
     DebugRuntime(DebugProgram code, String input, DebugTimeSource timeSource, int heapCapacity) {
+        this(code, input, timeSource, heapCapacity, RuntimeEventCollector.disabled());
+    }
+
+    DebugRuntime(DebugProgram code, String input, DebugTimeSource timeSource, int heapCapacity,
+                 RuntimeEventCollector events) {
+        this.events = Objects.requireNonNull(events, "events");
         this.code = code;
         this.input = Objects.requireNonNull(input, "input").replace("\r\n", "\n")
                 .getBytes(StandardCharsets.UTF_8);
@@ -98,6 +109,7 @@ public final class DebugRuntime {
             Allocation allocation = memory.get(address);
             System.arraycopy(bytes, 0, allocation.bytes, 0, bytes.length);
             allocation.initialized.set(0, bytes.length);
+            recordAccess(allocation, address, bytes.length, RuntimeEvent.Access.WRITE, "BYTES");
             symbols.put(string.label(), address);
         }
         for (IrGlobalData global : code.ir().globalData()) {
@@ -106,13 +118,18 @@ public final class DebugRuntime {
             Allocation allocation = memory.get(address);
             System.arraycopy(bytes, 0, allocation.bytes, 0, bytes.length);
             allocation.initialized.set(0, bytes.length);
+            recordAccess(allocation, address, bytes.length, RuntimeEvent.Access.WRITE, "BYTES");
             symbols.put(global.label(), address);
         }
         // Every static object and function has an address before any initializer can observe it.
         for(IrGlobalData global:code.ir().globalData()) {
             Allocation allocation=memory.get(symbol(global.label()));
             var image=ByteBuffer.wrap(allocation.bytes).order(ByteOrder.LITTLE_ENDIAN);
-            for(var address:global.addresses())image.putLong(address.offset(),symbol(address.symbol())+address.addend());
+            for(var address:global.addresses()) {
+                image.putLong(address.offset(),symbol(address.symbol())+address.addend());
+                recordAccess(allocation, allocation.address + address.offset(), Long.BYTES,
+                        RuntimeEvent.Access.WRITE, "POINTER");
+            }
         }
     }
 
@@ -146,8 +163,9 @@ public final class DebugRuntime {
 
     /** 返回只读的当前栈视图；地址随调用帧分配，递归调用不会共用局部变量。 */
     public List<StackFrame> stack() {
-        return stack.stream().map(f -> new StackFrame(code.ir().displayName(f.function.name()), f.block, f.pc,
-                displayedNames(parameterValues(f)), displayedNames(f.locals), Map.copyOf(f.temps))).toList();
+        return events.withoutEvents(() -> stack.stream().map(f -> new StackFrame(
+                code.ir().displayName(f.function.name()), f.block, f.pc,
+                displayedNames(parameterValues(f)), displayedNames(f.locals), Map.copyOf(f.temps))).toList());
     }
 
     private Map<String, Value> parameterValues(Frame frame) {
@@ -177,6 +195,15 @@ public final class DebugRuntime {
 
     /** 将当前堆、栈和输出合成为一个与后续执行完全隔离的运行时对象。 */
     public RuntimeState snapshot() {
+        return events.withoutEvents(this::snapshotState);
+    }
+
+    /** Drained only when a new execution context is produced, never while browsing history. */
+    public RuntimeEventBatch takeEvents(int contextIndex) {
+        return events.drain(contextIndex);
+    }
+
+    private RuntimeState snapshotState() {
         return new RuntimeState(
                 stack(),
                 stackMemory(),
@@ -244,13 +271,17 @@ public final class DebugRuntime {
         nextAddress = (nextAddress + alignment - 1) & -alignment;
         long address = nextAddress;
         nextAddress = Math.addExact(nextAddress, size + 16L);
-        memory.put(address, new Allocation(address, size, segment, label));
+        Allocation allocation = new Allocation(nextAllocationIdentity++, address, size, segment, label);
+        memory.put(address, allocation);
+        if (events.isRecording()) events.record(sequence -> new RuntimeEvent.Allocated(
+                sequence, eventRange(allocation, address, size), segment, label));
         return address;
     }
 
     long allocateZeroed(int size, int alignment, String segment, String label) {
         long address = allocate(size, alignment, segment, label);
         memory.get(address).initialized.set(0, size);
+        recordAccess(memory.get(address), address, size, RuntimeEvent.Access.INITIALIZED, "BYTES");
         return address;
     }
 
@@ -262,18 +293,21 @@ public final class DebugRuntime {
         if (allocation == null || !allocation.segment.equals("heap")) {
             throw new IllegalStateException("Invalid heap free: " + address);
         }
-        memory.remove(address);
+        removeAllocation(address);
     }
 
     long reallocate(long address, int size) {
         if (address == 0) {
-            return allocate(size, 16, "heap", "realloc");
+            long replacementAddress = allocate(size, 16, "heap", "realloc");
+            recordReallocation(null, memory.get(replacementAddress), 0);
+            return replacementAddress;
         }
         Allocation previous = memory.get(address);
         if (previous == null || !previous.segment.equals("heap")) {
             throw new IllegalStateException("Invalid heap realloc: " + address);
         }
         if (previous.bytes.length == size) {
+            recordReallocation(previous, previous, 0);
             return address;
         }
         long replacementAddress = allocate(size, 16, "heap", "realloc", previous.bytes.length);
@@ -281,7 +315,9 @@ public final class DebugRuntime {
         int copied = Math.min(previous.bytes.length, size);
         System.arraycopy(previous.bytes, 0, replacement.bytes, 0, copied);
         replacement.initialized.or(previous.initialized.get(0, copied));
-        memory.remove(address);
+        recordCopy(previous, address, replacement, replacementAddress, copied);
+        removeAllocation(address);
+        recordReallocation(previous, replacement, copied);
         return replacementAddress;
     }
 
@@ -336,6 +372,7 @@ public final class DebugRuntime {
         int offset = (int) (address - allocation.address);
         Arrays.fill(allocation.bytes, offset, offset + size, (byte) value);
         allocation.initialized.set(offset, offset + size);
+        recordAccess(allocation, address, size, RuntimeEvent.Access.WRITE, "BYTES");
     }
 
     void appendOutput(String text) {
@@ -539,6 +576,7 @@ public final class DebugRuntime {
         System.arraycopy(bytes, 0, allocation.bytes, 0, bytes.length);
         allocation.initialized.clear();
         allocation.initialized.set(0, allocation.bytes.length);
+        recordAccess(allocation, allocation.address, allocation.bytes.length, RuntimeEvent.Access.WRITE, "BYTES");
         strerrorMessage = message;
         return strerrorPointer;
     }
@@ -591,7 +629,7 @@ public final class DebugRuntime {
         if (allocation.initialized.nextClearBit(offset) < offset + type.sizeBytes())
             throw new IllegalStateException("Read of uninitialized memory: " + code.ir().displayName(allocation.label));
         ByteBuffer buffer = ByteBuffer.wrap(allocation.bytes).order(ByteOrder.LITTLE_ENDIAN);
-        return switch (type) {
+        Value result = switch (type) {
             case BOOL, CHAR, SIGNED_CHAR -> Value.of(type, buffer.get(offset));
             case UNSIGNED_CHAR -> Value.of(type, Byte.toUnsignedInt(buffer.get(offset)));
             case SHORT -> Value.of(type, buffer.getShort(offset));
@@ -605,6 +643,8 @@ public final class DebugRuntime {
             case FLOAT -> Value.of(type, buffer.getFloat(offset));
             case DOUBLE -> Value.of(type, buffer.getDouble(offset));
         };
+        recordAccess(allocation, address, type.sizeBytes(), RuntimeEvent.Access.READ, type.name());
+        return result;
     }
 
     void write(long address, Value value) {
@@ -624,6 +664,7 @@ public final class DebugRuntime {
             case DOUBLE -> buffer.putDouble(offset, value.real());
         }
         allocation.initialized.set(offset, offset + value.type.sizeBytes());
+        recordAccess(allocation, address, value.type.sizeBytes(), RuntimeEvent.Access.WRITE, value.type.name());
     }
 
     void copy(long destination, long source, int size) {
@@ -634,6 +675,7 @@ public final class DebugRuntime {
         System.arraycopy(from.bytes, src, to.bytes, dst, size);
         to.initialized.clear(dst, dst + size);
         for (int i = initialized.nextSetBit(0); i >= 0; i = initialized.nextSetBit(i + 1)) to.initialized.set(dst + i);
+        recordCopy(from, source, to, destination, size);
     }
 
     long symbol(String name) {
@@ -680,9 +722,9 @@ public final class DebugRuntime {
     }
 
     private void releaseFrame(Frame frame) {
-        frame.locals.values().forEach(memory::remove);
-        frame.parameterAddresses.values().forEach(memory::remove);
-        if (frame.incomingArgumentAreaAddress != 0) memory.remove(frame.incomingArgumentAreaAddress);
+        frame.locals.values().forEach(this::removeAllocation);
+        frame.parameterAddresses.values().forEach(this::removeAllocation);
+        if (frame.incomingArgumentAreaAddress != 0) removeAllocation(frame.incomingArgumentAreaAddress);
     }
 
     void fail(String message) {
@@ -696,6 +738,7 @@ public final class DebugRuntime {
         Allocation allocation = allocation(address, local.sizeBytes());
         int offset = (int) (address - allocation.address);
         allocation.initialized.clear(offset, offset + local.sizeBytes());
+        recordAccess(allocation, address, local.sizeBytes(), RuntimeEvent.Access.UNINITIALIZED, "BYTES");
     }
 
     long local(Frame frame, IrLocal local) {
@@ -860,13 +903,41 @@ public final class DebugRuntime {
         }
     }
 
+    private RuntimeEvent.MemoryRange eventRange(Allocation allocation, long address, int size) {
+        return new RuntimeEvent.MemoryRange(allocation.identity, address, size);
+    }
+
+    private void recordAccess(Allocation allocation, long address, int size,
+                              RuntimeEvent.Access access, String valueType) {
+        if (events.isRecording()) events.record(sequence -> new RuntimeEvent.Accessed(
+                sequence, eventRange(allocation, address, size), access, valueType));
+    }
+
+    private void recordCopy(Allocation from, long source, Allocation to, long destination, int size) {
+        if (events.isRecording()) events.record(sequence -> new RuntimeEvent.Copied(
+                sequence, eventRange(from, source, size), eventRange(to, destination, size)));
+    }
+
+    private void recordReallocation(Allocation previous, Allocation replacement, int copied) {
+        if (events.isRecording()) events.record(sequence -> new RuntimeEvent.Reallocated(sequence,
+                previous == null ? null : eventRange(previous, previous.address, previous.bytes.length),
+                eventRange(replacement, replacement.address, replacement.bytes.length), copied));
+    }
+
+    private void removeAllocation(long address) {
+        Allocation allocation = memory.remove(address);
+        if (allocation != null && events.isRecording()) events.record(sequence -> new RuntimeEvent.Released(
+                sequence, eventRange(allocation, address, allocation.bytes.length)));
+    }
+
     private static final class Allocation {
+        final long identity;
         final long address;
         final byte[] bytes;
         final BitSet initialized = new BitSet();
         final String segment, label;
-        Allocation(long address, int size, String segment, String label) {
-            this.address = address; this.bytes = new byte[size]; this.segment = segment; this.label = label;
+        Allocation(long identity, long address, int size, String segment, String label) {
+            this.identity = identity; this.address = address; this.bytes = new byte[size]; this.segment = segment; this.label = label;
         }
     }
 
