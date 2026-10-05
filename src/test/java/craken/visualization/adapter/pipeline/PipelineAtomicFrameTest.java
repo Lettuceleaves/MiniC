@@ -58,7 +58,7 @@ final class PipelineAtomicFrameTest {
     }
 
     @Test
-    void nextStageStopsOnPendingProjectionAndCancellationDoesNotLoseTheCapturedResult() throws Exception {
+    void nextStageProjectsTheTerminalAndKeepsItPendingForRetry() throws Exception {
         CountingStage stage = new CountingStage(3);
         CompilerApi compiler = new CompilerApi(List.of(stage));
         AtomicBoolean fail = new AtomicBoolean(true);
@@ -66,11 +66,10 @@ final class PipelineAtomicFrameTest {
             if (name.equals("INPUT") && fail.getAndSet(false)) throw new IllegalStateException("fail once");
         }));
         session.nextStage(() -> false);
-        assertEquals(1, compiler.stepCount());
+        assertEquals(3, compiler.stepCount(), "bulk stage runs project only the terminal frame");
+        assertTrue(session.snapshot().visualizationPending());
         assertThrows(InterruptedException.class, () -> session.nextStage(() -> true));
-        assertEquals(1, compiler.stepCount());
-        session.nextStage(() -> false);
-        assertEquals(1, compiler.stepCount(), "a retry operation cannot silently consume a subsequent compilation step");
+        assertEquals(3, compiler.stepCount());
         session.nextStage(() -> false);
         assertEquals(3, compiler.stepCount());
         assertTrue(session.snapshot().succeeded());

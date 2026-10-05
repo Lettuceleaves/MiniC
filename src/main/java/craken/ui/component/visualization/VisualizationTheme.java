@@ -26,6 +26,12 @@ public final class VisualizationTheme {
     public static final Srgb GROUP_BACKGROUND = new Srgb(22, 27, 34);
     public static final Srgb GROUP_BORDER = new Srgb(48, 54, 61);
     public static final Srgb NODE_BORDER = new Srgb(90, 105, 126);
+    /** Thin outline of the approved IDE card surface. */
+    public static final Srgb IDE_BORDER = new Srgb(48, 54, 61);
+    /** Active blue outline of a selected IDE card. */
+    public static final Srgb IDE_SELECTION = new Srgb(88, 166, 255);
+    /** Muted secondary labels on IDE cards; titles and field values stay white. */
+    public static final Srgb IDE_MUTED_TEXT = new Srgb(139, 148, 158);
     public static final Srgb INNER_DIVIDER = GROUP_BORDER;
     public static final Srgb TEXT = new Srgb(255, 255, 255);
     public static final double NODE_RADIUS = 6.0;
@@ -57,6 +63,8 @@ public final class VisualizationTheme {
     }
 
     public NodeColor nodeColor() { return color; }
+    /** NEUTRAL is the approved IDE card surface: thin outline, blue selection and muted field names. */
+    public boolean ideCard() { return color == Preset.NEUTRAL; }
     public Srgb bodyFill() { return fill.body(); }
     public Srgb headerFill() { return fill.header(); }
 }

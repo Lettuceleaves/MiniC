@@ -98,6 +98,7 @@ public final class PipelineController implements AutoCloseable {
         Request request = active;
         if (closed || busy || request == null || request.session == null) return;
         busy = true;
+        panel.setBusy(true);
         request.future = worker.submit(() -> {
             request.session.selectStage(index);
             publish(request, request.session.snapshot(), null);

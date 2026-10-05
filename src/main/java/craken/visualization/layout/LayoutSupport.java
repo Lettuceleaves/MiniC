@@ -7,8 +7,12 @@ import static craken.visualization.layout.LayoutRequest.*;
 final class LayoutSupport {
     static List<Unit> ordered(LayoutRequest request) {
         var rank = new HashMap<ViewLocation, Integer>();
-        for (int i = 0; i < request.hints().order().size(); i++)
-            rank.putIfAbsent(request.owner(request.hints().order().get(i)).node(), i);
+        var owners = new HashMap<ViewLocation, Unit>();
+        for (var unit : request.units()) for (var member : unit.members()) owners.put(member.node(), unit);
+        for (int i = 0; i < request.hints().order().size(); i++) {
+            Unit owner = owners.get(request.hints().order().get(i));
+            if (owner != null) rank.putIfAbsent(owner.node(), i);
+        }
         return request.units().stream().sorted(Comparator
                 .comparingInt((Unit u) -> rank.getOrDefault(u.node(), Integer.MAX_VALUE))
                 .thenComparingLong(u -> u.node().nodeId())).toList();

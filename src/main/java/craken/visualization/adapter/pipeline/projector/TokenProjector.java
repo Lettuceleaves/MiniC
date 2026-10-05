@@ -17,7 +17,7 @@ public final class TokenProjector implements PipelineStageProjector<LexerResult>
         }).toList();
         boolean emitted = observation.result().operation().startsWith("EMIT_") && !context.tokens().isEmpty();
         var output = PipelinePlans.sequence("Token", rows);
-        if (emitted) output = output.highlighted(Set.of(new ProjectionKey.Indexed("Token", rows.size() - 1)));
+        if (emitted) output = output.highlighted(Set.of(new ProjectionKey.Indexed("Token", output.nodes().size() - 2)));
         var source = input == null ? PipelinePlans.empty("输入") : input;
         var range = observation.expandedSourceRange() != null
                 ? observation.expandedSourceRange() : observation.result().sourceRange();

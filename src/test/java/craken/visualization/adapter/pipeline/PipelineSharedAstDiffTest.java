@@ -27,9 +27,8 @@ final class PipelineSharedAstDiffTest {
             assertFalse(session.snapshot().visualizationPending(), session.snapshot().visualizationError());
             var first = session.snapshot().visualization().input();
             var before = first.pages().get(first.root().pageId());
-            assertTrue(before.topology().values().stream().anyMatch(edge ->
-                    edge.direction() == craken.visualization.model.relation.TopologyEdge.Direction.BACKWARD),
-                    "The real shared AST has a later parent referring to an earlier allocated node");
+            assertEquals(before.nodes().size() - 1, before.topology().size(),
+                    "A shared AST object keeps one canonical tree position instead of a diamond");
             session.nextStep(() -> false);
             assertFalse(session.snapshot().visualizationPending(), session.snapshot().visualizationError());
             var second = session.snapshot().visualization().input();

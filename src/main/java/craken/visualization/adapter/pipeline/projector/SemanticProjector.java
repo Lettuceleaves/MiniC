@@ -20,7 +20,7 @@ public final class SemanticProjector implements PipelineStageProjector<SemanticR
             var fields = new LinkedHashMap<>(node.content().fields());
             if (node.key() instanceof ProjectionKey.Ast key && key.node() instanceof Expression expression
                     && context.expressionTypes().containsKey(expression)) fields.put("type", context.expressionTypes().get(expression).toString());
-            nodes.add(new PipelineProjectionPlan.Node(node.key(), new ViewNode.Spec(node.content().kind(), node.content().label(), fields), node.range()));
+            nodes.add(new PipelineProjectionPlan.Node(node.key(), PipelinePlans.card(node.content().kind(), node.content().label(), fields), node.range()));
         }
         var edges = new ArrayList<>(ast.edges());
         addScope(context.scopeSnapshot(), "0", new ProjectionKey.Ast(context.program()), nodes, edges);
@@ -38,13 +38,13 @@ public final class SemanticProjector implements PipelineStageProjector<SemanticR
     private static void addScope(SemanticResult.ScopeSnapshot scope, String path, ProjectionKey parent,
             List<PipelineProjectionPlan.Node> nodes, List<PipelineProjectionPlan.Edge> edges) {
         var key = new ProjectionKey.Named("scope:" + path);
-        nodes.add(new PipelineProjectionPlan.Node(key, new ViewNode.Spec(ViewNode.Kind.POINT, "作用域 " + path,
+        nodes.add(new PipelineProjectionPlan.Node(key, PipelinePlans.card(ViewNode.Kind.POINT, "作用域 " + path,
                 Map.of("scope", path)), scope.range()));
         edges.add(new PipelineProjectionPlan.Edge(parent, key, Direction.FORWARD));
         for (int index = 0; index < scope.symbols().size(); index++) {
             var symbol = scope.symbols().get(index);
             var child = new ProjectionKey.Indexed("symbol:" + path, index);
-            nodes.add(new PipelineProjectionPlan.Node(child, new ViewNode.Spec(ViewNode.Kind.POINT, symbol.name(),
+            nodes.add(new PipelineProjectionPlan.Node(child, PipelinePlans.card(ViewNode.Kind.POINT, symbol.name(),
                     Map.of("symbol", symbol.name(), "kind", symbol.kind().name(), "type", symbol.type().toString())), symbol.declarationRange()));
             edges.add(new PipelineProjectionPlan.Edge(key, child, Direction.FORWARD));
         }

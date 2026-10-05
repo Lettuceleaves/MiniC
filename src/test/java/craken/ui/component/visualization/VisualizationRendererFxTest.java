@@ -105,6 +105,29 @@ final class VisualizationRendererFxTest {
             return null;
         });
     }
+    @Test void neutralIdeCardsFollowTheApprovedOutlineAndLabelHierarchy() throws Exception {
+        onFx(() -> {
+            var nodes = matrix();
+            var theme = VisualizationTheme.of(VisualizationTheme.Preset.NEUTRAL);
+            var normal = new ViewNodeRenderer().render(nodes.get(7L), nodes, theme, Set.of());
+            var body = (Rectangle) normal.view().getChildren().getFirst();
+            var header = (Rectangle) normal.view().getChildren().get(1);
+            assertEquals(Color.web("#161B22"), body.getFill());
+            assertEquals(Color.web("#30363D"), body.getStroke());
+            assertEquals(1.0, body.getStrokeWidth());
+            assertEquals(Color.web("#21262D"), header.getFill());
+            var selected = new ViewNodeRenderer().render(nodes.get(7L), nodes, theme, Set.of(location(7)));
+            var outline = (Rectangle) selected.view().getChildren().getFirst();
+            assertEquals(Color.web("#58A6FF"), outline.getStroke());
+            assertEquals(2.0, outline.getStrokeWidth());
+            assertEquals(normal.unit(), selected.unit(), "the highlight must not change measured geometry");
+            var fills = descendants(selected.view()).stream().filter(Text.class::isInstance)
+                    .map(node -> ((Text) node).getFill()).toList();
+            assertTrue(fills.contains(Color.web("#8B949E")), "field names use the muted IDE label color");
+            assertTrue(fills.contains(Color.WHITE), "field values stay white");
+            return null;
+        });
+    }
     @Test void exposesCellAndFieldPortsAtActualMeasuredMemberBoundaries() throws Exception {
         onFx(() -> {
             var nodes = matrix(); var unit = new FxNodeMeasurer().measure(nodes.get(1L), nodes,

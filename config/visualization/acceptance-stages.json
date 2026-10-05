@@ -83,6 +83,18 @@
     { "id": "C25", "required": {
       "visualizationModelTest": ["craken.visualization.mutation.TransactionBoundaryAuditTest", "craken.visualization.snapshot.SnapshotInputContractTest"],
       "visualizationAdapterTest": ["craken.visualization.adapter.pipeline.PipelineSharedAstDiffTest", "craken.visualization.adapter.pipeline.PipelineLexerPresentationTest"]
+    } },
+    { "id": "C26", "required": {
+      "visualizationAdapterTest": ["craken.ui.pipeline.PipelineWorkbenchPresentationTest", "craken.ui.pipeline.PipelineControllerInteractionTest", "craken.ui.pipeline.PipelineWorkbenchFlowTest"]
+    } },
+    { "id": "C27", "required": {
+      "visualizationAdapterTest": ["craken.visualization.adapter.pipeline.PipelineAstTreeProjectionTest", "craken.visualization.adapter.pipeline.PipelineEndToEndVisualizationTest"],
+      "visualizationUiTest": ["craken.ui.component.visualization.VisualizationRendererFxTest"]
+    } },
+    { "id": "C28", "required": {
+      "visualizationModelTest": ["craken.visualization.mutation.LargeBatchTransactionTest", "craken.ui.editor.realtime.RealtimeSyntaxAnalyzerTest"],
+      "visualizationUiTest": ["craken.ui.editor.realtime.RealtimeSyntaxControllerTest"],
+      "visualizationAdapterTest": ["craken.visualization.adapter.pipeline.PipelineBulkProjectionTest", "craken.visualization.adapter.pipeline.PipelineAtomicFrameTest"]
     } }
   ]
 }

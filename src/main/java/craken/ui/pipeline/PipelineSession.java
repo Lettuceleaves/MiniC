@@ -104,10 +104,18 @@ public final class PipelineSession implements AutoCloseable {
                 return;
             }
             int target = compiler.currentStageIndex();
+            // Bulk stage runs merge intermediate frames, so growing contexts are not copied and
+            // projection happens only at the terminal. A failed terminal projection keeps its
+            // captured observation pending for retry without re-running compilation steps.
+            setPerStepCapture(false);
+            try {
             while (compiler.canNext() && compiler.currentStageIndex() == target && target < stages.size()) {
                 if (cancelled.getAsBoolean()) throw new InterruptedException("compilation cancelled");
-                advanceAndProject();
+                    advanceAndProject(true);
                 if (pending != null) break;
+            }
+            } finally {
+                setPerStepCapture(true);
             }
         } finally {
             followCurrentStage();
@@ -115,6 +123,10 @@ public final class PipelineSession implements AutoCloseable {
     }
 
     private void advanceAndProject() {
+        advanceAndProject(false);
+    }
+
+    private void advanceAndProject(boolean terminalOnly) {
         Stage executed = compiler.currentStage().orElseThrow();
         int index = compiler.currentStageIndex();
         Stage.Result result;
@@ -124,8 +136,13 @@ public final class PipelineSession implements AutoCloseable {
             executionFailure = describeFailure(failure);
             throw failure;
         }
+        if (terminalOnly && !result.lastStep()) return;
         pending = PipelineStepObservation.capture(executed, index, result);
         retryProjection();
+    }
+
+    private void setPerStepCapture(boolean enabled) {
+        for (Stage stage : stages) compiler.setCaptureLatestContext(stage, enabled);
     }
 
     private void retryProjection() {

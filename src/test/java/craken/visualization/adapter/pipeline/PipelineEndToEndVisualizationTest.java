@@ -105,7 +105,8 @@ final class PipelineEndToEndVisualizationTest {
             assertEquals(2, session.snapshot().visualization().stageIndex());
             var snapshot = session.snapshot().visualization().output();
             var page = snapshot.pages().get(snapshot.root().pageId());
-            assertTrue(page.topology().size() >= page.nodes().size(), "declaration group and category index preserve shared AST edges");
+            assertEquals(page.nodes().size() - 1, page.topology().size(),
+                    "a shared AST object keeps one canonical tree position instead of a diamond");
             var program = ((ParserResult) compiler.lastStepResult().orElseThrow().context()).program();
             assertEquals(AstPageProjector.project(program, null).nodes().size(), page.nodes().size());
             var ready = new CompletableFuture<Void>();
@@ -120,6 +121,12 @@ final class PipelineEndToEndVisualizationTest {
                 ready.get(15, TimeUnit.SECONDS);
                 onFx(() -> {
                     assertFalse(host.isLayoutPending());
+                    assertEquals(0L, host.diagnostics().engineRuns()
+                                    .getOrDefault(craken.visualization.layout.LayoutRequest.Kind.GRAPH, 0L),
+                            "AST tree pages must not spawn the native Graphviz layout");
+                    assertTrue(host.diagnostics().engineRuns()
+                                    .getOrDefault(craken.visualization.layout.LayoutRequest.Kind.TREE, 0L) > 0,
+                            "AST pages use the in-process tree engine");
                     var occurrence = host.visibleOccurrences().getFirst();
                     assertEquals(1, occurrence.parts().size());
                     var part = occurrence.parts().getFirst();

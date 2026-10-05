@@ -237,7 +237,13 @@ final class PipelineControllerTest {
             onFx(() -> {
                 assertEquals(PipelineSession.Status.COMPLETED, ui.stages().getItems().get(0).status());
                 assertEquals(PipelineSession.Status.CURRENT, ui.stages().getItems().get(1).status());
+                return null;
+            });
+            perform(ui, () -> {
                 ui.stages().getSelectionModel().select(0);
+                return null;
+            });
+            onFx(() -> {
                 assertEquals("查看已完成阶段 · 预处理", ui.status().getText());
                 ui.stages().getSelectionModel().select(7);
                 assertEquals(0, ui.stages().getSelectionModel().getSelectedIndex());

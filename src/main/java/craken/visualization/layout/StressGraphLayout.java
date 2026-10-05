@@ -13,8 +13,11 @@ public final class StressGraphLayout implements LayoutEngine {
         var encoded = new DotGraphWriter().write(request);
         var output = bridge.execute(encoded.dot(), cancellation);
         var result = new PlainExtReader().read(output.stdout(), encoded, request, version);
-        boolean composedPorts = request.links().stream().flatMap(e -> java.util.stream.Stream.of(e.tail(), e.head())).map(request::port)
-                .anyMatch(p -> p.side() != LayoutRequest.Side.AUTO || !request.owner(p.ref().node()).node().equals(p.ref().node()));
+        var owners = new HashMap<craken.visualization.api.ViewLocation, LayoutRequest.Unit>();
+        for (var unit : request.units()) for (var member : unit.members()) owners.put(member.node(), unit);
+        boolean composedPorts = request.links().stream().flatMap(e -> java.util.stream.Stream.of(e.tail(), e.head()))
+                .map(request::port).anyMatch(p -> p.side() != LayoutRequest.Side.AUTO
+                        || !owners.get(p.ref().node()).node().equals(p.ref().node()));
         if (composedPorts) {
             // Native macro positions remain authoritative. Concrete local slots use measured geometry.
             var routes = new PortRouter().route(request, result.nodeBounds(), cancellation);

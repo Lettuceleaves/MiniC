@@ -11,6 +11,8 @@ import javafx.scene.control.ContentDisplay;
 import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.SelectionMode;
 import javafx.scene.control.SplitPane;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TitledPane;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -33,12 +35,21 @@ import java.util.function.IntConsumer;
 public final class PipelinePanel extends BorderPane implements AutoCloseable {
     private static final double SIDEBAR_WIDTH = 356;
     private static final double MIN_STAGE_HEIGHT = 56;
+    private static final String[] INPUT_TYPES = {"源码", "预处理结果", "Token", "源码 AST", "AST", "IR", "汇编与编码", "目标文件"};
+    private static final String[] OUTPUT_TYPES = {"预处理结果", "Token", "AST", "语义 AST", "IR", "汇编", "COFF 目标文件", "PE 与链接产物"};
     private final UiButton nextStep = new UiButton("下一步");
     private final UiButton nextStage = new UiButton("下一阶段");
     private final UiCollection<PipelineSession.StageView> stages = new UiCollection<>();
     private final Label source = new Label("编译阶段");
     private final Label completed = new Label();
     private final Label status = new Label();
+    private final Label frameTitle = new Label();
+    private final Label frameDetail = new Label();
+    private final Label inputTitle = new Label("输入");
+    private final Label outputTitle = new Label("输出");
+    private final UiButton returnCurrent = new UiButton("返回当前阶段");
+    private final TextArea diagnosticsText = new TextArea();
+    private final TitledPane diagnostics = new TitledPane("诊断详情", diagnosticsText);
     private PipelineSession.Snapshot snapshot;
     private int selectedStage = -1;
     private boolean updating;
@@ -54,13 +65,14 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
         getStyleClass().add("pipeline-panel");
         inputView = new UiVisualizationContainer();
         outputView = new UiVisualizationContainer();
-        SplitPane views = new SplitPane(pane("输入", "pipeline-input", inputView), pane("输出", "pipeline-output", outputView));
+        SplitPane views = new SplitPane(pane(inputTitle, "pipeline-input", inputView), pane(outputTitle, "pipeline-output", outputView));
         views.setId("pipeline-io-split");
         views.setOrientation(Orientation.HORIZONTAL);
         views.setMinSize(0, 0);
         views.getStyleClass().addAll("app-split-pane", "app-horizontal-split");
         views.setDividerPositions(0.5);
         setCenter(views);
+        setTop(createFrameBar());
         setRight(createSidebar());
         clear();
     }
@@ -80,6 +92,12 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
     public void clear() {
         snapshot = null;
         visualization = null;
+        frameTitle.setText("等待编译");
+        frameDetail.setText("打开源文件后，从右侧编译流水线开始。");
+        frameTitle.setTooltip(null); frameDetail.setTooltip(null);
+        inputTitle.setText("输入"); outputTitle.setText("输出");
+        returnCurrent.setVisible(false); returnCurrent.setManaged(false);
+        showDiagnostics("");
         inputView.refresh();
         outputView.refresh();
         selectedStage = -1;
@@ -107,6 +125,7 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
         clear();
         source.setText(fileName);
         source.setTooltip(new UiTooltip(fileName));
+        frameDetail.setText("正在准备 " + fileName);
         status.setText("正在准备编译…");
         setBusy(true);
     }
@@ -118,6 +137,7 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
             outputView.showSnapshot(current.visualization().output());
             visualization = current.visualization();
         }
+        updateFramePresentation(current);
         long finished = current.stages().stream()
                 .filter(stage -> stage.status() == PipelineSession.Status.COMPLETED).count();
         completed.setText(finished + " / " + current.stages().size() + " 已完成");
@@ -132,6 +152,7 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
         }
         setBusy(false);
         if (!current.visualizationError().isBlank()) {
+            diagnostics.setText("展示诊断 · 待重试");
             status.setText("展示失败：" + current.visualizationError() + " · 点击下一步重试");
             status.setTooltip(new UiTooltip(status.getText()));
             status.pseudoClassStateChanged(PseudoClass.getPseudoClass("failed"), true);
@@ -149,6 +170,8 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
         boolean disabled = value || snapshot == null || !snapshot.canAdvance();
         nextStep.setDisable(disabled);
         nextStage.setDisable(disabled);
+        stages.setDisable(value);
+        returnCurrent.setDisable(value);
         if (value) status.setText("正在编译…");
     }
 
@@ -156,6 +179,13 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
         busy = false;
         nextStep.setDisable(true);
         nextStage.setDisable(true);
+        stages.setDisable(false);
+        returnCurrent.setDisable(false);
+        showDiagnostics(message);
+        String failedStage = snapshot == null ? "" : snapshot.stages().stream()
+                .filter(stage -> stage.status() == PipelineSession.Status.FAILED)
+                .map(PipelineSession.StageView::label).findFirst().orElse("");
+        diagnostics.setText(failedStage.isBlank() ? "编译诊断" : "诊断详情 · " + failedStage);
         status.setText("编译失败：" + message);
         status.setTooltip(new UiTooltip(status.getText()));
         status.pseudoClassStateChanged(PseudoClass.getPseudoClass("failed"), true);
@@ -172,6 +202,67 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
         } else {
             status.setText("已执行 " + snapshot.stepCount() + " 步");
         }
+    }
+
+    /** Describe the published frame, which can still be the previous stage's terminal at a stage boundary. */
+    private void updateFramePresentation(PipelineSession.Snapshot current) {
+        int currentIndex = Math.min(current.currentStageIndex(), current.stages().size() - 1);
+        boolean history = current.selectedStageIndex() >= 0 && current.selectedStageIndex() != currentIndex;
+        returnCurrent.setVisible(history); returnCurrent.setManaged(history);
+        var frame = current.visualization();
+        if (frame == null || frame.stageIndex() < 0) {
+            frameTitle.setText("准备就绪");
+            frameDetail.setText("点击下一步开始预处理");
+            inputTitle.setText("输入 · 源码"); outputTitle.setText("输出 · 等待预处理");
+        } else {
+            String name = frame.stageIndex() < current.stages().size()
+                    ? current.stages().get(frame.stageIndex()).label() : frame.stageName();
+            frameTitle.setText((history ? "回看 · " : "当前画面 · ") + name + " · 第 " + (frame.stepIndex() + 1) + " 步"
+                    + (frame.lastStep() ? frame.succeeded() ? " · 阶段完成" : " · 阶段结束" : ""));
+            String detail = frame.operation().isBlank() ? "阶段结束" : "操作：" + frame.operation();
+            if (frame.sourceRange() != null) {
+                var range = frame.sourceRange();
+                detail += " · 源码第 " + range.startLine()
+                        + (range.endLine() == range.startLine() ? "" : "–" + range.endLine()) + " 行";
+            }
+            if (!history && current.selectedStageIndex() != frame.stageIndex() && currentIndex >= 0)
+                detail += " · " + current.stages().get(currentIndex).label() + "尚未开始";
+            frameDetail.setText(detail);
+            inputTitle.setText("输入 · " + (frame.stageIndex() < INPUT_TYPES.length ? INPUT_TYPES[frame.stageIndex()] : "阶段输入"));
+            outputTitle.setText("输出 · " + (frame.stageIndex() < OUTPUT_TYPES.length ? OUTPUT_TYPES[frame.stageIndex()] : "阶段输出"));
+        }
+        if (current.visualizationPending()) frameDetail.setText("展示尚未更新，保留上次画面 · 点击下一步重试");
+        frameTitle.setTooltip(new UiTooltip(frameTitle.getText()));
+        frameDetail.setTooltip(new UiTooltip(frameDetail.getText()));
+        String error = current.visualizationError();
+        if (current.selectedStageIndex() >= 0 && current.selectedStageIndex() < current.stages().size()) {
+            String stageError = current.stages().get(current.selectedStageIndex()).error();
+            if (!stageError.isBlank()) error = error.isBlank() ? stageError : error + "\n\n" + stageError;
+        }
+        showDiagnostics(error);
+    }
+
+    private void showDiagnostics(String message) {
+        diagnostics.setText("诊断详情");
+        boolean present = message != null && !message.isBlank();
+        if (present && !message.equals(diagnosticsText.getText())) diagnostics.setExpanded(true);
+        diagnosticsText.setText(present ? message : "");
+        diagnostics.setVisible(present); diagnostics.setManaged(present);
+    }
+
+    private HBox createFrameBar() {
+        frameTitle.setId("pipeline-frame-title"); frameDetail.setId("pipeline-frame-detail");
+        frameTitle.getStyleClass().add("pipeline-frame-title"); frameDetail.getStyleClass().add("pipeline-frame-detail");
+        for (var label : new Label[]{frameTitle, frameDetail}) { label.setMinWidth(0); label.setMaxWidth(Double.MAX_VALUE); }
+        var text = new VBox(4, frameTitle, frameDetail); text.setMinWidth(0); HBox.setHgrow(text, Priority.ALWAYS);
+        returnCurrent.setId("pipeline-return-current"); returnCurrent.setMinWidth(Region.USE_PREF_SIZE);
+        returnCurrent.setTooltip(new UiTooltip("返回当前阶段", "返回编译进度所在阶段，不执行新的编译步骤。", ""));
+        returnCurrent.setOnAction(event -> {
+            if (!busy && snapshot != null) stages.getSelectionModel().select(Math.min(snapshot.currentStageIndex(), snapshot.stages().size() - 1));
+        });
+        var bar = new HBox(12, text, returnCurrent); bar.setAlignment(Pos.CENTER_LEFT);
+        bar.setPadding(new Insets(10, 12, 10, 12)); bar.getStyleClass().add("pipeline-frame-bar");
+        return bar;
     }
 
     private BorderPane createSidebar() {
@@ -223,7 +314,7 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
         stages.getSelectionModel().selectedIndexProperty().addListener((observable, old, index) -> {
             if (updating) return;
             int requested = index.intValue();
-            if (requested < 0 || requested >= stages.getItems().size()
+            if (busy || requested < 0 || requested >= stages.getItems().size()
                     || !stages.getItems().get(requested).selectable()) {
                 updating = true;
                 try {
@@ -250,7 +341,11 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
         BorderPane sidebar = new BorderPane(stages);
         sidebar.setId("pipeline-sidebar");
         sidebar.setTop(new VBox(actions, sourceBar));
-        sidebar.setBottom(status);
+        diagnostics.setId("pipeline-diagnostics"); diagnostics.setAnimated(false);
+        diagnosticsText.setId("pipeline-diagnostics-text"); diagnosticsText.setEditable(false); diagnosticsText.setWrapText(true);
+        diagnosticsText.setPrefRowCount(5); diagnosticsText.setPrefHeight(140); diagnosticsText.setMinHeight(60);
+        diagnosticsText.setAccessibleText("编译诊断详情，可选择复制");
+        sidebar.setBottom(new VBox(diagnostics, status));
         sidebar.setMinSize(0, 0);
         sidebar.setPrefWidth(SIDEBAR_WIDTH);
         sidebar.setMaxWidth(SIDEBAR_WIDTH);
@@ -258,8 +353,8 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
         return sidebar;
     }
 
-    private static BorderPane pane(String title, String id, UiVisualizationContainer view) {
-        Label heading = new Label(title);
+    private static BorderPane pane(Label heading, String id, UiVisualizationContainer view) {
+        heading.setId(id + "-title");
         heading.getStyleClass().add("pipeline-pane-title");
         HBox bar = new HBox(heading);
         bar.setAlignment(Pos.CENTER_LEFT);

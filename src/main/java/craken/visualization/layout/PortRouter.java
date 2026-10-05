@@ -7,6 +7,7 @@ import static craken.visualization.layout.LayoutResult.*;
 
 /** Explicit ports are in member-local geometry; automatic node ports intersect the member boundary. */
 public final class PortRouter {
+    private static final int DENSE_LINK_COUNT = 1000;
     public Map<Long, EdgePath> route(LayoutRequest request, Map<ViewLocation, Rect> bounds, CancellationToken cancellation) {
         var owners = new HashMap<ViewLocation, Unit>();
         var ports = new HashMap<PortRef, Port>();
@@ -14,6 +15,7 @@ public final class PortRouter {
             for (var member : unit.members()) owners.put(member.node(), unit);
             for (var port : unit.ports()) ports.put(port.ref(), port);
         }
+        if (request.links().size() >= DENSE_LINK_COUNT) return routeDense(request, bounds, owners, ports, cancellation);
         var result = new LinkedHashMap<Long, EdgePath>();
         for (var link : request.links()) {
             cancellation.check();
@@ -21,20 +23,7 @@ public final class PortRouter {
             var tailBox = bounds.get(link.tail().node()); var headBox = bounds.get(link.head().node());
             var start = anchor(ports.get(link.tail()), tailUnit, bounds, bounds.get(link.head().node()).center());
             var end = anchor(ports.get(link.head()), headUnit, bounds, bounds.get(link.tail().node()).center());
-            var obstacles = new ArrayList<Rect>();
-            for (var unit : request.units()) {
-                if (!unit.node().equals(tailUnit.node()) && !unit.node().equals(headUnit.node())) obstacles.add(bounds.get(unit.node()));
-                else {
-                    var origin = bounds.get(unit.node());
-                    for (var rect : unit.textObstacles()) obstacles.add(new Rect(origin.x() + rect.x(), origin.y() + rect.y(), rect.width(), rect.height()));
-                    for (var member : unit.members()) {
-                        var memberBox = bounds.get(member.node());
-                        // A row/group enclosing an endpoint is a transparent composition frame.
-                        if (!member.node().equals(unit.node()) && !encloses(memberBox, tailBox) && !encloses(memberBox, headBox))
-                            obstacles.add(memberBox);
-                    }
-                }
-            }
+            var obstacles = obstacles(request, bounds, tailUnit, headUnit, tailBox, headBox);
             if (link.tail().equals(link.head())) {
                 var box = bounds.get(link.tail().node());
                 obstacles.add(box);
@@ -53,6 +42,106 @@ public final class PortRouter {
             result.put(link.id(), path(shortest(start, end, obstacles, cancellation)));
         }
         return Map.copyOf(result);
+    }
+
+    /** Dense pages route most edges through a spatial grid; only rare fallbacks build the exact per-link set. */
+    private Map<Long, EdgePath> routeDense(LayoutRequest request, Map<ViewLocation, Rect> bounds,
+                                           Map<ViewLocation, Unit> owners, Map<PortRef, Port> ports,
+                                           CancellationToken cancellation) {
+        Map<Long, EdgePath> channeled = routeTreeChannels(request, bounds, owners, ports, cancellation);
+        if (channeled != null) return channeled;
+        var base = new ArrayList<Rect>();
+        for (var unit : request.units()) {
+            var origin = bounds.get(unit.node());
+            base.add(origin);
+            for (var rect : unit.textObstacles()) base.add(new Rect(origin.x() + rect.x(), origin.y() + rect.y(), rect.width(), rect.height()));
+        }
+        var grid = new Grid(base);
+        var result = new LinkedHashMap<Long, EdgePath>();
+        for (var link : request.links()) {
+            cancellation.check();
+            var tailUnit = owners.get(link.tail().node()); var headUnit = owners.get(link.head().node());
+            var tailBox = bounds.get(link.tail().node()); var headBox = bounds.get(link.head().node());
+            var start = anchor(ports.get(link.tail()), tailUnit, bounds, headBox.center());
+            var end = anchor(ports.get(link.head()), headUnit, bounds, tailBox.center());
+            var excluded = Set.of(tailBox, headBox);
+            var extra = new ArrayList<Rect>();
+            if (!encloses(tailBox, headBox)) extra.add(tailBox);
+            if (!encloses(headBox, tailBox)) extra.add(headBox);
+            if (link.tail().equals(link.head())) {
+                result.put(link.id(), loop(start, ports.get(link.tail()).side(), tailBox,
+                        obstacles(request, bounds, tailUnit, headUnit, tailBox, headBox)));
+                continue;
+            }
+            if (link.tail().node().equals(link.head().node())) {
+                result.put(link.id(), loopBetween(start, ports.get(link.tail()).side(), end,
+                        ports.get(link.head()).side(), tailBox,
+                        obstacles(request, bounds, tailUnit, headUnit, tailBox, headBox), cancellation));
+                continue;
+            }
+            if (grid.clear(List.of(start, end), excluded, extra)) { result.put(link.id(), path(List.of(start, end))); continue; }
+            var elbowA = new Point(start.x(), end.y());
+            if (grid.clear(List.of(start, elbowA, end), excluded, extra)) { result.put(link.id(), path(List.of(start, elbowA, end))); continue; }
+            var elbowB = new Point(end.x(), start.y());
+            if (grid.clear(List.of(start, elbowB, end), excluded, extra)) { result.put(link.id(), path(List.of(start, elbowB, end))); continue; }
+            Rect extent = grid.extent();
+            for (double y : new double[]{extent.y() - 4, extent.bottom() + 4}) {
+                var candidate = List.of(start, new Point(start.x(), y), new Point(end.x(), y), end);
+                if (grid.clear(candidate, excluded, extra)) { result.put(link.id(), path(candidate)); break; }
+            }
+            if (result.containsKey(link.id())) continue;
+            for (double x : new double[]{extent.x() - 4, extent.right() + 4}) {
+                var candidate = List.of(start, new Point(x, start.y()), new Point(x, end.y()), end);
+                if (grid.clear(candidate, excluded, extra)) { result.put(link.id(), path(candidate)); break; }
+            }
+            if (result.containsKey(link.id())) continue;
+            result.put(link.id(), path(shortest(start, end, obstacles(request, bounds, tailUnit, headUnit, tailBox, headBox), cancellation)));
+        }
+        return Map.copyOf(result);
+    }
+
+    /**
+     * Tidy-tree pages route through the empty band between parent and child rows. The segments are
+     * collision-free by construction, which keeps tens of thousands of AST edges linear.
+     */
+    private Map<Long, EdgePath> routeTreeChannels(LayoutRequest request, Map<ViewLocation, Rect> bounds,
+                                                  Map<ViewLocation, Unit> owners, Map<PortRef, Port> ports,
+                                                  CancellationToken cancellation) {
+        double gap = request.hints().verticalGap();
+        var result = new LinkedHashMap<Long, EdgePath>();
+        for (var link : request.links()) {
+            cancellation.check();
+            var tailPort = ports.get(link.tail()); var headPort = ports.get(link.head());
+            if (tailPort.side() != Side.AUTO || headPort.side() != Side.AUTO
+                    || !tailPort.ref().key().equals("node") || !headPort.ref().key().equals("node"))
+                return null;
+            Rect tailBox = bounds.get(link.tail().node()); Rect headBox = bounds.get(link.head().node());
+            if (tailBox.bottom() >= headBox.y()) return null;
+            var start = anchor(tailPort, owners.get(link.tail().node()), bounds, headBox.center());
+            var end = anchor(headPort, owners.get(link.head().node()), bounds, tailBox.center());
+            double channel = tailBox.bottom() + Math.min(gap, headBox.y() - tailBox.bottom()) / 2;
+            result.put(link.id(), path(List.of(start, new Point(start.x(), channel),
+                    new Point(end.x(), channel), end)));
+        }
+        return Map.copyOf(result);
+    }
+
+    private static List<Rect> obstacles(LayoutRequest request, Map<ViewLocation, Rect> bounds,
+                                        Unit tailUnit, Unit headUnit, Rect tailBox, Rect headBox) {
+        var obstacles = new ArrayList<Rect>();
+        for (var unit : request.units()) {
+            if (!unit.node().equals(tailUnit.node()) && !unit.node().equals(headUnit.node())) obstacles.add(bounds.get(unit.node()));
+            else {
+                var origin = bounds.get(unit.node());
+                for (var rect : unit.textObstacles()) obstacles.add(new Rect(origin.x() + rect.x(), origin.y() + rect.y(), rect.width(), rect.height()));
+                for (var member : unit.members()) {
+                    var memberBox = bounds.get(member.node());
+                    if (!member.node().equals(unit.node()) && !encloses(memberBox, tailBox) && !encloses(memberBox, headBox))
+                        obstacles.add(memberBox);
+                }
+            }
+        }
+        return obstacles;
     }
     private static boolean encloses(Rect outer, Rect inner) {
         return outer.contains(new Point(inner.x(), inner.y())) && outer.contains(new Point(inner.right(), inner.bottom()));
@@ -189,5 +278,46 @@ public final class PortRouter {
             }
         }
         return lower <= upper;
+    }
+
+    /** Uniform spatial index: queries only obstacles whose cell overlaps a segment. */
+    private static final class Grid {
+        private static final double CELL = 64;
+        private final Map<Long, List<Rect>> cells = new HashMap<>();
+        private final Rect extent;
+        Grid(List<Rect> obstacles) {
+            double left = Double.POSITIVE_INFINITY, top = Double.POSITIVE_INFINITY;
+            double right = Double.NEGATIVE_INFINITY, bottom = Double.NEGATIVE_INFINITY;
+            for (var rect : obstacles) {
+                add(rect);
+                left = Math.min(left, rect.x()); top = Math.min(top, rect.y());
+                right = Math.max(right, rect.right()); bottom = Math.max(bottom, rect.bottom());
+            }
+            extent = obstacles.isEmpty() ? new Rect(0, 0, 0, 0)
+                    : new Rect(left, top, right - left, bottom - top);
+        }
+        private void add(Rect rect) {
+            int x0 = (int) Math.floor(rect.x() / CELL), x1 = (int) Math.floor(rect.right() / CELL);
+            int y0 = (int) Math.floor(rect.y() / CELL), y1 = (int) Math.floor(rect.bottom() / CELL);
+            for (int x = x0; x <= x1; x++) for (int y = y0; y <= y1; y++)
+                cells.computeIfAbsent(key(x, y), unused -> new ArrayList<>()).add(rect);
+        }
+        private static long key(int x, int y) { return (long) x << 32 | y & 0xffffffffL; }
+        Rect extent() { return extent; }
+        boolean clear(List<Point> points, Set<Rect> excluded, List<Rect> extra) {
+            for (var rect : extra) for (int i = 1; i < points.size(); i++)
+                if (crosses(points.get(i - 1), points.get(i), rect)) return false;
+            for (int i = 1; i < points.size(); i++) {
+                Point a = points.get(i - 1), b = points.get(i);
+                int x0 = (int) Math.floor(Math.min(a.x(), b.x()) / CELL), x1 = (int) Math.floor(Math.max(a.x(), b.x()) / CELL);
+                int y0 = (int) Math.floor(Math.min(a.y(), b.y()) / CELL), y1 = (int) Math.floor(Math.max(a.y(), b.y()) / CELL);
+                for (int x = x0; x <= x1; x++) for (int y = y0; y <= y1; y++) {
+                    var bucket = cells.get(key(x, y));
+                    if (bucket == null) continue;
+                    for (var rect : bucket) if (!excluded.contains(rect) && crosses(a, b, rect)) return false;
+                }
+            }
+            return true;
+        }
     }
 }

@@ -16,11 +16,14 @@ public final class AstPageProjector {
         var edges = new LinkedHashSet<PipelineProjectionPlan.Edge>();
         var aliases = new IdentityHashMap<AstNode, ProjectionKey>();
         var queue = new ArrayDeque<AstNode>();
-        var visited = Collections.newSetFromMap(new IdentityHashMap<AstNode, Boolean>());
+        // An AST is a tree: the first discovery of an object keeps its single parent edge. Later
+        // references from other parents (shared objects, back links) must not add diamond edges,
+        // which would degrade the page into a graph layout.
+        var discovered = Collections.newSetFromMap(new IdentityHashMap<AstNode, Boolean>());
+        discovered.add(root);
         queue.add(root);
         while (!queue.isEmpty()) {
             AstNode node = queue.removeFirst();
-            if (!visited.add(node)) continue;
             var key = new ProjectionKey.Ast(node);
             aliases.put(node, key);
             var fields = new LinkedHashMap<String, String>();
@@ -34,8 +37,9 @@ public final class AstPageProjector {
             }
             String detail = fields.getOrDefault("name", fields.getOrDefault("operator", fields.getOrDefault("value", "")));
             String label = node.getClass().getSimpleName() + (detail.isEmpty() ? "" : " · " + detail);
-            nodes.add(new PipelineProjectionPlan.Node(key, new ViewNode.Spec(ViewNode.Kind.TREE, label, fields), node.range()));
+            nodes.add(new PipelineProjectionPlan.Node(key, PipelinePlans.card(ViewNode.Kind.TREE, label, fields), node.range()));
             for (AstNode child : children) {
+                if (!discovered.add(child)) continue;
                 edges.add(new PipelineProjectionPlan.Edge(key, new ProjectionKey.Ast(child), Direction.FORWARD));
                 queue.addLast(child);
             }

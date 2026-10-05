@@ -65,10 +65,13 @@ final class ProjectionContainer {
             commands.add(new VisualizationCommand.DeleteNode(path(entry.getValue())));
             locations.remove(entry.getKey());
         }
+        var existingComposition = new HashSet<CompositionKey>();
+        existingPage.composition().values().forEach(old -> existingComposition.add(
+                new CompositionKey(old.parent(), old.child(), old.slot())));
         for (var link : next.composition()) {
             ViewLocation parent = locations.get(link.parent()), child = locations.get(link.child());
-            boolean exists = existingPage.composition().values().stream().anyMatch(old -> old.parent().equals(parent) && old.child().equals(child) && old.slot() == link.slot());
-            if (!exists) commands.add(new VisualizationCommand.Compose(parent, child, link.slot()));
+            if (!existingComposition.contains(new CompositionKey(parent, child, link.slot())))
+                commands.add(new VisualizationCommand.Compose(parent, child, link.slot()));
         }
         for (var edge : desiredEdges) if (!existingEdges.contains(edge))
             commands.add(new VisualizationCommand.Connect(path(edge.parent()), path(edge.child()), edge.direction()));
@@ -93,4 +96,5 @@ final class ProjectionContainer {
             }
         }
     }
+    private record CompositionKey(ViewLocation parent, ViewLocation child, int slot) { }
 }

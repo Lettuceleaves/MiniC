@@ -64,18 +64,20 @@ public record LayoutRequest(Stamp stamp, Kind kind, List<Unit> units, List<Link>
             }
             if (!memberIds.contains(node)) throw new IllegalArgumentException("Outer member must be present");
             var portIds = new HashSet<PortRef>();
+            var memberBounds = new HashMap<ViewLocation, Rect>();
+            members.forEach(member -> memberBounds.put(member.node, member.bounds));
             for (var port : ports) {
                 if (!memberIds.contains(port.ref.node) || !portIds.add(port.ref) || !outer.contains(port.anchor))
                     throw new IllegalArgumentException("Invalid local port");
-                var memberBounds = members.stream().filter(m -> m.node.equals(port.ref.node)).findFirst().orElseThrow().bounds;
+                var bounds = memberBounds.get(port.ref.node);
                 boolean onSide = switch (port.side) {
                     case AUTO -> true;
-                    case NORTH -> Math.abs(port.anchor.y - memberBounds.y) < 1e-7;
-                    case SOUTH -> Math.abs(port.anchor.y - memberBounds.bottom()) < 1e-7;
-                    case WEST -> Math.abs(port.anchor.x - memberBounds.x) < 1e-7;
-                    case EAST -> Math.abs(port.anchor.x - memberBounds.right()) < 1e-7;
+                    case NORTH -> Math.abs(port.anchor.y - bounds.y) < 1e-7;
+                    case SOUTH -> Math.abs(port.anchor.y - bounds.bottom()) < 1e-7;
+                    case WEST -> Math.abs(port.anchor.x - bounds.x) < 1e-7;
+                    case EAST -> Math.abs(port.anchor.x - bounds.right()) < 1e-7;
                 };
-                if (!memberBounds.contains(port.anchor) || !onSide)
+                if (!bounds.contains(port.anchor) || !onSide)
                     throw new IllegalArgumentException("Port must anchor its member boundary");
             }
             for (var obstacle : textObstacles)
@@ -140,4 +142,5 @@ public record LayoutRequest(Stamp stamp, Kind kind, List<Unit> units, List<Link>
     }
     static void nonnegative(double value) { finite(value); if (value < 0) throw new IllegalArgumentException("Negative geometry"); }
     static void positive(double value) { finite(value); if (value <= 0) throw new IllegalArgumentException("Non-positive size"); }
+
 }
