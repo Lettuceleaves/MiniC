@@ -1,19 +1,19 @@
 package craken.ui.editor.realtime;
 
+import craken.compiler.Diagnostic;
 import craken.ui.component.editor.UiCodeEditor;
 import javafx.application.Platform;
 import javafx.scene.Scene;
-import javafx.scene.control.Label;
-import javafx.scene.layout.Region;
-import javafx.scene.layout.VBox;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
@@ -30,21 +30,25 @@ final class RealtimeSyntaxControllerTest {
         assertTrue(ready.await(10, TimeUnit.SECONDS));
     }
 
-    @Test void brokenSourceShowsLineReasonAndAdviceAndFixingClearsThem() throws Exception {
+    @Test void brokenSourcePublishesDiagnosticsAndFixingClearsThem() throws Exception {
         var editor = onFx(UiCodeEditor::new);
         onFx(() -> new Scene(editor, 900, 500));
         var controller = onFx(() -> new RealtimeSyntaxController(editor, "live.mc"));
         try {
+            var published = new CopyOnWriteArrayList<List<RealtimeDiagnostic>>();
+            onFx(() -> {
+                controller.setOnDiagnosticsChanged(published::add);
+                return null;
+            });
             onFx(() -> { editor.setSource("int main() {\n    return 1\n}"); return null; });
             awaitFx(() -> !controller.diagnostics().isEmpty());
             onFx(() -> {
-                VBox panel = assertInstanceOf(VBox.class, controller.view());
-                assertTrue(panel.isVisible());
-                String text = panel.getChildren().stream().filter(Label.class::isInstance)
-                        .map(node -> ((Label) node).getText()).reduce("", (a, b) -> a + "\n" + b);
-                assertTrue(text.contains("第 3 行"), text);
-                assertTrue(text.contains("期望 ';'"), text);
-                assertTrue(text.contains("建议"), text);
+                assertFalse(published.isEmpty());
+                RealtimeDiagnostic first = published.getLast().getFirst();
+                assertEquals(3, first.range().startLine());
+                assertTrue(first.message().contains("期望 ';'"), first.message());
+                assertFalse(first.solution().isBlank(), first.solution());
+                assertEquals(Diagnostic.Severity.ERROR, first.severity());
                 assertFalse(controller.diagnostics().isEmpty());
                 return null;
             });
@@ -52,7 +56,8 @@ final class RealtimeSyntaxControllerTest {
             onFx(() -> { editor.setSource("int main() {\n    return 1;\n}"); return null; });
             awaitFx(() -> controller.diagnostics().isEmpty());
             onFx(() -> {
-                assertFalse(controller.view().isVisible());
+                assertFalse(published.isEmpty());
+                assertTrue(published.getLast().isEmpty(), "fixing the source must publish an empty list");
                 return null;
             });
         } finally {

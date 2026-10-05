@@ -51,11 +51,15 @@
     -fx-font-size: 14px;
 }
 
-.realtime-diagnostics {
-    -fx-background-color: rgba(13, 17, 23, 0.94);
-    -fx-border-color: -ui-border transparent transparent transparent;
-    -fx-border-width: 1 0 0 0;
-    -fx-padding: 6 10;
+.realtime-diagnostics-panel {
+    -fx-background-color: -ui-canvas;
+}
+
+.realtime-diagnostics-viewport .viewport {
+    -fx-background-color: -ui-canvas;
+}
+
+.realtime-diagnostic-row {
     -fx-font-size: 12px;
 }
 
@@ -64,7 +68,11 @@
 }
 
 .realtime-diagnostic-warning {
-    -fx-text-fill: -ui-text-muted;
+    -fx-text-fill: -ui-warning;
+}
+
+.realtime-diagnostic-info {
+    -fx-text-fill: -ui-info;
 }
 
 .ui-button,

@@ -6,6 +6,7 @@ import craken.ui.component.editor.UiCodeEditor;
 import craken.ui.component.layout.UiWorkspacePane;
 import craken.ui.component.layout.UiWorkspace;
 import craken.ui.editor.realtime.RealtimeSyntaxController;
+import craken.ui.editor.realtime.RealtimeDiagnostic;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -13,6 +14,8 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.List;
+import java.util.function.Consumer;
 
 /** 一个磁盘文件、一个编辑器、一个叶子容器；切换标签不重建任何一个对象。 */
 public final class EditorFile {
@@ -46,6 +49,11 @@ public final class EditorFile {
     public UiWorkspace root() { return root; }
     public ReadOnlyBooleanProperty dirtyProperty() { return shared.dirty.getReadOnlyProperty(); }
     int viewCount() { return shared.views; }
+
+    /** 订阅本视图实时分析的最新报错列表；立即收到当前快照，之后随分析结果更新。 */
+    public void setOnDiagnosticsChanged(Consumer<List<RealtimeDiagnostic>> listener) {
+        realtime.setOnDiagnosticsChanged(listener);
+    }
 
     void dispose() {
         shared.views--;

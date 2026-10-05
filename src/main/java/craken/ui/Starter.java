@@ -23,6 +23,7 @@ import craken.ui.interaction.InteractionArea;
 import craken.ui.demo.HoverComponentsDemo;
 import craken.ui.run.RunController;
 import craken.ui.pipeline.PipelineController;
+import craken.ui.editor.realtime.RealtimeDiagnosticsController;
 
 import java.net.URL;
 import java.util.List;
@@ -49,6 +50,7 @@ public final class Starter {
         private InteractionArea interactionArea;
         private RunController runController;
         private PipelineController pipelineController;
+        private RealtimeDiagnosticsController realtimeDiagnosticsController;
 
         @Override
         public void start(Stage primaryStage) {
@@ -64,6 +66,7 @@ public final class Starter {
             AppFrame root = new AppFrame(editorArea, displayArea, interactionArea, editorArea.tabBar());
             runController = new RunController(editorArea, root, interactionArea);
             pipelineController = new PipelineController(editorArea, root, displayArea, interactionArea.projectRoot());
+            realtimeDiagnosticsController = new RealtimeDiagnosticsController(editorArea, interactionArea);
             installMenus(root, editorArea, primaryStage);
             Scene scene = new Scene(root, 1280, 800);
             scene.setFill(Color.TRANSPARENT);
@@ -91,6 +94,7 @@ public final class Starter {
             primaryStage.addEventHandler(WindowEvent.WINDOW_HIDDEN, event -> {
                 runController.close();
                 pipelineController.close();
+                realtimeDiagnosticsController.close();
                 interactionArea.close();
             });
             primaryStage.show();
@@ -114,6 +118,7 @@ public final class Starter {
         public void stop() {
             if (runController != null) runController.close();
             if (pipelineController != null) pipelineController.close();
+            if (realtimeDiagnosticsController != null) realtimeDiagnosticsController.close();
             if (interactionArea != null) interactionArea.close();
         }
 

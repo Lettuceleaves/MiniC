@@ -24,6 +24,7 @@ import craken.ui.component.data.UiCollection;
 import craken.ui.component.feedback.UiTooltip;
 import craken.ui.interaction.terminal.TerminalPanel;
 import craken.ui.interaction.inputoutput.InputOutputPanel;
+import craken.ui.interaction.diagnostics.RealtimeDiagnosticsPanel;
 
 import java.nio.file.Path;
 import java.util.Objects;
@@ -38,6 +39,7 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
     private final Label empty = new Label("点击 + 新建 PowerShell 终端");
     private int terminalNumber;
     private int inputOutputNumber;
+    private int diagnosticsNumber;
     private boolean closed;
 
     public InteractionArea() {
@@ -80,6 +82,11 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
 
     /** 添加任意 Node 类型的交互容器，返回原来的泛型项供调用者继续使用。 */
     public <T extends Node> InteractionItem<T> addItem(InteractionItem<T> item) {
+        return addItem(item, true);
+    }
+
+    /** 添加交互容器；{@code select} 为 false 时不切换当前展示，只挂到列表。 */
+    public <T extends Node> InteractionItem<T> addItem(InteractionItem<T> item, boolean select) {
         if (closed) throw new IllegalStateException("interaction area is closed");
         Objects.requireNonNull(item, "item");
         if (item.isClosed()) throw new IllegalArgumentException("item is closed");
@@ -89,7 +96,7 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
             throw new IllegalArgumentException("content already belongs to an interaction container");
         }
         items.add(item);
-        select(item);
+        if (select) select(item);
         return item;
     }
 
@@ -128,6 +135,14 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
                 panel::start, panel::activate, panel::close);
         panel.setOnCloseRequest(() -> closeItem(item));
         return addItem(item);
+    }
+
+    /** 为单个编辑器绑定 ERR 报错标签；序号独立递增且关闭后不复用，挂载时不抢占当前交互项。 */
+    public InteractionItem<RealtimeDiagnosticsPanel> newDiagnostics() {
+        if (closed) throw new IllegalStateException("interaction area is closed");
+        String title = "ERR " + ++diagnosticsNumber;
+        RealtimeDiagnosticsPanel panel = new RealtimeDiagnosticsPanel(title);
+        return addItem(new InteractionItem<>(title, panel, () -> { }, panel::close), false);
     }
 
     public boolean closeItem(InteractionItem<?> item) {

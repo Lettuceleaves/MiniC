@@ -81,6 +81,20 @@ final class InteractionAreaTest {
     }
 
     @Test
+    void diagnosticsTabsNumberIndependentlyAndIncrement() throws Exception {
+        onFx(() -> {
+            try (var ui = new Fixture(directory)) {
+                var first = ui.area.newDiagnostics();
+                var second = ui.area.newDiagnostics();
+                assertEquals("ERR 1", first.title());
+                assertEquals("ERR 2", second.title());
+                assertNotSame(first, second);
+                assertNotSame(first.content(), second.content());
+            }
+        });
+    }
+
+    @Test
     void clickingAListCellSwitchesTheVisibleContainerAndSelectionProperty() throws Exception {
         onFx(() -> {
             try (var ui = new Fixture(directory)) {
