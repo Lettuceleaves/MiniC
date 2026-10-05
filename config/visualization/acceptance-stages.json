@@ -92,8 +92,7 @@
       "visualizationUiTest": ["craken.ui.component.visualization.VisualizationRendererFxTest"]
     } },
     { "id": "C28", "required": {
-      "visualizationModelTest": ["craken.visualization.mutation.LargeBatchTransactionTest", "craken.ui.editor.realtime.RealtimeSyntaxAnalyzerTest"],
-      "visualizationUiTest": ["craken.ui.editor.realtime.RealtimeSyntaxControllerTest"],
+      "visualizationModelTest": ["craken.visualization.mutation.LargeBatchTransactionTest"],
       "visualizationAdapterTest": ["craken.visualization.adapter.pipeline.PipelineBulkProjectionTest", "craken.visualization.adapter.pipeline.PipelineAtomicFrameTest"]
     } }
   ]

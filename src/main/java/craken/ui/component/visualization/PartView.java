@@ -5,6 +5,7 @@ import craken.visualization.layout.*;
 import craken.visualization.model.*;
 import javafx.scene.control.Label;
 import javafx.scene.input.MouseButton;
+import javafx.scene.Node;
 import javafx.scene.layout.*;
 import java.util.*;
 import java.util.function.Consumer;
@@ -109,18 +110,21 @@ public final class PartView extends VBox implements AutoCloseable {
             if (compatible) visible.addAll(rendered.members().keySet());
         }
         var edgeRenderer = new EdgeRenderer();
+        var graphics = new ArrayList<Node>();
         for (var edge : links) if (visible.contains(edge.tail().node()) && visible.contains(edge.head().node())) {
             var path = result.edgePaths().get(edge.id());
             if (path != null) {
                 var graphic = edgeRenderer.render(path, edge.direction(), page.topology().get(edge.id()).style());
                 graphic.setTranslateX(-extent.x()); graphic.setTranslateY(-extent.y());
                 // Composition frames have opaque backgrounds. Routed edges must remain visible in their internal channels.
-                graphic.setViewOrder(-1); canvas.getChildren().add(graphic);
+                graphic.setViewOrder(-1); graphics.add(graphic);
             }
         }
+        var views = new ArrayList<Pane>();
         for (var entry : prepared.entrySet()) if (visible.contains(entry.getKey())) {
             var rendered = entry.getValue(); var outer = result.nodeBounds().get(entry.getKey());
-            rendered.view().relocate(outer.x() - extent.x(), outer.y() - extent.y()); canvas.getChildren().add(rendered.view());
+            rendered.view().relocate(outer.x() - extent.x(), outer.y() - extent.y());
+            views.add(rendered.view());
             rendered.members().forEach((location, view) -> {
                 displayed.put(location, view);
                 view.setOnMouseClicked(event -> {
@@ -130,6 +134,8 @@ public final class PartView extends VBox implements AutoCloseable {
                 });
             });
         }
+        canvas.getChildren().addAll(graphics);
+        canvas.getChildren().addAll(views);
         canvas.setPrefSize(extent.width(), extent.height()); canvas.resize(extent.width(), extent.height());
         if (onlyCompatible && visible.size() < request.units().stream().mapToInt(u -> u.members().size()).sum()) text("新节点等待布局…");
     }

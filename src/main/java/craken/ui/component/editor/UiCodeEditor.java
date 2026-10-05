@@ -12,7 +12,6 @@ import craken.ui.component.swing.UiSwingNodeSurface;
 import craken.ui.component.swing.UiSwingFocus;
 import craken.ui.component.swing.UiSwingNode;
 import org.fife.ui.rsyntaxtextarea.Style;
-import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.SyntaxScheme;
 import org.fife.ui.rsyntaxtextarea.TokenTypes;
@@ -213,11 +212,6 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
     /** 文本变更通知在 JavaFX 线程合并发送，调用者不需要直接访问 Swing Document。 */
     public void setOnTextChanged(Runnable handler) {
         onTextChanged = handler;
-    }
-
-    /** 在 Swing 线程执行一次文本区操作；供实时诊断等外部装饰使用。 */
-    public void onTextArea(java.util.function.Consumer<RSyntaxTextArea> action) {
-        runOnSwingThread(() -> action.accept(textArea));
     }
 
     private void queueTextChanged() {

@@ -350,7 +350,7 @@ public final class NameBinder {
             return true;
         }
         private Expression foldedConstant(Expression original,Expression folded){
-            origins.replaceAll((source,current)->current==original?folded:current);
+            remapCore(original, folded);
             CrakenType type=declaredExpressionTypes.get(original);if(type!=null)declaredExpressionTypes.put(folded,type);
             ValueCategory category=valueCategories.get(original);if(category!=null)valueCategories.put(folded,category);
             return folded;
@@ -395,6 +395,7 @@ public final class NameBinder {
             if(substitutionDepth>0)nonImmediateDiagnostics.addAll(diagnostics.subList(checkpoint,diagnostics.size()));
         }
         private final IdentityHashMap<AstNode, AstNode> origins = new IdentityHashMap<>();
+        private final IdentityHashMap<AstNode, Set<AstNode>> coreSources = new IdentityHashMap<>();
         private final Map<String, String> displayNames = new LinkedHashMap<>();
         private final Set<String> reserved = new HashSet<>();
         private final Map<String, TypeEntity> canonicalTypes = new LinkedHashMap<>();
@@ -566,7 +567,7 @@ public final class NameBinder {
                 if(previous.type().isArray()&&previous.type().arrayLength()<0&&entity!=null&&entity.type.isArray()&&entity.type.arrayLength()>0) {
                     GlobalVarDecl complete=new GlobalVarDecl(previous.name(),coreType(entity.type),previous.initializer(),previous.external(),previous.alignmentSpecs(),previous.range());
                     globals.set(index,complete);int ordered=declarations.indexOf(previous);if(ordered>=0)declarations.set(ordered,complete);
-                    origins.replaceAll((source,core)->core==previous?complete:core);
+                    remapCore(previous, complete);
                 }
             }
             // The binder lowers to a core Program whose entry is the static-lifetime wrapper.
@@ -1845,7 +1846,8 @@ public final class NameBinder {
             var contexts=exceptionSources.computeIfAbsent(entity,key->new ArrayList<>());
             if(contexts.stream().anyMatch(context->context.range.equals(range)&&context.specification.equals(specification)))return;
             contexts.add(new ExceptionSource(specification,parameters,parameterTypes,namespace,owner,thisType,infer,range,
-                    currentTemplateLookup==null?snapshotLookup():currentTemplateLookup));
+                    specification.condition()==null?currentTemplateLookup==null?Map.of():currentTemplateLookup
+                            :currentTemplateLookup==null?snapshotLookup():currentTemplateLookup));
             resolvedExceptions.remove(entity);
             if(contexts.size()==1&&specification.condition()==null)
                 entity.type=((CrakenType.FunctionType)entity.type).withExceptionSpecification(specification.nonThrowing()
@@ -4323,7 +4325,7 @@ public final class NameBinder {
                     if (declaredExpressionTypes.containsKey(original)) declaredExpressionTypes.put(result, declaredExpressionTypes.get(original));
                     if (valueCategories.containsKey(original)) valueCategories.put(result, valueCategories.get(original));
                     if (temporaryAddressPaths.contains(original)) temporaryAddressPaths.add(result);
-                    origins.replaceAll((source, core) -> core == original ? result : core);
+                    remapCore(original, result);
                     return result;
                 }
             }, owner).lower(value, resultOwned);
@@ -5630,7 +5632,7 @@ public final class NameBinder {
             if (result != value) {
                 if (declaredExpressionTypes.containsKey(value)) declaredExpressionTypes.put(result, declaredExpressionTypes.get(value));
                 if (valueCategories.containsKey(value)) valueCategories.put(result, valueCategories.get(value));
-                origins.replaceAll((source, core) -> core == value ? result : core);
+                remapCore(value, result);
             }
             return result;
         }
@@ -7970,7 +7972,7 @@ public final class NameBinder {
                 if (declaredExpressionTypes.containsKey(original)) declaredExpressionTypes.put(result, declaredExpressionTypes.get(original));
                 if (valueCategories.containsKey(original)) valueCategories.put(result, valueCategories.get(original));
                 if (temporaryAddressPaths.contains(original)) temporaryAddressPaths.add(result);
-                origins.replaceAll((source, core) -> core == original ? result : core);
+                remapCore(original, result);
             }
             return result;
         }
@@ -8004,7 +8006,7 @@ public final class NameBinder {
                 if (declaredExpressionTypes.containsKey(expression)) declaredExpressionTypes.put(extended, declaredExpressionTypes.get(expression));
                 if (valueCategories.containsKey(expression)) valueCategories.put(extended, valueCategories.get(expression));
                 if (temporaryAddressPaths.contains(expression)) temporaryAddressPaths.add(extended);
-                origins.replaceAll((source, core) -> core == expression ? extended : core);
+                remapCore(expression, extended);
             }
             return extended;
         }
@@ -8609,11 +8611,35 @@ public final class NameBinder {
             return candidate;
         }
 
-        private <T extends AstNode> T mapped(AstNode from, T to) {
-            origins.put(from, to);
-            if (templateOrigins.containsKey(from)) origins.putIfAbsent(templateOrigins.get(from), to);
-            return to;
+    private <T extends AstNode> T mapped(AstNode from, T to) {
+        AstNode previous = origins.put(from, to);
+        if (previous != null && previous != to) removeCoreSource(previous, from);
+        addCoreSource(to, from);
+        if (templateOrigins.containsKey(from)) {
+            AstNode templateFrom = templateOrigins.get(from);
+            if (origins.putIfAbsent(templateFrom, to) == null) addCoreSource(to, templateFrom);
         }
+        return to;
+    }
+
+    /** Points every source whose core is original at replacement, without scanning the whole map. */
+    private void remapCore(AstNode original, AstNode replacement) {
+        Set<AstNode> sources = coreSources.remove(original);
+        if (sources == null) return;
+        for (AstNode source : new ArrayList<>(sources)) {
+            origins.put(source, replacement);
+            addCoreSource(replacement, source);
+        }
+    }
+
+    private void addCoreSource(AstNode core, AstNode source) {
+        coreSources.computeIfAbsent(core, key -> Collections.newSetFromMap(new IdentityHashMap<>())).add(source);
+    }
+
+    private void removeCoreSource(AstNode core, AstNode source) {
+        Set<AstNode> sources = coreSources.get(core);
+        if (sources != null && sources.remove(source) && sources.isEmpty()) coreSources.remove(core);
+    }
         private String spelling(QualifiedName name) { return (name.global() ? "::" : "") + String.join("::", name.segments()); }
         private void report(String code, SourceRange range, String message) {
             diagnostics.add(new Diagnostic(code, Diagnostic.Severity.ERROR, message, range));

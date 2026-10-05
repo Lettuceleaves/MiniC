@@ -83,11 +83,11 @@ final class ExpressionLowerer {
     ) {
         this.builder = builder;
         this.stringLiteralRegistry = stringLiteralRegistry;
-        this.expressionTypes = java.util.Collections.unmodifiableMap(
-                new java.util.IdentityHashMap<>(expressionTypes)
-        );
-        this.functionSignatures = Map.copyOf(functionSignatures);
-        this.globalTypes = Map.copyOf(globalTypes);
+        // The semantic result is frozen before IR lowering starts; per-function copies of these
+        // program-wide maps would make the whole stage quadratic in program size.
+        this.expressionTypes = expressionTypes;
+        this.functionSignatures = functionSignatures;
+        this.globalTypes = globalTypes;
         this.variadicFunction = variadicFunction;
         this.firstVariadicArgumentIndex = firstVariadicArgumentIndex;
     }
