@@ -598,6 +598,29 @@
     -fx-text-fill: -ui-text;
 }
 
+/* 用例判定：输出符合预期显示深绿，不匹配显示深红；选中时保留判定底色并加高亮描边。 */
+.interaction-list .list-cell:filled.interaction-passed {
+    -fx-background-color: -ui-border, #123a20;
+    -fx-background-insets: 0, 1;
+    -fx-text-fill: -ui-text;
+}
+
+.interaction-list .list-cell:filled.interaction-failed {
+    -fx-background-color: -ui-border, #43181b;
+    -fx-background-insets: 0, 1;
+    -fx-text-fill: -ui-text;
+}
+
+.interaction-list .list-cell:filled:selected.interaction-passed {
+    -fx-background-color: -ui-border-focus, #16472a;
+    -fx-background-insets: 0, 1;
+}
+
+.interaction-list .list-cell:filled:selected.interaction-failed {
+    -fx-background-color: -ui-border-focus, #4d1c20;
+    -fx-background-insets: 0, 1;
+}
+
 .interaction-list .scroll-bar:vertical {
     -fx-pref-width: 10;
     -fx-background-color: -ui-canvas;
@@ -644,6 +667,62 @@
 .interaction-action:focused {
     -fx-background-color: -ui-surface-raised;
     -fx-text-fill: -ui-text;
+}
+
+/* 用例标签：上方预置标准输入，下方显示运行输出，共用交互工具栏的配色。 */
+.case-section {
+    -fx-background-color: -ui-canvas;
+}
+
+.case-section-header {
+    -fx-background-color: -ui-surface;
+    -fx-border-color: transparent transparent -ui-border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.case-section-title {
+    -fx-text-fill: -ui-text;
+    -fx-font-size: 11px;
+}
+
+.case-section-hint {
+    -fx-text-fill: -ui-text-muted;
+    -fx-font-size: 11px;
+}
+
+.case-section-hint.case-input-active {
+    -fx-text-fill: -ui-border-focus;
+}
+
+.case-verdict {
+    -fx-font-size: 11px;
+}
+
+.case-verdict.case-verdict-passed {
+    -fx-text-fill: -ui-success;
+}
+
+.case-verdict.case-verdict-failed {
+    -fx-text-fill: -ui-error;
+}
+
+.case-input-area,
+.case-input-area .content,
+.case-expected-area,
+.case-expected-area .content,
+.case-output-area,
+.case-output-area .content {
+    -fx-text-fill: -ui-text;
+    -fx-font-family: "Consolas";
+    -fx-font-size: 12px;
+}
+
+.case-input-area,
+.case-expected-area,
+.case-output-area {
+    -fx-background-insets: 0;
+    -fx-background-radius: 0;
+    -fx-border-width: 0;
 }
 
 .activity-run-button,

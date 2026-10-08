@@ -15,11 +15,15 @@ import craken.compiler.SourceFile;
 import craken.compiler.link.ExecutableArtifact;
 import craken.ui.editor.EditorArea;
 import craken.ui.editor.EditorFile;
+import craken.ui.editor.realtime.RealtimeDiagnosticsController;
 import craken.ui.frame.AppFrame;
 import craken.ui.interaction.InteractionArea;
 import craken.ui.interaction.InteractionItem;
+import craken.ui.interaction.cases.CasePanel;
+import craken.ui.interaction.diagnostics.RealtimeDiagnosticsPanel;
 import craken.ui.interaction.terminal.TerminalPanel;
 import craken.ui.interaction.inputoutput.InputOutputPanel;
+import craken.ui.interaction.inputoutput.InputOutputTab;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -80,6 +84,30 @@ final class RunControllerTest {
                 assertTrue(ui.runButton().isDisabled());
                 assertEquals(0, compiler.calls.get());
                 assertNotStarted((TerminalPanel) ui.interactions.activeItem().content());
+                return null;
+            });
+        }
+    }
+
+    @Test
+    void compileFailurePublishesDiagnosticsIntoTheFilesErrTabAndRecreatesItWhenClosed() throws Exception {
+        Path sourcePath = source("compile-err.mc", "int main() { return bogus; }");
+        try (var compiler = new FakeCompiler(); var ui = fixtureWithErr(compiler)) {
+            onFx(() -> { ui.editors.openFile(sourcePath); return null; });
+            // 等实时分析把它的诊断落进 ERR 标签，之后编译结果整体替换不会再被覆盖。
+            awaitFx(() -> {
+                InteractionItem<RealtimeDiagnosticsPanel> tab = ui.errTab();
+                return tab != null && !tab.content().diagnostics().isEmpty();
+            });
+            onFx(() -> { ui.runButton().fire(); return null; });
+            Invocation invocation = compiler.next();
+            invocation.complete(failure());
+            onFx(() -> {
+                InteractionItem<RealtimeDiagnosticsPanel> tab = ui.errTab();
+                assertNotNull(tab, "the compile failure must publish into the bound ERR tab");
+                assertEquals(1, tab.content().diagnostics().size(), tab.content().diagnostics().toString());
+                assertEquals("RUNTEST001", tab.content().diagnostics().getFirst().code());
+                assertNotNull(ui.activeRun());
                 return null;
             });
         }
@@ -172,7 +200,7 @@ final class RunControllerTest {
     }
 
     @Test
-    void runButtonAndPublicIoFactoryShareOneStableNumberSequence() throws Exception {
+    void repeatedRunsOfOneEditorReuseItsIoTabAndKeepTheNumberSequenceStable() throws Exception {
         Path sourcePath = source("numbered.mc", "int main() { return 0; }");
         try (var compiler = new FakeCompiler(); var ui = fixture(compiler)) {
             onFx(() -> {
@@ -188,14 +216,178 @@ final class RunControllerTest {
             onFx(() -> {
                 var previous = ui.interactions.activeItem();
                 assertEquals("IO 2", previous.title(), "completion must keep the same list name");
+                assertSame(previous, ui.interactions.inputOutputTabs(ui.editors)
+                                .open(ui.editors.activeFile()).item(),
+                        "运行 IO 项来自运行/调试共用的 IO 项表");
+                RunPanel first = ui.activeRun();
                 ui.runButton().fire();
-                assertEquals("IO 3", ui.interactions.activeItem().title());
-                assertEquals("IO 2", previous.title());
-                assertEquals("IO 4", ui.interactions.newInputOutput(directory, directory.resolve("next.exe")).title());
+                assertSame(previous, ui.interactions.activeItem(), "同一个编辑器组件复用同一个 IO 项");
+                assertEquals("IO 2", previous.title(), "复用不改写标题与编号");
+                assertEquals(List.of("PowerShell 1", "IO 2"),
+                        ui.interactions.items().stream().map(InteractionItem::title).toList(),
+                        "复用不会新增列表项");
+                assertNotSame(first, ui.activeRun(), "复用的是列表项，运行内容按次替换");
+                assertEquals("IO 3", ui.interactions.newInputOutput(directory, directory.resolve("next.exe")).title());
                 return null;
             });
             complete(ui, compiler.next(), success(artifact("numbered.exe")));
         }
+    }
+
+    @Test
+    void closingTheIoTabOrOpeningANewEditorComponentStartsANewItem() throws Exception {
+        Path sourcePath = source("reuse.mc", "int main() { return 0; }");
+        try (var compiler = new FakeCompiler(); var ui = fixture(compiler)) {
+            onFx(() -> {
+                ui.editors.openFile(sourcePath);
+                ui.runButton().fire();
+                assertEquals("IO 1", ui.interactions.activeItem().title());
+                return null;
+            });
+            complete(ui, compiler.next(), failure());
+            run(ui, "IO 2", () -> ui.interactions.closeItem(ui.interactions.activeItem()));
+            complete(ui, compiler.next(), failure());
+            run(ui, "IO 3", () -> {
+                EditorFile original = ui.editors.activeFile();
+                assertTrue(ui.editors.closeFile(original));
+                ui.editors.openFile(sourcePath);
+            });
+            complete(ui, compiler.next(), failure());
+            onFx(() -> {
+                assertEquals(List.of("PowerShell 1", "IO 2", "IO 3"),
+                        ui.interactions.items().stream().map(InteractionItem::title).toList(),
+                        "旧 IO 项保持可读，只有新编辑器组件另开一项");
+                return null;
+            });
+        }
+    }
+
+    @Test
+    void newCaseButtonFollowsTheActiveFileAndNumbersCasesIndependently() throws Exception {
+        Path sourcePath = source("cases.mc", "int main() { return 0; }");
+        try (var compiler = new FakeCompiler(); var ui = fixture(compiler)) {
+            onFx(() -> {
+                assertTrue(((Button) ui.interactions.lookup("#interaction-new-case")).isDisabled(),
+                        "creating a case needs an active editor");
+                ui.editors.openFile(sourcePath);
+                Button newCase = (Button) ui.interactions.lookup("#interaction-new-case");
+                assertFalse(newCase.isDisabled());
+                newCase.fire();
+                newCase.fire();
+                assertEquals(List.of("PowerShell 1", "CASE 1", "CASE 2"),
+                        ui.interactions.items().stream().map(InteractionItem::title).toList());
+                var first = ui.casePanels().get(0);
+                var second = ui.casePanels().get(1);
+                assertNotSame(first, second);
+                assertSame(second, ui.interactions.activeItem().content(), "the newest case becomes visible");
+                return null;
+            });
+        }
+    }
+
+    @Test
+    void runningAFileRequestsEveryBoundCaseAndSkipsThemAllOnCompileFailure() throws Exception {
+        Path sourcePath = source("run-cases.mc", "int main() { return 0; }");
+        try (var compiler = new FakeCompiler(); var ui = fixture(compiler)) {
+            onFx(() -> {
+                ui.editors.openFile(sourcePath);
+                Button newCase = (Button) ui.interactions.lookup("#interaction-new-case");
+                newCase.fire();
+                newCase.fire();
+                ui.casePanels().get(0).setInputText("11 30\n");
+                ui.runButton().fire();
+                return null;
+            });
+            onFx(() -> {
+                for (CasePanel panel : ui.casePanels()) {
+                    assertEquals("等待编译…", panel.statusText());
+                    assertEquals("", panel.outputText(), "a new run replaces the previous case output");
+                }
+                return null;
+            });
+            complete(ui, compiler.next(), failure());
+            onFx(() -> {
+                for (CasePanel panel : ui.casePanels()) {
+                    assertEquals("未运行（编译失败）", panel.statusText());
+                    assertEquals("", panel.outputText());
+                    assertFalse(panel.isRunning());
+                }
+                assertFalse(((Button) ui.interactions.lookup("#interaction-new-case")).isDisabled());
+                return null;
+            });
+        }
+    }
+
+    @Test
+    void casesOfOtherFilesStayIdleAndClosingTheRunCancelsWaitingCases() throws Exception {
+        Path firstPath = source("first-cases.mc", "int main() { return 0; }");
+        Path secondPath = source("second-cases.mc", "int main() { return 0; }");
+        try (var compiler = new FakeCompiler(); var ui = fixture(compiler)) {
+            CasePanel firstFile = onFx(() -> {
+                ui.editors.openFile(firstPath);
+                ((Button) ui.interactions.lookup("#interaction-new-case")).fire();
+                CasePanel panel = ui.casePanels().getFirst();
+                ui.editors.openFile(secondPath);
+                ((Button) ui.interactions.lookup("#interaction-new-case")).fire();
+                ui.runButton().fire();
+                return panel;
+            });
+            onFx(() -> {
+                assertEquals("就绪", firstFile.statusText(), "cases bound to another file must not run");
+                assertEquals("等待编译…", ui.casePanels().getLast().statusText());
+                assertTrue(ui.interactions.closeItem(ui.interactions.activeItem()));
+                assertEquals("已取消，未运行", ui.casePanels().getLast().statusText());
+                assertEquals("就绪", firstFile.statusText());
+                assertFalse(ui.runButton().isDisabled(), "cancelling releases the run command");
+                return null;
+            });
+        }
+    }
+
+    @Test
+    void deletingACaseTabRemovesItFromTheListAndFromLaterRuns() throws Exception {
+        Path sourcePath = source("delete-case.mc", "int main() { return 0; }");
+        try (var compiler = new FakeCompiler(); var ui = fixture(compiler)) {
+            onFx(() -> {
+                ui.editors.openFile(sourcePath);
+                Button newCase = (Button) ui.interactions.lookup("#interaction-new-case");
+                newCase.fire();
+                newCase.fire();
+                assertEquals(List.of("PowerShell 1", "CASE 1", "CASE 2"),
+                        ui.interactions.items().stream().map(InteractionItem::title).toList());
+                CasePanel first = ui.casePanels().getFirst();
+                ((Button) first.lookup("#case-delete")).fire();
+                assertTrue(first.isClosed());
+                assertEquals(1, ui.casePanels().size());
+                assertEquals(List.of("PowerShell 1", "CASE 2"),
+                        ui.interactions.items().stream().map(InteractionItem::title).toList(),
+                        "a deleted case must leave the interaction list");
+                ui.runButton().fire();
+                return null;
+            });
+            onFx(() -> {
+                assertEquals(1, ui.casePanels().size(), "a deleted case must not join the next run");
+                assertEquals("等待编译…", ui.casePanels().getFirst().statusText());
+                return null;
+            });
+            complete(ui, compiler.next(), failure());
+            onFx(() -> {
+                assertEquals("未运行（编译失败）", ui.casePanels().getFirst().statusText());
+                return null;
+            });
+        }
+    }
+
+    @FunctionalInterface
+    private interface FxAction { void run() throws Exception; }
+
+    private static void run(Fixture ui, String expectedTitle, FxAction beforeRun) throws Exception {
+        onFx(() -> {
+            beforeRun.run();
+            ui.runButton().fire();
+            assertEquals(expectedTitle, ui.interactions.activeItem().title());
+            return null;
+        });
     }
 
     @Test
@@ -348,6 +540,10 @@ final class RunControllerTest {
         return onFx(() -> new Fixture(directory, compiler));
     }
 
+    private ErrFixture fixtureWithErr(FakeCompiler compiler) throws Exception {
+        return onFx(() -> new ErrFixture(directory, compiler));
+    }
+
     private Path source(String name, String text) throws Exception {
         return Files.writeString(directory.resolve(name), text).toRealPath();
     }
@@ -398,6 +594,16 @@ final class RunControllerTest {
         onFx(() -> null); // availability is updated before panel content; let that same callback finish.
     }
 
+    private static void awaitFx(java.util.function.BooleanSupplier condition) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+        while (true) {
+            boolean reached = onFx(condition::getAsBoolean);
+            if (reached) return;
+            if (System.nanoTime() > deadline) fail("condition not reached in time");
+            Thread.sleep(20);
+        }
+    }
+
     private static void assertNotStarted(TerminalPanel terminal) {
         assertNull(terminal.getScene());
         SwingNode surface = assertInstanceOf(SwingNode.class, terminal.lookup("#terminal-surface"));
@@ -443,13 +649,69 @@ final class RunControllerTest {
         }
 
         RunPanel activeRun() {
-            return assertInstanceOf(RunPanel.class, interactions.activeItem().content());
+            InputOutputTab tab = assertInstanceOf(InputOutputTab.class, interactions.activeItem().content());
+            return assertInstanceOf(RunPanel.class, tab.channel().node());
+        }
+
+        List<CasePanel> casePanels() {
+            List<CasePanel> panels = new java.util.ArrayList<>();
+            for (InteractionItem<?> item : interactions.items()) {
+                if (item.content() instanceof CasePanel panel) panels.add(panel);
+            }
+            return panels;
         }
 
         @Override
         public void close() throws Exception {
             onFx(() -> {
                 controller.close();
+                interactions.close();
+                editors.setCloseDecisionHandler(file -> EditorArea.CloseChoice.DISCARD);
+                assertTrue(editors.closeAll());
+                return null;
+            });
+        }
+    }
+
+    private static final class ErrFixture implements AutoCloseable {
+        final EditorArea editors = new EditorArea();
+        final InteractionArea interactions;
+        final AppFrame frame;
+        final RealtimeDiagnosticsController diagnostics;
+        final RunController controller;
+
+        ErrFixture(Path directory, RunController.Compiler compiler) {
+            interactions = new InteractionArea(directory);
+            frame = new AppFrame(editors, new Region(), interactions, editors.tabBar());
+            diagnostics = new RealtimeDiagnosticsController(editors, interactions);
+            controller = new RunController(editors, frame, interactions, diagnostics, compiler);
+        }
+
+        Button runButton() {
+            return assertInstanceOf(Button.class, frame.lookup("#app-run-button"));
+        }
+
+        RunPanel activeRun() {
+            InputOutputTab tab = assertInstanceOf(InputOutputTab.class, interactions.activeItem().content());
+            return assertInstanceOf(RunPanel.class, tab.channel().node());
+        }
+
+        InteractionItem<RealtimeDiagnosticsPanel> errTab() {
+            for (InteractionItem<?> item : interactions.items()) {
+                if (item.content() instanceof RealtimeDiagnosticsPanel) {
+                    @SuppressWarnings("unchecked")
+                    InteractionItem<RealtimeDiagnosticsPanel> tab = (InteractionItem<RealtimeDiagnosticsPanel>) item;
+                    return tab;
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public void close() throws Exception {
+            onFx(() -> {
+                controller.close();
+                diagnostics.close();
                 interactions.close();
                 editors.setCloseDecisionHandler(file -> EditorArea.CloseChoice.DISCARD);
                 assertTrue(editors.closeAll());

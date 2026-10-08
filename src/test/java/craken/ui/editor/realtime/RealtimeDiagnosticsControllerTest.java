@@ -1,5 +1,7 @@
 package craken.ui.editor.realtime;
 
+import craken.SourceRange;
+import craken.compiler.Diagnostic;
 import craken.ui.editor.EditorArea;
 import craken.ui.editor.EditorFile;
 import craken.ui.interaction.InteractionArea;
@@ -14,6 +16,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -79,6 +82,49 @@ final class RealtimeDiagnosticsControllerTest {
                         "closing the last view removes its error tab");
                 assertTrue(tab.isClosed());
             });
+        } finally {
+            onFx(() -> {
+                bindingRef.get().close();
+                interactionsRef.get().close();
+            });
+        }
+    }
+
+    @Test
+    void publishEnsuresAnErrTabAndReusesIt() throws Exception {
+        Path path = Files.writeString(directory.resolve("pub.c"), "int main() { return bogus; }\n");
+        var editorsRef = new AtomicReference<EditorArea>();
+        var interactionsRef = new AtomicReference<InteractionArea>();
+        var bindingRef = new AtomicReference<RealtimeDiagnosticsController>();
+        var fileRef = new AtomicReference<EditorFile>();
+        onFx(() -> {
+            editorsRef.set(new EditorArea());
+            interactionsRef.set(new InteractionArea(directory));
+            bindingRef.set(new RealtimeDiagnosticsController(editorsRef.get(), interactionsRef.get()));
+            try { fileRef.set(editorsRef.get().openFile(path)); }
+            catch (java.io.IOException failure) { throw new RuntimeException(failure); }
+        });
+        try {
+            assertEquals(2, onFx(() -> interactionsRef.get().items().size()));
+            awaitFx(() -> {
+                InteractionItem<RealtimeDiagnosticsPanel> candidate = findErrTab(interactionsRef.get());
+                return candidate != null && !candidate.content().diagnostics().isEmpty();
+            });
+            InteractionItem<RealtimeDiagnosticsPanel> tab = onFx(() -> findErrTab(interactionsRef.get()));
+            assertNotNull(tab);
+
+            RealtimeDiagnostic diagnostic = new RealtimeDiagnostic("T001", Diagnostic.Severity.ERROR,
+                    "boom", "fix it", new SourceRange(1, 1, 1, 2));
+            onFx(() -> bindingRef.get().publish(fileRef.get(), List.of(diagnostic)));
+
+            assertEquals(2, onFx(() -> interactionsRef.get().items().size()));
+            assertSame(tab, onFx(() -> findErrTab(interactionsRef.get())));
+            assertEquals(List.of(diagnostic), tab.content().diagnostics());
+
+            onFx(() -> bindingRef.get().publish(fileRef.get(), List.of()));
+            assertEquals(2, onFx(() -> interactionsRef.get().items().size()));
+            assertSame(tab, onFx(() -> findErrTab(interactionsRef.get())));
+            assertTrue(tab.content().diagnostics().isEmpty());
         } finally {
             onFx(() -> {
                 bindingRef.get().close();

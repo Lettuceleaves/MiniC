@@ -22,11 +22,15 @@ import javafx.scene.text.Text;
 import craken.ui.component.UiStyles;
 import craken.ui.component.data.UiCollection;
 import craken.ui.component.feedback.UiTooltip;
+import craken.ui.editor.EditorArea;
 import craken.ui.interaction.terminal.TerminalPanel;
 import craken.ui.interaction.inputoutput.InputOutputPanel;
+import craken.ui.interaction.inputoutput.InputOutputTabs;
 import craken.ui.interaction.diagnostics.RealtimeDiagnosticsPanel;
 
 import java.nio.file.Path;
+import java.util.IdentityHashMap;
+import java.util.Map;
 import java.util.Objects;
 
 /** 底部交互区：左侧保留交互容器，右侧使用带滚动条的泛型列表切换。 */
@@ -36,10 +40,15 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
     private final ObservableList<InteractionItem<?>> readOnlyItems = FXCollections.unmodifiableObservableList(items);
     private final UiCollection<InteractionItem<?>> list = new UiCollection<>(items);
     private final StackPane content = new StackPane();
-    private final Label empty = new Label("点击 + 新建 PowerShell 终端");
+    private final Label empty = new Label("点击 + 新建 PowerShell 终端；点击“用例”绑定当前编辑器");
+    private final Map<EditorArea, InputOutputTabs> inputOutputTabs = new IdentityHashMap<>();
     private int terminalNumber;
     private int inputOutputNumber;
     private int diagnosticsNumber;
+    private int caseNumber;
+    private Button newCase;
+    private Runnable onNewCase;
+    private boolean newCaseDisabled;
     private boolean closed;
 
     public InteractionArea() {
@@ -119,6 +128,37 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
         return "IO " + ++inputOutputNumber;
     }
 
+    /**
+     * 该编辑区的运行/调试共用 IO 项表：同一个编辑器组件重复运行或调试复用同一个 IO 项，
+     * 后开始的会话接管该项并关闭旧内容（停止旧程序、释放旧视图）。
+     */
+    public InputOutputTabs inputOutputTabs(EditorArea editors) {
+        Objects.requireNonNull(editors, "editors");
+        if (closed) throw new IllegalStateException("interaction area is closed");
+        return inputOutputTabs.computeIfAbsent(editors, area -> new InputOutputTabs(area, this));
+    }
+
+    /** 为用例标签分配列表名称；与 PowerShell、IO、ERR 独立编号，关闭后不复用。 */
+    public String nextCaseTitle() {
+        if (closed) throw new IllegalStateException("interaction area is closed");
+        return "CASE " + ++caseNumber;
+    }
+
+    /**
+     * 由运行控制器接管“新建用例”命令；命令为空时按钮不可用。
+     * 用例由运行控制器绑定到当前编辑器，交互区只提供入口按钮。
+     */
+    public void setOnNewCase(Runnable action) {
+        onNewCase = action;
+        updateNewCaseButton();
+    }
+
+    /** “新建用例”当前是否不可用；没有活动编辑器或正在关闭时由调用者置为 true。 */
+    public void setNewCaseDisabled(boolean disabled) {
+        newCaseDisabled = disabled;
+        updateNewCaseButton();
+    }
+
     /** 新建用户程序专用的输入输出项；列表默认显示 IO 数字，不进入 PowerShell。 */
     public InteractionItem<InputOutputPanel> newInputOutput(Path workingDirectory, Path executable) {
         Objects.requireNonNull(workingDirectory, "workingDirectory");
@@ -163,6 +203,8 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
     public void close() {
         if (closed) return;
         closed = true;
+        inputOutputTabs.values().forEach(InputOutputTabs::close);
+        inputOutputTabs.clear();
         // 先清除选择，避免关闭过程中启动另一个尚未使用的终端。
         list.getSelectionModel().clearSelection();
         items.forEach(InteractionItem::close);
@@ -187,8 +229,13 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
         list.getSelectionModel().setSelectionMode(SelectionMode.SINGLE);
         list.setPlaceholder(new Label("暂无面板"));
         list.setCellFactory(view -> new ListCell<>() {
+            private static final String PASSED_STYLE = "interaction-passed";
+            private static final String FAILED_STYLE = "interaction-failed";
             private final UiTooltip fullTitle = new UiTooltip("");
             private final Text measurement = new Text();
+            private final javafx.beans.value.ChangeListener<InteractionItem.Result> resultChanged =
+                    (observable, previous, current) -> applyResult(current);
+            private InteractionItem<?> bound;
 
             {
                 setFont(font);
@@ -205,11 +252,28 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
             protected void updateItem(InteractionItem<?> item, boolean emptyCell) {
                 fullTitle.hide();
                 super.updateItem(item, emptyCell);
+                if (bound != null) {
+                    bound.resultProperty().removeListener(resultChanged);
+                    bound = null;
+                }
                 setGraphic(null);
                 setText(emptyCell || item == null ? null : item.title());
                 setAccessibleText(getText());
                 fullTitle.setText(getText());
                 setTooltip(null);
+                if (!emptyCell && item != null) {
+                    bound = item;
+                    item.resultProperty().addListener(resultChanged);
+                    applyResult(item.result());
+                } else {
+                    applyResult(InteractionItem.Result.NONE);
+                }
+            }
+
+            private void applyResult(InteractionItem.Result result) {
+                getStyleClass().removeAll(PASSED_STYLE, FAILED_STYLE);
+                if (result == InteractionItem.Result.PASSED) getStyleClass().add(PASSED_STYLE);
+                else if (result == InteractionItem.Result.FAILED) getStyleClass().add(FAILED_STYLE);
             }
 
             @Override
@@ -228,10 +292,15 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
         title.getStyleClass().add("interaction-sidebar-title");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
+        newCase = action("用例", "新建用例：绑定当前编辑器，运行时自动输入预置数据",
+                "interaction-new-case", 40, () -> {
+                    if (onNewCase != null) onNewCase.run();
+                });
         Button add = action("+", "新建 PowerShell 终端", "interaction-new-terminal", this::newTerminal);
         Button remove = action("×", "关闭当前面板", "interaction-close-panel", () -> closeItem(activeItem()));
         remove.disableProperty().bind(activeItemProperty().isNull());
-        HBox toolbar = new HBox(4, title, spacer, add, remove);
+        updateNewCaseButton();
+        HBox toolbar = new HBox(4, title, spacer, newCase, add, remove);
         toolbar.setAlignment(Pos.CENTER_LEFT);
         toolbar.setPadding(new Insets(0, 6, 0, 10));
         toolbar.setMinHeight(32);
@@ -248,11 +317,15 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
     }
 
     private static Button action(String text, String help, String id, Runnable action) {
+        return action(text, help, id, 24, action);
+    }
+
+    private static Button action(String text, String help, String id, double width, Runnable action) {
         Button button = new Button(text);
         button.setId(id);
-        button.setMinSize(24, 24);
-        button.setPrefSize(24, 24);
-        button.setMaxSize(24, 24);
+        button.setMinSize(width, 24);
+        button.setPrefSize(width, 24);
+        button.setMaxSize(width, 24);
         button.setPadding(Insets.EMPTY);
         button.getStyleClass().add("interaction-action");
         button.setAccessibleText(help);
@@ -261,8 +334,21 @@ public final class InteractionArea extends BorderPane implements AutoCloseable {
         return button;
     }
 
+    private void updateNewCaseButton() {
+        if (newCase != null) newCase.setDisable(newCaseDisabled || onNewCase == null);
+    }
+
     private static Path defaultProjectRoot() {
         String configured = System.getProperty("craken.project.root");
-        return configured == null || configured.isBlank() ? Path.of("") : Path.of(configured);
+        if (configured != null && !configured.isBlank()) {
+            return Path.of(configured);
+        }
+        // jpackage 应用镜像的启动器会把自身路径写入 jpackage.app-path；
+        // 镜像根目录就是项目根，不能依赖启动时的工作目录。
+        String launcherPath = System.getProperty("jpackage.app-path");
+        Path launcherDir = launcherPath == null || launcherPath.isBlank()
+                ? null
+                : Path.of(launcherPath).getParent();
+        return launcherDir == null ? Path.of("") : launcherDir;
     }
 }

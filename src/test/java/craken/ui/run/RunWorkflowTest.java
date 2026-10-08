@@ -17,12 +17,14 @@ import javafx.scene.layout.Region;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import craken.ui.component.UiStyles;
+import craken.ui.component.terminal.UiTerminalWidget;
 import craken.ui.editor.EditorArea;
 import craken.ui.editor.EditorFile;
 import craken.ui.frame.AppFrame;
 import craken.ui.interaction.InteractionArea;
 import craken.ui.interaction.InteractionItem;
 import craken.ui.interaction.inputoutput.InputOutputPanel;
+import craken.ui.interaction.inputoutput.InputOutputTab;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -76,7 +78,7 @@ final class RunWorkflowTest {
                 Button runButton = assertInstanceOf(Button.class, ui.frame.lookup("#app-run-button"));
                 assertFalse(runButton.isDisabled());
                 runButton.fire();
-                ui.run = assertInstanceOf(RunPanel.class, ui.interactions.activeItem().content());
+                ui.run = ui.runPanel();
                 // Stay in this same FX turn: the compile completion cannot race ahead of this switch.
                 ui.editors.select(first);
                 assertSame(first, ui.editors.activeFile());
@@ -153,7 +155,7 @@ final class RunWorkflowTest {
                 Button runButton = assertInstanceOf(Button.class, ui.frame.lookup("#app-run-button"));
                 assertFalse(runButton.isDisabled());
                 runButton.fire();
-                ui.run = assertInstanceOf(RunPanel.class, ui.interactions.activeItem().content());
+                ui.run = ui.runPanel();
                 assertSame(ui.scene, ui.run.getScene());
                 return null;
             });
@@ -196,7 +198,7 @@ final class RunWorkflowTest {
                 ui.editors.openFile(source);
                 ui.layout();
                 ((Button) ui.frame.lookup("#app-run-button")).fire();
-                ui.run = assertInstanceOf(RunPanel.class, ui.interactions.activeItem().content());
+                ui.run = ui.runPanel();
                 assertSame(ui.run, ui.scene.getFocusOwner());
                 return null;
             });
@@ -286,6 +288,11 @@ final class RunWorkflowTest {
 
         Region displaySlot() { return (Region) frame.lookup(".app-display-slot"); }
 
+        RunPanel runPanel() {
+            InputOutputTab tab = assertInstanceOf(InputOutputTab.class, interactions.activeItem().content());
+            return assertInstanceOf(RunPanel.class, tab.channel().node());
+        }
+
         void awaitTerminal() throws Exception {
             await(() -> onFx(() -> {
                 layout();
@@ -296,6 +303,9 @@ final class RunWorkflowTest {
                 widget = runningWidget;
                 return true;
             }));
+            assertEquals(UiStyles.tabDefaultFont(),
+                    assertInstanceOf(UiTerminalWidget.class, widget).settingsProvider().getTerminalFont(),
+                    "运行 IO 项的内容使用这个 tab 的默认字体");
             onEdt(() -> {
                 widget.setSize(1050, 240);
                 layoutChildren(widget);

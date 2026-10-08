@@ -251,6 +251,32 @@ final class InteractionAreaTest {
         });
     }
 
+    @Test
+    void resultMarkersColorTheListItemAndClearOnChange() throws Exception {
+        onFx(() -> {
+            try (var ui = new Fixture(directory)) {
+                var passed = ui.area.addItem(new InteractionItem<>("通过用例", new StackPane()));
+                var failed = ui.area.addItem(new InteractionItem<>("失败用例", new StackPane()));
+                ui.attach();
+                assertEquals(InteractionItem.Result.NONE, passed.result());
+                assertFalse(ui.cell(passed).getStyleClass().contains("interaction-passed"));
+
+                passed.setResult(InteractionItem.Result.PASSED);
+                failed.setResult(InteractionItem.Result.FAILED);
+                assertTrue(ui.cell(passed).getStyleClass().contains("interaction-passed"));
+                assertTrue(ui.cell(failed).getStyleClass().contains("interaction-failed"));
+
+                passed.setResult(InteractionItem.Result.FAILED);
+                assertFalse(ui.cell(passed).getStyleClass().contains("interaction-passed"));
+                assertTrue(ui.cell(passed).getStyleClass().contains("interaction-failed"));
+
+                passed.setResult(null);
+                assertEquals(InteractionItem.Result.NONE, passed.result());
+                assertFalse(ui.cell(passed).getStyleClass().contains("interaction-failed"));
+            }
+        });
+    }
+
     private static void click(Node node) {
         Event.fireEvent(node, mouse(node, MouseEvent.MOUSE_PRESSED, true));
         Event.fireEvent(node, mouse(node, MouseEvent.MOUSE_RELEASED, false));
