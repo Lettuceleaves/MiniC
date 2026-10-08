@@ -93,7 +93,8 @@
     } },
     { "id": "C28", "required": {
       "visualizationModelTest": ["craken.visualization.mutation.LargeBatchTransactionTest"],
-      "visualizationAdapterTest": ["craken.visualization.adapter.pipeline.PipelineBulkProjectionTest", "craken.visualization.adapter.pipeline.PipelineAtomicFrameTest"]
+      "visualizationLayoutTest": ["craken.visualization.layout.BucketChainLayoutTest"],
+      "visualizationAdapterTest": ["craken.visualization.adapter.pipeline.PipelineBulkProjectionTest", "craken.visualization.adapter.pipeline.PipelineAtomicFrameTest", "craken.debug.DebugCaptureTest", "craken.debug.visualization.DebugCaptureProjectorTest", "craken.ui.debug.DebugWorkbenchTest"]
     } }
   ]
 }
