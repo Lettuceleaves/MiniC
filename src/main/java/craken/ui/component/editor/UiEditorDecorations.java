@@ -11,6 +11,7 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.geom.Rectangle2D;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -30,6 +31,7 @@ final class UiEditorDecorations {
     private final List<Object> rangeTags = new ArrayList<>();
     private List<TrackedRange> errorRanges = List.of();
     private Color errorColor = Color.RED;
+    private int highlightedLine = -1;
 
     UiEditorDecorations(UiCodeEditorTextArea textArea) {
         this.textArea = textArea;
@@ -63,13 +65,49 @@ final class UiEditorDecorations {
         replace(rangeTags, ranges, rangePainter);
     }
 
+    /** 高亮整行内容；行号越界或行为空时清除现有区域高亮。 */
+    void highlightLine(int oneBasedLine) {
+        // 调试器每步都同步当前行：同一行必须是无操作，否则 remove+add 会在 SwingNode 里
+        // 堆积局部重绘，编辑器偶尔出现整块未刷新（点击一下才恢复）。
+        if (oneBasedLine == highlightedLine) return;
+        if (oneBasedLine < 1 || oneBasedLine > textArea.getLineCount()) {
+            clearRangeHighlights();
+            return;
+        }
+        int line = oneBasedLine - 1;
+        try {
+            int start = textArea.getLineStartOffset(line);
+            int end = textArea.getLineEndOffset(line);
+            String content = textArea.getText(start, end - start);
+            while (content.endsWith("\n") || content.endsWith("\r")) {
+                content = content.substring(0, content.length() - 1);
+            }
+            if (content.isEmpty()) {
+                clearRangeHighlights();
+                return;
+            }
+            setRangeHighlights(List.of(new SourceRange(
+                    oneBasedLine, 0, oneBasedLine,
+                    content.getBytes(StandardCharsets.UTF_8).length
+            )));
+            highlightedLine = oneBasedLine;
+            // 整块重绘：双缓冲关闭后，局部重绘在 SwingNode 上可能丢区域，整块重绘最稳。
+            textArea.repaint();
+        } catch (BadLocationException exception) {
+            throw new IllegalStateException("validated editor line became invalid", exception);
+        }
+    }
+
     void clearErrorUnderlines() {
         errorRanges = List.of();
         textArea.repaint();
     }
 
     void clearRangeHighlights() {
+        boolean hadHighlight = highlightedLine >= 0;
+        highlightedLine = -1;
         remove(rangeTags);
+        if (hadHighlight) textArea.repaint();
     }
 
     void clear() {

@@ -40,6 +40,7 @@ public record UiCodeEditorStyle(
         textArea.setCaretColor(caret);
         textArea.setSelectionColor(selection);
         textArea.setSelectedTextColor(foreground);
+        textArea.setRoundedSelectionEdges(true);
         textArea.setCurrentLineHighlightColor(currentLine);
         textArea.setMarkOccurrencesColor(occurrence);
         textArea.setMatchedBracketBGColor(occurrence);

@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * 把每个打开的编辑器绑定到底部交互栏的一个“报错信息”标签。
@@ -35,6 +36,18 @@ public final class RealtimeDiagnosticsController implements AutoCloseable {
         sync();
     }
 
+    /** 把一批诊断写进该文件绑定的 ERR 标签；标签不存在就新建绑定，已存在就复用并整体替换内容。 */
+    public void publish(EditorFile file, List<RealtimeDiagnostic> diagnostics) {
+        if (closed) return;
+        Objects.requireNonNull(file, "file");
+        Objects.requireNonNull(diagnostics, "diagnostics");
+        try {
+            panelFor(file).update(diagnostics);
+        } catch (IllegalStateException areaClosed) {
+            // 交互区已关闭时丢弃迟到输出。
+        }
+    }
+
     private void sync() {
         if (closed) return;
         Map<Path, List<EditorFile>> live = new LinkedHashMap<>();
@@ -49,8 +62,7 @@ public final class RealtimeDiagnosticsController implements AutoCloseable {
         }
         // 所有视图都向同一面板汇报；分屏共享同一文档，重复推送的内容一致，不会闪烁。
         for (Path path : live.keySet()) {
-            RealtimeDiagnosticsPanel panel = bindings.get(path).content();
-            for (EditorFile view : live.get(path)) view.setOnDiagnosticsChanged(panel::update);
+            for (EditorFile view : live.get(path)) view.setOnDiagnosticsChanged(publisher(view));
         }
         for (Iterator<Path> iterator = bindings.keySet().iterator(); iterator.hasNext(); ) {
             Path path = iterator.next();
@@ -58,6 +70,24 @@ public final class RealtimeDiagnosticsController implements AutoCloseable {
             interactions.closeItem(bindings.get(path));
             iterator.remove();
         }
+    }
+
+    /** 确保标签存在（用户手动关闭后按需重建），并让该文件的所有视图都汇入同一面板。 */
+    private RealtimeDiagnosticsPanel panelFor(EditorFile file) {
+        Path path = file.path();
+        InteractionItem<RealtimeDiagnosticsPanel> item = bindings.get(path);
+        if (item == null || item.isClosed()) {
+            item = interactions.newDiagnostics();
+            bindings.put(path, item);
+            for (EditorFile view : editors.files()) {
+                if (view.path().equals(path)) view.setOnDiagnosticsChanged(publisher(view));
+            }
+        }
+        return item.content();
+    }
+
+    private Consumer<List<RealtimeDiagnostic>> publisher(EditorFile view) {
+        return diagnostics -> publish(view, diagnostics);
     }
 
     @Override

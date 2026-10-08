@@ -5,6 +5,9 @@ import javafx.beans.property.ReadOnlyBooleanWrapper;
 import craken.ui.component.editor.UiCodeEditor;
 import craken.ui.component.layout.UiWorkspacePane;
 import craken.ui.component.layout.UiWorkspace;
+import craken.compiler.library.SystemLibraryCatalog;
+import craken.ui.editor.completion.CompletionCatalog;
+import craken.ui.editor.completion.EditorCompletionController;
 import craken.ui.editor.realtime.RealtimeSyntaxController;
 import craken.ui.editor.realtime.RealtimeDiagnostic;
 
@@ -24,6 +27,7 @@ public final class EditorFile {
     private final UiWorkspacePane pane;
     private final UiWorkspace root;
     private final RealtimeSyntaxController realtime;
+    private final EditorCompletionController completion;
 
     EditorFile(Path path, String source, UiCodeEditor editor, UiWorkspacePane pane, UiWorkspace root) {
         this(new SharedFile(path, source), editor, pane, root);
@@ -39,6 +43,8 @@ public final class EditorFile {
         this.pane = pane;
         this.root = root;
         this.realtime = new RealtimeSyntaxController(editor, shared.path.toString());
+        this.completion = new EditorCompletionController(editor, CompletionCatalog.fromDirectories(
+                SystemLibraryCatalog.defaults().includeRoot(), shared.path.getParent()));
         shared.views++;
         editor.setOnTextChanged(() -> shared.dirty.set(isDirty()));
     }
@@ -58,6 +64,7 @@ public final class EditorFile {
     void dispose() {
         shared.views--;
         realtime.close();
+        completion.close();
         editor.dispose();
     }
 

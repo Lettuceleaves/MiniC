@@ -43,6 +43,8 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
     private final UiSwingFocus focus = new UiSwingFocus(swingNode, () -> textArea);
     private final UiCodeEditorScrollPane scrollPane = new UiCodeEditorScrollPane(textArea, true);
     private final UiEditorResizeSurface resizeSurface = new UiEditorResizeSurface(swingNode, scrollPane);
+    private boolean surfaceCheckScheduled;
+    private Runnable onUserActivated;
     private UiEditorBreakpoints breakpointGutter;
     private UiEditorDecorations decorations;
     private UiCodeEditorShortcuts shortcuts;
@@ -114,9 +116,34 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
     protected void layoutChildren() {
         super.layoutChildren();
         resizeSurface.layout();
+        repairNativeSurface();
+    }
+
+    /**
+     * 拆分编辑器会在同一场景里给窗格换父节点，SwingNode 可能继续指向已失效的承载窗：
+     * 编辑器看得见却点不动、打不了字。检测到承载窗不可显示时摘挂一次内容，让它重建。
+     */
+    private void repairNativeSurface() {
+        if (surfaceCheckScheduled || swingNode.getContent() == null) return;
+        surfaceCheckScheduled = true;
+        SwingUtilities.invokeLater(() -> {
+            java.awt.Window embedded = SwingUtilities.getWindowAncestor(textArea);
+            boolean invalid = embedded != null && !embedded.isDisplayable();
+            Platform.runLater(() -> {
+                surfaceCheckScheduled = false;
+                if (!invalid || swingNode.getContent() != scrollPane) return;
+                swingNode.setContent(null);
+                swingNode.setContent(scrollPane);
+                runOnSwingThread(() -> UiSwingNodeSurface.prepare(scrollPane));
+                focus.focusContentIfOwned();
+            });
+        });
     }
 
     private void configureEditor() {
+        // 真实点击落在 Swing 侧：文本区、边距、行号栏、滚动条都要算作"用户选中了这块编辑器"。
+        textArea.addMouseListener(activationListener());
+        scrollPane.addMouseListener(activationListener());
         scrollPane.setLayout(new UiCodeEditorScrollPaneLayout());
         scrollPane.setCorner(JScrollPane.LOWER_RIGHT_CORNER, null);
         textArea.enableInputMethods(true);
@@ -262,6 +289,23 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
         runOnSwingThread(() -> textArea.setEditable(!readOnly));
     }
 
+    /**
+     * 真实鼠标点击落在 Swing 组件（原生承载窗）上，不一定经过 FX 事件链；
+     * 宿主用它把"用户开始操作这个编辑器"映射回活动文件。
+     */
+    public void setOnUserActivated(Runnable handler) { this.onUserActivated = handler; }
+
+    private MouseAdapter activationListener() {
+        return new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent event) { userActivated(); }
+        };
+    }
+
+    private void userActivated() {
+        Runnable handler = onUserActivated;
+        if (handler != null) Platform.runLater(handler);
+    }
+
     /** 放大一级（基准字号的 10%），仅影响此编辑器，不缩放应用窗口。 */
     public void zoomIn() {
         runOnSwingThread(() -> updateZoom(zoom.level() + 1));
@@ -395,6 +439,11 @@ public final class UiCodeEditor extends StackPane implements UiComponent {
      */
     public void setRangeHighlights(Collection<SourceRange> ranges) {
         runOnSwingThread(() -> decorations.setRangeHighlights(ranges));
+    }
+
+    /** 高亮指定 1-based 行（整行内容）；行号越界或行为空时清除现有区域高亮。 */
+    public void highlightLine(int oneBasedLine) {
+        runOnSwingThread(() -> decorations.highlightLine(oneBasedLine));
     }
 
     public void clearRangeHighlights() {

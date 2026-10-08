@@ -67,9 +67,18 @@ public final class SystemLibraryCatalog {
     /** 返回当前项目根目录下的 Craken 系统声明目录。 */
     public Path includeRoot() {
         String configuredRoot = System.getProperty(PROJECT_ROOT_PROPERTY);
-        Path projectRoot = configuredRoot == null || configuredRoot.isBlank()
-                ? Path.of("")
-                : Path.of(configuredRoot);
+        Path projectRoot;
+        if (configuredRoot != null && !configuredRoot.isBlank()) {
+            projectRoot = Path.of(configuredRoot);
+        } else {
+            // 打包成 jpackage 应用镜像后，启动器会把自身路径写入 jpackage.app-path；
+            // lib 目录位于镜像根目录下，不能依赖启动时的工作目录。
+            String launcherPath = System.getProperty("jpackage.app-path");
+            Path launcherDir = launcherPath == null || launcherPath.isBlank()
+                    ? null
+                    : Path.of(launcherPath).getParent();
+            projectRoot = launcherDir == null ? Path.of("") : launcherDir;
+        }
         return projectRoot.toAbsolutePath().normalize().resolve(LIBRARY_DIRECTORY);
     }
 

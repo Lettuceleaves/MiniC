@@ -74,6 +74,18 @@ public final class EditorArea extends StackPane {
     public UiWorkspace workspace() { return active.get() == null ? null : active.get().root(); }
     public ObservableList<EditorFile> files() { return readOnlyFiles; }
     public EditorFile activeFile() { return active.get(); }
+    /**
+     * 当前键盘焦点所在的编辑器文件；焦点不在任何编辑器时退回活动文件。
+     * Pipeline/调试用它选目标，避免焦点与活动标记短暂不同步时跑错文件。
+     */
+    public EditorFile focusedFile() {
+        if (getScene() != null && getScene().getFocusOwner() != null) {
+            for (Node node = getScene().getFocusOwner(); node != null; node = node.getParent()) {
+                if (node.getUserData() instanceof EditorFile file && files.contains(file)) return file;
+            }
+        }
+        return active.get();
+    }
     public ReadOnlyObjectProperty<EditorFile> activeFileProperty() { return active.getReadOnlyProperty(); }
     public UiCodeEditor editor() { return active.get() == null ? null : active.get().editor(); }
 
@@ -121,6 +133,9 @@ public final class EditorArea extends StackPane {
         UiWorkspacePane pane = root.createPane(null);
         EditorFile file = original == null ? new EditorFile(path, source, editor, pane, root)
                 : new EditorFile(original, editor, pane, root);
+        // 点击编辑器内部走的是 Swing 事件；活动文件必须跟着用户真正操作的那块走。
+        editor.setOnUserActivated(() -> active.set(file));
+        pane.setUserData(file);
         pane.getStyleClass().add("editor-file-pane");
         pane.setBorderWidth(1);
         pane.setContent(createFileView(file));
