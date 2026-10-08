@@ -21,8 +21,8 @@ public final class PageTypeRegistry {
             throw new IllegalArgumentException("Type key already registered: " + type.key());
         var frozen = new Registered(type, key, type.readyEnabled(), type.maximumNesting(), type.layout(),
                 Set.copyOf(type.nodeKinds()), type.nestingPolicy());
-        if (key == null || key.isBlank() || frozen.maximumNesting < 0 || frozen.maximumNesting > 1
-                || frozen.nodeKinds.isEmpty()) throw new IllegalArgumentException("Invalid page type");
+        if (key == null || key.isBlank() || frozen.maximumNesting < 0 || frozen.nodeKinds.isEmpty())
+            throw new IllegalArgumentException("Invalid page type");
         Objects.requireNonNull(frozen.layout); Objects.requireNonNull(frozen.nestingPolicy);
         types.put(key, frozen);
         return frozen;

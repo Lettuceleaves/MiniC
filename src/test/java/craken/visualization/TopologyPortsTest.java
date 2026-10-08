@@ -40,6 +40,13 @@ final class TopologyPortsTest {
             assertFalse(session.modify(MutationBatch.of(new VisualizationCommand.Connect(p(a), p(b)),
                     new VisualizationCommand.Connect(p(a), p(b), Direction.FORWARD, "field:missing", "node", EdgeStyle.DEFAULT))).succeeded());
             assertSame(before, session.model());
+            assertFalse(session.modify(MutationBatch.of(
+                    new VisualizationCommand.Connect(p(a), p(b), Direction.FORWARD, "field-west:missing", "node",
+                            EdgeStyle.DEFAULT))).succeeded());
+            assertTrue(session.modify(MutationBatch.of(
+                    new VisualizationCommand.Connect(p(a), p(b), Direction.FORWARD, "field-west:next", "node",
+                            EdgeStyle.DEFAULT))).succeeded(), "西侧同名字段端口必须合法");
+            assertEquals(1, session.model().pages().get(page.pageId()).topology().size());
         }
     }
     @Test void removingAConnectedFieldRequiresDisconnectInTheSameBatch() {

@@ -7,7 +7,7 @@ import java.util.*;
 /** One measured part. Coordinates and sizes are JavaFX logical pixels, without JavaFX objects. */
 public record LayoutRequest(Stamp stamp, Kind kind, List<Unit> units, List<Link> links,
                             Hints hints, Map<ViewLocation, Point> previousPositions) {
-    public enum Kind { POINT, ARRAY, LINEAR, TREE, GRAPH }
+    public enum Kind { POINT, ARRAY, LINEAR, TREE, GRAPH, BUCKETS }
     public enum Side { AUTO, NORTH, EAST, SOUTH, WEST }
     public enum Direction { NONE, FORWARD, BACKWARD, BOTH }
     public enum Orientation { HORIZONTAL, VERTICAL }
@@ -83,7 +83,7 @@ public record LayoutRequest(Stamp stamp, Kind kind, List<Unit> units, List<Link>
             for (var obstacle : textObstacles)
                 if (!outer.contains(new Point(obstacle.x, obstacle.y))
                         || !outer.contains(new Point(obstacle.right(), obstacle.bottom())))
-                    throw new IllegalArgumentException("Text obstacle outside unit");
+                    throw new IllegalArgumentException("Text obstacle outside unit: " + obstacle + " vs " + outer);
         }
         public static Unit simple(ViewLocation node, double width, double height) {
             var rect = new Rect(0, 0, width, height);

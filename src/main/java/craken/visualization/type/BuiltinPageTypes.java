@@ -24,6 +24,11 @@ public final class BuiltinPageTypes {
         return new Basic(directed ? "directed-graph" : "undirected-graph", true, 0, PageType.Layout.STRESS,
                 Set.of(ViewNode.Kind.GRAPH, ViewNode.Kind.POINT));
     }
+    /** Chained bucket array: a contiguous bucket list plus one chain of entry nodes per bucket. */
+    public static PageType buckets() {
+        return new Basic("buckets", true, 1, PageType.Layout.BUCKETS,
+                Set.of(ViewNode.Kind.ARRAY, ViewNode.Kind.POINT, ViewNode.Kind.LINKED, ViewNode.Kind.TREE));
+    }
     public static PageType composite(String key, PageType.Layout layout, boolean ready) {
         return new Basic(key, ready, 1, layout, Set.of(ViewNode.Kind.values()));
     }

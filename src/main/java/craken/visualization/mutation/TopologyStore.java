@@ -48,8 +48,11 @@ public final class TopologyStore {
     public static void validatePort(ViewNode node, String key) {
         TopologyEdge.requirePort(key);
         if (node == null) throw new IllegalArgumentException("Topology port belongs to a missing node");
-        if (!Set.of("node", "north", "east", "south", "west").contains(key)
-                && !(key.startsWith("field:") && node.content().fields().containsKey(key.substring(6))))
+        if (Set.of("node", "north", "east", "south", "west").contains(key)) return;
+        // field: 是字段行的东侧入口，field-west: 是同高的西侧入口（链表/回边可以水平接入）。
+        String field = key.startsWith("field-west:") ? key.substring("field-west:".length())
+                : key.startsWith("field:") ? key.substring("field:".length()) : null;
+        if (field == null || !node.content().fields().containsKey(field))
             throw new IllegalArgumentException("Unknown topology port: " + key);
     }
     private record Endpoint(ViewLocation node, String port) {}

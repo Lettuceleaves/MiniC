@@ -16,7 +16,8 @@ final class SnapshotValidator {
         var relationIds=new HashSet<Long>();
         for (var page:model.pages().values()) {
             page.layoutHints().validate(page.ref(), page.nodes().keySet());
-            if (page.type().key().isBlank() || page.type().maximumNesting()<0 || page.type().maximumNesting()>1 || page.type().nodeKinds().isEmpty()) fail("Invalid page type description");
+            if (page.type().key().isBlank() || page.type().maximumNesting()<0 || page.type().nodeKinds().isEmpty())
+                fail("Invalid page type description");
             if (!page.nodes().keySet().containsAll(page.ready())) fail("Dangling READY node");
             if (!page.type().readyEnabled() && !page.ready().isEmpty()) fail("READY disabled");
             if (page.anchor()!=null) model.node(page.anchor());

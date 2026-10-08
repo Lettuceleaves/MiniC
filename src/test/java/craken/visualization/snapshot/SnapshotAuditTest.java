@@ -30,11 +30,16 @@ class SnapshotAuditTest {
             assertSame(before, session.model());
         }
     }
-    @Test void displaySnapshotsCannotInventAnUnregisteredNestingDepth() {
+    @Test void displaySnapshotsAcceptDeepNestingAndRejectNegativeDepth() {
         try (var session = new DefaultVisualizationSession()) {
             var root = session.initializeRoot(BuiltinPageTypes.point());
             var good = session.snapshot(); var page = good.pages().get(root.pageId());
-            var invalid = new VisualizationSnapshot.TypeDescription("point", PageType.Layout.POINT, false, 2, Set.of(ViewNode.Kind.POINT));
+            // 嵌套深度没有默认上限（只要求非负），多层数组需要显式声明。
+            var deep = new VisualizationSnapshot.TypeDescription("point", PageType.Layout.POINT, false, 999, Set.of(ViewNode.Kind.POINT));
+            var deepModel = replace(good, new VisualizationSnapshot.PageState(root, deep, page.nodes(), null,
+                    page.composition(), page.topology(), page.ready()));
+            assertEquals(999, SnapshotCodec.toDisplayModel(deepModel).pages().get(root.pageId()).type().maximumNesting());
+            var invalid = new VisualizationSnapshot.TypeDescription("point", PageType.Layout.POINT, false, -1, Set.of(ViewNode.Kind.POINT));
             var bad = replace(good, new VisualizationSnapshot.PageState(root, invalid, page.nodes(), null, page.composition(), page.topology(), page.ready()));
             assertThrows(IllegalArgumentException.class, () -> SnapshotCodec.toDisplayModel(bad));
         }

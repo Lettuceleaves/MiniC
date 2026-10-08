@@ -9,11 +9,15 @@ import java.util.Set;
  * callbacks must be deterministic and must not retain mutable caller state or mutate old nodes.
  */
 public interface PageType {
-    enum Layout { POINT, ARRAY, LINEAR, TREE, STRESS }
+    enum Layout { POINT, ARRAY, LINEAR, TREE, STRESS, BUCKETS }
     @FunctionalInterface
     interface SemanticNestingPolicy { int increment(ViewNode parent, ViewNode child); }
     String key();
     boolean readyEnabled();
+    /**
+     * 页类型声明的语义嵌套层数，不设默认上限，只要求非负；内置类型仍按自己的声明限制
+     * （通常 0 或 1），需要多层数组（例如 {@code int[3][3][3]}）的调用方自行声明所需深度。
+     */
     int maximumNesting();
     Layout layout();
     Set<ViewNode.Kind> nodeKinds();
