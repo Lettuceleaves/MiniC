@@ -65,7 +65,7 @@ public final class AppFrame extends BorderPane {
     private static final double ACTIVITY_BAR_WIDTH = 48;
     private static final double TAB_BAR_HEIGHT = 36;
     private static final double STATUS_BAR_HEIGHT = 22;
-    private static final double TOP_BAR_ICON_SIZE = 20;
+    private static final double TOP_BAR_ICON_SIZE = 28;
     private static final double TOP_ITEM_HORIZONTAL_PADDING = 12;
     private static final double ACTIVITY_ITEM_HEIGHT = 48;
     private static final double INITIAL_INTERACTION_DIVIDER_POSITION = 0.75;
@@ -83,6 +83,10 @@ public final class AppFrame extends BorderPane {
     private boolean pipelineDisabled;
     private boolean pipelineDisplayActive;
     private boolean pipelineDisplayOpen;
+    private ToggleButton debugButton;
+    private Runnable onDebug;
+    private boolean debugDisabled;
+    private boolean debugDisplayActive;
 
     public AppFrame(Node editorArea, Node displayArea, Node interactionArea, Node tabBar) {
         Objects.requireNonNull(editorArea, "editorArea");
@@ -118,6 +122,7 @@ public final class AppFrame extends BorderPane {
             workspaceHost.getChildren().setAll(page);
         }
         updatePipelineSelection();
+        updateDebugSelection();
     }
 
     public void showEditorWorkspace() {
@@ -129,6 +134,7 @@ public final class AppFrame extends BorderPane {
         showEditorWorkspace();
         pipelineDisplayOpen = true;
         updatePipelineSelection();
+        updateDebugSelection();
         displayWidthController.expand();
     }
 
@@ -137,6 +143,7 @@ public final class AppFrame extends BorderPane {
         showEditorWorkspace();
         pipelineDisplayOpen = false;
         updatePipelineSelection();
+        updateDebugSelection();
         displayWidthController.collapse();
     }
 
@@ -145,13 +152,26 @@ public final class AppFrame extends BorderPane {
         showEditorWorkspace();
         pipelineDisplayOpen = true;
         updatePipelineSelection();
+        updateDebugSelection();
         displayWidthController.restoreDefault();
     }
 
     /** 显式打开 Pipeline；重复调用保持展开，只有图标点击负责切换开关。 */
     public void showPipelineDisplayArea() {
+        debugDisplayActive = false;
         pipelineDisplayActive = true;
         expandDisplayArea();
+    }
+
+    /** 显式打开调试工作台；重复调用保持展开，只有图标点击负责切换开关。 */
+    public void showDebugDisplayArea() {
+        pipelineDisplayActive = false;
+        debugDisplayActive = true;
+        showEditorWorkspace();
+        pipelineDisplayOpen = true;
+        updatePipelineSelection();
+        updateDebugSelection();
+        displayWidthController.expandHalf();
     }
 
     /** 运行图标仅转发命令，具体取码、编译与执行由调用者负责。 */
@@ -193,6 +213,30 @@ public final class AppFrame extends BorderPane {
                 && pipelineDisplayActive && pipelineDisplayOpen);
     }
 
+    /** 打开时转发命令；再次点击已选中图标只收起信息栏，保留调试会话。 */
+    public void setOnDebug(Runnable action) {
+        onDebug = action;
+        updateDebugButton();
+    }
+
+    public void setDebugDisabled(boolean disabled) {
+        debugDisabled = disabled;
+        updateDebugButton();
+    }
+
+    private void updateDebugButton() {
+        if (onDebug == null) {
+            debugDisplayActive = false;
+        }
+        updateDebugSelection();
+        if (debugButton != null) debugButton.setDisable(debugDisabled || onDebug == null);
+    }
+
+    private void updateDebugSelection() {
+        if (debugButton != null) debugButton.setSelected(selectedWorkspaceTab == WorkspaceTab.EDITOR
+                && debugDisplayActive && pipelineDisplayOpen);
+    }
+
     /** 各功能区注入自己的菜单命令，框架仍只负责排布。 */
     public void setMenuItems(String name, MenuItem... items) {
         UiHoverMenuButton menu = menus.get(name);
@@ -208,7 +252,7 @@ public final class AppFrame extends BorderPane {
         bar.setMaxWidth(Region.USE_PREF_SIZE);
         bar.getStyleClass().add("app-menu-strip");
         bar.getChildren().addAll(
-                topItemWithIcon("Craken"),
+                topItemWithIcon(),
                 menuButton("文件"),
                 topItem("编辑", false),
                 topItem("选择", false),
@@ -347,6 +391,31 @@ public final class AppFrame extends BorderPane {
                 bar.getItems().add(pipelineButton);
                 continue;
             }
+            if (kind == UiIcon.Kind.DEBUGGER) {
+                debugButton = new ToggleButton();
+                debugButton.setGraphic(icon);
+                debugButton.setId("app-debug-button");
+                debugButton.getStyleClass().addAll("activity-list-item", "activity-debug-button");
+                debugButton.setAccessibleText("打开调试工作台");
+                debugButton.setTooltip(new UiTooltip("调试工作台", "展开调试工作台；再次点击收起，保留调试会话。", ""));
+                debugButton.setMinSize(0, 0);
+                debugButton.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
+                debugButton.setOnAction(event -> {
+                    if (onDebug == null || debugButton.isDisabled()) return;
+                    if (debugButton.isSelected()) {
+                        debugDisplayActive = true;
+                        pipelineDisplayActive = false;
+                        pipelineDisplayOpen = true;
+                        showEditorWorkspace();
+                        onDebug.run();
+                    } else {
+                        collapseDisplayArea();
+                    }
+                });
+                updateDebugButton();
+                bar.getItems().add(debugButton);
+                continue;
+            }
             StackPane item = new StackPane(icon);
             item.getStyleClass().add("activity-list-item");
             item.setAccessibleText(kind.label());
@@ -451,10 +520,11 @@ public final class AppFrame extends BorderPane {
         return item;
     }
 
-    private static StackPane topItemWithIcon(String title) {
-        URL iconResource = AppFrame.class.getResource("/craken/ui/icons/app-icon.png");
+    /** 标题栏只展示 Logo；应用名称保留在悬浮提示里，不再占用横向空间。 */
+    private static StackPane topItemWithIcon() {
+        URL iconResource = AppFrame.class.getResource("/craken/ui/icons/app-icon-rounded.png");
         if (iconResource == null) {
-            throw new IllegalStateException("Missing app icon resource: /craken/ui/icons/app-icon.png");
+            throw new IllegalStateException("Missing app icon resource: /craken/ui/icons/app-icon-rounded.png");
         }
         Image icon = new Image(
                 iconResource.toExternalForm(),
@@ -465,14 +535,12 @@ public final class AppFrame extends BorderPane {
         iconView.setPreserveRatio(true);
         iconView.setSmooth(true);
         iconView.getStyleClass().addAll("top-bar-icon", "window-title-no-drag");
-        Label label = label(title, "top-bar-title");
-        HBox content = new HBox(7, iconView, label);
-        content.setAlignment(Pos.CENTER_LEFT);
-        StackPane item = new StackPane(content);
+        StackPane item = new StackPane(iconView);
         item.setPadding(new Insets(0, TOP_ITEM_HORIZONTAL_PADDING, 0, TOP_ITEM_HORIZONTAL_PADDING));
         item.setMinWidth(Region.USE_PREF_SIZE);
         item.setMaxWidth(Region.USE_PREF_SIZE);
         item.getStyleClass().add("top-list-item");
+        UiTooltip.attach(item, "Craken");
         return item;
     }
 

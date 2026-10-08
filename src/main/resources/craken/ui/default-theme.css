@@ -1144,6 +1144,15 @@
     -fx-background-color: -ui-text-muted;
 }
 
+/* 调试捕获候选下拉：与深色主题一致，行内给足点击高度。 */
+.debug-candidate-list {
+    -fx-padding: 0;
+}
+
+.debug-candidate-list .list-cell {
+    -fx-padding: 6 10;
+}
+
 /* 选择类控件的内部标记。 */
 .ui-check-box .box,
 .ui-switch .box,

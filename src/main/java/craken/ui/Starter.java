@@ -23,6 +23,7 @@ import craken.ui.interaction.InteractionArea;
 import craken.ui.demo.HoverComponentsDemo;
 import craken.ui.run.RunController;
 import craken.ui.pipeline.PipelineController;
+import craken.ui.debug.DebugController;
 import craken.ui.editor.realtime.RealtimeDiagnosticsController;
 
 import java.net.URL;
@@ -46,10 +47,12 @@ public final class Starter {
     /** JavaFX 生命周期入口，由 JavaFX Runtime 实例化。 */
     public static final class UiApplication extends Application {
         private static final double WINDOW_CORNER_RADIUS = 8;
-        private static final String APP_ICON_RESOURCE = "/craken/ui/icons/app-icon.png";
+        /** 任务栏与窗口图标使用整块圆角图，避免透明留白让图标看起来只有一半大。 */
+        private static final String APP_ICON_RESOURCE = "/craken/ui/icons/app-icon-rounded.png";
         private InteractionArea interactionArea;
         private RunController runController;
         private PipelineController pipelineController;
+        private DebugController debugController;
         private RealtimeDiagnosticsController realtimeDiagnosticsController;
 
         @Override
@@ -64,9 +67,10 @@ public final class Starter {
             DisplayArea displayArea = new DisplayArea();
             interactionArea = new InteractionArea();
             AppFrame root = new AppFrame(editorArea, displayArea, interactionArea, editorArea.tabBar());
-            runController = new RunController(editorArea, root, interactionArea);
-            pipelineController = new PipelineController(editorArea, root, displayArea, interactionArea.projectRoot());
             realtimeDiagnosticsController = new RealtimeDiagnosticsController(editorArea, interactionArea);
+            runController = new RunController(editorArea, root, interactionArea, realtimeDiagnosticsController);
+            pipelineController = new PipelineController(editorArea, root, displayArea, interactionArea.projectRoot());
+            debugController = new DebugController(editorArea, root, displayArea, interactionArea);
             installMenus(root, editorArea, primaryStage);
             Scene scene = new Scene(root, 1280, 800);
             scene.setFill(Color.TRANSPARENT);
@@ -94,6 +98,7 @@ public final class Starter {
             primaryStage.addEventHandler(WindowEvent.WINDOW_HIDDEN, event -> {
                 runController.close();
                 pipelineController.close();
+                debugController.close();
                 realtimeDiagnosticsController.close();
                 interactionArea.close();
             });
@@ -118,6 +123,7 @@ public final class Starter {
         public void stop() {
             if (runController != null) runController.close();
             if (pipelineController != null) pipelineController.close();
+            if (debugController != null) debugController.close();
             if (realtimeDiagnosticsController != null) realtimeDiagnosticsController.close();
             if (interactionArea != null) interactionArea.close();
         }

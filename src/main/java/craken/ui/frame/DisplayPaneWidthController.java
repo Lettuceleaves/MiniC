@@ -43,6 +43,11 @@ final class DisplayPaneWidthController {
         animateTo(WidthMode.EXPANDED);
     }
 
+    /** 半屏：右侧信息栏与中心编辑区等宽，沿用同一动画与中断规则。 */
+    void expandHalf() {
+        animateTo(WidthMode.HALF);
+    }
+
     void collapse() {
         animateTo(WidthMode.COLLAPSED);
     }
@@ -87,7 +92,7 @@ final class DisplayPaneWidthController {
 
     private void updateResizePolicy() {
         // 全展开时让右区吸收窗口增量；其他状态保留右区的像素宽度。
-        boolean expanded = mode == WidthMode.EXPANDED;
+        boolean expanded = mode == WidthMode.EXPANDED || mode == WidthMode.HALF;
         SplitPane.setResizableWithParent(split.getItems().get(0), !expanded);
         SplitPane.setResizableWithParent(split.getItems().get(1), expanded);
     }
@@ -95,6 +100,7 @@ final class DisplayPaneWidthController {
     private double targetPosition() {
         return switch (mode) {
             case EXPANDED -> 0;
+            case HALF -> 0.5;
             case COLLAPSED -> 1;
             case DEFAULT -> {
                 double width = split.getWidth() - split.getInsets().getLeft() - split.getInsets().getRight();
@@ -149,6 +155,6 @@ final class DisplayPaneWidthController {
     }
 
     private enum WidthMode {
-        DEFAULT, EXPANDED, COLLAPSED, CUSTOM
+        DEFAULT, EXPANDED, HALF, COLLAPSED, CUSTOM
     }
 }
