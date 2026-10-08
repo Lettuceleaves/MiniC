@@ -4,32 +4,27 @@
 
 # Craken
 
-## 项目介绍
+Craken 是一个面向编译原理与程序运行机制学习的 C 语言子集可视化工作台。它把代码编辑、编译过程观察、运行调试和数据结构视图整合在 JavaFX Local Visual Workbench 中：编译可视化流水线覆盖预处理、词法、语法、语义、IR、汇编、Windows x64 编码、COFF、PE 链接直到运行；可视化 Debugger 以 IR Interpreter 为执行核心，记录调用栈、栈／堆内存与输入输出，并支持在已有历史中正向或反向查看。
 
-Craken 是一个面向编译原理与程序运行机制学习的 C 语言子集可视化工作台。它把代码编辑、编译过程观察、运行调试和数据结构视图整合在 JavaFX Local Visual Workbench 中，帮助学习者从源代码出发，逐步理解程序如何被分析、转换、生成和执行。
+## 功能概览
 
-编译可视化流水线贯穿预处理、词法分析、语法分析、语义分析、IR lowering、汇编生成、Windows x64 指令编码、COFF 对象文件写入、PE32+ 链接和程序运行。各阶段通过结构化状态与单步控制连接源码、token、AST、作用域与符号、IR、汇编及最终可执行产物。
+- **编辑器**：实时语法纠错，随输入给出关键词、符号与头文件补全。
+- **编译 Pipeline 展示台**：逐阶段、逐步冻结展示源码、token、AST、语义注解、IR、汇编与最终产物。
+- **可视化容器**：宿主无关的快照模型与布局协议，内置数组、桶链、树与图布局，支持自定义页类型。
+- **调试工作台**：半屏布局；按变量插桩捕获访问，在停止点展开数组、结构体与指针并高亮读写。
+- **运行与用例**：一键编译运行当前缓冲区；用例标签预置输入与预期输出并自动判定。
+- **内置终端**：JediTerm + ConPTY 的 PowerShell 会话。
+- **STL 兼容层**：`lib/stl/*.mh` 提供算法题常用的容器与算法接口，范围见文档。
 
-可视化 Debugger 以 IR Interpreter 为执行核心，在初始化时对 IR 插入源码行与函数调用 trap。调试上下文记录调用栈、栈内存、堆内存和输入输出，并支持在已有执行历史中正向或反向查看。JavaFX Workbench 直接使用编译会话和进程内调试 API 展示这些状态。
+## 快速开始
 
-## OJ / STL 兼容补齐
+需要 JDK 21；JavaFX 21.0.2 与 Gradle Wrapper 8.7 由构建解析。
 
-标准头文件由 `lib/stl/*.mh` 实现；算法程序可以直接使用 `#include <vector>`、`#include <unordered_map>` 或 `#include <bits/stdc++.h>`，并通过 `main`、标准输入和标准输出运行。
-
-| 本轮补齐项 | 支持范围 |
-|---|---|
-| 成员多声明器 | `struct E { int u, v, w; };`；同一声明中的指针、数组、默认成员初始化独立生效；模板实参逗号、括号内逗号和 lambda 默认值不会截断声明。 |
-| 分配和所有权 | 单对象及动态数组 `new/delete/delete[]`、多维固定内层数组、值初始化、超对齐、空指针删除、数组逆序析构；全局分配／释放重载；`unique_ptr`、`shared_ptr`、`make_unique<T>`、`make_unique<T[]>`、`make_shared`、移动所有权、自定义删除器与共享别名指针。 |
-| 七个头文件 | `<numeric>`、`<unordered_map>`、`<unordered_set>`、`<list>`、`<array>`、`<tuple>`、`<sstream>`，同时由 `<bits/stdc++.h>` 引入。 |
-| `long double` | 独立的源语言类型与 `L` 字面量、重载／模板／算术类型规则、常量与全局初始化、变参、`cmath` 常用重载、流输入输出、原生和调试器的 `%Lf`。当前 Windows x64 后端使用 8 字节 binary64，精度与 `double` 相同。 |
-
-哈希容器使用可扩容的桶和链式节点，支持自定义 hash/equal、查找、插入、删除、迭代、reserve/rehash、复制／移动，map 还支持 `try_emplace` 和 `insert_or_assign`；键不变时平均查找、插入和删除复杂度为 O(1)，最坏为 O(n)。扩容保留元素地址。`list` 使用双向链表，单节点插入、删除、splice 为 O(1)，稳定排序为 O(n log n)，并保留节点地址。
-
-`numeric` 包含 accumulate、iota、inner_product、partial_sum、adjacent_difference、gcd、lcm 和无执行策略的 reduce；`array` 支持聚合初始化、零长度、迭代与结构化绑定；`tuple` 支持索引 get、make_tuple、tie、forward_as_tuple、比较与结构化绑定；字符串流支持数值／字符串输入输出、getline、格式控制、状态恢复和读写位置。
-
-这里提供算法题常用接口，不宣称完整 ISO C++ 标准库覆盖。当前不包含异常展开、`nothrow`／类专用分配、`weak_ptr`／并发共享计数、自定义 allocator、unordered 多重容器／节点句柄、tuple_cat/apply、locale/streambuf。分配失败和越界检查沿用现有 `.mh` 库的终止策略。`long double` 不是 GCC x87 的 80 位扩展格式。
-
-本轮功能补齐不代表 Hot100 全题覆盖、大数据复杂度对照或每项性能不超过系统 STL 1.2 倍的目标已经达成。
+```powershell
+./craken.bat                                    # 开发模式启动 UI（gradlew runUi）
+./gradlew test                                  # 单元与回归测试
+./scripts/verify-visualization.ps1 -Stage C28   # 可视化累计验收（首次需准备 Graphviz，见文档）
+```
 
 ## 依赖版本
 
@@ -43,189 +38,16 @@ Craken 是一个面向编译原理与程序运行机制学习的 C 语言子集�
 | Gradle Wrapper | 8.7 |
 | Graphviz（Windows x64 完整运行时） | 16.1.0 |
 
-## 内置终端
+## 文档
 
-底部面板使用 JediTerm 3.76 和 pty4j 0.13.12，通过 Windows ConPTY 运行 PowerShell。
-直接在终端正文输入，Enter 执行；Tab 补全、方向键、Ctrl+C、交互式程序和 ANSI 颜色由终端与 PowerShell 处理。
-复制和粘贴使用 Ctrl+Shift+C / Ctrl+Shift+V。
+使用与开发指南：
 
-通过 `craken.bat` 启动时，终端的初始目录为项目根目录；也可用 `craken.project.root` 系统属性指定。
-右侧列表的 `+` 可创建独立会话，切换面板会保留进程和输出；关闭面板或应用会清理对应进程。
-JediTerm 依赖从 JetBrains 官方缓存仓库解析，其余依赖使用 Maven Central。
+- [使用说明](docs/使用说明.md)：内置终端、编辑器补全、运行与用例标签、Pipeline 展示台、调试工作台、通用弹窗。
+- [开发者指南](docs/开发者指南.md)：可视化容器 API、Debugger 结构适配、构建与验收流程。
+- [STL 兼容与范围](docs/STL兼容与范围.md)：`lib/stl` 的支持范围、本轮补齐项与已知限制。
 
-## 编辑器补全
+设计文档：
 
-代码编辑器随输入自动给出关键词、变量名和头文件候选：普通代码里输入标识符前缀（如 `wh`）会弹出匹配的关键词与当前缓冲区出现过的名字；`#include <` 之后列出 `lib` 的标准头文件（`stdio.h`、`vector`、`bits/stdc++.h` 等），`#include "` 之后列出本目录和库根目录的 `.mh` 头文件。候选浮窗沿用编辑器主题，方向键选择，Enter/Tab 应用，Esc 关闭；Ctrl+Space 强制展开，包括空前缀时的关键词加变量全量列表。字符串、注释和预处理指令行里的文本不会进入候选，完整关键词不再重复提示。
-
-## 运行当前代码
-
-右侧活动栏的运行图标会先收起信息栏，再编译点击时选中标签的当前编辑内容（包含未保存的修改，不自动保存）。
-编译在后台通过 `CompilerApi` 执行，关闭逐步结果记录，到链接完成后取得可执行产物；编译失败只显示诊断，不启动旧产物。
-编译期间保留 IO 顶部标题栏，进度条只填充其下方的内容区，通过 `CompilerApi.nextStage` 逐阶段执行，每完成一个阶段前进一步；链接完成后立即切换到程序输入输出，取消入口保留，失败时显示详细诊断。
-每次产物保存在项目根目录的 `build/craken-runs/run-*` 独立目录中，并在源文件所在目录启动独立的“输入输出”项，直接连接用户程序而不是 PowerShell。
-底部右侧列表的输入输出项默认命名为 `IO 1`、`IO 2`……；运行按钮与公开创建接口共用独立于 PowerShell 的递增编号，关闭项后不重排或复用编号，面板内部仍显示具体程序名。
-同一个编辑器组件重复运行会复用同一个 IO 项（调试同样使用该项，见“调试工作台”）：标题、编号与列表位置保持不变，只替换该项里的编译进度与程序输出；关闭该项、或换一个编辑器组件（例如重新打开同一文件）才会按编号规则新建。复用会先结束上一轮仍在该项里运行的程序，其他 IO 项与 PowerShell 不受影响。
-IO 项（运行与调试共用的那个 tab，公开的 `newInputOutput(...)` 同样如此）使用这个 tab 的默认字体 `UiStyles.tabDefaultFont()`：与交互列表标签、编辑器相同的等宽字体（状态栏的“等宽字体 14px”），不再由终端自行挑选字体，也不依赖使用者机器上安装了哪套中英等宽字体；中文字形由该字体的系统回退覆盖。PowerShell 终端仍使用 `UiStyles.terminalFont()`（严格中英 1:2 的终端字体）。
-程序支持标准输入和 Ctrl+C；结束后保留输出并显示退出码，此时按一次回车关闭该项。运行中的回车仍正常传给程序，不会误关面板；重新点击右侧运行图标会重新编译当前内容。
-编译中可取消，关闭运行面板会取消编译或结束该面板自己的进程，不影响其他终端。
-
-其他调用者可通过 `InteractionArea.newInputOutput(workingDirectory, executable)` 创建有类型的 `InteractionItem<InputOutputPanel>`，也可使用带 `title` 的重载自定义标题。
-`InputOutputPanel` 本身也是公开组件，提供 `start()`、`activate()`、`stop()`、`close()`、`isFinished()`、`exitCode()` 和 `setOnCloseRequest(...)`；独立使用时由宿主处理关闭请求。
-
-## 用例标签
-
-底部交互栏工具栏的“用例”按钮为当前编辑器新建一个用例标签，命名按 `CASE 1`、`CASE 2`……独立递增，关闭后不重排或复用编号。每个用例标签上下两部分：上方左右平分，左边是预置的程序标准输入、右边是预期结果，下方显示这次运行的输出。两个输入区共用一种状态：新标签直接进入输入状态，点击任一半或“编辑输入”可以重新进入，按 Esc 退出输入状态——文本保留，输入区变为只读且不再参与焦点遍历，按键回到编辑器。
-
-程序退出时把输出与运行开始时快照的预期结果比较：统一行尾、忽略每行尾随空白和末尾空行，相等即判定通过——底部列表里的该 `CASE` 标签变为深绿色，工具栏显示绿色“通过”；不相等则标签变为深红色并显示红色“不匹配”。预期结果为空或只有空白时不判定（列表保持中性）；停止、取消、编译失败或运行失败同样不判定。判定只看输出内容，不看退出码；再次运行会清空上一轮判定，直到本轮程序退出才重新给出结果。
-
-点击运行当前代码时，除了前台的 IO 项，还会并行执行绑定到同一个源文件的全部用例标签：每个用例各启动一个独立进程，共用同一个编译产物并在源文件所在目录运行，把点击运行时快照的预置输入按“终端键入”语义送入标准输入（非空且缺少结尾换行时自动补一个回车，等价于敲完这一行按回车），输出（标准错误按行带 `stderr: ` 前缀）实时追加在各自的输出区，结束后显示退出码。
-
-预置输入写完保持标准输入打开，**不会自动发送 EOF**：程序继续读取输入时用例保持“运行中…”，与真实终端一致。需要让等待输入的程序读到 EOF 时，点击用例工具栏的“发送 EOF”（相当于终端里按 Ctrl+Z 回车），程序据此走完 EOF 分支并正常退出；“停止”则直接结束本用例自己的进程。用例按源文件路径绑定：编辑器关闭不会删除用例标签，重新打开同一文件后这些标签仍然参与运行；运行其他文件时，绑定到该文件的用例保持原状。同一个用例在下一次运行时会先结束上一轮仍在运行的进程再替换输出；编译失败、取消编译或关闭该次运行的 IO 项时，等待中或运行中的用例同步结束（显示“未运行（编译失败）”或“已取消”），已经退出的结果保留。
-
-每个用例工具栏提供“编辑输入”“清空”“发送 EOF”“停止”和“删除”：删除（或底部列表上方的 ×）“会关闭该用例标签，预置输入与运行输出一并丢弃，仍在运行的进程同步结束；被删除的用例立即退出列表，也不再参与后续运行。
-
-用例的标准输出是管道而不是控制台，C 运行时的 `printf` 会按块缓冲：程序退出（或缓冲区写满）前输出不会出现。需要在运行中就看到提示信息时，程序应在打印后调用 `fflush(stdout)`（或使用 `cout << ... << endl`）。
-
-其他调用者也可直接使用公开的 `CaseTabs` 与 `CasePanel`：`CaseTabs.open(path)` 新建绑定到某源文件的标签，`entries(path)` 按列表顺序返回该文件仍打开的用例；`CasePanel` 提供 `beginRun()`、`run(...)`、`notRun(...)`、`cancelRun(...)`、`stopRun()` 与输入状态方法，由宿主按同一协议驱动运行。
-
-## 编译 Pipeline 展示台
-
-右侧活动栏的第二个图标打开编译展示台，并将右侧区域完全展开。“输入”和“输出”两个可视化容器展示每步冻结的源码、Token、AST、语义注解、IR、汇编、COFF 和 PE 内容；默认左右均分，中间分隔线可拖动。右侧信息栏宽 356px，顶部为带回转箭头图标的“重置”以及“下一步”和“下一阶段”。下方采用纵向轨道列表，八个阶段各有独立图标与说明，阶段之间以连续细线相连，并均分可用高度；矮窗口下保持可读行高并允许滚动。选中背景沿用交互面板样式，已完成阶段及其连接线显示绿色，当前阶段以蓝色图标标识。
-
-编译使用点击图标时当前标签的编辑内容（包括未保存修改），在后台按实际编译器步骤推进。“下一步”执行一步，“下一阶段”完成当前阶段；已完成阶段可以点击回看，未来阶段不可选，回看不会倒退编译进度。完成链接后停止，编译错误显示在信息栏中。再次打开相同源码保留进度，源码或文件变化后开始新会话；独立产物保存在 `build/craken-pipelines/pipeline-*` 中。“重置”重新读取当前编辑缓冲区，取消并释放旧会话，清空展示台与阶段选择后从预处理重新开始；编译中或编译失败后仍可点击。
-
-再次点击已选中的 Pipeline 图标会取消选中并完全收起信息栏；重新打开相同源码时保留编译进度、阶段选择和输入输出分栏比例。
-
-展示台顶部标明当前画面实际所属阶段、阶段内步骤、操作和对应源码行；两侧标题说明本阶段的输入输出类型。阶段结束而下一阶段尚未执行时，明确保留上一阶段结果并提示下一阶段尚未开始。回看时可点击“返回当前阶段”，不会执行编译步骤。后台编译或切换历史期间，推进按钮和阶段列表一起锁定，发布完成后恢复。
-
-AST 始终按树展示：一个对象只保留首次发现的父边，编译器内部的共享引用或回指不会把页面降级成图布局，因此语法分析和语义分析每一步都在进程内完成布局。卡片采用 IDE 暗色样式（#161B22 正文、#21262D 标题条、#30363D 细边框、#58A6FF 选中描边），字段名灰显、字段值保持白色，与拉链法哈希表示例一致。
-
-“下一阶段”以批处理方式推进：中间帧会被合并，只有阶段终态被捕获和投影，失败终态仍保留待重试的观察数据；“下一步”继续逐帧实时展示。模型事务在批次内使用可变草稿，提交时才一次性物化，组合槽位和拓扑边按索引判重，因此上万 token 的数组页也按线性成本提交。
-
-超长序列页（源码行、token、汇编、目标字节）只显示头尾各 750 行和一条摘要行；词法高亮始终指向刚产生的 token。绘制侧按批次挂载卡片与连线，文本排版按内容缓存，大型树页走行间通道路由，密集图使用空间网格，避免卡片级复制、端口线性校验和逐边障碍扫描。
-
-超过 2000 个对象的 AST 树会折叠：焦点节点及其祖先始终展开，其余按预算保留，被折叠子树在父节点标出 `collapsed` 数量；树结构、焦点高亮和位置交接保持不变。
-
-错误在“诊断详情”中完整显示，可展开、滚动、选择和复制；回看历史时仍标明实际失败阶段。展示投影失败会提示保留上次画面并允许重试。切换源码时清空上一会话的诊断和悬浮说明。
-
-每一步先生成完整双侧快照，再在同一 FX 调用中切换画面；异步布局结果带版本校验。展示投影失败时保留上一完整帧，下一次操作重试已捕获的投影，不增加编译步数。阶段回看使用冻结历史，不读取已经变化的 AST 位置。源码切换会取消旧请求并释放旧容器，迟到结果不会覆盖新会话。
-
-## 可视化容器 API
-
-核心入口为 `craken.visualization.api.VisualizationSession`，默认实现为 `DefaultVisualizationSession`；FX 宿主为 `UiVisualizationContainer`。核心模型和布局协议不依赖 JavaFX，也不识别编译器或 VM 对象。页必须在初始化时注册 `PageType`；页内节点 ID 单调递增，页 ID 在容器内唯一。节点归属禁止成环，页可在选中节点路径中重复出现，每次出现使用独立控件和高亮。
-
-下例在 FX 线程创建单例及红黑树页。所用类型来自 `craken.visualization.api`、`model`、`type` 和 `craken.ui.component.visualization`；`TopologyEdge` 位于 `model.relation`。
-
-```java
-var view = new UiVisualizationContainer();
-var session = view.session();
-var rootPage = session.initializeRoot(BuiltinPageTypes.point());
-var owner = session.reserveNodeId(rootPage);
-session.addNode(new OperationPath(null, owner), ViewNode.Spec.point("singleton"));
-var treePage = session.initializePage(BuiltinPageTypes.tree(true), owner);
-var root = session.reserveNodeId(treePage);
-session.addNode(new OperationPath(owner, root), new ViewNode.Spec(ViewNode.Kind.TREE, "root"));
-var child = session.reserveNodeId(treePage);
-session.addNode(new OperationPath(owner, child), new ViewNode.Spec(ViewNode.Kind.TREE, "child"));
-session.modify(MutationBatch.of(new VisualizationCommand.Connect(
-        new OperationPath(owner, root), new OperationPath(owner, child),
-        TopologyEdge.Direction.FORWARD))).requireSuccess();
-view.refresh();
-// 宿主销毁时在 FX 线程调用 view.close()。
-```
-
-空页首次分配直接展示，后续节点按页类型进入 READY；连接后提升到连通 part，断链重分 part。READY 当前显示待连接数量，可滚动列表按计划留待后续实现。`Compose` 描述同页包含，`Connect` 描述绘制连线，`AttachOwnership` 描述跨页归属，三者不能混用。`PageBindingRule.Spec.page(parentPage)` 注册动态大页绑定，包含 READY 节点。`Configure(new VisualizationOptions(false, true))` 关闭自动导航并保留向上高亮；第二个参数控制高亮传播。
-
-`showSnapshot(snapshot)` 只显示纯值历史，不恢复外部活动会话。`refresh()` 返回活动模型，`setZoom(...)` 缩放，`layoutPendingProperty()` 和 `diagnostics()` 可用于宿主状态显示。无参宿主拥有其会话；传入会话的宿主借用它，调用者负责关闭会话。布局采用两条后台工作线程与有界缓存；仅高亮变化复用几何。共享 AST 等非树宏拓扑使用正式 Graphviz，运行时缺失时显示布局错误。
-
-顶部“页面路径”可选择因窗口宽度而隐藏的上游节点；每个出现位置按页和节点身份保存缩放、滚动状态，返回时恢复。Ctrl+滚轮只缩放当前出现位置，历史路径选择也只影响历史显示。
-
-`SetPageLayout(page, new PageLayoutHints(root, order))` 设置显示根及部分节点顺序，适用于树旋转后的展示；不解释业务指针字段，也不改变焦点。提示随快照保存，节点释放时自动裁剪。`BuiltinPageTypes.buckets()` 提供连续桶数组页：`BUCKETS` 布局把显示根单元当作桶列，每个桶槽的链沿该桶所在行向右排列，桶内空槽显示 `NULL`；普通数组仍使用 `ARRAY` 布局。`Connect` 的扩展构造器接收两个端口名和 `EdgeStyle`，支持 `node`、四个边界方向及 `field:<字段名>`；同一对节点可保留不同端口的连线，`Disconnect` 使用对应端口精确删除。`Touch` 的结果位于 `MutationResult.reads()`，保留每条命令当时的内容，失败批次不返回局部读取结果。
-
-## Debugger 结构适配
-
-使用 `new Debugger(source, "", collector)` 开启会话专属 `RuntimeEventCollector`，默认 Debugger 路径关闭事件收集。`DebugVisualizationAdapter` 读取止点的不可变内存和事件，调用者注册 `DebugStructureDescriptor`（字段类型/偏移、拓扑或归属引用、数组长度/步长、realloc 策略）和 `RootAddress`。不根据 malloc 大小猜测结构；自动识别器是后续能力。
-
-`DebugStructureRecognizer` 提供只读候选识别接口；调用者决定是否采用返回的描述并显式注册，适配器不会自动运行它。
-
-TOPOLOGY 引用默认从自己的 `field:<字段名>` 连到目标节点；`Reference` 扩展构造器可指定两端端口。不同字段即使指向同一节点，也保留独立连线；同一具体端口对的互反方向合为双向箭头。引用字段会显示在卡片中，数组元素描述尺寸必须适合声明的步长。
-
-```java
-var types = new PageTypeRegistry();
-types.register(BuiltinPageTypes.point());
-var adapter = new DebugVisualizationAdapter(new DefaultVisualizationSession(), types);
-adapter.registerDescriptor(new DebugStructureDescriptor(
-        "value", "point", DebugStructureDescriptor.ViewKind.POINT, 4,
-        List.of(new DebugStructureDescriptor.Field("value", 0, DebugMemoryReader.ScalarType.SIGNED32)),
-        List.of(), null, DebugStructureDescriptor.ReallocationPolicy.RECREATE));
-adapter.registerRoot(new DebugStructureDescriptor.RootAddress("value", knownVmAddress));
-var history = new DebugVisualizationHistory(adapter, collector, releaseDisplay);
-var frame = history.show(debugApi.current());
-// 在 FX 线程：view.showSnapshot(history.displayedSnapshot());
-// 下一止点：history.show(debugApi.next()); 回退：history.show(debugApi.previous());
-```
-
-示例的 `knownVmAddress` 必须是调用者已知的有效 4 字节整数地址，不能使用 Java 对象地址。未连接分配通过 `registerObject(descriptorKey, address, page, pre)` 手动登记后进入相应页；`Address` 由 `DebugMemoryReader(context.runtime()).resolve(...)` 得到，包含分配代次以隔离地址重用。完整可运行结构示例见 `DebugVisualizationEndToEndTest`。
-
-`history.show(index)` 只切换展示，`DebugApi.previous()/next()` 才移动调试光标。已知 Context 不重复消费事件。`Frame.snapshot()` 保留历史来源版本，`displayedSnapshot()` 携带当前递增 epoch；后者用于布局失效控制。程序完成后可继续回看，显式 `history.close()` 才释放历史、映射、显示资源与 collector。Adapter 两参构造拥有 session，三参 `ownsSession=false` 借用 session。`releaseDisplay` 应在正确的 FX 线程释放宿主；即使它抛错，其他资源仍会清理。只有 collector 的 `close()` 支持从显示线程调用，其余事件操作由 VM 线程独占。
-
-## 调试工作台
-
-右侧活动栏的调试图标打开**半屏**调试工作台：右侧信息栏与中心编辑区等宽（沿用与 Pipeline 相同的 240ms 缓出动画，可随时拖动分隔条打断）。工作台内部左侧更宽（62%）用于可视化，右侧上方是操作控件、下方是内存信息：栈区占 80%、堆区占 20%，分隔条可拖动（堆区暂未实现，显示占位列表）。
-
-操作控件共九个：开始、重启、到结束、下一步（不进入被调函数）、上一步、步入函数、回退至调用处、到下一个断点、返回上一个断点；点击止点沿用的历史回看不重新执行程序。栈区是带滚动条的列表，每项显示名称与值（值取停止点的不可变快照，未初始化、指针与聚合分别标记）；栈区只列出编辑器缓冲区里写下的帧与变量，任何 `#include` 展开（库头文件或用户自己的 `.mh`）出的函数、形参与局部变量整体不显示，头文件内容不会淹没用户数据。
-
-点击“开始”之前，左半部分是捕获变量输入框：输入源码变量名回车后检索 IR 中所有同名变量定义（局部变量与全局变量；形参、编译器内部槽位与 include 展开出的定义不在本阶段），唯一命中直接加入下方列表，多个候选会启用“上一个 / 下一个 / 确定”循环翻阅，列表项悬停显示右侧删除按钮。点击“开始”时才把选中的变量定义写进调试 IR 副本：在它们的创建、读取、写入与离开作用域之前（创建在之后）插入捕获指令，未选中的变量不插桩，程序语义与运行结果不变。
-
-调试器执行捕获指令时不停止、不改变内存，只记录“变量定义、访问类别、所在函数、访问点、当前存储地址与元素偏移”；到达停止点后由 `DebugCaptureProjector` 把本区间的捕获交给可视化容器：每个变量一张稳定身份的点卡片，值从停止点的不可变内存快照读取，创建/读取/写入映射为分配/读取/写入高亮，离开作用域保留卡片并标记“已离开作用域”；历史回看只恢复检查点，不重放捕获事件。
-
-调试程序的标准输入输出进入**同一个编辑器组件**的运行 IO 项：两种入口共用一份 IO 项表（编号与列表位置不变），后开始的会话接管该项并关闭旧内容（停止上一轮程序或旧视图）。调试输出由与运行 IO 相同的 `UiTerminalWidget` 终端渲染，字体、字号、配色与行距完全一致，标准输出与标准错误按发布顺序进入同一条流，标准错误用红色区分。键盘输入按终端惯例在本地回显，整行回车后排队给程序的下一次读取；调试程序不会阻塞等待输入，需要在读取语句执行之前先提交输入。程序结束后输入不再进入会话，输出保留，可滚动、可复制，仍可用“清空”重置画面。
-
-展开规则只读 IR 的**声明类型**、结构体布局与调试运行期事件，对具体类型名（STL 或自定义）没有任何特判：固定长度数组每一层一个页面；结构体是一个容器，成员按 `StructLayout` 的声明顺序与偏移成为槽位，标量成员显示“字段名 值/占位符”；成员本身是数组、结构体或指针时成为入口。指针目标的解析发生在**停止点投影**里而不是点击时：分配块来自运行期 IR 事件（`Allocated`/`Released`/`Reallocated`），目标必须落在记录过的分配块内，格数 =（块大小 − 块内偏移）/ 单格字节数，空指针显示 NULL，没有分配记录就不展开、只显示指针值；循环由展开路径上的地址集合阻断。所有结构层（数组、结构体、指针）都在停止点按 IR 类型与事件建好页面并刷新值，宿主点击入口只切换页面焦点，不在点击时读内存或建页。页面按文档的宽度函数右开排列（窗口变窄时收起旧页并保留在路径栏），元素总数超过 512 的数组退回单卡片，页类型的语义嵌套深度不设默认上限（只要求非负）。读写捕获带元素字节偏移时把高亮落到命中的槽（数组/结构体/指针都已展开）。`int a[3][3][3]` 在停止点展开成 13 页——根页 `a[0] a[1] a[2]`、每个入口一页 `a[i][0] a[i][1] a[i][2]`、最内层是元素槽（`a[0][0][0] = 100` 后自动显示 100）。三层都按数组类型渲染，数组性完全来自插桩时记录的类型；`std::vector<int>` 的 `data_` 按堆分配事件展开成 `int[12]` 的连续槽（12 = 分配块 48 字节 / 4 字节一格）。
-
-## 可视化构建与验收
-
-在项目根目录使用 JDK 21。开发运行与发布包使用同一份锁定的完整 Graphviz 分发；`.local` 不纳入 Git。首次准备可按锁定清单下载并校验：
-
-```powershell
-$runtimeLock = Get-Content config/visualization/graphviz-runtime.json -Raw | ConvertFrom-Json
-$archiveDir = Split-Path $runtimeLock.archivePath -Parent
-New-Item -ItemType Directory -Path $archiveDir -Force | Out-Null
-Invoke-WebRequest -Uri $runtimeLock.archiveUrl -OutFile $runtimeLock.archivePath
-if ((Get-FileHash $runtimeLock.archivePath -Algorithm SHA256).Hash -ne $runtimeLock.archiveSha256) {
-    throw 'Graphviz archive checksum mismatch'
-}
-Expand-Archive -LiteralPath $runtimeLock.archivePath -DestinationPath $archiveDir -Force
-./scripts/verify-visualization.ps1 -Stage C28
-```
-
-每次提交前使用该验收入口，重新编译并检查模型、布局、适配、真实 FX、原 UI 回归和默认回归的本次 XML；必需测试缺失、跳过或失败均拒绝验收。门禁会生成 `build/install/Craken`，从任意 cwd 用安装包 JAR 定位并执行自带 neato，完整核验 303 个官方运行文件、校验和及许可证；不依赖全局 Graphviz。`installDist`、`distZip`、`distTar` 都包含 `runtime/graphviz`。
-
-详细模型与职责见[技术方案](可视化容器技术方案.md)，逐提交证据见[实施记录](可视化容器实施记录.md)，测量方法与开销见[性能基准](可视化性能基准.md)。
-
-## 通用弹窗
-
-`craken.ui.component.feedback.UiModalDialog<R>` 统一提供浅色外观、标题栏拖动、模态归属和键盘行为，支持任意 JavaFX `Node` 内容及业务类型的操作结果。在 JavaFX 线程创建和显示；有 owner 时只阻塞所属窗口，无 owner 时使用应用模态。
-
-文字提示使用 `UiMessageDialog.notice(...)`、`confirm(...)` 或 `saveChanges(...)`。三个入口均接收 owner、标题、正文和可选详情（无详情可传 `null`），返回可调用 `show()` / `showAndWait()` 的弹窗；保存确认返回 `SAVE`、`DISCARD` 或 `CANCEL`，普通确认返回 `CONFIRMED` 或 `CANCEL`。
-
-```java
-var result = UiMessageDialog.confirm(owner, "确认操作", "是否继续？", null)
-        .showAndWait().orElse(UiMessageDialog.Result.CANCEL);
-if (result == UiMessageDialog.Result.CONFIRMED) {
-    performAction();
-}
-```
-
-自定义表单直接使用通用容器，操作结果可以是 enum、record 或其他业务类型：
-
-```java
-enum Choice { APPLY, CANCEL }
-var apply = UiModalDialog.Action.primary("应用", Choice.APPLY);
-var cancel = UiModalDialog.Action.cancel("取消", Choice.CANCEL);
-var dialog = new UiModalDialog<>(owner, "设置", formContent, List.of(apply, cancel));
-dialog.actionButton(apply).disableProperty().bind(formInvalid);
-Choice choice = dialog.showAndWait().orElse(Choice.CANCEL);
-```
-
-多按钮弹窗必须包含一个取消操作，最多一个主操作；X 和 Esc 返回取消结果，Enter 执行默认主操作。单按钮提示的 X / Esc 返回其唯一结果。组件只返回用户选择，保存、删除等业务动作由调用方执行。按钮可通过 `actionButton(...)` 禁用或安装事件过滤器校验，尺寸可通过 `getDialogPane()` 调整。`UiDialog` 仍是供 `UiOverlay` 使用的内部布局容器，不承担模态窗口生命周期。
+- 可视化容器：[技术方案](docs/可视化容器技术方案.md)、[布局方案](docs/可视化布局方案.md)、[实施记录](docs/可视化容器实施记录.md)、[性能基准](docs/可视化性能基准.md)
+- 图与样式：[图可视化算法选型](docs/图可视化算法选型.md)、[配色设计规范](docs/Craken-可视化组件配色设计规范-v1.md)
+- 编辑器与调试器：[编辑器补全方案](docs/编辑器补全方案.md)、[编辑器实时纠错方案](docs/编辑器实时纠错方案.md)、[调试器可视化方案](docs/调试器可视化方案.md)
