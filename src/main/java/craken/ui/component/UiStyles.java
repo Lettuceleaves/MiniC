@@ -10,8 +10,10 @@ import craken.ui.component.swing.UiSwingScrollBarUi;
 import javax.swing.JScrollBar;
 import java.awt.Color;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Rectangle;
+import java.awt.image.BufferedImage;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.Locale;
@@ -35,19 +37,29 @@ public final class UiStyles {
             color("8b949e"),
             color("30363d"),
             color("e6edf3"),
-            color("1f6feb"),
+            color("1f6feb", 72), // 文本选择遮罩与区域高光同风格：半透明。
             color("161b22"),
             color("264f78"),
             color("f85149"),
             color("f85149"),
             color("f2cc60", 72) // 仅供外部 SourceRange 区域标记使用。
     );
-    private static final Font DEFAULT_TERMINAL_FONT = DEFAULT_CODE_EDITOR_STYLE.font().deriveFont(16f);
+    private static final float TERMINAL_FONT_SIZE = 16f;
+    /** 终端必须用中英宽度严格 1:2 的等宽字体；已安装者优先，缺失时逐个跳过。 */
+    private static final String[] TERMINAL_FONT_FAMILIES = {
+            "Sarasa Mono SC", "Sarasa Fixed SC", "Sarasa Term SC",
+            "Noto Sans Mono CJK SC", "Source Han Mono SC",
+            "SimHei", "NSimSun", "SimSun", "MS Gothic"
+    };
+    private static final Font DEFAULT_TERMINAL_FONT = terminalFont(TERMINAL_FONT_SIZE);
 
     private UiStyles() {
     }
 
-    /** 终端复用代码编辑器的字形及中文补全，仅保留独立字号。 */
+    /**
+     * 终端字体：终端按“英文 1 格、中文 2 格”逐格绘制，必须使用中英宽度严格 1:2 的物理字体，
+     * 否则按码点回退的中文字形会被裁成半个。编辑器字体仍使用原来的复合字体，不受此处影响。
+     */
     public static Font terminalFont() {
         return DEFAULT_TERMINAL_FONT;
     }
@@ -56,6 +68,17 @@ public final class UiStyles {
     public static javafx.scene.text.Font listFont() {
         Font font = DEFAULT_CODE_EDITOR_STYLE.font();
         return javafx.scene.text.Font.font(font.getFamily(), font.getSize2D());
+    }
+
+    /**
+     * IO 项所在 tab 的默认字体：与交互列表标签、编辑器相同的等宽字体（等宽字体 14px）。
+     *
+     * <p>IO 项不再由终端自行挑选字体族，也不依赖使用者机器上装了哪套中英等宽字体；
+     * 中文字形由该等宽字体的系统回退覆盖。终端逐格渲染需要的严格中英 1:2 度量仍由
+     * {@link #terminalFont()} 提供给 PowerShell 终端。</p>
+     */
+    public static Font tabDefaultFont() {
+        return DEFAULT_CODE_EDITOR_STYLE.font();
     }
 
     /** Swing 内容也使用 App 的滚动条配色，不能依赖外层 JavaFX CSS。 */
@@ -173,6 +196,28 @@ public final class UiStyles {
     private static Font installedFont(String family, int size) {
         Font font = new Font(family, Font.PLAIN, size);
         return font.getFamily(Locale.ROOT).equalsIgnoreCase(family) ? font : null;
+    }
+
+    /** 终端字体候选：只接受半角拉丁等宽、且中文（含全角标点）步进严格为两格的物理字体。 */
+    private static Font terminalFont(float size) {
+        for (String family : TERMINAL_FONT_FAMILIES) {
+            Font candidate = installedFont(family, Math.round(size));
+            if (candidate == null) continue;
+            Font sized = candidate.deriveFont(size);
+            if (hasStrictTerminalMetrics(sized)) return sized;
+        }
+        return DEFAULT_CODE_EDITOR_STYLE.font().deriveFont(size);
+    }
+
+    /** 可打印 ASCII 全部等宽，且中文与全角标点的步进严格等于两个半角格；复合字体不满足该约束。 */
+    static boolean hasStrictTerminalMetrics(Font font) {
+        FontMetrics metrics = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB)
+                .createGraphics().getFontMetrics(font);
+        int half = metrics.charWidth('M');
+        if (half <= 0) return false;
+        for (char latin = 0x20; latin <= 0x7E; latin++) if (metrics.charWidth(latin) != half) return false;
+        for (char wide : "中文，：".toCharArray()) if (metrics.charWidth(wide) != 2 * half) return false;
+        return true;
     }
 
     private record InstalledStyles(

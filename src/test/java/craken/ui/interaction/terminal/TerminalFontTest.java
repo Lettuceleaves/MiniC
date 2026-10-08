@@ -2,6 +2,7 @@ package craken.ui.interaction.terminal;
 
 import com.jediterm.terminal.ui.JediTermWidget;
 import craken.ui.component.UiStyles;
+import craken.ui.component.terminal.UiTerminalWidget;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledOnOs;
 import org.junit.jupiter.api.condition.OS;
@@ -17,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @EnabledOnOs(OS.WINDOWS)
 final class TerminalFontTest {
     @Test
-    void terminalUsesTheEditorFontFamilyWithItsOwnSize() {
+    void terminalKeepsItsOwnPlainSizeAndCjkCoverage() {
         var settings = new TerminalPanel.Settings();
         Font font = settings.getTerminalFont();
         assertSame(UiStyles.terminalFont(), font);
@@ -26,12 +27,9 @@ final class TerminalFontTest {
         assertEquals(Font.PLAIN, font.getStyle());
         assertFalse(font.isTransformed());
         assertNotEquals(Font.MONOSPACED, font.getFamily(Locale.ROOT));
-        for (String family : new String[]{"Cascadia Mono", "Consolas"}) {
-            if (new Font(family, Font.PLAIN, 16).getFamily(Locale.ROOT).equals(family)) {
-                assertEquals(family, font.getFamily(Locale.ROOT));
-                break;
-            }
-        }
+        // 终端字体不再复用编辑器字体族：终端逐格绘制，要求物理字体满足中英宽度严格 1:2，
+        // 只补字形的编辑器复合字体做不到（契约与候选见 craken.ui.component.UiStylesTerminalFontTest）。
+        assertTrue(font.canDisplay('中'), "终端字体必须自身覆盖中文字形");
     }
 
     @Test
@@ -49,6 +47,17 @@ final class TerminalFontTest {
         } finally {
             graphics.dispose();
         }
+    }
+
+    /** IO 项（运行/调试共用）不再由终端挑字体，而是跟随该 tab 的默认字体（等宽字体 14px）。 */
+    @Test
+    void ioTabsFollowTheTabDefaultFont() {
+        var settings = new UiTerminalWidget.TabDefaultFontSettings();
+        assertSame(UiStyles.tabDefaultFont(), settings.getTerminalFont());
+        assertEquals(UiStyles.tabDefaultFont().getSize2D(), settings.getTerminalFontSize());
+        assertEquals(UiStyles.listFont().getFamily(), settings.getTerminalFont().getFamily(Locale.ROOT));
+        assertEquals(14, settings.getTerminalFontSize());
+        assertTrue(settings.getTerminalFont().canDisplay('中'), "tab 默认字体必须能显示中文");
     }
 
     @Test

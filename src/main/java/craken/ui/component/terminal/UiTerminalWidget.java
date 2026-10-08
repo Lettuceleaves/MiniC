@@ -17,7 +17,17 @@ import java.util.Objects;
 /** 共享控制台显示和按键兼容处理；不决定执行 shell 还是用户程序。 */
 public class UiTerminalWidget extends JediTermWidget {
     public UiTerminalWidget() {
-        super(80, 12, new Settings());
+        this(new Settings());
+    }
+
+    /** 指定设置的终端；IO 项传入 {@link TabDefaultFontSettings}，PowerShell 终端用 {@link Settings}。 */
+    public UiTerminalWidget(SettingsProvider settings) {
+        super(80, 12, settings);
+    }
+
+    /** 供测试确认终端当前使用的设置（字体来源）。 */
+    public SettingsProvider settingsProvider() {
+        return mySettingsProvider;
     }
 
     @Override
@@ -62,5 +72,11 @@ public class UiTerminalWidget extends JediTermWidget {
         @Override public boolean useInverseSelectionColor() { return false; }
         @Override public boolean audibleBell() { return false; }
         @Override public int getBufferMaxLinesCount() { return 10_000; }
+    }
+
+    /** IO 项跟随所在 tab 的默认字体：与交互列表标签、编辑器相同的等宽字体，不单独挑选终端字体。 */
+    public static class TabDefaultFontSettings extends Settings {
+        @Override public Font getTerminalFont() { return UiStyles.tabDefaultFont(); }
+        @Override public float getTerminalFontSize() { return getTerminalFont().getSize2D(); }
     }
 }

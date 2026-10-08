@@ -399,6 +399,11 @@ public final class InputOutputPanel extends BorderPane implements AutoCloseable 
     }
 
     private final class Widget extends UiTerminalWidget {
+        Widget() {
+            // IO 项使用该 tab 的默认字体（与交互列表标签、编辑器一致），不单独挑选终端字体。
+            super(new TabDefaultFontSettings());
+        }
+
         @Override
         protected UiTerminalPanel createTerminalPanel(SettingsProvider settings,
                 StyleState style, TerminalTextBuffer buffer) {
