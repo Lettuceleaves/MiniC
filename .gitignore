@@ -20,3 +20,4 @@ release/
 
 # Local/generated verification artifacts
 tmp/path-scan/
+logs/
