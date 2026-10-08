@@ -5,12 +5,19 @@ import craken.compiler.link.LinkResult;
 import craken.compiler.parser.ParserResult;
 import craken.compiler.parser.node.AstNode;
 import craken.compiler.semantic.SemanticResult;
+import craken.ui.component.UiStyles;
+import craken.ui.component.data.UiCollection;
 import craken.ui.component.visualization.UiVisualizationContainer;
 import craken.ui.pipeline.PipelineSession;
 import craken.visualization.api.ViewLocation;
 import craken.visualization.model.ViewNode;
 import javafx.application.Platform;
+import javafx.geometry.Orientation;
 import javafx.scene.Scene;
+import javafx.scene.control.ListCell;
+import javafx.scene.control.ScrollBar;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -136,6 +143,60 @@ final class PipelineEndToEndVisualizationTest {
                     return null;
                 });
             } finally { onFx(() -> { host.close(); return null; }); }
+        }
+    }
+
+    @Test void pipelineSequencePagesReuseTheScrollableListInSlotOrderAndKeepClickFocus() throws Exception {
+        var container = new ProjectionContainer();
+        try {
+            container.apply(PipelinePlans.sequence("Token", List.of(
+                            new PipelinePlans.Row("INT int", Map.of("type", "INT", "lexeme", "int"), null),
+                            new PipelinePlans.Row("ID main", Map.of("type", "ID", "lexeme", "main"), null),
+                            new PipelinePlans.Row("OP {", Map.of("type", "OP", "lexeme", "{"), null)))
+                    .highlighted(Set.of(new ProjectionKey.Indexed("Token", 1))), "lexer");
+            var snapshot = container.snapshot();
+            var view = onFx(() -> {
+                var host = new UiVisualizationContainer();
+                var scene = new Scene(host, 900, 640);
+                UiStyles.install(scene);
+                host.showSnapshot(snapshot);
+                host.resize(900, 640); host.applyCss(); host.layout();
+                return host;
+            });
+            try {
+                onFx(() -> {
+                    assertFalse(view.isLayoutPending());
+                    var occurrence = view.visibleOccurrences().getFirst();
+                    assertTrue(occurrence.isSequenceList());
+                    assertEquals(List.of("INT int", "ID main", "OP {"),
+                            occurrence.sequenceRows().stream()
+                                    .map(craken.ui.component.visualization.PageOccurrenceView.SequenceRow::label)
+                                    .toList());
+                    assertFalse(occurrence.sequenceRows().get(0).highlighted());
+                    assertTrue(occurrence.sequenceRows().get(1).highlighted());
+                    assertFalse(occurrence.sequenceRows().get(2).highlighted());
+                    var list = assertInstanceOf(UiCollection.class, occurrence.lookup(".pipeline-sequence-list"));
+                    assertEquals(3, list.getItems().size());
+                    assertTrue(list.lookupAll(".scroll-bar").stream()
+                            .filter(ScrollBar.class::isInstance).map(ScrollBar.class::cast)
+                            .anyMatch(bar -> bar.getOrientation() == Orientation.VERTICAL),
+                            "sequence pages must expose the shared list scrollbar");
+                    var cells = new ArrayList<ListCell<?>>();
+                    for (var node : list.lookupAll(".list-cell"))
+                        if (node instanceof ListCell<?> cell && cell.getIndex() == 2) cells.add(cell);
+                    assertEquals(1, cells.size());
+                    var clicked = occurrence.sequenceRows().get(2).location();
+                    cells.getFirst().fireEvent(new MouseEvent(MouseEvent.MOUSE_CLICKED, 0, 0, 0, 0,
+                            MouseButton.PRIMARY, 1, false, false, false, false, true, false, false,
+                            false, false, false, null));
+                    assertEquals(clicked, view.displayModel().focus());
+                    return null;
+                });
+            } finally {
+                onFx(() -> { view.close(); return null; });
+            }
+        } finally {
+            container.session.close();
         }
     }
 

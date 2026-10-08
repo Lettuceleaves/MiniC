@@ -28,8 +28,12 @@ public final class VisualizationTheme {
     public static final Srgb NODE_BORDER = new Srgb(90, 105, 126);
     /** Thin outline of the approved IDE card surface. */
     public static final Srgb IDE_BORDER = new Srgb(48, 54, 61);
+    /** Light sectioned-card outline of the bucket design: cards, bucket frame and shared dividers. */
+    public static final Srgb DESIGN_BORDER = new Srgb(139, 148, 158);
     /** Active blue outline of a selected IDE card. */
     public static final Srgb IDE_SELECTION = new Srgb(88, 166, 255);
+    /** Opaque bucket-cell tint under the active blue outline; keeps the Inside stroke contract. */
+    public static final Srgb IDE_SELECTION_TINT = new Srgb(31, 59, 92);
     /** Muted secondary labels on IDE cards; titles and field values stay white. */
     public static final Srgb IDE_MUTED_TEXT = new Srgb(139, 148, 158);
     public static final Srgb INNER_DIVIDER = GROUP_BORDER;

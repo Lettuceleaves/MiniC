@@ -18,9 +18,13 @@ public final class EdgeRenderer {
         return render(edge, direction, EdgeStyle.DEFAULT);
     }
     public Group render(EdgePath edge, Direction direction, EdgeStyle style) {
+        return render(edge, direction, style, 1, 1);
+    }
+    /** The design presentation uses a heavier line and a larger arrow head than the default stroke. */
+    public Group render(EdgePath edge, Direction direction, EdgeStyle style, double strokeWidth, double arrowScale) {
         ViewNodeRenderer.requireFxThread(); Objects.requireNonNull(edge); Objects.requireNonNull(direction); Objects.requireNonNull(style);
         var path = new Path(); path.setFill(null); path.setStroke(stroke(style.lineColor()));
-        path.setStrokeWidth(1); path.setMouseTransparent(true);
+        path.setStrokeWidth(strokeWidth); path.setMouseTransparent(true);
         path.getElements().add(new MoveTo(edge.start().x(), edge.start().y()));
         for (var segment : edge.segments()) {
             if (segment instanceof LayoutResult.Cubic cubic)
@@ -28,8 +32,8 @@ public final class EdgeRenderer {
             else path.getElements().add(new LineTo(segment.end().x(), segment.end().y()));
         }
         var group = new Group(path); group.setMouseTransparent(true);
-        if (direction == Direction.FORWARD || direction == Direction.BOTH) arrow(group, edge.end(), endTangent(edge), stroke(style.effectiveArrowColor()));
-        if (direction == Direction.BACKWARD || direction == Direction.BOTH) arrow(group, edge.start(), startTangent(edge), stroke(style.effectiveArrowColor()));
+        if (direction == Direction.FORWARD || direction == Direction.BOTH) arrow(group, edge.end(), endTangent(edge), stroke(style.effectiveArrowColor()), arrowScale);
+        if (direction == Direction.BACKWARD || direction == Direction.BOTH) arrow(group, edge.start(), startTangent(edge), stroke(style.effectiveArrowColor()), arrowScale);
         if (!style.label().isEmpty()) label(group, edge, style.label());
         return group;
     }
@@ -62,12 +66,13 @@ public final class EdgeRenderer {
         return edge.start();
     }
     private static double distance(Point a, Point b) { return Math.hypot(b.x() - a.x(), b.y() - a.y()); }
-    private static void arrow(Group group, Point tip, Point tangent, Color color) {
+    private static void arrow(Group group, Point tip, Point tangent, Color color, double scale) {
         if (tangent == null) return;
         double length = Math.hypot(tangent.x(), tangent.y()), dx = tangent.x() / length, dy = tangent.y() / length;
-        double baseX = tip.x() - ARROW_LENGTH * dx, baseY = tip.y() - ARROW_LENGTH * dy;
-        var polygon = new Polygon(tip.x(), tip.y(), baseX - dy * ARROW_HALF_WIDTH, baseY + dx * ARROW_HALF_WIDTH,
-                baseX + dy * ARROW_HALF_WIDTH, baseY - dx * ARROW_HALF_WIDTH);
+        double head = ARROW_LENGTH * scale, half = ARROW_HALF_WIDTH * scale;
+        double baseX = tip.x() - head * dx, baseY = tip.y() - head * dy;
+        var polygon = new Polygon(tip.x(), tip.y(), baseX - dy * half, baseY + dx * half,
+                baseX + dy * half, baseY - dx * half);
         polygon.setFill(color); group.getChildren().add(polygon);
     }
     private static Point endTangent(EdgePath edge) {

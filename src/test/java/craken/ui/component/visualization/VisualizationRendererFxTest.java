@@ -177,6 +177,81 @@ final class VisualizationRendererFxTest {
             return null;
         });
     }
+    @Test void contiguousBucketCellsShareDividersAndKeepIndexLabelsAndPorts() throws Exception {
+        onFx(() -> {
+            var nodes = new LinkedHashMap<Long, ViewNode>();
+            nodes.put(1L, new NodeModel(1, new ViewNode.Spec(ViewNode.Kind.ARRAY, "buckets[3]"),
+                    List.of(location(2), location(3), location(4))));
+            nodes.put(2L, new NodeModel(2, new ViewNode.Spec(ViewNode.Kind.POINT, "head", Map.of("head", "0x1000")), List.of()));
+            nodes.put(3L, new NodeModel(3, new ViewNode.Spec(ViewNode.Kind.POINT, "NULL", Map.of("head", "0x0")), List.of()));
+            nodes.put(4L, new NodeModel(4, new ViewNode.Spec(ViewNode.Kind.POINT, "head", Map.of("head", "0x2000")), List.of()));
+            var style = ViewNodeRenderer.ArrayStyle.slots(90);
+            var theme = VisualizationTheme.of(VisualizationTheme.Preset.NEUTRAL);
+            var rendered = new ViewNodeRenderer().render(nodes.get(1L), nodes, theme, Set.of(location(3)), style);
+            var bounds = new HashMap<ViewLocation, Rect>();
+            rendered.unit().members().forEach(member -> bounds.put(member.node(), member.bounds()));
+            var first = bounds.get(location(2)); var second = bounds.get(location(3)); var third = bounds.get(location(4));
+            assertEquals(first.bottom(), second.y(), 1e-7, "cells share one straight divider");
+            assertEquals(second.bottom(), third.y(), 1e-7);
+            assertEquals(90, first.height(), 1e-7);
+            assertEquals(first.x(), second.x(), 1e-7); assertEquals(first.width(), second.width(), 1e-7);
+            assertTrue(first.y() > 0, "the caption sits above the contiguous frame");
+            var frame = (Rectangle) rendered.view().getChildren().getFirst();
+            assertEquals(third.right(), frame.getLayoutX() + frame.getWidth(), 1e-7, "one shared frame closes the list");
+            assertEquals(third.bottom(), frame.getLayoutY() + frame.getHeight(), 1e-7);
+            var port = rendered.unit().ports().stream()
+                    .filter(candidate -> candidate.ref().equals(new PortRef(location(2), "field:head"))).findFirst().orElseThrow();
+            assertEquals(Side.EAST, port.side());
+            assertEquals(bounds.get(location(2)).right(), port.anchor().x(), 1e-7);
+            assertEquals(bounds.get(location(2)).center().y(), port.anchor().y(), 1e-7);
+            var texts = descendants(rendered.view()).stream().filter(Text.class::isInstance).map(node -> ((Text) node).getText()).toList();
+            assertTrue(texts.containsAll(List.of("buckets[3]", "[0]", "[1]", "[2]", "NULL")), texts.toString());
+            assertEquals(rendered.unit(), new FxNodeMeasurer().measure(nodes.get(1L), nodes, theme, Set.of(location(3)), style));
+            return null;
+        });
+    }
+    @Test void contiguousSlotArraysKeepLongFieldRowsCompact() throws Exception {
+        onFx(() -> {
+            var nodes = new LinkedHashMap<Long, ViewNode>();
+            nodes.put(1L, new NodeModel(1, new ViewNode.Spec(ViewNode.Kind.ARRAY, "freq",
+                    Map.of("type", "std::map<std::string, int, std::less<std::string>>")),
+                    List.of(location(2), location(3))));
+            nodes.put(2L, new NodeModel(2, new ViewNode.Spec(ViewNode.Kind.POINT, "tree_", Map.of("type", "std::map<...>")), List.of()));
+            nodes.put(3L, new NodeModel(3, new ViewNode.Spec(ViewNode.Kind.POINT, "size_", Map.of("value", "4")), List.of()));
+            var style = ViewNodeRenderer.ArrayStyle.slots(90);
+            var theme = VisualizationTheme.of(VisualizationTheme.Preset.NEUTRAL);
+            // 长类型行不能把卡片撑到远超页面宽度：上游页被压成窄条时，槽里的文字会被裁掉看不见。
+            var rendered = new ViewNodeRenderer().render(nodes.get(1L), nodes, theme, Set.of(), style);
+            var texts = descendants(rendered.view()).stream().filter(Text.class::isInstance)
+                    .map(node -> ((Text) node).getText()).toList();
+            assertTrue(texts.stream().anyMatch(text -> text.startsWith("std::map<") && text.endsWith("…")),
+                    "超长字段值要截断显示：" + texts);
+            assertTrue(texts.contains("tree_"), "槽里的成员名必须仍然可见：" + texts);
+            assertTrue(rendered.unit().size().width() <= 320,
+                    "长类型行截断后卡片保持紧凑，实际宽度 " + rendered.unit().size().width());
+            return null;
+        });
+    }
+
+    @Test void contiguousMemberCellsShowTheirValueBesideTheMemberName() throws Exception {
+        onFx(() -> {
+            var nodes = new LinkedHashMap<Long, ViewNode>();
+            nodes.put(1L, new NodeModel(1, new ViewNode.Spec(ViewNode.Kind.ARRAY, "nums"),
+                    List.of(location(2), location(3), location(4))));
+            nodes.put(2L, new NodeModel(2, new ViewNode.Spec(ViewNode.Kind.POINT, "data_", Map.of("value", "0x10848")), List.of()));
+            nodes.put(3L, new NodeModel(3, new ViewNode.Spec(ViewNode.Kind.POINT, "size_", Map.of("value", "12")), List.of()));
+            nodes.put(4L, new NodeModel(4, new ViewNode.Spec(ViewNode.Kind.POINT, "capacity_", Map.of("value", "未解析")), List.of()));
+            var style = ViewNodeRenderer.ArrayStyle.slots(90);
+            var theme = VisualizationTheme.of(VisualizationTheme.Preset.NEUTRAL);
+            var rendered = new ViewNodeRenderer().render(nodes.get(1L), nodes, theme, Set.of(), style);
+            var texts = descendants(rendered.view()).stream().filter(Text.class::isInstance)
+                    .map(node -> ((Text) node).getText()).toList();
+            assertTrue(texts.contains("data_  0x10848"), "结构体成员槽显示字段名与指针值：" + texts);
+            assertTrue(texts.contains("size_  12"), "标量成员槽显示字段名与值：" + texts);
+            assertTrue(texts.contains("capacity_  未解析"), "地址未知时显示占位符：" + texts);
+            return null;
+        });
+    }
     @Test void largerActualFontsChangeGeometryAndKeepEveryMemberPortValid() throws Exception {
         onFx(() -> {
             var nodes = matrix(); var theme = VisualizationTheme.of(VisualizationTheme.Preset.BLUE);

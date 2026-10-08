@@ -923,6 +923,30 @@
     -fx-text-fill: -ui-error;
 }
 
+/* Pipeline 阶段输出的序列页复用 interaction-list 的滚动条，只覆盖行内排版与命中高亮。 */
+.ui-collection.pipeline-sequence-list {
+    -fx-padding: 4 0;
+}
+
+.pipeline-sequence-list .list-cell {
+    -fx-padding: 0 8;
+}
+
+.pipeline-sequence-list .list-cell:highlighted {
+    -fx-background-color: -ui-list-selection-outline, -ui-list-selection;
+    -fx-background-insets: 0 4, 1 5;
+}
+
+.pipeline-sequence-index,
+.pipeline-sequence-detail {
+    -fx-text-fill: -ui-text-muted;
+    -fx-font-size: 11px;
+}
+
+.pipeline-sequence-label {
+    -fx-text-fill: -ui-text;
+}
+
 .pipeline-step-button {
     -fx-background-color: -ui-surface-raised;
     -fx-border-color: -ui-border;

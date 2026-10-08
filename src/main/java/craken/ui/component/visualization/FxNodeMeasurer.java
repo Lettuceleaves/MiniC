@@ -16,6 +16,11 @@ public final class FxNodeMeasurer {
         ViewNodeRenderer.requireFxThread();
         return measured(renderer.render(owner, pageNodes, theme, highlights));
     }
+    public LayoutRequest.Unit measure(ViewNode owner, Map<Long, ViewNode> pageNodes, VisualizationTheme theme,
+                                      Set<ViewLocation> highlights, ViewNodeRenderer.ArrayStyle style) {
+        ViewNodeRenderer.requireFxThread();
+        return measured(renderer.render(owner, pageNodes, theme, highlights, style));
+    }
     public LayoutRequest.Unit measure(ViewNode owner, Map<Long, ViewNode> pageNodes,
                                       Map<ViewLocation, VisualizationTheme> themes, Set<ViewLocation> highlights) {
         ViewNodeRenderer.requireFxThread();
