@@ -36,6 +36,7 @@ public final class UiIcon extends Region {
         LINK("链接"),
         STEP_FORWARD("下一步"),
         NEXT_STAGE("下一阶段"),
+        RESET("重置"),
         CHECK("已完成"),
         CHEVRON_RIGHT("当前阶段");
 
@@ -130,6 +131,10 @@ public final class UiIcon extends Region {
                     outline("M4 5v14l10-7zM19 5v14", StrokeLineCap.SQUARE));
             case NEXT_STAGE -> new Group(
                     outline("M3 6v12l7-6zM10 6v12l7-6zM21 6v12", StrokeLineCap.SQUARE));
+            case RESET -> new Group(
+                    outline("M3.9 12a8.1 8.1 0 1 0 8.1-8.1 8.775 8.775 0 0 0-6.066 2.466L3.9 8.4",
+                            StrokeLineCap.ROUND),
+                    outline("M3.9 3.9v4.5h4.5", StrokeLineCap.ROUND));
             case CHECK -> new Group(outline("m5 12 4.5 4.5L19 7", StrokeLineCap.ROUND));
             case CHEVRON_RIGHT -> new Group(outline("m9 5 7 7-7 7", StrokeLineCap.ROUND));
         };

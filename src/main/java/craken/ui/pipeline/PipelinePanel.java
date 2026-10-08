@@ -37,6 +37,7 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
     private static final double MIN_STAGE_HEIGHT = 56;
     private static final String[] INPUT_TYPES = {"源码", "预处理结果", "Token", "源码 AST", "AST", "IR", "汇编与编码", "目标文件"};
     private static final String[] OUTPUT_TYPES = {"预处理结果", "Token", "AST", "语义 AST", "IR", "汇编", "COFF 目标文件", "PE 与链接产物"};
+    private final UiButton restart = new UiButton("重置");
     private final UiButton nextStep = new UiButton("下一步");
     private final UiButton nextStage = new UiButton("下一阶段");
     private final UiCollection<PipelineSession.StageView> stages = new UiCollection<>();
@@ -79,6 +80,10 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
 
     public void setOnNextStep(Runnable action) {
         nextStep.setOnAction(event -> action.run());
+    }
+
+    public void setOnRestart(Runnable action) {
+        restart.setOnAction(event -> action.run());
     }
 
     public void setOnNextStage(Runnable action) {
@@ -266,23 +271,31 @@ public final class PipelinePanel extends BorderPane implements AutoCloseable {
     }
 
     private BorderPane createSidebar() {
+        restart.setId("pipeline-restart");
         nextStep.setId("pipeline-next-step");
         nextStage.setId("pipeline-next-stage");
+        restart.getStyleClass().add("pipeline-step-button");
         nextStep.getStyleClass().add("pipeline-step-button");
         nextStage.getStyleClass().add("pipeline-stage-button");
+        restart.setGraphic(new UiIcon(UiIcon.Kind.RESET, 16));
         nextStep.setGraphic(new UiIcon(UiIcon.Kind.STEP_FORWARD, 16));
         nextStage.setGraphic(new UiIcon(UiIcon.Kind.NEXT_STAGE, 16));
+        restart.setGraphicTextGap(8);
         nextStep.setGraphicTextGap(8);
         nextStage.setGraphicTextGap(8);
+        restart.setTooltip(new UiTooltip("重置", "重新读取当前编辑缓冲区，清空展示状态并从预处理重新开始。", ""));
         nextStep.setTooltip(new UiTooltip("下一步", "执行当前编译阶段的一步。", ""));
         nextStage.setTooltip(new UiTooltip("下一阶段", "完成当前阶段，停在下一阶段入口。", ""));
+        restart.setMaxWidth(Double.MAX_VALUE);
         nextStep.setMaxWidth(Double.MAX_VALUE);
         nextStage.setMaxWidth(Double.MAX_VALUE);
+        restart.setPrefWidth(0);
         nextStep.setPrefWidth(0);
         nextStage.setPrefWidth(0);
+        HBox.setHgrow(restart, Priority.ALWAYS);
         HBox.setHgrow(nextStep, Priority.ALWAYS);
         HBox.setHgrow(nextStage, Priority.ALWAYS);
-        HBox actions = new HBox(8, nextStep, nextStage);
+        HBox actions = new HBox(8, restart, nextStep, nextStage);
         actions.setPadding(new Insets(10, 12, 10, 12));
         actions.getStyleClass().add("interaction-toolbar");
         source.setTextOverrun(OverrunStyle.ELLIPSIS);

@@ -222,15 +222,20 @@ final class PipelineWorkbenchFlowTest {
         for (var host : ui.hosts()) {
             assertTrue(host.getWidth() > 100 && host.getHeight() > 100);
             assertFalse(host.visibleOccurrences().isEmpty());
-            var parts = host.visibleOccurrences().stream().flatMap(page -> page.parts().stream()).toList();
-            assertFalse(parts.isEmpty(), "each published side must display actual content");
-            for (var part : parts) {
-                assertFalse(part.isPending());
-                assertEquals("", part.errorText());
-                assertNotNull(part.geometry());
-                assertFalse(part.geometry().nodeBounds().isEmpty());
-                assertTrue(part.geometry().contentBounds().width() > 0);
-                assertTrue(part.geometry().contentBounds().height() > 0);
+            for (var page : host.visibleOccurrences()) {
+                if (page.isSequenceList()) {
+                    assertTrue(page.sequenceRowCount() > 0, "sequence pages must list at least one row");
+                    continue;
+                }
+                assertFalse(page.parts().isEmpty(), "each published side must display actual content");
+                for (var part : page.parts()) {
+                    assertFalse(part.isPending());
+                    assertEquals("", part.errorText());
+                    assertNotNull(part.geometry());
+                    assertFalse(part.geometry().nodeBounds().isEmpty());
+                    assertTrue(part.geometry().contentBounds().width() > 0);
+                    assertTrue(part.geometry().contentBounds().height() > 0);
+                }
             }
         }
     }

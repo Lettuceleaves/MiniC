@@ -39,6 +39,7 @@ public final class PipelineController implements AutoCloseable {
         outputRoot = Objects.requireNonNull(projectRoot).resolve("build").resolve("craken-pipelines");
         editors.activeFileProperty().addListener(selectionChanged);
         frame.setOnPipeline(this::open);
+        panel.setOnRestart(this::restart);
         panel.setOnNextStep(() -> advance(false));
         panel.setOnNextStage(() -> advance(true));
         panel.setOnSelectStage(this::selectStage);
@@ -49,28 +50,52 @@ public final class PipelineController implements AutoCloseable {
     public void open() {
         requireFxThread();
         if (closed) return;
-        EditorFile selected = editors.activeFile();
+        EditorFile selected = editors.focusedFile();
         if (selected == null) return;
         display.show(panel);
         frame.showPipelineDisplayArea();
         SourceFile source = new SourceFile(selected.path().toString(), selected.editor().text());
         if (active != null && active.source.equals(source)) return;
+        start(source, selected.path().getFileName().toString());
+    }
+
+    /** 从头开始：重新读取当前编辑缓冲区，丢弃旧会话与全部展示状态。 */
+    public void restart() {
+        requireFxThread();
+        if (closed) return;
+        EditorFile selected = editors.focusedFile();
+        if (selected == null) return;
+        display.show(panel);
+        frame.showPipelineDisplayArea();
+        start(new SourceFile(selected.path().toString(), selected.editor().text()),
+                selected.path().getFileName().toString());
+    }
+
+    private void start(SourceFile source, String fileName) {
         Request previous = active;
-        if (previous != null && previous.future != null) previous.future.cancel(true);
-        if (previous != null) worker.submit(() -> { if (previous.session != null) previous.session.close(); });
+        if (previous != null) discard(previous);
         Request request = new Request(source);
         active = request;
         busy = true;
-        panel.preparing(selected.path().getFileName().toString());
+        panel.preparing(fileName);
         request.future = worker.submit(() -> {
             try {
                 if (Thread.currentThread().isInterrupted()) return;
-                request.session = PipelineSession.create(source, outputRoot);
-                publish(request, request.session.snapshot(), null);
+                PipelineSession session = PipelineSession.create(source, outputRoot);
+                request.session = session;
+                if (request.abandoned) { session.close(); return; }
+                publish(request, session.snapshot(), null);
             } catch (Exception | LinkageError failure) {
                 publish(request, null, failure);
             }
         });
+    }
+
+    /** 取消可能仍在准备的旧请求，并让其在后台关闭；已完成创建但已被放弃的会话由创建任务自行关闭。 */
+    private void discard(Request request) {
+        request.abandoned = true;
+        if (request.future != null) request.future.cancel(true);
+        worker.submit(() -> { if (request.session != null) request.session.close(); });
     }
 
     private void advance(boolean entireStage) {
@@ -120,7 +145,7 @@ public final class PipelineController implements AutoCloseable {
     }
 
     private void updateAvailability() {
-        frame.setPipelineDisabled(closed || editors.activeFile() == null);
+        frame.setPipelineDisabled(closed || editors.focusedFile() == null);
     }
 
     @Override
@@ -128,7 +153,6 @@ public final class PipelineController implements AutoCloseable {
         requireFxThread();
         if (closed) return;
         closed = true;
-        if (active != null && active.future != null) active.future.cancel(true);
         Request previous = active;
         active = null;
         editors.activeFileProperty().removeListener(selectionChanged);
@@ -136,7 +160,7 @@ public final class PipelineController implements AutoCloseable {
         panel.setBusy(true);
         try { panel.close(); }
         finally {
-            try { if (previous != null) worker.submit(() -> { if (previous.session != null) previous.session.close(); }); }
+            try { if (previous != null) discard(previous); }
             finally { worker.shutdown(); updateAvailability(); }
         }
     }
@@ -148,6 +172,7 @@ public final class PipelineController implements AutoCloseable {
     private static final class Request {
         private final SourceFile source;
         private volatile PipelineSession session;
+        private volatile boolean abandoned;
         private Future<?> future;
 
         private Request(SourceFile source) {

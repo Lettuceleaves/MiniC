@@ -58,6 +58,29 @@ final class PipelineControllerLifecycleTest {
         }
     }
 
+    @Test void restartCancelsAnInFlightStepAndReleasesTheReplacedSession() throws Exception {
+        try (Fixture ui = fixture()) {
+            BlockingStep blocked = installBlockingFirstStep(ui);
+            onFx(() -> { ui.step().fire(); return null; });
+            assertTrue(blocked.entered.await(10, TimeUnit.SECONDS));
+            String replacement = "int main(){return 9;}";
+            onFx(() -> { ui.file.editor().setSource(replacement); ui.restart().fire(); return null; });
+            ui.worker.submit(() -> { }).get(10, TimeUnit.SECONDS);
+            onFx(() -> {
+                assertEquals(0, blocked.visualization.activeContainerCount());
+                assertNotSame(blocked.session, read(read(ui.controller, "active"), "session"));
+                var frame = ui.panel().visualization();
+                assertNotNull(frame);
+                assertEquals(-1, frame.stageIndex());
+                assertTrue(frame.input().pages().values().stream().flatMap(page -> page.nodes().values().stream())
+                        .anyMatch(node -> replacement.equals(node.content().fields().get("text"))));
+                assertFalse(ui.step().isDisabled());
+                return null;
+            });
+            assertTrue(blocked.interrupted.await(10, TimeUnit.SECONDS));
+        }
+    }
+
     @Test void closingDuringARealStepStopsTheWorkerAndClosesBothHostsAndSessions() throws Exception {
         try (Fixture ui = fixture()) {
             BlockingStep blocked = installBlockingFirstStep(ui);
@@ -187,6 +210,7 @@ final class PipelineControllerLifecycleTest {
         }
         PipelinePanel panel() { return (PipelinePanel) display.getChildren().getFirst(); }
         Button step() { return (Button) panel().lookup("#pipeline-next-step"); }
+        Button restart() { return (Button) panel().lookup("#pipeline-restart"); }
         @Override public void close() throws Exception {
             onFx(() -> { controller.close(); editors.setCloseDecisionHandler(file -> EditorArea.CloseChoice.DISCARD); assertTrue(editors.closeAll()); return null; });
             assertTrue(worker.awaitTermination(10, TimeUnit.SECONDS));

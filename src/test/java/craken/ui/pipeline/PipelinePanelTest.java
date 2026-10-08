@@ -174,6 +174,36 @@ final class PipelinePanelTest {
         });
     }
 
+    @Test
+    void restartRemainsAvailableWhileBusyOrFailedAndFiresTheCallback() throws Exception {
+        onFx(() -> {
+            PipelinePanel panel = new PipelinePanel();
+            AtomicInteger restarts = new AtomicInteger();
+            panel.setOnRestart(restarts::incrementAndGet);
+            Button restart = button(panel, "#pipeline-restart");
+            assertEquals("重置", restart.getText());
+            assertNotNull(restart.getGraphic(), "reset must be labeled with its own icon");
+            assertFalse(restart.isDisabled());
+            restart.fire();
+
+            panel.show(snapshot(1, 7));
+            panel.setBusy(true);
+            assertFalse(restart.isDisabled(), "restart must stay available to discard in-flight work");
+            restart.fire();
+
+            List<PipelineSession.StageView> failed = List.of(
+                    new PipelineSession.StageView(0, "预处理", PipelineSession.Status.COMPLETED, true, ""),
+                    new PipelineSession.StageView(1, "词法分析", PipelineSession.Status.FAILED, true, "invalid token"),
+                    new PipelineSession.StageView(2, "语法分析", PipelineSession.Status.PENDING, false, ""));
+            panel.show(new PipelineSession.Snapshot(failed, 1, 1, 14, false, false, true));
+            assertFalse(restart.isDisabled(), "a failed build must still be restartable");
+            restart.fire();
+
+            assertEquals(3, restarts.get());
+            return null;
+        });
+    }
+
     private static PipelineSession.Snapshot snapshot(int currentStage, long steps) {
         List<PipelineSession.StageView> stages = IntStream.range(0, PipelineSession.stageLabels().size())
                 .mapToObj(index -> new PipelineSession.StageView(index, PipelineSession.stageLabels().get(index),

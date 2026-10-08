@@ -16,11 +16,13 @@ import craken.ui.display.DisplayArea;
 import craken.ui.editor.EditorArea;
 import craken.ui.editor.EditorFile;
 import craken.ui.frame.AppFrame;
+import craken.visualization.adapter.pipeline.PipelineVisualizationSession;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.Callable;
@@ -317,8 +319,61 @@ final class PipelineControllerTest {
         }
     }
 
+    @Test
+    void restartDiscardsEveryProgressAndRebuildsFromTheCurrentBuffer() throws Exception {
+        Path source = Files.writeString(directory.resolve("restart.mc"), "int main() { return 0; }\n");
+        try (Fixture ui = fixture()) {
+            EditorFile file = onFx(() -> ui.editors.openFile(source));
+            perform(ui, () -> { ui.icon().fire(); return null; });
+            perform(ui, () -> { ui.stage().fire(); return null; });
+            PipelineSession previous = ui.session();
+            var previousFrame = onFx(() -> ui.panel().visualization());
+            onFx(() -> {
+                assertEquals(PipelineSession.Status.COMPLETED, ui.stages().getItems().get(0).status());
+                ui.stages().getSelectionModel().select(0);
+                return null;
+            });
+            String replacement = "int main() { return 41; }\n";
+            perform(ui, () -> {
+                file.editor().setSource(replacement);
+                ui.restart().fire();
+                assertTrue(ui.step().isDisabled(), "rebuilding must lock advance commands");
+                return null;
+            });
+            onFx(() -> {
+                assertEquals("已执行 0 步", ui.status().getText());
+                assertEquals(0, ui.stages().getSelectionModel().getSelectedIndex());
+                assertEquals(PipelineSession.Status.CURRENT, ui.stages().getItems().get(0).status());
+                assertEquals(PipelineSession.Status.PENDING, ui.stages().getItems().get(1).status());
+                assertNotSame(previous, ui.session());
+                var frame = ui.panel().visualization();
+                assertNotSame(previousFrame, frame);
+                assertEquals(-1, frame.stageIndex());
+                assertTrue(frame.input().pages().values().stream().flatMap(page -> page.nodes().values().stream())
+                                .anyMatch(node -> replacement.stripTrailing().equals(node.content().fields().get("text"))),
+                        "restart must re-read the edited buffer, not reuse the previous snapshot");
+                assertEquals(0, visualization(previous).activeContainerCount(),
+                        "the replaced session must release both core containers");
+                assertFalse(ui.step().isDisabled());
+                return null;
+            });
+            assertEquals(2, sessionCount());
+            assertEquals("int main() { return 0; }\n", Files.readString(source));
+        }
+    }
+
     private Fixture fixture() throws Exception {
         return onFx(() -> new Fixture(directory));
+    }
+
+    private static PipelineVisualizationSession visualization(PipelineSession session) throws Exception {
+        return (PipelineVisualizationSession) read(session, "visualization");
+    }
+
+    private static Object read(Object target, String fieldName) throws Exception {
+        Field field = target.getClass().getDeclaredField(fieldName);
+        field.setAccessible(true);
+        return field.get(target);
     }
 
     private long sessionCount() throws Exception {
@@ -393,6 +448,8 @@ final class PipelineControllerTest {
         PipelinePanel panel() { return assertInstanceOf(PipelinePanel.class, display.getChildren().getFirst()); }
         Button step() { return assertInstanceOf(Button.class, panel().lookup("#pipeline-next-step")); }
         Button stage() { return assertInstanceOf(Button.class, panel().lookup("#pipeline-next-stage")); }
+        Button restart() { return assertInstanceOf(Button.class, panel().lookup("#pipeline-restart")); }
+        PipelineSession session() throws Exception { return (PipelineSession) read(read(controller, "active"), "session"); }
         Label status() { return assertInstanceOf(Label.class, panel().lookup("#pipeline-status")); }
         SplitPane split() { return assertInstanceOf(SplitPane.class, panel().lookup("#pipeline-io-split")); }
 
