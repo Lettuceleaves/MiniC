@@ -7,7 +7,12 @@ import java.util.HashSet;
 /** Explicit caller schema; malloc events never imply a tree, list, or hash table. */
 public record DebugStructureDescriptor(String key, String pageTypeKey, ViewKind viewKind, int minimumSize,
                                        List<Field> fields, List<Reference> references, ArrayLayout array,
-                                       ReallocationPolicy reallocationPolicy) {
+                                       ReallocationPolicy reallocationPolicy, String label) {
+    public DebugStructureDescriptor(String key, String pageTypeKey, ViewKind viewKind, int minimumSize,
+                                    List<Field> fields, List<Reference> references, ArrayLayout array,
+                                    ReallocationPolicy reallocationPolicy) {
+        this(key, pageTypeKey, viewKind, minimumSize, fields, references, array, reallocationPolicy, key);
+    }
     public enum ViewKind { POINT, ARRAY, LINKED, TREE, GRAPH }
     public enum Relation { TOPOLOGY, OWNERSHIP }
     public enum Direction { NONE, FORWARD, BACKWARD, BOTH }
@@ -44,6 +49,7 @@ public record DebugStructureDescriptor(String key, String pageTypeKey, ViewKind 
 
     public DebugStructureDescriptor {
         requireKey(key); requireKey(pageTypeKey);
+        label = label == null || label.isBlank() ? key : label;
         if (minimumSize <= 0) throw new IllegalArgumentException("Object size must be positive");
         fields = List.copyOf(fields);
         references = List.copyOf(references);

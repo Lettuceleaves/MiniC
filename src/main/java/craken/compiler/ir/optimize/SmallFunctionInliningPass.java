@@ -267,7 +267,8 @@ public final class SmallFunctionInliningPass implements IrPass {
             if (instruction instanceof IrReturnInstruction) hasReturn = true;
             // These checks return from the current native frame; cloning them would return from the wrong function.
             if (instruction instanceof IrCheckInitializedInstruction || instruction instanceof IrCheckNonZeroInstruction
-                    || instruction instanceof IrTrapInstruction || instruction instanceof IrIndirectCallInstruction) return null;
+                    || instruction instanceof IrTrapInstruction || instruction instanceof IrCaptureInstruction
+                    || instruction instanceof IrIndirectCallInstruction) return null;
             IrLocal local = localOf(instruction);
             if (local != null && local.incomingArgumentArea()) return null;
             for (IrValue value : IrValueUses.inputs(instruction))
@@ -439,6 +440,7 @@ public final class SmallFunctionInliningPass implements IrPass {
                 case IrCheckInitializedInstruction ignored -> throw new IllegalStateException("checked candidate");
                 case IrCheckNonZeroInstruction ignored -> throw new IllegalStateException("checked candidate");
                 case IrTrapInstruction ignored -> throw new IllegalStateException("debug candidate");
+                case IrCaptureInstruction ignored -> throw new IllegalStateException("debug candidate");
                 case IrIndirectCallInstruction ignored -> throw new IllegalStateException("indirect candidate");
                 case IrReturnInstruction ignored -> throw new IllegalStateException("return must join at call site");
             };

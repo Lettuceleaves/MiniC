@@ -74,6 +74,9 @@ public final class DebugApi {
     public boolean canNext() { return iterator.hasNext(); }
     public boolean canPrevious() { return iterator.hasPrevious(); }
 
+    /** 暂停期间追加标准输入，由下一次读取消费；不改变已记录的历史上下文。 */
+    public void appendStandardInput(String text) { debugger.appendStandardInput(text); }
+
     private final class ContextIterator implements ListIterator<Debugger.Context> {
         @Override public boolean hasNext() { return debugger.canStep(); }
         @Override public Debugger.Context next() {

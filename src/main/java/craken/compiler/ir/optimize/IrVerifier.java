@@ -285,6 +285,7 @@ public final class IrVerifier {
                     else assignable(lower(function.returnType()), returned.value());
                 }
                 case IrTrapInstruction ignored -> problem("DEBUG_TRAP", "Native optimization requires uninstrumented IR");
+                case IrCaptureInstruction ignored -> problem("DEBUG_CAPTURE", "Native optimization requires uninstrumented IR");
                 case IrCastInstruction ignored -> { /* Explicit casts can change scalar/pointer representations. */ }
                 case IrDeclareLocalInstruction ignored -> { }
                 case IrCheckInitializedInstruction ignored -> { }
@@ -428,6 +429,7 @@ public final class IrVerifier {
             case IrReturnInstruction ignored -> null;
             case IrCheckNonZeroInstruction ignored -> null;
             case IrTrapInstruction ignored -> null;
+            case IrCaptureInstruction ignored -> null;
         };
     }
 
@@ -468,6 +470,7 @@ public final class IrVerifier {
             case IrAddressOfLocalInstruction ignored -> List.of();
             case IrJumpInstruction ignored -> List.of();
             case IrTrapInstruction ignored -> List.of();
+            case IrCaptureInstruction ignored -> List.of();
         };
     }
 }

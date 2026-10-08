@@ -1,6 +1,8 @@
 package craken.debug;
 
 import craken.compiler.ir.model.*;
+import craken.compiler.ir.instruction.IrInstruction;
+import craken.compiler.ir.instruction.MemoryInstruction.IrDeclareLocalInstruction;
 import craken.compiler.ir.value.IrValue.IrTemporary;
 import craken.debug.visualization.RuntimeEventCollector;
 import craken.debug.visualization.RuntimeEvent;
@@ -38,7 +40,10 @@ public final class DebugRuntime {
     private final Map<Long, String> functions = new LinkedHashMap<>();
     private long nextAddress = 0x10000;
     private long nextAllocationIdentity = 1;
-    private final byte[] input;
+    private final java.util.concurrent.ConcurrentLinkedQueue<byte[]> pendingInput =
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
+    private byte[] input;
+    private int inputLength;
     private int inputOffset;
     private int inputPushback = -1;
     private boolean inputEof;
@@ -89,6 +94,7 @@ public final class DebugRuntime {
         this.code = code;
         this.input = Objects.requireNonNull(input, "input").replace("\r\n", "\n")
                 .getBytes(StandardCharsets.UTF_8);
+        this.inputLength = this.input.length;
         this.timeSource = Objects.requireNonNull(timeSource, "timeSource");
         if (heapCapacity < 0) {
             throw new IllegalArgumentException("heapCapacity must not be negative");
@@ -163,29 +169,50 @@ public final class DebugRuntime {
 
     /** 返回只读的当前栈视图；地址随调用帧分配，递归调用不会共用局部变量。 */
     public List<StackFrame> stack() {
-        return events.withoutEvents(() -> stack.stream().map(f -> new StackFrame(
-                code.ir().displayName(f.function.name()), f.block, f.pc,
-                displayedNames(parameterValues(f)), displayedNames(f.locals), Map.copyOf(f.temps))).toList());
+        return events.withoutEvents(() -> stack.stream().map(frame -> {
+            String function = code.ir().displayName(frame.function.name());
+            Map<String, IrLocal> localsByName = localsOf(frame.function);
+            List<StackVariable> parameters = new ArrayList<>();
+            frame.parameters.forEach((name, value) -> {
+                IrParameter parameter = frame.function.parameters().stream()
+                        .filter(item -> item.name().equals(name)).findFirst().orElse(null);
+                String type = parameter == null ? value.type().name() : parameter.declaredType().toString();
+                parameters.add(new StackVariable(code.ir().displayName(name), type,
+                        frame.parameterAddresses.getOrDefault(name, 0L), value, false));
+            });
+            List<StackVariable> locals = new ArrayList<>();
+            frame.locals.forEach((name, address) -> {
+                IrLocal local = localsByName.get(name);
+                String type = local == null ? "" : local.declaredType().toString();
+                // 聚合槽位以地址表示；不能按“存储字节数 > 指针宽度”判断，int[2] 恰好是指针宽度。
+                boolean aggregate = local != null && local.aggregate();
+                Value value = null;
+                if (local != null && !aggregate) {
+                    try {
+                        value = read(address, local.type());
+                    } catch (IllegalStateException uninitialized) {
+                        // 已声明但尚未写入的槽位保持 null，由展示层标为“未初始化”。
+                    }
+                }
+                String displayName = local == null ? name : code.ir().displayName(local.sourceName());
+                locals.add(new StackVariable(displayName, type, address, value, aggregate));
+            });
+            return new StackFrame(function, frame.block, frame.pc, frame.lastLine,
+                    parameters, locals, Map.copyOf(frame.temps));
+        }).toList());
     }
 
-    private Map<String, Value> parameterValues(Frame frame) {
-        Map<String, Value> values = new LinkedHashMap<>();
-        frame.parameters.keySet().forEach(name -> values.put(name, parameter(frame, name)));
-        return values;
-    }
-
-    /** Rendering never mutates executable keys; distinct slots must survive equal source names. */
-    private <T> Map<String, T> displayedNames(Map<String, T> values) {
-        Map<String, T> displayed = new LinkedHashMap<>();
-        values.forEach((key, value) -> {
-            String original = code.ir().displayName(key);
-            String unique = original;
-            for (int occurrence = 2; displayed.containsKey(unique); occurrence++) {
-                unique = original + " [" + occurrence + "]";
+    /** 收集函数内声明的局部槽位；重复声明只保留第一次出现的类型。 */
+    private static Map<String, IrLocal> localsOf(IrFunction function) {
+        Map<String, IrLocal> locals = new LinkedHashMap<>();
+        for (IrBlock block : function.blocks()) {
+            for (IrInstruction instruction : block.instructions()) {
+                if (instruction instanceof IrDeclareLocalInstruction declare) {
+                    locals.putIfAbsent(declare.local().name(), declare.local());
+                }
             }
-            displayed.put(unique, value);
-        });
-        return Collections.unmodifiableMap(displayed);
+        }
+        return locals;
     }
 
     public List<MemoryBlock> heap() { return blocks("heap"); }
@@ -600,13 +627,15 @@ public final class DebugRuntime {
 
     int peekInputCharacter() {
         if (inputPushback >= 0) return inputPushback;
-        if (inputOffset >= input.length) { inputEof = true; return -1; }
+        mergePendingInput();
+        if (inputOffset >= inputLength) { inputEof = true; return -1; }
         return input[inputOffset] & 0xff;
     }
 
     int readInputCharacter() {
         if (inputPushback >= 0) { int value = inputPushback; inputPushback = -1; return value; }
-        if (inputOffset >= input.length) { inputEof = true; return -1; }
+        mergePendingInput();
+        if (inputOffset >= inputLength) { inputEof = true; return -1; }
         return input[inputOffset++] & 0xff;
     }
 
@@ -615,6 +644,25 @@ public final class DebugRuntime {
         inputPushback = character & 0xff;
         inputEof = false;
         return inputPushback;
+    }
+
+    /** 追加标准输入：数据先入队，解释器线程在下次读取时并入自己的缓冲区。 */
+    void appendStandardInput(String text) {
+        String normalized = Objects.requireNonNull(text, "text").replace("\r\n", "\n");
+        if (normalized.isEmpty()) return;
+        pendingInput.add(normalized.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** 把其他线程排入的标准输入合并到解释器缓冲区；只在解释器线程调用。 */
+    private void mergePendingInput() {
+        byte[] chunk = pendingInput.poll();
+        if (chunk == null) return;
+        if (inputLength + chunk.length > input.length) {
+            input = Arrays.copyOf(input, Math.max(inputLength + chunk.length, Math.max(16, input.length * 2)));
+        }
+        System.arraycopy(chunk, 0, input, inputLength, chunk.length);
+        inputLength += chunk.length;
+        inputEof = false;
     }
 
     private Allocation allocation(long address, int size) {
@@ -871,9 +919,10 @@ public final class DebugRuntime {
         }
     }
 
-    public record StackFrame(String function, int block, int instruction,
-                             Map<String, Value> parameters,
-                             Map<String, Long> locals,
+    public record StackVariable(String name, String type, long address, Value value, boolean aggregate) {}
+    public record StackFrame(String function, int block, int instruction, int line,
+                             List<StackVariable> parameters,
+                             List<StackVariable> locals,
                              Map<String, Value> temporaries) {}
     public record MemoryBlock(long address, int size, String label, String bytes, int initializedBytes,
                               long allocationId, String initializedMask) {

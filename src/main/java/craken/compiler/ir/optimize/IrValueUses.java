@@ -39,6 +39,7 @@ final class IrValueUses {
             case IrReturnInstruction ignored -> null;
             case IrCheckNonZeroInstruction ignored -> null;
             case IrTrapInstruction ignored -> null;
+            case IrCaptureInstruction ignored -> null;
         };
     }
 
@@ -69,6 +70,7 @@ final class IrValueUses {
             case IrAddressOfLocalInstruction ignored -> List.of();
             case IrJumpInstruction ignored -> List.of();
             case IrTrapInstruction ignored -> List.of();
+            case IrCaptureInstruction ignored -> List.of();
         };
     }
 }

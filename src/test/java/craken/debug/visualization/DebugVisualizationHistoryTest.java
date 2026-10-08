@@ -201,7 +201,7 @@ final class DebugVisualizationHistoryTest {
             history=new DebugVisualizationHistory(adapter,events,()->{releases.incrementAndGet();if(releaseFailure)throw new IllegalArgumentException("display close");},limit);
         }
         long allocate(int value) {long address=runtime.allocateZeroed(4,4,"heap","value");runtime.write(address,DebugRuntime.Value.of(IrType.INT,value));return address;}
-        Debugger.Context context(int index) {return new Debugger.Context(index,new Debugger.Stop(Debugger.Status.PAUSED,null,null,"","",0,""),runtime.code(),runtime.snapshot(),events.drain(index));}
+        Debugger.Context context(int index) {return new Debugger.Context(index,new Debugger.Stop(Debugger.Status.PAUSED,null,null,"","",0,"",false),runtime.code(),runtime.snapshot(),events.drain(index));}
         DebugVisualizationHistory.Frame show(int index) {return history.show(context(index));}
     }
 }

@@ -188,7 +188,7 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                 Node node = nodes.get(work.key());
                 boolean first = node==null;
                 if (first) {
-                    node = new Node(work.key(),work.group(),content(memory,work.key()));
+                    node = new Node(work.key(),work.group(),content(memory,work.key(),draft));
                     nodes.put(work.key(),node);
                 }
                 boolean changed = node.owners.addAll(work.owners());
@@ -224,6 +224,16 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
             }
             var locations = materialize(nodes,edges,draft);
             List<VisualizationCommand> commands = new ArrayList<>();
+            // A bucket array is the display anchor of its page; the bucket layout follows its slot order.
+            for (var node : nodes.values()) {
+                var schema = descriptor(node.key.descriptorKey());
+                if (schema.array() == null || schema.viewKind() != DebugStructureDescriptor.ViewKind.ARRAY) continue;
+                var location = locations.get(node.key);
+                if (location == null) continue;
+                var page = session.model().pages().get(location.pageId());
+                var desired = new PageLayoutHints(location, page.layoutHints().order());
+                if (!desired.equals(page.layoutHints())) commands.add(new SetPageLayout(page.ref(), desired));
+            }
             for (var node : nodes.values()) {
                 ViewLocation location=locations.get(node.key);
                 for (var owner : node.owners) {
@@ -339,7 +349,7 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
         if (page.containerId()!=session.model().id()||!session.model().pages().containsKey(page.pageId()))
             throw new IllegalArgumentException("Unknown manual page");
     }
-    private ViewNode.Spec content(DebugMemoryReader memory,ObjectKey key) {
+    private ViewNode.Spec content(DebugMemoryReader memory,ObjectKey key,DebugObjectIdentityRegistry<ViewLocation> draft) {
         var schema=descriptor(key.descriptorKey());
         var block=memory.allocation(key.allocationId());
         if (schema.minimumSize()>block.size()-key.offset()) throw new IllegalArgumentException("Descriptor exceeds allocation: "+key);
@@ -358,7 +368,20 @@ public final class DebugVisualizationAdapter implements AutoCloseable {
                 fields.put(reference.name(),"<uninitialized>");
             }
         }
-        return new ViewNode.Spec(ViewNode.Kind.valueOf(schema.viewKind().name()),schema.key(),fields);
+        String label=schema.label();
+        if (isSlotDescriptor(schema)) {
+            // A bucket cell shows its head pointer name, or the explicit empty marker, instead of an address.
+            var reference=schema.references().getFirst();
+            label=draft.referenceTarget(new ReferenceKey(key,reference.name())).isPresent()?label:"NULL";
+        }
+        return new ViewNode.Spec(ViewNode.Kind.valueOf(schema.viewKind().name()),label,fields,
+                craken.visualization.style.ColorSpec.Preset.NEUTRAL);
+    }
+    private boolean isSlotDescriptor(DebugStructureDescriptor schema) {
+        if(!schema.fields().isEmpty()||schema.references().size()!=1)return false;
+        for(var candidate:descriptors.values())
+            if(candidate.array()!=null&&candidate.array().elementDescriptorKey().equals(schema.key()))return true;
+        return false;
     }
     private List<PointerField> pointerFields(DebugMemoryReader memory,Set<ObjectKey> seeds) {
         var seen=new HashSet<ObjectKey>(); var result=new ArrayList<PointerField>();

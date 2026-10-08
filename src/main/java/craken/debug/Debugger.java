@@ -20,15 +20,19 @@ import craken.debug.visualization.RuntimeEventBatch;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 /** 启动时只编译到 IR；之后 step() 在自己的 runtime 中解释执行到下一个 trap。 */
 public final class Debugger {
     private final DebugRuntime runtime;
     private final DebugSystemLibrary systemLibrary = new DebugSystemLibrary();
     private final List<Context> contexts = new ArrayList<>();
+    private final List<DebugCapture> pendingCaptures = new ArrayList<>();
     private final int historyLimit;
+    private final Set<Integer> breakpoints;
     private int nextContextIndex;
-    private Stop latestStop = new Stop(Status.READY, null, null, "", "", -1, "");
+    private Stop latestStop = new Stop(Status.READY, null, null, "", "", -1, "", false);
     private int contextIndex;
 
     public Debugger(SourceFile source) {
@@ -61,10 +65,25 @@ public final class Debugger {
         return new Debugger(source, ir, standardInput, DebugTimeSource.system(), DebugRuntime.DEFAULT_HEAP_CAPACITY, historyLimit);
     }
 
-    static Debugger fromIr(SourceFile source, IrResult ir, String standardInput, int historyLimit,
-                          RuntimeEventCollector events) {
+    public static Debugger fromIr(SourceFile source, IrResult ir, String standardInput, int historyLimit,
+                                  RuntimeEventCollector events) {
         return new Debugger(source, ir, standardInput, DebugTimeSource.system(),
-                DebugRuntime.DEFAULT_HEAP_CAPACITY, historyLimit, events);
+                DebugRuntime.DEFAULT_HEAP_CAPACITY, historyLimit, events, Set.of());
+    }
+
+    /** 带断点行的调试器：运行到断点行会作为 BREAKPOINT 止点停下。 */
+    public static Debugger fromIr(SourceFile source, IrResult ir, String standardInput, int historyLimit,
+                                  RuntimeEventCollector events, Set<Integer> breakpoints) {
+        return fromIr(source, ir, standardInput, historyLimit, events, breakpoints, Set.of());
+    }
+
+    /** 带捕获变量的调试器：选中的变量定义在调试副本里插入捕获指令，不改变程序语义。 */
+    public static Debugger fromIr(SourceFile source, IrResult ir, String standardInput, int historyLimit,
+                                  RuntimeEventCollector events, Set<Integer> breakpoints,
+                                  Set<SourceRange> capturedDefinitions) {
+        return new Debugger(source, ir, standardInput, DebugTimeSource.system(),
+                DebugRuntime.DEFAULT_HEAP_CAPACITY, historyLimit, events, breakpoints,
+                Set.copyOf(Objects.requireNonNull(capturedDefinitions, "capturedDefinitions")));
     }
 
     private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
@@ -79,9 +98,21 @@ public final class Debugger {
 
     private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
                      int heapCapacity, int historyLimit, RuntimeEventCollector events) {
+        this(source, ir, standardInput, timeSource, heapCapacity, historyLimit, events, Set.of());
+    }
+
+    private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
+                     int heapCapacity, int historyLimit, RuntimeEventCollector events, Set<Integer> breakpoints) {
+        this(source, ir, standardInput, timeSource, heapCapacity, historyLimit, events, breakpoints, Set.of());
+    }
+
+    private Debugger(SourceFile source, IrResult ir, String standardInput, DebugTimeSource timeSource,
+                     int heapCapacity, int historyLimit, RuntimeEventCollector events, Set<Integer> breakpoints,
+                     Set<SourceRange> capturedDefinitions) {
         if (historyLimit < 1) throw new IllegalArgumentException("History limit must retain at least the current context");
         this.historyLimit = historyLimit;
-        runtime = new DebugRuntime(new DebugProgram(source, ir), standardInput, timeSource, heapCapacity, events);
+        this.breakpoints = Set.copyOf(Objects.requireNonNull(breakpoints, "breakpoints"));
+        runtime = new DebugRuntime(new DebugProgram(source, ir, capturedDefinitions), standardInput, timeSource, heapCapacity, events);
         runtime.push(runtime.code().ir().findFunction(runtime.code().ir().entryFunction())
                 .orElseThrow(() -> new IllegalStateException("Missing entry function: " + runtime.code().ir().entryFunction())), List.of(), null);
         remember(latestStop);
@@ -115,17 +146,22 @@ public final class Debugger {
                         if (frame.lastLine == range.startLine()) continue;
                         frame.lastLine = range.startLine();
                     }
-                    return new Stop(Status.PAUSED, range, trap.kind(), function, block, index, "");
+                    boolean breakpoint = trap.kind() == TrapKind.LINE && breakpoints.contains(range.startLine());
+                    return new Stop(Status.PAUSED, range, trap.kind(), function, block, index, "", breakpoint);
+                }
+                if (instruction instanceof IrCaptureInstruction capture) {
+                    recordCapture(frame, capture);
+                    continue;
                 }
                 execute(frame, instruction);
             }
-            return new Stop(Status.COMPLETED, range, null, function, block, index, "");
+            return new Stop(Status.COMPLETED, range, null, function, block, index, "", false);
         } catch (RuntimeException error) {
             String message = error.getMessage() == null
                     ? error.getClass().getSimpleName()
                     : error.getMessage();
             runtime.fail(message);
-            return new Stop(Status.FAILED, range, null, function, block, index, message);
+            return new Stop(Status.FAILED, range, null, function, block, index, message, false);
         }
     }
 
@@ -151,6 +187,11 @@ public final class Debugger {
         return contexts.get(contextIndex);
     }
 
+    /** 暂停期间追加标准输入；解释器在下次读取时合并，已生成的上下文不受影响。 */
+    public void appendStandardInput(String text) {
+        runtime.appendStandardInput(text);
+    }
+
     Context initialContext() { return contexts.getFirst(); }
 
     boolean canStep() {
@@ -167,7 +208,9 @@ public final class Debugger {
         latestStop = next;
         int index = nextContextIndex++;
         RuntimeState state = runtime.snapshot();
-        Context context = new Context(index, next, runtime.code(), state, runtime.takeEvents(index));
+        List<DebugCapture> captures = List.copyOf(pendingCaptures);
+        pendingCaptures.clear();
+        Context context = new Context(index, next, runtime.code(), state, runtime.takeEvents(index), captures);
         if (contexts.size() == historyLimit) contexts.removeFirst();
         contexts.add(context);
         contextIndex = contexts.size() - 1;
@@ -211,6 +254,7 @@ public final class Debugger {
             case IrCallInstruction i -> call(frame, i.calleeName(), i.arguments(), i.result());
             case IrIndirectCallInstruction i -> call(frame, runtime.function(value(frame, i.calleeAddress()).integer()), i.arguments(), i.result());
             case IrTrapInstruction ignored -> throw new IllegalStateException("Trap must be consumed by step");
+            case IrCaptureInstruction ignored -> throw new IllegalStateException("Capture must be consumed by step");
         }
     }
 
@@ -313,10 +357,55 @@ public final class Debugger {
 
     public enum Status { READY, PAUSED, COMPLETED, FAILED }
     public record Stop(Status status, SourceRange range, TrapKind kind, String function,
-                       String block, int instruction, String error) {}
-    public record Context(int index, Stop stop, DebugProgram program, RuntimeState runtime, RuntimeEventBatch events) {
-        public Context(int index, Stop stop, DebugProgram program, RuntimeState runtime) {
-            this(index, stop, program, runtime, RuntimeEventBatch.unmonitored(index));
+                       String block, int instruction, String error, boolean breakpoint) {}
+    public record Context(int index, Stop stop, DebugProgram program, RuntimeState runtime, RuntimeEventBatch events,
+                          List<DebugCapture> captures) {
+        public Context {
+            captures = List.copyOf(captures);
         }
+        public Context(int index, Stop stop, DebugProgram program, RuntimeState runtime) {
+            this(index, stop, program, runtime, RuntimeEventBatch.unmonitored(index), List.of());
+        }
+        public Context(int index, Stop stop, DebugProgram program, RuntimeState runtime, RuntimeEventBatch events) {
+            this(index, stop, program, runtime, events, List.of());
+        }
+    }
+
+    /**
+     * 捕获指令的执行点：不停止、不读取新增内存，只记录变量定义、访问类别与当前存储地址。
+     * 数值由展示层在停止点读取不可变快照；未声明的槽位不产生事件，避免改变程序行为。
+     */
+    private void recordCapture(Frame frame, IrCaptureInstruction instruction) {
+        DebugProgram program = runtime.code();
+        DebugVariable variable = program.variables().byDefinition(instruction.definition()).orElse(null);
+        if (variable == null) return;
+        long address = 0;
+        var local = program.localFor(instruction.definition()).orElse(null);
+        if (local != null) {
+            if (local.incomingArgumentArea()) return;
+            // 读/写捕获紧挨着即将执行的访问指令：此刻按同一槽位取地址不会改变程序语义；
+            // 只有“离开作用域”要求槽位真的已经声明过。
+            if (instruction.kind() == IrCaptureInstruction.Kind.REMOVE
+                    && !frame.locals.containsKey(local.name())) return;
+            address = runtime.local(frame, local);
+        } else {
+            var global = program.globalFor(instruction.definition()).orElse(null);
+            if (global == null) return;
+            address = runtime.symbol(global);
+        }
+        // 元素访问：地址临时量由 IR 派生分析标出，这里读运行期值并换算成变量内偏移。
+        long accessed = 0;
+        if (!instruction.addressTemporary().isEmpty()) {
+            Value value = frame.temps.get(instruction.addressTemporary());
+            if (value != null && value.type() == IrType.POINTER) accessed = value.integer();
+        }
+        int offset = accessed != 0 && address > 0 && accessed >= address
+                ? (int) Math.min(Integer.MAX_VALUE, accessed - address) : -1;
+        pendingCaptures.add(new DebugCapture(variable, switch (instruction.kind()) {
+            case CREATE -> DebugCapture.Kind.CREATE;
+            case READ -> DebugCapture.Kind.READ;
+            case WRITE -> DebugCapture.Kind.WRITE;
+            case REMOVE -> DebugCapture.Kind.REMOVE;
+        }, runtime.code().ir().displayName(frame.function.name()), instruction.range(), Math.max(0, address), offset));
     }
 }

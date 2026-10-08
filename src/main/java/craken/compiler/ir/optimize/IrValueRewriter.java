@@ -35,6 +35,7 @@ final class IrValueRewriter {
             case IrLoadLocalInstruction v -> v;
             case IrJumpInstruction v -> v;
             case IrTrapInstruction v -> v;
+            case IrCaptureInstruction v -> v;
         };
     }
 }
